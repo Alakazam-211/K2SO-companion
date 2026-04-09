@@ -113,7 +113,12 @@ function DashboardScreen({ onMenuOpen }: { onMenuOpen?: () => void }) {
         </button>
         <span className="w-4 h-4 flex items-center justify-center text-[8px] font-bold text-black" style={{ background: "#22d3ee" }}>K</span>
         <span className="text-[#e4e4e7] text-[13px] font-semibold">K2SO</span>
-        <div className="ml-auto border border-[#1a1a1a] px-2 py-1 text-[#71717a] text-[10px] font-bold">⌘J</div>
+        <svg className="ml-auto shrink-0 text-[#71717a]" width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <rect x="3" y="5" width="12" height="10" rx="1" />
+          <path d="M5 5V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v7" />
+          <path d="M6 9h4" strokeLinecap="round" />
+          <path d="M6 12h2" strokeLinecap="round" />
+        </svg>
       </div>
 
       <div className="flex border-b border-[#1a1a1a] bg-[#111] shrink-0">
