@@ -26,7 +26,7 @@ export function Settings() {
 
       <Section title="About">
         <Row label="Version" value="1.0.0" />
-        <Row label="App" value="K2SO Companion" />
+        <Row label="App" value="K2" />
         <Row label="Engine" value="Tauri v2" />
       </Section>
 

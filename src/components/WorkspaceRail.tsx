@@ -48,9 +48,9 @@ export function WorkspaceDrawer({ open, onClose }: Props) {
     <>
       <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
 
-      <div className="fixed top-0 left-0 bottom-0 w-[300px] bg-[var(--background)] border-r border-[var(--border)] z-50 flex flex-col">
+      <div className="fixed top-0 left-0 bottom-0 w-[300px] bg-[var(--background)] border-r border-[var(--border)] z-50 flex flex-col" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         {/* Header */}
-        <div className="px-4 pt-4 pb-2 flex items-center justify-between shrink-0">
+        <div className="px-4 pt-3 pb-2 flex items-center justify-between shrink-0">
           <span className="text-[var(--text-muted)] text-[10px] font-semibold tracking-widest uppercase">
             Workspaces
           </span>

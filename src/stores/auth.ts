@@ -27,6 +27,7 @@ export const useAuthStore = create<AuthState>((set) => ({
     const result = await api.login(url, username, password);
 
     if (result.ok && result.data) {
+      // Connect WebSocket — all API calls go through this
       ws.connect(url, result.data.token);
 
       set({

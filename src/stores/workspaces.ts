@@ -43,13 +43,42 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
   error: null,
 
   fetchProjects: async () => {
-    const r = await api.getProjects();
+    // Use summary endpoint first (10KB vs 254KB) — fast, has what we need
+    const r = await api.getProjectsSummary();
     if (r.ok && r.data) {
-      set({ projects: r.data, error: null });
-      // Auto-select first project if none active
-      if (!get().activeProjectId && r.data.length > 0) {
-        set({ activeProjectId: r.data[0].id });
+      // Build Project objects from summaries
+      const projects: Project[] = r.data.map((s) => ({
+        id: s.id,
+        name: s.name,
+        path: s.path,
+        color: s.color,
+        iconUrl: null,
+        agentMode: s.agentMode,
+        pinned: false,
+        tabOrder: 0,
+        focusGroup: null,
+      }));
+      set({ projects, summaries: r.data, error: null });
+
+      if (!get().activeProjectId && projects.length > 0) {
+        set({ activeProjectId: projects[0].id });
       }
+
+      // Then lazy-load full projects (with focus groups) in background
+      api.getProjects().then((full) => {
+        if (full.ok && full.data) {
+          set({ projects: full.data });
+          // Auto-select first focus group
+          if (!get().activeFocusGroupId) {
+            const groups = new Map<string, boolean>();
+            for (const p of full.data) {
+              if (p.focusGroup) groups.set(p.focusGroup.id, true);
+            }
+            const firstGroupId = Array.from(groups.keys())[0];
+            if (firstGroupId) set({ activeFocusGroupId: firstGroupId });
+          }
+        }
+      });
     } else {
       set({ error: r.error || "Failed to load projects" });
     }
@@ -67,7 +96,9 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
 
   refreshAll: async () => {
     set({ isLoading: true });
-    await Promise.all([get().fetchProjects(), get().fetchSummaries(), get().fetchAllSessions()]);
+    // Sequential — companion server is single-threaded
+    await get().fetchProjects();
+    await get().fetchAllSessions();
     set({ isLoading: false });
   },
 

@@ -1,4 +1,5 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { ws } from "./websocket";
 
 export interface ApiResponse<T = unknown> {
   ok: boolean;
@@ -75,62 +76,20 @@ export interface Review {
 }
 
 let baseUrl = "";
-let sessionToken = "";
 
-export function configure(url: string, token?: string) {
+export function configure(url: string) {
   baseUrl = url.replace(/\/+$/, "");
-  if (token) sessionToken = token;
 }
 
 export function getBaseUrl() {
   return baseUrl;
 }
 
-export function setSessionToken(token: string) {
-  sessionToken = token;
-}
-
 export function clearSession() {
-  sessionToken = "";
   baseUrl = "";
 }
 
-function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<never>((_, reject) =>
-      setTimeout(() => reject(new Error("Request timed out")), ms)
-    ),
-  ]);
-}
-
-async function request<T>(
-  path: string,
-  options: { method?: string; body?: string } = {}
-): Promise<ApiResponse<T>> {
-  if (!baseUrl) return { ok: false, error: "Not connected" };
-
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-    "ngrok-skip-browser-warning": "true",
-  };
-  if (sessionToken) {
-    headers["Authorization"] = `Bearer ${sessionToken}`;
-  }
-
-  try {
-    const res = await withTimeout(tauriFetch(`${baseUrl}${path}`, {
-      method: options.method || "GET",
-      headers,
-      body: options.body ? options.body : undefined,
-    }), 10000);
-    if (res.status === 401) return { ok: false, error: "Unauthorized" };
-    return (await res.json()) as ApiResponse<T>;
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    return { ok: false, error: `Could not reach server: ${msg}` };
-  }
-}
+// ─── Auth (HTTP only — needed to get the initial token before WS) ───
 
 export async function login(
   serverUrl: string,
@@ -139,14 +98,19 @@ export async function login(
 ): Promise<ApiResponse<AuthResponse>> {
   configure(serverUrl);
   try {
-    const res = await withTimeout(tauriFetch(`${baseUrl}/companion/auth`, {
-      method: "POST",
-      headers: {
-        Authorization: `Basic ${btoa(`${username}:${password}`)}`,
-        "Content-Type": "application/json",
-        "ngrok-skip-browser-warning": "true",
-      },
-    }), 10000);
+    const res = await Promise.race([
+      tauriFetch(`${baseUrl}/companion/auth`, {
+        method: "POST",
+        headers: {
+          Authorization: `Basic ${btoa(`${username}:${password}`)}`,
+          "Content-Type": "application/json",
+          "ngrok-skip-browser-warning": "true",
+        },
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Request timed out")), 10000)
+      ),
+    ]);
     const text = await res.text();
 
     if (text.startsWith("<!DOCTYPE") || text.startsWith("<html")) {
@@ -157,7 +121,7 @@ export async function login(
     if (res.status === 401 || !json.ok) {
       return { ok: false, error: json.error || "Invalid credentials" };
     }
-    if (json.data) setSessionToken(json.data.token);
+    // Token is used by WebSocket connection (passed via ws.connect)
     return json;
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
@@ -165,31 +129,33 @@ export async function login(
   }
 }
 
+// ─── WebSocket API (all data fetching goes through WS) ───
+
+async function wsRequest<T>(method: string, params: Record<string, unknown> = {}): Promise<ApiResponse<T>> {
+  try {
+    const result = await ws.request<ApiResponse<T>>(method, params);
+    return result;
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    return { ok: false, error: `Could not reach server: ${msg}` };
+  }
+}
+
 // Global endpoints (no project param)
-export const getProjects = () => request<Project[]>("/companion/projects");
-export const getProjectsSummary = () => request<ProjectSummary[]>("/companion/projects/summary");
-export const getAllSessions = () => request<GlobalSession[]>("/companion/sessions");
+export const getProjects = () => wsRequest<Project[]>("projects.list");
+export const getProjectsSummary = () => wsRequest<ProjectSummary[]>("projects.summary");
+export const getAllSessions = () => wsRequest<GlobalSession[]>("sessions.list");
 
 // Project-scoped endpoints
-export const getAgents = (project: string) =>
-  request<Agent[]>(`/companion/agents?project=${encodeURIComponent(project)}`);
-export const getRunningTerminals = (project: string) =>
-  request<RunningTerminal[]>(`/companion/agents/running?project=${encodeURIComponent(project)}`);
+export const getAgents = (project: string) => wsRequest<Agent[]>("agents.list", { project });
+export const getRunningTerminals = (project: string) => wsRequest<RunningTerminal[]>("agents.running", { project });
 export const getAgentWork = (project: string, agent: string, folder = "inbox") =>
-  request(`/companion/agents/work?project=${encodeURIComponent(project)}&agent=${encodeURIComponent(agent)}&folder=${folder}`);
+  wsRequest("agents.work", { project, agent, folder });
 export const wakeAgent = (project: string, agent: string) =>
-  request("/companion/agents/wake", {
-    method: "POST",
-    body: JSON.stringify({ agent, project }),
-  });
-export const getReviews = (project: string) =>
-  request<Review[]>(`/companion/reviews?project=${encodeURIComponent(project)}`);
+  wsRequest("agents.wake", { project, agent });
+export const getReviews = (project: string) => wsRequest<Review[]>("reviews.list", { project });
 export const readTerminal = (project: string, id: string, lines = 50) =>
-  request<{ lines: string[] }>(`/companion/terminal/read?project=${encodeURIComponent(project)}&id=${encodeURIComponent(id)}&lines=${lines}`);
+  wsRequest<{ lines: string[] }>("terminal.read", { project, id, lines });
 export const writeTerminal = (project: string, id: string, message: string) =>
-  request("/companion/terminal/write", {
-    method: "POST",
-    body: JSON.stringify({ id, message, project }),
-  });
-export const getStatus = (project: string) =>
-  request(`/companion/status?project=${encodeURIComponent(project)}`);
+  wsRequest("terminal.write", { project, id, message });
+export const getStatus = (project: string) => wsRequest("status", { project });

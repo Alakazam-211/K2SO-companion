@@ -17,6 +17,8 @@ export function Workspaces() {
   const [launching, setLaunching] = useState<string | null>(null);
 
   useEffect(() => {
+    // Clear stale data from previous workspace
+    useAgentsStore.setState({ agents: [], runningTerminals: [] });
     if (activeProject) {
       refreshForProject(activeProject.path);
       return startListening(activeProject.path);
@@ -39,6 +41,19 @@ export function Workspaces() {
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto p-4">
+        {/* Debug + retry */}
+        {useWorkspacesStore.getState().error && (
+          <div className="mb-4 p-3 border border-[var(--error)]/30">
+            <p className="text-[var(--error)] text-[11px] mb-2">{useWorkspacesStore.getState().error}</p>
+            <button
+              onClick={() => useWorkspacesStore.getState().refreshAll()}
+              className="text-[var(--accent)] text-[11px] font-semibold border border-[var(--accent-dim)] px-3 py-1 hover:border-[var(--accent)] transition-all"
+            >
+              Retry
+            </button>
+          </div>
+        )}
+
         {!activeProject ? (
           <div className="text-center pt-16">
             <p className="text-[var(--text-secondary)] text-[13px]">No workspace selected</p>
