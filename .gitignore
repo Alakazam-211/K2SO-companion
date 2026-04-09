@@ -1,0 +1,27 @@
+# dependencies
+node_modules/
+
+# build output
+dist/
+
+# Tauri
+src-tauri/target/
+src-tauri/gen/android/
+src-tauri/gen/apple/build/
+
+# macOS
+.DS_Store
+*.pem
+
+# local env files
+.env*.local
+
+# typescript
+*.tsbuildinfo
+
+# debug
+npm-debug.*
+
+# mockup
+mockup/node_modules/
+mockup/.next/

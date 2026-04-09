@@ -1,0 +1,1 @@
+/Users/z3thon/DevProjects/Alakazam Labs/K2SO-companion/.k2so/skills/k2so-manager/SKILL.md
