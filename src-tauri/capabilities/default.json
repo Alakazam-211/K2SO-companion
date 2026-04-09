@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Default capabilities for K2SO Companion",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    {
+      "identifier": "http:default",
+      "allow": [
+        { "url": "https://*.ngrok-free.dev/**" },
+        { "url": "https://*.ngrok.io/**" },
+        { "url": "https://*.ngrok-free.app/**" }
+      ]
+    }
+  ]
+}
