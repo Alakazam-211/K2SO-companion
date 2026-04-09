@@ -4,6 +4,7 @@ import * as api from "../api/client";
 import { ws } from "../api/websocket";
 import { ChatBubble } from "../components/ChatBubble";
 import { useAuthStore } from "../stores/auth";
+import { useWorkspacesStore } from "../stores/workspaces";
 
 interface ChatMessage {
   id: string;
@@ -11,7 +12,6 @@ interface ChatMessage {
   isUser: boolean;
 }
 
-// Detect localhost URLs and rewrite them through ngrok
 function rewriteLocalhostUrls(text: string, serverUrl: string): string {
   return text.replace(
     /https?:\/\/localhost:(\d+)(\/[^\s)}\]]*)?/g,
@@ -23,6 +23,8 @@ export function ChatSession() {
   const { terminalId } = useParams<{ terminalId: string }>();
   const navigate = useNavigate();
   const { serverUrl } = useAuthStore();
+  const activeProject = useWorkspacesStore((s) => s.activeProject());
+  const projectPath = activeProject?.path || "";
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [lastLineCount, setLastLineCount] = useState(0);
@@ -32,14 +34,14 @@ export function ChatSession() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
   };
 
-  const addAgentMessage = (text: string) => {
+  const addAgentMessage = useCallback((text: string) => {
     const rewritten = rewriteLocalhostUrls(text, serverUrl);
     setMessages((prev) => [...prev, { id: `a-${Date.now()}`, text: rewritten, isUser: false }]);
-  };
+  }, [serverUrl]);
 
   const loadBuffer = useCallback(async () => {
-    if (!terminalId) return;
-    const r = await api.readTerminal(terminalId, 100);
+    if (!terminalId || !projectPath) return;
+    const r = await api.readTerminal(projectPath, terminalId, 100);
     if (r.ok && r.data?.lines) {
       const lines = r.data.lines;
       if (lines.length > lastLineCount) {
@@ -48,7 +50,7 @@ export function ChatSession() {
         setLastLineCount(lines.length);
       }
     }
-  }, [terminalId, lastLineCount, serverUrl]);
+  }, [terminalId, lastLineCount, projectPath, addAgentMessage]);
 
   useEffect(() => {
     loadBuffer();
@@ -76,10 +78,10 @@ export function ChatSession() {
 
   const handleSend = async () => {
     const text = input.trim();
-    if (!text || !terminalId) return;
+    if (!text || !terminalId || !projectPath) return;
     setInput("");
     setMessages((prev) => [...prev, { id: `u-${Date.now()}`, text, isUser: true }]);
-    await api.writeTerminal(terminalId, text);
+    await api.writeTerminal(projectPath, terminalId, text);
     setTimeout(loadBuffer, 1000);
   };
 

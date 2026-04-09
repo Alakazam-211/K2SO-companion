@@ -11,15 +11,42 @@ export interface AuthResponse {
   expiresAt: string;
 }
 
+export interface FocusGroup {
+  id: string;
+  name: string;
+  color: string | null;
+}
+
+export interface Project {
+  id: string;
+  name: string;
+  path: string;
+  color: string;
+  iconUrl: string | null;
+  agentMode: string;
+  pinned: boolean;
+  tabOrder: number;
+  focusGroup: FocusGroup | null;
+}
+
+export interface ProjectSummary {
+  id: string;
+  name: string;
+  path: string;
+  color: string;
+  agentMode: string;
+  agentsRunning: number;
+  reviewsPending: number;
+}
+
 export interface Agent {
   name: string;
   role: string;
-  type: "pod-member" | "pod-leader";
-  work_counts: {
-    inbox: number;
-    active: number;
-    done: number;
-  };
+  isManager: boolean;
+  agentType: string;
+  inboxCount: number;
+  activeCount: number;
+  doneCount: number;
 }
 
 export interface RunningAgent {
@@ -29,43 +56,22 @@ export interface RunningAgent {
   started_at?: string;
 }
 
+export interface GlobalSession {
+  workspaceName: string;
+  workspaceId: string;
+  workspaceColor: string;
+  agentName: string;
+  terminalId: string;
+  command?: string;
+  cwd: string;
+}
+
 export interface Review {
   id: string;
   agent: string;
   branch: string;
   title: string;
   summary?: string;
-  preview_port?: number;
-  preview_path?: string;
-}
-
-export interface Workspace {
-  id: string;
-  name: string;
-  path: string;
-  color: string;
-  icon_url?: string;
-  agent_mode: string;
-  agent_status?: "working" | "permission" | "review" | "idle";
-  agents_running: number;
-  reviews_pending: number;
-}
-
-export interface WorkspaceStatus {
-  mode: string;
-  project_name: string;
-  project_path: string;
-  agents_running: number;
-  reviews_pending: number;
-}
-
-export interface GlobalSession {
-  workspace_name: string;
-  workspace_id: string;
-  workspace_color: string;
-  agent_name: string;
-  terminal_id: string;
-  started_at?: string;
 }
 
 let baseUrl = "";
@@ -98,7 +104,6 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   ]);
 }
 
-// Use Tauri's HTTP plugin — requests go through Rust, bypassing WKWebView restrictions
 async function request<T>(
   path: string,
   options: { method?: string; body?: string } = {}
@@ -160,28 +165,31 @@ export async function login(
   }
 }
 
-export const getAgents = () => request<Agent[]>("/companion/agents");
-export const getRunningAgents = () => request<RunningAgent[]>("/companion/agents/running");
-export const getAgentWork = (agent: string, folder = "inbox") =>
-  request(`/companion/agents/work?agent=${encodeURIComponent(agent)}&folder=${folder}`);
-export const getReviews = () => request<Review[]>("/companion/reviews");
-export const approveReview = (id: string) =>
-  request("/companion/review/approve", { method: "POST", body: JSON.stringify({ id }) });
-export const rejectReview = (id: string) =>
-  request("/companion/review/reject", { method: "POST", body: JSON.stringify({ id }) });
-export const reviewFeedback = (id: string, feedback: string) =>
-  request("/companion/review/feedback", { method: "POST", body: JSON.stringify({ id, feedback }) });
-export const readTerminal = (id: string, lines = 50) =>
-  request<{ lines: string[] }>(`/companion/terminal/read?id=${encodeURIComponent(id)}&lines=${lines}`);
-export const writeTerminal = (id: string, message: string) =>
-  request("/companion/terminal/write", { method: "POST", body: JSON.stringify({ id, message }) });
-export const getStatus = () => request<WorkspaceStatus>("/companion/status");
-export const getWorkspaces = () => request<Workspace[]>("/companion/workspaces");
-export const setActiveWorkspace = (workspaceId: string) =>
-  request("/companion/workspaces/active", { method: "POST", body: JSON.stringify({ id: workspaceId }) });
+// Global endpoints (no project param)
+export const getProjects = () => request<Project[]>("/companion/projects");
+export const getProjectsSummary = () => request<ProjectSummary[]>("/companion/projects/summary");
 export const getAllSessions = () => request<GlobalSession[]>("/companion/sessions");
-export const wakeAgent = (agent: string) =>
-  request<{ success: boolean; note: string }>("/companion/agents/wake", {
+
+// Project-scoped endpoints
+export const getAgents = (project: string) =>
+  request<Agent[]>(`/companion/agents?project=${encodeURIComponent(project)}`);
+export const getRunningAgents = (project: string) =>
+  request<RunningAgent[]>(`/companion/agents/running?project=${encodeURIComponent(project)}`);
+export const getAgentWork = (project: string, agent: string, folder = "inbox") =>
+  request(`/companion/agents/work?project=${encodeURIComponent(project)}&agent=${encodeURIComponent(agent)}&folder=${folder}`);
+export const wakeAgent = (project: string, agent: string) =>
+  request("/companion/agents/wake", {
     method: "POST",
-    body: JSON.stringify({ agent }),
+    body: JSON.stringify({ agent, project }),
   });
+export const getReviews = (project: string) =>
+  request<Review[]>(`/companion/reviews?project=${encodeURIComponent(project)}`);
+export const readTerminal = (project: string, id: string, lines = 50) =>
+  request<{ lines: string[] }>(`/companion/terminal/read?project=${encodeURIComponent(project)}&id=${encodeURIComponent(id)}&lines=${lines}`);
+export const writeTerminal = (project: string, id: string, message: string) =>
+  request("/companion/terminal/write", {
+    method: "POST",
+    body: JSON.stringify({ id, message, project }),
+  });
+export const getStatus = (project: string) =>
+  request(`/companion/status?project=${encodeURIComponent(project)}`);
