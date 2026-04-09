@@ -11,6 +11,7 @@ interface WorkspacesState {
   activeFocusGroupId: string | null;
   searchQuery: string;
   isLoading: boolean;
+  error: string | null;
 
   fetchProjects: () => Promise<void>;
   fetchSummaries: () => Promise<void>;
@@ -39,15 +40,18 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
   activeFocusGroupId: null,
   searchQuery: "",
   isLoading: false,
+  error: null,
 
   fetchProjects: async () => {
     const r = await api.getProjects();
     if (r.ok && r.data) {
-      set({ projects: r.data });
+      set({ projects: r.data, error: null });
       // Auto-select first project if none active
       if (!get().activeProjectId && r.data.length > 0) {
         set({ activeProjectId: r.data[0].id });
       }
+    } else {
+      set({ error: r.error || "Failed to load projects" });
     }
   },
 

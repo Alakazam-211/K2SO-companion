@@ -49,11 +49,10 @@ export interface Agent {
   doneCount: number;
 }
 
-export interface RunningAgent {
-  name: string;
-  terminal_id: string;
-  project_path: string;
-  started_at?: string;
+export interface RunningTerminal {
+  terminalId: string;
+  command: string | null;
+  cwd: string;
 }
 
 export interface GlobalSession {
@@ -62,7 +61,8 @@ export interface GlobalSession {
   workspaceColor: string;
   agentName: string;
   terminalId: string;
-  command?: string;
+  label: string;
+  command?: string | null;
   cwd: string;
 }
 
@@ -173,8 +173,8 @@ export const getAllSessions = () => request<GlobalSession[]>("/companion/session
 // Project-scoped endpoints
 export const getAgents = (project: string) =>
   request<Agent[]>(`/companion/agents?project=${encodeURIComponent(project)}`);
-export const getRunningAgents = (project: string) =>
-  request<RunningAgent[]>(`/companion/agents/running?project=${encodeURIComponent(project)}`);
+export const getRunningTerminals = (project: string) =>
+  request<RunningTerminal[]>(`/companion/agents/running?project=${encodeURIComponent(project)}`);
 export const getAgentWork = (project: string, agent: string, folder = "inbox") =>
   request(`/companion/agents/work?project=${encodeURIComponent(project)}&agent=${encodeURIComponent(agent)}&folder=${folder}`);
 export const wakeAgent = (project: string, agent: string) =>
