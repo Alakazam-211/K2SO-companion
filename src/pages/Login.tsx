@@ -6,26 +6,19 @@ export function Login() {
   const { login, isLoading, error, isAuthenticated } = useAuthStore();
   const navigate = useNavigate();
 
-  useEffect(() => {
-    if (isAuthenticated) navigate("/workspaces", { replace: true });
-  }, [isAuthenticated]);
   const [serverUrl, setServerUrl] = useState("");
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
-  const [debug, setDebug] = useState("");
+
+  useEffect(() => {
+    if (isAuthenticated) navigate("/workspaces", { replace: true });
+  }, [isAuthenticated, navigate]);
 
   const isValid = serverUrl.length > 0 && username.length > 0 && password.length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!isValid) return;
-    setDebug("Calling login...");
-    try {
-      const result = await login(serverUrl, username, password);
-      setDebug(`login returned: ${result}, isAuth: ${useAuthStore.getState().isAuthenticated}`);
-    } catch (err) {
-      setDebug(`login threw: ${err}`);
-    }
+    if (isValid) await login(serverUrl, username, password);
   };
 
   return (
@@ -76,7 +69,6 @@ export function Login() {
         </div>
 
         {error && <p className="text-[var(--error)] text-[11px] text-center">{error}</p>}
-        {debug && <p className="text-[var(--accent)] text-[11px] text-center break-all">{debug}</p>}
 
         <button
           type="submit"

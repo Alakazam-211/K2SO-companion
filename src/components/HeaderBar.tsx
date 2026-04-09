@@ -6,14 +6,15 @@ interface Props {
 }
 
 export function HeaderBar({ onMenuOpen, onSessionSwitch }: Props) {
-  const activeWorkspace = useWorkspacesStore((s) => {
-    const { workspaces, activeWorkspaceId } = s;
-    return workspaces.find((w) => w.id === activeWorkspaceId);
-  });
+  const activeProject = useWorkspacesStore((s) => s.activeProject());
+  const summary = useWorkspacesStore((s) =>
+    s.activeProjectId ? s.summaryFor(s.activeProjectId) : undefined
+  );
+  const totalSessions = useWorkspacesStore((s) => s.allSessions.length);
 
   return (
     <div className="flex items-center px-4 py-3 border-b border-[var(--border)] bg-[var(--surface)] shrink-0 gap-3">
-      {/* Hamburger — matches K2SO website pattern */}
+      {/* Hamburger */}
       <button
         onClick={onMenuOpen}
         className="flex flex-col justify-center items-center w-8 h-8 gap-[5px] bg-[var(--accent)] shrink-0"
@@ -24,26 +25,33 @@ export function HeaderBar({ onMenuOpen, onSessionSwitch }: Props) {
       </button>
 
       {/* Active workspace */}
-      {activeWorkspace ? (
+      {activeProject ? (
         <>
           <span
             className="w-4 h-4 flex items-center justify-center text-[8px] font-bold text-black shrink-0"
-            style={{ background: activeWorkspace.color }}
+            style={{ background: activeProject.color }}
           >
-            {activeWorkspace.name.charAt(0).toUpperCase()}
+            {activeProject.name.charAt(0).toUpperCase()}
           </span>
-          <span className="text-[var(--text)] text-[13px] font-semibold truncate">
-            {activeWorkspace.name}
-          </span>
+          <div className="flex-1 min-w-0">
+            <span className="text-[var(--text)] text-[13px] font-semibold block truncate">
+              {activeProject.name}
+            </span>
+            {summary && summary.agentsRunning > 0 && (
+              <span className="text-[var(--success)] text-[9px]">
+                {summary.agentsRunning} running
+              </span>
+            )}
+          </div>
         </>
       ) : (
-        <span className="text-[var(--text-muted)] text-[13px]">No workspace</span>
+        <span className="text-[var(--text-muted)] text-[13px] flex-1">No workspace</span>
       )}
 
-      {/* Session switcher — stacked terminals icon */}
+      {/* Session switcher */}
       <button
         onClick={onSessionSwitch}
-        className="ml-auto shrink-0 w-8 h-8 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors duration-150"
+        className="relative ml-auto shrink-0 w-8 h-8 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors duration-150"
       >
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">
           <rect x="3" y="5" width="12" height="10" rx="1" />
@@ -51,6 +59,11 @@ export function HeaderBar({ onMenuOpen, onSessionSwitch }: Props) {
           <path d="M6 9h4" strokeLinecap="round" />
           <path d="M6 12h2" strokeLinecap="round" />
         </svg>
+        {totalSessions > 0 && (
+          <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-[var(--accent)] text-black text-[7px] font-bold flex items-center justify-center">
+            {totalSessions}
+          </span>
+        )}
       </button>
     </div>
   );

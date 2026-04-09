@@ -6,40 +6,40 @@ import * as api from "../api/client";
 import type { Agent } from "../api/client";
 
 export function Workspaces() {
-  const { runningAgents, agents, isLoading, fetchRunningAgents, fetchAgents, startListening } =
+  const { runningAgents, agents, isLoading, refreshForProject, startListening } =
     useAgentsStore();
-  const activeWorkspace = useWorkspacesStore((s) => {
-    const { workspaces, activeWorkspaceId } = s;
-    return workspaces.find((w) => w.id === activeWorkspaceId);
-  });
+  const activeProject = useWorkspacesStore((s) => s.activeProject());
+  const summary = useWorkspacesStore((s) =>
+    s.activeProjectId ? s.summaryFor(s.activeProjectId) : undefined
+  );
   const navigate = useNavigate();
   const [showLaunch, setShowLaunch] = useState(false);
   const [launching, setLaunching] = useState<string | null>(null);
 
   useEffect(() => {
-    fetchRunningAgents();
-    fetchAgents();
-    return startListening();
-  }, []);
+    if (activeProject) {
+      refreshForProject(activeProject.path);
+      return startListening(activeProject.path);
+    }
+  }, [activeProject?.id]);
 
-  // Agents that aren't already running
   const launchableAgents = agents.filter(
     (a) => !runningAgents.some((r) => r.name === a.name)
   );
 
   const handleLaunch = async (agent: Agent) => {
+    if (!activeProject) return;
     setLaunching(agent.name);
-    await api.wakeAgent(agent.name);
+    await api.wakeAgent(activeProject.path, agent.name);
     setShowLaunch(false);
     setLaunching(null);
-    // Refresh after a short delay to let K2SO spin up
-    setTimeout(() => fetchRunningAgents(), 2000);
+    setTimeout(() => refreshForProject(activeProject.path), 2000);
   };
 
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto p-4">
-        {!activeWorkspace ? (
+        {!activeProject ? (
           <div className="text-center pt-16">
             <p className="text-[var(--text-secondary)] text-[13px]">No workspace selected</p>
             <p className="text-[var(--text-muted)] text-[11px] mt-1">
@@ -48,7 +48,27 @@ export function Workspaces() {
           </div>
         ) : (
           <>
-            {/* Active sessions */}
+            {/* Workspace info bar */}
+            {summary && (
+              <div className="flex gap-3 mb-4 border border-[var(--border)] bg-[var(--surface)] p-3">
+                <div className="flex-1 text-center">
+                  <div className="text-[var(--text)] text-lg font-bold">{summary.agentsRunning}</div>
+                  <div className="text-[var(--text-muted)] text-[9px]">Running</div>
+                </div>
+                <div className="w-px bg-[var(--border)]" />
+                <div className="flex-1 text-center">
+                  <div className="text-[var(--text)] text-lg font-bold">{agents.length}</div>
+                  <div className="text-[var(--text-muted)] text-[9px]">Agents</div>
+                </div>
+                <div className="w-px bg-[var(--border)]" />
+                <div className="flex-1 text-center">
+                  <div className="text-[var(--text)] text-lg font-bold">{summary.reviewsPending}</div>
+                  <div className="text-[var(--text-muted)] text-[9px]">Reviews</div>
+                </div>
+              </div>
+            )}
+
+            {/* Active sessions header */}
             <div className="flex items-center justify-between mb-3">
               <p className="text-[var(--text-muted)] text-[10px] font-semibold tracking-widest uppercase">
                 Active Sessions
