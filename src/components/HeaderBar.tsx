@@ -40,12 +40,17 @@ export function HeaderBar({ onMenuOpen, onSessionSwitch }: Props) {
         <span className="text-[var(--text-muted)] text-[13px]">No workspace</span>
       )}
 
-      {/* Session switcher — top right */}
+      {/* Session switcher — stacked terminals icon */}
       <button
         onClick={onSessionSwitch}
-        className="ml-auto flex items-center gap-1.5 shrink-0 border border-[var(--border)] px-2 py-1 hover:border-[var(--accent-dim)] hover:text-[var(--accent)] transition-all duration-150 text-[var(--text-muted)]"
+        className="ml-auto shrink-0 w-8 h-8 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors duration-150"
       >
-        <span className="text-[10px] font-bold">⌘J</span>
+        <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">
+          <rect x="3" y="5" width="12" height="10" rx="1" />
+          <path d="M5 5V4a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v7" />
+          <path d="M6 9h4" strokeLinecap="round" />
+          <path d="M6 12h2" strokeLinecap="round" />
+        </svg>
       </button>
     </div>
   );
