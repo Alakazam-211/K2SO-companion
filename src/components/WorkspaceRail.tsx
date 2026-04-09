@@ -21,6 +21,9 @@ export function WorkspaceDrawer({ open, onClose }: Props) {
     filteredProjects,
     focusGroups,
     summaryFor,
+    projects,
+    isLoading,
+    error,
   } = useWorkspacesStore();
 
   const [searching, setSearching] = useState(false);
@@ -171,9 +174,15 @@ export function WorkspaceDrawer({ open, onClose }: Props) {
 
         {/* Footer */}
         <div className="px-4 py-3 border-t border-[var(--border)] shrink-0">
-          <span className="text-[var(--text-muted)] text-[10px]">
-            {useWorkspacesStore.getState().projects.length} workspaces
-          </span>
+          {error ? (
+            <span className="text-[var(--error)] text-[10px] break-all">{error}</span>
+          ) : isLoading ? (
+            <span className="text-[var(--text-muted)] text-[10px]">Loading...</span>
+          ) : (
+            <span className="text-[var(--text-muted)] text-[10px]">
+              {projects.length} workspace{projects.length !== 1 ? "s" : ""}
+            </span>
+          )}
         </div>
       </div>
     </>

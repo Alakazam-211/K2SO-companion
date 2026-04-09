@@ -6,7 +6,7 @@ import * as api from "../api/client";
 import type { Agent } from "../api/client";
 
 export function Workspaces() {
-  const { runningAgents, agents, isLoading, refreshForProject, startListening } =
+  const { runningTerminals, agents, isLoading, refreshForProject, startListening } =
     useAgentsStore();
   const activeProject = useWorkspacesStore((s) => s.activeProject());
   const summary = useWorkspacesStore((s) =>
@@ -24,7 +24,7 @@ export function Workspaces() {
   }, [activeProject?.id]);
 
   const launchableAgents = agents.filter(
-    (a) => !runningAgents.some((r) => r.name === a.name)
+    (a) => a.agentType !== "manager" && a.agentType !== "k2so"
   );
 
   const handleLaunch = async (agent: Agent) => {
@@ -71,7 +71,7 @@ export function Workspaces() {
             {/* Active sessions header */}
             <div className="flex items-center justify-between mb-3">
               <p className="text-[var(--text-muted)] text-[10px] font-semibold tracking-widest uppercase">
-                Active Sessions
+                Active Terminals
               </p>
               {launchableAgents.length > 0 && (
                 <button
@@ -97,9 +97,6 @@ export function Workspaces() {
                     <span className="text-[var(--text)] text-[11px] font-medium flex-1">
                       {agent.name}
                     </span>
-                    <span className="text-[var(--text-muted)] text-[10px] truncate max-w-[50%]">
-                      {agent.role}
-                    </span>
                     {launching === agent.name && (
                       <span className="text-[var(--warning)] text-[9px] shrink-0">Launching...</span>
                     )}
@@ -114,34 +111,31 @@ export function Workspaces() {
               </div>
             )}
 
-            {isLoading && runningAgents.length === 0 ? (
+            {isLoading && runningTerminals.length === 0 ? (
               <p className="text-[var(--text-muted)] text-[13px] text-center pt-12">Loading...</p>
-            ) : runningAgents.length === 0 && !showLaunch ? (
+            ) : runningTerminals.length === 0 && !showLaunch ? (
               <div className="text-center pt-12">
-                <p className="text-[var(--text-secondary)] text-[13px]">No active sessions</p>
+                <p className="text-[var(--text-secondary)] text-[13px]">No active terminals</p>
                 <p className="text-[var(--text-muted)] text-[11px] mt-1">
                   Tap "+ New Session" to launch an agent
                 </p>
               </div>
             ) : (
-              runningAgents.map((agent) => (
+              runningTerminals.map((terminal) => (
                 <button
-                  key={agent.terminal_id}
-                  onClick={() => navigate(`/chat/${agent.terminal_id}`)}
+                  key={terminal.terminalId}
+                  onClick={() => navigate(`/chat/${terminal.terminalId}`)}
                   className="w-full text-left bg-[var(--surface)] border border-[var(--border)] p-4 mb-2 transition-all duration-150 hover:border-[var(--border-hover)]"
                 >
                   <div className="flex items-center gap-2.5">
                     <div className="w-1.5 h-1.5 rounded-full bg-[var(--success)] shrink-0" />
                     <span className="text-[var(--text)] text-[13px] font-semibold flex-1 truncate">
-                      {agent.name}
-                    </span>
-                    <span className="text-[var(--text-muted)] text-[10px] shrink-0">
-                      {agent.terminal_id}
+                      {terminal.cwd.split("/").pop() || "terminal"}
                     </span>
                   </div>
-                  {agent.started_at && (
-                    <p className="text-[var(--text-muted)] text-[10px] mt-1 ml-4">
-                      Started {new Date(agent.started_at).toLocaleTimeString()}
+                  {terminal.command && (
+                    <p className="text-[var(--text-muted)] text-[10px] mt-1 ml-4 truncate">
+                      {terminal.command}
                     </p>
                   )}
                 </button>

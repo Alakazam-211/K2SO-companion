@@ -66,13 +66,11 @@ export function SessionSwitcher({ open, onClose }: Props) {
                       />
                       <div className="flex-1 min-w-0">
                         <span className="text-[var(--text)] text-[11px] font-medium block truncate">
-                          {s.agentName}
+                          {s.label || s.agentName}
                         </span>
-                        {s.command && (
-                          <span className="text-[var(--text-muted)] text-[9px] block truncate">
-                            {s.command}
-                          </span>
-                        )}
+                        <span className="text-[var(--text-muted)] text-[9px] block truncate">
+                          {s.command || s.agentName}
+                        </span>
                       </div>
                       <div className="w-2 h-2 rounded-full bg-[var(--success)] shrink-0" />
                     </button>
