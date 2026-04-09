@@ -15,7 +15,9 @@ You manage a team of AI agents that build this project. You:
 
 ## Workspace Inbox
 
-*Workspace inbox is empty. Waiting for tasks from the AI Planner or user.*
+### Current Inbox
+- **"Feature: Migrate to WebSocket-first protocol for all API calls + rich terminal rendering"** (priority: high, type: feature)
+
 
 ## Your Agents
 

@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "K2SO Companion",
+  "productName": "K2",
   "version": "1.0.0",
   "identifier": "com.alakazamlabs.k2so.companion",
   "build": {
