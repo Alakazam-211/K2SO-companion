@@ -121,6 +121,9 @@ interface Props {
 }
 
 export function TerminalView({ terminalId, projectPath }: Props) {
+  const [scale, setScale] = useState(1);
+  const pinchRef = useRef<number | null>(null);
+  const scaleRef = useRef(1);
   const linesRef = useRef<Map<number, CompactLine>>(new Map());
   const [grid, setGrid] = useState<{
     rows: number;
@@ -276,6 +279,31 @@ export function TerminalView({ terminalId, projectPath }: Props) {
   const showCursor = grid.cursorVisible && grid.displayOffset === 0;
   const cellW = cellWRef.current;
 
+  // Pinch-to-zoom handlers (terminal only, not the whole app)
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 2) {
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      pinchRef.current = Math.sqrt(dx * dx + dy * dy);
+      scaleRef.current = scale;
+    }
+  }, [scale]);
+
+  const handleTouchMove = useCallback((e: React.TouchEvent) => {
+    if (e.touches.length === 2 && pinchRef.current !== null) {
+      e.preventDefault();
+      const dx = e.touches[0].clientX - e.touches[1].clientX;
+      const dy = e.touches[0].clientY - e.touches[1].clientY;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      const newScale = Math.min(Math.max(scaleRef.current * (dist / pinchRef.current), 0.3), 2);
+      setScale(newScale);
+    }
+  }, []);
+
+  const handleTouchEnd = useCallback(() => {
+    pinchRef.current = null;
+  }, []);
+
   return (
     <div
       ref={containerRef}
@@ -284,6 +312,9 @@ export function TerminalView({ terminalId, projectPath }: Props) {
         background: colorToCSS(DEFAULT_BG),
         WebkitOverflowScrolling: "touch",
       }}
+      onTouchStart={handleTouchStart}
+      onTouchMove={handleTouchMove}
+      onTouchEnd={handleTouchEnd}
     >
       <div
         style={{
@@ -295,7 +326,8 @@ export function TerminalView({ terminalId, projectPath }: Props) {
           position: "relative",
           minHeight: "100%",
           minWidth: "fit-content",
-          touchAction: "pan-x pan-y pinch-zoom",
+          transform: `scale(${scale})`,
+          transformOrigin: "top left",
         }}
       >
           {rowElements}
