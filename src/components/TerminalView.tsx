@@ -33,8 +33,12 @@ interface GridUpdate {
 
 const DEFAULT_FG = 0xe0e0e0;
 const DEFAULT_BG = 0x0a0a0a;
-const FONT_SIZE = 11;
-const LINE_HEIGHT = Math.ceil(FONT_SIZE * 1.2);
+// Scale font to fit ~120 cols on a mobile screen
+// iPhone width ~390px minus padding = ~374px usable
+// 374px / 120 cols ≈ 3.1px per char — too small to read
+// Better: use a readable size with horizontal scroll
+const FONT_SIZE = 10;
+const LINE_HEIGHT = Math.ceil(FONT_SIZE * 1.35);
 const FONT_FAMILY = "'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace";
 
 const ATTR_BOLD = 1;
@@ -242,6 +246,7 @@ export function TerminalView({ terminalId, projectPath }: Props) {
       className="flex-1 overflow-auto"
       style={{
         background: colorToCSS(DEFAULT_BG),
+        WebkitOverflowScrolling: "touch",
       }}
     >
       <div
@@ -253,6 +258,7 @@ export function TerminalView({ terminalId, projectPath }: Props) {
           padding: "4px 8px",
           position: "relative",
           minHeight: "100%",
+          minWidth: "fit-content",
         }}
       >
         {rowElements}

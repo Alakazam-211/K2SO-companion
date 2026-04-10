@@ -43,10 +43,9 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
   error: null,
 
   fetchProjects: async () => {
-    // Use summary endpoint first (10KB vs 254KB) — fast, has what we need
+    // Summary endpoint now includes focusGroup, pinned, tabOrder — no need for the heavy /projects endpoint
     const r = await api.getProjectsSummary();
     if (r.ok && r.data) {
-      // Build Project objects from summaries
       const projects: Project[] = r.data.map((s) => ({
         id: s.id,
         name: s.name,
@@ -54,9 +53,9 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         color: s.color,
         iconUrl: null,
         agentMode: s.agentMode,
-        pinned: false,
-        tabOrder: 0,
-        focusGroup: null,
+        pinned: s.pinned ?? false,
+        tabOrder: s.tabOrder ?? 0,
+        focusGroup: s.focusGroup ?? null,
       }));
       set({ projects, summaries: r.data, error: null });
 
@@ -64,21 +63,15 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
         set({ activeProjectId: projects[0].id });
       }
 
-      // Then lazy-load full projects (with focus groups) in background
-      api.getProjects().then((full) => {
-        if (full.ok && full.data) {
-          set({ projects: full.data });
-          // Auto-select first focus group
-          if (!get().activeFocusGroupId) {
-            const groups = new Map<string, boolean>();
-            for (const p of full.data) {
-              if (p.focusGroup) groups.set(p.focusGroup.id, true);
-            }
-            const firstGroupId = Array.from(groups.keys())[0];
-            if (firstGroupId) set({ activeFocusGroupId: firstGroupId });
-          }
+      // Auto-select first focus group
+      if (!get().activeFocusGroupId) {
+        const groups = new Map<string, boolean>();
+        for (const p of projects) {
+          if (p.focusGroup) groups.set(p.focusGroup.id, true);
         }
-      });
+        const firstGroupId = Array.from(groups.keys())[0];
+        if (firstGroupId) set({ activeFocusGroupId: firstGroupId });
+      }
     } else {
       set({ error: r.error || "Failed to load projects" });
     }

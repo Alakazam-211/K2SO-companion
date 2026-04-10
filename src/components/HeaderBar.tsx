@@ -3,9 +3,10 @@ import { useWorkspacesStore } from "../stores/workspaces";
 interface Props {
   onMenuOpen: () => void;
   onSessionSwitch: () => void;
+  onSearch: () => void;
 }
 
-export function HeaderBar({ onMenuOpen, onSessionSwitch }: Props) {
+export function HeaderBar({ onMenuOpen, onSessionSwitch, onSearch }: Props) {
   const activeProject = useWorkspacesStore((s) => s.activeProject());
   const summary = useWorkspacesStore((s) =>
     s.activeProjectId ? s.summaryFor(s.activeProjectId) : undefined
@@ -48,10 +49,21 @@ export function HeaderBar({ onMenuOpen, onSessionSwitch }: Props) {
         <span className="text-[var(--text-muted)] text-[13px] flex-1">No workspace</span>
       )}
 
+      {/* Search */}
+      <button
+        onClick={onSearch}
+        className="shrink-0 w-8 h-8 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors duration-150"
+      >
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+          <circle cx="11" cy="11" r="8" />
+          <line x1="21" y1="21" x2="16.65" y2="16.65" />
+        </svg>
+      </button>
+
       {/* Session switcher */}
       <button
         onClick={onSessionSwitch}
-        className="relative ml-auto shrink-0 w-8 h-8 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors duration-150"
+        className="relative shrink-0 w-8 h-8 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--accent)] transition-colors duration-150"
       >
         <svg width="18" height="18" viewBox="0 0 18 18" fill="none" stroke="currentColor" strokeWidth="1.5">
           <rect x="3" y="5" width="12" height="10" rx="1" />
