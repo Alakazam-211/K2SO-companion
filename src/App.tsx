@@ -6,6 +6,7 @@ import { HeaderBar } from "./components/HeaderBar";
 import { WorkspaceDrawer } from "./components/WorkspaceRail";
 import { TabBar } from "./components/TabBar";
 import { SessionSwitcher } from "./components/SessionSwitcher";
+import { SearchOverlay } from "./components/SearchOverlay";
 import { Login } from "./pages/Login";
 import { Workspaces } from "./pages/Workspaces";
 import { ChatSession } from "./pages/ChatSession";
@@ -20,6 +21,7 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 function AppLayout() {
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
   const { refreshAll, startListening } = useWorkspacesStore();
 
   useEffect(() => {
@@ -32,6 +34,7 @@ function AppLayout() {
       <HeaderBar
         onMenuOpen={() => setDrawerOpen(true)}
         onSessionSwitch={() => setSessionSwitcherOpen(true)}
+        onSearch={() => setSearchOpen(true)}
       />
       <div className="flex-1 overflow-hidden">
         <Routes>
@@ -44,6 +47,7 @@ function AppLayout() {
       <TabBar />
       <WorkspaceDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
       <SessionSwitcher open={sessionSwitcherOpen} onClose={() => setSessionSwitcherOpen(false)} />
+      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
   );
 }

@@ -38,6 +38,9 @@ export interface ProjectSummary {
   agentMode: string;
   agentsRunning: number;
   reviewsPending: number;
+  pinned?: boolean;
+  tabOrder?: number;
+  focusGroup?: FocusGroup | null;
 }
 
 export interface Agent {
