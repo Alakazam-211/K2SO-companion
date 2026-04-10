@@ -262,10 +262,10 @@ export function TerminalView({ terminalId, projectPath }: Props) {
       <div
         key={r}
         style={{
-          minHeight: LINE_HEIGHT,
+          height: LINE_HEIGHT,
           lineHeight: `${LINE_HEIGHT}px`,
-          whiteSpace: "pre-wrap",
-          wordBreak: "break-word",
+          whiteSpace: "pre",
+          overflow: "hidden",
         }}
       >
         {line ? renderLineSpans(line) : "\u00A0"}
@@ -294,6 +294,7 @@ export function TerminalView({ terminalId, projectPath }: Props) {
           padding: "4px 8px",
           position: "relative",
           minHeight: "100%",
+          minWidth: "fit-content",
         }}
       >
         {rowElements}
