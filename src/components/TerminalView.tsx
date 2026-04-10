@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from "react";
 import { ws } from "../api/websocket";
+import * as api from "../api/client";
 
 // ─── Types ───
 
@@ -176,14 +177,43 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     });
   }, [applyGridUpdate]);
 
-  // Subscribe to terminal grid events
+  // Load terminal content and subscribe for updates
   useEffect(() => {
-    // Initial load via terminal.read
-    ws.request("terminal.read", { project: projectPath, id: terminalId, lines: 100 })
-      .catch(() => {});
+    let polling: ReturnType<typeof setInterval> | null = null;
+    let lastText = "";
 
-    // Subscribe for real-time grid updates
-    ws.subscribeTerminal(terminalId);
+    // Load initial content via HTTP fallback
+    const loadContent = async () => {
+      const r = await api.readTerminal(projectPath, terminalId, 200);
+      if (r.ok && r.data?.lines) {
+        const text = r.data.lines.join("\n");
+        if (text !== lastText) {
+          lastText = text;
+          // Convert plain text lines to CompactLine format
+          const lines: CompactLine[] = r.data.lines.map((line, i) => ({
+            row: i,
+            text: line,
+          }));
+          applyGridUpdate({
+            cols: 120,
+            rows: r.data.lines.length,
+            cursor_col: 0,
+            cursor_row: r.data.lines.length - 1,
+            cursor_visible: true,
+            cursor_shape: "block",
+            lines,
+            full: true,
+          });
+        }
+      }
+    };
+
+    loadContent();
+
+    // Try WebSocket subscription for real-time grid updates
+    if (ws.isConnected) {
+      ws.subscribeTerminal(terminalId);
+    }
 
     const unsub = ws.on("terminal:grid", (event) => {
       const data = event.payload as { terminalId: string; grid: GridUpdate };
@@ -192,12 +222,18 @@ export function TerminalView({ terminalId, projectPath }: Props) {
       }
     });
 
+    // If WebSocket isn't connected, poll via HTTP
+    if (!ws.isConnected) {
+      polling = setInterval(loadContent, 2000);
+    }
+
     return () => {
       unsub();
-      ws.unsubscribeTerminal(terminalId);
+      if (ws.isConnected) ws.unsubscribeTerminal(terminalId);
+      if (polling) clearInterval(polling);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [terminalId, projectPath, scheduleRender]);
+  }, [terminalId, projectPath, scheduleRender, applyGridUpdate]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -226,10 +262,10 @@ export function TerminalView({ terminalId, projectPath }: Props) {
       <div
         key={r}
         style={{
-          height: LINE_HEIGHT,
+          minHeight: LINE_HEIGHT,
           lineHeight: `${LINE_HEIGHT}px`,
-          whiteSpace: "pre",
-          overflow: "hidden",
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-word",
         }}
       >
         {line ? renderLineSpans(line) : "\u00A0"}
@@ -258,7 +294,6 @@ export function TerminalView({ terminalId, projectPath }: Props) {
           padding: "4px 8px",
           position: "relative",
           minHeight: "100%",
-          minWidth: "fit-content",
         }}
       >
         {rowElements}
