@@ -295,27 +295,29 @@ export function TerminalView({ terminalId, projectPath }: Props) {
           position: "relative",
           minHeight: "100%",
           minWidth: "fit-content",
+          touchAction: "pan-x pan-y pinch-zoom",
         }}
       >
-        {rowElements}
+          {rowElements}
 
-        {/* Cursor */}
-        {showCursor && cellW > 0 && (
-          <div
-            style={{
-              position: "absolute",
-              left: 8 + grid.cursorCol * cellW,
-              top: 4 + grid.cursorRow * LINE_HEIGHT,
-              width: grid.cursorShape === "bar" ? 2.5 : cellW,
-              height: grid.cursorShape === "underline" ? 3 : LINE_HEIGHT,
-              marginTop: grid.cursorShape === "underline" ? LINE_HEIGHT - 3 : 0,
-              background: "rgba(240, 240, 240, 0.85)",
-              pointerEvents: "none",
-              zIndex: 10,
-            }}
-          />
-        )}
+          {/* Cursor */}
+          {showCursor && cellW > 0 && (
+            <div
+              style={{
+                position: "absolute",
+                left: 8 + grid.cursorCol * cellW,
+                top: 4 + grid.cursorRow * LINE_HEIGHT,
+                width: grid.cursorShape === "bar" ? 2.5 : cellW,
+                height: grid.cursorShape === "underline" ? 3 : LINE_HEIGHT,
+                marginTop: grid.cursorShape === "underline" ? LINE_HEIGHT - 3 : 0,
+                background: "rgba(240, 240, 240, 0.85)",
+                pointerEvents: "none",
+                zIndex: 10,
+              }}
+            />
+          )}
       </div>
     </div>
   );
 }
+

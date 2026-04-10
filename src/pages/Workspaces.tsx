@@ -1,23 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAgentsStore } from "../stores/agents";
 import { useWorkspacesStore } from "../stores/workspaces";
-import * as api from "../api/client";
-import type { Agent } from "../api/client";
 
 export function Workspaces() {
-  const { runningTerminals, agents, isLoading, refreshForProject, startListening } =
+  const { runningTerminals, isLoading, refreshForProject, startListening } =
     useAgentsStore();
   const activeProject = useWorkspacesStore((s) => s.activeProject());
   const summary = useWorkspacesStore((s) =>
     s.activeProjectId ? s.summaryFor(s.activeProjectId) : undefined
   );
+  const error = useWorkspacesStore((s) => s.error);
   const navigate = useNavigate();
-  const [showLaunch, setShowLaunch] = useState(false);
-  const [launching, setLaunching] = useState<string | null>(null);
 
   useEffect(() => {
-    // Clear stale data from previous workspace
     useAgentsStore.setState({ agents: [], runningTerminals: [] });
     if (activeProject) {
       refreshForProject(activeProject.path);
@@ -25,26 +21,13 @@ export function Workspaces() {
     }
   }, [activeProject?.id]);
 
-  const launchableAgents = agents.filter(
-    (a) => a.agentType !== "manager" && a.agentType !== "k2so"
-  );
-
-  const handleLaunch = async (agent: Agent) => {
-    if (!activeProject) return;
-    setLaunching(agent.name);
-    await api.wakeAgent(activeProject.path, agent.name);
-    setShowLaunch(false);
-    setLaunching(null);
-    setTimeout(() => refreshForProject(activeProject.path), 2000);
-  };
-
   return (
     <div className="flex flex-col h-full">
       <div className="flex-1 overflow-y-auto p-4">
-        {/* Debug + retry */}
-        {useWorkspacesStore.getState().error && (
+        {/* Error + retry */}
+        {error && (
           <div className="mb-4 p-3 border border-[var(--error)]/30">
-            <p className="text-[var(--error)] text-[11px] mb-2">{useWorkspacesStore.getState().error}</p>
+            <p className="text-[var(--error)] text-[11px] mb-2">{error}</p>
             <button
               onClick={() => useWorkspacesStore.getState().refreshAll()}
               className="text-[var(--accent)] text-[11px] font-semibold border border-[var(--accent-dim)] px-3 py-1 hover:border-[var(--accent)] transition-all"
@@ -72,8 +55,8 @@ export function Workspaces() {
                 </div>
                 <div className="w-px bg-[var(--border)]" />
                 <div className="flex-1 text-center">
-                  <div className="text-[var(--text)] text-lg font-bold">{agents.length}</div>
-                  <div className="text-[var(--text-muted)] text-[9px]">Agents</div>
+                  <div className="text-[var(--text)] text-lg font-bold">{runningTerminals.length}</div>
+                  <div className="text-[var(--text-muted)] text-[9px]">Terminals</div>
                 </div>
                 <div className="w-px bg-[var(--border)]" />
                 <div className="flex-1 text-center">
@@ -83,56 +66,18 @@ export function Workspaces() {
               </div>
             )}
 
-            {/* Active sessions header */}
-            <div className="flex items-center justify-between mb-3">
-              <p className="text-[var(--text-muted)] text-[10px] font-semibold tracking-widest uppercase">
-                Active Terminals
-              </p>
-              {launchableAgents.length > 0 && (
-                <button
-                  onClick={() => setShowLaunch(!showLaunch)}
-                  className="text-[var(--accent)] text-[11px] font-semibold border border-[var(--accent-dim)] px-2.5 py-1 hover:border-[var(--accent)] hover:bg-[var(--accent)]/5 transition-all"
-                >
-                  + New Session
-                </button>
-              )}
-            </div>
-
-            {/* Launch agent picker */}
-            {showLaunch && (
-              <div className="border border-[var(--border)] bg-[var(--surface)] p-3 mb-3">
-                <p className="text-[var(--text-muted)] text-[10px] mb-2">Select an agent to launch:</p>
-                {launchableAgents.map((agent) => (
-                  <button
-                    key={agent.name}
-                    onClick={() => handleLaunch(agent)}
-                    disabled={launching === agent.name}
-                    className="w-full flex items-center gap-2.5 px-3 py-2.5 mb-1 border border-[var(--border)] hover:border-[var(--accent-dim)] transition-all text-left"
-                  >
-                    <span className="text-[var(--text)] text-[11px] font-medium flex-1">
-                      {agent.name}
-                    </span>
-                    {launching === agent.name && (
-                      <span className="text-[var(--warning)] text-[9px] shrink-0">Launching...</span>
-                    )}
-                  </button>
-                ))}
-                <button
-                  onClick={() => setShowLaunch(false)}
-                  className="text-[var(--text-muted)] text-[10px] mt-1"
-                >
-                  Cancel
-                </button>
-              </div>
-            )}
+            {/* Active terminals */}
+            <p className="text-[var(--text-muted)] text-[10px] font-semibold tracking-widest uppercase mb-3">
+              Active Terminals
+            </p>
 
             {isLoading && runningTerminals.length === 0 ? (
               <p className="text-[var(--text-muted)] text-[13px] text-center pt-12">Loading...</p>
-            ) : runningTerminals.length === 0 && !showLaunch ? (
+            ) : runningTerminals.length === 0 ? (
               <div className="text-center pt-12">
                 <p className="text-[var(--text-secondary)] text-[13px]">No active terminals</p>
                 <p className="text-[var(--text-muted)] text-[11px] mt-1">
-                  Tap "+ New Session" to launch an agent
+                  Terminals running in {activeProject.name} will appear here
                 </p>
               </div>
             ) : (
