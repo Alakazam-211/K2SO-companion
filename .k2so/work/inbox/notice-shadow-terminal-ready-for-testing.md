@@ -73,6 +73,14 @@ Conversational text (assistant responses, tool descriptions) reflows cleanly. Cu
 5. Verify content reflows to the new width
 6. Check that existing behavior (no dims) still works unchanged
 
+## Bug Fix: Prompt Line Wrapping (Two Fixes Applied)
+
+**Fix 1: 1-column safety margin** — server subtracts 1 column from mobile dimensions for sub-pixel font rendering differences. `cols: 50` → reflow at 49.
+
+**Fix 2: Trailing space padding trim** — desktop terminals pad each row with spaces to fill the full width (120+ cols). When soft-wrapped rows were joined into logical lines, that padding ended up in the middle, inflating short prompts like "bypass permissions on" to 120+ characters. The reflow now trims trailing spaces from each row before joining, so padded prompt/status lines fit within mobile width.
+
+Both fixes are live on the dev server now. Reconnect and test — the prompt line wrapping should be significantly better.
+
 ## Not Yet Released
 
 This is running on the dev server only. Will ship as v0.29.0 after integration testing is complete. The existing v0.28.10 production release is unaffected.

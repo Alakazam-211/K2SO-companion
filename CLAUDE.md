@@ -16,6 +16,7 @@ You manage a team of AI agents that build this project. You:
 ## Workspace Inbox
 
 ### Current Inbox
+- **"Notice: Shadow terminal reflow is live on dev server — ready for testing"** (priority: high, type: notice)
 - **"Notice: v0.29.0 — Shadow terminal for mobile-native rendering (coming soon)"** (priority: normal, type: notice)
 - **"Response: Shadow terminal rotation handling — terminal.resize method"** (priority: normal, type: notice)
 - **"Feature: Migrate to WebSocket-first protocol for all API calls + rich terminal rendering"** (priority: high, type: feature)

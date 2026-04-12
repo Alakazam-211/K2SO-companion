@@ -30,7 +30,7 @@ export function SessionSwitcher({ open, onClose }: Props) {
     <>
       <div className="fixed inset-0 bg-black/60 z-40" onClick={onClose} />
 
-      <div className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--background)] border-t border-[var(--border)] max-h-[70vh] flex flex-col">
+      <div className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--background)] border-t border-[var(--border)] max-h-[70vh] flex flex-col" style={{ paddingBottom: "env(safe-area-inset-bottom)" }}>
         <div className="flex items-center justify-center py-2 shrink-0">
           <div className="w-10 h-1 bg-[var(--border)] rounded-full" />
         </div>

@@ -26,7 +26,11 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
 
   fetchRunningTerminals: async (project) => {
     const r = await api.getRunningTerminals(project);
-    if (r.ok && r.data) set({ runningTerminals: r.data });
+    if (r.ok && r.data) {
+      // Filter to only terminals whose cwd is within this workspace
+      const filtered = r.data.filter((t) => t.cwd.startsWith(project));
+      set({ runningTerminals: filtered });
+    }
   },
 
   refreshForProject: async (project) => {
