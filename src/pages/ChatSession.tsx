@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useRef, useLayoutEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import * as api from "../api/client";
 import { useWorkspacesStore } from "../stores/workspaces";
@@ -10,6 +10,18 @@ export function ChatSession() {
   const activeProject = useWorkspacesStore((s) => s.activeProject());
   const projectPath = activeProject?.path || "";
   const [input, setInput] = useState("");
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // Auto-resize: runs before paint so intermediate height=0 is never visible
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "0";
+    const h = Math.min(Math.max(el.scrollHeight, 40), 100);
+    el.style.height = h + "px";
+    el.style.overflow = el.scrollHeight > 100 ? "auto" : "hidden";
+  }, [input]);
 
   const handleSend = async () => {
     const text = input.trim();
@@ -39,6 +51,7 @@ export function ChatSession() {
       {/* Input bar — multi-line */}
       <div className="flex gap-2 px-4 py-3 border-t border-[var(--border)] bg-[var(--surface)]" style={{ flexShrink: 0 }}>
         <textarea
+          ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={(e) => {
@@ -50,13 +63,11 @@ export function ChatSession() {
           placeholder="Send to terminal..."
           rows={1}
           className="flex-1 bg-[var(--background)] border border-[var(--border)] px-3 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent-dim)] transition-colors resize-none"
-          style={{ maxHeight: 100, height: 40, lineHeight: "38px", overflow: "hidden" }}
-          onInput={(e) => {
-            const el = e.target as HTMLTextAreaElement;
-            el.style.lineHeight = "20px";
-            el.style.paddingTop = "9px";
-            el.style.height = "auto";
-            el.style.height = Math.min(Math.max(el.scrollHeight, 40), 100) + "px";
+          style={{
+            height: 40,
+            lineHeight: "20px",
+            padding: "10px 12px",
+            overflow: "hidden",
           }}
         />
         <button
