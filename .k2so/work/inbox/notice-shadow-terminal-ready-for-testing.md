@@ -81,6 +81,41 @@ Conversational text (assistant responses, tool descriptions) reflows cleanly. Cu
 
 Both fixes are live on the dev server now. Reconnect and test — the prompt line wrapping should be significantly better.
 
+## NEW: Scrollback History via HTTP
+
+Since iOS WKWebView blocks native WebSocket to external hosts, you need terminal history via HTTP. This is now available:
+
+### `GET /companion/terminal/read` — Enhanced with scrollback
+
+Add `scrollback=true` to read from the scrollback buffer instead of just the visible screen:
+
+```
+GET /companion/terminal/read?project={path}&id={terminalId}&lines=500&scrollback=true
+```
+
+**Without `scrollback`** (default): returns the visible screen only (~63 lines)
+**With `scrollback=true`**: returns up to N lines from scrollback history + visible screen, oldest to newest
+
+**Response format** (unchanged):
+```json
+{
+  "ok": true,
+  "data": {
+    "lines": ["line 1", "line 2", ...]
+  }
+}
+```
+
+**Tested**: 499 lines returned from a real Claude Code session through the companion proxy over ngrok.
+
+### WebSocket alternative (if available)
+
+If WebSocket works on your platform, `terminal.subscribe` with `{ cols, rows }` gives you real-time reflowed grid updates with colors and styling. The scrollback endpoint is the HTTP fallback for platforms where WebSocket isn't available.
+
+### iOS WebSocket Workaround
+
+Since Tauri's HTTP plugin bypasses WKWebView (requests go through Rust), you could potentially implement WebSocket the same way — through Rust rather than the webview. The `tauri-plugin-websocket` crate exists for this. Worth investigating as an alternative to HTTP polling.
+
 ## Not Yet Released
 
 This is running on the dev server only. Will ship as v0.29.0 after integration testing is complete. The existing v0.28.10 production release is unaffected.

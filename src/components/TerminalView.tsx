@@ -39,6 +39,8 @@ const FONT_SIZE = 10;
 const LINE_HEIGHT = Math.ceil(FONT_SIZE * 1.35);
 const FONT_FAMILY = "'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace";
 const RESIZE_DEBOUNCE_MS = 200;
+// @ts-expect-error Vite injects import.meta.env
+const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
 const ATTR_BOLD = 1;
 const ATTR_ITALIC = 2;
@@ -138,6 +140,7 @@ export function TerminalView({ terminalId, projectPath }: Props) {
   const pendingRef = useRef<GridUpdate | null>(null);
   const cellWRef = useRef(0);
   const subscribedDimsRef = useRef<{ cols: number; rows: number } | null>(null);
+  const debugRef = useRef("");
 
   // Measure cell width once
   useEffect(() => {
@@ -153,22 +156,35 @@ export function TerminalView({ terminalId, projectPath }: Props) {
   const calculateDims = useCallback(() => {
     if (!containerRef.current || cellWRef.current === 0) return null;
     const rect = containerRef.current.getBoundingClientRect();
-    const cols = Math.max(10, Math.floor((rect.width - 16) / cellWRef.current)); // minus padding
+    const cols = Math.max(10, Math.floor((rect.width - 16) / cellWRef.current) - 2); // minus padding + safety margin
     const rows = Math.max(5, Math.floor(rect.height / LINE_HEIGHT));
     return { cols, rows };
   }, []);
 
-  const applyGridUpdate = useCallback((update: GridUpdate) => {
-    if (update.full) {
+  const scrollbackLoadedRef = useRef(false);
+
+  const applyGridUpdate = useCallback((update: GridUpdate, isScrollback = false) => {
+    if (update.full && !scrollbackLoadedRef.current) {
       linesRef.current.clear();
     }
 
-    for (const line of update.lines) {
-      linesRef.current.set(line.row, line);
+    if (isScrollback || !scrollbackLoadedRef.current) {
+      // HTTP scrollback or first load — rows map directly
+      for (const line of update.lines) {
+        linesRef.current.set(line.row, line);
+      }
+    } else {
+      // WS grid event — offset rows to the end of the buffer so colors
+      // appear on the visible portion, not overwriting scrollback start
+      const bufSize = linesRef.current.size;
+      const offset = bufSize > update.rows ? bufSize - update.rows : 0;
+      for (const line of update.lines) {
+        linesRef.current.set(line.row + offset, { ...line, row: line.row + offset });
+      }
     }
 
     setGrid({
-      rows: update.rows,
+      rows: Math.max(update.rows, linesRef.current.size),
       cols: update.cols,
       cursorRow: update.cursor_row,
       cursorCol: update.cursor_col,
@@ -196,29 +212,58 @@ export function TerminalView({ terminalId, projectPath }: Props) {
   useEffect(() => {
     let polling: ReturnType<typeof setInterval> | null = null;
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
+
+    // Load terminal content — initial load gets full scrollback, polls just update visible
+    let initialized = false;
     let lastText = "";
 
-    // HTTP fallback for initial load
     const loadContent = async () => {
-      const r = await api.readTerminal(projectPath, terminalId, 200);
+      const requestLines = initialized ? 100 : 500;
+      const r = await api.readTerminal(projectPath, terminalId, requestLines);
+      debugRef.current = `req=${requestLines} got=${r.ok ? (r.data?.lines?.length ?? 0) : r.error}`;
       if (r.ok && r.data?.lines) {
         const text = r.data.lines.join("\n");
         if (text !== lastText) {
           lastText = text;
-          const lines: CompactLine[] = r.data.lines.map((line, i) => ({
-            row: i,
-            text: line,
-          }));
-          applyGridUpdate({
-            cols: 120,
-            rows: r.data.lines.length,
-            cursor_col: 0,
-            cursor_row: r.data.lines.length - 1,
-            cursor_visible: true,
-            cursor_shape: "block",
-            lines,
-            full: true,
-          });
+
+          if (!initialized) {
+            // First load — set full scrollback
+            initialized = true;
+            scrollbackLoadedRef.current = true;
+            const lines: CompactLine[] = r.data.lines.map((line, i) => ({
+              row: i,
+              text: line,
+            }));
+            applyGridUpdate({
+              cols: 120,
+              rows: r.data.lines.length,
+              cursor_col: 0,
+              cursor_row: r.data.lines.length - 1,
+              cursor_visible: true,
+              cursor_shape: "block",
+              lines,
+              full: true,
+            }, true); // isScrollback = true
+          } else {
+            // Subsequent polls — update the last N rows without clearing scrollback
+            const existingCount = linesRef.current.size;
+            const newLines = r.data.lines;
+            const startRow = Math.max(0, existingCount - 100);
+            const lines: CompactLine[] = newLines.map((line, i) => ({
+              row: startRow + i,
+              text: line,
+            }));
+            // Don't use full:true — preserve scrollback
+            for (const line of lines) {
+              linesRef.current.set(line.row, line);
+            }
+            setGrid((prev) => ({
+              ...prev,
+              rows: Math.max(prev.rows, startRow + newLines.length),
+              cursorRow: startRow + newLines.length - 1,
+              version: Date.now(),
+            }));
+          }
         }
       }
     };
@@ -297,17 +342,32 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     };
   }, [terminalId, projectPath, scheduleRender, applyGridUpdate, calculateDims]);
 
-  // Auto-scroll to bottom
+  // Auto-scroll to bottom — only if user hasn't scrolled up
+  const userScrolledRef = useRef(false);
+
   useEffect(() => {
-    if (containerRef.current && grid.displayOffset === 0) {
+    const container = containerRef.current;
+    if (!container) return;
+
+    const handleScroll = () => {
+      const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
+      userScrolledRef.current = !atBottom;
+    };
+
+    container.addEventListener("scroll", handleScroll);
+    return () => container.removeEventListener("scroll", handleScroll);
+  }, []);
+
+  useEffect(() => {
+    if (containerRef.current && !userScrolledRef.current) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
   }, [grid.version]);
 
-  // Build row elements
+  // Build row elements — render all buffered lines for scrollback
   const rowElements: React.ReactNode[] = [];
-  const totalRows = grid.rows || linesRef.current.size;
-  for (let r = 0; r < totalRows; r++) {
+  const maxRow = Math.max(grid.rows, linesRef.current.size, ...Array.from(linesRef.current.keys()).map(k => k + 1));
+  for (let r = 0; r < maxRow; r++) {
     const line = linesRef.current.get(r);
     rowElements.push(
       <div
@@ -315,8 +375,6 @@ export function TerminalView({ terminalId, projectPath }: Props) {
         style={{
           minHeight: LINE_HEIGHT,
           lineHeight: `${LINE_HEIGHT}px`,
-          whiteSpace: "pre",
-          overflow: "hidden",
         }}
       >
         {line ? renderLineSpans(line) : "\u00A0"}
@@ -324,14 +382,16 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     );
   }
 
-  const showCursor = grid.cursorVisible && grid.displayOffset === 0;
-  const cellW = cellWRef.current;
-
   return (
     <div
       ref={containerRef}
-      className="flex-1 overflow-auto"
       style={{
+        position: "absolute",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        overflow: "auto",
         background: colorToCSS(DEFAULT_BG),
         WebkitOverflowScrolling: "touch",
       }}
@@ -343,28 +403,17 @@ export function TerminalView({ terminalId, projectPath }: Props) {
           color: colorToCSS(DEFAULT_FG),
           fontVariantLigatures: "none",
           padding: "4px 8px",
-          position: "relative",
-          minHeight: "100%",
+          wordBreak: "break-all",
+          whiteSpace: "pre-wrap",
         }}
       >
-        {rowElements}
-
-        {/* Cursor */}
-        {showCursor && cellW > 0 && (
-          <div
-            style={{
-              position: "absolute",
-              left: 8 + grid.cursorCol * cellW,
-              top: 4 + grid.cursorRow * LINE_HEIGHT,
-              width: grid.cursorShape === "bar" ? 2.5 : cellW,
-              height: grid.cursorShape === "underline" ? 3 : LINE_HEIGHT,
-              marginTop: grid.cursorShape === "underline" ? LINE_HEIGHT - 3 : 0,
-              background: "rgba(240, 240, 240, 0.85)",
-              pointerEvents: "none",
-              zIndex: 10,
-            }}
-          />
+        {/* Debug: line count (dev mode only) */}
+        {DEV_MODE && (
+          <div style={{ color: "#22d3ee", fontSize: "9px", padding: "2px 0", opacity: 0.7 }}>
+            {maxRow} lines | buf={linesRef.current.size} | {grid.rows}r | {debugRef.current}
+          </div>
         )}
+        {rowElements}
       </div>
     </div>
   );
