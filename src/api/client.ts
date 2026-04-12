@@ -70,6 +70,13 @@ export interface GlobalSession {
   cwd: string;
 }
 
+export interface CliPreset {
+  id: string;
+  name: string;
+  command: string;
+  icon?: string;
+}
+
 export interface Review {
   id: string;
   agent: string;
@@ -103,15 +110,24 @@ export function clearSession() {
 async function httpRequest<T>(
   path: string,
   options: { method?: string; body?: string; project?: string } = {},
-  timeoutMs = 15000
+  timeoutMs = 15000,
+  extraParams?: Record<string, string>
 ): Promise<ApiResponse<T>> {
   if (!baseUrl) return { ok: false, error: "Not connected" };
 
-  // Build URL with project param if provided
+  // Build URL with project param and extra params
   let url = `${baseUrl}${path}`;
+  const params: string[] = [];
   if (options.project) {
-    const sep = url.includes("?") ? "&" : "?";
-    url += `${sep}project=${encodeURIComponent(options.project)}`;
+    params.push(`project=${encodeURIComponent(options.project)}`);
+  }
+  if (extraParams) {
+    for (const [k, v] of Object.entries(extraParams)) {
+      params.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+    }
+  }
+  if (params.length > 0) {
+    url += `?${params.join("&")}`;
   }
 
   const headers: Record<string, string> = {
@@ -229,6 +245,8 @@ export const getProjects = () =>
   request<Project[]>("projects.list", "/companion/projects", {});
 export const getProjectsSummary = () =>
   request<ProjectSummary[]>("projects.summary", "/companion/projects/summary", {});
+export const getPresets = () =>
+  request<CliPreset[]>("presets.list", "/companion/presets", {});
 export const getAllSessions = () =>
   request<GlobalSession[]>("sessions.list", "/companion/sessions", {});
 
@@ -243,8 +261,14 @@ export const wakeAgent = (project: string, agent: string) =>
   request("agents.wake", "/companion/agents/wake", { project, agent }, { method: "POST" });
 export const getReviews = (project: string) =>
   request<Review[]>("reviews.list", "/companion/reviews", { project });
-export const readTerminal = (project: string, id: string, lines = 50) =>
-  request<{ lines: string[] }>("terminal.read", "/companion/terminal/read", { project, id, lines });
+// Force HTTP for terminal read — WS terminal.read doesn't support scrollback param
+export const readTerminal = (project: string, id: string, lines = 500) =>
+  httpRequest<{ lines: string[] }>("/companion/terminal/read", {
+    project,
+    method: "GET",
+  }, 15000, { id, lines: String(lines), scrollback: "true" });
+export const spawnTerminal = (project: string, command: string, title?: string) =>
+  request("terminal.spawn", "/companion/terminal/spawn", { project, command, title }, { method: "POST" });
 export const writeTerminal = (project: string, id: string, message: string) =>
   request("terminal.write", "/companion/terminal/write", { project, id, message }, { method: "POST" });
 export const getStatus = (project: string) =>
