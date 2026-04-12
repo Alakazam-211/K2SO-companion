@@ -1,16 +1,13 @@
 import { useEffect, useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { useAuthStore } from "./stores/auth";
 import { useWorkspacesStore } from "./stores/workspaces";
-import { HeaderBar } from "./components/HeaderBar";
-import { WorkspaceDrawer } from "./components/WorkspaceRail";
 import { TabBar } from "./components/TabBar";
-import { SessionSwitcher } from "./components/SessionSwitcher";
-import { SearchOverlay } from "./components/SearchOverlay";
 import { Login } from "./pages/Login";
-import { Workspaces } from "./pages/Workspaces";
+import { Sessions } from "./pages/Sessions";
 import { ChatSession } from "./pages/ChatSession";
 import { Settings } from "./pages/Settings";
+import { NewSessionModal } from "./components/NewSessionModal";
 
 function AuthGuard({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -18,10 +15,36 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
+function AppHeader({ onNewSession }: { onNewSession: () => void }) {
+  const location = useLocation();
+  const allSessions = useWorkspacesStore((s) => s.allSessions);
+
+  if (location.pathname.startsWith("/chat/")) return null;
+  if (location.pathname === "/settings") return null;
+
+  return (
+    <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--background)]" style={{ flexShrink: 0 }}>
+      <span className="text-[var(--accent)] text-[15px] font-bold tracking-wide flex-1">
+        K2
+      </span>
+      <span className="text-[var(--text-muted)] text-[11px]">
+        {allSessions.length} active
+      </span>
+      {/* New session */}
+      <button
+        onClick={onNewSession}
+        className="w-8 h-8 flex items-center justify-center text-[var(--accent)] border border-[var(--accent-dim)]"
+      >
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M7 1v12M1 7h12" />
+        </svg>
+      </button>
+    </div>
+  );
+}
+
 function AppLayout() {
-  const [drawerOpen, setDrawerOpen] = useState(false);
-  const [sessionSwitcherOpen, setSessionSwitcherOpen] = useState(false);
-  const [searchOpen, setSearchOpen] = useState(false);
+  const [newSessionOpen, setNewSessionOpen] = useState(false);
   const { refreshAll, startListening } = useWorkspacesStore();
 
   useEffect(() => {
@@ -31,23 +54,17 @@ function AppLayout() {
 
   return (
     <div className="flex flex-col h-full">
-      <HeaderBar
-        onMenuOpen={() => setDrawerOpen(true)}
-        onSessionSwitch={() => setSessionSwitcherOpen(true)}
-        onSearch={() => setSearchOpen(true)}
-      />
+      <AppHeader onNewSession={() => setNewSessionOpen(true)} />
       <div className="flex-1 overflow-hidden">
         <Routes>
-          <Route path="/workspaces" element={<Workspaces />} />
+          <Route path="/sessions" element={<Sessions />} />
           <Route path="/chat/:terminalId" element={<ChatSession />} />
           <Route path="/settings" element={<Settings />} />
-          <Route path="*" element={<Navigate to="/workspaces" replace />} />
+          <Route path="*" element={<Navigate to="/sessions" replace />} />
         </Routes>
       </div>
       <TabBar />
-      <WorkspaceDrawer open={drawerOpen} onClose={() => setDrawerOpen(false)} />
-      <SessionSwitcher open={sessionSwitcherOpen} onClose={() => setSessionSwitcherOpen(false)} />
-      <SearchOverlay open={searchOpen} onClose={() => setSearchOpen(false)} />
+      <NewSessionModal open={newSessionOpen} onClose={() => setNewSessionOpen(false)} />
     </div>
   );
 }

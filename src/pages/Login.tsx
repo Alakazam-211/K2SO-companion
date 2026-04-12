@@ -31,7 +31,7 @@ export function Login() {
   const [rememberMe, setRememberMe] = useState(!!remembered);
 
   useEffect(() => {
-    if (isAuthenticated) navigate("/workspaces", { replace: true });
+    if (isAuthenticated) navigate("/sessions", { replace: true });
   }, [isAuthenticated, navigate]);
 
   const isValid = serverUrl.length > 0 && username.length > 0 && password.length > 0;
