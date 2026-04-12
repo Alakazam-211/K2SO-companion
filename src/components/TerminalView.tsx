@@ -16,6 +16,7 @@ interface CompactLine {
   row: number;
   text: string;
   spans?: StyleSpan[];
+  wrapped?: boolean;
 }
 
 interface GridUpdate {
@@ -34,13 +35,10 @@ interface GridUpdate {
 
 const DEFAULT_FG = 0xe0e0e0;
 const DEFAULT_BG = 0x0a0a0a;
-// Scale font to fit ~120 cols on a mobile screen
-// iPhone width ~390px minus padding = ~374px usable
-// 374px / 120 cols ≈ 3.1px per char — too small to read
-// Better: use a readable size with horizontal scroll
 const FONT_SIZE = 10;
 const LINE_HEIGHT = Math.ceil(FONT_SIZE * 1.35);
 const FONT_FAMILY = "'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace";
+const RESIZE_DEBOUNCE_MS = 200;
 
 const ATTR_BOLD = 1;
 const ATTR_ITALIC = 2;
@@ -65,14 +63,12 @@ function renderLineSpans(line: CompactLine): React.ReactNode[] {
   for (let i = 0; i < spans.length; i++) {
     const span = spans[i];
 
-    // Unstyled text before this span
     if (span.s > pos) {
       elements.push(
         <span key={`t-${line.row}-${pos}`}>{chars.slice(pos, span.s).join("")}</span>
       );
     }
 
-    // Styled span
     const style: React.CSSProperties = {};
     const flags = span.fl ?? 0;
     let fg = span.fg ?? DEFAULT_FG;
@@ -103,7 +99,6 @@ function renderLineSpans(line: CompactLine): React.ReactNode[] {
     pos = span.e + 1;
   }
 
-  // Remaining unstyled text
   if (pos < chars.length) {
     elements.push(
       <span key={`r-${line.row}`}>{chars.slice(pos).join("")}</span>
@@ -121,9 +116,6 @@ interface Props {
 }
 
 export function TerminalView({ terminalId, projectPath }: Props) {
-  const [scale, setScale] = useState(1);
-  const pinchRef = useRef<number | null>(null);
-  const scaleRef = useRef(1);
   const linesRef = useRef<Map<number, CompactLine>>(new Map());
   const [grid, setGrid] = useState<{
     rows: number;
@@ -144,6 +136,27 @@ export function TerminalView({ terminalId, projectPath }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const rafRef = useRef<number | null>(null);
   const pendingRef = useRef<GridUpdate | null>(null);
+  const cellWRef = useRef(0);
+  const subscribedDimsRef = useRef<{ cols: number; rows: number } | null>(null);
+
+  // Measure cell width once
+  useEffect(() => {
+    const span = document.createElement("span");
+    span.style.cssText = `font-family: ${FONT_FAMILY}; font-size: ${FONT_SIZE}px; position: absolute; visibility: hidden; white-space: pre;`;
+    span.textContent = "W";
+    document.body.appendChild(span);
+    cellWRef.current = span.getBoundingClientRect().width;
+    document.body.removeChild(span);
+  }, []);
+
+  // Calculate terminal dimensions from container
+  const calculateDims = useCallback(() => {
+    if (!containerRef.current || cellWRef.current === 0) return null;
+    const rect = containerRef.current.getBoundingClientRect();
+    const cols = Math.max(10, Math.floor((rect.width - 16) / cellWRef.current)); // minus padding
+    const rows = Math.max(5, Math.floor(rect.height / LINE_HEIGHT));
+    return { cols, rows };
+  }, []);
 
   const applyGridUpdate = useCallback((update: GridUpdate) => {
     if (update.full) {
@@ -166,7 +179,6 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     });
   }, []);
 
-  // rAF batching — same pattern as K2SO
   const scheduleRender = useCallback((update: GridUpdate) => {
     pendingRef.current = update;
     if (rafRef.current) return;
@@ -180,19 +192,19 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     });
   }, [applyGridUpdate]);
 
-  // Load terminal content and subscribe for updates
+  // Subscribe with mobile dimensions + handle resize
   useEffect(() => {
     let polling: ReturnType<typeof setInterval> | null = null;
+    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
     let lastText = "";
 
-    // Load initial content via HTTP fallback
+    // HTTP fallback for initial load
     const loadContent = async () => {
       const r = await api.readTerminal(projectPath, terminalId, 200);
       if (r.ok && r.data?.lines) {
         const text = r.data.lines.join("\n");
         if (text !== lastText) {
           lastText = text;
-          // Convert plain text lines to CompactLine format
           const lines: CompactLine[] = r.data.lines.map((line, i) => ({
             row: i,
             text: line,
@@ -211,12 +223,46 @@ export function TerminalView({ terminalId, projectPath }: Props) {
       }
     };
 
+    // Subscribe via WebSocket with screen dimensions
+    const subscribe = () => {
+      if (!ws.isConnected) return;
+      const dims = calculateDims();
+      if (dims) {
+        subscribedDimsRef.current = dims;
+        ws.request("terminal.subscribe", {
+          terminalId,
+          cols: dims.cols,
+          rows: dims.rows,
+        }).catch(() => {});
+      } else {
+        ws.subscribeTerminal(terminalId);
+      }
+    };
+
+    // Handle resize (rotation, etc.) — debounced
+    const handleResize = () => {
+      if (resizeTimer) clearTimeout(resizeTimer);
+      resizeTimer = setTimeout(() => {
+        if (!ws.isConnected) return;
+        const dims = calculateDims();
+        if (dims && subscribedDimsRef.current) {
+          const prev = subscribedDimsRef.current;
+          if (dims.cols !== prev.cols || dims.rows !== prev.rows) {
+            subscribedDimsRef.current = dims;
+            ws.request("terminal.resize", {
+              terminalId,
+              cols: dims.cols,
+              rows: dims.rows,
+            }).catch(() => {});
+          }
+        }
+      }, RESIZE_DEBOUNCE_MS);
+    };
+
     loadContent();
 
-    // Try WebSocket subscription for real-time grid updates
-    if (ws.isConnected) {
-      ws.subscribeTerminal(terminalId);
-    }
+    // Small delay to let container measure, then subscribe with dims
+    setTimeout(subscribe, 100);
 
     const unsub = ws.on("terminal:grid", (event) => {
       const data = event.payload as { terminalId: string; grid: GridUpdate };
@@ -225,18 +271,31 @@ export function TerminalView({ terminalId, projectPath }: Props) {
       }
     });
 
-    // If WebSocket isn't connected, poll via HTTP
+    // HTTP polling fallback
     if (!ws.isConnected) {
       polling = setInterval(loadContent, 2000);
+    }
+
+    // Listen for resize/orientation changes
+    window.addEventListener("resize", handleResize);
+    const observer = containerRef.current
+      ? new ResizeObserver(handleResize)
+      : null;
+    if (observer && containerRef.current) {
+      observer.observe(containerRef.current);
     }
 
     return () => {
       unsub();
       if (ws.isConnected) ws.unsubscribeTerminal(terminalId);
       if (polling) clearInterval(polling);
+      if (resizeTimer) clearTimeout(resizeTimer);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      window.removeEventListener("resize", handleResize);
+      observer?.disconnect();
+      subscribedDimsRef.current = null;
     };
-  }, [terminalId, projectPath, scheduleRender, applyGridUpdate]);
+  }, [terminalId, projectPath, scheduleRender, applyGridUpdate, calculateDims]);
 
   // Auto-scroll to bottom
   useEffect(() => {
@@ -244,17 +303,6 @@ export function TerminalView({ terminalId, projectPath }: Props) {
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
   }, [grid.version]);
-
-  // Measure cell width for cursor positioning
-  const cellWRef = useRef(0);
-  useEffect(() => {
-    const span = document.createElement("span");
-    span.style.cssText = `font-family: ${FONT_FAMILY}; font-size: ${FONT_SIZE}px; position: absolute; visibility: hidden; white-space: pre;`;
-    span.textContent = "W";
-    document.body.appendChild(span);
-    cellWRef.current = span.getBoundingClientRect().width;
-    document.body.removeChild(span);
-  }, []);
 
   // Build row elements
   const rowElements: React.ReactNode[] = [];
@@ -265,7 +313,7 @@ export function TerminalView({ terminalId, projectPath }: Props) {
       <div
         key={r}
         style={{
-          height: LINE_HEIGHT,
+          minHeight: LINE_HEIGHT,
           lineHeight: `${LINE_HEIGHT}px`,
           whiteSpace: "pre",
           overflow: "hidden",
@@ -279,31 +327,6 @@ export function TerminalView({ terminalId, projectPath }: Props) {
   const showCursor = grid.cursorVisible && grid.displayOffset === 0;
   const cellW = cellWRef.current;
 
-  // Pinch-to-zoom handlers (terminal only, not the whole app)
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    if (e.touches.length === 2) {
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      pinchRef.current = Math.sqrt(dx * dx + dy * dy);
-      scaleRef.current = scale;
-    }
-  }, [scale]);
-
-  const handleTouchMove = useCallback((e: React.TouchEvent) => {
-    if (e.touches.length === 2 && pinchRef.current !== null) {
-      e.preventDefault();
-      const dx = e.touches[0].clientX - e.touches[1].clientX;
-      const dy = e.touches[0].clientY - e.touches[1].clientY;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      const newScale = Math.min(Math.max(scaleRef.current * (dist / pinchRef.current), 0.3), 2);
-      setScale(newScale);
-    }
-  }, []);
-
-  const handleTouchEnd = useCallback(() => {
-    pinchRef.current = null;
-  }, []);
-
   return (
     <div
       ref={containerRef}
@@ -312,9 +335,6 @@ export function TerminalView({ terminalId, projectPath }: Props) {
         background: colorToCSS(DEFAULT_BG),
         WebkitOverflowScrolling: "touch",
       }}
-      onTouchStart={handleTouchStart}
-      onTouchMove={handleTouchMove}
-      onTouchEnd={handleTouchEnd}
     >
       <div
         style={{
@@ -325,31 +345,27 @@ export function TerminalView({ terminalId, projectPath }: Props) {
           padding: "4px 8px",
           position: "relative",
           minHeight: "100%",
-          minWidth: "fit-content",
-          transform: `scale(${scale})`,
-          transformOrigin: "top left",
         }}
       >
-          {rowElements}
+        {rowElements}
 
-          {/* Cursor */}
-          {showCursor && cellW > 0 && (
-            <div
-              style={{
-                position: "absolute",
-                left: 8 + grid.cursorCol * cellW,
-                top: 4 + grid.cursorRow * LINE_HEIGHT,
-                width: grid.cursorShape === "bar" ? 2.5 : cellW,
-                height: grid.cursorShape === "underline" ? 3 : LINE_HEIGHT,
-                marginTop: grid.cursorShape === "underline" ? LINE_HEIGHT - 3 : 0,
-                background: "rgba(240, 240, 240, 0.85)",
-                pointerEvents: "none",
-                zIndex: 10,
-              }}
-            />
-          )}
+        {/* Cursor */}
+        {showCursor && cellW > 0 && (
+          <div
+            style={{
+              position: "absolute",
+              left: 8 + grid.cursorCol * cellW,
+              top: 4 + grid.cursorRow * LINE_HEIGHT,
+              width: grid.cursorShape === "bar" ? 2.5 : cellW,
+              height: grid.cursorShape === "underline" ? 3 : LINE_HEIGHT,
+              marginTop: grid.cursorShape === "underline" ? LINE_HEIGHT - 3 : 0,
+              background: "rgba(240, 240, 240, 0.85)",
+              pointerEvents: "none",
+              zIndex: 10,
+            }}
+          />
+        )}
       </div>
     </div>
   );
 }
-
