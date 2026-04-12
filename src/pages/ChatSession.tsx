@@ -71,6 +71,7 @@ export function ChatSession() {
           }}
         />
         <button
+          onTouchEnd={(e) => { e.preventDefault(); handleSend(); }}
           onClick={handleSend}
           disabled={!input.trim()}
           className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 self-end"
