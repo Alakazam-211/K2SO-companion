@@ -49,7 +49,7 @@ export function ChatSession() {
       </div>
 
       {/* Input bar — multi-line */}
-      <div className="flex gap-2 px-4 py-3 border-t border-[var(--border)] bg-[var(--surface)]" style={{ flexShrink: 0 }}>
+      <div className="flex gap-2 px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar" style={{ flexShrink: 0 }}>
         <textarea
           ref={textareaRef}
           value={input}
@@ -62,7 +62,7 @@ export function ChatSession() {
           }}
           placeholder="Send to terminal..."
           rows={1}
-          className="flex-1 bg-[var(--background)] border border-[var(--border)] px-3 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent-dim)] transition-colors resize-none"
+          className="flex-1 bg-[var(--background)] border border-[var(--accent-dim)] px-3 text-[var(--text)] text-[13px] focus:outline-none resize-none"
           style={{
             height: 40,
             lineHeight: "20px",
@@ -73,7 +73,7 @@ export function ChatSession() {
         <button
           onClick={handleSend}
           disabled={!input.trim()}
-          className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center disabled:border-[var(--border)] disabled:text-[var(--text-muted)] hover:border-[var(--accent)] hover:bg-[var(--accent)]/5 transition-all shrink-0 self-end"
+          className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 self-end"
         >
           ↑
         </button>
