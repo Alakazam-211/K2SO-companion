@@ -7,8 +7,10 @@ import { TerminalView } from "../components/TerminalView";
 export function ChatSession() {
   const { terminalId } = useParams<{ terminalId: string }>();
   const navigate = useNavigate();
-  const activeProject = useWorkspacesStore((s) => s.activeProject());
-  const projectPath = activeProject?.path || "";
+  const session = useWorkspacesStore((s) =>
+    s.allSessions.find((sess) => sess.terminalId === terminalId)
+  );
+  const projectPath = session?.cwd || "";
   const [input, setInput] = useState("");
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -36,9 +38,11 @@ export function ChatSession() {
     <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--background)]" style={{ flexShrink: 0 }}>
-        <button onClick={() => navigate("/workspaces")} className="text-[var(--accent)] text-[13px]">←</button>
+        <button onClick={() => navigate("/sessions")} className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 -ml-2">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 1L3 7l6 6" /></svg>
+        </button>
         <span className="text-[var(--text)] text-[13px] font-semibold truncate flex-1">
-          {activeProject?.name || "Terminal"}
+          {session?.label || session?.workspaceName || "Terminal"}
         </span>
         <div className="w-2 h-2 rounded-full bg-[var(--success)] shrink-0" />
       </div>

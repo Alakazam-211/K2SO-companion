@@ -269,6 +269,11 @@ export const readTerminal = (project: string, id: string, lines = 500) =>
   }, 15000, { id, lines: String(lines), scrollback: "true" });
 export const spawnTerminal = (project: string, command: string, title?: string) =>
   request("terminal.spawn", "/companion/terminal/spawn", { project, command, title }, { method: "POST" });
+export const spawnBackgroundTerminal = (project: string, command: string, cwd?: string) =>
+  request<{ success: boolean; terminalId: string; command: string }>(
+    "terminal.spawn_background", "/companion/terminal/spawn-background",
+    { project, command, cwd: cwd || project }, { method: "POST" }
+  );
 export const writeTerminal = (project: string, id: string, message: string) =>
   request("terminal.write", "/companion/terminal/write", { project, id, message }, { method: "POST" });
 export const getStatus = (project: string) =>

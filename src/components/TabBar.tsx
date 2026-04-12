@@ -1,7 +1,7 @@
 import { useLocation, useNavigate } from "react-router-dom";
 
 const tabs = [
-  { path: "/workspaces", label: "Workspaces", icon: "⊞" },
+  { path: "/sessions", label: "Sessions", icon: "☰" },
   { path: "/settings", label: "Settings", icon: "⚙" },
 ] as const;
 
@@ -13,7 +13,7 @@ export function TabBar() {
   if (location.pathname.startsWith("/chat/")) return null;
 
   return (
-    <nav className="flex border-t border-[var(--border)] bg-[var(--background)] shrink-0 px-2 pb-1">
+    <nav className="flex border-t border-[var(--border)] bg-[var(--background)] shrink-0 px-2" style={{ paddingBottom: 20 }}>
       {tabs.map((tab) => {
         const isActive = location.pathname.startsWith(tab.path);
         return (
