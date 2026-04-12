@@ -50,7 +50,7 @@ export function Login() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center h-full px-6">
+    <div className="flex flex-col items-center justify-center h-full px-6 pb-safe">
       <div className="text-center mb-8">
         <h1 className="text-4xl font-extrabold tracking-[0.2em] text-[var(--text)]">
           K2

@@ -22,7 +22,7 @@ export function Workspaces() {
   }, [activeProject?.id]);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full pb-safe">
       <div className="flex-1 overflow-y-auto p-4">
         {/* Error + retry */}
         {error && (
