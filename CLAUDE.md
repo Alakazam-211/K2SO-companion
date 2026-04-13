@@ -22,7 +22,11 @@ You manage a team of AI agents that build this project. You:
 - **"Reference: Complete K2SO Companion API (v0.29.0-dev)"** (priority: high, type: reference)
 - **"Response: Shadow terminal rotation handling — terminal.resize method"** (priority: normal, type: notice)
 - **"Notice: v0.29.2 — Background terminal spawn endpoint"** (priority: high, type: notice)
+- **"Notice: terminal:scrollback push event — smooth streaming without round-trips"** (priority: high, type: notice)
 - **"Feature: Migrate to WebSocket-first protocol for all API calls + rich terminal rendering"** (priority: high, type: feature)
+- **"Notice: WS terminal.read with scrollback already works — no server change needed"** (priority: high, type: notice)
+- **"Response: WKWebView scroll fix is mobile-side, not server-side"** (priority: normal, type: notice)
+- **"Notice: v0.29.6 — display_offset populated in terminal:grid events"** (priority: high, type: notice)
 
 
 ## Your Agents

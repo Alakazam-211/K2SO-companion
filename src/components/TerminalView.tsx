@@ -323,15 +323,26 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     // Small delay to let container measure, then subscribe with dims
     setTimeout(subscribe, 100);
 
-    // WS grid events trigger content reload via WS terminal.read
-    let wsDebounce: ReturnType<typeof setTimeout> | null = null;
-    const unsub = ws.on("terminal:grid", (event) => {
-      const data = event.payload as { terminalId: string; grid: GridUpdate };
-      if (data.terminalId === terminalId) {
-        if (wsDebounce) clearTimeout(wsDebounce);
-        wsDebounce = setTimeout(loadContent, 100);
+    // WS terminal:scrollback — real-time push with full scrollback buffer
+    const unsubScrollback = ws.on("terminal:scrollback", (event) => {
+      const data = event.payload as { terminalId: string; lines: string[]; totalLines: number };
+      if (data.terminalId === terminalId && data.lines) {
+        scrollbackLoadedRef.current = true;
+        linesRef.current.clear();
+        for (let i = 0; i < data.lines.length; i++) {
+          linesRef.current.set(i, { row: i, text: data.lines[i] });
+        }
+        setGrid((prev) => ({
+          ...prev,
+          rows: data.lines.length,
+          cursorRow: data.lines.length - 1,
+          version: Date.now(),
+        }));
       }
     });
+
+    // WS terminal:grid — subscribe to get scrollback events flowing
+    const unsub = ws.on("terminal:grid", () => {});
 
     // HTTP polling fallback (only when WS isn't connected)
     if (!ws.isConnected) {
@@ -349,6 +360,7 @@ export function TerminalView({ terminalId, projectPath }: Props) {
 
     return () => {
       unsub();
+      unsubScrollback();
       if (ws.isConnected) ws.unsubscribeTerminal(terminalId);
       if (polling) clearInterval(polling);
       if (resizeTimer) clearTimeout(resizeTimer);
