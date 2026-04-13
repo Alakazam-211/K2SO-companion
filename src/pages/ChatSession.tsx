@@ -4,6 +4,9 @@ import * as api from "../api/client";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { TerminalView } from "../components/TerminalView";
 
+// @ts-expect-error Vite injects import.meta.env
+const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
+
 export function ChatSession() {
   const { terminalId } = useParams<{ terminalId: string }>();
   const navigate = useNavigate();
@@ -170,10 +173,11 @@ export function ChatSession() {
         <div className="w-2 h-2 rounded-full bg-[var(--success)] shrink-0" />
       </div>
 
-      {/* Debug — remove after testing */}
-      <div style={{ flexShrink: 0, color: "#22d3ee", fontSize: 9, padding: "2px 8px", opacity: 0.7 }}>
-        h={containerHeight.toFixed(0)} | vv={window.visualViewport?.height?.toFixed(0)} | {debugInfo}
-      </div>
+      {DEV_MODE && (
+        <div style={{ flexShrink: 0, color: "#22d3ee", fontSize: 9, padding: "2px 8px", opacity: 0.7 }}>
+          h={containerHeight.toFixed(0)} | vv={window.visualViewport?.height?.toFixed(0)} | {debugInfo}
+        </div>
+      )}
 
       {/* Terminal — only scrollable area */}
       <div ref={terminalWrapperRef} style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
