@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
 import * as api from "../api/client";
@@ -12,7 +12,19 @@ export function NewSessionModal({ open, onClose }: Props) {
   const projects = useWorkspacesStore((s) => s.projects);
   const [query, setQuery] = useState("");
   const [launching, setLaunching] = useState(false);
+  const [viewHeight, setViewHeight] = useState(window.innerHeight);
   const navigate = useNavigate();
+
+  // Track visual viewport so modal stays above keyboard
+  useEffect(() => {
+    if (!open) return;
+    const vv = window.visualViewport;
+    if (!vv) return;
+    const onResize = () => setViewHeight(vv.height);
+    onResize();
+    vv.addEventListener("resize", onResize);
+    return () => vv.removeEventListener("resize", onResize);
+  }, [open]);
 
   if (!open) return null;
 
@@ -42,7 +54,8 @@ export function NewSessionModal({ open, onClose }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center"
+      className="fixed z-50 flex flex-col justify-end"
+      style={{ top: 0, left: 0, right: 0, height: viewHeight }}
       onClick={onClose}
     >
       {/* Backdrop */}
@@ -50,12 +63,12 @@ export function NewSessionModal({ open, onClose }: Props) {
 
       {/* Modal */}
       <div
-        className="relative w-full bg-[var(--surface)] border-t border-[var(--border)]"
-        style={{ maxHeight: "70vh" }}
+        className="relative w-full bg-[var(--surface)] border-t border-[var(--border)] flex flex-col"
+        style={{ maxHeight: viewHeight * 0.7 }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]" style={{ flexShrink: 0 }}>
           <span className="text-[var(--text)] text-[13px] font-semibold">
             New Session
           </span>
@@ -68,7 +81,7 @@ export function NewSessionModal({ open, onClose }: Props) {
         </div>
 
         {/* Search */}
-        <div className="px-4 py-2 border-b border-[var(--border)]">
+        <div className="px-4 py-2 border-b border-[var(--border)]" style={{ flexShrink: 0 }}>
           <input
             autoFocus
             value={query}
@@ -79,7 +92,7 @@ export function NewSessionModal({ open, onClose }: Props) {
         </div>
 
         {/* Workspace list */}
-        <div className="overflow-y-auto pb-safe" style={{ maxHeight: "calc(70vh - 110px)" }}>
+        <div className="overflow-y-auto flex-1">
           {launching ? (
             <div className="flex items-center justify-center py-8">
               <span className="text-[var(--accent)] text-[13px]">Launching...</span>
