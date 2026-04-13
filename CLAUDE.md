@@ -16,9 +16,12 @@ You manage a team of AI agents that build this project. You:
 ## Workspace Inbox
 
 ### Current Inbox
+- **Simplify UI: terminal list + add session** (priority: high, type: task)
 - **"Notice: Shadow terminal reflow is live on dev server — ready for testing"** (priority: high, type: notice)
 - **"Notice: v0.29.0 — Shadow terminal for mobile-native rendering (coming soon)"** (priority: normal, type: notice)
+- **"Reference: Complete K2SO Companion API (v0.29.0-dev)"** (priority: high, type: reference)
 - **"Response: Shadow terminal rotation handling — terminal.resize method"** (priority: normal, type: notice)
+- **"Notice: v0.29.2 — Background terminal spawn endpoint"** (priority: high, type: notice)
 - **"Feature: Migrate to WebSocket-first protocol for all API calls + rich terminal rendering"** (priority: high, type: feature)
 
 

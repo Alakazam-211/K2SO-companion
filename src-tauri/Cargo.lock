@@ -1756,13 +1756,13 @@ dependencies = [
 name = "k2so-companion"
 version = "1.0.0"
 dependencies = [
+ "objc2",
  "reqwest 0.12.28",
  "serde",
  "serde_json",
  "tauri",
  "tauri-build",
  "tauri-plugin-http",
- "tauri-plugin-ios-keyboard",
  "tauri-plugin-store",
 ]
 
@@ -3812,18 +3812,6 @@ dependencies = [
  "tokio",
  "url",
  "urlpattern",
-]
-
-[[package]]
-name = "tauri-plugin-ios-keyboard"
-version = "0.1.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "4efdcf9b5fa18d5683b4ba7354854c065350e3fc7de7bebee9a2752994abf561"
-dependencies = [
- "serde",
- "tauri",
- "tauri-plugin",
- "thiserror 2.0.18",
 ]
 
 [[package]]
