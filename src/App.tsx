@@ -18,9 +18,17 @@ function AuthGuard({ children }: { children: React.ReactNode }) {
 function AppHeader({ onNewSession }: { onNewSession: () => void }) {
   const location = useLocation();
   const allSessions = useWorkspacesStore((s) => s.allSessions);
+  const refreshAll = useWorkspacesStore((s) => s.refreshAll);
+  const [refreshing, setRefreshing] = useState(false);
 
   if (location.pathname.startsWith("/chat/")) return null;
   if (location.pathname === "/settings") return null;
+
+  const handleRefresh = async () => {
+    setRefreshing(true);
+    await refreshAll();
+    setRefreshing(false);
+  };
 
   return (
     <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--background)]" style={{ flexShrink: 0 }}>
@@ -30,6 +38,19 @@ function AppHeader({ onNewSession }: { onNewSession: () => void }) {
       <span className="text-[var(--text-muted)] text-[11px]">
         {allSessions.length} active
       </span>
+      {/* Refresh */}
+      <button
+        onClick={handleRefresh}
+        className="w-8 h-8 flex items-center justify-center text-[var(--text-muted)]"
+        style={refreshing ? { animation: "spin 1s linear infinite" } : undefined}
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <path d="M21 2v6h-6" />
+          <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+          <path d="M3 22v-6h6" />
+          <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+        </svg>
+      </button>
       {/* New session */}
       <button
         onClick={onNewSession}
