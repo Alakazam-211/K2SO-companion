@@ -162,6 +162,7 @@ export function TerminalView({ terminalId, projectPath }: Props) {
   }, []);
 
   const scrollbackLoadedRef = useRef(false);
+  const MAX_ROWS = 1000;
 
   const applyGridUpdate = useCallback((update: GridUpdate, isScrollback = false) => {
     if (update.full && !scrollbackLoadedRef.current) {
@@ -169,14 +170,34 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     }
 
     if (isScrollback) {
+      // HTTP scrollback — rows map directly by index
       for (const line of update.lines) {
         linesRef.current.set(line.row, line);
       }
+    } else {
+      // WS grid event — use display_offset for absolute row positioning
+      const offset = update.display_offset ?? 0;
+      for (const line of update.lines) {
+        const absRow = offset + line.row;
+        linesRef.current.set(absRow, { ...line, row: absRow });
+      }
     }
-    // WS grid events are handled by triggering HTTP reload (see below)
+
+    // Roll off oldest rows if buffer exceeds max
+    if (linesRef.current.size > MAX_ROWS) {
+      const keys = Array.from(linesRef.current.keys()).sort((a, b) => a - b);
+      const toRemove = keys.length - MAX_ROWS;
+      for (let i = 0; i < toRemove; i++) {
+        linesRef.current.delete(keys[i]);
+      }
+    }
+
+    const maxKey = linesRef.current.size > 0
+      ? Math.max(...Array.from(linesRef.current.keys())) + 1
+      : update.rows;
 
     setGrid({
-      rows: Math.max(update.rows, linesRef.current.size),
+      rows: maxKey,
       cols: update.cols,
       cursorRow: update.cursor_row,
       cursorCol: update.cursor_col,
@@ -206,33 +227,58 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
 
     let lastText = "";
+    let loadingContent = false;
 
     const loadContent = async () => {
-      const r = await api.readTerminal(projectPath, terminalId, 500);
-      debugRef.current = `got=${r.ok ? (r.data?.lines?.length ?? 0) : r.error}`;
-      if (r.ok && r.data?.lines) {
-        const text = r.data.lines.join("\n");
-        if (text !== lastText) {
-          lastText = text;
-          scrollbackLoadedRef.current = true;
+      if (loadingContent) return; // prevent concurrent reads
+      loadingContent = true;
 
-          // Always rebuild the full line buffer from HTTP response
-          linesRef.current.clear();
-          const lines: CompactLine[] = r.data.lines.map((line, i) => ({
-            row: i,
-            text: line,
-          }));
-          for (const line of lines) {
-            linesRef.current.set(line.row, line);
+      // Try WS first (faster, ~350ms vs ~700ms HTTP through ngrok)
+      let lines: string[] | null = null;
+      if (ws.isConnected) {
+        try {
+          const result = await ws.request<{ ok: boolean; data?: { lines: string[] } }>(
+            "terminal.read",
+            { project: projectPath, id: terminalId, lines: "500", scrollback: "true" }
+          );
+          if (result.ok && result.data?.lines) {
+            lines = result.data.lines;
           }
+        } catch { /* fall through to HTTP */ }
+      }
 
-          setGrid((prev) => ({
-            ...prev,
-            rows: r.data!.lines.length,
-            cursorRow: r.data!.lines.length - 1,
-            version: Date.now(),
-          }));
+      // HTTP fallback
+      if (!lines) {
+        const r = await api.readTerminal(projectPath, terminalId, 500);
+        if (r.ok && r.data?.lines) {
+          lines = r.data.lines;
         }
+      }
+
+      loadingContent = false;
+      if (!lines) return;
+
+      const text = lines.join("\n");
+      debugRef.current = `lines=${lines.length}`;
+      if (text !== lastText) {
+        lastText = text;
+        scrollbackLoadedRef.current = true;
+
+        linesRef.current.clear();
+        const compactLines: CompactLine[] = lines.map((line, i) => ({
+          row: i,
+          text: line,
+        }));
+        for (const line of compactLines) {
+          linesRef.current.set(line.row, line);
+        }
+
+        setGrid((prev) => ({
+          ...prev,
+          rows: lines!.length,
+          cursorRow: lines!.length - 1,
+          version: Date.now(),
+        }));
       }
     };
 
@@ -277,17 +323,17 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     // Small delay to let container measure, then subscribe with dims
     setTimeout(subscribe, 100);
 
-    // WS grid events trigger HTTP reload for complete content
+    // WS grid events trigger content reload via WS terminal.read
     let wsDebounce: ReturnType<typeof setTimeout> | null = null;
     const unsub = ws.on("terminal:grid", (event) => {
       const data = event.payload as { terminalId: string; grid: GridUpdate };
       if (data.terminalId === terminalId) {
         if (wsDebounce) clearTimeout(wsDebounce);
-        wsDebounce = setTimeout(loadContent, 150);
+        wsDebounce = setTimeout(loadContent, 100);
       }
     });
 
-    // HTTP polling fallback
+    // HTTP polling fallback (only when WS isn't connected)
     if (!ws.isConnected) {
       polling = setInterval(loadContent, 2000);
     }
