@@ -29,7 +29,23 @@ export function ChatSession() {
 
     const findScrollEl = () => {
       if (!scrollEl) {
-        scrollEl = wrapper.querySelector('[style*="overflow"]') as HTMLElement;
+        // Find the TerminalView's scroll container (overflow: auto), not the wrapper (overflow: hidden)
+        const candidates = wrapper.querySelectorAll('div');
+        for (const el of candidates) {
+          if (el.style.overflow === 'auto' && el.scrollHeight > el.clientHeight) {
+            scrollEl = el;
+            break;
+          }
+        }
+        // Fallback: first element with overflow auto
+        if (!scrollEl) {
+          for (const el of candidates) {
+            if (el.style.overflow === 'auto') {
+              scrollEl = el;
+              break;
+            }
+          }
+        }
       }
       return scrollEl;
     };
@@ -45,7 +61,9 @@ export function ChatSession() {
       const deltaY = startY - e.touches[0].clientY;
       startY = e.touches[0].clientY;
       el.scrollTop += deltaY;
-      e.preventDefault(); // prevent any other scroll behavior
+      // Dispatch scroll event so TerminalView's auto-scroll logic updates
+      el.dispatchEvent(new Event('scroll'));
+      e.preventDefault();
     };
 
     wrapper.addEventListener("touchstart", onTouchStart, { passive: true });

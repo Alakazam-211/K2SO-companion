@@ -174,13 +174,10 @@ export function TerminalView({ terminalId, projectPath }: Props) {
         linesRef.current.set(line.row, line);
       }
     } else {
-      // WS grid event — offset rows to the end of the buffer so colors
-      // appear on the visible portion, not overwriting scrollback start
-      const bufSize = linesRef.current.size;
-      const offset = bufSize > update.rows ? bufSize - update.rows : 0;
-      for (const line of update.lines) {
-        linesRef.current.set(line.row + offset, { ...line, row: line.row + offset });
-      }
+      // WS grid event — replace all content with fresh HTTP poll.
+      // The WS event tells us something changed; we fetch the full
+      // history via HTTP to avoid offset/gap issues during streaming.
+      // The WS lines still provide color data for the visible screen.
     }
 
     setGrid({
@@ -213,57 +210,33 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     let polling: ReturnType<typeof setInterval> | null = null;
     let resizeTimer: ReturnType<typeof setTimeout> | null = null;
 
-    // Load terminal content — initial load gets full scrollback, polls just update visible
-    let initialized = false;
     let lastText = "";
 
     const loadContent = async () => {
-      const requestLines = initialized ? 100 : 500;
-      const r = await api.readTerminal(projectPath, terminalId, requestLines);
-      debugRef.current = `req=${requestLines} got=${r.ok ? (r.data?.lines?.length ?? 0) : r.error}`;
+      const r = await api.readTerminal(projectPath, terminalId, 500);
+      debugRef.current = `got=${r.ok ? (r.data?.lines?.length ?? 0) : r.error}`;
       if (r.ok && r.data?.lines) {
         const text = r.data.lines.join("\n");
         if (text !== lastText) {
           lastText = text;
+          scrollbackLoadedRef.current = true;
 
-          if (!initialized) {
-            // First load — set full scrollback
-            initialized = true;
-            scrollbackLoadedRef.current = true;
-            const lines: CompactLine[] = r.data.lines.map((line, i) => ({
-              row: i,
-              text: line,
-            }));
-            applyGridUpdate({
-              cols: 120,
-              rows: r.data.lines.length,
-              cursor_col: 0,
-              cursor_row: r.data.lines.length - 1,
-              cursor_visible: true,
-              cursor_shape: "block",
-              lines,
-              full: true,
-            }, true); // isScrollback = true
-          } else {
-            // Subsequent polls — update the last N rows without clearing scrollback
-            const existingCount = linesRef.current.size;
-            const newLines = r.data.lines;
-            const startRow = Math.max(0, existingCount - 100);
-            const lines: CompactLine[] = newLines.map((line, i) => ({
-              row: startRow + i,
-              text: line,
-            }));
-            // Don't use full:true — preserve scrollback
-            for (const line of lines) {
-              linesRef.current.set(line.row, line);
-            }
-            setGrid((prev) => ({
-              ...prev,
-              rows: Math.max(prev.rows, startRow + newLines.length),
-              cursorRow: startRow + newLines.length - 1,
-              version: Date.now(),
-            }));
+          // Always rebuild the full line buffer from HTTP response
+          linesRef.current.clear();
+          const lines: CompactLine[] = r.data.lines.map((line, i) => ({
+            row: i,
+            text: line,
+          }));
+          for (const line of lines) {
+            linesRef.current.set(line.row, line);
           }
+
+          setGrid((prev) => ({
+            ...prev,
+            rows: r.data!.lines.length,
+            cursorRow: r.data!.lines.length - 1,
+            version: Date.now(),
+          }));
         }
       }
     };
@@ -309,10 +282,15 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     // Small delay to let container measure, then subscribe with dims
     setTimeout(subscribe, 100);
 
+    // WS grid events signal that content changed — reload via HTTP
+    // to get the full history (avoids offset/gap issues during streaming)
+    let wsDebounce: ReturnType<typeof setTimeout> | null = null;
     const unsub = ws.on("terminal:grid", (event) => {
       const data = event.payload as { terminalId: string; grid: GridUpdate };
       if (data.terminalId === terminalId) {
-        scheduleRender(data.grid);
+        // Debounce rapid WS updates to avoid hammering HTTP
+        if (wsDebounce) clearTimeout(wsDebounce);
+        wsDebounce = setTimeout(loadContent, 200);
       }
     });
 
