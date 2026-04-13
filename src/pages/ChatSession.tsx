@@ -68,16 +68,20 @@ export function ChatSession() {
 
   // Listen for viewport resize from native JS injection + visualViewport
   useEffect(() => {
-    const safeAreaTop = parseInt(getComputedStyle(document.documentElement).getPropertyValue('padding-top') || '0', 10) || 0;
+    const root = document.getElementById("root");
+    const rootStyle = root ? getComputedStyle(root) : null;
+    const safeAreaTop = parseInt(rootStyle?.paddingTop || '0', 10) || 0;
     const fullHeight = window.innerHeight;
 
     const update = () => {
       const vv = window.visualViewport;
       const vvHeight = vv ? vv.height : window.innerHeight;
       if (vvHeight < fullHeight - 100) {
+        // Keyboard open — subtract top safe area only (keyboard covers bottom)
         setContainerHeight(vvHeight - safeAreaTop);
       } else {
-        setContainerHeight(fullHeight - safeAreaTop);
+        // Keyboard closed — need room for home indicator + input bar padding
+        setContainerHeight(fullHeight - safeAreaTop - 34);
       }
       // Prevent iOS from scrolling the page during keyboard animation
       window.scrollTo(0, 0);
@@ -88,7 +92,7 @@ export function ChatSession() {
       if (h && h < fullHeight - 100) {
         setContainerHeight(h - safeAreaTop);
       } else {
-        setContainerHeight(fullHeight - safeAreaTop);
+        setContainerHeight(fullHeight - safeAreaTop - 34);
       }
     };
 
