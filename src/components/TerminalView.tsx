@@ -168,17 +168,12 @@ export function TerminalView({ terminalId, projectPath }: Props) {
       linesRef.current.clear();
     }
 
-    if (isScrollback || !scrollbackLoadedRef.current) {
-      // HTTP scrollback or first load — rows map directly
+    if (isScrollback) {
       for (const line of update.lines) {
         linesRef.current.set(line.row, line);
       }
-    } else {
-      // WS grid event — replace all content with fresh HTTP poll.
-      // The WS event tells us something changed; we fetch the full
-      // history via HTTP to avoid offset/gap issues during streaming.
-      // The WS lines still provide color data for the visible screen.
     }
+    // WS grid events are handled by triggering HTTP reload (see below)
 
     setGrid({
       rows: Math.max(update.rows, linesRef.current.size),
@@ -282,15 +277,13 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     // Small delay to let container measure, then subscribe with dims
     setTimeout(subscribe, 100);
 
-    // WS grid events signal that content changed — reload via HTTP
-    // to get the full history (avoids offset/gap issues during streaming)
+    // WS grid events trigger HTTP reload for complete content
     let wsDebounce: ReturnType<typeof setTimeout> | null = null;
     const unsub = ws.on("terminal:grid", (event) => {
       const data = event.payload as { terminalId: string; grid: GridUpdate };
       if (data.terminalId === terminalId) {
-        // Debounce rapid WS updates to avoid hammering HTTP
         if (wsDebounce) clearTimeout(wsDebounce);
-        wsDebounce = setTimeout(loadContent, 200);
+        wsDebounce = setTimeout(loadContent, 150);
       }
     });
 
