@@ -198,6 +198,16 @@ fallback for localhost dev). This REPLACES the app's Basic-auth/bearer flow.
   are already validated against localhost; the tunnel just changes the base URL (https
   subdomain) — the app already supports that (login URL → `https://<sub>` when no scheme).
 
+- **Iter 6 (secondary endpoints verified + wake route fixed)**:
+  - `/cli/agents/list` → returns the EXACT `Agent` shape (name, role, isManager,
+    agentType, inbox/active/doneCount) ✓. `/cli/companion/projects[-summary]`, `status`
+    ✓ (earlier). `/cli/reviews` → valid array (empty; item shape unverified, no data).
+    `/cli/inbox/list` (agent work) → HTTP 200 ✓.
+  - **Fixed wake**: `wakeAgent` now hits `GET /cli/agents/heartbeat?agent=<name>&
+    force_wake=1` (the route the host CLI uses) instead of the wrong `/cli/heartbeat/fire`
+    (name-model). Not live-fired (waking spawns a real session). Typecheck clean. Committed.
+  - Companion's screens now all map to correct, verified `/cli/*` routes.
+
 ### Remaining autonomous work (not Rosson-blocked)
 - **In-app on-screen render** — run the companion app locally (`tauri dev`, allowed: local
   test, NOT a release) pointed at `http://127.0.0.1:<daemon.port>`, log in as `mobiletest`,
