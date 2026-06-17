@@ -152,7 +152,29 @@ fallback for localhost dev). This REPLACES the app's Basic-auth/bearer flow.
     but the in-app render path (login → sessions list → open terminal → see live grid)
     needs a real run. That needs either a K2 Connect account (login) or a localhost dev
     run with a session token.
-  - Next (iter 4): Phase 3 auth — persist session via `tauri-plugin-store` +
-    `restoreSession()`; find the connect-user CREATE route (`/cli/users/list` 404'd) to
-    self-serve a dev account OR flag for Rosson; then run the companion in `npm run dev`
-    pointed at `http://127.0.0.1:<daemon.port>` and smoke-test the full flow on screen.
+- **Iter 4 (Phase 3 auth — DONE; full chain proven end-to-end)**:
+  - **FULL AUTH CHAIN VALIDATED** against the local daemon (curl):
+    1. `POST /cli/users/add?token=<daemonToken>` `{username,password}` → `{"success":true}`
+       (the local **daemon token IS the owner credential** — `require_owner` accepts it;
+       user mgmt routes are `/cli/users/{add,remove,set-password,set-role,...}`, list is
+       bare `GET /cli/users` — that's why `/cli/users/list` 404'd).
+    2. `POST /cli/auth/login {username,password}` → 64-char session token.
+    3. session token as `?token=` on `/cli/companion/sessions` → **HTTP 200 + real data**.
+    4. session token on grid-WS `/cli/sessions/grid` → **HTTP 101**.
+    → ANSWERS the iter-2 open question: the K2 Connect session token authenticates BOTH
+    the data routes AND the grid-WS. The companion's transport+auth+grid chain is fully
+    proven at the protocol level.
+  - **DEV ACCOUNT for in-app testing:** username `mobiletest` / password `k2mobiletest!`
+    (created on THIS machine's daemon; dev box only).
+  - **Session persistence wired:** registered `tauri_plugin_store` in `src-tauri/lib.rs`
+    (was a dep but NOT initialized → JS `load()` would've failed); added `store:default`
+    + `http://127.0.0.1:*` / `http://localhost:*` to `capabilities/default.json` (the
+    http allow was https-only → localhost dev would've been blocked); `auth.ts` now
+    persists `{serverUrl,username,token}` on login and `restoreSession()` re-applies it
+    optimistically on startup (already called from App.tsx).
+  - Frontend build + `cargo check` both clean. Committed.
+  - Next (iter 5): **in-app smoke test** — run the companion (`npm run dev` / desktop
+    `tauri dev`) pointed at `http://127.0.0.1:<daemon.port>`, log in as `mobiletest`,
+    confirm the sessions list loads and a terminal renders LIVE on screen. Document
+    manual verify steps for Rosson. Then Phase 5: bring up the K2 Connect tunnel for an
+    over-the-tunnel run (needs tunnel creds / subdomain — Rosson).
