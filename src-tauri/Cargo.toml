@@ -1,7 +1,7 @@
 [package]
 name = "k2so-companion"
 version = "1.0.0"
-description = "Mobile companion for K2SO agent orchestrator"
+description = "Mobile companion for K2 agent orchestrator"
 authors = ["Alakazam Labs"]
 edition = "2021"
 

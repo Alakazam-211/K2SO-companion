@@ -55,7 +55,7 @@ export function Login() {
         <h1 className="text-4xl font-extrabold tracking-[0.2em] text-[var(--text)]">
           K2
         </h1>
-        <p className="text-[var(--text-muted)] text-[13px] mt-1">by K2SO</p>
+        <p className="text-[var(--text-muted)] text-[13px] mt-1">by Alakazam Labs</p>
       </div>
 
       <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-3">
@@ -127,7 +127,7 @@ export function Login() {
       </form>
 
       <p className="text-[var(--text-muted)] text-[10px] text-center mt-8 leading-4">
-        Enable Mobile Companion in K2SO settings to get your server URL
+        Sign in with your K2 Connect account to reach your machine
       </p>
     </div>
   );
