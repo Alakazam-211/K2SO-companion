@@ -105,6 +105,25 @@ fallback for localhost dev). This REPLACES the app's Basic-auth/bearer flow.
 - **Iter 2**: Phase 2 transport MAPPING resolved (see table above). Legacy `/companion/*`
   = ngrok proxy (dead path); new path = `/cli/*` over the K2 Connect tunnel; daemon
   already has companion-shaped `/cli/companion/*` routes + `/cli/auth/login` session
-  auth + `/cli/sessions/grid` WS. Next (iter 3): rewrite `src/api/client.ts` endpoint
-  constants + `src/api/websocket.ts` (grid-WS at `/cli/sessions/grid`), then verify
-  each route live against the local daemon with a session token.
+  auth + `/cli/sessions/grid` WS.
+- **Iter 2b (Phase 2a — transport rewrite DONE)**: rewrote `src/api/client.ts`:
+  - All paths re-pointed `/companion/*` → `/cli/*` (verified shapes live against the
+    local daemon: `/cli/companion/sessions|projects|projects-summary|presets|status`
+    all return RAW companion-shaped JSON — NOT a `{ok,data}` envelope).
+  - `httpRequest` now wraps raw 2xx bodies as `{ok:true,data}`, maps non-2xx →
+    `{ok:false,error}`, auths via `?token=<sessionToken>`, dropped the ngrok header.
+  - `login()` → `POST /cli/auth/login {username,password}` → raw `{token,username,
+    expiresAt}` (verified: 401 `{error:"invalid username or password"}` on bad creds).
+  - Secondary routes mapped to closest verified `/cli/*` (`reviews`→`/cli/reviews`,
+    wake→`/cli/heartbeat/fire` [param model differs — flagged], agents→`/cli/agents/list`,
+    work→`/cli/inbox/list`) — need per-screen param verification later.
+  - `auth.ts`: removed the dead `/companion/ws` RPC connect; data is HTTP-only now.
+  - Frontend typecheck clean. Committed.
+  - **BLOCKER for full login test:** need a K2 Connect user account on the daemon
+    (username/password) to test a SUCCESSFUL login + that the session token is accepted
+    as `?token=` on `/cli/*` over the tunnel. `/cli/users/list` 404'd — find the real
+    user-create route, or Rosson creates a test account. (Localhost dev can also test
+    data routes directly with the local daemon token.)
+  - Next (iter 3): Phase 4 grid-WS — wire `src/api/websocket.ts` / `TerminalView` to
+    `/cli/sessions/grid?session=<id>&token=<tok>` for live terminal streaming; then
+    stand up a dev login (find user-create route) and smoke-test sessions list end to end.

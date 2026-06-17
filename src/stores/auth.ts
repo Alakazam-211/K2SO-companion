@@ -27,9 +27,10 @@ export const useAuthStore = create<AuthState>((set) => ({
     const result = await api.login(url, username, password);
 
     if (result.ok && result.data) {
-      // Try WebSocket (works on desktop/simulator, may fail on iOS device)
-      ws.connect(url, result.data.token);
-
+      // Data calls go over HTTP to the daemon's `/cli/*` routes. The
+      // legacy companion RPC WebSocket (`/companion/ws`) no longer
+      // exists; live terminal streaming uses a dedicated per-session
+      // grid-WS (`/cli/sessions/grid`) opened by TerminalView (Phase 4).
       set({
         isAuthenticated: true,
         isLoading: false,
