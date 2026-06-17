@@ -2,11 +2,10 @@ import { useEffect, useRef, useState, useCallback } from "react";
 import * as api from "../api/client";
 import {
   GridSocket,
-  cellRowToCompact,
+  GridModel,
   type GridFrame,
   type TermGridSnapshot,
   type TermGridDelta,
-  type CompactLineLite,
 } from "../api/gridSocket";
 
 // ─── Types ───
@@ -254,36 +253,20 @@ export function TerminalView({ terminalId, projectPath }: Props) {
       }
     };
 
-    // Two-buffer model: `scrollback` only grows (delta.scrollbackAppended
-    // are the rows that scrolled off the top); `viewport` is the bottom
-    // `rows` rows, replaced wholesale on snapshot and patched in place by
-    // delta.damagedRows. Absolute row = scrollback index, then
-    // scrollback.length + viewport index. We build a GridUpdate from the
-    // two buffers and feed the existing renderer via applyGridUpdate.
-    let scrollback: CompactLineLite[] = [];
-    let viewport: CompactLineLite[] = [];
-    const MAX_SB = 1000;
-
-    const rebuild = (
-      cols: number,
-      cursor: { row: number; col: number; visible: boolean }
-    ) => {
-      if (scrollback.length > MAX_SB) {
-        scrollback = scrollback.slice(scrollback.length - MAX_SB);
-      }
-      const sbLen = scrollback.length;
-      const lines: CompactLine[] = [];
-      for (let i = 0; i < sbLen; i++) lines.push({ ...scrollback[i], row: i });
-      for (let i = 0; i < viewport.length; i++)
-        lines.push({ ...viewport[i], row: sbLen + i });
+    // Two-buffer terminal model (GridModel): snapshot replaces the
+    // viewport + scrollback; delta patches damaged viewport rows and
+    // appends scrollback. `lines()` flattens to absolute-row CompactLines
+    // which feed the existing renderer via applyGridUpdate.
+    const model = new GridModel();
+    const render = () => {
       const gu: GridUpdate = {
-        cols,
-        rows: sbLen + viewport.length,
-        cursor_col: cursor.col,
-        cursor_row: sbLen + cursor.row,
-        cursor_visible: cursor.visible,
+        cols: model.cols,
+        rows: model.totalRows(),
+        cursor_col: model.cursorCol,
+        cursor_row: model.cursorRow(),
+        cursor_visible: model.cursorVisible,
         cursor_shape: "block",
-        lines,
+        lines: model.lines() as CompactLine[],
         full: true,
         display_offset: 0,
       };
@@ -294,23 +277,14 @@ export function TerminalView({ terminalId, projectPath }: Props) {
 
     const onFrame = (frame: GridFrame) => {
       if (frame.event === "snapshot") {
-        const p = frame.payload as TermGridSnapshot;
-        scrollback = p.scrollback.map((r, i) => cellRowToCompact(r, i));
-        viewport = p.grid.map((r, i) => cellRowToCompact(r, i));
-        debugRef.current = `ws-snapshot sb=${scrollback.length} vp=${viewport.length}`;
-        rebuild(p.cols, p.cursor);
+        model.applySnapshot(frame.payload as TermGridSnapshot);
+        debugRef.current = `ws-snapshot sb=${model.scrollback.length} vp=${model.viewport.length}`;
+        render();
       } else if (frame.event === "delta") {
         const p = frame.payload as TermGridDelta;
-        for (const row of p.scrollbackAppended) {
-          scrollback.push(cellRowToCompact(row, scrollback.length));
-        }
-        for (const d of p.damagedRows) {
-          if (d.row >= 0 && d.row < viewport.length) {
-            viewport[d.row] = cellRowToCompact(d.cells, d.row);
-          }
-        }
+        model.applyDelta(p);
         debugRef.current = `ws-delta dmg=${p.damagedRows.length}`;
-        rebuild(p.cols, p.cursor);
+        render();
       } else if (frame.event === "child_exit") {
         gridSock.close();
       }
