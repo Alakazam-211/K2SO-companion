@@ -53,15 +53,58 @@ connects through the tunnel to THIS computer's daemon and shows a live local ter
 5. **End-to-end** — bring up the K2 Connect tunnel for this daemon; point companion at
    the subdomain; log in; confirm a live local terminal renders.
 
+## Phase 2 — transport mapping (RESOLVED iteration 2)
+
+**Architecture clarified:** the OLD `/companion/*` API was served by a LEGACY
+**ngrok proxy** (`crates/k2-core/src/companion/mod.rs` — "exposes a curated subset
+through an ngrok tunnel"). That's the pre-K2-Connect companion. The NEW path: the
+**K2 Connect tunnel** (`*.k2.dev`, frpc — `crates/k2-core/src/tunnel/`) exposes the
+daemon's MAIN HTTP server, which already has **purpose-built `/cli/companion/*`
+routes emitting the exact JSON shapes the app expects** (see
+`crates/k2-core/src/companion/cli_routes.rs`). So we re-point the app to `/cli/*`
+over the K2 Connect tunnel — NOT to the legacy ngrok proxy.
+
+**Endpoint translation (companion app → daemon `/cli/*`):**
+
+| App's old call (`src/api/client.ts`) | New daemon route |
+|---|---|
+| `POST /companion/auth` (Basic auth) | `POST /cli/auth/login` `{username,password}` → session token (PUBLIC, no token gate; `connect_users_routes::handle_login`) |
+| `GET /companion/sessions` | `GET /cli/companion/sessions` (companion-shaped `GlobalSession[]`) |
+| `GET /companion/projects` | `GET /cli/companion/projects` |
+| `GET /companion/projects/summary` | `GET /cli/companion/projects-summary` |
+| `GET /companion/presets` | `GET /cli/companion/presets` |
+| `GET /companion/agents/running` | `GET /cli/terminal/list-running` |
+| `GET /companion/terminal/read` | `GET /cli/terminal/read` |
+| `POST /companion/terminal/write` | `POST /cli/terminal/write` |
+| `POST /companion/terminal/spawn` | `POST /cli/terminal/spawn` (+ `/spawn-background`) |
+| `GET /companion/status` | `GET /cli/companion/status` |
+| WS `/companion/ws` (terminal grid) | WS `/cli/sessions/grid?session=<UUID>&token=<tok>` (shared grid emitter; inbound `{"action":"resize","cols":N,"rows":N}`) |
+
+**Auth model:** `POST /cli/auth/login {username,password}` returns a **session
+token** (K2 Connect login = `connect_users_routes`, #617; argon2; roles
+Owner/Admin/Member). All subsequent `/cli/*` calls + the grid-WS authenticate with
+`?token=<sessionToken>` (query param accepted; the local daemon token is the
+fallback for localhost dev). This REPLACES the app's Basic-auth/bearer flow.
+
+**Connection:** base URL becomes `https://<subdomain>.k2.dev` (tunnel) or
+`http://127.0.0.1:<daemon.port>` (localhost dev). Drop ngrok URL entry + the
+`ngrok-skip-browser-warning` header.
+
 ## Open questions / Rosson-only
 
-- Does the daemon still serve any `/companion/*` routes, or is everything `/cli/*` now?
-  (Iteration 2: diff the companion's expected endpoints vs the daemon's actual routes.)
 - Tunnel credentials / a K2 Connect subdomain for this machine (Phase 5 e2e).
 - iOS device signing identity for an on-device build (Phase 5).
+- Confirm `/cli/auth/login` session-token is accepted as `?token=` on the
+  `/cli/companion/*` + `/cli/terminal/*` + grid-WS routes when arriving via the
+  tunnel's acceptance policy (verify in iteration 3 against the live daemon).
 
 ## Progress log
 
 - **Iter 1**: Phase 1 rebrand complete — K2 icons generated, identity → "K2 Companion"
   / `dev.k2.companion`, branding strings updated, frontend typecheck clean. Committed.
-  Next: Phase 2 transport — map companion's API surface against the daemon's real routes.
+- **Iter 2**: Phase 2 transport MAPPING resolved (see table above). Legacy `/companion/*`
+  = ngrok proxy (dead path); new path = `/cli/*` over the K2 Connect tunnel; daemon
+  already has companion-shaped `/cli/companion/*` routes + `/cli/auth/login` session
+  auth + `/cli/sessions/grid` WS. Next (iter 3): rewrite `src/api/client.ts` endpoint
+  constants + `src/api/websocket.ts` (grid-WS at `/cli/sessions/grid`), then verify
+  each route live against the local daemon with a session token.
