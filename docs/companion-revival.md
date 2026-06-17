@@ -124,6 +124,35 @@ fallback for localhost dev). This REPLACES the app's Basic-auth/bearer flow.
     as `?token=` on `/cli/*` over the tunnel. `/cli/users/list` 404'd — find the real
     user-create route, or Rosson creates a test account. (Localhost dev can also test
     data routes directly with the local daemon token.)
-  - Next (iter 3): Phase 4 grid-WS — wire `src/api/websocket.ts` / `TerminalView` to
-    `/cli/sessions/grid?session=<id>&token=<tok>` for live terminal streaming; then
-    stand up a dev login (find user-create route) and smoke-test sessions list end to end.
+- **Iter 3 (Phase 4 grid-WS — transport + converter DONE, proven live)**:
+  - **Grid-WS PROVEN against the local daemon** (curl WS upgrade): `GET
+    /cli/sessions/grid?session=<id>&token=<localToken>` → `HTTP 101` + a full
+    `{"event":"snapshot","payload":{...}}` streaming the REAL Cortana terminal content.
+    Auth via `?token=` works; live data flows.
+  - **CRITICAL format correction:** the grid-WS does NOT send `GridUpdate{lines:
+    CompactLine[]}`. It sends the alacritty-v2 shape (camelCase):
+    - snapshot `TermGridSnapshot`: `{cols, rows, grid: CellRun[][], scrollback:
+      CellRun[][], cursor:{row,col,visible}, version, displayOffset}`
+    - delta `TermGridDelta`: `{cols, rows, damagedRows:[{row,cells:CellRun[]}],
+      scrollbackAppended: CellRun[][], cursor, version, displayOffset}`
+    - `CellRun`: `{text, fg?:u32, bg?:u32, bold, italic, underline, inverse, dim,
+      strikeout}` (per-run style booleans, text carried inline).
+    - events: `snapshot|delta|child_exit|title|label_initial|label_changed|bell|error`;
+      inbound `input{text}|resize{cols,rows}|set_active{active,cols?,rows?}`.
+  - **Built** `src/api/gridSocket.ts`: `GridSocket` (connect/backoff/close, read-only —
+    does NOT send resize since the PTY is shared) + `cellRowToCompact()` converter
+    (CellRun[] → the renderer's CompactLine {text, spans:[{s,e,fg,bg,fl}]}, fl bitmask
+    mirrors grid_types ATTR_*).
+  - **Rewired** `TerminalView.tsx` to a two-buffer model: `scrollback` only grows
+    (delta.scrollbackAppended), `viewport` = bottom `rows` rows (snapshot replaces,
+    delta.damagedRows patch in place); rebuild → GridUpdate → existing `applyGridUpdate`.
+    HTTP `readTerminal` kept as the no-WS fallback (iOS-device WKWebView WS limit).
+  - Frontend typecheck + full vite build clean. Committed.
+  - **NOT yet visually verified in the running app** — the grid-WS is proven by curl,
+    but the in-app render path (login → sessions list → open terminal → see live grid)
+    needs a real run. That needs either a K2 Connect account (login) or a localhost dev
+    run with a session token.
+  - Next (iter 4): Phase 3 auth — persist session via `tauri-plugin-store` +
+    `restoreSession()`; find the connect-user CREATE route (`/cli/users/list` 404'd) to
+    self-serve a dev account OR flag for Rosson; then run the companion in `npm run dev`
+    pointed at `http://127.0.0.1:<daemon.port>` and smoke-test the full flow on screen.
