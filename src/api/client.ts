@@ -295,10 +295,12 @@ export const getRunningTerminals = (project: string) =>
   request<RunningTerminal[]>("agents.running", "/cli/terminal/list-running", { project });
 export const getAgentWork = (project: string, agent: string, folder = "inbox") =>
   request("agents.work", "/cli/inbox/list", { project, agent, folder });
-// "Wake" = fire the workspace heartbeat. Param model differs from the old
-// /companion/agents/wake (name vs project+agent) — needs reconciliation.
+// "Wake" the workspace agent — same route the host CLI uses
+// (`k2 ...` → GET /cli/agents/heartbeat?agent=<name>&force_wake=1),
+// scoped by `project`. (Not exercised in tests — waking spawns a real
+// agent session.)
 export const wakeAgent = (project: string, agent: string) =>
-  request("agents.wake", "/cli/heartbeat/fire", { project, agent }, { method: "POST" });
+  request("agents.wake", "/cli/agents/heartbeat", { project, agent, force_wake: 1 });
 export const getReviews = (project: string) =>
   request<Review[]>("reviews.list", "/cli/reviews", { project });
 // HTTP for terminal read — needs the scrollback param.
