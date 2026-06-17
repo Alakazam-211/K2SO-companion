@@ -1,6 +1,13 @@
 import { useEffect, useRef, useState, useCallback } from "react";
-import { ws } from "../api/websocket";
 import * as api from "../api/client";
+import {
+  GridSocket,
+  cellRowToCompact,
+  type GridFrame,
+  type TermGridSnapshot,
+  type TermGridDelta,
+  type CompactLineLite,
+} from "../api/gridSocket";
 
 // ─── Types ───
 
@@ -38,7 +45,6 @@ const DEFAULT_BG = 0x0a0a0a;
 const FONT_SIZE = 10;
 const LINE_HEIGHT = Math.ceil(FONT_SIZE * 1.35);
 const FONT_FAMILY = "'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace";
-const RESIZE_DEBOUNCE_MS = 200;
 // @ts-expect-error Vite injects import.meta.env
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
@@ -139,7 +145,6 @@ export function TerminalView({ terminalId, projectPath }: Props) {
   const rafRef = useRef<number | null>(null);
   const pendingRef = useRef<GridUpdate | null>(null);
   const cellWRef = useRef(0);
-  const subscribedDimsRef = useRef<{ cols: number; rows: number } | null>(null);
   const debugRef = useRef("");
 
   // Measure cell width once
@@ -153,13 +158,6 @@ export function TerminalView({ terminalId, projectPath }: Props) {
   }, []);
 
   // Calculate terminal dimensions from container
-  const calculateDims = useCallback(() => {
-    if (!containerRef.current || cellWRef.current === 0) return null;
-    const rect = containerRef.current.getBoundingClientRect();
-    const cols = Math.max(10, Math.floor((rect.width - 16) / cellWRef.current) - 2); // minus padding + safety margin
-    const rows = Math.max(5, Math.floor(rect.height / LINE_HEIGHT));
-    return { cols, rows };
-  }, []);
 
   const scrollbackLoadedRef = useRef(false);
   const MAX_ROWS = 1000;
@@ -221,58 +219,32 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     });
   }, [applyGridUpdate]);
 
-  // Subscribe with mobile dimensions + handle resize
+  // Live grid stream via the daemon grid-WS (read-only viewer).
   useEffect(() => {
     let polling: ReturnType<typeof setInterval> | null = null;
-    let resizeTimer: ReturnType<typeof setTimeout> | null = null;
-
     let lastText = "";
     let loadingContent = false;
 
+    // HTTP scrollback fallback — used only when the grid-WS can't open
+    // (e.g. iOS-device WKWebView WS limitation). Renders text-by-row.
     const loadContent = async () => {
-      if (loadingContent) return; // prevent concurrent reads
+      if (loadingContent) return;
       loadingContent = true;
-
-      // Try WS first (faster, ~350ms vs ~700ms HTTP through ngrok)
       let lines: string[] | null = null;
-      if (ws.isConnected) {
-        try {
-          const result = await ws.request<{ ok: boolean; data?: { lines: string[] } }>(
-            "terminal.read",
-            { project: projectPath, id: terminalId, lines: "500", scrollback: "true" }
-          );
-          if (result.ok && result.data?.lines) {
-            lines = result.data.lines;
-          }
-        } catch { /* fall through to HTTP */ }
-      }
-
-      // HTTP fallback
-      if (!lines) {
-        const r = await api.readTerminal(projectPath, terminalId, 500);
-        if (r.ok && r.data?.lines) {
-          lines = r.data.lines;
-        }
-      }
-
+      const r = await api.readTerminal(projectPath, terminalId, 500);
+      if (r.ok && r.data?.lines) lines = r.data.lines;
       loadingContent = false;
       if (!lines) return;
 
       const text = lines.join("\n");
-      debugRef.current = `lines=${lines.length}`;
+      debugRef.current = `http-lines=${lines.length}`;
       if (text !== lastText) {
         lastText = text;
         scrollbackLoadedRef.current = true;
-
         linesRef.current.clear();
-        const compactLines: CompactLine[] = lines.map((line, i) => ({
-          row: i,
-          text: line,
-        }));
-        for (const line of compactLines) {
-          linesRef.current.set(line.row, line);
+        for (let i = 0; i < lines.length; i++) {
+          linesRef.current.set(i, { row: i, text: lines[i] });
         }
-
         setGrid((prev) => ({
           ...prev,
           rows: lines!.length,
@@ -282,94 +254,89 @@ export function TerminalView({ terminalId, projectPath }: Props) {
       }
     };
 
-    // Subscribe via WebSocket with screen dimensions
-    const subscribe = () => {
-      if (!ws.isConnected) return;
-      const dims = calculateDims();
-      if (dims) {
-        subscribedDimsRef.current = dims;
-        ws.request("terminal.subscribe", {
-          terminalId,
-          cols: dims.cols,
-          rows: dims.rows,
-        }).catch(() => {});
-      } else {
-        ws.subscribeTerminal(terminalId);
+    // Two-buffer model: `scrollback` only grows (delta.scrollbackAppended
+    // are the rows that scrolled off the top); `viewport` is the bottom
+    // `rows` rows, replaced wholesale on snapshot and patched in place by
+    // delta.damagedRows. Absolute row = scrollback index, then
+    // scrollback.length + viewport index. We build a GridUpdate from the
+    // two buffers and feed the existing renderer via applyGridUpdate.
+    let scrollback: CompactLineLite[] = [];
+    let viewport: CompactLineLite[] = [];
+    const MAX_SB = 1000;
+
+    const rebuild = (
+      cols: number,
+      cursor: { row: number; col: number; visible: boolean }
+    ) => {
+      if (scrollback.length > MAX_SB) {
+        scrollback = scrollback.slice(scrollback.length - MAX_SB);
       }
+      const sbLen = scrollback.length;
+      const lines: CompactLine[] = [];
+      for (let i = 0; i < sbLen; i++) lines.push({ ...scrollback[i], row: i });
+      for (let i = 0; i < viewport.length; i++)
+        lines.push({ ...viewport[i], row: sbLen + i });
+      const gu: GridUpdate = {
+        cols,
+        rows: sbLen + viewport.length,
+        cursor_col: cursor.col,
+        cursor_row: sbLen + cursor.row,
+        cursor_visible: cursor.visible,
+        cursor_shape: "block",
+        lines,
+        full: true,
+        display_offset: 0,
+      };
+      linesRef.current.clear();
+      scrollbackLoadedRef.current = true; // we own the clear above
+      applyGridUpdate(gu, true);
     };
 
-    // Handle resize (rotation, etc.) — debounced
-    const handleResize = () => {
-      if (resizeTimer) clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => {
-        if (!ws.isConnected) return;
-        const dims = calculateDims();
-        if (dims && subscribedDimsRef.current) {
-          const prev = subscribedDimsRef.current;
-          if (dims.cols !== prev.cols || dims.rows !== prev.rows) {
-            subscribedDimsRef.current = dims;
-            ws.request("terminal.resize", {
-              terminalId,
-              cols: dims.cols,
-              rows: dims.rows,
-            }).catch(() => {});
+    const onFrame = (frame: GridFrame) => {
+      if (frame.event === "snapshot") {
+        const p = frame.payload as TermGridSnapshot;
+        scrollback = p.scrollback.map((r, i) => cellRowToCompact(r, i));
+        viewport = p.grid.map((r, i) => cellRowToCompact(r, i));
+        debugRef.current = `ws-snapshot sb=${scrollback.length} vp=${viewport.length}`;
+        rebuild(p.cols, p.cursor);
+      } else if (frame.event === "delta") {
+        const p = frame.payload as TermGridDelta;
+        for (const row of p.scrollbackAppended) {
+          scrollback.push(cellRowToCompact(row, scrollback.length));
+        }
+        for (const d of p.damagedRows) {
+          if (d.row >= 0 && d.row < viewport.length) {
+            viewport[d.row] = cellRowToCompact(d.cells, d.row);
           }
         }
-      }, RESIZE_DEBOUNCE_MS);
+        debugRef.current = `ws-delta dmg=${p.damagedRows.length}`;
+        rebuild(p.cols, p.cursor);
+      } else if (frame.event === "child_exit") {
+        gridSock.close();
+      }
+      // title / label_* / bell / error: ignored for now (Phase 4+).
     };
 
-    loadContent();
+    const gridSock = new GridSocket(onFrame);
+    gridSock.connect(terminalId);
 
-    // Small delay to let container measure, then subscribe with dims
-    setTimeout(subscribe, 100);
-
-    // WS terminal:scrollback — real-time push with full scrollback buffer
-    const unsubScrollback = ws.on("terminal:scrollback", (event) => {
-      const data = event.payload as { terminalId: string; lines: string[]; totalLines: number };
-      if (data.terminalId === terminalId && data.lines) {
-        scrollbackLoadedRef.current = true;
-        linesRef.current.clear();
-        for (let i = 0; i < data.lines.length; i++) {
-          linesRef.current.set(i, { row: i, text: data.lines[i] });
-        }
-        setGrid((prev) => ({
-          ...prev,
-          rows: data.lines.length,
-          cursorRow: data.lines.length - 1,
-          version: Date.now(),
-        }));
+    // If the WS hasn't produced a frame shortly after connect, fall back
+    // to HTTP polling so the user still sees content on WS-restricted
+    // platforms. Cleared automatically once a frame arrives.
+    const fallbackTimer = setTimeout(() => {
+      if (!gridSock.isOpen && !scrollbackLoadedRef.current) {
+        loadContent();
+        polling = setInterval(loadContent, 2000);
       }
-    });
-
-    // WS terminal:grid — subscribe to get scrollback events flowing
-    const unsub = ws.on("terminal:grid", () => {});
-
-    // HTTP polling fallback (only when WS isn't connected)
-    if (!ws.isConnected) {
-      polling = setInterval(loadContent, 2000);
-    }
-
-    // Listen for resize/orientation changes
-    window.addEventListener("resize", handleResize);
-    const observer = containerRef.current
-      ? new ResizeObserver(handleResize)
-      : null;
-    if (observer && containerRef.current) {
-      observer.observe(containerRef.current);
-    }
+    }, 1500);
 
     return () => {
-      unsub();
-      unsubScrollback();
-      if (ws.isConnected) ws.unsubscribeTerminal(terminalId);
+      clearTimeout(fallbackTimer);
+      gridSock.close();
       if (polling) clearInterval(polling);
-      if (resizeTimer) clearTimeout(resizeTimer);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      window.removeEventListener("resize", handleResize);
-      observer?.disconnect();
-      subscribedDimsRef.current = null;
     };
-  }, [terminalId, projectPath, scheduleRender, applyGridUpdate, calculateDims]);
+  }, [terminalId, projectPath, scheduleRender]);
 
   // Auto-scroll to bottom — only if user hasn't scrolled up
   const userScrolledRef = useRef(false);
