@@ -214,6 +214,23 @@ fallback for localhost dev). This REPLACES the app's Basic-auth/bearer flow.
   patch + scrollbackAppended grow + absolute cursor row + contiguous rows): 11/11 pass;
   live snapshot still green. The full render pipeline (snapshot AND delta) is now proven.
 
+- **Iter 8 (login UX polish)**: login screen now says "K2 Connect address" with a
+  `your-name.k2.dev` placeholder (was ngrok), `type=text` so subdomain-only or
+  `localhost:PORT` entries don't trip HTML5 URL validation (auth.ts prepends the scheme).
+  Build clean. This was the last meaningful autonomous task.
+
+## LOOP PAUSED (autonomous work complete) — awaiting Rosson
+
+Phases 1–4 + secondary screens + login UX are DONE and validated against the live daemon.
+The render pipeline (snapshot + delta) is proven by `npm run test:grid`. The ONLY thing
+left for full mission success is the over-the-tunnel run, which needs Rosson:
+- **K2 Connect tunnel/subdomain** for this machine → then point the app at `https://<sub>.k2.dev`,
+  log in as `mobiletest`/`k2mobiletest!`, confirm a live local terminal renders. (Every
+  path this exercises is already proven on localhost; the tunnel only changes the base URL.)
+- **On-screen visual check** (foregrounds a window — left for Rosson).
+- **iOS device signing** + `gen/apple` rebundle to `dev.k2.companion` (Rosson signs/builds).
+Restart the loop (or ping) once a tunnel subdomain exists and I'll close Phase 5 immediately.
+
 ### Remaining autonomous work (not Rosson-blocked)
 - **In-app on-screen render** — run the companion app locally (`tauri dev`, allowed: local
   test, NOT a release) pointed at `http://127.0.0.1:<daemon.port>`, log in as `mobiletest`,
