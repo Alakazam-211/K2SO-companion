@@ -208,6 +208,12 @@ fallback for localhost dev). This REPLACES the app's Basic-auth/bearer flow.
     (name-model). Not live-fired (waking spawns a real session). Typecheck clean. Committed.
   - Companion's screens now all map to correct, verified `/cli/*` routes.
 
+- **Iter 7 (delta path validated; GridModel extracted)**: pulled the two-buffer model out
+  of TerminalView into a pure, testable `GridModel` (gridConvert.ts). `npm run test:grid`
+  now also validates the DELTA path with synthetic frames — snapshot→delta (damagedRows
+  patch + scrollbackAppended grow + absolute cursor row + contiguous rows): 11/11 pass;
+  live snapshot still green. The full render pipeline (snapshot AND delta) is now proven.
+
 ### Remaining autonomous work (not Rosson-blocked)
 - **In-app on-screen render** — run the companion app locally (`tauri dev`, allowed: local
   test, NOT a release) pointed at `http://127.0.0.1:<daemon.port>`, log in as `mobiletest`,
