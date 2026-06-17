@@ -83,5 +83,5 @@ pub fn run() {
         })
         .invoke_handler(tauri::generate_handler![greet])
         .run(tauri::generate_context!())
-        .expect("error while running K2SO Companion");
+        .expect("error while running K2 Companion");
 }
