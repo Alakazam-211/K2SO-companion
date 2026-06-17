@@ -60,12 +60,12 @@ export function Login() {
 
       <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-3">
         <div>
-          <label className="text-[var(--text-muted)] text-[10px] mb-1 block">Server URL</label>
+          <label className="text-[var(--text-muted)] text-[10px] mb-1 block">K2 Connect address</label>
           <input
-            type="url"
+            type="text"
             value={serverUrl}
             onChange={(e) => setServerUrl(e.target.value)}
-            placeholder="your-tunnel.ngrok.io"
+            placeholder="your-name.k2.dev"
             autoCapitalize="off"
             autoCorrect="off"
             className="w-full bg-[var(--surface)] border border-[var(--border)] px-4 py-3.5 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent-dim)] transition-colors"
