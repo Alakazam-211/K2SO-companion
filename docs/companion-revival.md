@@ -173,8 +173,40 @@ fallback for localhost dev). This REPLACES the app's Basic-auth/bearer flow.
     persists `{serverUrl,username,token}` on login and `restoreSession()` re-applies it
     optimistically on startup (already called from App.tsx).
   - Frontend build + `cargo check` both clean. Committed.
-  - Next (iter 5): **in-app smoke test** — run the companion (`npm run dev` / desktop
-    `tauri dev`) pointed at `http://127.0.0.1:<daemon.port>`, log in as `mobiletest`,
-    confirm the sessions list loads and a terminal renders LIVE on screen. Document
-    manual verify steps for Rosson. Then Phase 5: bring up the K2 Connect tunnel for an
-    over-the-tunnel run (needs tunnel creds / subdomain — Rosson).
+- **Iter 5 (converter validated against LIVE frames)**:
+  - Extracted the pure converter + wire types into `src/api/gridConvert.ts` (no Tauri
+    imports → Node-testable); `gridSocket.ts` re-exports it (TerminalView imports
+    unchanged). Typecheck clean.
+  - Wrote `scripts/test-grid-convert.mjs` (`npm run test:grid`) — connects to the live
+    grid-WS with the dev account, runs the SAME `cellRowToCompact` against real frames.
+    **PASS:** 40 grid + 5 scrollback rows converted, all spans ordered/in-bounds, styles
+    (color/flags) preserved, rendered text = the real Cortana session ("❯ Hello there!",
+    "⏺ Hello! 👋 I'm Cortana…"). Converter is proven, not just the protocol.
+  - Creds for the test come from `/tmp/k2mob-test-creds.txt` (PORT|sessionToken|sid),
+    regenerated each loop setup via login as `mobiletest`.
+
+## STATUS SUMMARY (phases 1–4 done + validated; phase 5 blocked on Rosson)
+
+- **Phase 1 rebrand** ✅ — K2 icon + identity.
+- **Phase 2 transport** ✅ — client.ts on `/cli/*`; verified live (data routes 200, right shapes).
+- **Phase 3 auth** ✅ — `/cli/auth/login` session token; persistence via plugin-store;
+  FULL chain proven (login → token authenticates data routes AND grid-WS).
+- **Phase 4 live grid** ✅ — GridSocket + converter; grid-WS proven (101 + real snapshot);
+  converter proven by `npm run test:grid` against live frames.
+- **Phase 5 end-to-end over the K2 Connect tunnel** ⏳ — BLOCKED on Rosson: needs a
+  tunnel/subdomain (`*.k2.dev`) for this machine's daemon. All the code paths it exercises
+  are already validated against localhost; the tunnel just changes the base URL (https
+  subdomain) — the app already supports that (login URL → `https://<sub>` when no scheme).
+
+### Remaining autonomous work (not Rosson-blocked)
+- **In-app on-screen render** — run the companion app locally (`tauri dev`, allowed: local
+  test, NOT a release) pointed at `http://127.0.0.1:<daemon.port>`, log in as `mobiletest`,
+  and confirm a terminal renders live in the actual webview. (Heavier — needs the desktop
+  app window + UI drive; the render INPUT is already proven correct.)
+- Secondary endpoint param verification (agents/work/wake/reviews screens).
+- `gen/apple` regenerate for `dev.k2.companion` (needed for an iOS device build — Rosson signing).
+
+### Rosson-only
+- K2 Connect tunnel creds / subdomain for the Phase 5 over-the-tunnel run.
+- iOS device signing identity for an on-device build.
+- Dev account on THIS daemon: `mobiletest` / `k2mobiletest!` (created for testing; remove later).
