@@ -81,3 +81,76 @@ export function cellRowToCompact(runs: CellRun[], row: number): CompactLineLite 
   }
   return { row, text, spans, wrapped: false };
 }
+
+// Two-buffer terminal model, mirrors the daemon's grid emitter:
+//   - `scrollback` only GROWS (delta.scrollbackAppended = rows that
+//     scrolled off the top of the viewport).
+//   - `viewport` = the bottom `rows` rows; a snapshot replaces it
+//     wholesale, a delta patches the rows named in `damagedRows`.
+// Absolute row = scrollback index, then scrollback.length + viewport
+// index. `lines()` flattens to absolute-row CompactLines for the
+// renderer. Pure + deterministic, so it's unit-testable without a live
+// daemon (see scripts/test-grid-convert.mjs).
+export class GridModel {
+  scrollback: CompactLineLite[] = [];
+  viewport: CompactLineLite[] = [];
+  cols = 0;
+  cursorCol = 0;
+  cursorVisible = true;
+  /** viewport-relative cursor row from the latest frame */
+  private cursorVpRow = 0;
+  readonly maxScrollback = 1000;
+
+  applySnapshot(p: TermGridSnapshot): void {
+    this.scrollback = p.scrollback.map((r, i) => cellRowToCompact(r, i));
+    this.viewport = p.grid.map((r, i) => cellRowToCompact(r, i));
+    this.cols = p.cols;
+    this.setCursor(p.cursor);
+  }
+
+  applyDelta(p: TermGridDelta): void {
+    for (const row of p.scrollbackAppended) {
+      this.scrollback.push(cellRowToCompact(row, this.scrollback.length));
+    }
+    for (const d of p.damagedRows) {
+      if (d.row >= 0 && d.row < this.viewport.length) {
+        this.viewport[d.row] = cellRowToCompact(d.cells, d.row);
+      }
+    }
+    this.cols = p.cols;
+    this.setCursor(p.cursor);
+  }
+
+  private setCursor(c: CursorSnapshot): void {
+    this.cursorVpRow = c.row;
+    this.cursorCol = c.col;
+    this.cursorVisible = c.visible;
+  }
+
+  private trim(): void {
+    if (this.scrollback.length > this.maxScrollback) {
+      this.scrollback = this.scrollback.slice(this.scrollback.length - this.maxScrollback);
+    }
+  }
+
+  /** Flattened absolute-row lines for the renderer. */
+  lines(): CompactLineLite[] {
+    this.trim();
+    const sb = this.scrollback.length;
+    const out: CompactLineLite[] = [];
+    for (let i = 0; i < sb; i++) out.push({ ...this.scrollback[i], row: i });
+    for (let i = 0; i < this.viewport.length; i++) {
+      out.push({ ...this.viewport[i], row: sb + i });
+    }
+    return out;
+  }
+
+  /** Absolute cursor row (scrollback + viewport-relative). */
+  cursorRow(): number {
+    return this.scrollback.length + this.cursorVpRow;
+  }
+
+  totalRows(): number {
+    return this.scrollback.length + this.viewport.length;
+  }
+}
