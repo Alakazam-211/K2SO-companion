@@ -38,7 +38,5 @@
       "minSdkVersion": 26
     }
   },
-  "plugins": {
-    "store": {}
-  }
+  "plugins": {}
 }
