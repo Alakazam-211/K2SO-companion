@@ -1,5 +1,6 @@
 import { useWorkspacesStore } from "../stores/workspaces";
 import { useNavigate } from "react-router-dom";
+import { sessionLabel } from "../api/client";
 
 interface Props {
   open: boolean;
@@ -66,7 +67,7 @@ export function SessionSwitcher({ open, onClose }: Props) {
                       />
                       <div className="flex-1 min-w-0">
                         <span className="text-[var(--text)] text-[11px] font-medium block truncate">
-                          {s.label || s.agentName}
+                          {sessionLabel(s)}
                         </span>
                         <span className="text-[var(--text-muted)] text-[9px] block truncate">
                           {s.command || s.agentName}
