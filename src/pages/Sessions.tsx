@@ -96,7 +96,7 @@ export function Sessions() {
             )}
           </div>
         ) : (
-          <div className="py-2 px-1.5 flex flex-col gap-1">
+          <div className="py-2 px-1.5 flex flex-col gap-2">
             {filtered.map((session) => (
               <button
                 key={session.terminalId}
@@ -105,7 +105,7 @@ export function Sessions() {
                 onTouchEnd={cancelPress}
                 onTouchMove={cancelPress}
                 onContextMenu={(e) => e.preventDefault()}
-                className="flex items-center gap-3 px-3 py-3 bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--border-hover)] transition-colors text-left w-full"
+                className="flex items-center gap-3 px-4 py-5 min-h-[60px] bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--border-hover)] transition-colors text-left w-full"
               >
                 {/* Workspace color bar */}
                 <div
