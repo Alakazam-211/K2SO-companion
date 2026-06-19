@@ -3,7 +3,6 @@ import { useParams, useNavigate } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { TerminalView } from "../components/TerminalView";
 
-// @ts-expect-error Vite injects import.meta.env
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
 export function ChatSession() {
