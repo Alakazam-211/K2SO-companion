@@ -61,19 +61,69 @@ export function NewSessionModal({ open, onClose }: Props) {
     }
   };
 
-  // Step 2b — spawn a fresh terminal tab in the workspace.
+  // Step 2b — spawn a fresh tab (a distinct grid-WS session) in the workspace.
   const openNewTab = async (projectPath: string) => {
     setLaunching(true);
-    const r = await api.spawnBackgroundTerminal(projectPath, "claude", projectPath);
+    const r = await api.spawnNewTab(projectPath);
     await useWorkspacesStore.getState().fetchAllSessions();
     setLaunching(false);
-    if (r.ok && r.data?.terminalId) {
-      const id = r.data.terminalId;
+    if (r.ok && r.data?.sessionId) {
+      const id = r.data.sessionId;
       close();
       navigate(`/chat/${id}`);
     }
   };
 
+  // ── Step 2 — choose which tab to open. CENTERED (the bottom-sheet version
+  //    got cut off by the home indicator / safe area). ──
+  if (picked) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center px-6" onClick={close}>
+        <div className="absolute inset-0 bg-black/60" />
+        <div
+          className="relative w-full max-w-sm bg-[var(--surface)] border border-[var(--border)] flex flex-col"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
+            <button
+              onClick={() => setPicked(null)}
+              disabled={launching}
+              className="flex items-center gap-1.5 text-[var(--accent)] text-[13px] font-semibold min-w-0"
+            >
+              <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2" className="shrink-0"><path d="M9 1L3 7l6 6" /></svg>
+              <span className="truncate">{picked.name}</span>
+            </button>
+            <button onClick={close} className="text-[var(--text-muted)] text-[11px] shrink-0">Cancel</button>
+          </div>
+
+          {launching ? (
+            <div className="flex items-center justify-center py-10">
+              <span className="text-[var(--accent)] text-[13px]">Launching...</span>
+            </div>
+          ) : (
+            <div className="p-4 flex flex-col gap-3">
+              <button
+                onClick={() => openMainChat(picked.path)}
+                className="flex flex-col gap-0.5 px-4 py-4 bg-[var(--background)] border border-[var(--border)] hover:border-[var(--accent-dim)] transition-colors text-left w-full"
+              >
+                <span className="text-[var(--text)] text-[14px] font-semibold">Open main chat tab</span>
+                <span className="text-[var(--text-muted)] text-[11px]">Resume this workspace's primary chat session</span>
+              </button>
+              <button
+                onClick={() => openNewTab(picked.path)}
+                className="flex flex-col gap-0.5 px-4 py-4 bg-[var(--background)] border border-[var(--border)] hover:border-[var(--accent-dim)] transition-colors text-left w-full"
+              >
+                <span className="text-[var(--text)] text-[14px] font-semibold">Open new tab</span>
+                <span className="text-[var(--text-muted)] text-[11px]">Start a fresh terminal in this workspace</span>
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  // ── Step 1 — pick a workspace (bottom sheet) ──
   return (
     <div
       className="fixed z-50 flex flex-col justify-end"
@@ -91,70 +141,28 @@ export function NewSessionModal({ open, onClose }: Props) {
       >
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]" style={{ flexShrink: 0 }}>
-          {picked ? (
-            <button
-              onClick={() => setPicked(null)}
-              className="flex items-center gap-1.5 text-[var(--accent)] text-[13px] font-semibold"
-            >
-              <svg width="12" height="12" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 1L3 7l6 6" /></svg>
-              <span className="truncate">{picked.name}</span>
-            </button>
-          ) : (
-            <span className="text-[var(--text)] text-[13px] font-semibold">
-              New Session
-            </span>
-          )}
-          <button
-            onClick={close}
-            className="text-[var(--text-muted)] text-[11px]"
-          >
-            Cancel
-          </button>
+          <span className="text-[var(--text)] text-[13px] font-semibold">New Session</span>
+          <button onClick={close} className="text-[var(--text-muted)] text-[11px]">Cancel</button>
         </div>
 
-        {/* Search — step 1 only */}
-        {!picked && (
-          <div className="px-4 py-2 border-b border-[var(--border)]" style={{ flexShrink: 0 }}>
-            <input
-              autoFocus
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              placeholder="Search workspaces..."
-              className="w-full bg-[var(--background)] border border-[var(--border)] px-3 py-2 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent-dim)]"
-            />
-          </div>
-        )}
+        {/* Search */}
+        <div className="px-4 py-2 border-b border-[var(--border)]" style={{ flexShrink: 0 }}>
+          <input
+            autoFocus
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search workspaces..."
+            className="w-full bg-[var(--background)] border border-[var(--border)] px-3 py-2 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent-dim)]"
+          />
+        </div>
 
-        {/* Body */}
+        {/* Workspace list */}
         <div className="overflow-y-auto flex-1">
-          {launching ? (
-            <div className="flex items-center justify-center py-8">
-              <span className="text-[var(--accent)] text-[13px]">Launching...</span>
-            </div>
-          ) : picked ? (
-            /* Step 2 — choose which tab to open */
-            <div className="p-3 flex flex-col gap-2">
-              <button
-                onClick={() => openMainChat(picked.path)}
-                className="flex flex-col gap-0.5 px-4 py-3.5 bg-[var(--background)] border border-[var(--border)] hover:border-[var(--accent-dim)] transition-colors text-left w-full"
-              >
-                <span className="text-[var(--text)] text-[13px] font-semibold">Open main chat tab</span>
-                <span className="text-[var(--text-muted)] text-[11px]">Resume this workspace's primary chat session</span>
-              </button>
-              <button
-                onClick={() => openNewTab(picked.path)}
-                className="flex flex-col gap-0.5 px-4 py-3.5 bg-[var(--background)] border border-[var(--border)] hover:border-[var(--accent-dim)] transition-colors text-left w-full"
-              >
-                <span className="text-[var(--text)] text-[13px] font-semibold">Open new tab</span>
-                <span className="text-[var(--text-muted)] text-[11px]">Start a fresh terminal in this workspace</span>
-              </button>
-            </div>
-          ) : filtered.length === 0 ? (
+          {filtered.length === 0 ? (
             <div className="flex items-center justify-center py-8">
               <span className="text-[var(--text-muted)] text-[13px]">No matching workspaces</span>
             </div>
           ) : (
-            /* Step 1 — pick a workspace */
             <div className="p-2 flex flex-col gap-1">
               {filtered.map((project) => (
                 <button
@@ -169,9 +177,7 @@ export function NewSessionModal({ open, onClose }: Props) {
                     {project.name.charAt(0).toUpperCase()}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <div className="text-[var(--text)] text-[13px] truncate">
-                      {project.name}
-                    </div>
+                    <div className="text-[var(--text)] text-[13px] truncate">{project.name}</div>
                     <div className="text-[var(--text-muted)] text-[11px] truncate">
                       {project.path.split("/").slice(-2).join("/")}
                     </div>
