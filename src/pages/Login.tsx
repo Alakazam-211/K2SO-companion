@@ -119,20 +119,20 @@ export function Login() {
   };
 
   const inputClass =
-    "w-full min-h-[40px] bg-[var(--surface)] border border-[var(--border-hover)] px-4 text-[var(--text)] text-[14px] focus:outline-none focus:border-[var(--accent)] transition-colors";
+    "w-full min-h-[40px] bg-[var(--surface)] border border-[var(--border-hover)] px-4! text-[var(--text)] text-[14px] focus:outline-none focus:border-[var(--accent)] transition-colors";
   const labelClass =
     "text-[var(--text-muted)] text-[10px] uppercase tracking-wide block";
 
   return (
-    <div className="flex flex-col items-center min-h-full px-6 pt-20 pb-12 overflow-y-auto">
+    <div className="flex flex-col items-center min-h-full px-6! pt-16! pb-12! overflow-y-auto">
       <div className="w-full max-w-sm flex flex-col items-stretch">
         {/* Logo */}
-        <img src={loginLogo} alt="K2 by Alakazam Labs" className="w-44 mx-auto mb-10 mt-2" />
+        <img src={loginLogo} alt="K2 by Alakazam Labs" className="w-44 mx-auto! mb-10! mt-2!" />
 
         {/* Saved servers — custom dropdown (matches the desktop K2 picker) */}
         {connections.length > 0 && (
-          <div className="mb-7">
-            <label className={`${labelClass} mb-2`}>Saved servers</label>
+          <div className="mb-9!">
+            <label className={`${labelClass} mb-2!`}>Saved servers</label>
             <div className="relative" ref={dropRef}>
               <button
                 type="button"
@@ -160,7 +160,7 @@ export function Login() {
                         role="option"
                         aria-selected={isSel}
                         onClick={() => selectConn(c)}
-                        className={`flex items-center gap-2 px-3.5 py-3 cursor-pointer transition-colors ${
+                        className={`flex items-center gap-2 px-3.5! py-3! cursor-pointer transition-colors ${
                           isSel ? "bg-[var(--accent)]/10" : "hover:bg-[var(--background)]"
                         }`}
                       >
@@ -197,7 +197,7 @@ export function Login() {
 
         {/* Divider between saved + a new sign-in */}
         {connections.length > 0 && (
-          <div className="flex items-center gap-3 mb-6">
+          <div className="flex items-center gap-3 mb-9!">
             <div className="flex-1 h-px bg-[var(--border-hover)]" />
             <span className="text-[var(--text-muted)] text-[10px] uppercase tracking-wide">or sign in</span>
             <div className="flex-1 h-px bg-[var(--border-hover)]" />
@@ -279,13 +279,13 @@ export function Login() {
           <button
             type="submit"
             disabled={!isValid || isLoading}
-            className="w-full min-h-[40px] bg-white text-black font-semibold text-[14px] mt-1 disabled:opacity-40 hover:bg-gray-200 transition-colors"
+            className="w-full min-h-[40px] bg-white text-black font-semibold text-[14px] mt-2! disabled:opacity-40 hover:bg-gray-200 transition-colors"
           >
             {isLoading ? "Connecting..." : "Connect"}
           </button>
         </form>
 
-        <p className="text-[var(--text-muted)] text-[10px] text-center mt-9 leading-4">
+        <p className="text-[var(--text-muted)] text-[10px] text-center mt-9! leading-4">
           Sign in with your K2 Connect account to reach your machine
         </p>
       </div>
