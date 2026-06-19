@@ -1,6 +1,5 @@
 import { useState, useRef, useLayoutEffect, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
-import * as api from "../api/client";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { TerminalView } from "../components/TerminalView";
 
@@ -19,6 +18,7 @@ export function ChatSession() {
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const terminalWrapperRef = useRef<HTMLDivElement>(null);
+  const sendInputRef = useRef<((text: string) => void) | null>(null);
   const [debugInfo, setDebugInfo] = useState("");
 
   // Manual touch-scroll: WKWebView with scrollEnabled=false sometimes blocks
@@ -146,11 +146,14 @@ export function ChatSession() {
     el.style.overflow = el.scrollHeight > 100 ? "auto" : "hidden";
   }, [input]);
 
-  const handleSend = async () => {
+  const handleSend = () => {
     const text = input.trim();
-    if (!text || !terminalId || !projectPath) return;
+    if (!text || !terminalId) return;
     setInput("");
-    await api.writeTerminal(projectPath, terminalId, text);
+    // Send over the connected grid-WS — the only path that reaches the v2 PTY
+    // (there is no working HTTP terminal-write route). Append CR so the line is
+    // submitted (typed + Enter), like sending a message to the agent/shell.
+    sendInputRef.current?.(text + "\r");
   };
 
   if (!terminalId) return null;
@@ -181,7 +184,7 @@ export function ChatSession() {
 
       {/* Terminal — only scrollable area */}
       <div ref={terminalWrapperRef} style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
-        <TerminalView terminalId={terminalId} projectPath={projectPath} />
+        <TerminalView terminalId={terminalId} projectPath={projectPath} onInputRef={sendInputRef} />
       </div>
 
       {/* Input bar */}

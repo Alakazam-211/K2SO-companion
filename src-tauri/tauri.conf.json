@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "K2 Companion",
+  "productName": "K2",
   "version": "1.0.0",
   "identifier": "dev.k2.companion",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "K2 Companion",
+        "title": "K2",
         "width": 400,
         "height": 800
       }
