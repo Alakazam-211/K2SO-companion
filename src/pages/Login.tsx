@@ -124,7 +124,7 @@ export function Login() {
     "text-[var(--text-muted)] text-[10px] uppercase tracking-wide block";
 
   return (
-    <div className="flex flex-col items-center min-h-full px-6! pt-16! pb-12! overflow-y-auto">
+    <div className="flex flex-col items-center h-full px-6! pt-16! pb-12! overflow-y-auto">
       <div className="w-full max-w-sm flex flex-col items-stretch">
         {/* Logo */}
         <img src={loginLogo} alt="K2 by Alakazam Labs" className="w-44 mx-auto! mb-10! mt-2!" />

@@ -41,11 +41,20 @@ if [ $# -lt 1 ]; then
   exit 1
 fi
 
+# $1 = App Store marketing version (CFBundleShortVersionString; Apple requires
+#      1.0.0+, no 0.x). $2 (optional) = internal git-tag version (our 0.x line);
+# defaults to $1 when omitted. e.g. `release.sh 2.0.0 0.4.0` → App Store 2.0.0,
+# git tag v0.4.0.
 VERSION="$1"
+TAG_VERSION="${2:-$VERSION}"
 
-# Validate version format
+# Validate version formats
 if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-  echo "Error: Version must be in format X.Y.Z (e.g., 0.3.0)"
+  echo "Error: App Store version must be X.Y.Z (e.g., 2.0.0)"
+  exit 1
+fi
+if ! echo "$TAG_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
+  echo "Error: tag version must be X.Y.Z (e.g., 0.4.0)"
   exit 1
 fi
 
@@ -174,16 +183,16 @@ echo "  ✓ Uploaded to App Store Connect"
 echo "→ Committing and tagging..."
 cd "$PROJECT_DIR"
 git add package.json src-tauri/tauri.conf.json src-tauri/gen/apple/k2so-companion_iOS/Info.plist
-git commit -m "v${VERSION} — release build ${BUILD_NUMBER}"
-git tag -a "v${VERSION}" -m "v${VERSION}"
+git commit -m "v${TAG_VERSION} — App Store ${VERSION}, release build ${BUILD_NUMBER}"
+git tag -a "v${TAG_VERSION}" -m "v${TAG_VERSION} (App Store ${VERSION})"
 git push
-git push origin "v${VERSION}"
+git push origin "v${TAG_VERSION}"
 
 echo ""
 echo "═══════════════════════════════════════"
-echo "  ✓ K2 v${VERSION} released!"
+echo "  ✓ K2 v${TAG_VERSION} released (App Store ${VERSION})!"
 echo ""
-echo "  App Store Connect: build ${BUILD_NUMBER}"
-echo "  GitHub: v${VERSION} tag pushed"
+echo "  App Store Connect: ${VERSION} build ${BUILD_NUMBER}"
+echo "  GitHub: v${TAG_VERSION} tag pushed"
 echo "═══════════════════════════════════════"
 echo ""
