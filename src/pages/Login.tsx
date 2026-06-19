@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
+import loginLogo from "../assets/login-logo.png";
 
 const STORAGE_KEY = "k2so_remember";
 
@@ -52,10 +53,11 @@ export function Login() {
   return (
     <div className="flex flex-col items-center justify-center h-full px-6 pb-safe">
       <div className="text-center mb-8">
-        <h1 className="text-4xl font-extrabold tracking-[0.2em] text-[var(--text)]">
-          K2
-        </h1>
-        <p className="text-[var(--text-muted)] text-[13px] mt-1">by Alakazam Labs</p>
+        <img
+          src={loginLogo}
+          alt="K2 by Alakazam Labs"
+          className="w-44 mx-auto"
+        />
       </div>
 
       <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-3">
