@@ -12,6 +12,8 @@
 		43F5B6CAFF4DF2CC5E246501 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 86B015769A2BEB0B33BEF777 /* LaunchScreen.storyboard */; };
 		4B167C0A2FC4248DC08DB6A2 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0560FFD899E7B0CF539E4F29 /* Security.framework */; };
 		5B6281272B119094369D5260 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 468BBB4AA6164109A2761F17 /* main.mm */; };
+		61D45630965ACD47E853B5D0 /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 97920F41AC2672636A2156EA /* libapp.a */; };
+		6B0218081D9641682F1825AB /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 90BA69C3D81F1AC504819BF2 /* libapp.a */; };
 		7DC223C2516DE9BA1AEAE8F4 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B4A5403B758E91ACD479B265 /* Metal.framework */; };
 		8388615A6C635BA233E64A06 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BEE6F25A741F7415EAEF73CE /* UIKit.framework */; };
 		A70F3CA0A84318BC0485C30E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 121CC767EA48E78C62817F5B /* Assets.xcassets */; };
@@ -39,6 +41,8 @@
 		6B748E35CAD525F2C8B0B6E0 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
 		73CF7E64730212AA5AE3A128 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		86B015769A2BEB0B33BEF777 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		90BA69C3D81F1AC504819BF2 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		97920F41AC2672636A2156EA /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		B4A5403B758E91ACD479B265 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		BEE6F25A741F7415EAEF73CE /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		CAAD5731F3C67C38E8A512EE /* connection.rs */ = {isa = PBXFileReference; path = connection.rs; sourceTree = "<group>"; };
@@ -88,6 +92,22 @@
 			path = bindings;
 			sourceTree = "<group>";
 		};
+		3F9068BC2991E07BD3E18C1F /* debug */ = {
+			isa = PBXGroup;
+			children = (
+				90BA69C3D81F1AC504819BF2 /* libapp.a */,
+			);
+			path = debug;
+			sourceTree = "<group>";
+		};
+		449FDB05696B0082387F6DA6 /* release */ = {
+			isa = PBXGroup;
+			children = (
+				97920F41AC2672636A2156EA /* libapp.a */,
+			);
+			path = release;
+			sourceTree = "<group>";
+		};
 		65B2F1C79A57DA9A55396E0E /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -99,6 +119,7 @@
 		9185998F6C7980BC9A3495AC /* Externals */ = {
 			isa = PBXGroup;
 			children = (
+				D457DD0DFF15C550DDC67921 /* arm64 */,
 			);
 			path = Externals;
 			sourceTree = "<group>";
@@ -166,6 +187,22 @@
 			path = "k2so-companion_iOS";
 			sourceTree = "<group>";
 		};
+		D457DD0DFF15C550DDC67921 /* arm64 */ = {
+			isa = PBXGroup;
+			children = (
+				3F9068BC2991E07BD3E18C1F /* debug */,
+				449FDB05696B0082387F6DA6 /* release */,
+			);
+			path = arm64;
+			sourceTree = "<group>";
+		};
+		"TEMP_D68EC021-D022-455C-B0AC-B193A6B0E701" /* x86_64 */ = {
+			isa = PBXGroup;
+			children = (
+			);
+			path = x86_64;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -230,6 +267,8 @@
 				A70F3CA0A84318BC0485C30E /* Assets.xcassets in Resources */,
 				43F5B6CAFF4DF2CC5E246501 /* LaunchScreen.storyboard in Resources */,
 				AF0A03078E384F7FA1ADEBDA /* assets in Resources */,
+				61D45630965ACD47E853B5D0 /* libapp.a in Resources */,
+				6B0218081D9641682F1825AB /* libapp.a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -295,8 +334,8 @@
 				);
 				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = dev.k2.companion;
-				PRODUCT_NAME = "K2";
+				PRODUCT_BUNDLE_IDENTIFIER = com.alakazamlabs.k2so.companion;
+				PRODUCT_NAME = K2;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;
@@ -327,8 +366,8 @@
 				);
 				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
-				PRODUCT_BUNDLE_IDENTIFIER = dev.k2.companion;
-				PRODUCT_NAME = "K2";
+				PRODUCT_BUNDLE_IDENTIFIER = com.alakazamlabs.k2so.companion;
+				PRODUCT_NAME = K2;
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
 				VALID_ARCHS = arm64;

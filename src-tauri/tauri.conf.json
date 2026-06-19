@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "K2",
-  "version": "1.0.0",
-  "identifier": "dev.k2.companion",
+  "version": "2.0.0",
+  "identifier": "com.alakazamlabs.k2so.companion",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:1420",
