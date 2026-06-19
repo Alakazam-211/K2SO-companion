@@ -243,3 +243,42 @@ Restart the loop (or ping) once a tunnel subdomain exists and I'll close Phase 5
 - K2 Connect tunnel creds / subdomain for the Phase 5 over-the-tunnel run.
 - iOS device signing identity for an on-device build.
 - Dev account on THIS daemon: `mobiletest` / `k2mobiletest!` (created for testing; remove later).
+
+---
+
+## Iter 9 (2026-06-18) — live-stream fix; full e2e on zPhoneAir
+
+Mission is **done end-to-end**: app runs on zPhoneAir, logs in over the
+`z3thon.k2.dev` tunnel to THIS machine's daemon, and renders a live terminal.
+Everything Rosson-blocked above has since been unblocked (tunnel live, LZTEK
+signing team `36B8R93HXV` baked into `gen/apple`, device build flow proven).
+
+### The "blocks, not live" bug (fixed)
+Terminal only refreshed on (re)snapshots — deltas never applied. Root cause: the
+daemon's `DamagedRow` wire field is `runs` (grid_snapshot.rs, `#[serde(rename_all
+= "camelCase")]`, no rename → stays `runs`), but `gridConvert.ts` read `cells`.
+`cellRowToCompact(undefined)` threw on every delta and the `gridSocket` onmessage
+`try/catch` swallowed it. Fix: read `runs`; harden onmessage to LOG handler errors
+(never swallow); unit test corrected to the real wire shape (`npm run test:grid`
+green). Wire contract re-confirmed against daemon source.
+
+### Also this iter
+- Login screen now shows the K2-by-Alakazam-Labs wordmark (`src/assets/login-logo.png`).
+- Build hardening: added `src/vite-env.d.ts` (`vite/client`) so `tsc` resolves the
+  png import + `import.meta.env`; dropped two now-stale `@ts-expect-error` dirs.
+- Workspace `.k2so` → `.k2` cutover committed (mechanical; fan-out symlinks re-pointed).
+
+### Build / install / launch (device)
+```
+PATH="$HOME/.cargo/bin:/opt/homebrew/bin:$PATH" ./node_modules/.bin/tauri ios build --debug
+xcrun devicectl device install app --device <zPhoneAir-UDID> \
+  src-tauri/gen/apple/build/k2so-companion_iOS.xcarchive/Products/Applications/K2.app
+xcrun devicectl device process launch --device <zPhoneAir-UDID> --terminate-existing dev.k2.companion
+```
+Note: `cargo` (rustup shim) lives at `~/.cargo/bin` — must be on PATH or the
+tauri ios build dies early on `cargo metadata` (No such file).
+
+### Open / forward-looking (not blocking)
+- Companion could subscribe to `/cli/sessions/events` for a live session list
+  ("daemon as server" shape) instead of one-shot list fetches.
+- Releases still NOT done — local build/test only, per standing constraint.
