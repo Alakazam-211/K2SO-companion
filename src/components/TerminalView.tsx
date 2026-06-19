@@ -44,7 +44,6 @@ const DEFAULT_BG = 0x0a0a0a;
 const FONT_SIZE = 10;
 const LINE_HEIGHT = Math.ceil(FONT_SIZE * 1.35);
 const FONT_FAMILY = "'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace";
-// @ts-expect-error Vite injects import.meta.env
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
 const ATTR_BOLD = 1;
