@@ -119,15 +119,15 @@ export function Login() {
   };
 
   const inputClass =
-    "w-full min-h-[56px] bg-[var(--surface)] border border-[var(--border-hover)] px-4 text-[var(--text)] text-[14px] focus:outline-none focus:border-[var(--accent)] transition-colors";
+    "w-full min-h-[40px] bg-[var(--surface)] border border-[var(--border-hover)] px-4 text-[var(--text)] text-[14px] focus:outline-none focus:border-[var(--accent)] transition-colors";
   const labelClass =
     "text-[var(--text-muted)] text-[10px] uppercase tracking-wide block";
 
   return (
-    <div className="flex flex-col min-h-full px-6 py-10 pb-safe overflow-y-auto">
-      <div className="m-auto w-full max-w-sm flex flex-col">
+    <div className="flex flex-col items-center min-h-full px-6 pt-20 pb-12 overflow-y-auto">
+      <div className="w-full max-w-sm flex flex-col items-stretch">
         {/* Logo */}
-        <img src={loginLogo} alt="K2 by Alakazam Labs" className="w-44 mx-auto mb-10" />
+        <img src={loginLogo} alt="K2 by Alakazam Labs" className="w-44 mx-auto mb-10 mt-2" />
 
         {/* Saved servers — custom dropdown (matches the desktop K2 picker) */}
         {connections.length > 0 && (
@@ -279,7 +279,7 @@ export function Login() {
           <button
             type="submit"
             disabled={!isValid || isLoading}
-            className="w-full min-h-[56px] bg-white text-black font-semibold text-[14px] mt-1 disabled:opacity-40 hover:bg-gray-200 transition-colors"
+            className="w-full min-h-[40px] bg-white text-black font-semibold text-[14px] mt-1 disabled:opacity-40 hover:bg-gray-200 transition-colors"
           >
             {isLoading ? "Connecting..." : "Connect"}
           </button>
