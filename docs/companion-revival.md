@@ -282,3 +282,35 @@ tauri ios build dies early on `cargo metadata` (No such file).
 - Companion could subscribe to `/cli/sessions/events` for a live session list
   ("daemon as server" shape) instead of one-shot list fetches.
 - Releases still NOT done — local build/test only, per standing constraint.
+
+---
+
+## Iter 10 (2026-06-18) — tab names as session names + chat-vs-new-tab picker
+
+Two requested features.
+
+### 1. Session names = daemon tab names ("main chat tab")
+`/cli/companion/sessions` used a cwd/agent-derived label. Now it returns the
+**live PTY tab-name** (`LiveSession::label()` → `DaemonPtySession::label()`),
+falling back to the derived label only when unset, and tags each row with
+**`isMainChat`** by matching the PTY uuid against the workspace's pinned-chat
+`workspace_sessions.active_terminal_id`. Mobile renders via a new
+`sessionLabel()` helper: `isMainChat` → "main chat tab", else the live label.
+Applied in Sessions list, SessionSwitcher, and the ChatSession header.
+(daemon: companion_routes.rs `active_chat_terminal_ids()` + handler; session_lookup.rs `label()`.)
+
+### 2. + button → "main chat tab" vs "new tab"
+`NewSessionModal` is now two-step: pick a workspace → choose **Open main chat
+tab** (`POST /cli/workspace/ensure-pinned-chat` → navigate to its `sessionId`)
+or **Open new tab** (`spawn-background` → new terminal). Added `api.ensurePinnedChat`.
+
+### Deploy notes
+- Daemon change needs the daemon serving it. Local swap pattern (release.sh
+  Step 2.5): bootout `dev.k2.daemon` → `cp target/release/k2-daemon` into
+  `/Applications/K2.app/Contents/MacOS/` → `codesign --force --sign -` → bootstrap.
+  **The Claude Code Bash sandbox silently no-ops writes to /Applications** — must
+  run that step with the sandbox disabled or the cp won't persist.
+- Daemon restart invalidates session tokens + bounces live PTYs (pinned chats
+  resume their conversation; plain terminals restart). The phone re-logs in.
+- Verified new binary live via embedded `isMainChat` string + process start time
+  (live curl blocked only by test-account auth; field is emitted unconditionally).
