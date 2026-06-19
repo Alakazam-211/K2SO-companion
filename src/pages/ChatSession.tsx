@@ -26,6 +26,7 @@ export function ChatSession() {
   const terminalWrapperRef = useRef<HTMLDivElement>(null);
   const sendInputRef = useRef<((text: string) => void) | null>(null);
   const reloadRef = useRef<(() => void) | null>(null);
+  const [reloading, setReloading] = useState(false);
   const [debugInfo, setDebugInfo] = useState("");
 
   // Manual touch-scroll: WKWebView with scrollEnabled=false sometimes blocks
@@ -164,20 +165,29 @@ export function ChatSession() {
   };
 
   const handleReload = async () => {
-    // On the pinned MAIN CHAT tab, "reload" means restore the SELECTED
-    // session (same as the desktop reload): re-resolve via ensure-pinned-chat
-    // and, if the daemon hands back a different PTY (e.g. it had spawned a
-    // fresh one on restart), navigate to it. Otherwise just reconnect the
-    // stream to recover a broken/stale terminal.
-    if (session?.isMainChat && workspacePath) {
-      const r = await ensurePinnedChat(workspacePath);
-      await useWorkspacesStore.getState().fetchAllSessions();
-      if (r.ok && r.data?.sessionId && r.data.sessionId !== terminalId) {
-        navigate(`/chat/${r.data.sessionId}`, { replace: true });
-        return;
+    if (reloading) return;
+    setReloading(true);
+    try {
+      // On the pinned MAIN CHAT tab, "reload" restores the SELECTED session
+      // (same as the desktop refresh): force-respawn so the daemon KILLS the
+      // possibly-wrong live PTY and re-resolves — a plain ensure would just
+      // hand back the already-live (fresh) session, which is why reload
+      // couldn't restore the right session before.
+      if (session?.isMainChat && workspacePath) {
+        const r = await ensurePinnedChat(workspacePath, { forceRespawn: true });
+        await useWorkspacesStore.getState().fetchAllSessions();
+        if (r.ok && r.data?.sessionId && r.data.sessionId !== terminalId) {
+          navigate(`/chat/${r.data.sessionId}`, { replace: true });
+          return; // remounts on the restored session
+        }
       }
+      // Regular terminal, or a pinned chat whose PTY id didn't change:
+      // reconnect the stream. Hold the spinner briefly so the tap registers.
+      reloadRef.current?.();
+      await new Promise((res) => setTimeout(res, 800));
+    } finally {
+      setReloading(false);
     }
-    reloadRef.current?.();
   };
 
   if (!terminalId) return null;
@@ -194,15 +204,24 @@ export function ChatSession() {
         <button onClick={() => navigate("/sessions")} className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 -ml-2">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 1L3 7l6 6" /></svg>
         </button>
-        <span className="text-[var(--text)] text-[13px] font-semibold truncate flex-1">
-          {session ? sessionLabel(session) : "Terminal"}
-        </span>
+        <div className="flex items-center gap-1.5 flex-1 min-w-0">
+          {session?.isMainChat && (
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-label="pinned chat">
+              <path d="M12 17v5" />
+              <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+            </svg>
+          )}
+          <span className="text-[var(--text)] text-[13px] font-semibold truncate">
+            {session ? sessionLabel(session) : "Terminal"}
+          </span>
+        </div>
         <button
           onClick={handleReload}
+          disabled={reloading}
           aria-label="Reload session"
-          className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0"
+          className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 disabled:opacity-60"
         >
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={reloading ? "animate-spin" : ""}>
             <path d="M21 2v6h-6" />
             <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
             <path d="M3 22v-6h6" />
