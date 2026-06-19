@@ -1,12 +1,56 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
-import { sessionLabel } from "../api/client";
+import { setSessionLabel, type GlobalSession } from "../api/client";
+import { SessionTitle } from "../components/SessionTitle";
 
 export function Sessions() {
   const allSessions = useWorkspacesStore((s) => s.allSessions);
   const [query, setQuery] = useState("");
   const navigate = useNavigate();
+
+  // Long-press → rename (non-pinned tabs only). One press at a time, so a
+  // single shared timer/flag is fine.
+  const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressed = useRef(false);
+  const [renameTarget, setRenameTarget] = useState<{ id: string; current: string } | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [savingRename, setSavingRename] = useState(false);
+
+  const startPress = (session: GlobalSession) => {
+    longPressed.current = false;
+    if (session.isMainChat) return; // the pinned main chat isn't renamable
+    pressTimer.current = setTimeout(() => {
+      longPressed.current = true;
+      const current = session.label || session.agentName;
+      setRenameValue(current);
+      setRenameTarget({ id: session.terminalId, current });
+    }, 500);
+  };
+  const cancelPress = () => {
+    if (pressTimer.current) {
+      clearTimeout(pressTimer.current);
+      pressTimer.current = null;
+    }
+  };
+  const onCardClick = (session: GlobalSession) => {
+    if (longPressed.current) {
+      longPressed.current = false; // swallow the click that follows a long-press
+      return;
+    }
+    navigate(`/chat/${session.terminalId}`);
+  };
+
+  const saveRename = async () => {
+    if (!renameTarget) return;
+    const name = renameValue.trim();
+    if (!name) return;
+    setSavingRename(true);
+    await setSessionLabel(renameTarget.id, name);
+    await useWorkspacesStore.getState().fetchAllSessions();
+    setSavingRename(false);
+    setRenameTarget(null);
+  };
 
   // Sort alphabetically by label, filter by search
   const filtered = allSessions
@@ -56,7 +100,11 @@ export function Sessions() {
             {filtered.map((session) => (
               <button
                 key={session.terminalId}
-                onClick={() => navigate(`/chat/${session.terminalId}`)}
+                onClick={() => onCardClick(session)}
+                onTouchStart={() => startPress(session)}
+                onTouchEnd={cancelPress}
+                onTouchMove={cancelPress}
+                onContextMenu={(e) => e.preventDefault()}
                 className="flex items-center gap-3 px-3 py-3 bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--border-hover)] transition-colors text-left w-full"
               >
                 {/* Workspace color bar */}
@@ -64,14 +112,9 @@ export function Sessions() {
                   className="w-1 self-stretch shrink-0"
                   style={{ backgroundColor: session.workspaceColor || "var(--accent)" }}
                 />
-                {/* Session info */}
+                {/* [workspace name] | [main chat badge | tab name] */}
                 <div className="flex-1 min-w-0">
-                  <div className="text-[var(--text)] text-[13px] truncate">
-                    {sessionLabel(session)}
-                  </div>
-                  <div className="text-[var(--text-muted)] text-[11px] truncate">
-                    {session.workspaceName}
-                  </div>
+                  <SessionTitle session={session} />
                 </div>
                 {/* Online indicator */}
                 <div className="w-2 h-2 rounded-full bg-[var(--success)] shrink-0" />
@@ -80,6 +123,46 @@ export function Sessions() {
           </div>
         )}
       </div>
+
+      {/* Rename modal (long-press a non-pinned card) — centered */}
+      {renameTarget && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center px-6"
+          onClick={() => !savingRename && setRenameTarget(null)}
+        >
+          <div className="absolute inset-0 bg-black/60" />
+          <div
+            className="relative w-full max-w-sm bg-[var(--surface)] border border-[var(--border)] p-4 flex flex-col gap-3"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <span className="text-[var(--text)] text-[13px] font-semibold">Rename tab</span>
+            <input
+              autoFocus
+              value={renameValue}
+              onChange={(e) => setRenameValue(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") saveRename(); }}
+              placeholder="Tab name"
+              className="w-full bg-[var(--background)] border border-[var(--border)] px-3 py-2.5 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent-dim)]"
+            />
+            <div className="flex gap-2 justify-end">
+              <button
+                onClick={() => setRenameTarget(null)}
+                disabled={savingRename}
+                className="px-4 py-2 text-[var(--text-muted)] text-[12px]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveRename}
+                disabled={savingRename || !renameValue.trim()}
+                className="px-4 py-2 bg-white text-black font-semibold text-[12px] disabled:opacity-40"
+              >
+                {savingRename ? "Saving..." : "Save"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

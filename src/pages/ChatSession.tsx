@@ -2,7 +2,8 @@ import { useState, useRef, useLayoutEffect, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { TerminalView } from "../components/TerminalView";
-import { sessionLabel, ensurePinnedChat } from "../api/client";
+import { ensurePinnedChat } from "../api/client";
+import { SessionTitle } from "../components/SessionTitle";
 
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
@@ -204,16 +205,12 @@ export function ChatSession() {
         <button onClick={() => navigate("/sessions")} className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 -ml-2">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 1L3 7l6 6" /></svg>
         </button>
-        <div className="flex items-center gap-1.5 flex-1 min-w-0">
-          {session?.isMainChat && (
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0" aria-label="pinned chat">
-              <path d="M12 17v5" />
-              <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
-            </svg>
+        <div className="flex-1 min-w-0">
+          {session ? (
+            <SessionTitle session={session} />
+          ) : (
+            <span className="text-[var(--text)] text-[13px] font-semibold">Terminal</span>
           )}
-          <span className="text-[var(--text)] text-[13px] font-semibold truncate">
-            {session ? sessionLabel(session) : "Terminal"}
-          </span>
         </div>
         <button
           onClick={handleReload}

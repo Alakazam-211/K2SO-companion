@@ -330,6 +330,32 @@ export const spawnBackgroundTerminal = (project: string, command: string, cwd?: 
     "terminal.spawn_background", "/cli/terminal/spawn-background",
     { project, command, cwd: cwd || project }, { method: "POST" }
   );
+// Spawn a NEW tab (a fresh grid-WS-attachable v2 session) in the workspace.
+// `/cli/terminal/spawn-background` doesn't exist (that's why "new tab"
+// failed); v2/spawn registers the PTY in the v2 map so the grid-WS can stream
+// it. A unique agent_name makes it a DISTINCT session (not the canonical chat).
+export const spawnNewTab = (cwd: string, label = "new tab") => {
+  const agent_name =
+    "tab-" + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36));
+  return request<{ sessionId: string; agentName: string; reused?: boolean }>(
+    "sessions.v2_spawn", "/cli/sessions/v2/spawn",
+    {
+      agent_name,
+      cwd,
+      command: "claude",
+      args: ["--dangerously-skip-permissions"],
+      label,
+    },
+    { method: "POST" }
+  );
+};
+// Rename a tab's label (v2 sessions only). lock=true so PTY title events
+// (e.g. "Claude Code") can't overwrite the user's chosen name.
+export const setSessionLabel = (sessionId: string, label: string) =>
+  request<{ label: string; locked: boolean }>(
+    "sessions.label", "/cli/sessions/label",
+    { id: sessionId, label, lock: "true" }
+  );
 // Open (or resume) the workspace's pinned "main chat" session. Returns
 // the daemon PTY `sessionId` to navigate to. Idempotent — a live chat is
 // returned as-is (reused) unless `forceRespawn` kills + re-resolves it (the
