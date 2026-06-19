@@ -11,7 +11,7 @@ settingGroups:
   app:
     base:
       PRODUCT_NAME: K2
-      PRODUCT_BUNDLE_IDENTIFIER: dev.k2.companion
+      PRODUCT_BUNDLE_IDENTIFIER: com.alakazamlabs.k2so.companion
       DEVELOPMENT_TEAM: 36B8R93HXV
 targetTemplates:
   app:
