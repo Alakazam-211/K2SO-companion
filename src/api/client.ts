@@ -66,10 +66,15 @@ export interface GlobalSession {
   agentName: string;
   terminalId: string;
   label: string;
-  /** True when this session is the workspace's pinned "main chat" tab
-   *  (daemon: workspace_sessions.active_terminal_id). Rendered as
-   *  "main chat tab" regardless of its raw label. */
+  /** True when this session is the workspace's pinned "main chat" tab.
+   *  Rendered as "main chat tab" regardless of its raw label. */
   isMainChat?: boolean;
+  /** Canonical tab id (the tab_titles / layout key) for tab-driven
+   *  sessions; null for the pinned chat / non-tab sessions. Used to rename
+   *  the tab via set-tab-title. */
+  tabId?: string | null;
+  /** Workspace/project id the daemon resolved this session to. */
+  projectId?: string;
   command?: string | null;
   cwd: string;
 }
@@ -354,12 +359,13 @@ export const spawnNewTab = (cwd: string, label = "new tab") => {
     { method: "POST" }
   );
 };
-// Rename a tab's label (v2 sessions only). lock=true so PTY title events
-// (e.g. "Claude Code") can't overwrite the user's chosen name.
-export const setSessionLabel = (sessionId: string, label: string) =>
-  request<{ label: string; locked: boolean }>(
-    "sessions.label", "/cli/sessions/label",
-    { id: sessionId, label, lock: "true" }
+// Rename a TAB — writes the CANONICAL tab title in SQLite (the same
+// `tab_titles` row the desktop uses), `locked` so program-generated PTY
+// titles can't overwrite the user's chosen name. Both surfaces read this.
+export const setTabTitle = (projectId: string, tabId: string, title: string) =>
+  request<{ success?: boolean }>(
+    "workspace.set_tab_title", "/cli/workspace/set-tab-title",
+    { projectId, tabId, title, locked: true }, { method: "POST" }
   );
 // Open (or resume) the workspace's pinned "main chat" session. Returns
 // the daemon PTY `sessionId` to navigate to. Idempotent — a live chat is

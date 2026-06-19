@@ -1,7 +1,7 @@
 import { useState, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
-import { setSessionLabel, type GlobalSession } from "../api/client";
+import { setTabTitle, type GlobalSession } from "../api/client";
 import { SessionTitle } from "../components/SessionTitle";
 
 export function Sessions() {
@@ -13,18 +13,20 @@ export function Sessions() {
   // single shared timer/flag is fine.
   const pressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const longPressed = useRef(false);
-  const [renameTarget, setRenameTarget] = useState<{ id: string; current: string } | null>(null);
+  const [renameTarget, setRenameTarget] = useState<{ projectId: string; tabId: string; current: string } | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [savingRename, setSavingRename] = useState(false);
 
   const startPress = (session: GlobalSession) => {
     longPressed.current = false;
-    if (session.isMainChat) return; // the pinned main chat isn't renamable
+    // Only tab-driven, non-pinned sessions are renamable (the pinned main
+    // chat isn't; non-tab sessions have no tab to title).
+    if (session.isMainChat || !session.tabId || !session.projectId) return;
     pressTimer.current = setTimeout(() => {
       longPressed.current = true;
       const current = session.label || session.agentName;
       setRenameValue(current);
-      setRenameTarget({ id: session.terminalId, current });
+      setRenameTarget({ projectId: session.projectId!, tabId: session.tabId!, current });
     }, 500);
   };
   const cancelPress = () => {
@@ -46,7 +48,7 @@ export function Sessions() {
     const name = renameValue.trim();
     if (!name) return;
     setSavingRename(true);
-    const r = await setSessionLabel(renameTarget.id, name);
+    const r = await setTabTitle(renameTarget.projectId, renameTarget.tabId, name);
     await useWorkspacesStore.getState().fetchAllSessions();
     setSavingRename(false);
     if (r.ok) setRenameTarget(null); // keep the modal open if it didn't save
