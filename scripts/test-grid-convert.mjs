@@ -42,7 +42,7 @@ function testDelta() {
 
   m.applyDelta({
     cols: 10, rows: 3,
-    damagedRows: [{ row: 1, cells: [cell("vp-B*")] }],
+    damagedRows: [{ row: 1, runs: [cell("vp-B*")] }],
     scrollbackAppended: [[cell("old-3")]],
     cursor: { row: 2, col: 3, visible: true },
     version: 1, displayOffset: 0,

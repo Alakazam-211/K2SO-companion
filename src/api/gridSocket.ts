@@ -67,10 +67,18 @@ export class GridSocket {
       return;
     }
     this.ws.onmessage = (e) => {
+      let frame: GridFrame;
       try {
-        this.onFrame(JSON.parse(e.data as string) as GridFrame);
+        frame = JSON.parse(e.data as string) as GridFrame;
       } catch {
-        /* ignore non-JSON frames */
+        return; // non-JSON frame — ignore
+      }
+      // Don't swallow handler errors silently: an apply bug here (e.g. a
+      // wire field-name mismatch) would otherwise look like a dead stream.
+      try {
+        this.onFrame(frame);
+      } catch (err) {
+        console.warn("[gridSocket] frame handler error:", err);
       }
     };
     this.ws.onclose = () => {

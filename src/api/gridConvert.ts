@@ -31,7 +31,11 @@ export interface TermGridSnapshot {
 }
 export interface DamagedRow {
   row: number;
-  cells: CellRun[];
+  // Daemon wire field is `runs` (grid_snapshot.rs DamagedRow.runs). Using
+  // `cells` made every delta throw in cellRowToCompact (undefined is not
+  // iterable) and get swallowed by the WS onmessage try/catch — so deltas
+  // never applied and the viewport only refreshed on (re)snapshots.
+  runs: CellRun[];
 }
 export interface TermGridDelta {
   cols: number;
@@ -114,7 +118,7 @@ export class GridModel {
     }
     for (const d of p.damagedRows) {
       if (d.row >= 0 && d.row < this.viewport.length) {
-        this.viewport[d.row] = cellRowToCompact(d.cells, d.row);
+        this.viewport[d.row] = cellRowToCompact(d.runs, d.row);
       }
     }
     this.cols = p.cols;
