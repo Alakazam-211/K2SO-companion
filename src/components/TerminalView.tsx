@@ -120,9 +120,13 @@ function renderLineSpans(line: CompactLine): React.ReactNode[] {
 interface Props {
   terminalId: string;
   projectPath: string;
+  // Populated with a function that sends keystrokes/text to THIS session's
+  // live grid-WS, so a parent (ChatSession's send bar) can write to the PTY
+  // over the same connected socket. Cleared to null on disconnect/unmount.
+  onInputRef?: { current: ((text: string) => void) | null };
 }
 
-export function TerminalView({ terminalId, projectPath }: Props) {
+export function TerminalView({ terminalId, projectPath, onInputRef }: Props) {
   const linesRef = useRef<Map<number, CompactLine>>(new Map());
   const [grid, setGrid] = useState<{
     rows: number;
@@ -294,6 +298,10 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     const gridSock = new GridSocket(onFrame);
     gridSock.connect(terminalId);
 
+    // Expose this socket's input to the parent send bar — writes go to the PTY
+    // over the SAME connected WS (there is no working HTTP terminal-write route).
+    if (onInputRef) onInputRef.current = (text: string) => gridSock.sendInput(text);
+
     // Claim active + fit the shared PTY to THIS phone's viewport. The PTY is
     // a single size across all viewers, so the active device drives the size;
     // on mobile we assume the user is driving from the phone, so fit the phone
@@ -321,6 +329,7 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     }, 1500);
 
     return () => {
+      if (onInputRef) onInputRef.current = null;
       ro.disconnect();
       gridSock.release();
       clearTimeout(fallbackTimer);
