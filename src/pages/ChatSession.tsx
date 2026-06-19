@@ -245,13 +245,10 @@ export function ChatSession() {
           ref={textareaRef}
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter" && !e.shiftKey) {
-              e.preventDefault();
-              handleSend();
-            }
-          }}
-          placeholder="Send to terminal..."
+          // Mobile composer: Return inserts a newline (and the textarea grows via
+          // the [input] effect above) — sending is a deliberate tap on the ↑
+          // button, NOT Return. This is the standard mobile-chat pattern.
+          placeholder="Type a message…  (↑ to send)"
           rows={1}
           className="flex-1 bg-[var(--background)] border border-[var(--accent-dim)] px-3 text-[var(--text)] text-[13px] focus:outline-none resize-none"
           style={{
