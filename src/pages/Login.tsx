@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/auth";
 import loginLogo from "../assets/login-logo.png";
@@ -53,12 +53,29 @@ export function Login() {
   const [username, setUsername] = useState(first?.username ?? "");
   const [password, setPassword] = useState("");
   const [save, setSave] = useState(true);
+  const [dropOpen, setDropOpen] = useState(false);
+  const dropRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (isAuthenticated) navigate("/sessions", { replace: true });
   }, [isAuthenticated, navigate]);
 
+  // Close the saved-servers dropdown on outside tap.
+  useEffect(() => {
+    if (!dropOpen) return;
+    const onDown = (e: Event) => {
+      if (dropRef.current && !dropRef.current.contains(e.target as Node)) setDropOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("touchstart", onDown);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("touchstart", onDown);
+    };
+  }, [dropOpen]);
+
   const isValid = serverUrl.length > 0 && username.length > 0 && password.length > 0;
+  const selectedConn = connections.find((c) => c.id === selectedId);
 
   const selectConn = (c: Conn) => {
     setSelectedId(c.id);
@@ -66,6 +83,7 @@ export function Login() {
     setServerUrl(c.serverUrl);
     setUsername(c.username);
     setPassword(""); // never stored — always re-enter
+    setDropOpen(false);
   };
 
   const deleteConn = (id: string, e?: React.MouseEvent) => {
@@ -74,6 +92,7 @@ export function Login() {
     setConnections(next);
     persist(next);
     if (selectedId === id) setSelectedId(null);
+    if (next.length === 0) setDropOpen(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -82,8 +101,6 @@ export function Login() {
 
     if (save) {
       const nick = nickname.trim() || serverUrl;
-      // Upsert by (serverUrl, username) so re-saving the same connection
-      // updates its nickname instead of duplicating it.
       const idx = connections.findIndex(
         (c) => c.serverUrl === serverUrl && c.username === username
       );
@@ -102,7 +119,7 @@ export function Login() {
   };
 
   const inputClass =
-    "w-full bg-[var(--surface)] border border-[var(--border-hover)] px-4 py-3.5 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent)] transition-colors";
+    "w-full min-h-[56px] bg-[var(--surface)] border border-[var(--border-hover)] px-4 text-[var(--text)] text-[14px] focus:outline-none focus:border-[var(--accent)] transition-colors";
   const labelClass =
     "text-[var(--text-muted)] text-[10px] uppercase tracking-wide block";
 
@@ -112,42 +129,67 @@ export function Login() {
         {/* Logo */}
         <img src={loginLogo} alt="K2 by Alakazam Labs" className="w-44 mx-auto mb-10" />
 
-        {/* Saved servers — pick one to fill the form */}
+        {/* Saved servers — custom dropdown (matches the desktop K2 picker) */}
         {connections.length > 0 && (
           <div className="mb-7">
             <label className={`${labelClass} mb-2`}>Saved servers</label>
-            <div className="flex items-center gap-2">
-              <div className="relative flex-1">
-                <select
-                  value={selectedId ?? ""}
-                  onChange={(e) => {
-                    const c = connections.find((x) => x.id === e.target.value);
-                    if (c) selectConn(c);
-                  }}
-                  className="w-full appearance-none bg-[var(--surface)] border border-[var(--border-hover)] pl-4 pr-10 py-3.5 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent)] transition-colors truncate"
-                >
-                  <option value="" disabled>Select a saved server…</option>
-                  {connections.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.nickname} — {c.username}@{c.serverUrl}
-                    </option>
-                  ))}
-                </select>
-                <svg className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--text-muted)]" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M3 5l4 4 4-4" />
+            <div className="relative" ref={dropRef}>
+              <button
+                type="button"
+                onClick={() => setDropOpen((v) => !v)}
+                aria-haspopup="listbox"
+                aria-expanded={dropOpen}
+                className={`${inputClass} flex items-center justify-between gap-2 text-left ${selectedConn ? "" : "text-[var(--text-muted)]"}`}
+              >
+                <span className="truncate">{selectedConn ? selectedConn.nickname : "Select a saved server…"}</span>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={`shrink-0 text-[var(--text-muted)] transition-transform ${dropOpen ? "rotate-180" : ""}`}>
+                  <path d="M6 9l6 6 6-6" />
                 </svg>
-              </div>
-              {selectedId && (
-                <button
-                  type="button"
-                  onClick={() => deleteConn(selectedId)}
-                  aria-label="Remove saved server"
-                  className="w-12 h-12 flex items-center justify-center border border-[var(--border-hover)] text-[var(--text-muted)] shrink-0 hover:border-[var(--error)] hover:text-[var(--error)] transition-colors"
+              </button>
+
+              {dropOpen && (
+                <div
+                  role="listbox"
+                  className="absolute left-0 right-0 top-full mt-1.5 z-20 max-h-[45vh] overflow-y-auto bg-[var(--surface)] border border-[var(--border-hover)] shadow-2xl py-1"
                 >
-                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M2.5 4h11M6 4V2.5h4V4M5 4l.5 9h5l.5-9M6.5 6.5v4M9.5 6.5v4" />
-                  </svg>
-                </button>
+                  {connections.map((c) => {
+                    const isSel = c.id === selectedId;
+                    return (
+                      <div
+                        key={c.id}
+                        role="option"
+                        aria-selected={isSel}
+                        onClick={() => selectConn(c)}
+                        className={`flex items-center gap-2 px-3.5 py-3 cursor-pointer transition-colors ${
+                          isSel ? "bg-[var(--accent)]/10" : "hover:bg-[var(--background)]"
+                        }`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="text-[var(--text)] text-[13px] font-medium truncate">{c.nickname}</div>
+                          <div className="text-[var(--text-muted)] text-[10px] truncate mt-0.5">{c.username} @ {c.serverUrl}</div>
+                        </div>
+                        {isSel && (
+                          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[var(--accent)]">
+                            <path d="M5 12l5 5 9-11" />
+                          </svg>
+                        )}
+                        <button
+                          type="button"
+                          onClick={(e) => deleteConn(c.id, e)}
+                          aria-label="Remove saved server"
+                          className="w-8 h-8 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--error)] shrink-0 transition-colors"
+                        >
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                            <path d="M3 6h18" />
+                            <path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                            <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6" />
+                            <path d="M10 11v6M14 11v6" />
+                          </svg>
+                        </button>
+                      </div>
+                    );
+                  })}
+                </div>
               )}
             </div>
           </div>
@@ -156,9 +198,9 @@ export function Login() {
         {/* Divider between saved + a new sign-in */}
         {connections.length > 0 && (
           <div className="flex items-center gap-3 mb-6">
-            <div className="flex-1 h-px bg-[var(--border)]" />
+            <div className="flex-1 h-px bg-[var(--border-hover)]" />
             <span className="text-[var(--text-muted)] text-[10px] uppercase tracking-wide">or sign in</span>
-            <div className="flex-1 h-px bg-[var(--border)]" />
+            <div className="flex-1 h-px bg-[var(--border-hover)]" />
           </div>
         )}
 
@@ -206,7 +248,7 @@ export function Login() {
               <div
                 onClick={() => setSave(!save)}
                 className={`w-5 h-5 border flex items-center justify-center shrink-0 transition-all duration-150 ${
-                  save ? "border-[var(--accent)] bg-[var(--accent)]/10" : "border-[var(--border)]"
+                  save ? "border-[var(--accent)] bg-[var(--accent)]/10" : "border-[var(--border-hover)]"
                 }`}
               >
                 {save && (
@@ -237,7 +279,7 @@ export function Login() {
           <button
             type="submit"
             disabled={!isValid || isLoading}
-            className="w-full bg-white text-black font-semibold text-[13px] py-3.5 mt-1 disabled:opacity-40 hover:bg-gray-200 transition-colors"
+            className="w-full min-h-[56px] bg-white text-black font-semibold text-[14px] mt-1 disabled:opacity-40 hover:bg-gray-200 transition-colors"
           >
             {isLoading ? "Connecting..." : "Connect"}
           </button>
