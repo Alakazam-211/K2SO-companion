@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
+import { sessionLabel } from "../api/client";
 
 export function Sessions() {
   const allSessions = useWorkspacesStore((s) => s.allSessions);
@@ -66,7 +67,7 @@ export function Sessions() {
                 {/* Session info */}
                 <div className="flex-1 min-w-0">
                   <div className="text-[var(--text)] text-[13px] truncate">
-                    {session.label || session.agentName}
+                    {sessionLabel(session)}
                   </div>
                   <div className="text-[var(--text-muted)] text-[11px] truncate">
                     {session.workspaceName}

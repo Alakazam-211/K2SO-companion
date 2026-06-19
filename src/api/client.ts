@@ -66,8 +66,22 @@ export interface GlobalSession {
   agentName: string;
   terminalId: string;
   label: string;
+  /** True when this session is the workspace's pinned "main chat" tab
+   *  (daemon: workspace_sessions.active_terminal_id). Rendered as
+   *  "main chat tab" regardless of its raw label. */
+  isMainChat?: boolean;
   command?: string | null;
   cwd: string;
+}
+
+/** Display name for a session row/header: the daemon-level TAB NAME.
+ *  The workspace's pinned chat session always shows as "main chat tab";
+ *  every other tab uses its live label, falling back to the agent name. */
+export function sessionLabel(
+  s: Pick<GlobalSession, "isMainChat" | "label" | "agentName">
+): string {
+  if (s.isMainChat) return "main chat tab";
+  return s.label || s.agentName;
 }
 
 export interface CliPreset {
@@ -315,6 +329,14 @@ export const spawnBackgroundTerminal = (project: string, command: string, cwd?: 
   request<{ success: boolean; terminalId: string; command: string }>(
     "terminal.spawn_background", "/cli/terminal/spawn-background",
     { project, command, cwd: cwd || project }, { method: "POST" }
+  );
+// Open (or resume) the workspace's pinned "main chat" session. Returns
+// the daemon PTY `sessionId` to navigate to. Idempotent — a live chat is
+// returned as-is (reused), otherwise it's spawned/resumed.
+export const ensurePinnedChat = (project: string) =>
+  request<{ sessionId: string; claudeSessionId?: string; reused?: boolean }>(
+    "workspace.ensure_pinned_chat", "/cli/workspace/ensure-pinned-chat",
+    { project }, { method: "POST" }
   );
 export const writeTerminal = (project: string, id: string, message: string) =>
   request("terminal.write", "/cli/terminal/write", { project, id, message }, { method: "POST" });

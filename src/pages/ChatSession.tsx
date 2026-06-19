@@ -2,6 +2,7 @@ import { useState, useRef, useLayoutEffect, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { TerminalView } from "../components/TerminalView";
+import { sessionLabel } from "../api/client";
 
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
@@ -170,7 +171,7 @@ export function ChatSession() {
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 1L3 7l6 6" /></svg>
         </button>
         <span className="text-[var(--text)] text-[13px] font-semibold truncate flex-1">
-          {session?.label || session?.workspaceName || "Terminal"}
+          {session ? sessionLabel(session) : "Terminal"}
         </span>
         <div className="w-2 h-2 rounded-full bg-[var(--success)] shrink-0" />
       </div>
