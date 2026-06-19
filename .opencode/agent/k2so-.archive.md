@@ -1,0 +1,1 @@
+/Users/z3thon/DevProjects/Alakazam Labs/K2SO-companion/.k2/skills/k2so-.archive/SKILL.md
