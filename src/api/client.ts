@@ -160,7 +160,12 @@ async function httpRequest<T>(
     params.push(`token=${encodeURIComponent(sessionToken)}`);
   }
   if (params.length > 0) {
-    url += `?${params.join("&")}`;
+    // Use `&` when `path` already carries a query string (GET routes whose
+    // params the `request` wrapper appended to the path). Appending `?` here
+    // unconditionally produced `...?a=b?token=z`, folding the token into the
+    // last param value so the daemon saw NO token → 403 (e.g. rename "snapped
+    // back" because set-label silently failed).
+    url += (url.includes("?") ? "&" : "?") + params.join("&");
   }
 
   const headers: Record<string, string> = {

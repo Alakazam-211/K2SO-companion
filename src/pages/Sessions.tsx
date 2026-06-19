@@ -46,10 +46,10 @@ export function Sessions() {
     const name = renameValue.trim();
     if (!name) return;
     setSavingRename(true);
-    await setSessionLabel(renameTarget.id, name);
+    const r = await setSessionLabel(renameTarget.id, name);
     await useWorkspacesStore.getState().fetchAllSessions();
     setSavingRename(false);
-    setRenameTarget(null);
+    if (r.ok) setRenameTarget(null); // keep the modal open if it didn't save
   };
 
   // Sort alphabetically by label, filter by search
