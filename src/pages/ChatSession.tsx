@@ -2,23 +2,30 @@ import { useState, useRef, useLayoutEffect, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { TerminalView } from "../components/TerminalView";
-import { sessionLabel } from "../api/client";
+import { sessionLabel, ensurePinnedChat } from "../api/client";
 
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
 export function ChatSession() {
   const { terminalId } = useParams<{ terminalId: string }>();
   const navigate = useNavigate();
+  const projects = useWorkspacesStore((s) => s.projects);
   const session = useWorkspacesStore((s) =>
     s.allSessions.find((sess) => sess.terminalId === terminalId)
   );
   const projectPath = session?.cwd || "";
+  // Workspace root for ensure-pinned-chat (prefer the registered project
+  // path; fall back to the session's cwd).
+  const workspacePath =
+    (session && projects.find((p) => p.id === session.workspaceId)?.path) ||
+    projectPath;
   const [input, setInput] = useState("");
   const [containerHeight, setContainerHeight] = useState(window.innerHeight);
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const terminalWrapperRef = useRef<HTMLDivElement>(null);
   const sendInputRef = useRef<((text: string) => void) | null>(null);
+  const reloadRef = useRef<(() => void) | null>(null);
   const [debugInfo, setDebugInfo] = useState("");
 
   // Manual touch-scroll: WKWebView with scrollEnabled=false sometimes blocks
@@ -156,6 +163,23 @@ export function ChatSession() {
     sendInputRef.current?.(text + "\r");
   };
 
+  const handleReload = async () => {
+    // On the pinned MAIN CHAT tab, "reload" means restore the SELECTED
+    // session (same as the desktop reload): re-resolve via ensure-pinned-chat
+    // and, if the daemon hands back a different PTY (e.g. it had spawned a
+    // fresh one on restart), navigate to it. Otherwise just reconnect the
+    // stream to recover a broken/stale terminal.
+    if (session?.isMainChat && workspacePath) {
+      const r = await ensurePinnedChat(workspacePath);
+      await useWorkspacesStore.getState().fetchAllSessions();
+      if (r.ok && r.data?.sessionId && r.data.sessionId !== terminalId) {
+        navigate(`/chat/${r.data.sessionId}`, { replace: true });
+        return;
+      }
+    }
+    reloadRef.current?.();
+  };
+
   if (!terminalId) return null;
 
   return (
@@ -173,6 +197,18 @@ export function ChatSession() {
         <span className="text-[var(--text)] text-[13px] font-semibold truncate flex-1">
           {session ? sessionLabel(session) : "Terminal"}
         </span>
+        <button
+          onClick={handleReload}
+          aria-label="Reload session"
+          className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0"
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M21 2v6h-6" />
+            <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+            <path d="M3 22v-6h6" />
+            <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+          </svg>
+        </button>
         <div className="w-2 h-2 rounded-full bg-[var(--success)] shrink-0" />
       </div>
 
@@ -184,7 +220,7 @@ export function ChatSession() {
 
       {/* Terminal — only scrollable area */}
       <div ref={terminalWrapperRef} style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
-        <TerminalView terminalId={terminalId} projectPath={projectPath} onInputRef={sendInputRef} />
+        <TerminalView terminalId={terminalId} projectPath={projectPath} onInputRef={sendInputRef} onReloadRef={reloadRef} />
       </div>
 
       {/* Input bar */}

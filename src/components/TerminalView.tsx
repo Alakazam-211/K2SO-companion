@@ -123,9 +123,13 @@ interface Props {
   // live grid-WS, so a parent (ChatSession's send bar) can write to the PTY
   // over the same connected socket. Cleared to null on disconnect/unmount.
   onInputRef?: { current: ((text: string) => void) | null };
+  // Populated with a function that forces a fresh reconnect of THIS
+  // session's grid-WS (tears down + re-opens → new snapshot). Lets a parent
+  // (ChatSession's reload button) recover a broken/stale stream.
+  onReloadRef?: { current: (() => void) | null };
 }
 
-export function TerminalView({ terminalId, projectPath, onInputRef }: Props) {
+export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef }: Props) {
   const linesRef = useRef<Map<number, CompactLine>>(new Map());
   const [grid, setGrid] = useState<{
     rows: number;
@@ -148,6 +152,9 @@ export function TerminalView({ terminalId, projectPath, onInputRef }: Props) {
   const pendingRef = useRef<GridUpdate | null>(null);
   const cellWRef = useRef(0);
   const debugRef = useRef("");
+  // Bumping this tears down + recreates the grid-WS (reconnect → fresh
+  // snapshot). Driven by the parent's reload button via onReloadRef.
+  const [reloadKey, setReloadKey] = useState(0);
 
   // Measure cell width once
   useEffect(() => {
@@ -301,6 +308,11 @@ export function TerminalView({ terminalId, projectPath, onInputRef }: Props) {
     // over the SAME connected WS (there is no working HTTP terminal-write route).
     if (onInputRef) onInputRef.current = (text: string) => gridSock.sendInput(text);
 
+    // Expose a reload that forces a fresh reconnect (new snapshot) of this
+    // session — bumping reloadKey re-runs this effect, tearing down + re-
+    // opening the socket. Lets the parent recover a broken/stale stream.
+    if (onReloadRef) onReloadRef.current = () => setReloadKey((k) => k + 1);
+
     // Claim active + fit the shared PTY to THIS phone's viewport. The PTY is
     // a single size across all viewers, so the active device drives the size;
     // on mobile we assume the user is driving from the phone, so fit the phone
@@ -329,6 +341,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef }: Props) {
 
     return () => {
       if (onInputRef) onInputRef.current = null;
+      if (onReloadRef) onReloadRef.current = null;
       ro.disconnect();
       gridSock.release();
       clearTimeout(fallbackTimer);
@@ -336,7 +349,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef }: Props) {
       if (polling) clearInterval(polling);
       if (rafRef.current) cancelAnimationFrame(rafRef.current);
     };
-  }, [terminalId, projectPath, scheduleRender]);
+  }, [terminalId, projectPath, scheduleRender, reloadKey]);
 
   // Auto-scroll to bottom — only if user hasn't scrolled up
   const userScrolledRef = useRef(false);
