@@ -294,6 +294,22 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     const gridSock = new GridSocket(onFrame);
     gridSock.connect(terminalId);
 
+    // Claim active + fit the shared PTY to THIS phone's viewport. The PTY is
+    // a single size across all viewers, so the active device drives the size;
+    // on mobile we assume the user is driving from the phone, so fit the phone
+    // (the desktop reclaims the size the moment it's used). Re-fit on rotation.
+    const fitToPhone = () => {
+      const el = containerRef.current;
+      const cw = cellWRef.current;
+      if (!el || cw <= 0) return;
+      const cols = Math.max(1, Math.floor((el.clientWidth - 16) / cw));        // 8px L/R padding
+      const rows = Math.max(1, Math.floor((el.clientHeight - 8) / LINE_HEIGHT)); // 4px T/B padding
+      gridSock.claim(cols, rows);
+    };
+    const ro = new ResizeObserver(fitToPhone);
+    if (containerRef.current) ro.observe(containerRef.current);
+    fitToPhone();
+
     // If the WS hasn't produced a frame shortly after connect, fall back
     // to HTTP polling so the user still sees content on WS-restricted
     // platforms. Cleared automatically once a frame arrives.
@@ -305,6 +321,8 @@ export function TerminalView({ terminalId, projectPath }: Props) {
     }, 1500);
 
     return () => {
+      ro.disconnect();
+      gridSock.release();
       clearTimeout(fallbackTimer);
       gridSock.close();
       if (polling) clearInterval(polling);

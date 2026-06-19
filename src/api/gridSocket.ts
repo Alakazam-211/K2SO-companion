@@ -8,10 +8,13 @@ import { getBaseUrl, getToken } from "./client";
 //            (snapshot = full read-only grid on attach; deltas after)
 //   client → `{"action":"input","text":...}` / `{"action":"resize",...}`
 //
-// The mobile companion is a READ-ONLY viewer: it renders whatever size
-// the host terminal is and does NOT send `resize` (the PTY is shared —
-// one kernel size across all viewers, so a mobile resize would shrink
-// the host's terminal). Keystroke input may still be sent via `input`.
+// The shared PTY is a single size across all viewers (it can't render
+// different dimensions per device), so the companion uses the daemon's
+// active-subscriber claim: while a session is open on the phone it claims
+// "active" and resizes the PTY to the phone's viewport, so the terminal
+// fits THIS device. This intentionally shrinks the desktop's view — by
+// design, the active device drives the size, and the desktop reclaims it
+// the moment it's used (most-recent-claim-wins). Keystrokes go via `input`.
 //
 // `GridUpdate`/`CompactLine`/`StyleSpan` on the wire are field-identical
 // to the renderer's interfaces in TerminalView, so `payload` feeds
@@ -35,6 +38,9 @@ export class GridSocket {
   private onFrame: FrameHandler;
   private shouldReconnect = true;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Active-viewer claim (this device's dims) to (re)send on every
+   *  connect; null = not claimed. */
+  private claimDims: { cols: number; rows: number } | null = null;
 
   constructor(onFrame: FrameHandler) {
     this.onFrame = onFrame;
@@ -73,6 +79,11 @@ export class GridSocket {
     this.ws.onerror = () => {
       this.ws?.close();
     };
+    this.ws.onopen = () => {
+      // Re-assert the active claim + PTY size on every (re)connect so the
+      // shared terminal keeps fitting THIS device.
+      this.sendClaim();
+    };
   }
 
   private scheduleReconnect(): void {
@@ -86,6 +97,32 @@ export class GridSocket {
   /** Send a keystroke / text input to the host PTY (optional). */
   sendInput(text: string): void {
     this.send({ action: "input", text });
+  }
+
+  /** Claim this session as the active viewer and fit the shared PTY to THIS
+   *  device's viewport (cols×rows). Stored + re-asserted on every reconnect. */
+  claim(cols: number, rows: number): void {
+    if (cols <= 0 || rows <= 0) return;
+    const prev = this.claimDims;
+    if (prev && prev.cols === cols && prev.rows === rows && this.isOpen) return;
+    this.claimDims = { cols, rows };
+    this.sendClaim();
+  }
+
+  /** Release the active claim so another device (e.g. the desktop) drives the size. */
+  release(): void {
+    this.claimDims = null;
+    this.send({ action: "set_active", active: false });
+  }
+
+  private sendClaim(): void {
+    const d = this.claimDims;
+    if (!d) return;
+    // set_active(true, dims) claims + resizes on a FRESH claim; the explicit
+    // resize covers the already-active case (rotation / size change), which
+    // the daemon only honors from the active subscriber.
+    this.send({ action: "set_active", active: true, cols: d.cols, rows: d.rows });
+    this.send({ action: "resize", cols: d.cols, rows: d.rows });
   }
 
   private send(obj: unknown): void {
