@@ -139,7 +139,8 @@ xcodebuild -exportArchive \
   -authenticationKeyPath "$API_KEY_PATH" \
   -authenticationKeyID "$API_KEY" \
   -authenticationKeyIssuerID "$API_ISSUER" \
-  2>&1 | tail -3
+  2>&1 | tee /tmp/k2-export.log | tail -8
+# Full export output (incl. signing/provisioning errors) is in /tmp/k2-export.log
 
 IPA_PATH="$EXPORT_DIR/K2.ipa"
 if [ ! -f "$IPA_PATH" ]; then

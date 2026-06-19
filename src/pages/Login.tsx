@@ -68,8 +68,8 @@ export function Login() {
     setPassword(""); // never stored — always re-enter
   };
 
-  const deleteConn = (id: string, e: React.MouseEvent) => {
-    e.stopPropagation();
+  const deleteConn = (id: string, e?: React.MouseEvent) => {
+    e?.stopPropagation();
     const next = connections.filter((c) => c.id !== id);
     setConnections(next);
     persist(next);
@@ -101,125 +101,152 @@ export function Login() {
     await login(serverUrl, username, password);
   };
 
-  return (
-    <div className="flex flex-col items-center justify-center min-h-full px-6 py-8 pb-safe overflow-y-auto">
-      <div className="text-center mb-6">
-        <img src={loginLogo} alt="K2 by Alakazam Labs" className="w-44 mx-auto" />
-      </div>
+  const inputClass =
+    "w-full bg-[var(--surface)] border border-[var(--border-hover)] px-4 py-3.5 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent)] transition-colors";
+  const labelClass =
+    "text-[var(--text-muted)] text-[10px] uppercase tracking-wide block";
 
-      {/* Saved servers — tap to switch */}
-      {connections.length > 0 && (
-        <div className="w-full max-w-sm mb-4">
-          <label className="text-[var(--text-muted)] text-[10px] mb-1.5 block">Saved servers</label>
-          <div className="flex flex-col gap-1.5">
-            {connections.map((c) => (
-              <div
-                key={c.id}
-                onClick={() => selectConn(c)}
-                className={`flex items-center gap-2 px-3 py-2.5 border cursor-pointer transition-colors ${
-                  selectedId === c.id
-                    ? "border-[var(--accent)] bg-[var(--accent)]/10"
-                    : "border-[var(--border)] bg-[var(--surface)] hover:border-[var(--border-hover)]"
-                }`}
-              >
-                <div className="flex-1 min-w-0">
-                  <div className="text-[var(--text)] text-[13px] font-medium truncate">{c.nickname}</div>
-                  <div className="text-[var(--text-muted)] text-[10px] truncate">{c.username} @ {c.serverUrl}</div>
-                </div>
+  return (
+    <div className="flex flex-col min-h-full px-6 py-10 pb-safe overflow-y-auto">
+      <div className="m-auto w-full max-w-sm flex flex-col">
+        {/* Logo */}
+        <img src={loginLogo} alt="K2 by Alakazam Labs" className="w-44 mx-auto mb-10" />
+
+        {/* Saved servers — pick one to fill the form */}
+        {connections.length > 0 && (
+          <div className="mb-7">
+            <label className={`${labelClass} mb-2`}>Saved servers</label>
+            <div className="flex items-center gap-2">
+              <div className="relative flex-1">
+                <select
+                  value={selectedId ?? ""}
+                  onChange={(e) => {
+                    const c = connections.find((x) => x.id === e.target.value);
+                    if (c) selectConn(c);
+                  }}
+                  className="w-full appearance-none bg-[var(--surface)] border border-[var(--border-hover)] pl-4 pr-10 py-3.5 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent)] transition-colors truncate"
+                >
+                  <option value="" disabled>Select a saved server…</option>
+                  {connections.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.nickname} — {c.username}@{c.serverUrl}
+                    </option>
+                  ))}
+                </select>
+                <svg className="absolute right-3 top-1/2 -translate-y-1/2 pointer-events-none text-[var(--text-muted)]" width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M3 5l4 4 4-4" />
+                </svg>
+              </div>
+              {selectedId && (
                 <button
                   type="button"
-                  onClick={(e) => deleteConn(c.id, e)}
+                  onClick={() => deleteConn(selectedId)}
                   aria-label="Remove saved server"
-                  className="w-7 h-7 flex items-center justify-center text-[var(--text-muted)] shrink-0"
+                  className="w-12 h-12 flex items-center justify-center border border-[var(--border-hover)] text-[var(--text-muted)] shrink-0 hover:border-[var(--error)] hover:text-[var(--error)] transition-colors"
                 >
-                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"><path d="M2 2l8 8M10 2l-8 8" /></svg>
+                  <svg width="15" height="15" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M2.5 4h11M6 4V2.5h4V4M5 4l.5 9h5l.5-9M6.5 6.5v4M9.5 6.5v4" />
+                  </svg>
                 </button>
-              </div>
-            ))}
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      <form onSubmit={handleSubmit} className="w-full max-w-sm space-y-3">
-        <div>
-          <label className="text-[var(--text-muted)] text-[10px] mb-1 block">Nickname (optional)</label>
-          <input
-            type="text"
-            value={nickname}
-            onChange={(e) => setNickname(e.target.value)}
-            placeholder="Home Mac"
-            className="w-full bg-[var(--surface)] border border-[var(--border)] px-4 py-3.5 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent-dim)] transition-colors"
-          />
-        </div>
+        {/* Divider between saved + a new sign-in */}
+        {connections.length > 0 && (
+          <div className="flex items-center gap-3 mb-6">
+            <div className="flex-1 h-px bg-[var(--border)]" />
+            <span className="text-[var(--text-muted)] text-[10px] uppercase tracking-wide">or sign in</span>
+            <div className="flex-1 h-px bg-[var(--border)]" />
+          </div>
+        )}
 
-        <div>
-          <label className="text-[var(--text-muted)] text-[10px] mb-1 block">K2 Connect address</label>
-          <input
-            type="text"
-            value={serverUrl}
-            onChange={(e) => { setServerUrl(e.target.value); setSelectedId(null); }}
-            placeholder="your-name.k2.dev"
-            autoCapitalize="off"
-            autoCorrect="off"
-            className="w-full bg-[var(--surface)] border border-[var(--border)] px-4 py-3.5 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent-dim)] transition-colors"
-          />
-        </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-5">
+          <div className="flex flex-col gap-1.5">
+            <label className={labelClass}>K2 Connect address</label>
+            <input
+              type="text"
+              value={serverUrl}
+              onChange={(e) => { setServerUrl(e.target.value); setSelectedId(null); }}
+              placeholder="your-name.k2.dev"
+              autoCapitalize="off"
+              autoCorrect="off"
+              className={inputClass}
+            />
+          </div>
 
-        <div>
-          <label className="text-[var(--text-muted)] text-[10px] mb-1 block">Username</label>
-          <input
-            type="text"
-            value={username}
-            onChange={(e) => { setUsername(e.target.value); setSelectedId(null); }}
-            placeholder="Username"
-            autoCapitalize="off"
-            autoCorrect="off"
-            className="w-full bg-[var(--surface)] border border-[var(--border)] px-4 py-3.5 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent-dim)] transition-colors"
-          />
-        </div>
+          <div className="flex flex-col gap-1.5">
+            <label className={labelClass}>Username</label>
+            <input
+              type="text"
+              value={username}
+              onChange={(e) => { setUsername(e.target.value); setSelectedId(null); }}
+              placeholder="Username"
+              autoCapitalize="off"
+              autoCorrect="off"
+              className={inputClass}
+            />
+          </div>
 
-        <div>
-          <label className="text-[var(--text-muted)] text-[10px] mb-1 block">Password</label>
-          <input
-            type="password"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            placeholder="Password"
-            className="w-full bg-[var(--surface)] border border-[var(--border)] px-4 py-3.5 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent-dim)] transition-colors"
-          />
-        </div>
+          <div className="flex flex-col gap-1.5">
+            <label className={labelClass}>Password</label>
+            <input
+              type="password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="Password"
+              className={inputClass}
+            />
+          </div>
 
-        {/* Save this server (URL + username only — never the password) */}
-        <label className="flex items-center gap-2.5 py-1 cursor-pointer">
-          <div
-            onClick={() => setSave(!save)}
-            className={`w-5 h-5 border flex items-center justify-center shrink-0 transition-all duration-150 ${
-              save ? "border-[var(--accent)] bg-[var(--accent)]/10" : "border-[var(--border)]"
-            }`}
-          >
+          {/* Save this server (URL + username only — never the password) */}
+          <div className="flex flex-col gap-3 pt-1">
+            <label className="flex items-center gap-2.5 cursor-pointer">
+              <div
+                onClick={() => setSave(!save)}
+                className={`w-5 h-5 border flex items-center justify-center shrink-0 transition-all duration-150 ${
+                  save ? "border-[var(--accent)] bg-[var(--accent)]/10" : "border-[var(--border)]"
+                }`}
+              >
+                {save && (
+                  <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M2 6l3 3 5-5" />
+                  </svg>
+                )}
+              </div>
+              <span className="text-[var(--text-muted)] text-[12px]">Save this server (not the password)</span>
+            </label>
+
             {save && (
-              <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M2 6l3 3 5-5" />
-              </svg>
+              <div className="flex flex-col gap-1.5">
+                <label className={labelClass}>Save as</label>
+                <input
+                  type="text"
+                  value={nickname}
+                  onChange={(e) => setNickname(e.target.value)}
+                  placeholder="Nickname (e.g. Home Mac)"
+                  className={inputClass}
+                />
+              </div>
             )}
           </div>
-          <span className="text-[var(--text-muted)] text-[11px]">Save this server (not the password)</span>
-        </label>
 
-        {error && <p className="text-[var(--error)] text-[11px] text-center">{error}</p>}
+          {error && <p className="text-[var(--error)] text-[11px] text-center">{error}</p>}
 
-        <button
-          type="submit"
-          disabled={!isValid || isLoading}
-          className="w-full bg-white text-black font-semibold text-[13px] py-3.5 mt-4 disabled:opacity-40 hover:bg-gray-200 transition-colors"
-        >
-          {isLoading ? "Connecting..." : "Connect"}
-        </button>
-      </form>
+          <button
+            type="submit"
+            disabled={!isValid || isLoading}
+            className="w-full bg-white text-black font-semibold text-[13px] py-3.5 mt-1 disabled:opacity-40 hover:bg-gray-200 transition-colors"
+          >
+            {isLoading ? "Connecting..." : "Connect"}
+          </button>
+        </form>
 
-      <p className="text-[var(--text-muted)] text-[10px] text-center mt-8 leading-4">
-        Sign in with your K2 Connect account to reach your machine
-      </p>
+        <p className="text-[var(--text-muted)] text-[10px] text-center mt-9 leading-4">
+          Sign in with your K2 Connect account to reach your machine
+        </p>
+      </div>
     </div>
   );
 }
