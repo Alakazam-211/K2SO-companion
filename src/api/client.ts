@@ -332,11 +332,23 @@ export const spawnBackgroundTerminal = (project: string, command: string, cwd?: 
   );
 // Open (or resume) the workspace's pinned "main chat" session. Returns
 // the daemon PTY `sessionId` to navigate to. Idempotent — a live chat is
-// returned as-is (reused), otherwise it's spawned/resumed.
-export const ensurePinnedChat = (project: string) =>
+// returned as-is (reused) unless `forceRespawn` kills + re-resolves it (the
+// RELOAD path: a plain ensure would just hand back the already-live session,
+// which is why reload couldn't restore the selected session). `explicitSelection`
+// mirrors the desktop dropdown-switch (errors instead of converging when the
+// picked session is gone).
+export const ensurePinnedChat = (
+  project: string,
+  opts?: { forceRespawn?: boolean; explicitSelection?: boolean }
+) =>
   request<{ sessionId: string; claudeSessionId?: string; reused?: boolean }>(
     "workspace.ensure_pinned_chat", "/cli/workspace/ensure-pinned-chat",
-    { project }, { method: "POST" }
+    {
+      project,
+      ...(opts?.forceRespawn ? { forceRespawn: true } : {}),
+      ...(opts?.explicitSelection ? { explicitSelection: true } : {}),
+    },
+    { method: "POST" }
   );
 export const writeTerminal = (project: string, id: string, message: string) =>
   request("terminal.write", "/cli/terminal/write", { project, id, message }, { method: "POST" });
