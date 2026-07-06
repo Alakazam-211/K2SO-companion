@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "332741947984",
+    "project_id": "k2-companion-x",
+    "storage_bucket": "k2-companion-x.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:332741947984:android:c6358e0723b6c556c7d755",
+        "android_client_info": {
+          "package_name": "com.alakazamlabs.k2so.companion"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD5s8KPIFMYbLEw6bKLT7eqtDMqfmKLiek"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

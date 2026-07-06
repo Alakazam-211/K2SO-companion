@@ -6,7 +6,9 @@ dist/
 
 # Tauri
 src-tauri/target/
-src-tauri/gen/android/
+# gen/android is TRACKED (Firebase/google-services wiring lives there);
+# build outputs + signing secrets are excluded by src-tauri/gen/android/.gitignore
+src-tauri/gen/android/keystore.properties
 src-tauri/gen/apple/build/
 
 # macOS

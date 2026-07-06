@@ -20,6 +20,10 @@ tauri-plugin-k2-push = { path = "tauri-plugin-k2-push" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
+
+# objc2 is Apple-only (used behind #[cfg(target_os = "ios")] in lib.rs);
+# an unconditional dep breaks Android cross-compilation.
+[target.'cfg(target_os = "ios")'.dependencies]
 objc2 = "0.6.4"
 
 [profile.release]
