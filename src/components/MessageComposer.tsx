@@ -24,6 +24,14 @@ export interface MessageComposerProps {
   busy?: boolean;
   /** Optional rows above the input (error / receipt / status actions). */
   accessory?: ReactNode;
+  /** Optional row at the very top of the bar (e.g. the terminal's
+   *  Safe send / Direct type segmented control). Renders above
+   *  `accessory`. */
+  headerSlot?: ReactNode;
+  /** Visual tint of the whole strip. `"warning"` = the terminal's
+   *  Direct-type state — keystrokes are live on a shared PTY, so the
+   *  bar itself must FEEL hot. Default is the normal surface. */
+  tint?: "default" | "warning";
 }
 
 export function MessageComposer({
@@ -34,6 +42,8 @@ export function MessageComposer({
   disabled,
   busy,
   accessory,
+  headerSlot,
+  tint,
 }: MessageComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -54,11 +64,24 @@ export function MessageComposer({
     onSend();
   };
 
+  const warn = tint === "warning";
+
   return (
     <div
       className="px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar"
-      style={{ flexShrink: 0 }}
+      style={{
+        flexShrink: 0,
+        // Warning tint (Direct type): amber-wash the strip + its top rule
+        // so live-keystroke mode is unmistakable at a glance.
+        ...(warn
+          ? {
+              background: "rgba(245, 158, 11, 0.10)",
+              borderTopColor: "var(--warning)",
+            }
+          : {}),
+      }}
     >
+      {headerSlot}
       {accessory}
       <div className="flex gap-2">
         <textarea
