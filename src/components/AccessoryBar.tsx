@@ -27,6 +27,26 @@ import type { LiveLocalEdit } from "../lib/liveInputText";
 const REPEAT_DELAY_MS = 350;
 const REPEAT_INTERVAL_MS = 80;
 
+// Symbol glyphs (⌫ ↑ ↓ ← → and the ⇧/⌘ class — U+2190–21FF arrows,
+// U+2300–23FF technical) render poorly in the app's mono font; wrap
+// runs of them in `.key-symbol` (system font stack, the desktop K2
+// idiom) while text labels (Esc, Tab, Ctrl+C) stay mono.
+const KEY_SYMBOL_RUN = /([\u2190-\u21FF\u2300-\u23FF]+)/;
+
+function renderKeyLabel(label: string) {
+  const parts = label.split(KEY_SYMBOL_RUN);
+  if (parts.length === 1) return label;
+  return parts.map((part, i) =>
+    KEY_SYMBOL_RUN.test(part) ? (
+      <span key={i} className="key-symbol">
+        {part}
+      </span>
+    ) : (
+      part
+    )
+  );
+}
+
 interface Props {
   /** Deliver a key's bytes — ChatSession routes this through the
    *  capture pipeline so pending IME text flushes first and backspace
@@ -105,16 +125,18 @@ export function AccessoryBar({ onKey }: Props) {
               })}
           className="border border-[var(--accent-dim)] bg-[var(--background)] text-[var(--text)] text-[12px] shrink-0"
           style={{
+            // Size-to-content: full chord labels (Ctrl+C) widen the key;
+            // 44pt min stays the touch-target floor.
             minWidth: 44,
             height: 44,
-            padding: "0 10px",
+            padding: "0 12px",
             fontFamily: "inherit",
             touchAction: "pan-x", // horizontal strip scroll stays native
             userSelect: "none",
             WebkitUserSelect: "none",
           }}
         >
-          {k.label}
+          {renderKeyLabel(k.label)}
         </button>
       ))}
     </div>
