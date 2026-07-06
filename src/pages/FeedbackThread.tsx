@@ -1,0 +1,288 @@
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
+import { useServersStore } from "../stores/servers";
+import { useFeedbackStore } from "../stores/feedback";
+import {
+  commentFeedback,
+  deliveredLine,
+  optionsActionable,
+  relativeAge,
+  resolveFeedback,
+} from "../api/feedback";
+import { KindTag, PriorityTag, StatusTag } from "./Feedback";
+
+// Feedback C3 — the thread screen (`/feedback/:id`): the ask (title +
+// body) then the comment thread as chat bubbles (agent left, you right),
+// with a full-width composer. Every reply is a plain comment — the daemon
+// injects human comments into the asking session, and the FIRST human
+// comment on a waiting question/approval IS the answer (no separate
+// Answer button); the response's answered/delivered fields drive the
+// receipt line. Resolve / Dismiss / Reopen ride the resolve route. The
+// TabBar + server footer hide here like /chat/:id (their route guards).
+//
+// Live: the feedback store's /events subscription refetches this thread
+// (coalesced 300ms) on commented/answered/status-changed for the open id.
+// Only `openItem` is replaced — the composer draft below is local state,
+// so mid-typed text survives every refetch.
+
+export function FeedbackThread() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const activeServerId = useServersStore((s) => s.activeServerId);
+  const item = useFeedbackStore((s) => s.openItem);
+  const openError = useFeedbackStore((s) => s.openError);
+
+  const [reply, setReply] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [actionError, setActionError] = useState<string | null>(null);
+  /** Post-comment receipt ("answered" flash + the delivered line). */
+  const [receipt, setReceipt] = useState<{ answered: boolean; line: string } | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Open (and re-open on deep-link/server switch); the store's events WS
+  // needs to be live even when this screen is the entry point.
+  useEffect(() => {
+    useFeedbackStore.getState().ensureLive();
+  }, [activeServerId]);
+  useEffect(() => {
+    if (id) void useFeedbackStore.getState().openThread(id);
+    return () => useFeedbackStore.getState().closeThread();
+  }, [id]);
+
+  // Keep the newest message in view whenever the rendered thread grows.
+  const commentCount = item?.comments.length ?? 0;
+  useEffect(() => {
+    if (!item) return;
+    requestAnimationFrame(() => {
+      const el = scrollRef.current;
+      if (el) el.scrollTop = el.scrollHeight;
+    });
+  }, [item, commentCount]);
+
+  const submit = useCallback(
+    async (op: () => Promise<void>): Promise<void> => {
+      if (busy) return;
+      setBusy(true);
+      setActionError(null);
+      try {
+        await op();
+        // Refresh the thread + list/badge instantly; the daemon events
+        // arrive slightly later and coalesce into a no-op-ish refetch.
+        await useFeedbackStore.getState().refetchOpen();
+        void useFeedbackStore.getState().refresh();
+      } catch (e) {
+        setActionError(e instanceof Error ? e.message : String(e));
+      } finally {
+        setBusy(false);
+      }
+    },
+    [busy]
+  );
+
+  const sendComment = (text: string): void => {
+    const body = text.trim();
+    if (!body || !item) return;
+    void submit(async () => {
+      const res = await commentFeedback(item.id, body);
+      setReply("");
+      setReceipt({
+        answered: res.answered === true,
+        line: deliveredLine(item.agentName, res.delivered, res.deliveryReason),
+      });
+    });
+  };
+
+  const setStatus = (status: "resolved" | "dismissed" | "waiting"): void => {
+    if (!item) return;
+    setReceipt(null);
+    void submit(() => resolveFeedback(item.id, status));
+  };
+
+  const nowSec = Date.now() / 1000;
+  const openItem = item && (item.status === "waiting" || item.status === "answered");
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header: back + title + status (ChatSession header idiom). */}
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--background)] shrink-0">
+        <button
+          onClick={() => navigate("/feedback")}
+          className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 -ml-2"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M15 18l-6-6 6-6" />
+          </svg>
+        </button>
+        <div className="flex flex-col flex-1 min-w-0">
+          <span className="text-[var(--text)] text-[13px] font-medium truncate">
+            {item?.title ?? "Feedback"}
+          </span>
+          {item && (
+            <span className="text-[var(--text-muted)] text-[10px] truncate">
+              {item.workspace ? `${item.workspace} · ` : ""}
+              {item.agentName} · asked {relativeAge(item.createdAt, nowSec)} ago
+            </span>
+          )}
+        </div>
+        {item && (
+          <div className="flex items-center gap-1.5 shrink-0">
+            <PriorityTag priority={item.priority} />
+            <KindTag kind={item.kind} />
+            <StatusTag status={item.status} />
+          </div>
+        )}
+      </div>
+
+      {openError ? (
+        <div className="flex-1 flex flex-col items-center justify-center px-8 gap-3">
+          <p className="text-[var(--error)] text-[11px] text-center leading-5">
+            Failed to load item: {openError}
+          </p>
+          <button
+            onClick={() => id && void useFeedbackStore.getState().openThread(id)}
+            className="px-4 py-2 border border-[var(--accent-dim)] text-[var(--accent)] text-[11px]"
+          >
+            Retry
+          </button>
+        </div>
+      ) : !item ? (
+        <div className="flex-1 flex items-center justify-center text-[var(--text-muted)] text-[11px]">
+          Loading thread…
+        </div>
+      ) : (
+        <>
+          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
+            {/* The ask body (title is in the header; body adds context). */}
+            {item.body && (
+              <div className="mb-3 px-3 py-2.5 bg-[var(--surface)] border border-[var(--border)] text-[12px] text-[var(--text-secondary)] whitespace-pre-wrap break-words leading-5">
+                {item.body}
+              </div>
+            )}
+
+            {/* Structured options — one-tap replies while waiting; the
+                accepted choice stays highlighted after. */}
+            {item.options && item.options.length > 0 && (
+              <div className="mb-3 flex flex-wrap gap-2">
+                {item.options.map((opt) => {
+                  const accepted = item.answer === opt;
+                  const tappable = optionsActionable(item) && !busy;
+                  return (
+                    <button
+                      key={opt}
+                      disabled={!tappable}
+                      onClick={() => sendComment(opt)}
+                      className={`px-3 py-2 text-[11px] border transition-colors ${
+                        accepted
+                          ? "border-[var(--accent)] text-[var(--accent)] bg-[var(--accent-dim)]/20"
+                          : tappable
+                            ? "border-[var(--border-hover)] text-[var(--text-secondary)]"
+                            : "border-[var(--border)] text-[var(--text-muted)] opacity-50"
+                      }`}
+                    >
+                      {opt}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Thread — agent bubbles left, yours right. The first
+                comment is the ask itself, seeded in the agent's voice. */}
+            <div className="flex flex-col gap-2">
+              {item.comments.map((c, i) => {
+                const own = c.author === "owner";
+                return (
+                  <div key={`${c.at}-${i}`} className={`flex ${own ? "justify-end" : "justify-start"}`}>
+                    <div
+                      className={`max-w-[85%] px-3 py-2 border ${
+                        own
+                          ? "bg-[var(--accent-dim)]/20 border-[var(--accent-dim)]"
+                          : "bg-[var(--surface)] border-[var(--border)]"
+                      }`}
+                    >
+                      <div className="flex items-baseline gap-2 mb-0.5">
+                        <span className={`text-[9px] font-semibold ${own ? "text-[var(--accent)]" : "text-[var(--text-secondary)]"}`}>
+                          {own ? "You" : c.author}
+                        </span>
+                        <span className="text-[9px] text-[var(--text-muted)] tabular-nums">
+                          {relativeAge(c.at, nowSec)}
+                        </span>
+                      </div>
+                      <div className="text-[12px] text-[var(--text)] whitespace-pre-wrap break-words leading-5">
+                        {c.body}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Composer + receipts + status actions. */}
+          <div className="border-t border-[var(--border)] px-4 pt-3 shrink-0 input-bar">
+            {actionError && (
+              <div className="mb-2 text-[var(--error)] text-[10px]">{actionError}</div>
+            )}
+            {receipt && (
+              <div className="mb-2 text-[10px]">
+                {receipt.answered && (
+                  <span className="text-[var(--success)] mr-2">✓ answered</span>
+                )}
+                <span className={receipt.line.startsWith("sent") ? "text-[var(--text-muted)]" : "text-[var(--warning)]"}>
+                  {receipt.line}
+                </span>
+              </div>
+            )}
+            <textarea
+              value={reply}
+              onChange={(e) => setReply(e.target.value)}
+              placeholder={
+                item.status === "waiting" && item.kind !== "fyi"
+                  ? "Reply — your first comment answers the ask"
+                  : "Add a comment — it lands in the agent's session"
+              }
+              rows={2}
+              className="w-full bg-[var(--background)] border border-[var(--accent-dim)] px-3 py-2 text-[var(--text)] text-[13px] focus:outline-none resize-none"
+            />
+            <div className="flex items-center gap-2 mt-2 pb-1">
+              {openItem ? (
+                <>
+                  <button
+                    disabled={busy}
+                    onClick={() => setStatus("resolved")}
+                    className="px-3 py-2 text-[11px] text-[var(--text-secondary)] border border-[var(--border)] disabled:opacity-50"
+                  >
+                    Resolve
+                  </button>
+                  <button
+                    disabled={busy}
+                    onClick={() => setStatus("dismissed")}
+                    className="px-3 py-2 text-[11px] text-[var(--text-muted)] border border-[var(--border)] disabled:opacity-50"
+                  >
+                    Dismiss
+                  </button>
+                </>
+              ) : (
+                <button
+                  disabled={busy}
+                  onClick={() => setStatus("waiting")}
+                  className="px-3 py-2 text-[11px] text-[var(--text-secondary)] border border-[var(--border)] disabled:opacity-50"
+                >
+                  Reopen
+                </button>
+              )}
+              <div className="flex-1" />
+              <button
+                disabled={busy || reply.trim().length === 0}
+                onClick={() => sendComment(reply)}
+                className="px-5 py-2 bg-white text-black font-semibold text-[12px] disabled:opacity-40"
+              >
+                {busy ? "Sending…" : "Send"}
+              </button>
+            </div>
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
