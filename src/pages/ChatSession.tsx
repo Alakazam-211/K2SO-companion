@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useSyncExternalStore } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { useViewportHeight } from "../lib/useViewportHeight";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { TerminalView } from "../components/TerminalView";
 import { ensurePinnedChat } from "../api/client";
@@ -40,7 +41,12 @@ export function ChatSession() {
     projectPath;
   const allSessions = useWorkspacesStore((s) => s.allSessions);
   const [input, setInput] = useState("");
-  const [containerHeight, setContainerHeight] = useState(window.innerHeight);
+  // Keyboard-height column sizing — the shared ProjectChat/FeedbackThread
+  // idiom (useViewportHeight): the hook pins `window.scrollTo(0, 0)` on
+  // every viewport update, so iOS can't leave the page panned after the
+  // focus animation (the old bespoke handler here missed that reset on
+  // the k2-viewport-resize path and the header clipped under the notch).
+  const containerHeight = useViewportHeight();
 
   // T3 — Safe send (default) | Direct type, per-terminal + session-local
   // (sendMode.ts store; nothing persisted across launches).
@@ -184,56 +190,6 @@ export function ChatSession() {
     };
   }, [containerHeight]);
 
-  // Listen for viewport resize from native JS injection + visualViewport
-  useEffect(() => {
-    const root = document.getElementById("root");
-    const rootStyle = root ? getComputedStyle(root) : null;
-    const safeAreaTop = parseInt(rootStyle?.paddingTop || '0', 10) || 0;
-    const fullHeight = window.innerHeight;
-
-    const update = () => {
-      const vv = window.visualViewport;
-      const vvHeight = vv ? vv.height : window.innerHeight;
-      if (vvHeight < fullHeight - 100) {
-        // Keyboard open — subtract top safe area only (keyboard covers bottom)
-        setContainerHeight(vvHeight - safeAreaTop);
-      } else {
-        // Keyboard closed — need room for home indicator + input bar padding
-        setContainerHeight(fullHeight - safeAreaTop - 34);
-      }
-      // Prevent iOS from scrolling the page during keyboard animation
-      window.scrollTo(0, 0);
-    };
-
-    const onCustom = (e: Event) => {
-      const h = (e as CustomEvent).detail?.height;
-      if (h && h < fullHeight - 100) {
-        setContainerHeight(h - safeAreaTop);
-      } else {
-        setContainerHeight(fullHeight - safeAreaTop - 34);
-      }
-    };
-
-    // Set initial height accounting for safe area
-    update();
-
-    window.addEventListener("k2-viewport-resize", onCustom);
-    window.visualViewport?.addEventListener("resize", update);
-
-    // Poll during focus transitions
-    const onFocusIn = () => { setTimeout(update, 100); setTimeout(update, 300); setTimeout(update, 500); };
-    const onFocusOut = () => { setTimeout(update, 100); setTimeout(update, 300); };
-    document.addEventListener("focusin", onFocusIn);
-    document.addEventListener("focusout", onFocusOut);
-
-    return () => {
-      window.removeEventListener("k2-viewport-resize", onCustom);
-      window.visualViewport?.removeEventListener("resize", update);
-      document.removeEventListener("focusin", onFocusIn);
-      document.removeEventListener("focusout", onFocusOut);
-    };
-  }, []);
-
   const handleSend = () => {
     const text = input.trim();
     if (!text || !terminalId || sendBusy) return;
@@ -289,12 +245,20 @@ export function ChatSession() {
   if (!terminalId) return null;
 
   return (
-    <div style={{
-      display: "flex",
-      flexDirection: "column",
-      height: containerHeight,
-      overflow: "hidden",
-    }}>
+    // Backdrop covers the whole viewport (the ProjectChat overlay
+    // structure): `fixed` anchors to the layout viewport, so an iOS
+    // focus-pan of #root/document can't drag the header out from under
+    // the notch — the inner column re-adds the top safe-area (a fixed
+    // child doesn't inherit #root's safe-area padding).
+    <div className="fixed inset-0 z-40 bg-[var(--background)]">
+    <div
+      className="flex flex-col"
+      style={{
+        height: containerHeight,
+        paddingTop: "env(safe-area-inset-top)",
+        overflow: "hidden",
+      }}
+    >
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--background)]" style={{ flexShrink: 0 }}>
         <button onClick={() => navigate("/sessions")} className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 -ml-2">
@@ -455,6 +419,7 @@ export function ChatSession() {
           }
         />
       )}
+    </div>
     </div>
   );
 }
