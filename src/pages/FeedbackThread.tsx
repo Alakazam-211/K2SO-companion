@@ -5,6 +5,7 @@ import { useFeedbackStore } from "../stores/feedback";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { useBottomAnchor } from "../lib/useBottomAnchor";
 import { MessageComposer } from "../components/MessageComposer";
+import { TicketSheet } from "../components/TicketSheet";
 import {
   commentFeedback,
   deliveredLine,
@@ -16,7 +17,12 @@ import { KindTag, PriorityTag, StatusTag } from "./Feedback";
 
 // Feedback C3 — the thread screen (`/feedback/:id`): the ask (title +
 // body) then the comment thread as chat bubbles (agent left, you right),
-// with a full-width composer. Every reply is a plain comment — the daemon
+// with a full-width composer. The header truncates the title, so tapping
+// ANYWHERE on it except the back button opens the read-only full-ticket
+// sheet (TicketSheet — chevron affordance on the right); the composer is
+// blurred first so the sheet never fights the keyboard.
+//
+// Every reply is a plain comment — the daemon
 // injects human comments into the asking session, and the FIRST human
 // comment on a waiting question/approval IS the answer (no separate
 // Answer button); the response's answered/delivered fields drive the
@@ -45,6 +51,8 @@ export function FeedbackThread() {
   const openError = useFeedbackStore((s) => s.openError);
 
   const [reply, setReply] = useState("");
+  /** Full-ticket review sheet (tap the header to open). */
+  const [sheetOpen, setSheetOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
   /** Post-comment receipt ("answered" flash + the delivered line). */
@@ -130,10 +138,24 @@ export function FeedbackThread() {
         paddingTop: "env(safe-area-inset-top)",
       }}
     >
-      {/* Header: back + title + status (ChatSession header idiom). */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--background)] shrink-0">
+      {/* Header: back + title + status (ChatSession header idiom).
+          Tapping anywhere but the back button opens the full-ticket
+          sheet — the one-line title/meta here is only a summary. */}
+      <div
+        onClick={() => {
+          if (!item) return;
+          // Blur the composer first so an open keyboard collapses
+          // before the sheet slides in (they'd otherwise fight).
+          (document.activeElement as HTMLElement | null)?.blur?.();
+          setSheetOpen(true);
+        }}
+        className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--background)] shrink-0 active:bg-[var(--surface)] transition-colors"
+      >
         <button
-          onClick={() => navigate("/feedback")}
+          onClick={(e) => {
+            e.stopPropagation();
+            navigate("/feedback");
+          }}
           className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 -ml-2"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -156,6 +178,10 @@ export function FeedbackThread() {
             <PriorityTag priority={item.priority} />
             <KindTag kind={item.kind} />
             <StatusTag status={item.status} />
+            {/* Muted chevron = "there's more here" (tap for the sheet). */}
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
+              <path d="M6 9l6 6 6-6" />
+            </svg>
           </div>
         )}
       </div>
@@ -310,6 +336,12 @@ export function FeedbackThread() {
         </>
       )}
     </div>
+
+    {/* Full-ticket review sheet — read-only, above the thread column
+        (backdrop z-50 over this overlay's z-40); X or backdrop closes. */}
+    {sheetOpen && item && (
+      <TicketSheet item={item} nowSec={nowSec} onClose={() => setSheetOpen(false)} />
+    )}
     </div>
   );
 }
