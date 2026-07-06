@@ -72,7 +72,7 @@ export function TabBar() {
   if (location.pathname.startsWith("/chat/") || /^\/feedback\/./.test(location.pathname)) return null;
 
   return (
-    <nav className="flex border-t border-[var(--border)] bg-[var(--background)] shrink-0 px-2" style={{ paddingBottom: 20 }}>
+    <nav className="flex border-t border-[var(--border)] bg-[var(--background)] shrink-0 px-2" style={{ paddingBottom: "calc(20px + var(--android-nav-lift, 0px))" }}>
       {tabs.map((tab) => {
         const isActive = location.pathname.startsWith(tab.path);
         return (

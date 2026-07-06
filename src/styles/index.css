@@ -38,7 +38,19 @@ html, body, #root {
 }
 
 .pb-safe {
-  padding-bottom: env(safe-area-inset-bottom);
+  padding-bottom: calc(env(safe-area-inset-bottom) + var(--android-nav-lift, 0px));
+}
+
+/* Android draws edge-to-edge with env(safe-area-inset-bottom) = 0, so
+   the system gesture/nav bar overlaps bottom bars that fit perfectly on
+   iOS. main.tsx stamps .platform-android on <html>; this var lifts every
+   bottom surface there and stays 0 on iOS. Tune on real hardware
+   (gesture nav ≈ 24px, 3-button nav is taller). */
+:root {
+  --android-nav-lift: 0px;
+}
+.platform-android {
+  --android-nav-lift: 28px;
 }
 
 /* System font for key symbols (⌫ ↑ ↓ ← → ⇧ ⌘ …) — the desktop K2
@@ -49,7 +61,7 @@ html, body, #root {
 }
 
 .input-bar {
-  padding-bottom: calc(12px + env(safe-area-inset-bottom));
+  padding-bottom: calc(12px + env(safe-area-inset-bottom) + var(--android-nav-lift, 0px));
 }
 .input-bar:focus-within {
   padding-bottom: 4px;
@@ -58,7 +70,7 @@ html, body, #root {
    so the input's bottom corners clear the home-indicator curve while the
    keyboard is collapsed; collapses to the same 4px while typing. */
 .input-bar-lift {
-  padding-bottom: calc(30px + env(safe-area-inset-bottom));
+  padding-bottom: calc(30px + env(safe-area-inset-bottom) + var(--android-nav-lift, 0px));
 }
 .input-bar-lift:focus-within {
   padding-bottom: 4px;
