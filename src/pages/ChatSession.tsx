@@ -1,10 +1,23 @@
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useSyncExternalStore } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { TerminalView } from "../components/TerminalView";
 import { ensurePinnedChat } from "../api/client";
 import { SessionTitle } from "../components/SessionTitle";
 import { MessageComposer } from "../components/MessageComposer";
+import { sendMessageToSession } from "../api/sendMessage";
+import {
+  modeFor,
+  setSendMode,
+  getDirectHandles,
+  subscribeSendModes,
+  pruneSendModes,
+  getSessionRoles,
+  subscribeSessionRoles,
+  setSessionRole,
+  pruneSessionRoles,
+  type SendMode,
+} from "../lib/sendMode";
 
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
@@ -21,8 +34,56 @@ export function ChatSession() {
   const workspacePath =
     (session && projects.find((p) => p.id === session.workspaceId)?.path) ||
     projectPath;
+  const allSessions = useWorkspacesStore((s) => s.allSessions);
   const [input, setInput] = useState("");
   const [containerHeight, setContainerHeight] = useState(window.innerHeight);
+
+  // T3 — Safe send (default) | Direct type, per-terminal + session-local
+  // (sendMode.ts store; nothing persisted across launches).
+  // (3rd arg = server snapshot so the page also renders under
+  // renderToString — the headless smoke harness.)
+  const directHandles = useSyncExternalStore(
+    subscribeSendModes,
+    getDirectHandles,
+    getDirectHandles
+  );
+  const sendMode: SendMode = terminalId ? modeFor(directHandles, terminalId) : "safe";
+  const [sendBusy, setSendBusy] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  // Daemon-judged role for this grid connection (viewer = read-only, the
+  // composer hides entirely). The `mode` frame lands in the grid-WS
+  // callback (T2's surface, TerminalView); until their store export
+  // lands, the seam is the `k2-grid-mode` CustomEvent fed into the same
+  // sendMode.ts registry — either producer works, this page only reads.
+  const sessionRoles = useSyncExternalStore(
+    subscribeSessionRoles,
+    getSessionRoles,
+    getSessionRoles
+  );
+  const isViewer = terminalId ? sessionRoles.get(terminalId) === "viewer" : false;
+
+  useEffect(() => {
+    const onMode = (e: Event) => {
+      const d = (e as CustomEvent).detail as
+        | { sessionId?: string; mode?: string }
+        | undefined;
+      if (d?.sessionId && (d.mode === "viewer" || d.mode === "claimer")) {
+        setSessionRole(d.sessionId, d.mode);
+      }
+    };
+    window.addEventListener("k2-grid-mode", onMode);
+    return () => window.removeEventListener("k2-grid-mode", onMode);
+  }, []);
+
+  // Prune mode/role handles for terminals that no longer exist (skip the
+  // pre-fetch empty list — it would GC live handles, not dead ones).
+  useEffect(() => {
+    if (allSessions.length === 0) return;
+    const liveIds = allSessions.map((s) => s.terminalId);
+    pruneSendModes(liveIds);
+    pruneSessionRoles(liveIds);
+  }, [allSessions]);
 
   const terminalWrapperRef = useRef<HTMLDivElement>(null);
   const sendInputRef = useRef<((text: string) => void) | null>(null);
@@ -148,12 +209,35 @@ export function ChatSession() {
 
   const handleSend = () => {
     const text = input.trim();
-    if (!text || !terminalId) return;
-    setInput("");
-    // Send over the connected grid-WS — the only path that reaches the v2 PTY
-    // (there is no working HTTP terminal-write route). Append CR so the line is
-    // submitted (typed + Enter), like sending a message to the agent/shell.
-    sendInputRef.current?.(text + "\r");
+    if (!text || !terminalId || sendBusy) return;
+    setSendError(null);
+
+    if (sendMode === "direct") {
+      // Direct type — the raw grid-WS path, exactly as before: text goes
+      // straight to the PTY as keystrokes, CR submits the line. (T4 adds
+      // live keystroke capture + the accessory key bar on top of this.)
+      setInput("");
+      sendInputRef.current?.(text + "\r");
+      return;
+    }
+
+    // Safe send (default) — POST the whole message through the daemon's
+    // injector (per-session lock + ESC-sanitize + bracketed-paste framing
+    // + deterministic submit). NO trailing \r: the injector owns submit.
+    // The draft only clears on a confirmed delivery; failures surface
+    // reason/hint in the accessory row and keep the text.
+    setSendBusy(true);
+    void sendMessageToSession(terminalId, text).then((out) => {
+      setSendBusy(false);
+      if (out.ok) setInput("");
+      else setSendError(out.message);
+    });
+  };
+
+  const switchMode = (mode: SendMode) => {
+    if (!terminalId) return;
+    setSendMode(terminalId, mode);
+    setSendError(null);
   };
 
   const handleReload = async () => {
@@ -230,14 +314,83 @@ export function ChatSession() {
         <TerminalView terminalId={terminalId} projectPath={projectPath} onInputRef={sendInputRef} onReloadRef={reloadRef} />
       </div>
 
-      {/* Input bar — the shared terminal composer (extracted from here;
-          Return = newline, ↑ tap sends). */}
-      <MessageComposer
-        value={input}
-        onChange={setInput}
-        onSend={handleSend}
-        placeholder="Type a message…  (↑ to send)"
-      />
+      {/* Input bar — the shared terminal composer (Return = newline,
+          ↑ tap sends), carrying the Safe send | Direct type control.
+          A daemon-judged viewer gets no composer at all (the daemon
+          gate is the source of truth; this hide is the honest UX). */}
+      {isViewer ? (
+        <div
+          className="px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar"
+          style={{ flexShrink: 0 }}
+        >
+          <div className="text-[var(--text-muted)] text-[12px] pb-3">
+            View-only — this session is shared with you without typing
+            access.
+          </div>
+        </div>
+      ) : (
+        <MessageComposer
+          value={input}
+          onChange={setInput}
+          onSend={handleSend}
+          busy={sendBusy}
+          tint={sendMode === "direct" ? "warning" : "default"}
+          placeholder={
+            sendMode === "direct"
+              ? "Type to the terminal…  (↑ sends keystrokes + Enter)"
+              : "Message the agent…  (↑ to send)"
+          }
+          headerSlot={
+            <div className="flex mb-2" role="tablist" aria-label="Send mode">
+              <button
+                role="tab"
+                aria-selected={sendMode === "safe"}
+                onClick={() => switchMode("safe")}
+                className={`h-8 px-3 text-[11px] border ${
+                  sendMode === "safe"
+                    ? "bg-[var(--accent)] text-[var(--background)] border-[var(--accent)] font-semibold"
+                    : "text-[var(--text-secondary)] border-[var(--accent-dim)]"
+                }`}
+              >
+                Safe send
+              </button>
+              <button
+                role="tab"
+                aria-selected={sendMode === "direct"}
+                onClick={() => switchMode("direct")}
+                className={`h-8 px-3 text-[11px] border border-l-0 ${
+                  sendMode === "direct"
+                    ? "bg-[var(--warning)] text-[var(--background)] border-[var(--warning)] font-semibold"
+                    : "text-[var(--text-secondary)] border-[var(--accent-dim)]"
+                }`}
+              >
+                Direct type
+              </button>
+              {sendMode === "direct" && (
+                <span className="self-center pl-3 text-[10px] text-[var(--warning)]">
+                  keystrokes are live
+                </span>
+              )}
+            </div>
+          }
+          accessory={
+            sendError ? (
+              <div className="flex items-start gap-2 pb-2">
+                <span className="flex-1 text-[var(--warning)] text-[11px] leading-snug">
+                  {sendError}
+                </span>
+                <button
+                  onClick={() => setSendError(null)}
+                  aria-label="Dismiss send error"
+                  className="text-[var(--text-muted)] text-[11px] px-1 shrink-0"
+                >
+                  ✕
+                </button>
+              </div>
+            ) : undefined
+          }
+        />
+      )}
     </div>
   );
 }
