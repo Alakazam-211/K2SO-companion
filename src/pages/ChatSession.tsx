@@ -6,6 +6,7 @@ import { ensurePinnedChat } from "../api/client";
 import { SessionTitle } from "../components/SessionTitle";
 import { MessageComposer } from "../components/MessageComposer";
 import { sendMessageToSession } from "../api/sendMessage";
+import { useTerminalMetaStore } from "../stores/terminalMeta";
 import {
   modeFor,
   setSendMode,
@@ -75,6 +76,18 @@ export function ChatSession() {
     window.addEventListener("k2-grid-mode", onMode);
     return () => window.removeEventListener("k2-grid-mode", onMode);
   }, []);
+
+  // T2's TerminalView writes the daemon-judged mode into terminalMeta —
+  // bridge it into the sendMode role registry this page reads (the
+  // CustomEvent seam above stays as a secondary producer; last write wins,
+  // both carry the same daemon `mode` frame).
+  useEffect(() => {
+    if (!terminalId) return;
+    return useTerminalMetaStore.subscribe((s) => {
+      const mode = s.meta[terminalId]?.mode;
+      if (mode === "viewer" || mode === "claimer") setSessionRole(terminalId, mode);
+    });
+  }, [terminalId]);
 
   // Prune mode/role handles for terminals that no longer exist (skip the
   // pre-fetch empty list — it would GC live handles, not dead ones).
