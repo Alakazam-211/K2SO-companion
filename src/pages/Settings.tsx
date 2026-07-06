@@ -80,9 +80,12 @@ export function Settings() {
         <Row label="Engine" value="Tauri v2" />
       </Section>
 
+      {/* Thumb-sized actions: full-width, ≥52px tall, and a WIDE gap
+          between them — a mis-tap on Manage servers must never land on
+          the (danger-styled) sign-out. */}
       <button
         onClick={() => navigate("/servers")}
-        className="w-full border border-[var(--accent-dim)] text-[var(--accent)] font-semibold text-[13px] py-3.5 mt-4 hover:border-[var(--accent)] hover:bg-[var(--accent)]/5 transition-all"
+        className="w-full min-h-[52px] border border-[var(--accent-dim)] text-[var(--accent)] font-semibold text-[14px] py-4 mt-4 hover:border-[var(--accent)] hover:bg-[var(--accent)]/5 transition-all"
       >
         Manage servers
       </button>
@@ -95,7 +98,7 @@ export function Settings() {
             signOutServer(active.id);
             navigate("/servers");
           }}
-          className="w-full border border-[var(--error)]/30 text-[var(--error)] font-semibold text-[13px] py-3.5 mt-3 hover:border-[var(--error)] hover:bg-[var(--error)]/5 transition-all"
+          className="w-full min-h-[52px] border border-[var(--error)]/50 bg-[var(--error)]/10 text-[var(--error)] font-semibold text-[14px] py-4 mt-8 mb-2 hover:border-[var(--error)] hover:bg-[var(--error)]/15 transition-all"
         >
           Sign out of {active.nickname}
         </button>
@@ -155,16 +158,20 @@ function PushRow() {
         <button
           onClick={() => void toggle()}
           aria-pressed={enabled}
-          className="relative w-9 h-5 rounded-full transition-colors"
-          style={{
-            background: enabled ? "var(--accent)" : "var(--border)",
-            opacity: busy ? 0.6 : 1,
-          }}
+          // Thumb-sized switch: 48×28 visual pill inside a 56×44 hit area
+          // (the button box), so the row breathes and the tap can't miss.
+          className="flex items-center justify-center w-14 h-11 -my-2"
+          style={{ opacity: busy ? 0.6 : 1 }}
         >
           <span
-            className="absolute top-0.5 w-4 h-4 rounded-full bg-[var(--background)] transition-all"
-            style={{ left: enabled ? "18px" : "2px" }}
-          />
+            className="relative block w-12 h-7 rounded-full transition-colors"
+            style={{ background: enabled ? "var(--accent)" : "var(--border)" }}
+          >
+            <span
+              className="absolute top-1 w-5 h-5 rounded-full bg-[var(--background)] transition-all"
+              style={{ left: enabled ? "24px" : "4px" }}
+            />
+          </span>
         </button>
       }
     />
