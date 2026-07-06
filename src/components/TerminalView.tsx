@@ -32,6 +32,7 @@ import { useTerminalMetaStore } from "../stores/terminalMeta";
 import {
   FixedRow,
   TerminalChrome,
+  TerminalCursor,
   colorToCSS,
   DEFAULT_BG,
   DEFAULT_FG,
@@ -850,7 +851,20 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
                   {pendingResize ? ` | hold ${pendingResize.cols}×${pendingResize.rows}` : ""} | {debugRef.current}
                 </div>
               )}
-              {rowElements}
+              {/* Rows + the session's own cursor share one relative
+                  box so the cursor's row math ignores the DEV debug
+                  line above (T4: the PTY cursor IS the typing caret). */}
+              <div style={{ position: "relative" }}>
+                {rowElements}
+                <TerminalCursor
+                  row={grid.cursorRow}
+                  col={grid.cursorCol}
+                  cellW={cellW}
+                  lineHeight={LINE_HEIGHT}
+                  shape={grid.cursorShape}
+                  visible={grid.cursorVisible}
+                />
+              </div>
             </div>
           </div>
         ) : (

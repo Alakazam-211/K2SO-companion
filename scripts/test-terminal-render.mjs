@@ -36,7 +36,7 @@ await build({
 });
 
 try {
-  const { FixedRow, TerminalChrome } = await import(bundle);
+  const { FixedRow, TerminalChrome, TerminalCursor } = await import(bundle);
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { createElement: h } = await import("react");
   const { initialClaimState, reduceClaim } = await import("../src/lib/claimState.ts");
@@ -82,6 +82,30 @@ try {
   );
   assert(empty.includes("height:14px") && empty.includes("width:240px"),
     "missing row still occupies its exact grid rect");
+
+  // ── TerminalCursor: the PTY's cursor at its true cell (T4) ──
+  console.log("\n[TerminalCursor] session cursor rect");
+
+  const cursor = renderToStaticMarkup(
+    h(TerminalCursor, { row: 3, col: 10, cellW: 6, lineHeight: 14, shape: "block", visible: true })
+  );
+  assert(cursor.includes('data-k2="cursor"') && cursor.includes("left:60px") && cursor.includes("top:42px"),
+    "block cursor lands at exactly its cell (col 10 × row 3)");
+  assert(cursor.includes("width:6px") && cursor.includes("height:14px"),
+    "block cursor fills one cell rect");
+  assert(cursor.includes("pointer-events:none"),
+    "cursor never intercepts touches");
+
+  const barCursor = renderToStaticMarkup(
+    h(TerminalCursor, { row: 0, col: 2, cellW: 6, lineHeight: 14, shape: "bar", visible: true })
+  );
+  assert(barCursor.includes('data-k2-cursor-shape="bar"') && barCursor.includes("width:2px"),
+    "bar shape renders a 2px beam");
+
+  const hidden = renderToStaticMarkup(
+    h(TerminalCursor, { row: 3, col: 10, cellW: 6, lineHeight: 14, shape: "block", visible: false })
+  );
+  assert(hidden === "", "cursor_visible=false renders nothing");
 
   // ── TerminalChrome: badges / pills ──
   console.log("\n[TerminalChrome] badges and pills");

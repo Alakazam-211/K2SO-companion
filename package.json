@@ -12,7 +12,10 @@
     "test:grid": "node scripts/test-grid-convert.mjs",
     "test:k1": "node scripts/test-k1-wire.mjs",
     "test:scale": "node scripts/test-scale-claim.mjs",
-    "test:render": "node scripts/test-terminal-render.mjs"
+    "test:render": "node scripts/test-terminal-render.mjs",
+    "test:keys": "node scripts/test-terminal-keys.mjs",
+    "test:live": "node scripts/test-live-input.mjs",
+    "test:live-ui": "node scripts/test-live-input-ui.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

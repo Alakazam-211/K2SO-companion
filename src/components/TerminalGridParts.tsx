@@ -5,6 +5,9 @@
 //
 //   FixedRow       — one grid row at exactly `cols` columns (never
 //                    wraps; wide/zero-width runs column-anchored).
+//   TerminalCursor — the terminal's own cursor painted at its true
+//                    cell (T4: Direct typing echoes THROUGH the PTY,
+//                    so this cursor is the only caret the user sees).
 //   TerminalChrome — the badge/pill strip above the grid ("Claim
 //                    session", claimed/pinned badges, "viewing at
 //                    C×R" pill, view-only pill).
@@ -202,6 +205,68 @@ export function FixedRow({ line, cols, cellW, lineHeight }: FixedRowProps) {
   // HTTP-fallback rows (bare text, no runs): plain text in the fixed
   // box — still never wraps.
   return <div style={style}>{line.text}</div>;
+}
+
+// ── Cursor: the PTY's own cursor at its true grid cell ──
+
+export interface TerminalCursorProps {
+  /** Absolute row (scrollback + viewport-relative, the snapshot's
+   *  cursor position as TerminalView tracks it). */
+  row: number;
+  col: number;
+  cellW: number;
+  lineHeight: number;
+  /** Snapshot cursor shape (`block` | `bar`/`beam` | `underline`). */
+  shape: string;
+  visible: boolean;
+}
+
+/** The terminal session's cursor, absolutely positioned over the fixed
+ *  grid at exactly its cell rect. Static (no blink) V1: a translucent
+ *  fg-colored block so the glyph underneath stays legible — always on
+ *  while the stream reports it visible, which is what makes Direct
+ *  typing read as "I am typing IN the terminal". */
+export function TerminalCursor({
+  row,
+  col,
+  cellW,
+  lineHeight,
+  shape,
+  visible,
+}: TerminalCursorProps) {
+  if (!visible || cellW <= 0 || row < 0 || col < 0) return null;
+  const base: CSSProperties = {
+    position: "absolute",
+    left: col * cellW,
+    top: row * lineHeight,
+    pointerEvents: "none",
+    background: colorToCSS(DEFAULT_FG),
+  };
+  if (shape === "bar" || shape === "beam") {
+    return (
+      <div
+        data-k2="cursor"
+        data-k2-cursor-shape="bar"
+        style={{ ...base, width: 2, height: lineHeight }}
+      />
+    );
+  }
+  if (shape === "underline") {
+    return (
+      <div
+        data-k2="cursor"
+        data-k2-cursor-shape="underline"
+        style={{ ...base, top: row * lineHeight + lineHeight - 2, width: cellW, height: 2 }}
+      />
+    );
+  }
+  return (
+    <div
+      data-k2="cursor"
+      data-k2-cursor-shape="block"
+      style={{ ...base, width: cellW, height: lineHeight, opacity: 0.55 }}
+    />
+  );
 }
 
 // ── Chrome: badges / pills / the "Claim session" affordance ──
