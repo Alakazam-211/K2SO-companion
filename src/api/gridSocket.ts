@@ -197,6 +197,13 @@ export class GridSocket {
       } catch (err) {
         console.warn("[gridSocket] socket_open handler error:", err);
       }
+      // S5 per-window mode: CONNECT-USER connections default to VIEWER
+      // on the daemon until the client opts in (owner-token windows
+      // default to claimer — desktop sends this opt-in from its
+      // window-mode store). Request claimer on every (re)connect; the
+      // daemon ACKs with `capable` and keeps true viewer-role users
+      // read-only server-side regardless of what we request.
+      this.send({ action: "set_mode", mode: "claimer" });
       // Re-assert the active claim + PTY size on every (re)connect so the
       // shared terminal keeps fitting THIS device.
       this.sendClaim();
