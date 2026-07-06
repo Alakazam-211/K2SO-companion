@@ -1,4 +1,7 @@
+import { useEffect } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
+import { useServersStore } from "../stores/servers";
+import { useFeedbackStore } from "../stores/feedback";
 
 // C1 nav: Servers is the HOME tab; Projects/Feedback are placeholder routes
 // that slices C2/C3 fill in.
@@ -64,8 +67,9 @@ export function TabBar() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Hide tab bar when inside a chat session
-  if (location.pathname.startsWith("/chat/")) return null;
+  // Hide tab bar when inside a chat session or an open feedback thread
+  // (C3 — /feedback/:id hides nav chrome like /chat/:id does).
+  if (location.pathname.startsWith("/chat/") || /^\/feedback\/./.test(location.pathname)) return null;
 
   return (
     <nav className="flex border-t border-[var(--border)] bg-[var(--background)] shrink-0 px-2" style={{ paddingBottom: 20 }}>
@@ -75,10 +79,11 @@ export function TabBar() {
           <button
             key={tab.path}
             onClick={() => navigate(tab.path)}
-            className={`flex-1 flex flex-col items-center py-2.5 gap-1 transition-colors duration-150 ${
+            className={`relative flex-1 flex flex-col items-center py-2.5 gap-1 transition-colors duration-150 ${
               isActive ? "text-[var(--accent)]" : "text-[var(--text-muted)]"
             }`}
           >
+            {tab.path === "/feedback" && <FeedbackTabBadge />}
             <svg
               width="18"
               height="18"
@@ -96,5 +101,25 @@ export function TabBar() {
         );
       })}
     </nav>
+  );
+}
+
+/** C3 — waiting-items count on the Feedback tab. Rendering here (the tab
+ *  bar is on every page) also kicks the feedback store's first load +
+ *  /events subscription per active server, so the badge is live before
+ *  the Feedback page is ever opened. */
+function FeedbackTabBadge() {
+  const activeServerId = useServersStore((s) => s.activeServerId);
+  const count = useFeedbackStore((s) => s.waitingCount);
+
+  useEffect(() => {
+    useFeedbackStore.getState().ensureLive();
+  }, [activeServerId]);
+
+  if (count === 0) return null;
+  return (
+    <span className="absolute top-1 left-1/2 ml-[8px] min-w-[15px] h-[15px] px-1 rounded-full bg-[var(--warning)] text-black text-[9px] font-bold leading-[15px] text-center">
+      {count > 99 ? "99+" : count}
+    </span>
   );
 }

@@ -32,9 +32,10 @@ export function ServerFooter() {
   const activeServerId = useServersStore((s) => s.activeServerId);
   const recovery = useServersStore((s) => s.recovery);
 
-  // The chat view hides all nav chrome (keyboard-layout constraints —
-  // docs/ios-keyboard-layout.md); match the TabBar's behavior.
-  if (location.pathname.startsWith("/chat/")) return null;
+  // The chat view (and C3's open feedback thread) hides all nav chrome
+  // (keyboard-layout constraints — docs/ios-keyboard-layout.md); match
+  // the TabBar's behavior.
+  if (location.pathname.startsWith("/chat/") || /^\/feedback\/./.test(location.pathname)) return null;
 
   const active = servers.find((s) => s.id === activeServerId) ?? null;
   const state: RecoveryState = active
