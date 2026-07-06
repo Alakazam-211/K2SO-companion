@@ -1,10 +1,19 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   useServersStore,
   signOutServer,
   hostLabel,
+  getActiveServer,
   type RecoveryState,
 } from "../stores/servers";
+import {
+  pushAvailability,
+  getPushEnabled,
+  setPushEnabled,
+  ensureRegistered,
+  unregisterAll,
+} from "../lib/push";
 
 const STATE_LABEL: Record<RecoveryState, string> = {
   connected: "Connected",
@@ -61,6 +70,10 @@ export function Settings() {
         )}
       </Section>
 
+      <Section title="Notifications">
+        <PushRow />
+      </Section>
+
       <Section title="About">
         <Row label="Version" value="2.0.0" />
         <Row label="App" value="K2" />
@@ -88,6 +101,73 @@ export function Settings() {
         </button>
       )}
     </div>
+  );
+}
+
+/** C6 "Push notifications" toggle. DORMANT state (today's builds — no
+ *  APNs entitlement / no google-services.json): shows a disabled "Not
+ *  available in this build" row instead of the switch. When available,
+ *  toggling ON runs the permission→token→register-device flow for the
+ *  active server; OFF unregisters this device from every saved server
+ *  (registration follows the active server around). */
+function PushRow() {
+  const [available, setAvailable] = useState<boolean | null>(null);
+  const [enabled, setEnabled] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      const a = await pushAvailability();
+      setAvailable(a.available);
+      if (a.available) setEnabled(await getPushEnabled());
+    })();
+  }, []);
+
+  if (available === null) {
+    return <Row label="Push notifications" value="…" />;
+  }
+  if (!available) {
+    return <Row label="Push notifications" value="Not available in this build" />;
+  }
+
+  const toggle = async () => {
+    if (busy) return;
+    setBusy(true);
+    const next = !enabled;
+    setEnabled(next); // optimistic — the register/unregister is best-effort
+    try {
+      await setPushEnabled(next);
+      if (next) {
+        const active = getActiveServer();
+        if (active) await ensureRegistered(active);
+      } else {
+        await unregisterAll();
+      }
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <Row
+      label="Push notifications"
+      value={
+        <button
+          onClick={() => void toggle()}
+          aria-pressed={enabled}
+          className="relative w-9 h-5 rounded-full transition-colors"
+          style={{
+            background: enabled ? "var(--accent)" : "var(--border)",
+            opacity: busy ? 0.6 : 1,
+          }}
+        >
+          <span
+            className="absolute top-0.5 w-4 h-4 rounded-full bg-[var(--background)] transition-all"
+            style={{ left: enabled ? "18px" : "2px" }}
+          />
+        </button>
+      }
+    />
   );
 }
 

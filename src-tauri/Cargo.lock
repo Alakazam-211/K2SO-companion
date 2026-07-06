@@ -1763,6 +1763,7 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tauri-plugin-http",
+ "tauri-plugin-k2-push",
  "tauri-plugin-store",
 ]
 
@@ -3812,6 +3813,17 @@ dependencies = [
  "tokio",
  "url",
  "urlpattern",
+]
+
+[[package]]
+name = "tauri-plugin-k2-push"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "tauri",
+ "tauri-plugin",
+ "thiserror 2.0.18",
 ]
 
 [[package]]
