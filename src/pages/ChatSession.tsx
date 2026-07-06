@@ -5,7 +5,10 @@ import { TerminalView } from "../components/TerminalView";
 import { ensurePinnedChat } from "../api/client";
 import { SessionTitle } from "../components/SessionTitle";
 import { MessageComposer } from "../components/MessageComposer";
+import { AccessoryBar } from "../components/AccessoryBar";
+import { LiveInputCapture } from "../components/LiveInputCapture";
 import { sendMessageToSession } from "../api/sendMessage";
+import type { LiveLocalEdit } from "../lib/liveInputText";
 import { useTerminalMetaStore } from "../stores/terminalMeta";
 import {
   modeFor,
@@ -101,6 +104,13 @@ export function ChatSession() {
   const terminalWrapperRef = useRef<HTMLDivElement>(null);
   const sendInputRef = useRef<((text: string) => void) | null>(null);
   const reloadRef = useRef<(() => void) | null>(null);
+  // T4 Direct mode — the hidden capture populates these: focus() (the
+  // tap-the-terminal → keyboard-up path) and the pipeline's control-
+  // byte entry (accessory chords flush pending IME text first).
+  const captureFocusRef = useRef<(() => void) | null>(null);
+  const sendKeyRef = useRef<
+    ((bytes: string, localEdit?: LiveLocalEdit) => void) | null
+  >(null);
   const [reloading, setReloading] = useState(false);
   const [debugInfo, setDebugInfo] = useState("");
 
@@ -229,16 +239,9 @@ export function ChatSession() {
     if (!text || !terminalId || sendBusy) return;
     setSendError(null);
 
-    if (sendMode === "direct") {
-      // Direct type — the raw grid-WS path, exactly as before: text goes
-      // straight to the PTY as keystrokes, CR submits the line. (T4 adds
-      // live keystroke capture + the accessory key bar on top of this.)
-      setInput("");
-      sendInputRef.current?.(text + "\r");
-      return;
-    }
-
-    // Safe send (default) — POST the whole message through the daemon's
+    // Safe send only — in Direct mode the composer UNMOUNTS entirely
+    // (T4): keystrokes stream live through LiveInputCapture instead.
+    // POST the whole message through the daemon's
     // injector (per-session lock + ESC-sanitize + bracketed-paste framing
     // + deterministic submit). NO trailing \r: the injector owns submit.
     // The draft only clears on a confirmed delivery; failures surface
@@ -285,6 +288,43 @@ export function ChatSession() {
 
   if (!terminalId) return null;
 
+  // The Safe send | Direct type segmented control — rendered in the
+  // composer's header (Safe) and at the top of the live strip (Direct),
+  // so the way back is always visible.
+  const modeToggle = (
+    <div className="flex mb-2" role="tablist" aria-label="Send mode">
+      <button
+        role="tab"
+        aria-selected={sendMode === "safe"}
+        onClick={() => switchMode("safe")}
+        className={`h-8 px-3 text-[11px] border ${
+          sendMode === "safe"
+            ? "bg-[var(--accent)] text-[var(--background)] border-[var(--accent)] font-semibold"
+            : "text-[var(--text-secondary)] border-[var(--accent-dim)]"
+        }`}
+      >
+        Safe send
+      </button>
+      <button
+        role="tab"
+        aria-selected={sendMode === "direct"}
+        onClick={() => switchMode("direct")}
+        className={`h-8 px-3 text-[11px] border border-l-0 ${
+          sendMode === "direct"
+            ? "bg-[var(--warning)] text-[var(--background)] border-[var(--warning)] font-semibold"
+            : "text-[var(--text-secondary)] border-[var(--accent-dim)]"
+        }`}
+      >
+        Direct type
+      </button>
+      {sendMode === "direct" && (
+        <span className="self-center pl-3 text-[10px] text-[var(--warning)]">
+          keystrokes are live — tap the terminal to type
+        </span>
+      )}
+    </div>
+  );
+
   return (
     <div style={{
       display: "flex",
@@ -326,15 +366,31 @@ export function ChatSession() {
         </div>
       )}
 
-      {/* Terminal — only scrollable area */}
-      <div ref={terminalWrapperRef} style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}>
+      {/* Terminal — only scrollable area. In Direct mode a TAP focuses
+          the hidden capture (keyboard up, keystrokes live); click never
+          fires after a scroll/drag gesture, so T5a's TUI wheel drags and
+          the scrollback shim stay untouched. Never auto-focused on mode
+          switch (Orca rule). */}
+      <div
+        ref={terminalWrapperRef}
+        style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}
+        onClick={() => {
+          if (sendMode === "direct" && !isViewer) captureFocusRef.current?.();
+        }}
+      >
         <TerminalView terminalId={terminalId} projectPath={projectPath} onInputRef={sendInputRef} onReloadRef={reloadRef} />
       </div>
 
-      {/* Input bar — the shared terminal composer (Return = newline,
-          ↑ tap sends), carrying the Safe send | Direct type control.
-          A daemon-judged viewer gets no composer at all (the daemon
-          gate is the source of truth; this hide is the honest UX). */}
+      {/* Input bar slot — three states:
+          viewer  → no input surface at all (the daemon gate is the
+                    source of truth; this hide is the honest UX);
+          Direct  → the composer UNMOUNTS entirely (T4): the amber
+                    live strip carries the mode toggle + the Orca
+                    accessory key bar + the hidden capture — keystrokes
+                    stream to the PTY and the terminal's own cursor is
+                    the caret;
+          Safe    → today's composer (Return = newline, ↑ sends via the
+                    daemon's safe injector). */}
       {isViewer ? (
         <div
           className="px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar"
@@ -345,51 +401,42 @@ export function ChatSession() {
             access.
           </div>
         </div>
+      ) : sendMode === "direct" ? (
+        <div
+          className="px-4 pt-3 border-t input-bar"
+          style={{
+            flexShrink: 0,
+            // The MessageComposer's warning tint, on the live strip:
+            // every keystroke lands on a shared PTY — the bar must
+            // FEEL hot.
+            background: "rgba(245, 158, 11, 0.10)",
+            borderTopColor: "var(--warning)",
+          }}
+        >
+          {modeToggle}
+          <AccessoryBar
+            onKey={(bytes, localEdit) => {
+              // Through the capture pipeline (pending IME text flushes
+              // before the chord); raw seam as a fallback if the
+              // capture hasn't mounted its ref yet.
+              if (sendKeyRef.current) sendKeyRef.current(bytes, localEdit);
+              else sendInputRef.current?.(bytes);
+            }}
+          />
+          <LiveInputCapture
+            send={(bytes) => sendInputRef.current?.(bytes)}
+            focusRef={captureFocusRef}
+            sendKeyRef={sendKeyRef}
+          />
+        </div>
       ) : (
         <MessageComposer
           value={input}
           onChange={setInput}
           onSend={handleSend}
           busy={sendBusy}
-          tint={sendMode === "direct" ? "warning" : "default"}
-          placeholder={
-            sendMode === "direct"
-              ? "Type to the terminal…  (↑ sends keystrokes + Enter)"
-              : "Message the agent…  (↑ to send)"
-          }
-          headerSlot={
-            <div className="flex mb-2" role="tablist" aria-label="Send mode">
-              <button
-                role="tab"
-                aria-selected={sendMode === "safe"}
-                onClick={() => switchMode("safe")}
-                className={`h-8 px-3 text-[11px] border ${
-                  sendMode === "safe"
-                    ? "bg-[var(--accent)] text-[var(--background)] border-[var(--accent)] font-semibold"
-                    : "text-[var(--text-secondary)] border-[var(--accent-dim)]"
-                }`}
-              >
-                Safe send
-              </button>
-              <button
-                role="tab"
-                aria-selected={sendMode === "direct"}
-                onClick={() => switchMode("direct")}
-                className={`h-8 px-3 text-[11px] border border-l-0 ${
-                  sendMode === "direct"
-                    ? "bg-[var(--warning)] text-[var(--background)] border-[var(--warning)] font-semibold"
-                    : "text-[var(--text-secondary)] border-[var(--accent-dim)]"
-                }`}
-              >
-                Direct type
-              </button>
-              {sendMode === "direct" && (
-                <span className="self-center pl-3 text-[10px] text-[var(--warning)]">
-                  keystrokes are live
-                </span>
-              )}
-            </div>
-          }
+          placeholder="Message the agent…  (↑ to send)"
+          headerSlot={modeToggle}
           accessory={
             sendError ? (
               <div className="flex items-start gap-2 pb-2">
