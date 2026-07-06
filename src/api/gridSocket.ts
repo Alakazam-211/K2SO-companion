@@ -1,14 +1,31 @@
 import { getBaseUrl, getToken } from "./client";
 import { useServersStore } from "../stores/servers";
 import { reviveServerSession } from "../lib/revive";
+import { decodeGridFrame } from "./gridWire";
 
 // Live terminal stream over the daemon's grid-WS (`/cli/sessions/grid`).
 //
 // Protocol (daemon `sessions_grid_ws.rs`):
-//   connect: `<base>/cli/sessions/grid?session=<UUID>&token=<tok>`
-//   server → `{"event":"snapshot"|"delta","payload":<GridUpdate>}`
-//            (snapshot = full read-only grid on attach; deltas after)
+//   connect: `<base>/cli/sessions/grid?session=<UUID>&token=<tok>&proto=k1`
+//   server → snapshot/delta as k1 BINARY frames (gridWire.ts) when the
+//            daemon honors the `proto=k1` opt-in; an older JSON-only
+//            daemon ignores the param and keeps sending
+//            `{"event":"snapshot"|"delta","payload":<GridUpdate>}` text
+//            frames — BOTH decode paths stay live, and the callback
+//            receives the identical frame shape either way.
+//   server → every other event stays a JSON text frame regardless of
+//            proto: title / bell / label_initial / label_changed /
+//            pin_initial / pin_changed / mode / child_exit / error /
+//            clipboard. All of them flow through the frame callback
+//            (pin/mode consumed in T2).
 //   client → `{"action":"input","text":...}` / `{"action":"resize",...}`
+//   client → `{"action":"ack","version":N}` — k1 flow control, sent via
+//            `ackApplied()` once per APPLIED frame batch (never per WS
+//            message) and only after the daemon has proven it speaks k1
+//            (first binary frame). The daemon bounds this connection's
+//            unacked backlog with it: while we fall behind it stops
+//            forwarding deltas and resyncs us with a fresh full snapshot
+//            on our next ack.
 //
 // The shared PTY is a single size across all viewers (it can't render
 // different dimensions per device), so the companion uses the daemon's
@@ -25,8 +42,34 @@ import { reviveServerSession } from "../lib/revive";
 export interface GridFrame<P = unknown> {
   // daemon `Outbound` (sessions_grid_ws.rs): snapshot | delta | child_exit
   // | title | label_initial | label_changed | bell | error
+  // | pin_initial | pin_changed | mode | clipboard
   event: string;
   payload: P;
+}
+
+// ── JSON side-channel payloads T2 consumes (typed here so the socket's
+//    callback surface is complete from T1 on; shapes mirror the desktop
+//    renderer's OutboundMsg in TerminalPane.tsx) ──
+
+/** `pin_initial` — arrives right after attach on a pinned session
+ *  (absence during the connect sequence = unpinned by design). */
+export interface PinInitialPayload {
+  cols: number;
+  rows: number;
+  set_by: string | null;
+}
+
+/** `pin_changed` — fires mid-session (cleared:true = unpinned). */
+export interface PinChangedPayload {
+  cols?: number;
+  rows?: number;
+  cleared: boolean;
+}
+
+/** `mode` — this connection's daemon-judged role. */
+export interface ModePayload {
+  mode: "viewer" | "claimer";
+  capable: boolean;
 }
 
 // Pure wire types + converter live in gridConvert.ts (Node-testable).
@@ -45,6 +88,12 @@ export class GridSocket {
   /** Active-viewer claim (this device's dims) to (re)send on every
    *  connect; null = not claimed. */
   private claimDims: { cols: number; rows: number } | null = null;
+  /** True once the CURRENT socket has delivered a binary (k1) frame —
+   *  i.e. the daemon honored our `&proto=k1` opt-in. Gates `ackApplied`:
+   *  an older JSON-only daemon never sees acks it would just log as
+   *  malformed inbound. Reset on every (re)connect; the daemon's
+   *  per-connection pacing state resets with the socket too. */
+  private k1WireActive = false;
 
   constructor(onFrame: FrameHandler) {
     this.onFrame = onFrame;
@@ -64,10 +113,13 @@ export class GridSocket {
   private buildUrl(): string | null {
     const base = getBaseUrl().replace(/^http/, "ws");
     if (!base) return null;
+    // `proto=k1` opts into the binary grid wire (gridWire.ts); an older
+    // daemon ignores the param and keeps sending JSON snapshot/delta.
     return (
       `${base}/cli/sessions/grid` +
       `?session=${encodeURIComponent(this.sessionId)}` +
-      `&token=${encodeURIComponent(getToken())}`
+      `&token=${encodeURIComponent(getToken())}` +
+      `&proto=k1`
     );
   }
 
@@ -85,12 +137,37 @@ export class GridSocket {
       this.scheduleReconnect();
       return;
     }
+    // k1 snapshot/delta frames arrive as WS binary; without this they'd
+    // surface as Blobs and need an async read before decode.
+    this.ws.binaryType = "arraybuffer";
+    // Fresh socket — the daemon's per-connection pacing state is new too,
+    // so re-detect k1 from its first binary frame before resuming acks.
+    this.k1WireActive = false;
     this.ws.onmessage = (e) => {
       let frame: GridFrame;
-      try {
-        frame = JSON.parse(e.data as string) as GridFrame;
-      } catch {
-        return; // non-JSON frame — ignore
+      if (e.data instanceof ArrayBuffer) {
+        // k1 binary wire — snapshot/delta only; every other event still
+        // arrives as JSON text below. The decoded payload is the exact
+        // object shape JSON.parse of the equivalent text frame yields,
+        // so everything downstream is transport-blind.
+        let wire;
+        try {
+          wire = decodeGridFrame(e.data);
+        } catch (err) {
+          // A frame that fails to decode is a protocol violation —
+          // surface it rather than silently desyncing the mirror.
+          console.error("[gridSocket] k1 frame decode failed:", err);
+          return;
+        }
+        this.k1WireActive = true;
+        frame = { event: wire.kind, payload: wire.payload };
+      } else {
+        if (typeof e.data !== "string") return;
+        try {
+          frame = JSON.parse(e.data) as GridFrame;
+        } catch {
+          return; // non-JSON text frame — ignore
+        }
       }
       // Don't swallow handler errors silently: an apply bug here (e.g. a
       // wire field-name mismatch) would otherwise look like a dead stream.
@@ -146,6 +223,16 @@ export class GridSocket {
   /** Send a keystroke / text input to the host PTY (optional). */
   sendInput(text: string): void {
     this.send({ action: "input", text });
+  }
+
+  /** k1 flow control: acknowledge the highest APPLIED frame version.
+   *  Called by the render path once per applied batch (from the rAF
+   *  flush, never per WS message — see frameCoalescer.ts), so ack
+   *  volume tracks render cadence. Gated on the daemon actually
+   *  speaking k1 on THIS socket; a JSON-only daemon gets no acks. */
+  ackApplied(version: number): void {
+    if (!this.k1WireActive || version <= 0) return;
+    this.send({ action: "ack", version });
   }
 
   /** Claim this session as the active viewer and fit the shared PTY to THIS

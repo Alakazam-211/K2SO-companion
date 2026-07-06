@@ -7,6 +7,7 @@ import {
   type TermGridSnapshot,
   type TermGridDelta,
 } from "../api/gridSocket";
+import { createFrameCoalescer } from "../lib/frameCoalescer";
 
 // ─── Types ───
 
@@ -148,8 +149,6 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
   });
 
   const containerRef = useRef<HTMLDivElement>(null);
-  const rafRef = useRef<number | null>(null);
-  const pendingRef = useRef<GridUpdate | null>(null);
   const cellWRef = useRef(0);
   const debugRef = useRef("");
   // Bumping this tears down + recreates the grid-WS (reconnect → fresh
@@ -215,19 +214,6 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     });
   }, []);
 
-  const scheduleRender = useCallback((update: GridUpdate) => {
-    pendingRef.current = update;
-    if (rafRef.current) return;
-    rafRef.current = requestAnimationFrame(() => {
-      rafRef.current = null;
-      const frame = pendingRef.current;
-      if (frame) {
-        pendingRef.current = null;
-        applyGridUpdate(frame);
-      }
-    });
-  }, [applyGridUpdate]);
-
   // Live grid stream via the daemon grid-WS (read-only viewer).
   useEffect(() => {
     let polling: ReturnType<typeof setInterval> | null = null;
@@ -285,20 +271,50 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       applyGridUpdate(gu, true);
     };
 
+    // Frame pacing (Kessel parity, frameCoalescer.ts): WS snapshot/delta
+    // frames queue and apply once per animation frame — one merge + one
+    // render per display refresh however many messages arrived, a queued
+    // snapshot supersedes everything before it, and the starvation cap
+    // flushes synchronously if rAF stalls. Replaces the old
+    // single-pending-frame rAF (which DROPPED intermediate deltas — fine
+    // for full GridUpdates, wrong for incremental damage).
+    type PendingFrame =
+      | { kind: "snapshot"; payload: TermGridSnapshot }
+      | { kind: "delta"; payload: TermGridDelta };
+    const coalescer = createFrameCoalescer<PendingFrame>({
+      schedule: (flush) => requestAnimationFrame(flush),
+      cancel: (id) => cancelAnimationFrame(id),
+      apply: (batch) => {
+        // k1 flow control: one ack per APPLIED batch, carrying the
+        // highest applied version — sent from the rAF flush, never per
+        // WS message, so ack volume tracks render cadence (ackApplied
+        // no-ops until the daemon proves it speaks k1).
+        let maxVersion = 0;
+        for (const f of batch) {
+          if (f.kind === "snapshot") {
+            model.applySnapshot(f.payload);
+            debugRef.current = `ws-snapshot sb=${model.scrollback.length} vp=${model.viewport.length}`;
+          } else {
+            model.applyDelta(f.payload);
+            debugRef.current = `ws-delta dmg=${f.payload.damagedRows.length}`;
+          }
+          if (f.payload.version > maxVersion) maxVersion = f.payload.version;
+        }
+        render();
+        gridSock.ackApplied(maxVersion);
+      },
+    });
+
     const onFrame = (frame: GridFrame) => {
       if (frame.event === "snapshot") {
-        model.applySnapshot(frame.payload as TermGridSnapshot);
-        debugRef.current = `ws-snapshot sb=${model.scrollback.length} vp=${model.viewport.length}`;
-        render();
+        coalescer.enqueue({ kind: "snapshot", payload: frame.payload as TermGridSnapshot });
       } else if (frame.event === "delta") {
-        const p = frame.payload as TermGridDelta;
-        model.applyDelta(p);
-        debugRef.current = `ws-delta dmg=${p.damagedRows.length}`;
-        render();
+        coalescer.enqueue({ kind: "delta", payload: frame.payload as TermGridDelta });
       } else if (frame.event === "child_exit") {
         gridSock.close();
       }
-      // title / label_* / bell / error: ignored for now (Phase 4+).
+      // title / label_* / bell / pin_initial / pin_changed / mode /
+      // clipboard / error: surfaced by the socket, consumed from T2 on.
     };
 
     const gridSock = new GridSocket(onFrame);
@@ -347,9 +363,11 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       clearTimeout(fallbackTimer);
       gridSock.close();
       if (polling) clearInterval(polling);
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      // Cancels any scheduled rAF flush and drops queued frames —
+      // nobody left to render them.
+      coalescer.clear();
     };
-  }, [terminalId, projectPath, scheduleRender, reloadKey]);
+  }, [terminalId, projectPath, applyGridUpdate, reloadKey]);
 
   // Auto-scroll to bottom — only if user hasn't scrolled up
   const userScrolledRef = useRef(false);
