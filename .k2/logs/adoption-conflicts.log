@@ -2,3 +2,7 @@
 [1776558864] INJECTED migration banner into SKILL.md (1 archive(s))
 [1776561413] ARCHIVED /Users/z3thon/DevProjects/Alakazam Labs/K2SO-companion/.cursor/rules/k2so.mdc → /Users/z3thon/DevProjects/Alakazam Labs/K2SO-companion/.k2so/migration/cursor/rules/k2so-1776561413.mdc
 [1776561413] IMPORTED pre-existing .cursor/rules/k2so.mdc body into SKILL.md USER_NOTES (archive: /Users/z3thon/DevProjects/Alakazam Labs/K2SO-companion/.k2so/migration/cursor/rules/k2so-1776561413.mdc)
+[1782951033] MOVED /Users/jeremiereese/GitHub/K2SO-companion/AGENTS.md → /Users/jeremiereese/GitHub/K2SO-companion/.k2/migration/AGENTS-1782951033783058000-0055.md
+[1782951033] WROTE .k2so/MIGRATION-0.32.7.md (1 archive(s))
+[1782951033] MOVED /Users/jeremiereese/GitHub/K2SO-companion/.cursor/rules/k2so.mdc → /Users/jeremiereese/GitHub/K2SO-companion/.k2/migration/cursor/rules/k2so-1782951033789715000-0062.mdc
+[1782951033] ARCHIVED /Users/jeremiereese/GitHub/K2SO-companion/.aider.conf.yml → /Users/jeremiereese/GitHub/K2SO-companion/.k2/migration/.aider.conf-1782951033794598000-0064.yml

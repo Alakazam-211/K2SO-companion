@@ -1,1 +1,1 @@
-/Users/z3thon/DevProjects/Alakazam Labs/K2SO-companion/.k2/skills/k2so/SKILL.md
+/Users/jeremiereese/GitHub/K2SO-companion/.k2/AGENTS.md

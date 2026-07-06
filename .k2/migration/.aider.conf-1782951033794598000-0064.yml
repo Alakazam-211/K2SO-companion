@@ -1,5 +1,3 @@
 # K2SO: ship workspace context to Aider on every session.
 read:
-  - AGENTS.md
-  # ^ added by K2 — workspace context
   - SKILL.md
