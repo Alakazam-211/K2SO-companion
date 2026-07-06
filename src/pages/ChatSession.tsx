@@ -1,9 +1,10 @@
-import { useState, useRef, useLayoutEffect, useEffect } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { TerminalView } from "../components/TerminalView";
 import { ensurePinnedChat } from "../api/client";
 import { SessionTitle } from "../components/SessionTitle";
+import { MessageComposer } from "../components/MessageComposer";
 
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
@@ -23,7 +24,6 @@ export function ChatSession() {
   const [input, setInput] = useState("");
   const [containerHeight, setContainerHeight] = useState(window.innerHeight);
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null);
   const terminalWrapperRef = useRef<HTMLDivElement>(null);
   const sendInputRef = useRef<((text: string) => void) | null>(null);
   const reloadRef = useRef<(() => void) | null>(null);
@@ -146,15 +146,6 @@ export function ChatSession() {
     };
   }, []);
 
-  useLayoutEffect(() => {
-    const el = textareaRef.current;
-    if (!el) return;
-    el.style.height = "0";
-    const h = Math.min(Math.max(el.scrollHeight, 40), 100);
-    el.style.height = h + "px";
-    el.style.overflow = el.scrollHeight > 100 ? "auto" : "hidden";
-  }, [input]);
-
   const handleSend = () => {
     const text = input.trim();
     if (!text || !terminalId) return;
@@ -239,34 +230,14 @@ export function ChatSession() {
         <TerminalView terminalId={terminalId} projectPath={projectPath} onInputRef={sendInputRef} onReloadRef={reloadRef} />
       </div>
 
-      {/* Input bar */}
-      <div className="flex gap-2 px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar" style={{ flexShrink: 0 }}>
-        <textarea
-          ref={textareaRef}
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          // Mobile composer: Return inserts a newline (and the textarea grows via
-          // the [input] effect above) — sending is a deliberate tap on the ↑
-          // button, NOT Return. This is the standard mobile-chat pattern.
-          placeholder="Type a message…  (↑ to send)"
-          rows={1}
-          className="flex-1 bg-[var(--background)] border border-[var(--accent-dim)] px-3 text-[var(--text)] text-[13px] focus:outline-none resize-none"
-          style={{
-            height: 40,
-            lineHeight: "20px",
-            padding: "10px 12px",
-            overflow: "hidden",
-          }}
-        />
-        <button
-          onTouchEnd={(e) => { e.preventDefault(); handleSend(); }}
-          onClick={handleSend}
-          disabled={!input.trim()}
-          className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 self-end"
-        >
-          ↑
-        </button>
-      </div>
+      {/* Input bar — the shared terminal composer (extracted from here;
+          Return = newline, ↑ tap sends). */}
+      <MessageComposer
+        value={input}
+        onChange={setInput}
+        onSend={handleSend}
+        placeholder="Type a message…  (↑ to send)"
+      />
     </div>
   );
 }

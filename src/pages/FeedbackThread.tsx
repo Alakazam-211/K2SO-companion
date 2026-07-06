@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useServersStore } from "../stores/servers";
 import { useFeedbackStore } from "../stores/feedback";
 import { useViewportHeight } from "../lib/useViewportHeight";
+import { MessageComposer } from "../components/MessageComposer";
 import {
   commentFeedback,
   deliveredLine,
@@ -242,69 +243,67 @@ export function FeedbackThread() {
             </div>
           </div>
 
-          {/* Composer + receipts + status actions. */}
-          <div className="border-t border-[var(--border)] px-4 pt-3 shrink-0 input-bar">
-            {actionError && (
-              <div className="mb-2 text-[var(--error)] text-[10px]">{actionError}</div>
-            )}
-            {receipt && (
-              <div className="mb-2 text-[10px]">
-                {receipt.answered && (
-                  <span className="text-[var(--success)] mr-2">✓ answered</span>
+          {/* Composer — the shared terminal-style composer (thumb-sized
+              ↑ sends). Receipts + Resolve/Dismiss/Reopen ride the
+              accessory rows above the input; every send is still a plain
+              comment (the first human comment on a waiting ask IS the
+              answer — sendComment is unchanged). */}
+          <MessageComposer
+            value={reply}
+            onChange={setReply}
+            onSend={() => sendComment(reply)}
+            busy={busy}
+            placeholder={
+              item.status === "waiting" && item.kind !== "fyi"
+                ? "Reply — your first comment answers the ask"
+                : "Add a comment — it lands in the agent's session"
+            }
+            accessory={
+              <>
+                {actionError && (
+                  <div className="mb-2 text-[var(--error)] text-[10px]">{actionError}</div>
                 )}
-                <span className={receipt.line.startsWith("sent") ? "text-[var(--text-muted)]" : "text-[var(--warning)]"}>
-                  {receipt.line}
-                </span>
-              </div>
-            )}
-            <textarea
-              value={reply}
-              onChange={(e) => setReply(e.target.value)}
-              placeholder={
-                item.status === "waiting" && item.kind !== "fyi"
-                  ? "Reply — your first comment answers the ask"
-                  : "Add a comment — it lands in the agent's session"
-              }
-              rows={2}
-              className="w-full bg-[var(--background)] border border-[var(--accent-dim)] px-3 py-2 text-[var(--text)] text-[13px] focus:outline-none resize-none"
-            />
-            <div className="flex items-center gap-2 mt-2 pb-1">
-              {openItem ? (
-                <>
-                  <button
-                    disabled={busy}
-                    onClick={() => setStatus("resolved")}
-                    className="px-3 py-2 text-[11px] text-[var(--text-secondary)] border border-[var(--border)] disabled:opacity-50"
-                  >
-                    Resolve
-                  </button>
-                  <button
-                    disabled={busy}
-                    onClick={() => setStatus("dismissed")}
-                    className="px-3 py-2 text-[11px] text-[var(--text-muted)] border border-[var(--border)] disabled:opacity-50"
-                  >
-                    Dismiss
-                  </button>
-                </>
-              ) : (
-                <button
-                  disabled={busy}
-                  onClick={() => setStatus("waiting")}
-                  className="px-3 py-2 text-[11px] text-[var(--text-secondary)] border border-[var(--border)] disabled:opacity-50"
-                >
-                  Reopen
-                </button>
-              )}
-              <div className="flex-1" />
-              <button
-                disabled={busy || reply.trim().length === 0}
-                onClick={() => sendComment(reply)}
-                className="px-5 py-2 bg-white text-black font-semibold text-[12px] disabled:opacity-40"
-              >
-                {busy ? "Sending…" : "Send"}
-              </button>
-            </div>
-          </div>
+                {receipt && (
+                  <div className="mb-2 text-[10px]">
+                    {receipt.answered && (
+                      <span className="text-[var(--success)] mr-2">✓ answered</span>
+                    )}
+                    <span className={receipt.line.startsWith("sent") ? "text-[var(--text-muted)]" : "text-[var(--warning)]"}>
+                      {receipt.line}
+                    </span>
+                  </div>
+                )}
+                <div className="flex items-center gap-2 mb-2">
+                  {openItem ? (
+                    <>
+                      <button
+                        disabled={busy}
+                        onClick={() => setStatus("resolved")}
+                        className="px-3 py-2 text-[11px] text-[var(--text-secondary)] border border-[var(--border)] disabled:opacity-50"
+                      >
+                        Resolve
+                      </button>
+                      <button
+                        disabled={busy}
+                        onClick={() => setStatus("dismissed")}
+                        className="px-3 py-2 text-[11px] text-[var(--text-muted)] border border-[var(--border)] disabled:opacity-50"
+                      >
+                        Dismiss
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      disabled={busy}
+                      onClick={() => setStatus("waiting")}
+                      className="px-3 py-2 text-[11px] text-[var(--text-secondary)] border border-[var(--border)] disabled:opacity-50"
+                    >
+                      Reopen
+                    </button>
+                  )}
+                </div>
+              </>
+            }
+          />
         </>
       )}
     </div>

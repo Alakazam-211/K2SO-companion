@@ -32,6 +32,7 @@ import {
   type ProjectGroupShow,
 } from "../api/projectGroups";
 import { useProjectGroupsStore, startEvents } from "../stores/projectGroups";
+import { MessageComposer } from "../components/MessageComposer";
 import { useServersStore } from "../stores/servers";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import {
@@ -361,31 +362,24 @@ export function ProjectChat() {
         )}
       </div>
 
-      {/* Composer — full-width textarea, Send below-right (mobile: a
-          deliberate tap, no keyboard-combo hint). */}
-      <div className="border-t border-[var(--border)] bg-[var(--surface)] px-4 pt-2.5 input-bar shrink-0">
-        {sendError && (
-          <div className="mb-1.5 text-[11px] text-[var(--error)]">{sendError}</div>
-        )}
-        <textarea
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          placeholder={
-            show ? composerPlaceholder(show.members, show.pocWorkspaceId) : "Message the PoC"
-          }
-          rows={2}
-          className="w-full bg-[var(--background)] border border-[var(--border)] px-3 py-2 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent-dim)] resize-none"
-        />
-        <div className="flex justify-end mt-1.5 pb-1">
-          <button
-            disabled={busy || draft.trim().length === 0}
-            onClick={send}
-            className="px-4 py-2 text-[12px] font-semibold bg-[var(--accent-dim)]/25 border border-[var(--accent-dim)] text-[var(--accent)] disabled:opacity-40"
-          >
-            {busy ? "Sending…" : "Send"}
-          </button>
-        </div>
-      </div>
+      {/* Composer — the shared terminal-style composer (thumb-sized ↑
+          sends; Return = newline). Draft stays screen-local so live
+          refetches can't eat it; `send` posts as owner and drives the
+          delivered-receipt line under the sent bubble. */}
+      <MessageComposer
+        value={draft}
+        onChange={setDraft}
+        onSend={send}
+        busy={busy}
+        placeholder={
+          show ? composerPlaceholder(show.members, show.pocWorkspaceId) : "Message the PoC"
+        }
+        accessory={
+          sendError ? (
+            <div className="mb-1.5 text-[11px] text-[var(--error)]">{sendError}</div>
+          ) : undefined
+        }
+      />
     </div>
     </div>
   );
