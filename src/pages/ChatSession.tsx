@@ -288,43 +288,6 @@ export function ChatSession() {
 
   if (!terminalId) return null;
 
-  // The Safe send | Direct type segmented control — rendered in the
-  // composer's header (Safe) and at the top of the live strip (Direct),
-  // so the way back is always visible.
-  const modeToggle = (
-    <div className="flex mb-2" role="tablist" aria-label="Send mode">
-      <button
-        role="tab"
-        aria-selected={sendMode === "safe"}
-        onClick={() => switchMode("safe")}
-        className={`h-8 px-3 text-[11px] border ${
-          sendMode === "safe"
-            ? "bg-[var(--accent)] text-[var(--background)] border-[var(--accent)] font-semibold"
-            : "text-[var(--text-secondary)] border-[var(--accent-dim)]"
-        }`}
-      >
-        Safe send
-      </button>
-      <button
-        role="tab"
-        aria-selected={sendMode === "direct"}
-        onClick={() => switchMode("direct")}
-        className={`h-8 px-3 text-[11px] border border-l-0 ${
-          sendMode === "direct"
-            ? "bg-[var(--warning)] text-[var(--background)] border-[var(--warning)] font-semibold"
-            : "text-[var(--text-secondary)] border-[var(--accent-dim)]"
-        }`}
-      >
-        Direct type
-      </button>
-      {sendMode === "direct" && (
-        <span className="self-center pl-3 text-[10px] text-[var(--warning)]">
-          keystrokes are live — tap the terminal to type
-        </span>
-      )}
-    </div>
-  );
-
   return (
     <div style={{
       display: "flex",
@@ -344,6 +307,52 @@ export function ChatSession() {
             <span className="text-[var(--text)] text-[13px] font-semibold">Terminal</span>
           )}
         </div>
+        {/* Send-mode toggle — a single icon button whose glyph shows the
+            CURRENT mode (chat bubble = Safe send active, >_ = Direct type
+            active); tap toggles. The glyph itself is the mode signal — in
+            Direct the accessory strip full of terminal keys is the visual
+            reference. Never auto-focuses the capture (no keyboard pop on
+            toggle — the Orca rule); viewers get no input surface, so no
+            toggle either. */}
+        {!isViewer && (
+          <button
+            data-k2="mode-toggle"
+            onClick={() =>
+              switchMode(sendMode === "safe" ? "direct" : "safe")
+            }
+            aria-label={
+              sendMode === "safe"
+                ? "Switch to direct typing"
+                : "Switch to safe send"
+            }
+            className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0"
+          >
+            {sendMode === "direct" ? (
+              // Terminal prompt — Direct type is active.
+              <span
+                aria-hidden="true"
+                className="text-[13px] font-semibold leading-none"
+              >
+                &gt;_
+              </span>
+            ) : (
+              // Chat bubble — Safe send is active.
+              <svg
+                width="15"
+                height="15"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden="true"
+              >
+                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              </svg>
+            )}
+          </button>
+        )}
         <button
           onClick={handleReload}
           disabled={reloading}
@@ -384,11 +393,11 @@ export function ChatSession() {
       {/* Input bar slot — three states:
           viewer  → no input surface at all (the daemon gate is the
                     source of truth; this hide is the honest UX);
-          Direct  → the composer UNMOUNTS entirely (T4): the amber
-                    live strip carries the mode toggle + the Orca
-                    accessory key bar + the hidden capture — keystrokes
-                    stream to the PTY and the terminal's own cursor is
-                    the caret;
+          Direct  → the composer UNMOUNTS entirely (T4): the live
+                    strip carries the Orca accessory key bar + the
+                    hidden capture — keystrokes stream to the PTY and
+                    the terminal's own cursor is the caret (the header
+                    icon toggle is the way back);
           Safe    → today's composer (Return = newline, ↑ sends via the
                     daemon's safe injector). */}
       {isViewer ? (
@@ -403,17 +412,9 @@ export function ChatSession() {
         </div>
       ) : sendMode === "direct" ? (
         <div
-          className="px-4 pt-3 border-t input-bar"
-          style={{
-            flexShrink: 0,
-            // The MessageComposer's warning tint, on the live strip:
-            // every keystroke lands on a shared PTY — the bar must
-            // FEEL hot.
-            background: "rgba(245, 158, 11, 0.10)",
-            borderTopColor: "var(--warning)",
-          }}
+          className="px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar"
+          style={{ flexShrink: 0 }}
         >
-          {modeToggle}
           <AccessoryBar
             onKey={(bytes, localEdit) => {
               // Through the capture pipeline (pending IME text flushes
@@ -436,7 +437,6 @@ export function ChatSession() {
           onSend={handleSend}
           busy={sendBusy}
           placeholder="Message the agent…  (↑ to send)"
-          headerSlot={modeToggle}
           accessory={
             sendError ? (
               <div className="flex items-start gap-2 pb-2">

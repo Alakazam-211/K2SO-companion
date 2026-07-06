@@ -93,11 +93,13 @@ console.log("\n[bar] accessory default set");
 const ids = TERMINAL_ACCESSORY_KEYS.map((k) => k.id);
 assert(
   ids.join(",") ===
-    "escape,tab,shiftTab,arrowLeft,arrowDown,arrowUp,arrowRight,ctrlC,ctrlD,ctrlZ,ctrlL,ctrlR,ctrlA,ctrlE,ctrlW,ctrlU,backspace",
-  "bar order: Esc Tab ⇤ ←↓↑→ ^C ^D ^Z ^L ^R ^A ^E ^W ^U ⌫"
+    "escape,tab,shiftTab,newline,arrowLeft,arrowDown,arrowUp,arrowRight,ctrlC,ctrlD,ctrlZ,ctrlL,ctrlR,ctrlA,ctrlE,ctrlW,ctrlU,backspace",
+  "bar order: Esc Tab Shift+Tab ⇧⏎ ←↓↑→ Ctrl+C/D/Z/L/R/A/E/W/U ⌫"
 );
 const byId = Object.fromEntries(TERMINAL_ACCESSORY_KEYS.map((k) => [k.id, k]));
 assert(byId.shiftTab.bytes === `${ESC}[Z`, "bar Shift+Tab carries ESC[Z");
+assert(byId.newline.bytes === `${ESC}\r`, "bar ⇧⏎ carries ESC+CR (meta-Enter newline, no submit)");
+assert(byId.newline.repeatable !== true, "⇧⏎ is NOT repeatable (chord press model)");
 assert(byId.ctrlC.bytes === "\x03" && byId.ctrlU.bytes === "\x15" && byId.ctrlW.bytes === "\x17", "bar Ctrl chords carry control bytes");
 assert(
   ["arrowLeft", "arrowDown", "arrowUp", "arrowRight", "backspace"].every((id) => byId[id].repeatable === true),

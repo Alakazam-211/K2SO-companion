@@ -105,7 +105,10 @@ try {
   let html = page();
   assert(html.includes("<textarea"), "composer textarea present");
   assert(html.includes("Message the agent"), "safe placeholder present");
-  assert(html.includes("Safe send") && html.includes("Direct type"), "mode toggle present");
+  assert(html.includes('data-k2="mode-toggle"'), "header icon toggle present");
+  assert(html.includes('aria-label="Switch to direct typing"'), "toggle labeled 'Switch to direct typing' in Safe");
+  assert(!html.includes("&gt;_"), "toggle shows the chat bubble (not >_) in Safe");
+  assert(!html.includes("Safe send") && !html.includes("Direct type"), "old segmented control GONE");
   assert(!html.includes('data-k2="accessory-bar"'), "NO accessory bar in Safe");
   assert(!html.includes('data-k2="live-capture"'), "NO hidden capture in Safe");
 
@@ -116,12 +119,20 @@ try {
   assert(!html.includes("<textarea"), "composer is GONE (unmounted, not hidden)");
   assert(html.includes('data-k2="live-capture"'), "hidden capture input present");
   assert(html.includes('data-k2="accessory-bar"'), "accessory bar present");
-  assert(html.includes("Safe send") && html.includes("Direct type"), "toggle still visible (the way back)");
-  assert(html.includes("keystrokes are live"), "live warning shown");
-  assert(html.includes("rgba(245, 158, 11, 0.10)"), "strip carries the amber live tint");
-  for (const id of ["escape", "shiftTab", "arrowUp", "ctrlC", "ctrlU", "backspace"]) {
+  assert(html.includes('data-k2="mode-toggle"'), "header icon toggle still visible (the way back)");
+  assert(html.includes('aria-label="Switch to safe send"'), "toggle labeled 'Switch to safe send' in Direct");
+  assert(html.includes("&gt;_"), "toggle shows >_ (Direct active)");
+  assert(!html.includes("keystrokes are live"), "old live-warning caption GONE");
+  assert(!html.includes("rgba(245, 158, 11, 0.10)"), "amber tint GONE (accessory strip IS the Direct cue)");
+  for (const id of ["escape", "shiftTab", "newline", "arrowUp", "ctrlC", "ctrlU", "backspace"]) {
     assert(html.includes(`data-k2-key="${id}"`), `accessory key ${id} rendered`);
   }
+  // Orca-exact chord labels + key-symbol glyph wrapping.
+  assert(html.includes("Ctrl+C") && html.includes("Shift+Tab") && html.includes("Ctrl+U"), "Orca full chord labels rendered");
+  assert(!/[>"]\^[CDZLRAEWU]</.test(html), "no ^X shorthand labels remain");
+  assert(html.includes('<span class="key-symbol">⌫</span>'), "backspace glyph wrapped in .key-symbol");
+  assert(html.includes('<span class="key-symbol">↑</span>'), "arrow glyph wrapped in .key-symbol");
+  assert(html.includes('<span class="key-symbol">⇧⏎</span>'), "newline key ⇧⏎ glyphs wrapped in .key-symbol");
   const capture = html.match(/<input[^>]*data-k2="live-capture"[^>]*>/)?.[0] ?? "";
   assert(/autocapitalize="off"/i.test(capture), "capture: autocapitalize off");
   assert(/autocorrect="off"/i.test(capture), "capture: autocorrect off");
@@ -137,6 +148,7 @@ try {
   assert(html.includes("View-only"), "view-only notice shown");
   assert(!html.includes("<textarea"), "no composer for viewers");
   assert(!html.includes('data-k2="accessory-bar"') && !html.includes('data-k2="live-capture"'), "no live strip for viewers");
+  assert(!html.includes('data-k2="mode-toggle"'), "no mode toggle for viewers (no input surface)");
 
   console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
   process.exitCode = failures === 0 ? 0 : 1;

@@ -151,25 +151,30 @@ const CSI_TILDE_SPECIAL_KEYS: Record<string, number> = {
 }
 
 /** The Direct-mode accessory strip — Orca's proven default set in the
- *  companion's order. `repeatable` keys hold-repeat (AccessoryBar). */
+ *  companion's order, with Orca's exact full chord labels (Ctrl+C, not
+ *  ^C). `repeatable` keys hold-repeat (AccessoryBar). */
 export const TERMINAL_ACCESSORY_KEYS: TerminalAccessoryKey[] = [
   { id: 'escape', label: 'Esc', bytes: '\x1b', accessibilityLabel: 'Escape' },
   { id: 'tab', label: 'Tab', bytes: '\t', accessibilityLabel: 'Tab' },
   // Why: terminal apps recognize ESC [ Z as the reverse-tab sequence.
-  { id: 'shiftTab', label: '⇤', bytes: '\x1b[Z', accessibilityLabel: 'Shift Tab' },
+  { id: 'shiftTab', label: 'Shift+Tab', bytes: '\x1b[Z', accessibilityLabel: 'Shift Tab' },
+  // ESC+CR — the meta-Enter sequence Claude Code's /terminal-setup binds
+  // Shift+Enter to: inserts a newline WITHOUT submitting in agent TUIs.
+  // Placed up front: multi-line prompt typing is the primary mobile use.
+  { id: 'newline', label: '⇧⏎', bytes: '\x1b\r', accessibilityLabel: 'Shift Enter — newline' },
   { id: 'arrowLeft', label: '←', bytes: '\x1b[D', accessibilityLabel: 'Arrow Left', repeatable: true },
   { id: 'arrowDown', label: '↓', bytes: '\x1b[B', accessibilityLabel: 'Arrow Down', repeatable: true },
   { id: 'arrowUp', label: '↑', bytes: '\x1b[A', accessibilityLabel: 'Arrow Up', repeatable: true },
   { id: 'arrowRight', label: '→', bytes: '\x1b[C', accessibilityLabel: 'Arrow Right', repeatable: true },
-  { id: 'ctrlC', label: '^C', bytes: '\x03', accessibilityLabel: 'Interrupt terminal' },
-  { id: 'ctrlD', label: '^D', bytes: '\x04', accessibilityLabel: 'Send EOF' },
-  { id: 'ctrlZ', label: '^Z', bytes: '\x1a', accessibilityLabel: 'Suspend process' },
-  { id: 'ctrlL', label: '^L', bytes: '\x0c', accessibilityLabel: 'Clear screen' },
-  { id: 'ctrlR', label: '^R', bytes: '\x12', accessibilityLabel: 'Reverse search' },
-  { id: 'ctrlA', label: '^A', bytes: '\x01', accessibilityLabel: 'Start of line' },
-  { id: 'ctrlE', label: '^E', bytes: '\x05', accessibilityLabel: 'End of line' },
-  { id: 'ctrlW', label: '^W', bytes: '\x17', accessibilityLabel: 'Delete word backward' },
-  { id: 'ctrlU', label: '^U', bytes: '\x15', accessibilityLabel: 'Clear line before cursor' },
+  { id: 'ctrlC', label: 'Ctrl+C', bytes: '\x03', accessibilityLabel: 'Interrupt terminal' },
+  { id: 'ctrlD', label: 'Ctrl+D', bytes: '\x04', accessibilityLabel: 'Send EOF' },
+  { id: 'ctrlZ', label: 'Ctrl+Z', bytes: '\x1a', accessibilityLabel: 'Suspend process' },
+  { id: 'ctrlL', label: 'Ctrl+L', bytes: '\x0c', accessibilityLabel: 'Clear screen' },
+  { id: 'ctrlR', label: 'Ctrl+R', bytes: '\x12', accessibilityLabel: 'Reverse search' },
+  { id: 'ctrlA', label: 'Ctrl+A', bytes: '\x01', accessibilityLabel: 'Start of line' },
+  { id: 'ctrlE', label: 'Ctrl+E', bytes: '\x05', accessibilityLabel: 'End of line' },
+  { id: 'ctrlW', label: 'Ctrl+W', bytes: '\x17', accessibilityLabel: 'Delete word backward' },
+  { id: 'ctrlU', label: 'Ctrl+U', bytes: '\x15', accessibilityLabel: 'Clear line before cursor' },
   { id: 'backspace', label: '⌫', bytes: '\x7f', accessibilityLabel: 'Backspace', repeatable: true }
 ]
 

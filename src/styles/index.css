@@ -41,6 +41,13 @@ html, body, #root {
   padding-bottom: env(safe-area-inset-bottom);
 }
 
+/* System font for key symbols (⌫ ↑ ↓ ← → ⇧ ⌘ …) — the desktop K2
+   idiom: the mono font's symbol glyphs render poorly, the system
+   stack's are crisp. */
+.key-symbol {
+  font-family: -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+}
+
 .input-bar {
   padding-bottom: calc(12px + env(safe-area-inset-bottom));
 }
