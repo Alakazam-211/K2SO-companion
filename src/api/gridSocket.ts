@@ -43,6 +43,9 @@ export interface GridFrame<P = unknown> {
   // daemon `Outbound` (sessions_grid_ws.rs): snapshot | delta | child_exit
   // | title | label_initial | label_changed | bell | error
   // | pin_initial | pin_changed | mode | clipboard
+  // plus ONE client-synthesized event: `socket_open` (emitted locally
+  // on every WS open so the consumer can reset per-connection state —
+  // ephemeral pins die with their socket).
   event: string;
   payload: P;
 }
@@ -184,6 +187,16 @@ export class GridSocket {
       this.ws?.close();
     };
     this.ws.onopen = () => {
+      // Synthetic frame so the consumer sees connection boundaries:
+      // an ephemeral claim_pin dies with its socket (the daemon
+      // auto-clears + broadcasts to the SURVIVORS — we never see it),
+      // so TerminalView resets its claim state here and lets the new
+      // connection's pin_initial re-establish pin truth if any.
+      try {
+        this.onFrame({ event: "socket_open", payload: {} });
+      } catch (err) {
+        console.warn("[gridSocket] socket_open handler error:", err);
+      }
       // Re-assert the active claim + PTY size on every (re)connect so the
       // shared terminal keeps fitting THIS device.
       this.sendClaim();
@@ -249,6 +262,35 @@ export class GridSocket {
   release(): void {
     this.claimDims = null;
     this.send({ action: "set_active", active: false });
+  }
+
+  /** Re-send the stored claim even when the dims are unchanged — the
+   *  last-claim-wins re-take after ANOTHER client drove the size away
+   *  (`claim()` dedupes same-dims, which would no-op exactly then). */
+  reassertClaim(): void {
+    this.sendClaim();
+  }
+
+  /** Viewer mode: drop the stored claim WITHOUT a wire send (the
+   *  daemon ignores viewer size frames anyway) so reconnects stop
+   *  re-asserting a claim this connection isn't allowed to hold. */
+  suppressClaim(): void {
+    this.claimDims = null;
+  }
+
+  /** T0 ephemeral "Claim session" pin: pin the PTY to cols×rows bound
+   *  to THIS socket (auto-clears on disconnect; daemon bounds
+   *  20..=500 × 5..=200). Also takes the active-subscriber slot.
+   *  Re-sending new dims updates the pin in place (one pin_changed);
+   *  SAME dims are a server-side silent no-op — safe to fire per
+   *  keyboard transition. Deliberately NOT stored/re-asserted on
+   *  reconnect: the daemon cleared the pin at disconnect and every
+   *  other client saw it — silently re-pinning after a blip would
+   *  contradict what they were told. TerminalView re-claims only on
+   *  an explicit user tap. */
+  claimPin(cols: number, rows: number): void {
+    if (cols <= 0 || rows <= 0) return;
+    this.send({ action: "claim_pin", cols, rows });
   }
 
   private sendClaim(): void {

@@ -1,0 +1,128 @@
+// T2 headless render: the presentational grid parts
+// (components/TerminalGridParts.tsx) rendered to HTML with
+// react-dom/server — no DOM, no sockets. Verifies the faithful grid
+// rows (fixed width, never wraps, column-anchored wide chars) and
+// that every chrome badge/pill actually materializes.
+//
+// TSX needs a transform (Node strips types, not JSX), so the module
+// is bundled on the fly with esbuild (already present as vite's
+// dependency) into scripts/.t2-render.bundle.mjs (deleted after; react
+// stays external and resolves through the repo's node_modules).
+//
+// Run:  node scripts/test-terminal-render.mjs
+
+import { build } from "esbuild";
+import { unlink } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
+import path from "node:path";
+
+const here = path.dirname(fileURLToPath(import.meta.url));
+const bundle = path.join(here, ".t2-render.bundle.mjs");
+
+let failures = 0;
+const assert = (cond, msg) => {
+  if (!cond) { console.error("  ✗ " + msg); failures++; }
+  else console.log("  ✓ " + msg);
+};
+
+await build({
+  entryPoints: [path.join(here, "../src/components/TerminalGridParts.tsx")],
+  bundle: true,
+  format: "esm",
+  jsx: "automatic",
+  outfile: bundle,
+  external: ["react", "react/jsx-runtime"],
+  logLevel: "silent",
+});
+
+try {
+  const { FixedRow, TerminalChrome } = await import(bundle);
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { createElement: h } = await import("react");
+  const { initialClaimState, reduceClaim } = await import("../src/lib/claimState.ts");
+
+  // ── FixedRow: faithful 1:1 grid rows ──
+  console.log("\n[FixedRow] fixed-width grid rows");
+
+  const flowing = renderToStaticMarkup(
+    h(FixedRow, {
+      line: {
+        text: "hello world",
+        spans: [{ s: 0, e: 5, fg: 0xff0000 }],
+        runs: [{ text: "hello" }, { text: " world" }],
+      },
+      cols: 80, cellW: 6, lineHeight: 14,
+    })
+  );
+  assert(flowing.includes("width:480px"), "row is exactly cols×cellW wide (80×6 = 480px)");
+  assert(flowing.includes("overflow:hidden") && flowing.includes("white-space:pre"),
+    "row clips instead of wrapping (overflow hidden + pre)");
+  assert(flowing.includes("hello") && flowing.includes(" world"),
+    "flowing row paints one span per run");
+  assert(flowing.includes("color:rgb(255,0,0)"), "run style zipped from its span");
+  assert(flowing.includes('data-k2-row="fixed"'), "fixed row marker present");
+
+  const anchored = renderToStaticMarkup(
+    h(FixedRow, {
+      line: {
+        text: "ab漢c",
+        spans: [],
+        runs: [{ text: "ab" }, { text: "漢", cols: 2 }, { text: "c" }],
+      },
+      cols: 40, cellW: 6, lineHeight: 14,
+    })
+  );
+  assert(anchored.includes("left:12px") && anchored.includes("width:12px"),
+    "wide char anchored at col 2 (left 12px) spanning 2 columns (12px)");
+  assert(anchored.includes("left:24px"),
+    "run AFTER the wide char lands at col 4 (left 24px) — no drift");
+
+  const empty = renderToStaticMarkup(
+    h(FixedRow, { line: undefined, cols: 40, cellW: 6, lineHeight: 14 })
+  );
+  assert(empty.includes("height:14px") && empty.includes("width:240px"),
+    "missing row still occupies its exact grid rect");
+
+  // ── TerminalChrome: badges / pills ──
+  console.log("\n[TerminalChrome] badges and pills");
+  const base = { passive: false, gridCols: 62, gridRows: 30, onClaim: () => {}, onRelease: () => {} };
+
+  const idle = renderToStaticMarkup(h(TerminalChrome, { ...base, claim: initialClaimState }));
+  assert(idle.includes('data-k2="claim-button"') && idle.includes("Claim session"),
+    "claimer + unpinned → Claim session button");
+
+  const claimed = reduceClaim(initialClaimState, { type: "claim_sent", cols: 62, rows: 30 });
+  const claimedHtml = renderToStaticMarkup(h(TerminalChrome, { ...base, claim: claimed }));
+  assert(claimedHtml.includes('data-k2="claimed-badge"') &&
+         claimedHtml.includes("Claimed — this phone owns the size"),
+    "claimed → loud release badge");
+  assert(!claimedHtml.includes('data-k2="claim-button"'),
+    "claimed → claim button gone");
+
+  const pinned = reduceClaim(initialClaimState, { type: "pin_initial", cols: 120, rows: 40, setBy: "owner" });
+  const pinnedHtml = renderToStaticMarkup(h(TerminalChrome, { ...base, claim: pinned }));
+  assert(pinnedHtml.includes('data-k2="pin-badge"') && pinnedHtml.includes("Pinned 120×40 by owner"),
+    "pinned by other → pin badge with dims + setter");
+  assert(!pinnedHtml.includes('data-k2="claim-button"'),
+    "pinned by other → no claim affordance");
+
+  const viewer = reduceClaim(initialClaimState, { type: "mode", mode: "viewer", capable: false });
+  const viewerHtml = renderToStaticMarkup(
+    h(TerminalChrome, { ...base, claim: viewer, passive: true, gridCols: 190, gridRows: 50 })
+  );
+  assert(viewerHtml.includes('data-k2="viewer-pill"') && viewerHtml.includes("View only"),
+    "viewer → read-only pill, no claim UI");
+  assert(viewerHtml.includes('data-k2="viewing-pill"') && viewerHtml.includes("viewing at 190×50"),
+    "scaled to someone else's dims → viewing at C×R pill");
+
+  const passiveHtml = renderToStaticMarkup(
+    h(TerminalChrome, { ...base, claim: initialClaimState, passive: true, gridCols: 190, gridRows: 50 })
+  );
+  assert(passiveHtml.includes("viewing at 190×50") && passiveHtml.includes("Claim session"),
+    "desktop drove the dims → pill AND the claim affordance together");
+
+  console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
+  process.exitCode = failures === 0 ? 0 : 1;
+} finally {
+  await unlink(bundle).catch(() => {});
+}

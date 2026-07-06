@@ -1,0 +1,49 @@
+import { create } from "zustand";
+
+// Per-session terminal metadata surfaced OUT of TerminalView — the
+// seam T3 (Safe/Direct input modes) consumes without touching the
+// grid plumbing. TerminalView is the only writer: it mirrors its
+// claim-state machine (lib/claimState.ts, fed by the grid-WS mode /
+// pin_initial / pin_changed events) here on every change and clears
+// its entry on unmount.
+//
+// T3 usage (read-only):
+//   const mode = useTerminalMetaStore(selectTerminalMode(terminalId));
+//   // "viewer" → suppress ALL input affordances (read-only session).
+// Absent entry defaults to "claimer" — older daemons never send the
+// mode event and the legacy behavior is edit-capable.
+
+export interface TerminalMeta {
+  /** Daemon-judged role for the live grid connection. */
+  mode: "viewer" | "claimer";
+  /** Claimer-capable per the daemon. */
+  capable: boolean;
+  /** This phone holds the ephemeral "Claim session" pin. */
+  claimedByMe: boolean;
+  /** Session is pinned to a fixed size by ANOTHER client. */
+  pinnedByOther: boolean;
+}
+
+interface TerminalMetaState {
+  meta: Record<string, TerminalMeta>;
+  set: (sessionId: string, meta: TerminalMeta) => void;
+  clear: (sessionId: string) => void;
+}
+
+export const useTerminalMetaStore = create<TerminalMetaState>((set) => ({
+  meta: {},
+  set: (sessionId, meta) =>
+    set((s) => ({ meta: { ...s.meta, [sessionId]: meta } })),
+  clear: (sessionId) =>
+    set((s) => {
+      const next = { ...s.meta };
+      delete next[sessionId];
+      return { meta: next };
+    }),
+}));
+
+/** Selector: this session's input role ("claimer" when unknown). */
+export const selectTerminalMode =
+  (sessionId: string) =>
+  (s: TerminalMetaState): "viewer" | "claimer" =>
+    s.meta[sessionId]?.mode ?? "claimer";
