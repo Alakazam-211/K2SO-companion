@@ -106,6 +106,10 @@ export function ChatSession() {
 
   // Manual touch-scroll: WKWebView with scrollEnabled=false sometimes blocks
   // CSS overflow:auto scrolling. We handle it manually via touchmove.
+  // Fullscreen-TUI sessions (mouse-reporting mode) never reach this
+  // handler: TerminalView's T5a touch effect converts those drags to
+  // SGR wheel events and stopPropagation()s before this wrapper sees
+  // them (there's no scrollback to scrollTop through on the alt screen).
   useEffect(() => {
     const wrapper = terminalWrapperRef.current;
     if (!wrapper) return;

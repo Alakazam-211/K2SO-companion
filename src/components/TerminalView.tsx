@@ -20,6 +20,14 @@ import {
   type ClaimEvent,
   type ClaimState,
 } from "../lib/claimState";
+import {
+  wheelRoute,
+  accumulateDrag,
+  initialDragWheel,
+  encodeSgrWheel,
+  cellFromPoint,
+  type DragWheelState,
+} from "../lib/sgrWheel";
 import { useTerminalMetaStore } from "../stores/terminalMeta";
 import {
   FixedRow,
@@ -145,6 +153,30 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     () => () => useTerminalMetaStore.getState().clear(terminalId),
     [terminalId]
   );
+
+  // ── T5a fullscreen-TUI touch scroll ──
+  // Mode bits from the latest k1 snapshot (absent on the JSON path from
+  // older daemons → stays "local", scrollback scrolling unchanged).
+  // Refs, not state: read inside bind-once touch handlers; nothing
+  // repaints when they flip.
+  const mouseModeRef = useRef<{ mouseReport: boolean; sgrMouse: boolean }>({
+    mouseReport: false,
+    sgrMouse: false,
+  });
+  // Raw PTY input over the live socket — deliberately NOT the parent's
+  // onInputRef path (typing re-asserts the size claim; a wheel report
+  // must never trigger a resize).
+  const rawInputRef = useRef<((text: string) => void) | null>(null);
+  const dragWheelRef = useRef<DragWheelState>(initialDragWheel());
+  const lastTouchRef = useRef<{ y: number; t: number } | null>(null);
+  // Ref mirrors for the bind-once touch handlers (desktop TerminalPane
+  // idiom: handlers read refs so the listener never re-binds per frame).
+  const gridStateRef = useRef<{ cols: number; viewportRows: number; rows: number }>({
+    cols: 0,
+    viewportRows: 0,
+    rows: 0,
+  });
+  const layoutRef = useRef<{ scale: number; offsetX: number }>({ scale: 1, offsetX: 0 });
 
   // ── Resize hold-and-scale bookkeeping (Kessel parity) ──
   // While a resize/claim we sent is in flight — the container reshaped
@@ -331,6 +363,16 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         for (const f of batch) {
           if (f.kind === "snapshot") {
             model.applySnapshot(f.payload);
+            // T5a: latest mode bits (k1-only; JSON snapshots leave them
+            // unset → local scroll). LIVE by construction — a TUI
+            // toggling alt-screen/mouse-reporting mid-session rides the
+            // snapshot resend that switch triggers.
+            if (typeof f.payload.mouseReport === "boolean") {
+              mouseModeRef.current = {
+                mouseReport: f.payload.mouseReport,
+                sgrMouse: f.payload.sgrMouse === true,
+              };
+            }
             debugRef.current = `ws-snapshot sb=${model.scrollback.length} vp=${model.viewport.length}`;
           } else {
             model.applyDelta(f.payload);
@@ -488,6 +530,10 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       },
     };
 
+    // Raw input seam for the T5a touch-wheel effect: same connected
+    // socket, none of the send bar's reassert-claim behavior below.
+    rawInputRef.current = (text: string) => gridSock.sendInput(text);
+
     // Expose this socket's input to the parent send bar — writes go to the
     // PTY over the SAME connected WS. Typing is "using" the session: if
     // another client drove the dims away while we're claimer + unpinned,
@@ -525,6 +571,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     }, 1500);
 
     return () => {
+      rawInputRef.current = null;
       if (onInputRef) onInputRef.current = null;
       if (onReloadRef) onReloadRef.current = null;
       actionsRef.current = null;
@@ -580,6 +627,94 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     }
   }, [grid.version]);
 
+  // ── T5a: fullscreen-TUI touch scroll (drag → SGR wheel) ────────
+  // Mobile twin of the desktop's mouse-reporting wheel branch
+  // (TerminalPane.tsx onWheel): with DECSET mouse reporting + SGR
+  // encoding on, the child paints its own scrollable surface
+  // (typically the alt screen — NO scrollback), so native/shim
+  // scrolling is a no-op. Vertical drags become SGR wheel reports at
+  // the finger's cell instead — row-quantized with fractional carry,
+  // flick-boosted, capped per gesture (lib/sgrWheel.ts). NORMAL mode
+  // returns before preventDefault, so the existing scrollback path
+  // (native scroll + ChatSession's touchmove→scrollTop shim) is
+  // untouched; forwarded drags stopPropagation so that wrapper shim
+  // never double-scrolls the same gesture. Binds once; all live state
+  // rides refs (mode bits flip per snapshot).
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const onTouchStart = (e: TouchEvent) => {
+      // New gesture: fresh cap budget + carry. Multi-touch (pinch) is
+      // never ours — drop tracking so a stray move can't emit.
+      if (e.touches.length !== 1) {
+        lastTouchRef.current = null;
+        return;
+      }
+      dragWheelRef.current = initialDragWheel();
+      lastTouchRef.current = { y: e.touches[0].clientY, t: e.timeStamp };
+    };
+    const onTouchMove = (e: TouchEvent) => {
+      if (wheelRoute(mouseModeRef.current) !== "forward") return;
+      // Input gate: viewer / not-capable connections' input frames are
+      // dropped server-side — don't send them at all.
+      const s = claimRef.current;
+      if (s.mode !== "claimer" || !s.capable) return;
+      if (e.touches.length !== 1) return;
+      const send = rawInputRef.current;
+      const last = lastTouchRef.current;
+      const g = gridStateRef.current;
+      const cw = cellWRef.current;
+      // Metrics/stream not ready → leave the drag to the local path
+      // (desktop parity: its wheel branch requires measured cells).
+      if (!send || !last || cw <= 0 || g.viewportRows <= 0) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const touch = e.touches[0];
+      const deltaPx = last.y - touch.clientY; // >0 = finger up = wheel-down
+      const dtMs = Math.max(1, e.timeStamp - last.t);
+      lastTouchRef.current = { y: touch.clientY, t: e.timeStamp };
+      if (deltaPx === 0) return;
+      const layout = layoutRef.current;
+      const rect = el.getBoundingClientRect();
+      const cell = cellFromPoint({
+        x: touch.clientX - rect.left + el.scrollLeft,
+        y: touch.clientY - rect.top + el.scrollTop,
+        offsetX: layout.offsetX,
+        scale: layout.scale,
+        cellW: cw,
+        cellH: LINE_HEIGHT,
+        cols: g.cols,
+        viewportRows: g.viewportRows,
+        totalRows: g.rows,
+      });
+      const r = accumulateDrag(
+        dragWheelRef.current,
+        deltaPx,
+        LINE_HEIGHT * (layout.scale > 0 ? layout.scale : 1),
+        Math.abs(deltaPx) / dtMs,
+      );
+      dragWheelRef.current = r.state;
+      // Ticks of one move batch into ONE WS message (desktop's
+      // seq.repeat(ticks) flush parity).
+      if (r.ticks > 0) {
+        send(encodeSgrWheel(r.dir, cell.col, cell.row).repeat(r.ticks));
+      }
+    };
+    const onTouchEnd = () => {
+      lastTouchRef.current = null;
+    };
+    el.addEventListener("touchstart", onTouchStart, { passive: true });
+    el.addEventListener("touchmove", onTouchMove, { passive: false });
+    el.addEventListener("touchend", onTouchEnd, { passive: true });
+    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
+    return () => {
+      el.removeEventListener("touchstart", onTouchStart);
+      el.removeEventListener("touchmove", onTouchMove);
+      el.removeEventListener("touchend", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchEnd);
+    };
+  }, []);
+
   // ── Scale-to-fit layout (lib/scaleLayout.ts, Kessel port) ──
   // "Active" = our resizes drive the PTY right now: claimer, unpinned
   // by others, and either the frames already track OUR fit or a resize
@@ -607,6 +742,15 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     pinned: claimState.pin !== null && !(claimState.claimedByMe && pendingResize !== null),
     pendingResize,
   });
+
+  // Mirror the render-scope values the bind-once T5a touch handlers
+  // read (grid dims for the SGR cell, scale for row quantization).
+  gridStateRef.current = {
+    cols: grid.cols,
+    viewportRows: grid.viewportRows,
+    rows: grid.rows,
+  };
+  layoutRef.current = { scale: layout.scale, offsetX: layout.offsetX };
 
   // Fixed 1:1 grid needs live-stream dims + measured metrics; the HTTP
   // fallback (bare text rows, unknown cols) keeps the legacy wrap block.
