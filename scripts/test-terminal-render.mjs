@@ -145,6 +145,51 @@ try {
   assert(passiveHtml.includes("viewing at 190×50") && passiveHtml.includes("Claim session"),
     "desktop drove the dims → pill AND the claim affordance together");
 
+  // ── T6: selection overlay + copy affordance + clipboard pills ──
+  console.log("\n[T6] selection + clipboard UX parts");
+  const { SelectionOverlay, CopyAffordance, ToastPill, ClipboardFallbackPill } =
+    await import(bundle);
+
+  const overlay = renderToStaticMarkup(
+    h(SelectionOverlay, {
+      segments: [
+        { abs: 2, startCol: 4, endCol: 10 },
+        { abs: 3, startCol: 0, endCol: 6 },
+      ],
+      cellW: 6,
+      lineHeight: 14,
+    })
+  );
+  assert(overlay.includes('data-k2="selection-overlay"') &&
+         (overlay.match(/data-k2="selection-rect"/g) ?? []).length === 2,
+    "selection overlay renders one rect per row segment");
+  assert(overlay.includes("left:24px") && overlay.includes("top:28px") &&
+         overlay.includes("width:36px") && overlay.includes("height:14px"),
+    "head rect sits at exactly its column/row rect (grid space)");
+  assert(!overlay.replace(/pointer-events:none/g, "").includes("pointer-events"),
+    "overlay is fully pointer-transparent");
+
+  const copyBtn = renderToStaticMarkup(
+    h(CopyAffordance, { left: 42, top: 90, onCopy: () => {} })
+  );
+  assert(copyBtn.includes('data-k2="copy-button"') && copyBtn.includes(">Copy<"),
+    "copy affordance renders a Copy button");
+  assert(copyBtn.includes("data-k2-copy-ui") &&
+         copyBtn.includes("left:42px") && copyBtn.includes("top:90px"),
+    "copy button carries the gesture-layer opt-out marker at its spot");
+
+  const toastHtml = renderToStaticMarkup(h(ToastPill, { text: "Copied" }));
+  assert(toastHtml.includes('data-k2="toast"') && toastHtml.includes("Copied"),
+    "toast pill renders its text");
+
+  const fb = renderToStaticMarkup(
+    h(ClipboardFallbackPill, { text: "secret paste", onCopy: () => {}, onDismiss: () => {} })
+  );
+  assert(fb.includes('data-k2="clipboard-fallback"') && fb.includes("secret paste") &&
+         fb.includes('data-k2="clipboard-fallback-copy"') &&
+         fb.includes('data-k2="clipboard-fallback-dismiss"'),
+    "clipboard fallback pill shows the text with manual Copy + dismiss");
+
   console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
   process.exitCode = failures === 0 ? 0 : 1;
 } finally {

@@ -28,11 +28,34 @@ import {
   cellFromPoint,
   type DragWheelState,
 } from "../lib/sgrWheel";
+import {
+  mouseRoute,
+  encodeSgrTap,
+  movedBeyond,
+  classifyRelease,
+  LONG_PRESS_MS,
+} from "../lib/sgrMouse";
+import {
+  shouldApplyOsc52,
+  clipboardTextFromPayload,
+  writeClipboard,
+} from "../lib/oscClipboard";
+import {
+  normalizeSelection,
+  selectionRowSegments,
+  absCellFromPoint,
+  type Selection,
+} from "../lib/touchSelect";
+import { copySelectionText } from "../lib/copyText";
 import { useTerminalMetaStore } from "../stores/terminalMeta";
 import {
   FixedRow,
   TerminalChrome,
   TerminalCursor,
+  SelectionOverlay,
+  CopyAffordance,
+  ToastPill,
+  ClipboardFallbackPill,
   colorToCSS,
   DEFAULT_BG,
   DEFAULT_FG,
@@ -178,6 +201,78 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     rows: 0,
   });
   const layoutRef = useRef<{ scale: number; offsetX: number }>({ scale: 1, offsetX: 0 });
+
+  // ── T5b/T6: gesture classification + selection + clipboard ──
+  // One tracker per touch: start point/time, whether it strayed past
+  // the tap/long-press movement ceiling, and whether the long-press
+  // timer fired (sgrMouse.ts owns the pure disambiguation).
+  const gestureRef = useRef<{
+    x: number;
+    y: number;
+    t: number;
+    moved: boolean;
+    longPress: boolean;
+  } | null>(null);
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // Live selection (ref = SSOT for the bind-once handlers, state
+  // mirrors for render); `selectionDone` = released, Copy button up.
+  const selectionRef = useRef<Selection | null>(null);
+  const [selection, setSelection] = useState<Selection | null>(null);
+  const [selectionDone, setSelectionDone] = useState(false);
+  // OSC 52 dedupe (desktop oscClipboard parity: claude re-emits the
+  // same payload on every repaint while a selection stays live).
+  const lastOsc52Ref = useRef<string | null>(null);
+  // Clipboard UX: transient "Copied" pill + the WKWebView manual-copy
+  // fallback (writeText rejected / unavailable).
+  const [toast, setToast] = useState<string | null>(null);
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [clipFallback, setClipFallback] = useState<string | null>(null);
+
+  const showToast = useCallback((text: string) => {
+    setToast(text);
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    toastTimerRef.current = setTimeout(() => {
+      toastTimerRef.current = null;
+      setToast(null);
+    }, 1500);
+  }, []);
+  useEffect(
+    () => () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    },
+    []
+  );
+
+  /** OS-clipboard write with the honest WKWebView fallback: silent
+   *  rejection → surface the text with a manual Copy button (a button
+   *  tap is a fresh user gesture, so the retry usually succeeds). */
+  const applyClipboardText = useCallback(
+    (text: string) => {
+      void writeClipboard(text).then((r) => {
+        if (r === "written") showToast("Copied");
+        else setClipFallback(text);
+      });
+    },
+    [showToast]
+  );
+
+  const clearSelection = useCallback(() => {
+    selectionRef.current = null;
+    setSelection(null);
+    setSelectionDone(false);
+  }, []);
+
+  const handleCopySelection = useCallback(() => {
+    const sel = selectionRef.current;
+    clearSelection();
+    if (!sel) return;
+    const text = copySelectionText(
+      (abs) => linesRef.current.get(abs),
+      normalizeSelection(sel)
+    );
+    if (text) applyClipboardText(text);
+  }, [clearSelection, applyClipboardText]);
 
   // ── Resize hold-and-scale bookkeeping (Kessel parity) ──
   // While a resize/claim we sent is in flight — the container reshaped
@@ -442,8 +537,22 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       } else if (frame.event === "pin_changed") {
         const p = frame.payload as PinChangedPayload;
         dispatchClaim({ type: "pin_changed", cols: p.cols, rows: p.rows, cleared: p.cleared });
+      } else if (frame.event === "clipboard") {
+        // OSC 52 copy from the child app (payload decoded + size-capped
+        // daemon-side; read-back is never implemented). Apply only while
+        // this connection may drive (claimer) — wezterm's attached-client
+        // model, so a phone passively viewing a desktop session never has
+        // its clipboard replaced. Dedupe against the last APPLIED value.
+        const text = clipboardTextFromPayload(frame.payload);
+        if (
+          claimRef.current.mode === "claimer" &&
+          shouldApplyOsc52(lastOsc52Ref.current, text)
+        ) {
+          lastOsc52Ref.current = text;
+          applyClipboardText(text);
+        }
       }
-      // title / label_* / bell / clipboard / error: not consumed yet.
+      // title / label_* / bell / error: not consumed yet.
     };
 
     const gridSock = new GridSocket(onFrame);
@@ -593,7 +702,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       // nobody left to render them.
       coalescer.clear();
     };
-  }, [terminalId, projectPath, applyGridUpdate, dispatchClaim, reloadKey]);
+  }, [terminalId, projectPath, applyGridUpdate, dispatchClaim, applyClipboardText, reloadKey]);
 
   // Chrome tap handlers (the socket lives inside the effect; taps go
   // through actionsRef / the HTTP pin route).
@@ -628,39 +737,129 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     }
   }, [grid.version]);
 
-  // ── T5a: fullscreen-TUI touch scroll (drag → SGR wheel) ────────
-  // Mobile twin of the desktop's mouse-reporting wheel branch
-  // (TerminalPane.tsx onWheel): with DECSET mouse reporting + SGR
-  // encoding on, the child paints its own scrollable surface
-  // (typically the alt screen — NO scrollback), so native/shim
-  // scrolling is a no-op. Vertical drags become SGR wheel reports at
-  // the finger's cell instead — row-quantized with fractional carry,
-  // flick-boosted, capped per gesture (lib/sgrWheel.ts). NORMAL mode
-  // returns before preventDefault, so the existing scrollback path
-  // (native scroll + ChatSession's touchmove→scrollTop shim) is
-  // untouched; forwarded drags stopPropagation so that wrapper shim
-  // never double-scrolls the same gesture. Binds once; all live state
-  // rides refs (mode bits flip per snapshot).
+  // ── T5a/T5b/T6: the terminal touch-gesture layer ───────────────
+  // One movement threshold splits every single-finger touch into
+  // exactly one of:
+  //   drag       (moved >10px)          → T5a SGR wheel (forward mode)
+  //                                       or the native/shim scrollback
+  //                                       path (local mode);
+  //   long-press (still ≥500ms)         → T6 selection: anchor at the
+  //                                       pressed cell, drag adjusts,
+  //                                       release shows Copy;
+  //   tap        (still, <300ms)        → T5b SGR click (forward mode);
+  //                                       clears a finished selection
+  //                                       first; in Direct mode the
+  //                                       synthetic click that follows
+  //                                       keeps the capture focused.
+  // Movement cancels the long-press timer; the timer firing takes the
+  // touch away from wheel/click; long-press selection wins EVERYWHERE,
+  // including over mouse-reporting TUIs (desktop lets selection
+  // coexist with forwarding). Binds once; all live state rides refs
+  // (mode bits flip per snapshot).
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
+
+    const cancelLongPress = () => {
+      if (longPressTimerRef.current) {
+        clearTimeout(longPressTimerRef.current);
+        longPressTimerRef.current = null;
+      }
+    };
+    // Touches on the Copy affordance (rendered INSIDE the scroll
+    // container so it rides the content) belong to its button, never
+    // to the gesture layer.
+    const isCopyUi = (t: EventTarget | null) =>
+      t instanceof Element && t.closest("[data-k2-copy-ui]") !== null;
+    // The finger's ABSOLUTE strip cell (0-based, scrollback included)
+    // for selection; null while grid metrics aren't measurable.
+    const absCellAt = (clientX: number, clientY: number) => {
+      const layout = layoutRef.current;
+      const g = gridStateRef.current;
+      const rect = el.getBoundingClientRect();
+      return absCellFromPoint({
+        x: clientX - rect.left + el.scrollLeft,
+        y: clientY - rect.top + el.scrollTop,
+        offsetX: layout.offsetX,
+        scale: layout.scale,
+        cellW: cellWRef.current,
+        cellH: LINE_HEIGHT,
+        cols: g.cols,
+        totalRows: g.rows,
+      });
+    };
+
     const onTouchStart = (e: TouchEvent) => {
+      if (isCopyUi(e.target)) return;
+      cancelLongPress();
       // New gesture: fresh cap budget + carry. Multi-touch (pinch) is
       // never ours — drop tracking so a stray move can't emit.
       if (e.touches.length !== 1) {
         lastTouchRef.current = null;
+        gestureRef.current = null;
         return;
       }
+      const t0 = e.touches[0];
       dragWheelRef.current = initialDragWheel();
-      lastTouchRef.current = { y: e.touches[0].clientY, t: e.timeStamp };
+      lastTouchRef.current = { y: t0.clientY, t: e.timeStamp };
+      gestureRef.current = {
+        x: t0.clientX,
+        y: t0.clientY,
+        t: e.timeStamp,
+        moved: false,
+        longPress: false,
+      };
+      longPressTimerRef.current = setTimeout(() => {
+        longPressTimerRef.current = null;
+        const g = gestureRef.current;
+        if (!g || g.moved) return;
+        const cell = absCellAt(g.x, g.y);
+        if (!cell) return; // no measured grid — nothing to select in
+        g.longPress = true;
+        // A long-press replaces any previous finished selection.
+        selectionRef.current = { anchor: cell, focus: cell };
+        setSelection(selectionRef.current);
+        setSelectionDone(false);
+      }, LONG_PRESS_MS);
     };
+
     const onTouchMove = (e: TouchEvent) => {
+      if (e.touches.length !== 1) return;
+      const touch = e.touches[0];
+      const gest = gestureRef.current;
+      if (gest && !gest.moved && movedBeyond(gest, touch.clientX, touch.clientY)) {
+        gest.moved = true; // drag from here — tap and long-press are out
+        cancelLongPress();
+      }
+      // T6 selection drag: after the long-press fired, the finger
+      // adjusts the focus cell; the move neither scrolls (shim) nor
+      // wheels (forward mode) — the selection owns the rest of the
+      // touch.
+      if (gest?.longPress && selectionRef.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        const cell = absCellAt(touch.clientX, touch.clientY);
+        if (cell) {
+          selectionRef.current = {
+            anchor: selectionRef.current.anchor,
+            focus: cell,
+          };
+          setSelection(selectionRef.current);
+        }
+        return;
+      }
+      // T5a wheel path (forward mode only). NORMAL mode returns before
+      // preventDefault, so the existing scrollback path (native scroll
+      // + ChatSession's touchmove→scrollTop shim) is untouched.
       if (wheelRoute(mouseModeRef.current) !== "forward") return;
+      // Pre-classification stillness: inside the tap/long-press
+      // movement ceiling nothing wheels yet — a tick here would make a
+      // pending long-press ALSO scroll the TUI.
+      if (gest && !gest.moved) return;
       // Input gate: viewer / not-capable connections' input frames are
       // dropped server-side — don't send them at all.
       const s = claimRef.current;
       if (s.mode !== "claimer" || !s.capable) return;
-      if (e.touches.length !== 1) return;
       const send = rawInputRef.current;
       const last = lastTouchRef.current;
       const g = gridStateRef.current;
@@ -670,7 +869,6 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       if (!send || !last || cw <= 0 || g.viewportRows <= 0) return;
       e.preventDefault();
       e.stopPropagation();
-      const touch = e.touches[0];
       const deltaPx = last.y - touch.clientY; // >0 = finger up = wheel-down
       const dtMs = Math.max(1, e.timeStamp - last.t);
       lastTouchRef.current = { y: touch.clientY, t: e.timeStamp };
@@ -701,20 +899,89 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         send(encodeSgrWheel(r.dir, cell.col, cell.row).repeat(r.ticks));
       }
     };
-    const onTouchEnd = () => {
+
+    const onTouchEnd = (e: TouchEvent) => {
       lastTouchRef.current = null;
+      cancelLongPress();
+      const gest = gestureRef.current;
+      gestureRef.current = null;
+      if (!gest || isCopyUi(e.target)) return;
+      const kind = classifyRelease({
+        moved: gest.moved,
+        longPressFired: gest.longPress,
+        durationMs: e.timeStamp - gest.t,
+      });
+      if (kind === "long-press") {
+        // Selection finalized — show the Copy affordance; swallow the
+        // synthetic click (Direct-mode tap-to-focus must not fire off
+        // a selection release).
+        if (selectionRef.current) {
+          setSelectionDone(true);
+          if (e.cancelable) e.preventDefault();
+        }
+        return;
+      }
+      if (kind !== "tap") return;
+      // Tap with a selection up: clear it (tap-elsewhere-clears) and
+      // consume the tap — it neither clicks nor focuses.
+      if (selectionRef.current) {
+        clearSelection();
+        if (e.cancelable) e.preventDefault();
+        return;
+      }
+      // T5b SGR tap-to-click: same gate as the wheel branch. Legacy
+      // scrollback mode taps stay local (Direct-mode focus etc.).
+      if (mouseRoute(mouseModeRef.current) !== "forward") return;
+      const s = claimRef.current;
+      if (s.mode !== "claimer" || !s.capable) return;
+      const send = rawInputRef.current;
+      const cw = cellWRef.current;
+      const g = gridStateRef.current;
+      if (!send || cw <= 0 || g.viewportRows <= 0) return;
+      const touch = e.changedTouches[0];
+      if (!touch) return;
+      const layout = layoutRef.current;
+      const rect = el.getBoundingClientRect();
+      const cell = cellFromPoint({
+        x: touch.clientX - rect.left + el.scrollLeft,
+        y: touch.clientY - rect.top + el.scrollTop,
+        offsetX: layout.offsetX,
+        scale: layout.scale,
+        cellW: cw,
+        cellH: LINE_HEIGHT,
+        cols: g.cols,
+        viewportRows: g.viewportRows,
+        totalRows: g.rows,
+      });
+      send(encodeSgrTap(cell.col, cell.row));
+      // Deliberately NO preventDefault: the synthetic click that
+      // follows still fires, so in Direct mode over a mouse-reporting
+      // TUI the tap BOTH clicks the TUI and keeps the hidden capture
+      // focused (ChatSession's wrapper onClick).
     };
+
+    const onTouchCancel = () => {
+      lastTouchRef.current = null;
+      cancelLongPress();
+      const gest = gestureRef.current;
+      gestureRef.current = null;
+      // A cancelled long-press drag still finalizes — iOS fires cancel
+      // on system gestures mid-selection; losing it would be hostile.
+      if (gest?.longPress && selectionRef.current) setSelectionDone(true);
+    };
+
     el.addEventListener("touchstart", onTouchStart, { passive: true });
     el.addEventListener("touchmove", onTouchMove, { passive: false });
-    el.addEventListener("touchend", onTouchEnd, { passive: true });
-    el.addEventListener("touchcancel", onTouchEnd, { passive: true });
+    el.addEventListener("touchend", onTouchEnd, { passive: false });
+    el.addEventListener("touchcancel", onTouchCancel, { passive: true });
     return () => {
+      cancelLongPress();
       el.removeEventListener("touchstart", onTouchStart);
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", onTouchEnd);
-      el.removeEventListener("touchcancel", onTouchEnd);
+      el.removeEventListener("touchcancel", onTouchCancel);
     };
-  }, []);
+  }, [clearSelection]);
 
   // ── Scale-to-fit layout (lib/scaleLayout.ts, Kessel port) ──
   // "Active" = our resizes drive the PTY right now: claimer, unpinned
@@ -864,8 +1131,35 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
                   shape={grid.cursorShape}
                   visible={grid.cursorVisible}
                 />
+                {/* T6 selection highlight — grid space, so the scale
+                    transform and the rows' coordinate math apply
+                    unchanged. */}
+                {selection && (
+                  <SelectionOverlay
+                    segments={selectionRowSegments(
+                      normalizeSelection(selection),
+                      grid.cols
+                    )}
+                    cellW={cellW}
+                    lineHeight={LINE_HEIGHT}
+                  />
+                )}
               </div>
             </div>
+            {/* T6 Copy affordance — near the selection tail, UNSCALED
+                (outside the transformed strip) so it stays finger-sized;
+                inside the scroll container so it rides the content. */}
+            {selection && selectionDone && (() => {
+              const n = normalizeSelection(selection);
+              const left = Math.min(
+                Math.max(8, 8 + layout.offsetX + n.endCol * cellW * layout.scale),
+                Math.max(8, box.w - 88)
+              );
+              const top = 4 + (n.endAbs + 1) * LINE_HEIGHT * layout.scale + 6;
+              return (
+                <CopyAffordance left={left} top={top} onCopy={handleCopySelection} />
+              );
+            })()}
           </div>
         ) : (
           // HTTP fallback / pre-stream: legacy wrap block.
@@ -898,6 +1192,26 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         onClaim={handleClaimTap}
         onRelease={handleReleaseTap}
       />
+
+      {/* T5b/T6 clipboard UX — transient "Copied" pill; when WKWebView
+          rejects the write (no user gesture behind an OSC 52 frame),
+          the fallback pill surfaces the text with a manual Copy (a
+          fresh gesture, so the retry usually succeeds). */}
+      {toast && <ToastPill text={toast} />}
+      {clipFallback !== null && (
+        <ClipboardFallbackPill
+          text={clipFallback}
+          onCopy={() => {
+            const t = clipFallback;
+            setClipFallback(null);
+            void writeClipboard(t).then((r) => {
+              if (r === "written") showToast("Copied");
+              else setClipFallback(t);
+            });
+          }}
+          onDismiss={() => setClipFallback(null)}
+        />
+      )}
     </div>
   );
 }

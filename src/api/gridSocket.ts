@@ -1,6 +1,7 @@
 import { getBaseUrl, getToken } from "./client";
 import { useServersStore } from "../stores/servers";
 import { reviveServerSession } from "../lib/revive";
+import { reconnectDelayMs } from "../lib/reconnect";
 import { decodeGridFrame } from "./gridWire";
 
 // Live terminal stream over the daemon's grid-WS (`/cli/sessions/grid`).
@@ -88,6 +89,13 @@ export class GridSocket {
   private onFrame: FrameHandler;
   private shouldReconnect = true;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Consecutive failed (re)connects since the last successful open —
+   *  drives the exponential backoff (lib/reconnect.ts, desktop Kessel
+   *  parity: 500·2^min(n,4) capped at 5s). Reset on every open. */
+  private reconnectAttempt = 0;
+  /** Reentrancy guard: revive+reopen may be triggered by the backoff
+   *  timer AND foreground recovery — never run both at once. */
+  private reviving = false;
   /** Active-viewer claim (this device's dims) to (re)send on every
    *  connect; null = not claimed. */
   private claimDims: { cols: number; rows: number } | null = null;
@@ -107,8 +115,38 @@ export class GridSocket {
     this.sessionId = sessionId;
     this.serverId = useServersStore.getState().activeServerId;
     this.shouldReconnect = true;
+    // Foreground recovery (orca terminal-foreground-recovery pattern):
+    // iOS suspends timers AND drops sockets in the background, so a
+    // return to the foreground must re-check the stream NOW instead of
+    // waiting out whatever backoff timer survived the nap.
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", this.onVisibility);
+      window.addEventListener("focus", this.onForeground);
+    }
     this.open();
   }
+
+  private onVisibility = (): void => {
+    if (document.visibilityState === "visible") this.onForeground();
+  };
+
+  /** App came to the foreground: if a reconnect is pending, fire it
+   *  immediately (through the revive path); if the socket died silently
+   *  while backgrounded (no close event delivered → no timer), reopen.
+   *  A healthy open socket makes this a no-op. */
+  private onForeground = (): void => {
+    if (!this.shouldReconnect) return;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+      void this.reviveThenReopen();
+      return;
+    }
+    const state = this.ws?.readyState;
+    if (state === undefined || state === WebSocket.CLOSED || state === WebSocket.CLOSING) {
+      void this.reviveThenReopen();
+    }
+  };
 
   /** Build the WS URL FRESH each open so a token revived between attempts
    *  is picked up (the daemon kicks stale tokens off the WS within 5s —
@@ -133,6 +171,22 @@ export class GridSocket {
       // loop against nowhere.
       this.shouldReconnect = false;
       return;
+    }
+    // Supersede any previous socket SILENTLY: strip its handlers first
+    // so its close can't schedule a duplicate reconnect against the
+    // fresh one (foreground recovery may reopen while a zombie socket
+    // is still winding down).
+    if (this.ws) {
+      const old = this.ws;
+      old.onmessage = null;
+      old.onclose = null;
+      old.onerror = null;
+      old.onopen = null;
+      try {
+        old.close();
+      } catch {
+        // already dead — fine
+      }
     }
     try {
       this.ws = new WebSocket(url);
@@ -172,6 +226,12 @@ export class GridSocket {
           return; // non-JSON text frame — ignore
         }
       }
+      // The child EXITED — the session is dead, so the close that
+      // follows must never reconnect-resurrect it (desktop's
+      // phaseRef-synchronous fix: the daemon closes the WS in the same
+      // task as sending child_exit, so latch BEFORE dispatching). The
+      // consumer shows the dead state; its own close() is belt+braces.
+      if (frame.event === "child_exit") this.shouldReconnect = false;
       // Don't swallow handler errors silently: an apply bug here (e.g. a
       // wire field-name mismatch) would otherwise look like a dead stream.
       try {
@@ -187,6 +247,9 @@ export class GridSocket {
       this.ws?.close();
     };
     this.ws.onopen = () => {
+      // Successful open — the next drop starts the backoff ladder over
+      // (desktop parity: a single-shot blip reconnects in ~500ms).
+      this.reconnectAttempt = 0;
       // Synthetic frame so the consumer sees connection boundaries:
       // an ephemeral claim_pin dies with its socket (the daemon
       // auto-clears + broadcasts to the SURVIVORS — we never see it),
@@ -212,10 +275,12 @@ export class GridSocket {
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer) return;
+    const delay = reconnectDelayMs(this.reconnectAttempt);
+    this.reconnectAttempt++;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
       if (this.shouldReconnect) void this.reviveThenReopen();
-    }, 2000);
+    }, delay);
   }
 
   /** Consult the revive path BEFORE re-opening: a WS close after a daemon
@@ -226,18 +291,24 @@ export class GridSocket {
    *  returns 'signin-required' when only the user can fix it — at which
    *  point this loop STOPS (the footer/Servers page surface the state). */
   private async reviveThenReopen(): Promise<void> {
-    if (this.serverId) {
-      const outcome = await reviveServerSession(this.serverId);
-      if (!this.shouldReconnect) return;
-      if (outcome === "signin-required" || outcome === "not-applicable") {
-        this.shouldReconnect = false;
-        return;
+    if (this.reviving) return;
+    this.reviving = true;
+    try {
+      if (this.serverId) {
+        const outcome = await reviveServerSession(this.serverId);
+        if (!this.shouldReconnect) return;
+        if (outcome === "signin-required" || outcome === "not-applicable") {
+          this.shouldReconnect = false;
+          return;
+        }
+        // revived / still-valid → reopen with the (possibly fresh) token;
+        // unreachable / cooldown → reopen anyway and let the next close land
+        // back here (network-down keeps its old retry cadence).
       }
-      // revived / still-valid → reopen with the (possibly fresh) token;
-      // unreachable / cooldown → reopen anyway and let the next close land
-      // back here (network-down keeps its old retry cadence).
+      if (this.shouldReconnect) this.open();
+    } finally {
+      this.reviving = false;
     }
-    if (this.shouldReconnect) this.open();
   }
 
   /** Send a keystroke / text input to the host PTY (optional). */
@@ -322,6 +393,10 @@ export class GridSocket {
 
   close(): void {
     this.shouldReconnect = false;
+    if (typeof document !== "undefined") {
+      document.removeEventListener("visibilitychange", this.onVisibility);
+      window.removeEventListener("focus", this.onForeground);
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
