@@ -260,11 +260,7 @@ export function FeedbackThread() {
             onChange={setReply}
             onSend={() => sendComment(reply)}
             busy={busy}
-            placeholder={
-              item.status === "waiting" && item.kind !== "fyi"
-                ? "Reply — your first comment answers the ask"
-                : "Add a comment — it lands in the agent's session"
-            }
+            placeholder={`Message ${item.agentName}`}
             accessory={
               <>
                 {actionError && (
