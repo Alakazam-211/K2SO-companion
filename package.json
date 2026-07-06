@@ -9,7 +9,8 @@
     "build": "tsc && vite build",
     "preview": "vite preview",
     "tauri": "tauri",
-    "test:grid": "node scripts/test-grid-convert.mjs"
+    "test:grid": "node scripts/test-grid-convert.mjs",
+    "test:k1": "node scripts/test-k1-wire.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

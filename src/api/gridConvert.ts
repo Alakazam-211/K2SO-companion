@@ -14,6 +14,13 @@ export interface CellRun {
   inverse: boolean;
   dim: boolean;
   strikeout: boolean;
+  /** Soft-wrap continuation flag; key absent when false on both the
+   *  JSON path (serde skip_serializing_if) and the k1 binary path. */
+  wrapped?: boolean;
+  /** Terminal-column span, present only when it differs from the run's
+   *  char count (double-width CJK/emoji or zero-width combining chars).
+   *  Absent ⇒ one column per char (grid_snapshot.rs::CellRun contract). */
+  cols?: number;
 }
 export interface CursorSnapshot {
   row: number;
@@ -28,6 +35,12 @@ export interface TermGridSnapshot {
   cursor: CursorSnapshot;
   version: number;
   displayOffset: number;
+  // ── k1-only extras (decoded by gridWire.ts; absent on the JSON path
+  //    from older daemons — T2 consumes these, additive until then) ──
+  paneId?: string;
+  mouseReport?: boolean;
+  sgrMouse?: boolean;
+  altScreen?: boolean;
 }
 export interface DamagedRow {
   row: number;
@@ -45,6 +58,8 @@ export interface TermGridDelta {
   cursor: CursorSnapshot;
   version: number;
   displayOffset: number;
+  /** k1-only (absent on the JSON path from older daemons). */
+  paneId?: string;
 }
 
 // Style flag bits — mirror grid_types.rs ATTR_* (TerminalView reads `fl`).
@@ -55,17 +70,33 @@ export const FL_STRIKE = 8;
 export const FL_INVERSE = 16;
 export const FL_DIM = 32;
 
+/** The run-boundary + column-span data a CompactLine keeps so the
+ *  renderer can do faithful terminal-column math (wide CJK/emoji =
+ *  2 columns, zero-width combiners = 0). Shape matches the desktop's
+ *  `runCols.ts` ColRun so the column helpers port unchanged in T2. */
+export interface ColSpanRun {
+  text: string;
+  /** Terminal-column span; absent ⇒ one column per char. */
+  cols?: number;
+}
+
 export interface CompactLineLite {
   row: number;
   text: string;
   spans: { s: number; e: number; fg?: number; bg?: number; fl?: number }[];
   wrapped: boolean;
+  /** Per-run column spans, preserved from the wire (T1: data model
+   *  only; T2 renders with them). Additive — existing consumers keep
+   *  reading text/spans. */
+  runs: ColSpanRun[];
 }
 
 /** Convert one row of CellRuns into a CompactLine the renderer accepts. */
 export function cellRowToCompact(runs: CellRun[], row: number): CompactLineLite {
   let text = "";
   const spans: CompactLineLite["spans"] = [];
+  const colRuns: ColSpanRun[] = [];
+  let wrapped = false;
   for (const r of runs) {
     const s = text.length;
     text += r.text;
@@ -82,8 +113,12 @@ export function cellRowToCompact(runs: CellRun[], row: number): CompactLineLite 
     if (fg !== undefined || bg !== undefined || fl) {
       spans.push({ s, e, fg, bg, fl: fl || undefined });
     }
+    // Faithful data model: keep run boundaries + the wire's explicit
+    // column span (key absent ⇒ one column per char, by contract).
+    colRuns.push(r.cols !== undefined ? { text: r.text, cols: r.cols } : { text: r.text });
+    if (r.wrapped) wrapped = true;
   }
-  return { row, text, spans, wrapped: false };
+  return { row, text, spans, wrapped, runs: colRuns };
 }
 
 // Two-buffer terminal model, mirrors the daemon's grid emitter:
