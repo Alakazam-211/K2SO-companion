@@ -5,21 +5,27 @@
 // `/cli/fs/read-file`.
 //
 // MOBILE SCROLL (docs/ios-keyboard-layout.md): the app disables the
-// WKWebView's native scroll layer, and touches over an opaque-origin
-// iframe never reach the parent — so the doc CANNOT rely on iframe-
-// internal scrolling. Instead a tiny helper script is appended to the
-// fetched HTML: it (a) postMessages the document's content height so
-// the iframe is sized to its content inside a scrollable container
-// (overflow auto + -webkit-overflow-scrolling: touch), and (b) forwards
-// touch/wheel deltas so gestures STARTING over the iframe scroll that
-// container too. The sandbox stays intact — postMessage is the only
-// channel, and the parent validates a nonce so a hostile doc can't
-// spoof someone else's frame.
+// WKWebView's MAIN scroll view (a single setScrollEnabled:false on
+// `wk.scrollView` in src-tauri/src/lib.rs — not recursive), so the
+// top-level page can't scroll natively. Composited INNER scrollers are
+// unaffected — every overflow:auto container in the app already
+// scrolls with native momentum. So the viewer keeps the iframe fixed
+// to the viewport and makes the DOCUMENT INSIDE it scroll: a style
+// block appended to the fetched HTML turns <body> into an
+// overflow:auto scroller (both axes — wide dashboards pan
+// horizontally too), which rides that same proven machinery. Native
+// momentum, no JS in the loop. (An earlier version forwarded touch
+// deltas over postMessage and scrolled a parent container — per-event
+// JS scrolling has no inertia and was visibly choppy on iOS.)
+//
+// The sandbox stays intact: `sandbox="allow-scripts"` srcDoc, no
+// same-origin, no navigation, and no bridge at all anymore — the
+// former height/scroll postMessage channel (and its nonce) is gone.
 //
 // Full-screen overlay (same rationale as ProjectChat: the /chat/:id
 // chrome-hiding behavior without editing the shared nav components).
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   fetchFileContent,
@@ -29,24 +35,18 @@ import {
 import { useServersStore } from "../stores/servers";
 import { groupHtmlDocsByWorkspace } from "../lib/projectChat";
 
-/** The helper appended to every fetched doc body. Interpolates the
- *  per-mount nonce so the parent can attribute messages. */
-function docBridgeScript(nonce: string): string {
-  return (
-    "<script>(function(){" +
-    `var N=${JSON.stringify(nonce)};` +
-    'function send(k,v){try{parent.postMessage({k2doc:N,kind:k,value:v},"*")}catch(e){}}' +
-    "function h(){send('height',Math.max(document.documentElement.scrollHeight,document.body?document.body.scrollHeight:0))}" +
-    "window.addEventListener('load',h);setTimeout(h,60);setTimeout(h,600);" +
-    "try{new ResizeObserver(h).observe(document.documentElement)}catch(e){}" +
-    "var y=null;" +
-    "document.addEventListener('touchstart',function(e){y=e.touches[0].clientY},{passive:true});" +
-    "document.addEventListener('touchmove',function(e){if(y==null)return;var n=e.touches[0].clientY;send('scroll',y-n);y=n},{passive:true});" +
-    "document.addEventListener('touchend',function(){y=null},{passive:true});" +
-    "document.addEventListener('wheel',function(e){send('scroll',e.deltaY)},{passive:true});" +
-    "})()</script>"
-  );
-}
+/** Appended to every fetched doc so the document scrolls INSIDE the
+ *  viewport-sized iframe with native momentum. Appended last so it
+ *  wins the cascade against the doc's own equal-specificity html/body
+ *  rules; a doc that pins these with !important is managing its own
+ *  scrolling and keeps doing so. html is clipped (and body margin
+ *  zeroed) so body is the one scroller — no double scrollbars. */
+const DOC_SCROLL_STYLE =
+  "<style>" +
+  "html{height:100%;overflow:hidden}" +
+  "body{height:100%;margin:0;overflow:auto;" +
+  "-webkit-overflow-scrolling:touch;overscroll-behavior:contain}" +
+  "</style>";
 
 export function ProjectHtmlDocs() {
   const { groupId } = useParams<{ groupId: string }>();
@@ -62,14 +62,6 @@ export function ProjectHtmlDocs() {
   const [body, setBody] = useState<string | null>(null);
   const [bodyError, setBodyError] = useState<string | null>(null);
   const [bodyLoading, setBodyLoading] = useState(false);
-
-  // Content-height reported by the sandboxed doc (via postMessage).
-  const [frameHeight, setFrameHeight] = useState<number | null>(null);
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const nonce = useMemo(
-    () => globalThis.crypto?.randomUUID?.() ?? `d-${Date.now().toString(36)}`,
-    []
-  );
 
   const loadDocs = useCallback(async (): Promise<void> => {
     if (!groupId) return;
@@ -93,7 +85,6 @@ export function ProjectHtmlDocs() {
     const r = await fetchFileContent(doc.filePath);
     setBodyLoading(false);
     if (r.ok && r.data) {
-      setFrameHeight(null); // re-measure the fresh document
       setBody(r.data.content);
     } else {
       setBody(null);
@@ -104,7 +95,6 @@ export function ProjectHtmlDocs() {
   const openDocument = (doc: ProjectGroupHtmlDoc) => {
     setOpenDoc(doc);
     setBody(null);
-    setFrameHeight(null);
     void loadBody(doc);
   };
 
@@ -115,23 +105,6 @@ export function ProjectHtmlDocs() {
     else await loadDocs();
     setRefreshing(false);
   };
-
-  // The doc's postMessage bridge: size the iframe to its content, and
-  // scroll OUR container for gestures that started over the iframe.
-  useEffect(() => {
-    const onMessage = (e: MessageEvent) => {
-      const d = e.data as { k2doc?: string; kind?: string; value?: number } | null;
-      if (!d || d.k2doc !== nonce || typeof d.value !== "number") return;
-      if (d.kind === "height" && d.value > 0) {
-        setFrameHeight(Math.ceil(d.value));
-      } else if (d.kind === "scroll") {
-        const el = scrollRef.current;
-        if (el) el.scrollTop += d.value;
-      }
-    };
-    window.addEventListener("message", onMessage);
-    return () => window.removeEventListener("message", onMessage);
-  }, [nonce]);
 
   if (!groupId) return null;
 
@@ -191,12 +164,9 @@ export function ProjectHtmlDocs() {
         </div>
 
         {openDoc ? (
-          /* ── Viewer: the container scrolls, never the webview ── */
-          <div
-            ref={scrollRef}
-            className="flex-1 min-h-0 overflow-auto"
-            style={{ WebkitOverflowScrolling: "touch" }}
-          >
+          /* ── Viewer: iframe pinned to the viewport; the DOCUMENT
+             inside it scrolls (native momentum, both axes) ── */
+          <div className="flex-1 min-h-0 overflow-hidden">
             {bodyError ? (
               <div className="flex flex-col items-center justify-center h-full px-8 gap-3">
                 <span className="text-[var(--error)] text-[12px] text-center">{bodyError}</span>
@@ -215,12 +185,10 @@ export function ProjectHtmlDocs() {
               <iframe
                 title={openDoc.fileName}
                 sandbox="allow-scripts"
-                srcDoc={body + docBridgeScript(nonce)}
-                className="block w-full border-0 bg-white"
-                // Sized to the doc's reported content height so the
-                // OUTER container owns scrolling; before the first
-                // height message the frame fills the container.
-                style={{ height: frameHeight ?? "100%", minHeight: "100%" }}
+                srcDoc={body + DOC_SCROLL_STYLE}
+                // Fills the viewer exactly; overflow lives inside the
+                // document, which owns scrolling on both axes.
+                className="block w-full h-full border-0 bg-white"
               />
             )}
           </div>
