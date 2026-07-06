@@ -1,41 +1,92 @@
-import { useAuthStore } from "../stores/auth";
-import { ws } from "../api/websocket";
+import { useNavigate } from "react-router-dom";
+import {
+  useServersStore,
+  signOutServer,
+  hostLabel,
+  type RecoveryState,
+} from "../stores/servers";
+
+const STATE_LABEL: Record<RecoveryState, string> = {
+  connected: "Connected",
+  reconnecting: "Reconnecting…",
+  reauthenticating: "Re-authenticating…",
+  "signin-required": "Sign-in required",
+};
+
+const STATE_COLOR: Record<RecoveryState, string> = {
+  connected: "var(--success)",
+  reconnecting: "var(--warning)",
+  reauthenticating: "var(--warning)",
+  "signin-required": "var(--error)",
+};
 
 export function Settings() {
-  const { serverUrl, username, logout } = useAuthStore();
-  const isWsConnected = ws.isConnected;
+  const navigate = useNavigate();
+  const servers = useServersStore((s) => s.servers);
+  const activeServerId = useServersStore((s) => s.activeServerId);
+  const recovery = useServersStore((s) => s.recovery);
+
+  const active = servers.find((s) => s.id === activeServerId) ?? null;
+  const state: RecoveryState = active
+    ? recovery[active.id] ?? "connected"
+    : "signin-required";
 
   return (
     <div className="flex flex-col h-full overflow-y-auto py-4 px-1.5 pb-safe">
-      <Section title="Connection">
-        <Row label="Server" value={serverUrl} />
-        <Row label="Username" value={username} />
-        <Row
-          label="WebSocket"
-          value={
-            <span className="flex items-center gap-1.5">
-              <span
-                className="w-2 h-2 rounded-full"
-                style={{ background: isWsConnected ? "var(--success)" : "var(--error)" }}
-              />
-              {isWsConnected ? "Connected" : "Disconnected"}
-            </span>
-          }
-        />
+      <Section title="Active server">
+        {active ? (
+          <>
+            <Row label="Nickname" value={active.nickname} />
+            <Row label="Server" value={hostLabel(active.url)} />
+            <Row label="Username" value={active.username} />
+            <Row
+              label="Password"
+              value={active.rememberPassword ? "Remembered" : "Not stored"}
+            />
+            <Row
+              label="State"
+              value={
+                <span className="flex items-center gap-1.5">
+                  <span
+                    className="w-2 h-2 rounded-full"
+                    style={{ background: STATE_COLOR[state] }}
+                  />
+                  {STATE_LABEL[state]}
+                </span>
+              }
+            />
+          </>
+        ) : (
+          <Row label="Server" value="None" />
+        )}
       </Section>
 
       <Section title="About">
-        <Row label="Version" value="1.0.0" />
+        <Row label="Version" value="2.0.0" />
         <Row label="App" value="K2" />
         <Row label="Engine" value="Tauri v2" />
       </Section>
 
       <button
-        onClick={() => logout()}
-        className="w-full border border-[var(--error)]/30 text-[var(--error)] font-semibold text-[13px] py-3.5 mt-4 hover:border-[var(--error)] hover:bg-[var(--error)]/5 transition-all"
+        onClick={() => navigate("/servers")}
+        className="w-full border border-[var(--accent-dim)] text-[var(--accent)] font-semibold text-[13px] py-3.5 mt-4 hover:border-[var(--accent)] hover:bg-[var(--accent)]/5 transition-all"
       >
-        Disconnect
+        Manage servers
       </button>
+
+      {active && (
+        <button
+          onClick={() => {
+            // Deliberate sign-out of THIS server only: drops its token and
+            // its remembered password; other servers are untouched.
+            signOutServer(active.id);
+            navigate("/servers");
+          }}
+          className="w-full border border-[var(--error)]/30 text-[var(--error)] font-semibold text-[13px] py-3.5 mt-3 hover:border-[var(--error)] hover:bg-[var(--error)]/5 transition-all"
+        >
+          Sign out of {active.nickname}
+        </button>
+      )}
     </div>
   );
 }

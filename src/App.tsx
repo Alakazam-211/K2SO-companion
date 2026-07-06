@@ -1,17 +1,25 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { useAuthStore } from "./stores/auth";
+import { useServersStore } from "./stores/servers";
 import { useWorkspacesStore } from "./stores/workspaces";
 import { TabBar } from "./components/TabBar";
+import { ServerFooter } from "./components/ServerFooter";
 import { Login } from "./pages/Login";
+import { Servers } from "./pages/Servers";
 import { Sessions } from "./pages/Sessions";
 import { ChatSession } from "./pages/ChatSession";
 import { Settings } from "./pages/Settings";
+import { ProjectsPlaceholder } from "./pages/ProjectsPlaceholder";
+import { FeedbackPlaceholder } from "./pages/FeedbackPlaceholder";
 import { NewSessionModal } from "./components/NewSessionModal";
 
-function AuthGuard({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuthStore();
-  if (!isAuthenticated) return <Navigate to="/login" replace />;
+/** C1 guard: content pages need at least one saved server. A fresh install
+ *  (0 servers) lands on /servers with the add CTA — login is no longer the
+ *  app gate. A server in `signin-required` still renders content; the
+ *  footer + Servers page surface the state instead of a hard logout. */
+function ServerGuard({ children }: { children: React.ReactNode }) {
+  const hasServers = useServersStore((s) => s.servers.length > 0);
+  if (!hasServers) return <Navigate to="/servers" replace />;
   return <>{children}</>;
 }
 
@@ -21,8 +29,9 @@ function AppHeader({ onNewSession }: { onNewSession: () => void }) {
   const refreshAll = useWorkspacesStore((s) => s.refreshAll);
   const [refreshing, setRefreshing] = useState(false);
 
-  if (location.pathname.startsWith("/chat/")) return null;
-  if (location.pathname === "/settings") return null;
+  // This header is session-list chrome — Servers/Projects/Feedback/Settings
+  // (and the chat view) bring their own.
+  if (!location.pathname.startsWith("/sessions")) return null;
 
   const handleRefresh = async () => {
     setRefreshing(true);
@@ -66,24 +75,31 @@ function AppHeader({ onNewSession }: { onNewSession: () => void }) {
 
 function AppLayout() {
   const [newSessionOpen, setNewSessionOpen] = useState(false);
+  const activeServerId = useServersStore((s) => s.activeServerId);
   const { refreshAll, startListening } = useWorkspacesStore();
 
+  // (Re)load workspace data whenever the ACTIVE server changes — every
+  // api/client call derives base URL + token from it.
   useEffect(() => {
-    refreshAll();
+    if (activeServerId) refreshAll();
     return startListening();
-  }, []);
+  }, [activeServerId]);
 
   return (
     <div className="flex flex-col h-full">
       <AppHeader onNewSession={() => setNewSessionOpen(true)} />
       <div className="flex-1 overflow-hidden">
         <Routes>
-          <Route path="/sessions" element={<Sessions />} />
-          <Route path="/chat/:terminalId" element={<ChatSession />} />
-          <Route path="/settings" element={<Settings />} />
-          <Route path="*" element={<Navigate to="/sessions" replace />} />
+          <Route path="/servers" element={<Servers />} />
+          <Route path="/sessions" element={<ServerGuard><Sessions /></ServerGuard>} />
+          <Route path="/chat/:terminalId" element={<ServerGuard><ChatSession /></ServerGuard>} />
+          <Route path="/projects" element={<ServerGuard><ProjectsPlaceholder /></ServerGuard>} />
+          <Route path="/feedback" element={<ServerGuard><FeedbackPlaceholder /></ServerGuard>} />
+          <Route path="/settings" element={<ServerGuard><Settings /></ServerGuard>} />
+          <Route path="*" element={<Navigate to="/servers" replace />} />
         </Routes>
       </div>
+      <ServerFooter />
       <TabBar />
       <NewSessionModal open={newSessionOpen} onClose={() => setNewSessionOpen(false)} />
     </div>
@@ -91,14 +107,15 @@ function AppLayout() {
 }
 
 export default function App() {
-  const { restoreSession } = useAuthStore();
-  const [isRestoring, setIsRestoring] = useState(true);
+  const hydrated = useServersStore((s) => s.hydrated);
 
   useEffect(() => {
-    restoreSession().finally(() => setIsRestoring(false));
+    // Load the persisted multi-server model (+ one-time migration of the
+    // legacy auth.json session / k2_connections list).
+    void useServersStore.getState().hydrate();
   }, []);
 
-  if (isRestoring) {
+  if (!hydrated) {
     return (
       <div className="flex items-center justify-center h-full">
         <div className="text-[var(--accent)] text-[13px]">Connecting...</div>
@@ -110,14 +127,7 @@ export default function App() {
     <BrowserRouter>
       <Routes>
         <Route path="/login" element={<Login />} />
-        <Route
-          path="/*"
-          element={
-            <AuthGuard>
-              <AppLayout />
-            </AuthGuard>
-          }
-        />
+        <Route path="/*" element={<AppLayout />} />
       </Routes>
     </BrowserRouter>
   );

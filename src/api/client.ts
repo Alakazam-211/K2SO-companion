@@ -1,5 +1,7 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { ws } from "./websocket";
+import { useServersStore } from "../stores/servers";
+import { isPossibleAuthFailure, reviveServerSession } from "../lib/revive";
 
 export interface ApiResponse<T = unknown> {
   ok: boolean;
@@ -104,35 +106,27 @@ export interface Review {
   summary?: string;
 }
 
-// 0.40.x: the companion now talks DIRECTLY to the K2 daemon's `/cli/*`
-// routes (no legacy `/companion/*` ngrok proxy). `baseUrl` is the daemon
-// origin — `https://<sub>.k2.dev` over the K2 Connect tunnel, or
-// `http://127.0.0.1:<daemon.port>` for localhost dev. `sessionToken` is
-// the token from `POST /cli/auth/login`; it authenticates every `/cli/*`
-// call as the `?token=` query param (the same param the daemon's grid-WS
-// and CLI use). See docs/companion-revival.md for the full mapping.
-let baseUrl = "";
-let sessionToken = "";
+// 0.40.x: the companion talks DIRECTLY to the K2 daemon's `/cli/*` routes.
+// The base URL is the daemon origin — `https://<sub>.k2.dev` over the
+// K2 Connect tunnel, or `http://127.0.0.1:<daemon.port>` for localhost
+// dev. The session token comes from `POST /cli/auth/login`; it
+// authenticates every `/cli/*` call as the `?token=` query param (the same
+// param the daemon's grid-WS and CLI use).
+//
+// C1: the old module globals are now DERIVED from the ACTIVE server in
+// `stores/servers.ts` — switching servers instantly redirects every call,
+// and a token revived after a stale-session 401/403 is picked up on the
+// next attempt with no plumbing here.
 
-export function configure(url: string) {
-  baseUrl = url.replace(/\/+$/, "");
+export function getBaseUrl(): string {
+  const s = useServersStore.getState();
+  const active = s.servers.find((x) => x.id === s.activeServerId);
+  return active?.url ?? "";
 }
 
-export function getBaseUrl() {
-  return baseUrl;
-}
-
-export function getToken() {
-  return sessionToken;
-}
-
-export function setToken(token: string) {
-  sessionToken = token;
-}
-
-export function clearSession() {
-  baseUrl = "";
-  sessionToken = "";
+export function getToken(): string {
+  const s = useServersStore.getState();
+  return (s.activeServerId && s.tokens[s.activeServerId]) || "";
 }
 
 // ─── HTTP via Tauri plugin (bypasses WKWebView restrictions) ───
@@ -141,6 +135,17 @@ export function clearSession() {
 // an array or object), NOT a `{ok,data,error}` envelope. We wrap a 2xx
 // body as `{ok:true, data}` and map non-2xx to `{ok:false, error}` so
 // the rest of the app keeps its `ApiResponse<T>` contract.
+//
+// Stale-session recovery (desktop `daemon-cli.ts cliFetch` parity): a
+// daemon restart wipes its in-memory connect-user sessions, after which
+// every authed call returns 403 "Invalid or missing auth token" (NOT 401).
+// On an auth-classified rejection we run `reviveServerSession`
+// (single-flight whoami-confirm + silent re-login with the remembered
+// password) and, ONLY if a fresh token was actually minted, replay the
+// request ONCE with the new creds (the URL is rebuilt per attempt so the
+// replay carries the fresh token). Every other failure surfaces unchanged;
+// a 401/403 rejected the request before doing work, so the single replay
+// is side-effect-safe.
 
 async function httpRequest<T>(
   path: string,
@@ -148,59 +153,77 @@ async function httpRequest<T>(
   timeoutMs = 15000,
   extraParams?: Record<string, string>
 ): Promise<ApiResponse<T>> {
-  if (!baseUrl) return { ok: false, error: "Not connected" };
+  if (!getBaseUrl()) return { ok: false, error: "Not connected" };
 
-  // Build query: project + extra params + the auth token.
-  let url = `${baseUrl}${path}`;
-  const params: string[] = [];
-  if (options.project) {
-    params.push(`project=${encodeURIComponent(options.project)}`);
-  }
-  if (extraParams) {
-    for (const [k, v] of Object.entries(extraParams)) {
-      params.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+  // ONE attempt: resolve the ACTIVE server's base+token fresh, build the
+  // URL, fire, and read the body exactly once (both the auth-failure
+  // classifier and the parse below need it).
+  const attempt = async (): Promise<{ status: number; ok: boolean; text: string }> => {
+    const base = getBaseUrl();
+    const token = getToken();
+
+    // Build query: project + extra params + the auth token.
+    let url = `${base}${path}`;
+    const params: string[] = [];
+    if (options.project) {
+      params.push(`project=${encodeURIComponent(options.project)}`);
     }
-  }
-  if (sessionToken) {
-    params.push(`token=${encodeURIComponent(sessionToken)}`);
-  }
-  if (params.length > 0) {
-    // Use `&` when `path` already carries a query string (GET routes whose
-    // params the `request` wrapper appended to the path). Appending `?` here
-    // unconditionally produced `...?a=b?token=z`, folding the token into the
-    // last param value so the daemon saw NO token → 403 (e.g. rename "snapped
-    // back" because set-label silently failed).
-    url += (url.includes("?") ? "&" : "?") + params.join("&");
-  }
+    if (extraParams) {
+      for (const [k, v] of Object.entries(extraParams)) {
+        params.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
+      }
+    }
+    if (token) {
+      params.push(`token=${encodeURIComponent(token)}`);
+    }
+    if (params.length > 0) {
+      // Use `&` when `path` already carries a query string (GET routes whose
+      // params the `request` wrapper appended to the path). Appending `?` here
+      // unconditionally produced `...?a=b?token=z`, folding the token into the
+      // last param value so the daemon saw NO token → 403 (e.g. rename "snapped
+      // back" because set-label silently failed).
+      url += (url.includes("?") ? "&" : "?") + params.join("&");
+    }
 
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-
-  try {
     const res = await Promise.race([
       tauriFetch(url, {
         method: options.method || "GET",
-        headers,
+        headers: { "Content-Type": "application/json" },
         body: options.body || undefined,
       }),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("Request timed out")), timeoutMs)
       ),
     ]);
-    if (res.status === 401) return { ok: false, error: "Unauthorized" };
-    if (!res.ok) {
+    return { status: res.status, ok: res.ok, text: await res.text() };
+  };
+
+  try {
+    let out = await attempt();
+    if (isPossibleAuthFailure(out.status, out.text)) {
+      const serverId = useServersStore.getState().activeServerId;
+      if (serverId) {
+        const outcome = await reviveServerSession(serverId);
+        // 'revived' means the store now carries a NEW token — replay once so
+        // the caller never sees the transient stale-session rejection. Any
+        // other outcome (still-valid role denial, sign-in required, network,
+        // cooldown) keeps the original response.
+        if (outcome === "revived") out = await attempt();
+      }
+    }
+    if (out.status === 401) return { ok: false, error: "Unauthorized" };
+    if (!out.ok) {
       // Daemon error bodies are `{error: "..."}` on non-2xx.
-      let msg = `HTTP ${res.status}`;
+      let msg = `HTTP ${out.status}`;
       try {
-        const j = (await res.json()) as { error?: string };
+        const j = JSON.parse(out.text) as { error?: string };
         if (j?.error) msg = j.error;
       } catch {
         /* non-JSON error body */
       }
       return { ok: false, error: msg };
     }
-    const data = (await res.json()) as T;
+    const data = JSON.parse(out.text) as T;
     return { ok: true, data };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
@@ -250,49 +273,11 @@ async function request<T>(
   return httpRequest<T>(path, { method: httpOptions.method, body, project });
 }
 
-// ─── Auth: K2 Connect login ───
+// ─── Auth ───
 //
-// `POST /cli/auth/login {username,password}` (PUBLIC — no token gate) →
-// `200 {token, username, expiresAt}` on success, `401 {error}` on
-// failure. This is the K2 Connect account system (Owner/Admin/Member).
-// `serverUrl` is the daemon origin (tunnel subdomain or localhost).
-
-export async function login(
-  serverUrl: string,
-  username: string,
-  password: string
-): Promise<ApiResponse<AuthResponse>> {
-  configure(serverUrl);
-  try {
-    const res = await Promise.race([
-      tauriFetch(`${baseUrl}/cli/auth/login`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ username, password }),
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Request timed out")), 10000)
-      ),
-    ]);
-
-    if (res.status === 401) {
-      return { ok: false, error: "Invalid username or password" };
-    }
-    if (!res.ok) {
-      return { ok: false, error: `Login failed (HTTP ${res.status})` };
-    }
-
-    const data = (await res.json()) as AuthResponse;
-    if (!data?.token) {
-      return { ok: false, error: "Login response missing token" };
-    }
-    sessionToken = data.token;
-    return { ok: true, data };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : "Unknown error";
-    return { ok: false, error: `Could not connect: ${msg}` };
-  }
-}
+// `POST /cli/auth/login` now lives in `stores/servers.ts` (`loginToServer`
+// / `loginAndSaveServer`) — the same mint flow the revive path re-runs at
+// runtime. This module only DERIVES the active server's creds.
 
 // ─── API endpoints (daemon `/cli/*`) ───
 
