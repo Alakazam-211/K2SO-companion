@@ -115,6 +115,7 @@ export function Settings() {
  *  (registration follows the active server around). */
 function PushRow() {
   const [available, setAvailable] = useState<boolean | null>(null);
+  const [reason, setReason] = useState<string | null>(null);
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
 
@@ -122,6 +123,7 @@ function PushRow() {
     void (async () => {
       const a = await pushAvailability();
       setAvailable(a.available);
+      setReason(a.reason ?? null);
       if (a.available) setEnabled(await getPushEnabled());
     })();
   }, []);
@@ -130,7 +132,14 @@ function PushRow() {
     return <Row label="Push notifications" value="…" />;
   }
   if (!available) {
-    return <Row label="Push notifications" value="Not available in this build" />;
+    // Surface the probe's diagnostic so a dormant/broken state is
+    // debuggable from the Settings screen itself.
+    return (
+      <Row
+        label="Push notifications"
+        value={reason ? `Unavailable: ${reason}` : "Not available in this build"}
+      />
+    );
   }
 
   const toggle = async () => {
