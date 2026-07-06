@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useServersStore } from "../stores/servers";
 import { useFeedbackStore } from "../stores/feedback";
+import { useViewportHeight } from "../lib/useViewportHeight";
 import {
   commentFeedback,
   deliveredLine,
@@ -24,6 +25,15 @@ import { KindTag, PriorityTag, StatusTag } from "./Feedback";
 // (coalesced 300ms) on commented/answered/status-changed for the open id.
 // Only `openItem` is replaced — the composer draft below is local state,
 // so mid-typed text survives every refetch.
+//
+// Rendered as a FULL-SCREEN OVERLAY sized by the ChatSession keyboard-
+// height idiom (useViewportHeight — the ProjectChat structure): iOS
+// WKWebView never shrinks the layout viewport when the keyboard opens
+// (docs/ios-keyboard-layout.md), so a plain `h-full` column gets PANNED
+// up and the header scrolls off. Anchoring the column `fixed` at the
+// viewport top and giving it an explicit pixel height keeps the header
+// fixed and floats the composer above the keyboard; only the comments
+// list shrinks/scrolls.
 
 export function FeedbackThread() {
   const { id } = useParams<{ id: string }>();
@@ -38,6 +48,7 @@ export function FeedbackThread() {
   /** Post-comment receipt ("answered" flash + the delivered line). */
   const [receipt, setReceipt] = useState<{ answered: boolean; line: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const containerHeight = useViewportHeight();
 
   // Open (and re-open on deep-link/server switch); the store's events WS
   // needs to be live even when this screen is the entry point.
@@ -102,7 +113,16 @@ export function FeedbackThread() {
   const openItem = item && (item.status === "waiting" || item.status === "answered");
 
   return (
-    <div className="flex flex-col h-full">
+    // Backdrop covers the whole viewport (incl. the strip below a
+    // keyboard-shortened inner column) — the ProjectChat overlay idiom.
+    <div className="fixed inset-0 z-40 bg-[var(--background)]">
+    <div
+      className="flex flex-col"
+      style={{
+        height: containerHeight,
+        paddingTop: "env(safe-area-inset-top)",
+      }}
+    >
       {/* Header: back + title + status (ChatSession header idiom). */}
       <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--background)] shrink-0">
         <button
@@ -151,7 +171,11 @@ export function FeedbackThread() {
         </div>
       ) : (
         <>
-          <div ref={scrollRef} className="flex-1 overflow-y-auto px-4 py-3">
+          <div
+            ref={scrollRef}
+            className="flex-1 min-h-0 overflow-y-auto px-4 py-3"
+            style={{ WebkitOverflowScrolling: "touch" }}
+          >
             {/* The ask body (title is in the header; body adds context). */}
             {item.body && (
               <div className="mb-3 px-3 py-2.5 bg-[var(--surface)] border border-[var(--border)] text-[12px] text-[var(--text-secondary)] whitespace-pre-wrap break-words leading-5">
@@ -283,6 +307,7 @@ export function FeedbackThread() {
           </div>
         </>
       )}
+    </div>
     </div>
   );
 }
