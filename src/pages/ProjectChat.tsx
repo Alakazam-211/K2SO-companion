@@ -35,6 +35,7 @@ import { useProjectGroupsStore, startEvents } from "../stores/projectGroups";
 import { MessageComposer } from "../components/MessageComposer";
 import { useServersStore } from "../stores/servers";
 import { useViewportHeight } from "../lib/useViewportHeight";
+import { useBottomAnchor } from "../lib/useBottomAnchor";
 import {
   MESSAGES_DEFAULT_LIMIT,
   canLoadEarlier,
@@ -84,6 +85,10 @@ export function ProjectChat() {
   }, []);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  // Bottom anchoring: re-pin the list through keyboard open/close
+  // resizes (containerHeight changes) + composer focus, but only while
+  // the user is at the tail — history reading is never yanked.
+  const { onScroll, scrollToBottom } = useBottomAnchor(scrollRef, containerHeight);
   const limitRef = useRef(limit);
   limitRef.current = limit;
 
@@ -162,11 +167,8 @@ export function ProjectChat() {
   useEffect(() => {
     if (lastId === null || lastId === prevLastId.current) return;
     prevLastId.current = lastId;
-    requestAnimationFrame(() => {
-      const el = scrollRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
-    });
-  }, [lastId]);
+    scrollToBottom();
+  }, [lastId, scrollToBottom]);
 
   const loadEarlier = useCallback(async (): Promise<void> => {
     if (loadingEarlier) return;
@@ -280,6 +282,7 @@ export function ProjectChat() {
       {/* The stream, oldest-first */}
       <div
         ref={scrollRef}
+        onScroll={onScroll}
         className="flex-1 min-h-0 overflow-y-auto px-4 py-3"
         style={{ WebkitOverflowScrolling: "touch" }}
       >

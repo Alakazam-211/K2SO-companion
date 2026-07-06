@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useServersStore } from "../stores/servers";
 import { useFeedbackStore } from "../stores/feedback";
 import { useViewportHeight } from "../lib/useViewportHeight";
+import { useBottomAnchor } from "../lib/useBottomAnchor";
 import { MessageComposer } from "../components/MessageComposer";
 import {
   commentFeedback,
@@ -50,6 +51,10 @@ export function FeedbackThread() {
   const [receipt, setReceipt] = useState<{ answered: boolean; line: string } | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const containerHeight = useViewportHeight();
+  // Bottom anchoring: re-pin the list through keyboard open/close
+  // resizes (containerHeight changes) + composer focus, but only while
+  // the user is at the tail — history reading is never yanked.
+  const { onScroll, scrollToBottom } = useBottomAnchor(scrollRef, containerHeight);
 
   // Open (and re-open on deep-link/server switch); the store's events WS
   // needs to be live even when this screen is the entry point.
@@ -61,15 +66,16 @@ export function FeedbackThread() {
     return () => useFeedbackStore.getState().closeThread();
   }, [id]);
 
-  // Keep the newest message in view whenever the rendered thread grows.
+  // Keep the newest message in view when the thread GROWS (first load +
+  // new comments) — the ProjectChat tail-growth rule. No-op refetches
+  // (live events, status changes) no longer re-pin a scrolled-up reader.
   const commentCount = item?.comments.length ?? 0;
+  const prevCount = useRef<number | null>(null);
   useEffect(() => {
-    if (!item) return;
-    requestAnimationFrame(() => {
-      const el = scrollRef.current;
-      if (el) el.scrollTop = el.scrollHeight;
-    });
-  }, [item, commentCount]);
+    if (!item || commentCount === prevCount.current) return;
+    prevCount.current = commentCount;
+    scrollToBottom();
+  }, [item, commentCount, scrollToBottom]);
 
   const submit = useCallback(
     async (op: () => Promise<void>): Promise<void> => {
@@ -174,6 +180,7 @@ export function FeedbackThread() {
         <>
           <div
             ref={scrollRef}
+            onScroll={onScroll}
             className="flex-1 min-h-0 overflow-y-auto px-4 py-3"
             style={{ WebkitOverflowScrolling: "touch" }}
           >
