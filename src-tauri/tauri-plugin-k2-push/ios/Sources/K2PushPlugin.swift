@@ -10,9 +10,20 @@
 // `available: false` — never a crash, never a rejection.
 //
 // Token capture: tao's UIApplicationDelegate does not implement the
-// remote-notification callbacks, so `load` splices them onto the live
+// remote-notification callbacks, so we splice them onto the live
 // delegate class at runtime (class_addMethod; if a future tao version
-// adds its own implementations we wrap and call the originals).
+// adds its own implementations we wrap and call the originals). Three
+// traps this must survive (all bit us on-device):
+//   1. UIApplication caches the delegate's respondsToSelector answers
+//      in a flags bitfield when setDelegate: runs — tao sets the
+//      delegate at app start, before the plugin loads, so methods
+//      added later are never called until the delegate is RE-assigned.
+//   2. The live delegate's runtime class may differ from what an early
+//      hook saw (late-set or KVO-wrapped delegate), so hooks install
+//      lazily at probe time against object_getClass(delegate) and are
+//      re-verified before every registration.
+//   3. registerForRemoteNotifications and the delegate mutation are
+//      main-thread work; everything below is confined to main.
 //
 // Taps: we become the UNUserNotificationCenter delegate. A tap while
 // running triggers the `tap` event; every tap is ALSO buffered so a
@@ -25,6 +36,12 @@ import UIKit
 import UserNotifications
 import WebKit
 import ObjectiveC.runtime
+import os.log
+
+/// Console breadcrumb. Grep the device stream for "K2Push".
+private func pushLog(_ message: String) {
+  os_log("[K2Push] %{public}@", log: OSLog(subsystem: "com.alakazamlabs.k2so.companion", category: "k2push"), type: .default, message)
+}
 
 /// Registration outcome: an APNs token hex string, or a human-readable
 /// failure reason (Result<String, String> needs Failure: Error).
@@ -41,7 +58,10 @@ class K2PushPlugin: Plugin {
   private var apnsToken: String?
   private var waiters: [(TokenResult) -> Void] = []
   private var launchTap: [String: Any]?
-  private var hooksInstalled = false
+  /// The runtime class the callbacks are currently spliced onto, plus a
+  /// short human description ("AppDelegate add+add") for reason strings.
+  private var hookedClass: AnyClass?
+  private var hookDescription = "not installed"
   private let tapDelegate = K2PushTapDelegate()
 
   override init() {
@@ -52,7 +72,9 @@ class K2PushPlugin: Plugin {
   @objc public override func load(webview: WKWebView) {
     tapDelegate.plugin = self
     DispatchQueue.main.async {
-      self.installDelegateHooks()
+      // Best-effort early install; ensureDelegateHooks re-verifies (and
+      // re-installs against the live delegate class) before every probe.
+      _ = self.ensureDelegateHooks()
       UNUserNotificationCenter.current().delegate = self.tapDelegate
     }
   }
@@ -65,7 +87,8 @@ class K2PushPlugin: Plugin {
   /// no network to APNs) → unavailable with the reason. Timeout answers
   /// unavailable without caching, so a later probe may recover.
   @objc public func isAvailable(_ invoke: Invoke) {
-    requestToken(timeoutSecs: 5) { result in
+    // 10s: cold APNs handshakes on some networks exceed 5s.
+    requestToken(timeoutSecs: 10) { result in
       switch result {
       case .success:
         invoke.resolve(["available": true, "platform": "ios"])
@@ -123,10 +146,10 @@ class K2PushPlugin: Plugin {
         completion(.success(token))
         return
       }
-      if !self.hooksInstalled {
+      if !self.ensureDelegateHooks() {
         // Delegate hooks couldn't be installed — a token could never be
         // observed; answer instead of hanging into the timeout.
-        completion(.failure("APNs delegate hooks unavailable"))
+        completion(.failure("APNs delegate hooks unavailable (\(self.hookDescription))"))
         return
       }
       var settled = false
@@ -136,15 +159,20 @@ class K2PushPlugin: Plugin {
         completion(result)
       }
       self.waiters.append(settle)
+      pushLog("registerForRemoteNotifications (\(self.hookDescription))")
       UIApplication.shared.registerForRemoteNotifications()
       DispatchQueue.main.asyncAfter(deadline: .now() + timeoutSecs) {
-        settle(.failure("timed out waiting for APNs registration"))
+        if !settled {
+          pushLog("probe timed out after \(timeoutSecs)s (\(self.hookDescription))")
+        }
+        settle(.failure("timed out waiting for APNs registration (\(self.hookDescription))"))
       }
     }
   }
 
   fileprivate func handleDeviceToken(_ deviceToken: Data) {
     let token = deviceToken.map { String(format: "%02x", $0) }.joined()
+    pushLog("callback received, token length \(deviceToken.count)")
     DispatchQueue.main.async {
       let rotated = self.apnsToken != nil && self.apnsToken != token
       self.apnsToken = token
@@ -159,6 +187,7 @@ class K2PushPlugin: Plugin {
   }
 
   fileprivate func handleRegistrationError(_ error: Error) {
+    pushLog("registration failed: \(error.localizedDescription)")
     DispatchQueue.main.async {
       let pending = self.waiters
       self.waiters = []
@@ -189,12 +218,32 @@ class K2PushPlugin: Plugin {
 
   // ── AppDelegate splicing ────────────────────────────────────────────
 
-  /// Add (or wrap) the two remote-notification callbacks on the live
-  /// UIApplicationDelegate class. Behavior-neutral until something
-  /// calls `registerForRemoteNotifications` — i.e. fully dormant.
-  private func installDelegateHooks() {
-    guard let delegate = UIApplication.shared.delegate else { return }
-    let cls: AnyClass = type(of: delegate)
+  /// Splice the two remote-notification callbacks onto the RUNTIME
+  /// class of the live UIApplicationDelegate, then re-assign the
+  /// delegate so UIApplication rebuilds its cached respondsToSelector
+  /// flags (built at setDelegate: time — tao sets the delegate before
+  /// the plugin loads, so without the re-assign our late-added methods
+  /// are never called). Called before every registration: if the live
+  /// delegate's class no longer matches what we hooked (late-set or
+  /// KVO-wrapped delegate), we re-install. Behavior-neutral until
+  /// something calls `registerForRemoteNotifications` — i.e. dormant.
+  /// Main thread only. Returns whether hooks are in place.
+  private func ensureDelegateHooks() -> Bool {
+    guard let delegate = UIApplication.shared.delegate else {
+      hookDescription = "no app delegate"
+      pushLog("hook skipped: no app delegate yet")
+      return false
+    }
+    // object_getClass = the true runtime class (sees KVO wrappers that
+    // type(of:)/`class` would hide); that is the class UIKit dispatches to.
+    guard let cls = object_getClass(delegate) else {
+      hookDescription = "delegate has no runtime class"
+      pushLog("hook skipped: object_getClass returned nil")
+      return false
+    }
+    if hookedClass === cls {
+      return true
+    }
 
     let successSel = #selector(
       UIApplicationDelegate.application(_:didRegisterForRemoteNotificationsWithDeviceToken:))
@@ -206,8 +255,9 @@ class K2PushPlugin: Plugin {
         unsafeBitCast(original, to: Fn.self)(_self, successSel, application, token)
       }
     }
-    K2PushPlugin.originalSuccessImp = spliceMethod(
-      cls, successSel, imp_implementationWithBlock(successBlock), types: "v@:@@")
+    let successMode = spliceMethod(
+      cls, successSel, imp_implementationWithBlock(successBlock), types: "v@:@@",
+      original: &K2PushPlugin.originalSuccessImp)
 
     let failureSel = #selector(
       UIApplicationDelegate.application(_:didFailToRegisterForRemoteNotificationsWithError:))
@@ -219,26 +269,60 @@ class K2PushPlugin: Plugin {
         unsafeBitCast(original, to: Fn.self)(_self, failureSel, application, error)
       }
     }
-    K2PushPlugin.originalFailureImp = spliceMethod(
-      cls, failureSel, imp_implementationWithBlock(failureBlock), types: "v@:@@")
+    let failureMode = spliceMethod(
+      cls, failureSel, imp_implementationWithBlock(failureBlock), types: "v@:@@",
+      original: &K2PushPlugin.originalFailureImp)
 
-    hooksInstalled = true
+    // Bust UIApplication's cached delegate-flags bitfield: setDelegate:
+    // re-scans which selectors the delegate answers — now including the
+    // ones we just spliced in. Nil-then-restore because a same-pointer
+    // assignment may short-circuit; safe because we're synchronous on
+    // the main thread (no runloop dispatch can observe the nil).
+    // CRITICAL: UIApplication *owns* the UIApplicationMain-created
+    // delegate and releases it inside setDelegate:, while `.delegate`
+    // itself is assign — without a replacement strong reference the
+    // restore leaves a dangling pointer (crashed on-device as
+    // "-[__NSSingleObjectArrayI applicationDidBecomeActive:]").
+    K2PushPlugin.retainedDelegate = delegate
+    UIApplication.shared.delegate = nil
+    UIApplication.shared.delegate = delegate
+
+    hookedClass = cls
+    hookDescription =
+      "hook on \(NSStringFromClass(cls)), installed=\(successMode)+\(failureMode), "
+      + "responds=\(delegate.responds(to: successSel))"
+    pushLog("hooks installed: \(hookDescription)")
+    return true
   }
 
   private static var originalSuccessImp: IMP?
   private static var originalFailureImp: IMP?
+  /// Keeps the (re-assigned) app delegate alive: UIApplication released
+  /// its ownership during our setDelegate: dance and never re-retains.
+  private static var retainedDelegate: UIApplicationDelegate?
+  /// Every IMP we ever installed — a re-install must never "chain" to a
+  /// stale hook of our own (infinite recursion through the statics).
+  private static var installedImps: [IMP] = []
 
-  /// class_addMethod when the delegate doesn't implement the selector
-  /// (tao today); otherwise swap in our IMP and return the original so
-  /// the hook can chain to it.
-  private func spliceMethod(_ cls: AnyClass, _ selector: Selector, _ imp: IMP, types: String)
-    -> IMP?
-  {
+  /// class_addMethod when the class doesn't implement the selector (tao
+  /// today); otherwise replace the implementation, storing the original
+  /// IMP so the hook can chain to it. Returns the path taken ("add" /
+  /// "replace") for breadcrumbs.
+  private func spliceMethod(
+    _ cls: AnyClass, _ selector: Selector, _ imp: IMP, types: String, original: inout IMP?
+  ) -> String {
+    K2PushPlugin.installedImps.append(imp)
     if class_addMethod(cls, selector, imp, types) {
-      return nil
+      original = nil
+      return "add"
     }
-    guard let method = class_getInstanceMethod(cls, selector) else { return nil }
-    return method_setImplementation(method, imp)
+    guard let method = class_getInstanceMethod(cls, selector) else {
+      original = nil
+      return "add-failed"
+    }
+    let previous = method_setImplementation(method, imp)
+    original = K2PushPlugin.installedImps.contains(previous) ? nil : previous
+    return "replace"
   }
 }
 
