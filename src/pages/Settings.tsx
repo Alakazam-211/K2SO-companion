@@ -173,21 +173,18 @@ function PushRow() {
           style={{ opacity: busy ? 0.6 : 1 }}
         >
           <span
-            className="relative block w-12 h-7 rounded-[5px] border transition-colors"
+            className="relative block w-12 h-7 transition-colors"
             style={{
-              // OFF state reads as a control (elevated fill + visible
-              // border) instead of a near-invisible dim bar; square
-              // corners match K2's desktop settings toggles.
-              background: enabled ? "var(--accent)" : "var(--surface)",
-              borderColor: enabled ? "var(--accent)" : "var(--border)",
+              // Desktop Settings toggle, scaled up: fully SQUARE (zero
+              // radius), track = accent when on / border-fill when off,
+              // thumb always white — the white square is what makes the
+              // OFF state read as a control.
+              background: enabled ? "var(--accent)" : "var(--border)",
             }}
           >
             <span
-              className="absolute top-1 w-5 h-5 rounded-[3px] transition-all"
-              style={{
-                left: enabled ? "23px" : "3px",
-                background: enabled ? "var(--background)" : "var(--text-muted)",
-              }}
+              className="absolute top-1 w-5 h-5 bg-white transition-all"
+              style={{ left: enabled ? "24px" : "4px" }}
             />
           </span>
         </button>
