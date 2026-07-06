@@ -134,7 +134,7 @@ export function ProjectHtmlDocs() {
         className="flex flex-col h-full"
         style={{
           paddingTop: "env(safe-area-inset-top)",
-          paddingBottom: "env(safe-area-inset-bottom)",
+          paddingBottom: "calc(env(safe-area-inset-bottom) + var(--android-nav-lift, 0px))",
         }}
       >
         {/* Header: back · title · refresh */}
