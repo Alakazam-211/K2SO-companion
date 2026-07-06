@@ -1,0 +1,17 @@
+"$schema" = "schemas/schema.json"
+
+[default]
+description = """
+Default permissions for the k2-push plugin: availability probe,
+permission request, token fetch, launch-tap read, and the event
+listener plumbing for `tap`/`tokenRefresh`.
+"""
+
+permissions = [
+  "allow-is-available",
+  "allow-request-permission",
+  "allow-get-token",
+  "allow-get-launch-tap",
+  "allow-register-listener",
+  "allow-remove-listener",
+]

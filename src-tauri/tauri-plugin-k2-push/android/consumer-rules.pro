@@ -1,0 +1,1 @@
+-keep class com.alakazamlabs.k2so.push.** { *; }

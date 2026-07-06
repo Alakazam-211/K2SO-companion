@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { useServersStore } from "./stores/servers";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useServersStore, getActiveServer } from "./stores/servers";
 import { useWorkspacesStore } from "./stores/workspaces";
+import { ensureRegistered, attachPushNavigation } from "./lib/push";
 import { TabBar } from "./components/TabBar";
 import { ServerFooter } from "./components/ServerFooter";
 import { Login } from "./pages/Login";
@@ -73,6 +74,21 @@ function AppHeader({ onNewSession }: { onNewSession: () => void }) {
   );
 }
 
+/** C6 push wiring: tap deep-links + token-rotation re-register. A no-op
+ *  in dormant builds (pushIsAvailable() = false — no entitlement / no
+ *  google-services.json yet). */
+function PushBridge() {
+  const navigate = useNavigate();
+  useEffect(() => {
+    let cleanup: (() => void) | undefined;
+    void attachPushNavigation((path) => navigate(path)).then((c) => {
+      cleanup = c;
+    });
+    return () => cleanup?.();
+  }, []);
+  return null;
+}
+
 function AppLayout() {
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const activeServerId = useServersStore((s) => s.activeServerId);
@@ -81,12 +97,20 @@ function AppLayout() {
   // (Re)load workspace data whenever the ACTIVE server changes — every
   // api/client call derives base URL + token from it.
   useEffect(() => {
-    if (activeServerId) refreshAll();
+    if (activeServerId) {
+      refreshAll();
+      // Push re-register on every launch/server-switch (upsert by stable
+      // deviceId — absorbs token rotation). Gated internally on plugin
+      // availability + the Settings toggle; never throws.
+      const active = getActiveServer();
+      if (active) void ensureRegistered(active);
+    }
     return startListening();
   }, [activeServerId]);
 
   return (
     <div className="flex flex-col h-full">
+      <PushBridge />
       <AppHeader onNewSession={() => setNewSessionOpen(true)} />
       <div className="flex-1 overflow-hidden">
         <Routes>

@@ -16,6 +16,7 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 tauri-plugin-store = "2"
 tauri-plugin-http = "2"
+tauri-plugin-k2-push = { path = "tauri-plugin-k2-push" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 reqwest = { version = "0.12", features = ["rustls-tls"], default-features = false }
