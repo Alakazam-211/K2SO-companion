@@ -3,10 +3,13 @@ import { Routes, Route, useNavigate } from "react-router-dom";
 import { useServersStore } from "../stores/servers";
 import { useFeedbackStore } from "../stores/feedback";
 import {
+  filterBySearch,
   groupByStatus,
   relativeAge,
+  sortRows,
   type FeedbackKind,
   type FeedbackListRow,
+  type FeedbackSortKey,
   type FeedbackStatus,
 } from "../api/feedback";
 import { FeedbackThread } from "./FeedbackThread";
@@ -71,21 +74,29 @@ export function PriorityTag({ priority }: { priority: number }) {
 
 function Card({ row, nowSec }: { row: FeedbackListRow; nowSec: number }) {
   const navigate = useNavigate();
+  // Overflow containment: min-w-0 down the flex chain + line-clamps +
+  // overflow-wrap:anywhere so unbroken strings (URLs, ids) wrap inside
+  // the card instead of forcing horizontal page scroll.
   return (
     <button
       onClick={() => navigate(`/feedback/${row.id}`)}
-      className="flex flex-col gap-1.5 mx-3 mb-2 px-4 py-3 bg-[var(--surface)] border border-[var(--border)] text-left hover:border-[var(--border-hover)] transition-colors"
+      className="flex flex-col gap-1.5 mx-3 mb-2 px-4 py-3 min-w-0 max-w-full overflow-hidden bg-[var(--surface)] border border-[var(--border)] text-left hover:border-[var(--border-hover)] transition-colors"
     >
-      <div className="flex items-baseline gap-2 w-full">
-        <span className="text-[var(--text)] text-[13px] font-medium truncate flex-1">
+      <div className="flex items-baseline gap-2 w-full min-w-0">
+        <span className="text-[var(--text)] text-[13px] font-medium leading-5 flex-1 min-w-0 line-clamp-2 break-words [overflow-wrap:anywhere]">
           {row.title}
         </span>
         <span className="text-[var(--text-muted)] text-[10px] tabular-nums shrink-0">
           {relativeAge(row.createdAt, nowSec)}
         </span>
       </div>
-      <div className="flex items-center gap-2 w-full">
-        <span className="text-[var(--text-muted)] text-[10px] truncate flex-1">
+      {row.body && (
+        <div className="w-full min-w-0 text-[var(--text-muted)] text-[11px] leading-4 line-clamp-2 break-words [overflow-wrap:anywhere]">
+          {row.body}
+        </div>
+      )}
+      <div className="flex items-center gap-2 w-full min-w-0">
+        <span className="text-[var(--text-muted)] text-[10px] truncate flex-1 min-w-0">
           {row.projectName} · {row.agentName}
           {row.commentCount > 1 ? ` · ${row.commentCount} msgs` : ""}
         </span>
@@ -119,12 +130,75 @@ function Section({
   );
 }
 
+// ─── Search + sort controls (desktop FeedbackPage parity, mobile form) ───
+
+const SORT_OPTIONS: Array<{ key: FeedbackSortKey; label: string }> = [
+  { key: "newest", label: "Newest" },
+  { key: "oldest", label: "Oldest" },
+  { key: "priority", label: "Priority" },
+  { key: "workspace", label: "Workspace" },
+];
+
+function ListControls({
+  query,
+  onQuery,
+  sortKey,
+  onSortKey,
+}: {
+  query: string;
+  onQuery: (q: string) => void;
+  sortKey: FeedbackSortKey;
+  onSortKey: (k: FeedbackSortKey) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2 px-3 pt-2 pb-2 border-b border-[var(--border)] shrink-0">
+      {/* Live tokenized search (Sessions-page input idiom + clear ✕). */}
+      <div className="relative">
+        <input
+          value={query}
+          onChange={(e) => onQuery(e.target.value)}
+          placeholder="Search feedback..."
+          className="w-full bg-[var(--background)] border border-[var(--border)] px-3 py-2 pr-8 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent-dim)]"
+        />
+        {query !== "" && (
+          <button
+            onClick={() => onQuery("")}
+            aria-label="Clear search"
+            className="absolute right-0 top-0 h-full w-8 flex items-center justify-center text-[var(--text-muted)]"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      {/* Compact segmented sort — order WITHIN the status sections;
+          Waiting-first sectioning always stays on top. */}
+      <div className="flex gap-1">
+        {SORT_OPTIONS.map((opt) => (
+          <button
+            key={opt.key}
+            onClick={() => onSortKey(opt.key)}
+            className={`flex-1 px-1.5 py-1 text-[9px] uppercase tracking-wide border transition-colors ${
+              sortKey === opt.key
+                ? "text-[var(--accent)] border-[var(--accent-dim)]"
+                : "text-[var(--text-muted)] border-[var(--border)]"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function FeedbackList() {
   const activeServerId = useServersStore((s) => s.activeServerId);
   const rows = useFeedbackStore((s) => s.rows);
   const isLoading = useFeedbackStore((s) => s.isLoading);
   const error = useFeedbackStore((s) => s.error);
   const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
+  const [query, setQuery] = useState("");
+  const [sortKey, setSortKey] = useState<FeedbackSortKey>("newest");
 
   // First load + events WS for the active server; refetch on server switch.
   useEffect(() => {
@@ -137,7 +211,10 @@ function FeedbackList() {
     return () => clearInterval(t);
   }, []);
 
-  const grouped = groupByStatus(rows);
+  // Pipeline: tokenized search filter → status sections (Waiting first —
+  // the page's job) → the chosen sort WITHIN each section.
+  const filtered = filterBySearch(rows, query);
+  const grouped = groupByStatus(filtered);
 
   return (
     <div className="flex flex-col h-full">
@@ -159,6 +236,15 @@ function FeedbackList() {
           </svg>
         </button>
       </div>
+
+      {activeServerId && rows.length > 0 && (
+        <ListControls
+          query={query}
+          onQuery={setQuery}
+          sortKey={sortKey}
+          onSortKey={setSortKey}
+        />
+      )}
 
       <div className="flex-1 overflow-y-auto pb-2">
         {error && (
@@ -189,11 +275,27 @@ function FeedbackList() {
               detail="Questions and approvals your agents raise with `k2 feedback ask` will land here."
             />
           )
+        ) : filtered.length === 0 ? (
+          <div className="flex items-center justify-center pt-16 text-[var(--text-muted)] text-[11px]">
+            No feedback matches "{query.trim()}"
+          </div>
         ) : (
           <>
-            <Section label="Waiting on you" rows={grouped.waiting} nowSec={nowSec} />
-            <Section label="Answered" rows={grouped.answered} nowSec={nowSec} />
-            <Section label="Closed" rows={grouped.closed} nowSec={nowSec} />
+            <Section
+              label="Waiting on you"
+              rows={sortRows(grouped.waiting, sortKey)}
+              nowSec={nowSec}
+            />
+            <Section
+              label="Answered"
+              rows={sortRows(grouped.answered, sortKey)}
+              nowSec={nowSec}
+            />
+            <Section
+              label="Closed"
+              rows={sortRows(grouped.closed, sortKey)}
+              nowSec={nowSec}
+            />
           </>
         )}
       </div>
