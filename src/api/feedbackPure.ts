@@ -95,6 +95,52 @@ export function groupByStatus<T extends { status: FeedbackStatus }>(
   return grouped;
 }
 
+/** Tokenized live search (the desktop feedback-api `filterBySearch`
+ *  semantics, plus `body` — mobile has no separate detail pane, so the
+ *  body must be findable from the list): every whitespace-separated term
+ *  must appear somewhere in the row's haystack. Empty query = no filter. */
+export function filterBySearch<
+  T extends Pick<
+    FeedbackListRow,
+    "id" | "title" | "body" | "agentName" | "projectName" | "kind" | "status"
+  >,
+>(rows: T[], query: string): T[] {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return rows;
+  return rows.filter((r) => {
+    const haystack = [r.title, r.body ?? "", r.agentName, r.projectName, r.kind, r.status, r.id]
+      .join(" ")
+      .toLowerCase();
+    return terms.every((t) => haystack.includes(t));
+  });
+}
+
+/** List sort orders (applied WITHIN each status section — the page's
+ *  Waiting-first sectioning always wins over the chosen sort). */
+export type FeedbackSortKey = "newest" | "oldest" | "priority" | "workspace";
+
+export function sortRows<
+  T extends Pick<FeedbackListRow, "createdAt" | "priority" | "projectName">,
+>(rows: T[], key: FeedbackSortKey): T[] {
+  const byNewest = (a: T, b: T) => b.createdAt - a.createdAt;
+  const sorted = [...rows];
+  switch (key) {
+    case "oldest":
+      return sorted.sort((a, b) => a.createdAt - b.createdAt);
+    case "priority": // P1 first; newest breaks ties
+      return sorted.sort((a, b) => a.priority - b.priority || byNewest(a, b));
+    case "workspace": // A–Z case-insensitive; newest breaks ties
+      return sorted.sort(
+        (a, b) =>
+          a.projectName.localeCompare(b.projectName, undefined, { sensitivity: "base" }) ||
+          byNewest(a, b)
+      );
+    case "newest":
+    default:
+      return sorted.sort(byNewest);
+  }
+}
+
 /** TabBar badge count = items still waiting on the human. */
 export function countWaiting<T extends { status: FeedbackStatus }>(rows: T[]): number {
   return rows.reduce((n, r) => n + (r.status === "waiting" ? 1 : 0), 0);

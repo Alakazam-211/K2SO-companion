@@ -15,6 +15,7 @@ import { GroupAvatar } from "../components/GroupAvatar";
 import { ProjectChat } from "./ProjectChat";
 import { ProjectHtmlDocs } from "./ProjectHtmlDocs";
 import type { ProjectGroup } from "../api/projectGroups";
+import { partitionPinnedAlpha } from "../api/projectGroupsPure";
 
 export function ProjectsPage() {
   return (
@@ -117,8 +118,12 @@ function ProjectsList() {
             </span>
           </div>
         ) : (
-          <div className="py-2 px-1.5 flex flex-col gap-2">
-            {groups.map((g) => (
+          (() => {
+            // Mobile order: pinned block first (daemon's relative order),
+            // then everything else A–Z — sort_order deliberately ignored
+            // for the unpinned tail (product call).
+            const { pinned, rest } = partitionPinnedAlpha(groups);
+            const renderGroup = (g: ProjectGroup) => (
               <button
                 key={g.id}
                 onClick={() => navigate(`/projects/${g.id}`)}
@@ -140,8 +145,19 @@ function ProjectsList() {
                   />
                 )}
               </button>
-            ))}
-          </div>
+            );
+            return (
+              <div className="py-2 px-1.5 flex flex-col gap-2">
+                {pinned.length > 0 && (
+                  <div className="px-2.5 pt-1 text-[var(--text-muted)] text-[10px] uppercase tracking-wide">
+                    Pinned
+                  </div>
+                )}
+                {pinned.map(renderGroup)}
+                {rest.map(renderGroup)}
+              </div>
+            );
+          })()
         )}
       </div>
     </div>

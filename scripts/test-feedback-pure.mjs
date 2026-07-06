@@ -7,7 +7,7 @@
 
 import {
   groupByStatus, countWaiting, sortNewestFirst, feedbackEventTargets,
-  relativeAge, deliveredLine, optionsActionable,
+  relativeAge, deliveredLine, optionsActionable, filterBySearch, sortRows,
 } from "../src/api/feedbackPure.ts";
 
 let failures = 0;
@@ -33,4 +33,30 @@ assert(relativeAge(0, 30) === "now" && relativeAge(0, 300) === "5m" && relativeA
 assert(deliveredLine("appa", true, null) === "sent to appa's session", "delivered line");
 assert(deliveredLine("appa", false, "session_gone").includes("session gone"), "failure line carries reason");
 assert(optionsActionable({ status: "waiting", options: ["y"] }) === true && optionsActionable({ status: "answered", options: ["y"] }) === false, "optionsActionable");
+
+// ── filterBySearch (tokenized, title/body/workspace/agent/kind/status/id) ──
+const searchRows = [
+  { id: "f1", title: "Deploy blocked", body: "waiting on approval https://ci.example.com/run/9912", agentName: "appa", projectName: "K2", kind: "approval", status: "waiting" },
+  { id: "f2", title: "Rename question", body: null, agentName: "momo", projectName: "Companion", kind: "question", status: "answered" },
+  { id: "f3", title: "FYI: nightly green", body: "all suites", agentName: "appa", projectName: "K2", kind: "fyi", status: "resolved" },
+];
+assert(filterBySearch(searchRows, "").length === 3 && filterBySearch(searchRows, "   ").length === 3, "empty/whitespace query = no filter");
+assert(filterBySearch(searchRows, "DEPLOY").map(r => r.id).join() === "f1", "case-insensitive title match");
+assert(filterBySearch(searchRows, "ci.example.com").map(r => r.id).join() === "f1", "body match (null body safe)");
+assert(filterBySearch(searchRows, "companion").map(r => r.id).join() === "f2", "workspace match");
+assert(filterBySearch(searchRows, "appa k2").map(r => r.id).join() === "f1,f3", "every token must match (agent+workspace)");
+assert(filterBySearch(searchRows, "appa question").length === 0, "tokens AND across fields");
+
+// ── sortRows (applied within a status section) ──
+const sortable = [
+  { id: "s1", createdAt: 100, priority: 3, projectName: "zeta" },
+  { id: "s2", createdAt: 300, priority: 1, projectName: "Alpha" },
+  { id: "s3", createdAt: 200, priority: 2, projectName: "beta" },
+  { id: "s4", createdAt: 400, priority: 1, projectName: "alpha" },
+];
+assert(sortRows(sortable, "newest").map(r => r.id).join() === "s4,s2,s3,s1", "sort newest");
+assert(sortRows(sortable, "oldest").map(r => r.id).join() === "s1,s3,s2,s4", "sort oldest");
+assert(sortRows(sortable, "priority").map(r => r.id).join() === "s4,s2,s3,s1", "sort priority P1 first, newest tie-break");
+assert(sortRows(sortable, "workspace").map(r => r.id).join() === "s4,s2,s3,s1", "sort workspace A–Z case-insensitive, newest tie-break");
+assert(sortRows(sortable, "newest") !== sortable && sortable[0].id === "s1", "sortRows does not mutate input");
 process.exit(failures ? 1 : 0);
