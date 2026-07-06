@@ -28,8 +28,8 @@ This is a **Tauri** app (`src-tauri/`), not Expo/React-Native. The launcher icon
 lives in `src-tauri/icons/android/mipmap-*` and is generated from `app-icon.png`.
 
 The trap: `cargo tauri android build` copies icons into `src-tauri/gen/android`
-**only at `android init` time, never on a plain build.** `gen/android` is
-git-ignored, so once it exists on a build machine it silently caches whatever
+**only at `android init` time, never on a plain build.** `gen/android` (tracked
+in git since the Firebase wiring, 2026-07) silently caches whatever
 icon was current when it was first created. After a rebrand, every rebuild keeps
 shipping the **old** icon → Play's consistency warning.
 
@@ -88,7 +88,8 @@ Output AAB:
 resources, so a persistent signing config in `gen/android` survives. Configure
 Tauri/Gradle signing once per machine (Tauri v2 Android signing guide):
 
-- Create `src-tauri/gen/android/keystore.properties` (git-ignored) with:
+- Create `src-tauri/gen/android/keystore.properties` (git-ignored via
+  `gen/android/.gitignore` AND the repo root `.gitignore` — keep it that way) with:
   ```
   storeFile=/absolute/path/to/upload-keystore.jks
   storePassword=********
@@ -137,6 +138,37 @@ In **Play Console**:
 - [ ] `versionCode` strictly greater than the last upload.
 - [ ] 512px store icon uploaded in Play Console.
 - [ ] On a test device (Internal testing track), the home-screen icon is the new K2.
+
+---
+
+## 8. Toolchain + Firebase notes (added 2026-07-06, gen/android init)
+
+- **`gen/android` is now TRACKED in git** (build outputs + `keystore.properties`
+  excluded via its `.gitignore`). Don't delete/re-init it casually — it carries
+  the Firebase wiring below. `tauri.settings.gradle`, `tauri.properties`, and
+  `/.tauri` are generated per-build and stay ignored.
+- **JDK**: this machine uses Homebrew OpenJDK 17 (formula, no sudo — the
+  `temurin@17` cask needs sudo). It is NOT registered with `/usr/libexec/java_home`,
+  so export explicitly before building:
+  ```bash
+  export JAVA_HOME="$(brew --prefix openjdk@17)/libexec/openjdk.jdk/Contents/Home"
+  export ANDROID_HOME="$HOME/Library/Android/sdk"
+  export NDK_HOME="$ANDROID_HOME/ndk/26.3.11579264"
+  ```
+  (`build-android.sh` uses `/usr/libexec/java_home`, which fails for a
+  brew-formula JDK — pre-export `JAVA_HOME` or symlink the JDK system-wide.)
+- **Firebase push wiring** (package `com.alakazamlabs.k2so.companion`, Firebase
+  project `k2-companion-x`):
+  - `gen/android/app/google-services.json` — committed (public identifiers only);
+    source of truth staged at `~/private_keys/firebase/google-services.json`.
+  - `gen/android/settings.gradle` — `pluginManagement { google(); mavenCentral(); gradlePluginPortal() }`
+    (required for the plugins-DSL resolution below; Tauri's generated settings has none).
+  - `gen/android/build.gradle.kts` — `plugins { id("com.google.gms.google-services") version "4.5.0" apply false }`.
+  - `gen/android/app/build.gradle.kts` — `id("com.google.gms.google-services")` in the plugins block.
+  - Do NOT add firebase-bom/analytics deps — `tauri-plugin-k2-push/android`
+    already declares `firebase-messaging`.
+- A **debug** build (`tauri android build --debug --apk`) is the no-keystore gate;
+  release AABs still need the upload keystore per §4.
 
 ---
 
