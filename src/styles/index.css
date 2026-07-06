@@ -47,7 +47,9 @@ html, body, #root {
    bottom surface there and stays 0 on iOS. Tune on real hardware
    (gesture nav ≈ 24px, 3-button nav is taller). */
 :root {
-  --android-nav-lift: 0px;
+  /* Base (iOS) bottom lift — a touch of extra clearance above the home
+     indicator on every bottom surface; Android overrides higher below. */
+  --android-nav-lift: 8px;
 }
 .platform-android {
   --android-nav-lift: 28px;
