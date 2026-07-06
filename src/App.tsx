@@ -9,7 +9,7 @@ import { Servers } from "./pages/Servers";
 import { Sessions } from "./pages/Sessions";
 import { ChatSession } from "./pages/ChatSession";
 import { Settings } from "./pages/Settings";
-import { ProjectsPlaceholder } from "./pages/ProjectsPlaceholder";
+import { ProjectsPage } from "./pages/Projects";
 import { Feedback } from "./pages/Feedback";
 import { NewSessionModal } from "./components/NewSessionModal";
 
@@ -93,7 +93,7 @@ function AppLayout() {
           <Route path="/servers" element={<Servers />} />
           <Route path="/sessions" element={<ServerGuard><Sessions /></ServerGuard>} />
           <Route path="/chat/:terminalId" element={<ServerGuard><ChatSession /></ServerGuard>} />
-          <Route path="/projects" element={<ServerGuard><ProjectsPlaceholder /></ServerGuard>} />
+          <Route path="/projects/*" element={<ServerGuard><ProjectsPage /></ServerGuard>} />
           <Route path="/feedback/*" element={<ServerGuard><Feedback /></ServerGuard>} />
           <Route path="/settings" element={<ServerGuard><Settings /></ServerGuard>} />
           <Route path="*" element={<Navigate to="/servers" replace />} />
