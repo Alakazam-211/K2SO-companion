@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "test:grid": "node scripts/test-grid-convert.mjs",
-    "test:k1": "node scripts/test-k1-wire.mjs"
+    "test:k1": "node scripts/test-k1-wire.mjs",
+    "test:scale": "node scripts/test-scale-claim.mjs",
+    "test:render": "node scripts/test-terminal-render.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",

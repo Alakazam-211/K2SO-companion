@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../api/client";
 import {
   GridSocket,
@@ -6,24 +6,40 @@ import {
   type GridFrame,
   type TermGridSnapshot,
   type TermGridDelta,
+  type PinInitialPayload,
+  type PinChangedPayload,
+  type ModePayload,
+  type ColSpanRun,
 } from "../api/gridSocket";
 import { createFrameCoalescer } from "../lib/frameCoalescer";
+import { computeScaleLayout } from "../lib/scaleLayout";
+import {
+  initialClaimState,
+  reduceClaim,
+  pinnedByOther,
+  type ClaimEvent,
+  type ClaimState,
+} from "../lib/claimState";
+import { useTerminalMetaStore } from "../stores/terminalMeta";
+import {
+  FixedRow,
+  TerminalChrome,
+  colorToCSS,
+  DEFAULT_BG,
+  DEFAULT_FG,
+  type StyleSpan,
+} from "./TerminalGridParts";
 
 // ─── Types ───
-
-interface StyleSpan {
-  s: number;
-  e: number;
-  fg?: number;
-  bg?: number;
-  fl?: number;
-}
 
 interface CompactLine {
   row: number;
   text: string;
   spans?: StyleSpan[];
   wrapped?: boolean;
+  /** Per-run column spans (WS path via gridConvert; absent on the
+   *  HTTP fallback). Drives the faithful fixed-grid painter. */
+  runs?: ColSpanRun[];
 }
 
 interface GridUpdate {
@@ -40,80 +56,23 @@ interface GridUpdate {
 
 // ─── Constants ───
 
-const DEFAULT_FG = 0xe0e0e0;
-const DEFAULT_BG = 0x0a0a0a;
 const FONT_SIZE = 10;
 const LINE_HEIGHT = Math.ceil(FONT_SIZE * 1.35);
 const FONT_FAMILY = "'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace";
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
-const ATTR_BOLD = 1;
-const ATTR_ITALIC = 2;
-const ATTR_UNDERLINE = 4;
-const ATTR_STRIKETHROUGH = 8;
-const ATTR_INVERSE = 16;
-const ATTR_DIM = 32;
-const ATTR_HIDDEN = 64;
+/** Hold-and-scale: how long a sent resize/claim may keep the LAST grid
+ *  scaled to the new box before we render whatever we have (the daemon
+ *  may have coalesced the request away). Kessel parity. */
+const RESIZE_HOLD_TIMEOUT_MS = 500;
+/** One re-fit per keyboard/rotation transition: emit at the END of the
+ *  container-resize burst, never per animation frame. */
+const REFIT_DEBOUNCE_MS = 250;
 
-function colorToCSS(c: number): string {
-  return `rgb(${(c >> 16) & 0xff},${(c >> 8) & 0xff},${c & 0xff})`;
-}
-
-// ─── Line Renderer ───
-
-function renderLineSpans(line: CompactLine): React.ReactNode[] {
-  const chars = [...line.text];
-  const spans = line.spans || [];
-  const elements: React.ReactNode[] = [];
-  let pos = 0;
-
-  for (let i = 0; i < spans.length; i++) {
-    const span = spans[i];
-
-    if (span.s > pos) {
-      elements.push(
-        <span key={`t-${line.row}-${pos}`}>{chars.slice(pos, span.s).join("")}</span>
-      );
-    }
-
-    const style: React.CSSProperties = {};
-    const flags = span.fl ?? 0;
-    let fg = span.fg ?? DEFAULT_FG;
-    let bg = span.bg ?? DEFAULT_BG;
-
-    if (flags & ATTR_INVERSE) {
-      const tmp = fg; fg = bg; bg = tmp;
-    }
-
-    if (fg !== DEFAULT_FG) style.color = colorToCSS(fg);
-    if (bg !== DEFAULT_BG) style.backgroundColor = colorToCSS(bg);
-    if (flags & ATTR_BOLD) style.fontWeight = "bold";
-    if (flags & ATTR_ITALIC) style.fontStyle = "italic";
-    if (flags & ATTR_DIM) style.opacity = 0.7;
-    if (flags & ATTR_HIDDEN) style.color = "transparent";
-    if (flags & ATTR_UNDERLINE) style.textDecoration = "underline";
-    if (flags & ATTR_STRIKETHROUGH) {
-      style.textDecoration = style.textDecoration
-        ? `${style.textDecoration} line-through`
-        : "line-through";
-    }
-
-    const text = chars.slice(span.s, span.e + 1).join("");
-    elements.push(
-      <span key={`s-${line.row}-${i}`} style={style}>{text}</span>
-    );
-
-    pos = span.e + 1;
-  }
-
-  if (pos < chars.length) {
-    elements.push(
-      <span key={`r-${line.row}`}>{chars.slice(pos).join("")}</span>
-    );
-  }
-
-  return elements.length > 0 ? elements : ["\u00A0"];
-}
+/** Grid-WS claim_pin / pin-size dims bounds (terminal_routes.rs —
+ *  out-of-bounds frames are dropped whole, so clamp before sending). */
+const PIN_COLS_MIN = 20, PIN_COLS_MAX = 500;
+const PIN_ROWS_MIN = 5, PIN_ROWS_MAX = 200;
 
 // ─── Component ───
 
@@ -135,6 +94,9 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
   const [grid, setGrid] = useState<{
     rows: number;
     cols: number;
+    /** PTY viewport rows from the live stream (0 = unknown / HTTP
+     *  fallback) — the scale-to-fit grid height. */
+    viewportRows: number;
     cursorRow: number;
     cursorCol: number;
     cursorVisible: boolean;
@@ -142,7 +104,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     displayOffset: number;
     version: number;
   }>({
-    rows: 0, cols: 0,
+    rows: 0, cols: 0, viewportRows: 0,
     cursorRow: 0, cursorCol: 0,
     cursorVisible: true, cursorShape: "block",
     displayOffset: 0, version: 0,
@@ -150,71 +112,125 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
 
   const containerRef = useRef<HTMLDivElement>(null);
   const cellWRef = useRef(0);
+  const [cellW, setCellW] = useState(0);
   const debugRef = useRef("");
   // Bumping this tears down + recreates the grid-WS (reconnect → fresh
   // snapshot). Driven by the parent's reload button via onReloadRef.
   const [reloadKey, setReloadKey] = useState(0);
+  // Container box (border-box px) — the scale-to-fit input. Updated
+  // synchronously by the ResizeObserver so keyboard/rotation reflows
+  // re-scale immediately (the DIMS emit is what's debounced, not this).
+  const [box, setBox] = useState({ w: 0, h: 0 });
 
-  // Measure cell width once
+  // ── Claim / pin / mode state machine (lib/claimState.ts) ──
+  // Ref is the SSOT (event handlers + the socket effect read it
+  // synchronously); state mirrors it for render.
+  const claimRef = useRef<ClaimState>(initialClaimState);
+  const [claimState, setClaimState] = useState<ClaimState>(initialClaimState);
+  const dispatchClaim = useCallback((e: ClaimEvent) => {
+    claimRef.current = reduceClaim(claimRef.current, e);
+    setClaimState(claimRef.current);
+  }, []);
+
+  // Mirror mode/claim into the tiny store T3 consumes (input roles).
+  useEffect(() => {
+    useTerminalMetaStore.getState().set(terminalId, {
+      mode: claimState.mode,
+      capable: claimState.capable,
+      claimedByMe: claimState.claimedByMe,
+      pinnedByOther: pinnedByOther(claimState),
+    });
+  }, [terminalId, claimState]);
+  useEffect(
+    () => () => useTerminalMetaStore.getState().clear(terminalId),
+    [terminalId]
+  );
+
+  // ── Resize hold-and-scale bookkeeping (Kessel parity) ──
+  // While a resize/claim we sent is in flight — the container reshaped
+  // but incoming frames still carry the OLD cols/rows — the scale
+  // layout keeps rendering the last grid stretched/letterboxed to the
+  // new box instead of drawing old-geometry content 1:1 and then
+  // flashing. Cleared when a NON-BLANK frame at the requested dims
+  // lands, or by the timeout (after which we render the truth).
+  const holdRef = useRef<{ cols: number; rows: number } | null>(null);
+  const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [pendingResize, setPendingResize] = useState<{ cols: number; rows: number } | null>(null);
+
+  // Socket-effect internals exposed to the chrome's tap handlers.
+  const actionsRef = useRef<{ claim: () => void } | null>(null);
+  // Last measured phone fit (cols×rows) — the claim button's dims and
+  // the drove-the-dims check in the render path.
+  const lastFitRef = useRef<{ cols: number; rows: number } | null>(null);
+
+  // Measure cell width once — device-pixel-quantized so N×cellW row
+  // widths land on the physical pixel grid (no cumulative subpixel
+  // drift across a 500-column row).
   useEffect(() => {
     const span = document.createElement("span");
     span.style.cssText = `font-family: ${FONT_FAMILY}; font-size: ${FONT_SIZE}px; position: absolute; visibility: hidden; white-space: pre;`;
     span.textContent = "W";
     document.body.appendChild(span);
-    cellWRef.current = span.getBoundingClientRect().width;
+    const raw = span.getBoundingClientRect().width;
     document.body.removeChild(span);
+    const dpr = window.devicePixelRatio || 1;
+    const quantized = Math.round(raw * dpr) / dpr;
+    cellWRef.current = quantized;
+    setCellW(quantized);
   }, []);
-
-  // Calculate terminal dimensions from container
 
   const scrollbackLoadedRef = useRef(false);
   const MAX_ROWS = 1000;
 
-  const applyGridUpdate = useCallback((update: GridUpdate, isScrollback = false) => {
-    if (update.full && !scrollbackLoadedRef.current) {
-      linesRef.current.clear();
-    }
-
-    if (isScrollback) {
-      // HTTP scrollback — rows map directly by index
-      for (const line of update.lines) {
-        linesRef.current.set(line.row, line);
+  const applyGridUpdate = useCallback(
+    (update: GridUpdate, isScrollback = false, viewportRows = 0) => {
+      if (update.full && !scrollbackLoadedRef.current) {
+        linesRef.current.clear();
       }
-    } else {
-      // WS grid event — use display_offset for absolute row positioning
-      const offset = update.display_offset ?? 0;
-      for (const line of update.lines) {
-        const absRow = offset + line.row;
-        linesRef.current.set(absRow, { ...line, row: absRow });
+
+      if (isScrollback) {
+        // HTTP scrollback — rows map directly by index
+        for (const line of update.lines) {
+          linesRef.current.set(line.row, line);
+        }
+      } else {
+        // WS grid event — use display_offset for absolute row positioning
+        const offset = update.display_offset ?? 0;
+        for (const line of update.lines) {
+          const absRow = offset + line.row;
+          linesRef.current.set(absRow, { ...line, row: absRow });
+        }
       }
-    }
 
-    // Roll off oldest rows if buffer exceeds max
-    if (linesRef.current.size > MAX_ROWS) {
-      const keys = Array.from(linesRef.current.keys()).sort((a, b) => a - b);
-      const toRemove = keys.length - MAX_ROWS;
-      for (let i = 0; i < toRemove; i++) {
-        linesRef.current.delete(keys[i]);
+      // Roll off oldest rows if buffer exceeds max
+      if (linesRef.current.size > MAX_ROWS) {
+        const keys = Array.from(linesRef.current.keys()).sort((a, b) => a - b);
+        const toRemove = keys.length - MAX_ROWS;
+        for (let i = 0; i < toRemove; i++) {
+          linesRef.current.delete(keys[i]);
+        }
       }
-    }
 
-    const maxKey = linesRef.current.size > 0
-      ? Math.max(...Array.from(linesRef.current.keys())) + 1
-      : update.rows;
+      const maxKey = linesRef.current.size > 0
+        ? Math.max(...Array.from(linesRef.current.keys())) + 1
+        : update.rows;
 
-    setGrid({
-      rows: maxKey,
-      cols: update.cols,
-      cursorRow: update.cursor_row,
-      cursorCol: update.cursor_col,
-      cursorVisible: update.cursor_visible,
-      cursorShape: update.cursor_shape?.toLowerCase() || "block",
-      displayOffset: update.display_offset ?? 0,
-      version: Date.now(),
-    });
-  }, []);
+      setGrid({
+        rows: maxKey,
+        cols: update.cols,
+        viewportRows,
+        cursorRow: update.cursor_row,
+        cursorCol: update.cursor_col,
+        cursorVisible: update.cursor_visible,
+        cursorShape: update.cursor_shape?.toLowerCase() || "block",
+        displayOffset: update.display_offset ?? 0,
+        version: Date.now(),
+      });
+    },
+    []
+  );
 
-  // Live grid stream via the daemon grid-WS (read-only viewer).
+  // Live grid stream via the daemon grid-WS.
   useEffect(() => {
     let polling: ReturnType<typeof setInterval> | null = null;
     let lastText = "";
@@ -243,6 +259,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         setGrid((prev) => ({
           ...prev,
           rows: lines!.length,
+          viewportRows: 0,
           cursorRow: lines!.length - 1,
           version: Date.now(),
         }));
@@ -252,7 +269,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     // Two-buffer terminal model (GridModel): snapshot replaces the
     // viewport + scrollback; delta patches damaged viewport rows and
     // appends scrollback. `lines()` flattens to absolute-row CompactLines
-    // which feed the existing renderer via applyGridUpdate.
+    // which feed the fixed-grid renderer via applyGridUpdate.
     const model = new GridModel();
     const render = () => {
       const gu: GridUpdate = {
@@ -268,16 +285,41 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       };
       linesRef.current.clear();
       scrollbackLoadedRef.current = true; // we own the clear above
-      applyGridUpdate(gu, true);
+      applyGridUpdate(gu, true, model.viewport.length);
+    };
+
+    // Hold-and-scale, request half: we asked the PTY for `cols`×`rows`
+    // (claim, claim_pin or keyboard re-fit); keep rendering the LAST
+    // grid scaled to the new box until a non-blank frame at those dims
+    // lands, or the fallback timeout shows the truth. Skipped when the
+    // model already sits at the target (the daemon's same-dims skip
+    // means no new frame is coming — nothing to hold for).
+    const noteResizeRequested = (cols: number, rows: number) => {
+      if (
+        model.cols === cols &&
+        model.viewport.length === rows &&
+        !model.viewportBlank()
+      ) {
+        return;
+      }
+      holdRef.current = { cols, rows };
+      setPendingResize({ cols, rows });
+      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = setTimeout(() => {
+        holdTimerRef.current = null;
+        holdRef.current = null;
+        setPendingResize(null);
+        // Show the truth on expiry, blank or not — an indefinite hold
+        // would freeze a terminal the child legitimately cleared.
+        render();
+      }, RESIZE_HOLD_TIMEOUT_MS);
     };
 
     // Frame pacing (Kessel parity, frameCoalescer.ts): WS snapshot/delta
     // frames queue and apply once per animation frame — one merge + one
-    // render per display refresh however many messages arrived, a queued
-    // snapshot supersedes everything before it, and the starvation cap
-    // flushes synchronously if rAF stalls. Replaces the old
-    // single-pending-frame rAF (which DROPPED intermediate deltas — fine
-    // for full GridUpdates, wrong for incremental damage).
+    // render per display refresh, a queued snapshot supersedes everything
+    // before it, and the starvation cap flushes synchronously if rAF
+    // stalls.
     type PendingFrame =
       | { kind: "snapshot"; payload: TermGridSnapshot }
       | { kind: "delta"; payload: TermGridDelta };
@@ -285,10 +327,6 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       schedule: (flush) => requestAnimationFrame(flush),
       cancel: (id) => cancelAnimationFrame(id),
       apply: (batch) => {
-        // k1 flow control: one ack per APPLIED batch, carrying the
-        // highest applied version — sent from the rAF flush, never per
-        // WS message, so ack volume tracks render cadence (ackApplied
-        // no-ops until the daemon proves it speaks k1).
         let maxVersion = 0;
         for (const f of batch) {
           if (f.kind === "snapshot") {
@@ -300,7 +338,37 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
           }
           if (f.payload.version > maxVersion) maxVersion = f.payload.version;
         }
-        render();
+        // Hold-and-scale, apply half: while a resize we sent is in
+        // flight, blank merge results park in the model un-rendered
+        // (the daemon's cleared-grid intermediate — painting it IS the
+        // flash); old-dims content keeps rendering (the scale layout
+        // stretches it to the new box); the first non-blank frame at
+        // the target dims releases the hold and swaps 1:1.
+        const hold = holdRef.current;
+        if (hold) {
+          const blank = model.viewportBlank();
+          const atTarget =
+            model.cols === hold.cols && model.viewport.length === hold.rows;
+          if (blank) {
+            // park — keep the previous DOM until content or timeout
+          } else if (atTarget) {
+            holdRef.current = null;
+            if (holdTimerRef.current) {
+              clearTimeout(holdTimerRef.current);
+              holdTimerRef.current = null;
+            }
+            setPendingResize(null);
+            render();
+          } else {
+            render();
+          }
+        } else {
+          render();
+        }
+        // k1 flow control: one ack per APPLIED batch (applied-to-model,
+        // even when the render is parked by the hold), carrying the
+        // highest applied version — sent from the rAF flush, never per
+        // WS message (ackApplied no-ops until the daemon proves k1).
         gridSock.ackApplied(maxVersion);
       },
     });
@@ -312,38 +380,139 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         coalescer.enqueue({ kind: "delta", payload: frame.payload as TermGridDelta });
       } else if (frame.event === "child_exit") {
         gridSock.close();
+      } else if (frame.event === "socket_open") {
+        // Ephemeral pins die with their socket: the daemon auto-cleared
+        // ours (if any) and told the SURVIVORS — reset local ownership;
+        // pin_initial on this connection restores pin truth if any.
+        dispatchClaim({ type: "socket_open" });
+      } else if (frame.event === "mode") {
+        const p = frame.payload as ModePayload;
+        dispatchClaim({ type: "mode", mode: p.mode, capable: p.capable });
+        // Viewer = fully read-only: never claim/resize again (frames
+        // would be dropped server-side anyway; stop re-asserting on
+        // reconnect too). Input suppression itself is T3's seam via
+        // stores/terminalMeta.ts.
+        if (p.mode === "viewer") gridSock.suppressClaim();
+      } else if (frame.event === "pin_initial") {
+        const p = frame.payload as PinInitialPayload;
+        dispatchClaim({ type: "pin_initial", cols: p.cols, rows: p.rows, setBy: p.set_by });
+      } else if (frame.event === "pin_changed") {
+        const p = frame.payload as PinChangedPayload;
+        dispatchClaim({ type: "pin_changed", cols: p.cols, rows: p.rows, cleared: p.cleared });
       }
-      // title / label_* / bell / pin_initial / pin_changed / mode /
-      // clipboard / error: surfaced by the socket, consumed from T2 on.
+      // title / label_* / bell / clipboard / error: not consumed yet.
     };
 
     const gridSock = new GridSocket(onFrame);
     gridSock.connect(terminalId);
 
-    // Expose this socket's input to the parent send bar — writes go to the PTY
-    // over the SAME connected WS (there is no working HTTP terminal-write route).
-    if (onInputRef) onInputRef.current = (text: string) => gridSock.sendInput(text);
-
-    // Expose a reload that forces a fresh reconnect (new snapshot) of this
-    // session — bumping reloadKey re-runs this effect, tearing down + re-
-    // opening the socket. Lets the parent recover a broken/stale stream.
-    if (onReloadRef) onReloadRef.current = () => setReloadKey((k) => k + 1);
-
-    // Claim active + fit the shared PTY to THIS phone's viewport. The PTY is
-    // a single size across all viewers, so the active device drives the size;
-    // on mobile we assume the user is driving from the phone, so fit the phone
-    // (the desktop reclaims the size the moment it's used). Re-fit on rotation.
-    const fitToPhone = () => {
+    // ── Phone-fit measurement + emission policy ──
+    const measureFit = (): { cols: number; rows: number } | null => {
       const el = containerRef.current;
       const cw = cellWRef.current;
-      if (!el || cw <= 0) return;
-      const cols = Math.max(1, Math.floor((el.clientWidth - 16) / cw));        // 8px L/R padding
-      const rows = Math.max(1, Math.floor((el.clientHeight - 8) / LINE_HEIGHT)); // 4px T/B padding
-      gridSock.claim(cols, rows);
+      if (!el || cw <= 0 || el.clientWidth <= 0 || el.clientHeight <= 0) return null;
+      // 8px L/R + 4px T/B strip padding; clamped into the daemon's
+      // pin/claim bounds (out-of-bounds claim_pin frames drop whole).
+      const cols = Math.min(PIN_COLS_MAX, Math.max(PIN_COLS_MIN, Math.floor((el.clientWidth - 16) / cw)));
+      const rows = Math.min(PIN_ROWS_MAX, Math.max(PIN_ROWS_MIN, Math.floor((el.clientHeight - 8) / LINE_HEIGHT)));
+      return { cols, rows };
     };
-    const ro = new ResizeObserver(fitToPhone);
+
+    // Re-fit the shared PTY to THIS phone's current terminal box.
+    // Routed by claim state (PRD W1/K4):
+    //   claimed (ephemeral pin) → re-issue claim_pin at the new dims
+    //     (in-place pin update; same dims = server-side no-op);
+    //   claimer, unpinned      → normal active claim + resize
+    //     (last-claim-wins, today's behavior made smooth);
+    //   viewer / pinned-by-others → NOTHING (scale-to-fit only —
+    //     the daemon clamps or drops anything we'd send).
+    const refit = () => {
+      const dims = measureFit();
+      if (!dims) return;
+      lastFitRef.current = dims;
+      const s = claimRef.current;
+      if (s.mode !== "claimer") return;
+      if (s.claimedByMe) {
+        noteResizeRequested(dims.cols, dims.rows);
+        gridSock.claimPin(dims.cols, dims.rows);
+        dispatchClaim({ type: "claim_sent", cols: dims.cols, rows: dims.rows });
+      } else if (!s.pin) {
+        noteResizeRequested(dims.cols, dims.rows);
+        gridSock.claim(dims.cols, dims.rows);
+      }
+    };
+
+    // K4: one emit per keyboard/rotation transition — debounce to the
+    // END of the container-resize burst. The box STATE updates on every
+    // tick (scale-to-fit tracks the animation); only the dims emit
+    // waits.
+    let refitTimer: ReturnType<typeof setTimeout> | null = null;
+    const debouncedRefit = () => {
+      if (refitTimer) clearTimeout(refitTimer);
+      refitTimer = setTimeout(() => {
+        refitTimer = null;
+        refit();
+      }, REFIT_DEBOUNCE_MS);
+    };
+
+    const onBoxChange = () => {
+      const el = containerRef.current;
+      if (el) setBox({ w: el.clientWidth, h: el.clientHeight });
+      debouncedRefit();
+    };
+    const ro = new ResizeObserver(onBoxChange);
     if (containerRef.current) ro.observe(containerRef.current);
-    fitToPhone();
+    onBoxChange();
+    // Claim-on-open (PRD W1): claim + reflow to phone dims immediately —
+    // through the hold, so the attach snapshot at the old size renders
+    // scaled until the phone-shaped frames land (no flash).
+    refit();
+    // Keyboard-height changes ride the container ResizeObserver (the
+    // terminal frame is what shrinks), but the native injection's event
+    // also nudges the debounce so a transition that ends without a final
+    // RO tick still re-fits.
+    window.addEventListener("k2-viewport-resize", debouncedRefit);
+
+    // "Claim session" tap → ephemeral pin at the current phone fit.
+    actionsRef.current = {
+      claim: () => {
+        // No live socket = nothing to carry the pin; an optimistic
+        // badge with no daemon pin behind it would lie.
+        if (!gridSock.isOpen) return;
+        const dims = lastFitRef.current ?? measureFit();
+        if (!dims) return;
+        lastFitRef.current = dims;
+        noteResizeRequested(dims.cols, dims.rows);
+        gridSock.claimPin(dims.cols, dims.rows);
+        dispatchClaim({ type: "claim_sent", cols: dims.cols, rows: dims.rows });
+      },
+    };
+
+    // Expose this socket's input to the parent send bar — writes go to the
+    // PTY over the SAME connected WS. Typing is "using" the session: if
+    // another client drove the dims away while we're claimer + unpinned,
+    // re-take the size first (last-claim-wins, the desktop does the same),
+    // through the hold so the reflow is smooth. `reassertClaim` forces the
+    // send even when our measured dims never changed (claim() dedupes).
+    if (onInputRef) {
+      onInputRef.current = (text: string) => {
+        const s = claimRef.current;
+        const fit = lastFitRef.current;
+        if (
+          s.mode === "claimer" && !s.pin && fit &&
+          (model.cols !== fit.cols || model.viewport.length !== fit.rows)
+        ) {
+          noteResizeRequested(fit.cols, fit.rows);
+          gridSock.claim(fit.cols, fit.rows);
+          gridSock.reassertClaim();
+        }
+        gridSock.sendInput(text);
+      };
+    }
+
+    // Expose a reload that forces a fresh reconnect (new snapshot) of this
+    // session — bumping reloadKey re-runs this effect.
+    if (onReloadRef) onReloadRef.current = () => setReloadKey((k) => k + 1);
 
     // If the WS hasn't produced a frame shortly after connect, fall back
     // to HTTP polling so the user still sees content on WS-restricted
@@ -358,7 +527,16 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     return () => {
       if (onInputRef) onInputRef.current = null;
       if (onReloadRef) onReloadRef.current = null;
+      actionsRef.current = null;
       ro.disconnect();
+      window.removeEventListener("k2-viewport-resize", debouncedRefit);
+      if (refitTimer) clearTimeout(refitTimer);
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
+      holdRef.current = null;
+      setPendingResize(null);
       gridSock.release();
       clearTimeout(fallbackTimer);
       gridSock.close();
@@ -367,7 +545,18 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       // nobody left to render them.
       coalescer.clear();
     };
-  }, [terminalId, projectPath, applyGridUpdate, reloadKey]);
+  }, [terminalId, projectPath, applyGridUpdate, dispatchClaim, reloadKey]);
+
+  // Chrome tap handlers (the socket lives inside the effect; taps go
+  // through actionsRef / the HTTP pin route).
+  const handleClaimTap = useCallback(() => {
+    actionsRef.current?.claim();
+  }, []);
+  const handleReleaseTap = useCallback(() => {
+    // Optimistic; the pin_changed {cleared:true} broadcast confirms.
+    dispatchClaim({ type: "release_sent" });
+    void api.clearTerminalPin(terminalId);
+  }, [dispatchClaim, terminalId]);
 
   // Auto-scroll to bottom — only if user hasn't scrolled up
   const userScrolledRef = useRef(false);
@@ -391,57 +580,166 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     }
   }, [grid.version]);
 
+  // ── Scale-to-fit layout (lib/scaleLayout.ts, Kessel port) ──
+  // "Active" = our resizes drive the PTY right now: claimer, unpinned
+  // by others, and either the frames already track OUR fit or a resize
+  // we sent is in flight (hold-and-scale). Anything else (desktop drove
+  // the dims, pinned elsewhere, viewer) scales-to-fit. While our OWN
+  // ephemeral re-claim is in flight the pinned branch yields to the
+  // active hold path so keyboard reflows stretch instead of snapping.
+  const lastFit = lastFitRef.current;
+  const drivenByUs =
+    lastFit !== null &&
+    grid.cols === lastFit.cols &&
+    grid.viewportRows === lastFit.rows;
+  const isActiveViewer =
+    claimState.mode === "claimer" &&
+    !pinnedByOther(claimState) &&
+    (drivenByUs || pendingResize !== null);
+  const layout = computeScaleLayout({
+    snapCols: grid.cols,
+    snapRows: grid.viewportRows,
+    cellWidth: cellW,
+    cellHeight: LINE_HEIGHT,
+    availWidth: box.w - 16,
+    availHeight: box.h - 8,
+    isActiveViewer,
+    pinned: claimState.pin !== null && !(claimState.claimedByMe && pendingResize !== null),
+    pendingResize,
+  });
+
+  // Fixed 1:1 grid needs live-stream dims + measured metrics; the HTTP
+  // fallback (bare text rows, unknown cols) keeps the legacy wrap block.
+  const fixedGrid = grid.cols > 0 && grid.viewportRows > 0 && cellW > 0;
+
   // Build row elements — render all buffered lines for scrollback
   const rowElements: React.ReactNode[] = [];
   const maxRow = Math.max(grid.rows, linesRef.current.size, ...Array.from(linesRef.current.keys()).map(k => k + 1));
-  for (let r = 0; r < maxRow; r++) {
-    const line = linesRef.current.get(r);
-    rowElements.push(
-      <div
-        key={r}
-        style={{
-          minHeight: LINE_HEIGHT,
-          lineHeight: `${LINE_HEIGHT}px`,
-        }}
-      >
-        {line ? renderLineSpans(line) : "\u00A0"}
-      </div>
-    );
+  if (fixedGrid) {
+    for (let r = 0; r < maxRow; r++) {
+      rowElements.push(
+        <FixedRow
+          key={r}
+          line={linesRef.current.get(r)}
+          cols={grid.cols}
+          cellW={cellW}
+          lineHeight={LINE_HEIGHT}
+        />
+      );
+    }
+  } else {
+    for (let r = 0; r < maxRow; r++) {
+      const line = linesRef.current.get(r);
+      rowElements.push(
+        <div key={r} style={{ minHeight: LINE_HEIGHT, lineHeight: `${LINE_HEIGHT}px` }}>
+          {line?.text || " "}
+        </div>
+      );
+    }
   }
+
+  const gridW = grid.cols * cellW;
+  const stripH = maxRow * LINE_HEIGHT;
+  const fontStyles: React.CSSProperties = {
+    fontFamily: FONT_FAMILY,
+    fontSize: `${FONT_SIZE}px`,
+    color: colorToCSS(DEFAULT_FG),
+    fontVariantLigatures: "none",
+  };
 
   return (
     <div
-      ref={containerRef}
       style={{
         position: "absolute",
         top: 0,
         left: 0,
         right: 0,
         bottom: 0,
-        overflow: "auto",
+        overflow: "hidden",
         background: colorToCSS(DEFAULT_BG),
-        WebkitOverflowScrolling: "touch",
       }}
     >
+      {/* Scroll container — MUST stay `overflow: auto` (ChatSession's
+          touch-scroll shim finds it by that inline style). Native
+          vertical scroll through the scrollback strip is preserved;
+          the scale transform below never hijacks it. */}
       <div
+        ref={containerRef}
         style={{
-          fontFamily: FONT_FAMILY,
-          fontSize: `${FONT_SIZE}px`,
-          color: colorToCSS(DEFAULT_FG),
-          fontVariantLigatures: "none",
-          padding: "4px 8px",
-          wordBreak: "break-all",
-          whiteSpace: "pre-wrap",
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          bottom: 0,
+          overflow: "auto",
+          WebkitOverflowScrolling: "touch",
         }}
       >
-        {/* Debug: line count (dev mode only) */}
-        {DEV_MODE && (
-          <div style={{ color: "#22d3ee", fontSize: "9px", padding: "2px 0", opacity: 0.7 }}>
-            {maxRow} lines | buf={linesRef.current.size} | {grid.rows}r | {debugRef.current}
+        {fixedGrid ? (
+          // Sizing shell: transforms don't affect layout, so this div
+          // carries the SCALED strip footprint (scroll geometry), and
+          // the inner block paints the 1:1 grid scaled about its
+          // top-left. offsetX centers/letterboxes horizontally;
+          // vertical stays top-anchored — the scroll axis IS the
+          // letterbox there.
+          <div
+            style={{
+              position: "relative",
+              width: Math.max(box.w, gridW * layout.scale + 16),
+              height: stripH * layout.scale + 8,
+            }}
+          >
+            <div
+              style={{
+                ...fontStyles,
+                position: "absolute",
+                left: 8 + layout.offsetX,
+                top: 4,
+                width: gridW,
+                transform: `scale(${layout.scale})`,
+                transformOrigin: "0 0",
+              }}
+            >
+              {DEV_MODE && (
+                <div style={{ color: "#22d3ee", fontSize: "9px", padding: "2px 0", opacity: 0.7 }}>
+                  {maxRow} lines | {grid.cols}×{grid.viewportRows} | s={layout.scale.toFixed(2)}
+                  {pendingResize ? ` | hold ${pendingResize.cols}×${pendingResize.rows}` : ""} | {debugRef.current}
+                </div>
+              )}
+              {rowElements}
+            </div>
+          </div>
+        ) : (
+          // HTTP fallback / pre-stream: legacy wrap block.
+          <div
+            style={{
+              ...fontStyles,
+              padding: "4px 8px",
+              wordBreak: "break-all",
+              whiteSpace: "pre-wrap",
+            }}
+          >
+            {DEV_MODE && (
+              <div style={{ color: "#22d3ee", fontSize: "9px", padding: "2px 0", opacity: 0.7 }}>
+                {maxRow} lines | buf={linesRef.current.size} | {grid.rows}r | {debugRef.current}
+              </div>
+            )}
+            {rowElements}
           </div>
         )}
-        {rowElements}
       </div>
+
+      {/* Badge/pill strip: claim/claimed/pinned/view-only + the
+          "viewing at C×R" pill. Rendered over the grid, outside the
+          scroll flow. */}
+      <TerminalChrome
+        claim={claimState}
+        passive={layout.passive}
+        gridCols={grid.cols}
+        gridRows={grid.viewportRows}
+        onClaim={handleClaimTap}
+        onRelease={handleReleaseTap}
+      />
     </div>
   );
 }

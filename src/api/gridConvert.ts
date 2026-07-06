@@ -121,6 +121,132 @@ export function cellRowToCompact(runs: CellRun[], row: number): CompactLineLite 
   return { row, text, spans, wrapped, runs: colRuns };
 }
 
+// ── Terminal-column math (desktop runCols.ts port, T2 subset) ──────
+//
+// The daemon skips alacritty's WIDE_CHAR_SPACER cells when building
+// runs, so a run's text has NO phantom columns — but a double-width
+// char (CJK/emoji) still occupies TWO terminal columns while being ONE
+// char, and zero-width chars (combining accents, ZWJ) occupy ZERO.
+// Runs whose column span differs from their char count carry it
+// explicitly as `cols`; runs without the field are one-column-per-char
+// by contract. Pure, unit-tested in scripts/test-scale-claim.mjs.
+
+/** Width classifiers — mirror Rust's unicode-width dominant ranges
+ *  (what alacritty sets WIDE_CHAR from). Only consulted for runs that
+ *  CARRY a `cols` annotation; a divergence on an exotic code point
+ *  costs one column of placement bias inside that run, never a render
+ *  break — the run's total span comes from the wire. */
+export function isZeroWidthCp(cp: number): boolean {
+  return (
+    (cp >= 0x0300 && cp <= 0x036f) || // combining diacriticals
+    (cp >= 0x0483 && cp <= 0x0489) || // Cyrillic combining
+    (cp >= 0x0591 && cp <= 0x05bd) || // Hebrew points
+    (cp >= 0x0610 && cp <= 0x061a) || // Arabic marks
+    (cp >= 0x064b && cp <= 0x065f) ||
+    (cp >= 0x1ab0 && cp <= 0x1aff) || // combining extended
+    (cp >= 0x1dc0 && cp <= 0x1dff) || // combining supplement
+    (cp >= 0x20d0 && cp <= 0x20ff) || // combining for symbols
+    (cp >= 0xfe00 && cp <= 0xfe0f) || // variation selectors
+    (cp >= 0xfe20 && cp <= 0xfe2f) || // combining half marks
+    cp === 0x200b || // ZWSP
+    cp === 0x200c || // ZWNJ
+    cp === 0x200d || // ZWJ
+    cp === 0xfeff // BOM/ZWNBSP
+  );
+}
+
+export function isWideCp(cp: number): boolean {
+  return (
+    (cp >= 0x1100 && cp <= 0x115f) || // Hangul Jamo
+    (cp >= 0x2e80 && cp <= 0x303e) || // CJK radicals, punctuation
+    (cp >= 0x3041 && cp <= 0x33ff) || // Hiragana..CJK compat
+    (cp >= 0x3400 && cp <= 0x4dbf) || // CJK ext A
+    (cp >= 0x4e00 && cp <= 0x9fff) || // CJK unified
+    (cp >= 0xa000 && cp <= 0xa4cf) || // Yi
+    (cp >= 0xa960 && cp <= 0xa97f) || // Hangul Jamo ext A
+    (cp >= 0xac00 && cp <= 0xd7a3) || // Hangul syllables
+    (cp >= 0xf900 && cp <= 0xfaff) || // CJK compat ideographs
+    (cp >= 0xfe30 && cp <= 0xfe4f) || // CJK compat forms
+    (cp >= 0xff00 && cp <= 0xff60) || // fullwidth forms
+    (cp >= 0xffe0 && cp <= 0xffe6) ||
+    (cp >= 0x1f300 && cp <= 0x1f64f) || // emoji: misc + emoticons
+    (cp >= 0x1f680 && cp <= 0x1f6ff) || // emoji: transport
+    (cp >= 0x1f900 && cp <= 0x1f9ff) || // emoji: supplemental
+    (cp >= 0x1fa00 && cp <= 0x1faff) || // emoji: extended A
+    (cp >= 0x20000 && cp <= 0x3fffd) // CJK ext B+
+  );
+}
+
+/** Char count of a run in code points (what the wire's `cols`
+ *  contract compares against). */
+function codePointCount(text: string): number {
+  let n = 0;
+  for (const _ of text) n++;
+  return n;
+}
+
+/** Column span of one run: explicit wire `cols` when present, else
+ *  its code-point count (the daemon omits the field iff equal). */
+export function runColSpan(run: ColSpanRun): number {
+  return run.cols ?? codePointCount(run.text);
+}
+
+/** Start column of each run in a row — prefix sums of the runs'
+ *  column spans. Paired with `runColSpan` it pins each run to its
+ *  true grid rect, so a wide/exotic glyph can never push the runs to
+ *  its right off their columns. Empty row ⇒ empty array. */
+export function runColOffsets(row: ColSpanRun[]): number[] {
+  const out: number[] = new Array(row.length);
+  let col = 0;
+  for (let i = 0; i < row.length; i++) {
+    out[i] = col;
+    col += runColSpan(row[i]);
+  }
+  return out;
+}
+
+/** One per-character cell of a run: its text (a single code point
+ *  plus any zero-width followers), its column offset WITHIN the run,
+ *  and its column width. */
+export interface RunCell {
+  text: string;
+  col: number;
+  width: number;
+}
+
+/** Split one run into per-character cells for column-anchored
+ *  rendering. Zero-width followers ride their base char's cell;
+ *  unannotated runs are one column per code point by the wire
+ *  contract. If the daemon's `cols` ever disagreed with the width
+ *  table the divergence stays INSIDE this run — the next run's offset
+ *  comes from the wire span (runColOffsets). */
+export function runCells(run: ColSpanRun): RunCell[] {
+  const annotated = run.cols !== undefined;
+  const out: RunCell[] = [];
+  let col = 0;
+  for (const ch of run.text) {
+    const cp = ch.codePointAt(0) ?? 0;
+    const w = annotated ? (isZeroWidthCp(cp) ? 0 : isWideCp(cp) ? 2 : 1) : 1;
+    if (w === 0 && out.length > 0) {
+      // Zero-width follower: render with its base char's cell.
+      out[out.length - 1].text += ch;
+      continue;
+    }
+    const width = Math.max(w, 1);
+    out.push({ text: ch, col, width });
+    col += width;
+  }
+  return out;
+}
+
+/** True when a row carries any run whose column span differs from its
+ *  char count — the renderer switches that row from flowing spans to
+ *  column-anchored cells (wide CJK/emoji, zero-width combiners). */
+export function rowNeedsAnchoring(runs: ColSpanRun[]): boolean {
+  for (const r of runs) if (r.cols !== undefined) return true;
+  return false;
+}
+
 // Two-buffer terminal model, mirrors the daemon's grid emitter:
 //   - `scrollback` only GROWS (delta.scrollbackAppended = rows that
 //     scrolled off the top of the viewport).
@@ -182,6 +308,17 @@ export class GridModel {
       out.push({ ...this.viewport[i], row: sb + i });
     }
     return out;
+  }
+
+  /** True when the viewport has no visible content — the
+   *  hold-and-scale park check (TerminalView): during a resize hold,
+   *  a blank merge result (the daemon's cleared-grid intermediate)
+   *  must not paint, or the reflow flashes black. */
+  viewportBlank(): boolean {
+    for (const l of this.viewport) {
+      if (l.text.trim() !== "") return false;
+    }
+    return true;
   }
 
   /** Absolute cursor row (scrollback + viewport-relative). */

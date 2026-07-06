@@ -374,5 +374,15 @@ export const ensurePinnedChat = (
   );
 export const writeTerminal = (project: string, id: string, message: string) =>
   request("terminal.write", "/cli/terminal/write", { project, id, message }, { method: "POST" });
+// Unpin a session's PTY size (the "Claim session" release path). The
+// CLAIM itself rides the grid-WS `claim_pin` action (socket-bound,
+// auto-clears on disconnect); the release uses the daemon's normal
+// pin-size route with `clear:true` — same endpoint the desktop's pin
+// controls use, so either end can unpin.
+export const clearTerminalPin = (session: string) =>
+  request<{ success?: boolean; pinned?: unknown }>(
+    "terminal.pin_size", "/cli/terminal/pin-size",
+    { session, clear: true }, { method: "POST" }
+  );
 export const getStatus = (project: string) =>
   request("status", "/cli/companion/status", { project });
