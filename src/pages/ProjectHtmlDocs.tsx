@@ -34,6 +34,7 @@ import {
 } from "../api/projectGroups";
 import { useServersStore } from "../stores/servers";
 import { groupHtmlDocsByWorkspace } from "../lib/projectChat";
+import { useSwipeBack } from "../lib/useSwipeBack";
 
 /** Appended to every fetched doc so the document scrolls INSIDE the
  *  viewport-sized iframe with native momentum. Appended last so it
@@ -98,6 +99,22 @@ export function ProjectHtmlDocs() {
     void loadBody(doc);
   };
 
+  // One back affordance: viewer → doc list → project chat. Shared by
+  // the header button and the left-edge swipe. NOTE: with a doc open
+  // the swipe must start on chrome OUTSIDE the iframe (the header) —
+  // touches inside an iframe stay in its document and never reach the
+  // parent's listeners, even at the screen edge.
+  const goBack = useCallback((): void => {
+    if (openDoc) {
+      setOpenDoc(null);
+      setBody(null);
+      setBodyError(null);
+    } else {
+      navigate(`/projects/${groupId}`);
+    }
+  }, [openDoc, navigate, groupId]);
+  const swipeRef = useSwipeBack(goBack);
+
   const handleRefresh = async () => {
     if (refreshing) return;
     setRefreshing(true);
@@ -111,7 +128,8 @@ export function ProjectHtmlDocs() {
   const sections = docs ? groupHtmlDocsByWorkspace(docs) : [];
 
   return (
-    <div className="fixed inset-0 z-40 bg-[var(--background)]">
+    // Full-viewport backdrop; also the swipe-back transform target.
+    <div ref={swipeRef} className="fixed inset-0 z-40 bg-[var(--background)]">
       <div
         className="flex flex-col h-full"
         style={{
@@ -122,15 +140,7 @@ export function ProjectHtmlDocs() {
         {/* Header: back · title · refresh */}
         <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--background)] shrink-0">
           <button
-            onClick={() => {
-              if (openDoc) {
-                setOpenDoc(null);
-                setBody(null);
-                setBodyError(null);
-              } else {
-                navigate(`/projects/${groupId}`);
-              }
-            }}
+            onClick={goBack}
             aria-label="Back"
             className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 -ml-2"
           >

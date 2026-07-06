@@ -36,6 +36,7 @@ import { MessageComposer } from "../components/MessageComposer";
 import { useServersStore } from "../stores/servers";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { useBottomAnchor } from "../lib/useBottomAnchor";
+import { useSwipeBack } from "../lib/useSwipeBack";
 import {
   MESSAGES_DEFAULT_LIMIT,
   canLoadEarlier,
@@ -89,6 +90,8 @@ export function ProjectChat() {
   // resizes (containerHeight changes) + composer focus, but only while
   // the user is at the tail — history reading is never yanked.
   const { onScroll, scrollToBottom } = useBottomAnchor(scrollRef, containerHeight);
+  // Left-edge swipe-back = the header back button (to the projects list).
+  const swipeRef = useSwipeBack(() => navigate("/projects"));
   const limitRef = useRef(limit);
   limitRef.current = limit;
 
@@ -237,8 +240,9 @@ export function ProjectChat() {
 
   return (
     // Backdrop covers the whole viewport (incl. the ServerFooter/TabBar
-    // strip below a keyboard-shortened inner column).
-    <div className="fixed inset-0 z-40 bg-[var(--background)]">
+    // strip below a keyboard-shortened inner column). It's also the
+    // swipe-back transform target (the drag translates it).
+    <div ref={swipeRef} className="fixed inset-0 z-40 bg-[var(--background)]">
     <div
       className="flex flex-col"
       style={{

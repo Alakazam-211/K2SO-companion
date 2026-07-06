@@ -4,6 +4,7 @@ import { useServersStore } from "../stores/servers";
 import { useFeedbackStore } from "../stores/feedback";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { useBottomAnchor } from "../lib/useBottomAnchor";
+import { useSwipeBack } from "../lib/useSwipeBack";
 import { MessageComposer } from "../components/MessageComposer";
 import { TicketSheet } from "../components/TicketSheet";
 import {
@@ -63,6 +64,9 @@ export function FeedbackThread() {
   // resizes (containerHeight changes) + composer focus, but only while
   // the user is at the tail — history reading is never yanked.
   const { onScroll, scrollToBottom } = useBottomAnchor(scrollRef, containerHeight);
+  // Left-edge swipe-back = the header back button; suspended while the
+  // TicketSheet is up so a sheet drag can't drag the thread behind it.
+  const swipeRef = useSwipeBack(() => navigate("/feedback"), { enabled: !sheetOpen });
 
   // Open (and re-open on deep-link/server switch); the store's events WS
   // needs to be live even when this screen is the entry point.
@@ -130,7 +134,8 @@ export function FeedbackThread() {
   return (
     // Backdrop covers the whole viewport (incl. the strip below a
     // keyboard-shortened inner column) — the ProjectChat overlay idiom.
-    <div className="fixed inset-0 z-40 bg-[var(--background)]">
+    // It's also the swipe-back transform target (the drag translates it).
+    <div ref={swipeRef} className="fixed inset-0 z-40 bg-[var(--background)]">
     <div
       className="flex flex-col"
       style={{
