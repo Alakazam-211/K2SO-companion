@@ -11,6 +11,11 @@
 //   TerminalChrome — the badge/pill strip above the grid ("Claim
 //                    session", claimed/pinned badges, "viewing at
 //                    C×R" pill, view-only pill).
+//   SelectionOverlay / CopyAffordance / ToastPill /
+//   ClipboardFallbackPill — the T6 touch-selection + clipboard UX
+//                    (highlight rects, the post-release Copy button,
+//                    the transient "Copied" pill, and the WKWebView
+//                    manual-copy fallback).
 
 import type { CSSProperties, ReactNode } from "react";
 import {
@@ -25,6 +30,7 @@ import {
   showClaimButton,
   type ClaimState,
 } from "../lib/claimState";
+import type { RowSegment } from "../lib/touchSelect";
 
 // ── Shared paint constants (TerminalView imports these) ──
 
@@ -409,6 +415,188 @@ export function TerminalChrome({
       }}
     >
       {bits}
+    </div>
+  );
+}
+
+// ── T6: touch selection + clipboard UX ──────────────────────────────
+
+export interface SelectionOverlayProps {
+  /** Per-row highlight column ranges (touchSelect.selectionRowSegments). */
+  segments: RowSegment[];
+  cellW: number;
+  lineHeight: number;
+}
+
+/** Highlight rects painted in GRID space — rendered inside the same
+ *  relative box as the rows + cursor, so the scale transform and the
+ *  cursor's coordinate math apply unchanged. Pointer-transparent: the
+ *  gesture layer (TerminalView's touch effect) owns all input. */
+export function SelectionOverlay({
+  segments,
+  cellW,
+  lineHeight,
+}: SelectionOverlayProps) {
+  if (cellW <= 0 || segments.length === 0) return null;
+  return (
+    <div data-k2="selection-overlay" style={{ pointerEvents: "none" }}>
+      {segments.map((seg) => (
+        <div
+          key={seg.abs}
+          data-k2="selection-rect"
+          style={{
+            position: "absolute",
+            left: seg.startCol * cellW,
+            top: seg.abs * lineHeight,
+            width: (seg.endCol - seg.startCol) * cellW,
+            height: lineHeight,
+            background: "rgba(96,165,250,0.35)",
+            pointerEvents: "none",
+          }}
+        />
+      ))}
+    </div>
+  );
+}
+
+export interface CopyAffordanceProps {
+  /** Scaled strip coordinates (TerminalView computes them from the
+   *  selection tail + scale layout) — px within the sizing shell. */
+  left: number;
+  top: number;
+  onCopy: () => void;
+}
+
+/** The post-release "Copy" button, floated near the selection's tail.
+ *  Unscaled (rendered OUTSIDE the transformed strip) so it stays
+ *  finger-sized however far the grid is shrunk. Marked
+ *  `data-k2-copy-ui` so the gesture layer ignores touches on it. */
+export function CopyAffordance({ left, top, onCopy }: CopyAffordanceProps) {
+  return (
+    <button
+      data-k2="copy-button"
+      data-k2-copy-ui="true"
+      onClick={onCopy}
+      style={{
+        ...PILL_BASE,
+        position: "absolute",
+        left,
+        top,
+        zIndex: 6,
+        fontSize: 12,
+        padding: "6px 14px",
+        background: "var(--accent, #f59e0b)",
+        color: "#0a0a0a",
+        fontWeight: 700,
+        border: "none",
+        boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
+      }}
+    >
+      Copy
+    </button>
+  );
+}
+
+/** Transient confirmation pill ("Copied") — bottom-centered over the
+ *  grid; TerminalView owns the timeout. */
+export function ToastPill({ text }: { text: string }) {
+  return (
+    <div
+      data-k2="toast"
+      style={{
+        position: "absolute",
+        bottom: 16,
+        left: "50%",
+        transform: "translateX(-50%)",
+        zIndex: 7,
+        pointerEvents: "none",
+        ...PILL_BASE,
+        fontSize: 11,
+        background: "rgba(10,10,10,0.85)",
+        color: "var(--text, #e0e0e0)",
+        border: "1px solid rgba(255,255,255,0.2)",
+      }}
+    >
+      {text}
+    </div>
+  );
+}
+
+export interface ClipboardFallbackPillProps {
+  /** The text that failed to reach the OS clipboard. */
+  text: string;
+  /** Manual retry — a button tap is a fresh user gesture, so the
+   *  WKWebView writeText that just rejected usually succeeds here. */
+  onCopy: () => void;
+  onDismiss: () => void;
+}
+
+/** WKWebView clipboard fallback: writeText can reject outside a
+ *  user-gesture-adjacent context (OSC 52 arrives on the wire, not from
+ *  a tap). Surface the text with a manual Copy instead of failing
+ *  silently. */
+export function ClipboardFallbackPill({
+  text,
+  onCopy,
+  onDismiss,
+}: ClipboardFallbackPillProps) {
+  return (
+    <div
+      data-k2="clipboard-fallback"
+      style={{
+        position: "absolute",
+        bottom: 12,
+        left: 8,
+        right: 8,
+        zIndex: 7,
+        display: "flex",
+        alignItems: "center",
+        gap: 8,
+        padding: "8px 10px",
+        background: "rgba(10,10,10,0.92)",
+        border: "1px solid var(--accent-dim, rgba(245,158,11,0.4))",
+        borderRadius: 4,
+      }}
+    >
+      <span
+        style={{
+          flex: 1,
+          minWidth: 0,
+          overflow: "hidden",
+          textOverflow: "ellipsis",
+          whiteSpace: "nowrap",
+          fontSize: 11,
+          color: "var(--text, #e0e0e0)",
+        }}
+      >
+        {text}
+      </span>
+      <button
+        data-k2="clipboard-fallback-copy"
+        onClick={onCopy}
+        style={{
+          ...PILL_BASE,
+          background: "var(--accent, #f59e0b)",
+          color: "#0a0a0a",
+          fontWeight: 700,
+          border: "none",
+        }}
+      >
+        Copy
+      </button>
+      <button
+        data-k2="clipboard-fallback-dismiss"
+        aria-label="Dismiss"
+        onClick={onDismiss}
+        style={{
+          ...PILL_BASE,
+          background: "transparent",
+          color: "rgba(224,224,224,0.7)",
+          border: "1px solid rgba(255,255,255,0.15)",
+        }}
+      >
+        ✕
+      </button>
     </div>
   );
 }

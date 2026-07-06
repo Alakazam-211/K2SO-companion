@@ -15,7 +15,11 @@
     "test:render": "node scripts/test-terminal-render.mjs",
     "test:keys": "node scripts/test-terminal-keys.mjs",
     "test:live": "node scripts/test-live-input.mjs",
-    "test:live-ui": "node scripts/test-live-input-ui.mjs"
+    "test:live-ui": "node scripts/test-live-input-ui.mjs",
+    "test:mouse": "node scripts/test-sgr-mouse.mjs",
+    "test:clipboard": "node scripts/test-osc-clipboard.mjs",
+    "test:reconnect": "node scripts/test-reconnect.mjs",
+    "test:copy": "node scripts/test-copy-select.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2",
