@@ -1,4 +1,6 @@
 import { getBaseUrl, getToken } from "./client";
+import { useServersStore } from "../stores/servers";
+import { reviveServerSession } from "../lib/revive";
 
 // Live terminal stream over the daemon's grid-WS (`/cli/sessions/grid`).
 //
@@ -34,7 +36,9 @@ type FrameHandler = (frame: GridFrame) => void;
 
 export class GridSocket {
   private ws: WebSocket | null = null;
-  private url = "";
+  private sessionId = "";
+  /** The server this stream was opened against (revive target on close). */
+  private serverId: string | null = null;
   private onFrame: FrameHandler;
   private shouldReconnect = true;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -48,20 +52,35 @@ export class GridSocket {
 
   /** Open (and keep open, with backoff) a grid stream for `sessionId`. */
   connect(sessionId: string): void {
-    const base = getBaseUrl().replace(/^http/, "ws");
-    if (!base) return;
-    const token = getToken();
-    this.url =
-      `${base}/cli/sessions/grid` +
-      `?session=${encodeURIComponent(sessionId)}` +
-      `&token=${encodeURIComponent(token)}`;
+    this.sessionId = sessionId;
+    this.serverId = useServersStore.getState().activeServerId;
     this.shouldReconnect = true;
     this.open();
   }
 
+  /** Build the WS URL FRESH each open so a token revived between attempts
+   *  is picked up (the daemon kicks stale tokens off the WS within 5s —
+   *  reconnecting with the old one would just be kicked again). */
+  private buildUrl(): string | null {
+    const base = getBaseUrl().replace(/^http/, "ws");
+    if (!base) return null;
+    return (
+      `${base}/cli/sessions/grid` +
+      `?session=${encodeURIComponent(this.sessionId)}` +
+      `&token=${encodeURIComponent(getToken())}`
+    );
+  }
+
   private open(): void {
+    const url = this.buildUrl();
+    if (!url) {
+      // No active server — nothing to stream from; don't spin a reconnect
+      // loop against nowhere.
+      this.shouldReconnect = false;
+      return;
+    }
     try {
-      this.ws = new WebSocket(this.url);
+      this.ws = new WebSocket(url);
     } catch {
       this.scheduleReconnect();
       return;
@@ -98,8 +117,30 @@ export class GridSocket {
     if (this.reconnectTimer) return;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;
-      if (this.shouldReconnect) this.open();
+      if (this.shouldReconnect) void this.reviveThenReopen();
     }, 2000);
+  }
+
+  /** Consult the revive path BEFORE re-opening: a WS close after a daemon
+   *  restart is a STALE-TOKEN kick indistinguishable from a network drop,
+   *  and reconnect-forever on a dead token was the exact stranding bug.
+   *  Revive whoami-probes (cheap when the token is fine → 'still-valid'),
+   *  silently re-logs-in when it's dead and a password is remembered, and
+   *  returns 'signin-required' when only the user can fix it — at which
+   *  point this loop STOPS (the footer/Servers page surface the state). */
+  private async reviveThenReopen(): Promise<void> {
+    if (this.serverId) {
+      const outcome = await reviveServerSession(this.serverId);
+      if (!this.shouldReconnect) return;
+      if (outcome === "signin-required" || outcome === "not-applicable") {
+        this.shouldReconnect = false;
+        return;
+      }
+      // revived / still-valid → reopen with the (possibly fresh) token;
+      // unreachable / cooldown → reopen anyway and let the next close land
+      // back here (network-down keeps its old retry cadence).
+    }
+    if (this.shouldReconnect) this.open();
   }
 
   /** Send a keystroke / text input to the host PTY (optional). */
