@@ -32,6 +32,9 @@ export interface MessageComposerProps {
    *  Direct-type state — keystrokes are live on a shared PTY, so the
    *  bar itself must FEEL hot. Default is the normal surface. */
   tint?: "default" | "warning";
+  /** Rest slightly higher while the keyboard is collapsed (chat pages —
+   *  keeps the input's corners clear of the home-indicator curve). */
+  lift?: boolean;
 }
 
 export function MessageComposer({
@@ -44,6 +47,7 @@ export function MessageComposer({
   accessory,
   headerSlot,
   tint,
+  lift,
 }: MessageComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
@@ -68,7 +72,7 @@ export function MessageComposer({
 
   return (
     <div
-      className="px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar"
+      className={`px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar${lift ? " input-bar-lift" : ""}`}
       style={{
         flexShrink: 0,
         // Warning tint (Direct type): amber-wash the strip + its top rule
