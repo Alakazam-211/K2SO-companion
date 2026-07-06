@@ -366,7 +366,7 @@ export function ChatSession() {
                     daemon's safe injector). */}
       {isViewer ? (
         <div
-          className="px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar"
+          className="px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar input-bar-lift"
           style={{ flexShrink: 0 }}
         >
           <div className="text-[var(--text-muted)] text-[12px] pb-3">
@@ -376,7 +376,7 @@ export function ChatSession() {
         </div>
       ) : sendMode === "direct" ? (
         <div
-          className="px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar"
+          className="px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar input-bar-lift"
           style={{ flexShrink: 0 }}
         >
           <AccessoryBar
@@ -396,6 +396,7 @@ export function ChatSession() {
         </div>
       ) : (
         <MessageComposer
+          lift
           value={input}
           onChange={setInput}
           onSend={handleSend}
