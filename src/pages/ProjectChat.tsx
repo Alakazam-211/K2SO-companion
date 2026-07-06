@@ -374,6 +374,7 @@ export function ProjectChat() {
           refetches can't eat it; `send` posts as owner and drives the
           delivered-receipt line under the sent bubble. */}
       <MessageComposer
+        lift
         value={draft}
         onChange={setDraft}
         onSend={send}

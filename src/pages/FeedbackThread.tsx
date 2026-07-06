@@ -287,6 +287,7 @@ export function FeedbackThread() {
               comment (the first human comment on a waiting ask IS the
               answer — sendComment is unchanged). */}
           <MessageComposer
+            lift
             value={reply}
             onChange={setReply}
             onSend={() => sendComment(reply)}

@@ -54,6 +54,15 @@ html, body, #root {
 .input-bar:focus-within {
   padding-bottom: 4px;
 }
+/* Chat composers (project chat + feedback threads) rest slightly higher
+   so the input's bottom corners clear the home-indicator curve while the
+   keyboard is collapsed; collapses to the same 4px while typing. */
+.input-bar-lift {
+  padding-bottom: calc(22px + env(safe-area-inset-bottom));
+}
+.input-bar-lift:focus-within {
+  padding-bottom: 4px;
+}
 
 button, a, nav {
   user-select: none;
