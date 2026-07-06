@@ -14,6 +14,22 @@ val tauriProperties = Properties().apply {
     }
 }
 
+// Play upload signing (runbook §4): reads the OFF-REPO keystore via
+// gen/android/keystore.properties (gitignored). Absent → release falls
+// back to the debug key so local `--apk` builds still work; a real Play
+// AAB requires the file. Expected keys:
+//   storeFile=/absolute/path/to/upload.jks
+//   storePassword=…
+//   keyAlias=…
+//   keyPassword=…
+val keystoreProperties = Properties().apply {
+    val propFile = rootProject.file("keystore.properties")
+    if (propFile.exists()) {
+        propFile.inputStream().use { load(it) }
+    }
+}
+val hasUploadKeystore = keystoreProperties.getProperty("storeFile") != null
+
 android {
     compileSdk = 36
     namespace = "com.alakazamlabs.k2so.companion"
@@ -24,6 +40,16 @@ android {
         targetSdk = 36
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()
         versionName = tauriProperties.getProperty("tauri.android.versionName", "1.0")
+    }
+    signingConfigs {
+        create("release") {
+            if (hasUploadKeystore) {
+                storeFile = file(keystoreProperties.getProperty("storeFile"))
+                storePassword = keystoreProperties.getProperty("storePassword")
+                keyAlias = keystoreProperties.getProperty("keyAlias")
+                keyPassword = keystoreProperties.getProperty("keyPassword")
+            }
+        }
     }
     buildTypes {
         getByName("debug") {
@@ -38,6 +64,9 @@ android {
             }
         }
         getByName("release") {
+            signingConfig =
+                if (hasUploadKeystore) signingConfigs.getByName("release")
+                else signingConfigs.getByName("debug")
             isMinifyEnabled = true
             proguardFiles(
                 *fileTree(".") { include("**/*.pro") }
