@@ -34,8 +34,9 @@ export function ServerFooter() {
 
   // The chat view (and C3's open feedback thread) hides all nav chrome
   // (keyboard-layout constraints — docs/ios-keyboard-layout.md); match
-  // the TabBar's behavior.
-  if (location.pathname.startsWith("/chat/") || /^\/feedback\/./.test(location.pathname)) return null;
+  // the TabBar's behavior. The add/edit-server flow (/login) is
+  // chrome-free too — it renders inside the shell since the freeze fix.
+  if (location.pathname.startsWith("/chat/") || /^\/feedback\/./.test(location.pathname) || location.pathname === "/login") return null;
 
   const active = servers.find((s) => s.id === activeServerId) ?? null;
   const state: RecoveryState = active

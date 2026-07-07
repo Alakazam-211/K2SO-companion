@@ -67,9 +67,11 @@ export function TabBar() {
   const location = useLocation();
   const navigate = useNavigate();
 
-  // Hide tab bar when inside a chat session or an open feedback thread
-  // (C3 — /feedback/:id hides nav chrome like /chat/:id does).
-  if (location.pathname.startsWith("/chat/") || /^\/feedback\/./.test(location.pathname)) return null;
+  // Hide tab bar when inside a chat session, an open feedback thread
+  // (C3 — /feedback/:id hides nav chrome like /chat/:id does), or the
+  // add/edit-server flow (chrome-free by design; the route now lives
+  // inside the shell so navigation can't unmount AppLayout).
+  if (location.pathname.startsWith("/chat/") || /^\/feedback\/./.test(location.pathname) || location.pathname === "/login") return null;
 
   return (
     <nav className="flex border-t border-[var(--border)] bg-[var(--background)] shrink-0 px-2" style={{ paddingBottom: "calc(20px + var(--android-nav-lift, 0px))" }}>

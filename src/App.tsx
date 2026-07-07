@@ -91,11 +91,14 @@ function PushBridge() {
 function AppLayout() {
   const [newSessionOpen, setNewSessionOpen] = useState(false);
   const activeServerId = useServersStore((s) => s.activeServerId);
-  const { refreshAll, startListening } = useWorkspacesStore();
 
   // (Re)load workspace data whenever the ACTIVE server changes — every
-  // api/client call derives base URL + token from it.
+  // api/client call derives base URL + token from it. Actions come from
+  // getState() — subscribing to the whole store here re-rendered the
+  // entire shell on every workspaces set() (isLoading flips, refresh
+  // storms), which is pure overhead now that the shell hosts /login too.
   useEffect(() => {
+    const { refreshAll, startListening } = useWorkspacesStore.getState();
     if (activeServerId) {
       refreshAll();
       // Push re-register on every launch/server-switch (upsert by stable
@@ -114,6 +117,14 @@ function AppLayout() {
       <div className="flex-1 overflow-hidden">
         <Routes>
           <Route path="/servers" element={<Servers />} />
+          {/* Add/edit-server lives INSIDE the shell: crossing /servers ↔
+              /login must never unmount AppLayout. The old top-level sibling
+              route demolished the whole shell each way — remounting
+              PushBridge + the workspace listeners mid-navigation, whose
+              plugin invoke churn could deadlock tauri's iOS IPC bridge
+              (tauri < 2.11.5) and froze the app. The bars below hide
+              themselves on /login, so the page still renders chrome-free. */}
+          <Route path="/login" element={<Login />} />
           <Route path="/sessions" element={<ServerGuard><Sessions /></ServerGuard>} />
           <Route path="/chat/:terminalId" element={<ServerGuard><ChatSession /></ServerGuard>} />
           <Route path="/projects/*" element={<ServerGuard><ProjectsPage /></ServerGuard>} />
@@ -147,9 +158,15 @@ export default function App() {
   }
 
   return (
-    <BrowserRouter>
+    // Transitions OFF: react-router v7 wraps navigation state updates in
+    // React.startTransition by default, but zustand's useSyncExternalStore
+    // updates are forced-sync and INTERRUPT pending transitions — under
+    // store churn (revive/reconnect recovery flaps, refresh storms) a
+    // navigation could starve forever and silently no-op. We use no
+    // Suspense/lazy routes, so sync router updates lose nothing. This is
+    // the router's documented opt-out for useSyncExternalStore apps.
+    <BrowserRouter unstable_useTransitions={false}>
       <Routes>
-        <Route path="/login" element={<Login />} />
         <Route path="/*" element={<AppLayout />} />
       </Routes>
     </BrowserRouter>
