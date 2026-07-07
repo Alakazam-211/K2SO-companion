@@ -22,7 +22,7 @@
     "test:copy": "node scripts/test-copy-select.mjs"
   },
   "dependencies": {
-    "@tauri-apps/api": "^2",
+    "@tauri-apps/api": "~2.11.0",
     "@tauri-apps/plugin-http": "^2.5.8",
     "@tauri-apps/plugin-store": "^2",
     "react": "^19.1.0",
