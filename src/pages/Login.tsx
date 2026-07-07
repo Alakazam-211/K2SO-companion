@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useViewportHeight } from "../lib/useViewportHeight";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   useServersStore,
@@ -30,6 +31,10 @@ export function Login() {
   const [password, setPassword] = useState("");
   const [remember, setRemember] = useState(editing?.rememberPassword ?? false);
   const [showPassword, setShowPassword] = useState(false);
+  // Keyboard-aware height (the chat-pages idiom): the scroll area is sized
+  // to the VISUAL viewport, so with the keyboard open the whole form —
+  // including Connect/Remove at the bottom — stays scroll-reachable.
+  const containerHeight = useViewportHeight();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,7 +71,16 @@ export function Login() {
     "text-[var(--text-muted)] text-[10px] uppercase tracking-wide block";
 
   return (
-    <div className="flex flex-col items-center h-full px-6! pt-6! pb-12! overflow-y-auto">
+    <div className="fixed inset-0 z-40 bg-[var(--background)]">
+    <div
+      className="flex flex-col"
+      style={{
+        height: containerHeight,
+        paddingTop: "env(safe-area-inset-top)",
+        overflow: "hidden",
+      }}
+    >
+    <div className="flex-1 flex flex-col items-center px-6! pt-6! pb-12! overflow-y-auto">
       <div className="w-full max-w-sm flex flex-col items-stretch">
         {/* Back to Servers (the home) — hidden on a truly fresh install
             where there is nothing to go back to yet. */}
@@ -215,6 +229,8 @@ export function Login() {
           Sign in with your K2 Connect account to reach your machine
         </p>
       </div>
+    </div>
+    </div>
     </div>
   );
 }
