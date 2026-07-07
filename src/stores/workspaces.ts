@@ -1,9 +1,15 @@
 import { create } from "zustand";
 import * as api from "../api/client";
 import { ws } from "../api/websocket";
+import { useServersStore } from "./servers";
+import { serverSwapReset, isStaleServerResponse } from "./workspacesPure";
 import type { Project, ProjectSummary, GlobalSession, FocusGroup } from "../api/client";
 
 interface WorkspacesState {
+  /** Server the current snapshot was loaded for (projectGroups'
+   *  `forServerId` idiom) — refreshAll clears everything server-scoped
+   *  when the ACTIVE server's identity differs. */
+  forServerId: string | null;
   projects: Project[];
   summaries: ProjectSummary[];
   allSessions: GlobalSession[];
@@ -33,6 +39,7 @@ interface WorkspacesState {
 }
 
 export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
+  forServerId: null,
   projects: [],
   summaries: [],
   allSessions: [],
@@ -43,8 +50,12 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
   error: null,
 
   fetchProjects: async () => {
+    const serverId = useServersStore.getState().activeServerId;
     // Summary endpoint now includes focusGroup, pinned, tabOrder — no need for the heavy /projects endpoint
     const r = await api.getProjectsSummary();
+    // Server switch mid-flight: drop this response — the new server's own
+    // refresh is (or will be) running (projectGroups' guard idiom).
+    if (isStaleServerResponse(serverId, useServersStore.getState().activeServerId)) return;
     if (r.ok && r.data) {
       const projects: Project[] = r.data.map((s) => ({
         id: s.id,
@@ -78,16 +89,29 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
   },
 
   fetchSummaries: async () => {
+    const serverId = useServersStore.getState().activeServerId;
     const r = await api.getProjectsSummary();
+    if (isStaleServerResponse(serverId, useServersStore.getState().activeServerId)) return;
     if (r.ok && r.data) set({ summaries: r.data });
   },
 
   fetchAllSessions: async () => {
+    const serverId = useServersStore.getState().activeServerId;
     const r = await api.getAllSessions();
+    if (isStaleServerResponse(serverId, useServersStore.getState().activeServerId)) return;
     if (r.ok && r.data) set({ allSessions: r.data });
   },
 
   refreshAll: async () => {
+    // ACTIVE-SERVER IDENTITY change: clear the previous server's snapshot
+    // BEFORE fetching, so a failed first fetch renders empty/loading —
+    // never the old server's sessions as phantom UI. Same-server refreshes
+    // (live events, pull-to-refresh) keep the snapshot when a fetch fails.
+    const reset = serverSwapReset(
+      get().forServerId,
+      useServersStore.getState().activeServerId
+    );
+    if (reset) set(reset);
     set({ isLoading: true });
     // Sequential — companion server is single-threaded
     await get().fetchProjects();
