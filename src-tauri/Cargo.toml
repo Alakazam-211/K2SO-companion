@@ -13,7 +13,11 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+# >= 2.11.5 REQUIRED: 2.10.x's iOS plugin-IPC response handler held the
+# PENDING_PLUGIN_CALLS mutex across WKURLSchemeTask.didReceiveResponse
+# (which waits on the main runloop) — any concurrent invoke arriving on
+# the main thread deadlocked the app (the /servers ↔ /login freeze).
+tauri = { version = "2.11.5", features = [] }
 tauri-plugin-store = "2"
 tauri-plugin-http = "2"
 tauri-plugin-k2-push = { path = "tauri-plugin-k2-push" }
