@@ -100,6 +100,9 @@ const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 /** One re-fit per keyboard/rotation transition: emit at the END of the
  *  container-resize burst, never per animation frame. */
 const REFIT_DEBOUNCE_MS = 250;
+/** Matches kessel `scaleLayout` (`container − 4`) and desktop pane
+ *  padding (`4px 0 0 4px`). Do not mix with the old 8/4 strip. */
+const PAINT_PAD = 4;
 
 function plainRun(text: string): RenderRun {
   return {
@@ -266,7 +269,12 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     viewportRows: 0,
     rows: 0,
   });
-  const layoutRef = useRef<{ scale: number; offsetX: number }>({ scale: 1, offsetX: 0 });
+  const layoutRef = useRef<{ scale: number; offsetX: number; padX: number; padY: number }>({
+    scale: 1,
+    offsetX: 0,
+    padX: PAINT_PAD,
+    padY: PAINT_PAD,
+  });
 
   // ── T5b/T6: gesture classification + selection + clipboard ──
   // One tracker per touch: start point/time, whether it strayed past
@@ -523,13 +531,13 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         dispatchClaim({ type: "socket_open" });
       } else if (frame.event === "mode") {
         const p = frame.payload as ModePayload;
-        // Connect-owner sockets report claimer. Watch stays viewer;
-        // `capable` is kept so Drive (later PR) can opt in. Never
-        // promote a mode frame into set_active / resize.
+        // Keep the daemon's real role for chrome. Watch is a local
+        // attach policy (no set_active / resize / grid input) — do
+        // not forge viewer, that hid Safe send.
         dispatchClaim({
           type: "mode",
-          mode: "viewer",
-          capable: p.capable || p.mode === "claimer",
+          mode: p.mode,
+          capable: p.capable,
         });
         gridSock.suppressClaim();
       } else if (frame.event === "pin_initial") {
@@ -557,7 +565,6 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     };
 
     const gridSock = new GridSocket(onFrame);
-    dispatchClaim({ type: "mode", mode: "viewer", capable: true });
     const companionToken = api.getCompanionToken();
     gridSock.connect(terminalId, {
       route: gridDial.route,
@@ -611,24 +618,11 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     // RO tick still re-fits.
     window.addEventListener("k2-viewport-resize", debouncedRefit);
 
-    // Drive is a later PR — Watch never pins / claims.
+    // Drive is a later PR — Watch never pins / claims / sends
+    // grid `{action:"input"}`. Composer stays on terminal.write.
     actionsRef.current = { claim: () => {} };
-
-    // Raw input seam for the T5a touch-wheel effect: same connected
-    // socket, none of the send bar's reassert-claim behavior below.
-    rawInputRef.current = (text: string) => gridSock.sendInput(text);
-
-    // Expose this socket's input to the parent send bar — writes go to the
-    // PTY over the SAME connected WS. Typing is "using" the session: if
-    // another client drove the dims away while we're claimer + unpinned,
-    // re-take the size first (last-claim-wins, the desktop does the same),
-    // through the hold so the reflow is smooth. `reassertClaim` forces the
-    // send even when our measured dims never changed (claim() dedupes).
-    if (onInputRef) {
-      onInputRef.current = (text: string) => {
-        gridSock.sendInput(text);
-      };
-    }
+    rawInputRef.current = null;
+    if (onInputRef) onInputRef.current = null;
 
     // Expose a reload that forces a fresh reconnect (new snapshot) of this
     // session — bumping reloadKey re-runs this effect.
@@ -680,6 +674,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
 
   // Auto-scroll to bottom — only if user hasn't scrolled up
   const userScrolledRef = useRef(false);
+  const [scrollTop, setScrollTop] = useState(0);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -688,6 +683,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     const handleScroll = () => {
       const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
       userScrolledRef.current = !atBottom;
+      setScrollTop(container.scrollTop);
     };
 
     container.addEventListener("scroll", handleScroll);
@@ -749,6 +745,8 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         cellH: cellHRef.current,
         cols: g.cols,
         totalRows: g.rows,
+        padX: layout.padX,
+        padY: layout.padY,
       });
     };
 
@@ -848,6 +846,8 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         cols: g.cols,
         viewportRows: g.viewportRows,
         totalRows: g.rows,
+        padX: layout.padX,
+        padY: layout.padY,
       });
       const r = accumulateDrag(
         dragWheelRef.current,
@@ -915,6 +915,8 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         cols: g.cols,
         viewportRows: g.viewportRows,
         totalRows: g.rows,
+        padX: layout.padX,
+        padY: layout.padY,
       });
       send(encodeSgrTap(cell.col, cell.row));
       // Deliberately NO preventDefault: the synthetic click that
@@ -948,15 +950,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
 
   // Watch-default: never the resize authority. Scale-to-fit with
   // PASSIVE_SCALE_FLOOR 0.40 (pinned floor 0.25). Drive is a later PR.
-  const lastFit = lastFitRef.current;
-  const drivenByUs =
-    lastFit !== null &&
-    grid.cols === lastFit.cols &&
-    grid.viewportRows === lastFit.rows;
-  const isActiveViewer =
-    claimState.mode === "claimer" &&
-    !pinnedByOther(claimState) &&
-    (drivenByUs || pendingResize !== null);
+  const isActiveViewer = false;
   const lineH = cellH || Math.ceil(FONT_SIZE * LINE_HEIGHT_MULT);
   const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
   const layout = computeScaleLayout({
@@ -970,13 +964,20 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     pinned: claimState.pin !== null && !(claimState.claimedByMe && pendingResize !== null),
     pendingResize,
   });
+  const originX = PAINT_PAD + layout.offsetX;
+  const originY = PAINT_PAD + layout.offsetY;
 
   gridStateRef.current = {
     cols: grid.cols,
     viewportRows: grid.viewportRows,
     rows: grid.rows,
   };
-  layoutRef.current = { scale: layout.scale, offsetX: layout.offsetX };
+  layoutRef.current = {
+    scale: layout.scale,
+    offsetX: layout.offsetX,
+    padX: PAINT_PAD,
+    padY: PAINT_PAD,
+  };
 
   const paintRows: { abs: number; row: RenderRun[] }[] = [];
   if (liveSnap) {
@@ -1008,7 +1009,20 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
   const hasGrid = liveSnap !== null && liveSnap.cols > 0 && cellW > 0;
   const gridW = grid.cols * cellW;
   const stripH = maxRow * lineH;
-  const seam = liveSnap ? pickSeamColor(liveSnap.grid, liveSnap.cols) : null;
+  const rowPx = lineH * (layout.scale > 0 ? layout.scale : 1);
+  const firstVisible =
+    rowPx > 0 ? Math.max(0, Math.floor((scrollTop - originY) / rowPx)) : 0;
+  const visibleCount =
+    rowPx > 0 ? Math.max(1, Math.ceil((box.h || lineH) / rowPx) + 1) : 0;
+  const visibleRuns = paintRows
+    .slice(firstVisible, firstVisible + visibleCount)
+    .map((p) => p.row);
+  const seam = liveSnap
+    ? pickSeamColor(
+        visibleRuns.length > 0 ? visibleRuns : liveSnap.grid,
+        liveSnap.cols,
+      )
+    : null;
   const fontStyles: React.CSSProperties = {
     fontFamily: FONT_FAMILY,
     fontSize: `${FONT_SIZE}px`,
@@ -1055,16 +1069,16 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
           <div
             style={{
               position: "relative",
-              width: Math.max(box.w, gridW * layout.scale + 16),
-              height: stripH * layout.scale + 8,
+              width: Math.max(box.w, originX + gridW * layout.scale),
+              height: originY + stripH * layout.scale,
             }}
           >
             <div
               style={{
                 ...fontStyles,
                 position: "absolute",
-                left: 8 + layout.offsetX,
-                top: 4,
+                left: originX,
+                top: originY,
                 width: gridW,
                 transform: `scale(${layout.scale})`,
                 transformOrigin: "0 0",
@@ -1110,10 +1124,10 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
             {selection && selectionDone && (() => {
               const n = normalizeSelection(selection);
               const left = Math.min(
-                Math.max(8, 8 + layout.offsetX + n.endCol * cellW * layout.scale),
-                Math.max(8, box.w - 88)
+                Math.max(PAINT_PAD, originX + n.endCol * cellW * layout.scale),
+                Math.max(PAINT_PAD, box.w - 88)
               );
-              const top = 4 + (n.endAbs + 1) * lineH * layout.scale + 6;
+              const top = originY + (n.endAbs + 1) * lineH * layout.scale + 6;
               return (
                 <CopyAffordance left={left} top={top} onCopy={handleCopySelection} />
               );
@@ -1125,7 +1139,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
           <div
             style={{
               ...fontStyles,
-              padding: "4px 8px",
+              padding: "4px 0 0 4px",
               position: "relative",
               whiteSpace: "pre",
             }}

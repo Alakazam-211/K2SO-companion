@@ -141,14 +141,13 @@ try {
   assert(/enterkeyhint="enter"/i.test(capture), "capture: enterkeyhint=enter");
   assert(/opacity:0/.test(capture), "capture: invisible (opacity 0)");
 
-  // ── Viewer ──
-  console.log("\n[viewer] read-only renders neither");
+  // ── Viewer / Watch: composer stays (Safe send → terminal.write) ──
+  console.log("\n[viewer] Watch keeps Safe send");
   setSessionRole(TID, "viewer");
   html = page();
-  assert(html.includes("View-only"), "view-only notice shown");
-  assert(!html.includes("<textarea"), "no composer for viewers");
-  assert(!html.includes('data-k2="accessory-bar"') && !html.includes('data-k2="live-capture"'), "no live strip for viewers");
-  assert(!html.includes('data-k2="mode-toggle"'), "no mode toggle for viewers (no input surface)");
+  assert(!html.includes("View-only"), "Watch does not hide the composer");
+  assert(html.includes("<textarea"), "Safe send composer stays for viewers");
+  assert(html.includes('data-k2="mode-toggle"'), "mode toggle stays (Watch is not a messaging gate)");
 
   console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
   process.exitCode = failures === 0 ? 0 : 1;

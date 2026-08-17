@@ -7,11 +7,9 @@ import { create } from "zustand";
 // pin_initial / pin_changed events) here on every change and clears
 // its entry on unmount.
 //
-// T3 usage (read-only):
-//   const mode = useTerminalMetaStore(selectTerminalMode(terminalId));
-//   // "viewer" → suppress ALL input affordances (read-only session).
-// Absent entry defaults to "claimer" — older daemons never send the
-// mode event and the legacy behavior is edit-capable.
+// T3 usage (read-only): daemon role for Drive later. Watch keeps
+// the composer (Safe send → terminal.write); viewer is not a
+// messaging gate. Absent entry defaults to "claimer".
 
 export interface TerminalMeta {
   /** Daemon-judged role for the live grid connection. */

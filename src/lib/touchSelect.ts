@@ -91,7 +91,7 @@ export interface AbsCellInput {
   cellH: number;
   cols: number;
   totalRows: number;
-  /** Strip padding (TerminalView paints at left 8+offsetX / top 4). */
+  /** Strip padding (TerminalView paints at left 4+offsetX / top 4+offsetY). */
   padX?: number;
   padY?: number;
 }

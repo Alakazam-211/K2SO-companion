@@ -36,52 +36,12 @@ await build({
 });
 
 try {
-  const { FixedRow, TerminalChrome, TerminalCursor } = await import(bundle);
+  const { TerminalChrome, TerminalCursor } = await import(bundle);
   const { renderToStaticMarkup } = await import("react-dom/server");
   const { createElement: h } = await import("react");
   const { initialClaimState, reduceClaim } = await import("../src/lib/claimState.ts");
 
-  // ── FixedRow: faithful 1:1 grid rows ──
-  console.log("\n[FixedRow] fixed-width grid rows");
-
-  const flowing = renderToStaticMarkup(
-    h(FixedRow, {
-      line: {
-        text: "hello world",
-        spans: [{ s: 0, e: 5, fg: 0xff0000 }],
-        runs: [{ text: "hello" }, { text: " world" }],
-      },
-      cols: 80, cellW: 6, lineHeight: 14,
-    })
-  );
-  assert(flowing.includes("width:480px"), "row is exactly cols×cellW wide (80×6 = 480px)");
-  assert(flowing.includes("overflow:hidden") && flowing.includes("white-space:pre"),
-    "row clips instead of wrapping (overflow hidden + pre)");
-  assert(flowing.includes("hello") && flowing.includes(" world"),
-    "flowing row paints one span per run");
-  assert(flowing.includes("color:rgb(255,0,0)"), "run style zipped from its span");
-  assert(flowing.includes('data-k2-row="fixed"'), "fixed row marker present");
-
-  const anchored = renderToStaticMarkup(
-    h(FixedRow, {
-      line: {
-        text: "ab漢c",
-        spans: [],
-        runs: [{ text: "ab" }, { text: "漢", cols: 2 }, { text: "c" }],
-      },
-      cols: 40, cellW: 6, lineHeight: 14,
-    })
-  );
-  assert(anchored.includes("left:12px") && anchored.includes("width:12px"),
-    "wide char anchored at col 2 (left 12px) spanning 2 columns (12px)");
-  assert(anchored.includes("left:24px"),
-    "run AFTER the wide char lands at col 4 (left 24px) — no drift");
-
-  const empty = renderToStaticMarkup(
-    h(FixedRow, { line: undefined, cols: 40, cellW: 6, lineHeight: 14 })
-  );
-  assert(empty.includes("height:14px") && empty.includes("width:240px"),
-    "missing row still occupies its exact grid rect");
+  // Live rows are TerminalRow (src/kessel/rowRender.test.tsx).
 
   // ── TerminalCursor: the PTY's cursor at its true cell (T4) ──
   console.log("\n[TerminalCursor] session cursor rect");

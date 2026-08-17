@@ -101,10 +101,10 @@ export function pruneSendModes(liveIds: Iterable<string>): void {
 // The grid-WS `mode` JSON frame is this connection's daemon-judged role
 // (gridSocket.ts ModePayload). The frame lands inside TerminalView's
 // socket callback (T2's surface), so THIS registry is the neutral seam:
-// whoever sees the frame calls `setSessionRole`, and ChatSession
-// subscribes to hide the composer for viewers. Unknown (never reported)
-// = null → composer stays visible; the daemon's send-message gate is the
-// enforcement source of truth, this hide is defense-in-depth UX.
+// whoever sees the frame calls `setSessionRole`. Watch is a size
+// policy — ChatSession does not hide Safe send for viewers. Unknown
+// (never reported) = null. The daemon's send-message gate is the
+// enforcement source of truth.
 
 export type SessionRole = "viewer" | "claimer";
 

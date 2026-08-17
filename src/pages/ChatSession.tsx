@@ -10,17 +10,12 @@ import { AccessoryBar } from "../components/AccessoryBar";
 import { LiveInputCapture } from "../components/LiveInputCapture";
 import { sendMessageToSession } from "../api/sendMessage";
 import type { LiveLocalEdit } from "../lib/liveInputText";
-import { useTerminalMetaStore } from "../stores/terminalMeta";
 import {
   modeFor,
   setSendMode,
   getDirectHandles,
   subscribeSendModes,
   pruneSendModes,
-  getSessionRoles,
-  subscribeSessionRoles,
-  setSessionRole,
-  pruneSessionRoles,
   type SendMode,
 } from "../lib/sendMode";
 
@@ -61,50 +56,14 @@ export function ChatSession() {
   const [sendBusy, setSendBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
-  // Daemon-judged role for this grid connection (viewer = read-only, the
-  // composer hides entirely). The `mode` frame lands in the grid-WS
-  // callback (T2's surface, TerminalView); until their store export
-  // lands, the seam is the `k2-grid-mode` CustomEvent fed into the same
-  // sendMode.ts registry — either producer works, this page only reads.
-  const sessionRoles = useSyncExternalStore(
-    subscribeSessionRoles,
-    getSessionRoles,
-    getSessionRoles
-  );
-  const isViewer = terminalId ? sessionRoles.get(terminalId) === "viewer" : false;
+  // Watch (default) is a size policy, not a messaging gate. Composer
+  // stays on Safe send → terminal.write. Do not hide it for viewer.
 
-  useEffect(() => {
-    const onMode = (e: Event) => {
-      const d = (e as CustomEvent).detail as
-        | { sessionId?: string; mode?: string }
-        | undefined;
-      if (d?.sessionId && (d.mode === "viewer" || d.mode === "claimer")) {
-        setSessionRole(d.sessionId, d.mode);
-      }
-    };
-    window.addEventListener("k2-grid-mode", onMode);
-    return () => window.removeEventListener("k2-grid-mode", onMode);
-  }, []);
-
-  // T2's TerminalView writes the daemon-judged mode into terminalMeta —
-  // bridge it into the sendMode role registry this page reads (the
-  // CustomEvent seam above stays as a secondary producer; last write wins,
-  // both carry the same daemon `mode` frame).
-  useEffect(() => {
-    if (!terminalId) return;
-    return useTerminalMetaStore.subscribe((s) => {
-      const mode = s.meta[terminalId]?.mode;
-      if (mode === "viewer" || mode === "claimer") setSessionRole(terminalId, mode);
-    });
-  }, [terminalId]);
-
-  // Prune mode/role handles for terminals that no longer exist (skip the
-  // pre-fetch empty list — it would GC live handles, not dead ones).
+  // Prune send-mode handles for terminals that no longer exist (skip
+  // the pre-fetch empty list — it would GC live handles, not dead ones).
   useEffect(() => {
     if (allSessions.length === 0) return;
-    const liveIds = allSessions.map((s) => s.terminalId);
-    pruneSendModes(liveIds);
-    pruneSessionRoles(liveIds);
+    pruneSendModes(allSessions.map((s) => s.terminalId));
   }, [allSessions]);
 
   const terminalWrapperRef = useRef<HTMLDivElement>(null);
@@ -276,47 +235,44 @@ export function ChatSession() {
             active); tap toggles. The glyph itself is the mode signal — in
             Direct the accessory strip full of terminal keys is the visual
             reference. Never auto-focuses the capture (no keyboard pop on
-            toggle — the Orca rule); viewers get no input surface, so no
-            toggle either. */}
-        {!isViewer && (
-          <button
-            data-k2="mode-toggle"
-            onClick={() =>
-              switchMode(sendMode === "safe" ? "direct" : "safe")
-            }
-            aria-label={
-              sendMode === "safe"
-                ? "Switch to direct typing"
-                : "Switch to safe send"
-            }
-            className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0"
-          >
-            {sendMode === "direct" ? (
-              // Terminal prompt — Direct type is active.
-              <span
-                aria-hidden="true"
-                className="text-[13px] font-semibold leading-none"
-              >
-                &gt;_
-              </span>
-            ) : (
-              // Chat bubble — Safe send is active.
-              <svg
-                width="15"
-                height="15"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
-              >
-                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-              </svg>
-            )}
-          </button>
-        )}
+            toggle — the Orca rule). */}
+        <button
+          data-k2="mode-toggle"
+          onClick={() =>
+            switchMode(sendMode === "safe" ? "direct" : "safe")
+          }
+          aria-label={
+            sendMode === "safe"
+              ? "Switch to direct typing"
+              : "Switch to safe send"
+          }
+          className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0"
+        >
+          {sendMode === "direct" ? (
+            // Terminal prompt — Direct type is active.
+            <span
+              aria-hidden="true"
+              className="text-[13px] font-semibold leading-none"
+            >
+              &gt;_
+            </span>
+          ) : (
+            // Chat bubble — Safe send is active.
+            <svg
+              width="15"
+              height="15"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+          )}
+        </button>
         <button
           onClick={handleReload}
           disabled={reloading}
@@ -348,33 +304,17 @@ export function ChatSession() {
         ref={terminalWrapperRef}
         style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}
         onClick={() => {
-          if (sendMode === "direct" && !isViewer) captureFocusRef.current?.();
+          if (sendMode === "direct") captureFocusRef.current?.();
         }}
       >
         <TerminalView terminalId={terminalId} projectPath={projectPath} onInputRef={sendInputRef} onReloadRef={reloadRef} />
       </div>
 
-      {/* Input bar slot — three states:
-          viewer  → no input surface at all (the daemon gate is the
-                    source of truth; this hide is the honest UX);
-          Direct  → the composer UNMOUNTS entirely (T4): the live
-                    strip carries the Orca accessory key bar + the
-                    hidden capture — keystrokes stream to the PTY and
-                    the terminal's own cursor is the caret (the header
-                    icon toggle is the way back);
-          Safe    → today's composer (Return = newline, ↑ sends via the
-                    daemon's safe injector). */}
-      {isViewer ? (
-        <div
-          className="px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar input-bar-lift"
-          style={{ flexShrink: 0 }}
-        >
-          <div className="text-[var(--text-muted)] text-[12px] pb-3">
-            View-only — this session is shared with you without typing
-            access.
-          </div>
-        </div>
-      ) : sendMode === "direct" ? (
+      {/* Input bar: Watch keeps Safe send (textarea → terminal.write).
+          Direct unmounts the composer (T4) and streams keystrokes;
+          grid `{action:"input"}` is Drive-only, so Direct is a no-op
+          until then. */}
+      {sendMode === "direct" ? (
         <div
           className="px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar input-bar-lift"
           style={{ flexShrink: 0 }}
