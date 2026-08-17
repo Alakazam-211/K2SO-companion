@@ -10,39 +10,31 @@ import {
   type GridRoute,
 } from "../kessel/gridUrl";
 
-// Live terminal stream over the companion k1 grid-WS.
+// Live k1 grid-WS. Two origins (do not smash tokens):
+//   Connect/daemon (this app's `getBaseUrl()`):
+//     `/cli/sessions/grid?token=<connect-token>&proto=k1`
+//   Companion tunnel (capabilities k1 + companion token):
+//     `/companion/sessions/grid?token=<companion-token>&proto=k1`
+//   Never put the Connect `/cli/auth/login` token on the companion route.
 //
-// Protocol (PRD D1 / §5):
-//   connect: `<base>/companion/sessions/grid?session=<UUID>&token=<tok>&proto=k1`
-//   Token is the companion session token (same as /companion/ws). Query
-//   `token=` is the only JS path — WebSocket cannot set Authorization.
-//   server → snapshot/delta as k1 BINARY frames (gridWire.ts). Older
-//            JSON-only daemons (legacy `/cli/sessions/grid` only) keep
-//            sending `{"event":"snapshot"|"delta","payload":...}` text
-//            — BOTH decode paths stay live.
-//   server → every other event stays a JSON text frame: title / bell /
-//            label_* / pin_* / mode / child_exit / error / clipboard.
-//   client → `{action:"ack", version}` after a coalescer flush (never
-//            per WS message) once the daemon has proven it speaks k1.
+// Query `token=` is the only JS path (WebSocket cannot set Authorization).
+// Server → snapshot/delta as k1 BINARY (gridWire.ts); other events stay
+// JSON text. Client → `{action:"ack", version}` after a coalescer flush
+// once the daemon has proven it speaks k1.
 //
-// Watch-default (PRD D3): attach sends nothing that claims — no
-// `set_mode`, no `set_active`, no cols/rows. Drive is a later PR.
-// Capabilities miss keeps today's `/cli/sessions/grid` + claimer-on-open
-// painter via `connect(id, { route: "cli", attach: "legacy-claim" })`.
-//
+// Watch-default: attach sends nothing that claims. Capabilities miss
+// is Connect `/cli` Watch — not claimer-on-open.
 // Reconnect backoff: `500 * 2^min(n,4)` cap 5s (`lib/reconnect.ts`).
-//
-// `GridUpdate`/`CompactLine`/`StyleSpan` on the wire are field-identical
-// to the renderer's interfaces in TerminalView, so `payload` feeds
-// straight into `applyGridUpdate`.
 
 export type { GridAttach, GridRoute };
 
 export interface GridSocketConnectOpts {
-  /** Default: public companion route. `cli` is today's painter. */
+  /** Default: Connect `/cli` route. */
   route?: GridRoute;
   /** Default: Watch — send nothing on attach. */
   attach?: GridAttach;
+  /** Companion-auth token. Required for `route: "companion"`. */
+  token?: string;
 }
 
 export interface GridFrame<P = unknown> {
@@ -110,8 +102,10 @@ export class GridSocket {
    *  malformed inbound. Reset on every (re)connect; the daemon's
    *  per-connection pacing state resets with the socket too. */
   private k1WireActive = false;
-  private route: GridRoute = "companion";
+  private route: GridRoute = "cli";
   private attach: GridAttach = "watch";
+  /** Companion-auth token only. Never the Connect login token. */
+  private companionToken = "";
 
   constructor(onFrame: FrameHandler) {
     this.onFrame = onFrame;
@@ -120,8 +114,9 @@ export class GridSocket {
   /** Open (and keep open, with backoff) a grid stream for `sessionId`. */
   connect(sessionId: string, opts?: GridSocketConnectOpts): void {
     this.sessionId = sessionId;
-    this.route = opts?.route ?? "companion";
+    this.route = opts?.route ?? "cli";
     this.attach = opts?.attach ?? "watch";
+    this.companionToken = opts?.token ?? "";
     this.serverId = useServersStore.getState().activeServerId;
     this.shouldReconnect = true;
     // Foreground recovery (orca terminal-foreground-recovery pattern):
@@ -163,7 +158,12 @@ export class GridSocket {
   private buildUrl(): string | null {
     const base = getBaseUrl();
     if (!base) return null;
-    return buildGridWsUrl(base, this.sessionId, getToken(), this.route);
+    if (this.route === "companion") {
+      // Refuse to stamp the Connect token on the companion grid route.
+      if (!this.companionToken) return null;
+      return buildGridWsUrl(base, this.sessionId, this.companionToken, "companion");
+    }
+    return buildGridWsUrl(base, this.sessionId, getToken(), "cli");
   }
 
   private open(): void {
@@ -262,8 +262,7 @@ export class GridSocket {
       } catch (err) {
         console.warn("[gridSocket] socket_open handler error:", err);
       }
-      // Watch-default: send nothing that claims. Legacy claimer-on-open
-      // is only for the capabilities-miss painter.
+      // Watch-default: send nothing that claims.
       for (const action of attachOpenActions(this.attach, this.claimDims)) {
         this.send(action);
       }
