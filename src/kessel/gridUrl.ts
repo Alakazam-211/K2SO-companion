@@ -79,8 +79,9 @@ export function attachOpenActions(
   return out;
 }
 
-/** Size/claim frames are Drive-only. Watch (this PR default) emits none
- *  — including after a daemon `mode:claimer` on a Connect-owner socket. */
+/** Size/claim frames are Drive-only. Watch emits none — including after
+ *  a daemon `mode:claimer` on a Connect-owner socket. Caller must pass
+ *  a measured fit; never the 80×24 spawn fallback. */
 export function claimWireActions(
   drive: boolean,
   cols: number,

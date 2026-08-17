@@ -93,10 +93,15 @@ describe("Watch size emits (refit / claim / pin)", () => {
     expect(chooseGridDial({ capabilities: {} }).attach).toBe("watch");
   });
 
-  it("Drive (later PR) can emit set_active + resize", () => {
-    expect(claimWireActions(true, 80, 24)).toEqual([
-      { action: "set_active", active: true, cols: 80, rows: 24 },
-      { action: "resize", cols: 80, rows: 24 },
+  it("Drive can emit set_active + resize at a measured size", () => {
+    expect(claimWireActions(true, 42, 18)).toEqual([
+      { action: "set_active", active: true, cols: 42, rows: 18 },
+      { action: "resize", cols: 42, rows: 18 },
     ]);
+  });
+
+  it("Drive still no-ops on zero/negative dims (never invent 80×24)", () => {
+    expect(claimWireActions(true, 0, 24)).toEqual([]);
+    expect(claimWireActions(true, 80, 0)).toEqual([]);
   });
 });

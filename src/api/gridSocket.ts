@@ -38,7 +38,7 @@ export interface GridSocketConnectOpts {
   attach?: GridAttach;
   /** Companion-auth token. Required for `route: "companion"`. */
   token?: string;
-  /** Drive (later PR). Default false: claim/resize/pin are no-ops. */
+  /** Explicit Drive. Default false: claim/resize/pin are no-ops. */
   drive?: boolean;
 }
 
@@ -265,14 +265,16 @@ export class GridSocket {
       // auto-clears + broadcasts to the SURVIVORS — we never see it),
       // so TerminalView resets its claim state here and lets the new
       // connection's pin_initial re-establish pin truth if any.
+      // Drive reconnect: set_mode:claimer BEFORE the pane remasures
+      // and set_active (socket_open). Watch attach still sends nothing.
+      if (this.drive) this.send({ action: "set_mode", mode: "claimer" });
+      for (const action of attachOpenActions(this.attach, this.claimDims)) {
+        this.send(action);
+      }
       try {
         this.onFrame({ event: "socket_open", payload: {} });
       } catch (err) {
         console.warn("[gridSocket] socket_open handler error:", err);
-      }
-      // Watch-default: send nothing that claims.
-      for (const action of attachOpenActions(this.attach, this.claimDims)) {
-        this.send(action);
       }
     };
   }
@@ -315,8 +317,10 @@ export class GridSocket {
     }
   }
 
-  /** Send a keystroke / text input to the host PTY (optional). */
+  /** Grid `{action:"input"}` — Drive only (SGR wheel/tap). Composer
+   *  text stays on `terminal.write`. Watch never sends input. */
   sendInput(text: string): void {
+    if (!this.drive || !text) return;
     this.send({ action: "input", text });
   }
 
@@ -328,6 +332,21 @@ export class GridSocket {
   ackApplied(version: number): void {
     if (!this.k1WireActive || version <= 0) return;
     this.send({ action: "ack", version });
+  }
+
+  /** Flip Drive without tearing down the socket. Watch stays the
+   *  attach policy; claim/resize stay no-ops until this is true. */
+  setDrive(on: boolean): void {
+    this.drive = on;
+    if (!on) this.claimDims = null;
+  }
+
+  get driving(): boolean {
+    return this.drive;
+  }
+
+  sendFrames(frames: unknown[]): void {
+    for (const frame of frames) this.send(frame);
   }
 
   /** Claim this session as the active viewer and fit the shared PTY to THIS
