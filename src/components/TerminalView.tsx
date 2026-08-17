@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as api from "../api/client";
 import {
   GridSocket,
@@ -21,6 +21,13 @@ import {
 } from "../kessel/gridState";
 import { TerminalRow, hexToCss, type RenderRun } from "../kessel/rowRender";
 import { pickSeamColor } from "../kessel/seamColor";
+import { createWebglPainter } from "../kessel/webgl/webglPainter";
+import type {
+  PainterFrame,
+  PainterTheme,
+  TerminalPainter,
+} from "../kessel/webgl/painterTypes";
+import { TEXT_GAMMA_DARK } from "../kessel/text-gamma";
 import {
   contentBoxSize,
   measurePaneFit,
@@ -103,6 +110,25 @@ const REFIT_DEBOUNCE_MS = 250;
 /** Matches kessel `scaleLayout` (`container − 4`) and desktop pane
  *  padding (`4px 0 0 4px`). Do not mix with the old 8/4 strip. */
 const PAINT_PAD = 4;
+const WEBGL_SELECTION = 0x444444;
+const PAINTER_THEME: PainterTheme = {
+  fg: DEFAULT_FG,
+  bg: DEFAULT_BG,
+  selection: WEBGL_SELECTION,
+  textGamma: TEXT_GAMMA_DARK,
+};
+
+/** Native overflow scroll → `scrollPx` (CSS px above buffer bottom). */
+export function nativeScrollToPx(
+  scrollTop: number,
+  scrollHeight: number,
+  clientHeight: number,
+  scale: number,
+): number {
+  const max = scrollHeight - clientHeight;
+  if (!(max > 0) || !(scale > 0)) return 0;
+  return (max - scrollTop) / scale;
+}
 
 function plainRun(text: string): RenderRun {
   return {
@@ -365,14 +391,34 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
   // the drove-the-dims check in the render path.
   const lastFitRef = useRef<{ cols: number; rows: number } | null>(null);
 
-  // Same font probe desktop uses (DOM path: raw width, height =
-  // ceil(size × config line-height)). Do not keep Companion's old
-  // 10px / 1.35 hardcoded metrics.
+  // WebGL2 is the session default. `painterFatal` demotes THIS
+  // session to the DOM strip; remount after iOS context loss is the
+  // only retry, and a remount fatal stays on DOM.
+  const [painterFatal, setPainterFatal] = useState<string | null>(null);
+  const painterFatalRef = useRef<string | null>(null);
+  painterFatalRef.current = painterFatal;
+  const [surfaceWanted, setSurfaceWanted] = useState(
+    () => typeof document === "undefined" || document.visibilityState === "visible",
+  );
+  const webglCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const painterRef = useRef<TerminalPainter | null>(null);
+  const scrollPxRef = useRef(0);
+  const lastPaintedRef = useRef<{
+    snapshot: PainterFrame["snapshot"] | null;
+    scrollPx: number;
+    selection: Selection | null;
+  }>({ snapshot: null, scrollPx: -1, selection: null });
+  const paintWebglRef = useRef<
+    (scrollPxValue: number, snapOverride?: LiveGrid | null) => void
+  >(() => {});
+
+  // Same font probe desktop uses. WebGL default uses the integer
+  // device-grid path; a fatal remount re-probes the DOM metrics.
   useEffect(() => {
     const probed = probeCellMetrics({
       fontFamily: FONT_FAMILY,
       fontSize: FONT_SIZE,
-      useWebgl: false,
+      useWebgl: painterFatal === null,
       dpr: window.devicePixelRatio || 1,
       charTracking: 1,
       lineHeightMultiplier: LINE_HEIGHT_MULT,
@@ -382,7 +428,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     cellHRef.current = probed.height;
     setCellW(probed.width);
     setCellH(probed.height);
-  }, []);
+  }, [painterFatal]);
 
   const scrollbackLoadedRef = useRef(false);
 
@@ -479,11 +525,12 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
           pending: batch,
           live: liveRef.current,
           rendered: renderedRef.current,
-          scrollPx: 0,
+          scrollPx: scrollPxRef.current,
           cellHeight: cellHRef.current || Math.ceil(FONT_SIZE * LINE_HEIGHT_MULT),
           resizeHoldActive: holdRef.current !== null,
         });
         liveRef.current = result.live;
+        scrollPxRef.current = result.scrollPx;
         const live = result.live;
         if (live && typeof live.mouseReport === "boolean") {
           mouseModeRef.current = {
@@ -509,7 +556,10 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
             setPendingResize(null);
           }
         }
-        if (!result.suppressRender && live) paintLive(live);
+        if (!result.suppressRender && live) {
+          paintLive(live);
+          paintWebglRef.current(scrollPxRef.current, live);
+        }
         gridSock.ackApplied(result.ackVersion);
       },
     });
@@ -679,15 +729,32 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
+    let raf = 0;
 
     const handleScroll = () => {
       const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
       userScrolledRef.current = !atBottom;
       setScrollTop(container.scrollTop);
+      const scale = layoutRef.current.scale || 1;
+      scrollPxRef.current = nativeScrollToPx(
+        container.scrollTop,
+        container.scrollHeight,
+        container.clientHeight,
+        scale,
+      );
+      if (!raf) {
+        raf = requestAnimationFrame(() => {
+          raf = 0;
+          paintWebglRef.current(scrollPxRef.current);
+        });
+      }
     };
 
     container.addEventListener("scroll", handleScroll);
-    return () => container.removeEventListener("scroll", handleScroll);
+    return () => {
+      container.removeEventListener("scroll", handleScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
   }, []);
 
   useEffect(() => {
@@ -695,6 +762,20 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       containerRef.current.scrollTop = containerRef.current.scrollHeight;
     }
   }, [grid.version]);
+
+  // Remount the GL surface when the app comes back to the foreground
+  // after an unrestored context loss. Any other fatal stays on DOM.
+  useEffect(() => {
+    const onVis = () => {
+      const vis = document.visibilityState === "visible";
+      setSurfaceWanted(vis);
+      if (vis && painterFatalRef.current === "webgl-context-lost-unrestored") {
+        setPainterFatal(null);
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
+  }, []);
 
   // ── T5a/T5b/T6: the terminal touch-gesture layer ───────────────
   // One movement threshold splits every single-finger touch into
@@ -979,6 +1060,71 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     padY: PAINT_PAD,
   };
 
+  const useWebgl = painterFatal === null && liveSnap !== null && cellW > 0;
+  const webglSurfaceActive = useWebgl && surfaceWanted;
+
+  paintWebglRef.current = (scrollPxValue, snapOverride) => {
+    const painter = painterRef.current;
+    const snap = snapOverride ?? liveRef.current;
+    if (!painter || !snap || !cellWRef.current || !cellHRef.current) return;
+    const last = lastPaintedRef.current;
+    const sel = selectionRef.current;
+    if (
+      last.snapshot === snap &&
+      last.scrollPx === scrollPxValue &&
+      last.selection === sel
+    ) {
+      return;
+    }
+    last.snapshot = snap;
+    last.scrollPx = scrollPxValue;
+    last.selection = sel;
+    const n = sel ? normalizeSelection(sel) : null;
+    painter.render({
+      snapshot: snap,
+      scrollPx: scrollPxValue,
+      selection: n,
+      theme: PAINTER_THEME,
+    });
+  };
+
+  useLayoutEffect(() => {
+    if (!webglSurfaceActive) return;
+    const canvas = webglCanvasRef.current;
+    if (!canvas) return;
+    const painter = createWebglPainter();
+    painter.onFatal((reason) => {
+      setPainterFatal(reason);
+    });
+    painter.mount(canvas);
+    painterRef.current = painter;
+    lastPaintedRef.current.snapshot = null;
+    return () => {
+      painterRef.current = null;
+      painter.dispose();
+    };
+  }, [webglSurfaceActive]);
+
+  useLayoutEffect(() => {
+    if (!webglSurfaceActive) return;
+    const painter = painterRef.current;
+    if (!painter || !cellW || !lineH) return;
+    painter.setMetrics({
+      cssCellW: cellW,
+      cssCellH: lineH,
+      dpr,
+      fontFamily: FONT_FAMILY,
+      fontSize: FONT_SIZE,
+    });
+    lastPaintedRef.current.snapshot = null;
+  }, [webglSurfaceActive, cellW, lineH, dpr]);
+
+  useLayoutEffect(() => {
+    if (!webglSurfaceActive) return;
+    if (!liveSnap) return;
+    paintWebglRef.current(scrollPxRef.current, liveSnap);
+  }, [webglSurfaceActive, liveSnap, scrollTop, cellW, lineH, selection]);
+
   const paintRows: { abs: number; row: RenderRun[] }[] = [];
   if (liveSnap) {
     const sb = liveSnap.scrollback;
@@ -992,18 +1138,20 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     }
   }
 
-  const rowElements = paintRows.map(({ abs, row }) => (
-    <TerminalRow
-      key={abs}
-      row={row}
-      absRow={abs}
-      defaultFg={DEFAULT_FG_CSS}
-      defaultBg={DEFAULT_BG_CSS}
-      cellWidth={cellW}
-      cellHeight={lineH}
-      dpr={dpr}
-    />
-  ));
+  const rowElements = webglSurfaceActive
+    ? null
+    : paintRows.map(({ abs, row }) => (
+        <TerminalRow
+          key={abs}
+          row={row}
+          absRow={abs}
+          defaultFg={DEFAULT_FG_CSS}
+          defaultBg={DEFAULT_BG_CSS}
+          cellWidth={cellW}
+          cellHeight={lineH}
+          dpr={dpr}
+        />
+      ));
 
   const maxRow = paintRows.length;
   const hasGrid = liveSnap !== null && liveSnap.cols > 0 && cellW > 0;
@@ -1084,15 +1232,17 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
                 transformOrigin: "0 0",
               }}
             >
-              {DEV_MODE && (
+              {DEV_MODE && !webglSurfaceActive && (
                 <div style={{ color: "#22d3ee", fontSize: "9px", padding: "2px 0", opacity: 0.7 }}>
                   {maxRow} lines | {grid.cols}×{grid.viewportRows} | s={layout.scale.toFixed(2)}
                   {pendingResize ? ` | hold ${pendingResize.cols}×${pendingResize.rows}` : ""} | {debugRef.current}
+                  {painterFatal ? ` | dom(${painterFatal})` : ""}
                 </div>
               )}
               {/* Rows + the session's own cursor share one relative
                   box so the cursor's row math ignores the DEV debug
                   line above (T4: the PTY cursor IS the typing caret). */}
+              {!webglSurfaceActive && (
               <div style={{ position: "relative" }}>
                 {rowElements}
                 <TerminalCursor
@@ -1117,6 +1267,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
                   />
                 )}
               </div>
+              )}
             </div>
             {/* T6 Copy affordance — near the selection tail, UNSCALED
                 (outside the transformed strip) so it stays finger-sized;
@@ -1153,6 +1304,56 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
           </div>
         )}
       </div>
+
+      {webglSurfaceActive && hasGrid && liveSnap && (
+        <div
+          style={{
+            position: "absolute",
+            left: originX,
+            top: originY,
+            width: gridW,
+            height: (grid.viewportRows || liveSnap.rows) * lineH,
+            transform: `scale(${layout.scale})`,
+            transformOrigin: "0 0",
+            pointerEvents: "none",
+            background: DEFAULT_BG_CSS,
+          }}
+        >
+          <canvas
+            ref={webglCanvasRef}
+            data-terminal-webgl-canvas=""
+            style={{
+              display: "block",
+              pointerEvents: "none",
+              background: DEFAULT_BG_CSS,
+            }}
+          />
+          {DEV_MODE && (
+            <div
+              style={{
+                position: "absolute",
+                left: 0,
+                top: 0,
+                color: "#22d3ee",
+                fontSize: "9px",
+                padding: "2px 0",
+                opacity: 0.7,
+              }}
+            >
+              {maxRow} lines | {grid.cols}×{grid.viewportRows} | s={layout.scale.toFixed(2)} | webgl
+              {pendingResize ? ` | hold ${pendingResize.cols}×${pendingResize.rows}` : ""} | {debugRef.current}
+            </div>
+          )}
+          <TerminalCursor
+            row={liveSnap.cursor.row}
+            col={liveSnap.cursor.col}
+            cellW={cellW}
+            lineHeight={lineH}
+            shape={grid.cursorShape}
+            visible={grid.cursorVisible && scrollPxRef.current === 0}
+          />
+        </div>
+      )}
 
       {/* Badge/pill strip: claim/claimed/pinned/view-only + the
           "Viewing at C×R" pill. Rendered over the grid, outside the
