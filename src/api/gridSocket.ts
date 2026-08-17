@@ -3,42 +3,47 @@ import { useServersStore } from "../stores/servers";
 import { reviveServerSession } from "../lib/revive";
 import { reconnectDelayMs } from "../lib/reconnect";
 import { decodeGridFrame } from "./gridWire";
+import {
+  attachOpenActions,
+  buildGridWsUrl,
+  type GridAttach,
+  type GridRoute,
+} from "../kessel/gridUrl";
 
-// Live terminal stream over the daemon's grid-WS (`/cli/sessions/grid`).
+// Live terminal stream over the companion k1 grid-WS.
 //
-// Protocol (daemon `sessions_grid_ws.rs`):
-//   connect: `<base>/cli/sessions/grid?session=<UUID>&token=<tok>&proto=k1`
-//   server → snapshot/delta as k1 BINARY frames (gridWire.ts) when the
-//            daemon honors the `proto=k1` opt-in; an older JSON-only
-//            daemon ignores the param and keeps sending
-//            `{"event":"snapshot"|"delta","payload":<GridUpdate>}` text
-//            frames — BOTH decode paths stay live, and the callback
-//            receives the identical frame shape either way.
-//   server → every other event stays a JSON text frame regardless of
-//            proto: title / bell / label_initial / label_changed /
-//            pin_initial / pin_changed / mode / child_exit / error /
-//            clipboard. All of them flow through the frame callback
-//            (pin/mode consumed in T2).
-//   client → `{"action":"input","text":...}` / `{"action":"resize",...}`
-//   client → `{"action":"ack","version":N}` — k1 flow control, sent via
-//            `ackApplied()` once per APPLIED frame batch (never per WS
-//            message) and only after the daemon has proven it speaks k1
-//            (first binary frame). The daemon bounds this connection's
-//            unacked backlog with it: while we fall behind it stops
-//            forwarding deltas and resyncs us with a fresh full snapshot
-//            on our next ack.
+// Protocol (PRD D1 / §5):
+//   connect: `<base>/companion/sessions/grid?session=<UUID>&token=<tok>&proto=k1`
+//   Token is the companion session token (same as /companion/ws). Query
+//   `token=` is the only JS path — WebSocket cannot set Authorization.
+//   server → snapshot/delta as k1 BINARY frames (gridWire.ts). Older
+//            JSON-only daemons (legacy `/cli/sessions/grid` only) keep
+//            sending `{"event":"snapshot"|"delta","payload":...}` text
+//            — BOTH decode paths stay live.
+//   server → every other event stays a JSON text frame: title / bell /
+//            label_* / pin_* / mode / child_exit / error / clipboard.
+//   client → `{action:"ack", version}` after a coalescer flush (never
+//            per WS message) once the daemon has proven it speaks k1.
 //
-// The shared PTY is a single size across all viewers (it can't render
-// different dimensions per device), so the companion uses the daemon's
-// active-subscriber claim: while a session is open on the phone it claims
-// "active" and resizes the PTY to the phone's viewport, so the terminal
-// fits THIS device. This intentionally shrinks the desktop's view — by
-// design, the active device drives the size, and the desktop reclaims it
-// the moment it's used (most-recent-claim-wins). Keystrokes go via `input`.
+// Watch-default (PRD D3): attach sends nothing that claims — no
+// `set_mode`, no `set_active`, no cols/rows. Drive is a later PR.
+// Capabilities miss keeps today's `/cli/sessions/grid` + claimer-on-open
+// painter via `connect(id, { route: "cli", attach: "legacy-claim" })`.
+//
+// Reconnect backoff: `500 * 2^min(n,4)` cap 5s (`lib/reconnect.ts`).
 //
 // `GridUpdate`/`CompactLine`/`StyleSpan` on the wire are field-identical
 // to the renderer's interfaces in TerminalView, so `payload` feeds
 // straight into `applyGridUpdate`.
+
+export type { GridAttach, GridRoute };
+
+export interface GridSocketConnectOpts {
+  /** Default: public companion route. `cli` is today's painter. */
+  route?: GridRoute;
+  /** Default: Watch — send nothing on attach. */
+  attach?: GridAttach;
+}
 
 export interface GridFrame<P = unknown> {
   // daemon `Outbound` (sessions_grid_ws.rs): snapshot | delta | child_exit
@@ -105,14 +110,18 @@ export class GridSocket {
    *  malformed inbound. Reset on every (re)connect; the daemon's
    *  per-connection pacing state resets with the socket too. */
   private k1WireActive = false;
+  private route: GridRoute = "companion";
+  private attach: GridAttach = "watch";
 
   constructor(onFrame: FrameHandler) {
     this.onFrame = onFrame;
   }
 
   /** Open (and keep open, with backoff) a grid stream for `sessionId`. */
-  connect(sessionId: string): void {
+  connect(sessionId: string, opts?: GridSocketConnectOpts): void {
     this.sessionId = sessionId;
+    this.route = opts?.route ?? "companion";
+    this.attach = opts?.attach ?? "watch";
     this.serverId = useServersStore.getState().activeServerId;
     this.shouldReconnect = true;
     // Foreground recovery (orca terminal-foreground-recovery pattern):
@@ -152,16 +161,9 @@ export class GridSocket {
    *  is picked up (the daemon kicks stale tokens off the WS within 5s —
    *  reconnecting with the old one would just be kicked again). */
   private buildUrl(): string | null {
-    const base = getBaseUrl().replace(/^http/, "ws");
+    const base = getBaseUrl();
     if (!base) return null;
-    // `proto=k1` opts into the binary grid wire (gridWire.ts); an older
-    // daemon ignores the param and keeps sending JSON snapshot/delta.
-    return (
-      `${base}/cli/sessions/grid` +
-      `?session=${encodeURIComponent(this.sessionId)}` +
-      `&token=${encodeURIComponent(getToken())}` +
-      `&proto=k1`
-    );
+    return buildGridWsUrl(base, this.sessionId, getToken(), this.route);
   }
 
   private open(): void {
@@ -260,16 +262,11 @@ export class GridSocket {
       } catch (err) {
         console.warn("[gridSocket] socket_open handler error:", err);
       }
-      // S5 per-window mode: CONNECT-USER connections default to VIEWER
-      // on the daemon until the client opts in (owner-token windows
-      // default to claimer — desktop sends this opt-in from its
-      // window-mode store). Request claimer on every (re)connect; the
-      // daemon ACKs with `capable` and keeps true viewer-role users
-      // read-only server-side regardless of what we request.
-      this.send({ action: "set_mode", mode: "claimer" });
-      // Re-assert the active claim + PTY size on every (re)connect so the
-      // shared terminal keeps fitting THIS device.
-      this.sendClaim();
+      // Watch-default: send nothing that claims. Legacy claimer-on-open
+      // is only for the capabilities-miss painter.
+      for (const action of attachOpenActions(this.attach, this.claimDims)) {
+        this.send(action);
+      }
     };
   }
 
