@@ -11,6 +11,7 @@ import {
   type ModePayload,
   type ColSpanRun,
 } from "../api/gridSocket";
+import { chooseGridDial, type GridDial } from "../kessel/gridUrl";
 import { createFrameCoalescer } from "../lib/frameCoalescer";
 import { computeScaleLayout } from "../lib/scaleLayout";
 import {
@@ -150,8 +151,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
   // snapshot). Driven by the parent's reload button via onReloadRef.
   const [reloadKey, setReloadKey] = useState(0);
   // null = still probing GET /companion/capabilities.
-  // true = k1 companion grid WS (Watch-default). false = today's painter.
-  const [k1Live, setK1Live] = useState<boolean | null>(null);
+  const [gridDial, setGridDial] = useState<GridDial | null>(null);
   // Container box (border-box px) — the scale-to-fit input. Updated
   // synchronously by the ResizeObserver so keyboard/rotation reflows
   // re-scale immediately (the DIMS emit is what's debounced, not this).
@@ -361,24 +361,27 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     []
   );
 
-  // Probe: `{gridProto:["k1"]}` → companion grid WS. Miss → legacy painter.
+  // Probe: k1 + companion token → companion grid. Miss → Connect /cli Watch.
   useEffect(() => {
     let cancelled = false;
-    setK1Live(null);
+    setGridDial(null);
     void api.getCompanionCapabilities().then((r) => {
       if (cancelled) return;
-      const live = api.supportsK1Grid(r.data);
-      if (!live) showToast("Legacy terminal");
-      setK1Live(live);
+      setGridDial(
+        chooseGridDial({
+          capabilities: r.data,
+          companionToken: api.getCompanionToken(),
+        }),
+      );
     });
     return () => {
       cancelled = true;
     };
-  }, [terminalId, showToast]);
+  }, [terminalId]);
 
   // Live grid stream via the daemon grid-WS.
   useEffect(() => {
-    if (k1Live === null) return;
+    if (gridDial === null) return;
     let polling: ReturnType<typeof setInterval> | null = null;
     let lastText = "";
     let loadingContent = false;
@@ -575,14 +578,13 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     };
 
     const gridSock = new GridSocket(onFrame);
-    if (k1Live) {
-      // New daemon: public k1 route, Watch-default (no claim on attach).
-      dispatchClaim({ type: "mode", mode: "viewer", capable: true });
-      gridSock.connect(terminalId);
-    } else {
-      // Old daemon: today's /cli/sessions/grid painter + claimer-on-open.
-      gridSock.connect(terminalId, { route: "cli", attach: "legacy-claim" });
-    }
+    dispatchClaim({ type: "mode", mode: "viewer", capable: true });
+    const companionToken = api.getCompanionToken();
+    gridSock.connect(terminalId, {
+      route: gridDial.route,
+      attach: "watch",
+      ...(gridDial.tokenKind === "companion" ? { token: companionToken } : {}),
+    });
 
     // ── Phone-fit measurement + emission policy ──
     const measureFit = (): { cols: number; rows: number } | null => {
@@ -641,8 +643,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     const ro = new ResizeObserver(onBoxChange);
     if (containerRef.current) ro.observe(containerRef.current);
     onBoxChange();
-    // Watch-default: do not claim on attach. Legacy painter still does.
-    if (!k1Live) refit();
+    // Watch-default: do not claim on attach (Connect or companion).
     // Keyboard-height changes ride the container ResizeObserver (the
     // terminal frame is what shrinks), but the native injection's event
     // also nudges the debounce so a transition that ends without a final
@@ -718,7 +719,6 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       }
       holdRef.current = null;
       setPendingResize(null);
-      if (!k1Live) gridSock.release();
       clearTimeout(fallbackTimer);
       gridSock.close();
       if (polling) clearInterval(polling);
@@ -726,7 +726,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       // nobody left to render them.
       coalescer.clear();
     };
-  }, [terminalId, projectPath, applyGridUpdate, dispatchClaim, applyClipboardText, reloadKey, k1Live]);
+  }, [terminalId, projectPath, applyGridUpdate, dispatchClaim, applyClipboardText, reloadKey, gridDial]);
 
   // Chrome tap handlers (the socket lives inside the effect; taps go
   // through actionsRef / the HTTP pin route).

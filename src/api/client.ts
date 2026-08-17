@@ -6,6 +6,8 @@ import type { CompanionCapabilities } from "../kessel/capabilities";
 
 export type { CompanionCapabilities };
 export { supportsK1Grid } from "../kessel/capabilities";
+export { chooseGridDial } from "../kessel/gridUrl";
+export type { GridDial } from "../kessel/gridUrl";
 
 export interface ApiResponse<T = unknown> {
   ok: boolean;
@@ -131,6 +133,14 @@ export function getBaseUrl(): string {
 export function getToken(): string {
   const s = useServersStore.getState();
   return (s.activeServerId && s.tokens[s.activeServerId]) || "";
+}
+
+/** Companion-listener session token (`POST /companion/auth`).
+ *  Distinct from the Connect `/cli/auth/login` token in `getToken()`.
+ *  Empty until companion auth is wired — never stamp the Connect
+ *  token on `/companion/sessions/grid`. */
+export function getCompanionToken(): string {
+  return "";
 }
 
 // ─── HTTP via Tauri plugin (bypasses WKWebView restrictions) ───
@@ -391,8 +401,9 @@ export const clearTerminalPin = (session: string) =>
 export const getStatus = (project: string) =>
   request("status", "/cli/companion/status", { project });
 
-/** Probe whether the daemon registered the k1 companion grid upgrade.
- *  `{gridProto:["k1"]}` → new path is live. 404 / parse miss → legacy. */
+/** Probe whether THIS origin registered the companion k1 grid upgrade.
+ *  `{gridProto:["k1"]}` + a companion token → companion grid WS.
+ *  404 / miss → Connect daemon; dial `/cli/sessions/grid` Watch. */
 export const getCompanionCapabilities = () =>
   request<CompanionCapabilities>(
     "companion.capabilities",

@@ -1,8 +1,9 @@
-// GET /companion/capabilities — probe for the k1 grid upgrade.
+// GET /companion/capabilities — probe for the k1 companion-tunnel upgrade.
 //
-// Answered in the companion listener (not /cli/mode). `{gridProto:["k1"]}`
-// only when `/companion/sessions/grid` is actually registered. A 404 /
-// parse miss / missing key means the old daemon: stay on TerminalView.
+// `{gridProto:["k1"]}` only when `/companion/sessions/grid` is registered
+// on this origin. A 404 / parse miss means this origin is a Connect
+// daemon — dial `/cli/sessions/grid` Watch. Do not treat miss as
+// "old tunnel + claim-on-open".
 
 export interface CompanionCapabilities {
   gridProto?: string[];
