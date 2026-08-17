@@ -78,3 +78,31 @@ export function attachOpenActions(
   }
   return out;
 }
+
+/** Size/claim frames are Drive-only. Watch (this PR default) emits none
+ *  — including after a daemon `mode:claimer` on a Connect-owner socket. */
+export function claimWireActions(
+  drive: boolean,
+  cols: number,
+  rows: number,
+): unknown[] {
+  if (!drive || cols <= 0 || rows <= 0) return [];
+  return [
+    { action: "set_active", active: true, cols, rows },
+    { action: "resize", cols, rows },
+  ];
+}
+
+export function releaseWireActions(drive: boolean): unknown[] {
+  if (!drive) return [];
+  return [{ action: "set_active", active: false }];
+}
+
+export function claimPinWireActions(
+  drive: boolean,
+  cols: number,
+  rows: number,
+): unknown[] {
+  if (!drive || cols <= 0 || rows <= 0) return [];
+  return [{ action: "claim_pin", cols, rows }];
+}
