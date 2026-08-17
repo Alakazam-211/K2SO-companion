@@ -1,5 +1,5 @@
-// T2 pure tests: scale-to-fit layout math (lib/scaleLayout.ts, the
-// Kessel computeScaleLayout port), the "Claim session" state machine
+// T2 pure tests: scale-to-fit layout math (src/kessel/scaleLayout.ts,
+// the live Watch path), the "Claim session" state machine
 // (lib/claimState.ts), and the runCols column math port
 // (api/gridConvert.ts).
 //
@@ -10,7 +10,7 @@ import {
   computeScaleLayout,
   PASSIVE_SCALE_FLOOR,
   PINNED_SCALE_FLOOR,
-} from "../src/lib/scaleLayout.ts";
+} from "../src/kessel/scaleLayout.ts";
 import {
   initialClaimState,
   reduceClaim,
@@ -35,10 +35,12 @@ const near = (a, b, eps = 1e-9) => Math.abs(a - b) < eps;
 // ── 1. computeScaleLayout ──
 function testScaleLayout() {
   console.log("\n[scaleLayout] computeScaleLayout decision table");
+  // Live Kessel contract: avail = container − 4. Values below pick
+  // container so avail matches the old exact-fit 480×336 grid.
   const base = {
     snapCols: 80, snapRows: 24,
     cellWidth: 6, cellHeight: 14,       // grid = 480×336
-    availWidth: 480, availHeight: 336,  // exact fit
+    containerWidth: 484, containerHeight: 340,
     isActiveViewer: true, pinned: false, pendingResize: null,
   };
 
@@ -53,14 +55,14 @@ function testScaleLayout() {
     "grid sized to this box → unscaled, no offsets");
 
   // Sub-cell remainder splits into symmetric whole-px gutters.
-  const slack = computeScaleLayout({ ...base, availWidth: 489 }); // 9px slack
+  const slack = computeScaleLayout({ ...base, containerWidth: 493 }); // avail 489
   assert(slack.scale === 1 && slack.offsetX === 4 && !slack.passive,
     "scale-1 remainder centers, floored to whole px (9px slack → 4px left)");
 
   // Passive viewer, grid twice the box → scale 0.5, letterboxed.
   const passive = computeScaleLayout({
     ...base, isActiveViewer: false,
-    availWidth: 240, availHeight: 168,
+    containerWidth: 244, containerHeight: 172,
   });
   assert(near(passive.scale, 0.5) && passive.passive,
     "passive overflow → scale = fit (0.5), passive pill on");
@@ -69,7 +71,7 @@ function testScaleLayout() {
 
   const passiveTall = computeScaleLayout({
     ...base, isActiveViewer: false,
-    availWidth: 480, availHeight: 168, // height-limited: fit 0.5
+    containerWidth: 484, containerHeight: 172, // height-limited: fit 0.5
   });
   assert(near(passiveTall.scale, 0.5) && near(passiveTall.offsetX, 120),
     "height-limited fit letterboxes horizontally ((480-240)/2 = 120)");
@@ -77,7 +79,7 @@ function testScaleLayout() {
   // Passive floor 0.40: grid 10× the box clamps at the floor.
   const floored = computeScaleLayout({
     ...base, isActiveViewer: false,
-    availWidth: 48, availHeight: 33.6,
+    containerWidth: 52, containerHeight: 37.6,
   });
   assert(near(floored.scale, PASSIVE_SCALE_FLOOR) && floored.passive,
     "passive floor clamps at 0.40 (clip beyond)");
@@ -85,7 +87,7 @@ function testScaleLayout() {
   // Pinned: floor drops to 0.25, and the pill never shows.
   const pinnedFloor = computeScaleLayout({
     ...base, pinned: true,
-    availWidth: 48, availHeight: 33.6,
+    containerWidth: 52, containerHeight: 37.6,
   });
   assert(near(pinnedFloor.scale, PINNED_SCALE_FLOOR) && !pinnedFloor.passive,
     "pinned floor 0.25, passive=false (pin badge, not pill)");
@@ -98,7 +100,7 @@ function testScaleLayout() {
   const pinnedHold = computeScaleLayout({
     ...base, pinned: true, isActiveViewer: true,
     pendingResize: { cols: 40, rows: 12 },
-    availWidth: 240, availHeight: 168,
+    containerWidth: 244, containerHeight: 172,
   });
   assert(near(pinnedHold.scale, 0.5) && !pinnedHold.passive,
     "pinned branch ignores pendingResize (no stretch of a clamped grid)");
@@ -106,7 +108,7 @@ function testScaleLayout() {
   // Active + resize in flight, box GREW → stretch beyond 1.
   const stretch = computeScaleLayout({
     ...base, pendingResize: { cols: 160, rows: 48 },
-    availWidth: 960, availHeight: 672,
+    containerWidth: 964, containerHeight: 676,
   });
   assert(near(stretch.scale, 2) && !stretch.passive,
     "hold-and-scale: old grid stretches to the grown box (scale 2)");
@@ -114,7 +116,7 @@ function testScaleLayout() {
   // Active + resize in flight, box SHRANK → old grid scales down.
   const shrinkHold = computeScaleLayout({
     ...base, pendingResize: { cols: 40, rows: 12 },
-    availWidth: 240, availHeight: 168,
+    containerWidth: 244, containerHeight: 172,
   });
   assert(near(shrinkHold.scale, 0.5) && !shrinkHold.passive,
     "hold-and-scale: old grid shrinks into the smaller box (scale 0.5)");
@@ -128,7 +130,7 @@ function testScaleLayout() {
 
   // Active, no hold, dims mismatch → still centered 1:1 (transient).
   const activeMismatch = computeScaleLayout({
-    ...base, snapCols: 100, availWidth: 480,
+    ...base, snapCols: 100, containerWidth: 484,
   });
   assert(activeMismatch.scale === 1 && !activeMismatch.passive,
     "active viewer without a hold renders 1:1 (mismatch is transient)");
