@@ -9,7 +9,7 @@
 //                    cell (T4: Direct typing echoes THROUGH the PTY,
 //                    so this cursor is the only caret the user sees).
 //   TerminalChrome — the badge/pill strip above the grid ("Claim
-//                    session", claimed/pinned badges, "viewing at
+//                    session", claimed/pinned badges, "Viewing at
 //                    C×R" pill, view-only pill).
 //   SelectionOverlay / CopyAffordance / ToastPill /
 //   ClipboardFallbackPill — the T6 touch-selection + clipboard UX
@@ -394,7 +394,7 @@ export function TerminalChrome({
           border: "1px solid rgba(255,255,255,0.15)",
         }}
       >
-        viewing at {gridCols}×{gridRows}
+        Viewing at {gridCols}×{gridRows}
       </span>
     );
   }

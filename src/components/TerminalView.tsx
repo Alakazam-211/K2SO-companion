@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import * as api from "../api/client";
 import {
   GridSocket,
-  GridModel,
   type GridFrame,
   type TermGridSnapshot,
   type TermGridDelta,
@@ -13,7 +12,20 @@ import {
 } from "../api/gridSocket";
 import { chooseGridDial, type GridDial } from "../kessel/gridUrl";
 import { createFrameCoalescer } from "../lib/frameCoalescer";
-import { computeScaleLayout } from "../lib/scaleLayout";
+import { computeScaleLayout } from "../kessel/scaleLayout";
+import {
+  applyFrameBatch,
+  type CellRun as LiveRun,
+  type PendingFrame,
+  type TermGridSnapshot as LiveGrid,
+} from "../kessel/gridState";
+import { TerminalRow, hexToCss, type RenderRun } from "../kessel/rowRender";
+import { pickSeamColor } from "../kessel/seamColor";
+import {
+  contentBoxSize,
+  measurePaneFit,
+  probeCellMetrics,
+} from "../kessel/measurePaneFit";
 import {
   initialClaimState,
   reduceClaim,
@@ -50,14 +62,12 @@ import {
 import { copySelectionText } from "../lib/copyText";
 import { useTerminalMetaStore } from "../stores/terminalMeta";
 import {
-  FixedRow,
   TerminalChrome,
   TerminalCursor,
   SelectionOverlay,
   CopyAffordance,
   ToastPill,
   ClipboardFallbackPill,
-  colorToCSS,
   DEFAULT_BG,
   DEFAULT_FG,
   type StyleSpan,
@@ -75,33 +85,84 @@ interface CompactLine {
   runs?: ColSpanRun[];
 }
 
-interface GridUpdate {
-  cols: number;
-  rows: number;
-  cursor_col: number;
-  cursor_row: number;
-  cursor_visible: boolean;
-  cursor_shape: string;
-  lines: CompactLine[];
-  full: boolean;
-  display_offset?: number;
-}
-
 // ─── Constants ───
 
-const FONT_SIZE = 10;
-const LINE_HEIGHT = Math.ceil(FONT_SIZE * 1.35);
+// Desktop Kessel defaults (config.ts): Companion keeps its own
+// monospace stack; size/line-height come from defaultKesselConfig
+// so probeCellMetrics matches the desktop DOM painter.
+const FONT_SIZE = 14;
+const LINE_HEIGHT_MULT = 1.2;
 const FONT_FAMILY = "'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace";
+const DEFAULT_FG_CSS = hexToCss(DEFAULT_FG);
+const DEFAULT_BG_CSS = hexToCss(DEFAULT_BG);
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
 /** One re-fit per keyboard/rotation transition: emit at the END of the
  *  container-resize burst, never per animation frame. */
 const REFIT_DEBOUNCE_MS = 250;
 
-/** Grid-WS claim_pin / pin-size dims bounds (terminal_routes.rs —
- *  out-of-bounds frames are dropped whole, so clamp before sending). */
-const PIN_COLS_MIN = 20, PIN_COLS_MAX = 500;
-const PIN_ROWS_MIN = 5, PIN_ROWS_MAX = 200;
+function plainRun(text: string): RenderRun {
+  return {
+    text,
+    fg: null,
+    bg: null,
+    bold: false,
+    italic: false,
+    underline: false,
+    inverse: false,
+    dim: false,
+    strikeout: false,
+  };
+}
+
+function toLiveSnapshot(p: TermGridSnapshot): LiveGrid {
+  return {
+    paneId: p.paneId ?? "",
+    cols: p.cols,
+    rows: p.rows,
+    grid: p.grid as LiveGrid["grid"],
+    scrollback: p.scrollback as LiveGrid["scrollback"],
+    cursor: p.cursor,
+    version: p.version,
+    displayOffset: p.displayOffset,
+    mouseReport: p.mouseReport,
+    sgrMouse: p.sgrMouse,
+    altScreen: p.altScreen,
+  };
+}
+
+function toLiveDelta(p: TermGridDelta): PendingFrame {
+  return {
+    kind: "delta",
+    payload: {
+      paneId: p.paneId ?? "",
+      cols: p.cols,
+      rows: p.rows,
+      damagedRows: p.damagedRows,
+      scrollbackAppended: p.scrollbackAppended,
+      cursor: p.cursor,
+      version: p.version,
+      displayOffset: p.displayOffset,
+    },
+  } as PendingFrame;
+}
+
+function syncLinesFromSnap(snap: LiveGrid, dest: Map<number, CompactLine>): void {
+  dest.clear();
+  const push = (abs: number, runs: LiveRun[]) => {
+    dest.set(abs, {
+      row: abs,
+      text: runs.map((r) => r.text).join(""),
+      runs: runs.map((r) =>
+        r.cols !== undefined ? { text: r.text, cols: r.cols } : { text: r.text },
+      ),
+      wrapped: runs.some((r) => r.wrapped),
+    });
+  };
+  for (let i = 0; i < snap.scrollback.length; i++) push(i, snap.scrollback[i]);
+  const sb = snap.scrollback.length;
+  for (let i = 0; i < snap.grid.length; i++) push(sb + i, snap.grid[i]);
+}
 
 // ─── Component ───
 
@@ -141,7 +202,13 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
 
   const containerRef = useRef<HTMLDivElement>(null);
   const cellWRef = useRef(0);
+  const cellHRef = useRef(0);
   const [cellW, setCellW] = useState(0);
+  const [cellH, setCellH] = useState(0);
+  const liveRef = useRef<LiveGrid | null>(null);
+  const renderedRef = useRef<LiveGrid | null>(null);
+  const [liveSnap, setLiveSnap] = useState<LiveGrid | null>(null);
+  const [legacyRows, setLegacyRows] = useState<RenderRun[][]>([]);
   const debugRef = useRef("");
   // Bumping this tears down + recreates the grid-WS (reconnect → fresh
   // snapshot). Driven by the parent's reload button via onReloadRef.
@@ -290,72 +357,26 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
   // the drove-the-dims check in the render path.
   const lastFitRef = useRef<{ cols: number; rows: number } | null>(null);
 
-  // Measure cell width once — device-pixel-quantized so N×cellW row
-  // widths land on the physical pixel grid (no cumulative subpixel
-  // drift across a 500-column row).
+  // Same font probe desktop uses (DOM path: raw width, height =
+  // ceil(size × config line-height)). Do not keep Companion's old
+  // 10px / 1.35 hardcoded metrics.
   useEffect(() => {
-    const span = document.createElement("span");
-    span.style.cssText = `font-family: ${FONT_FAMILY}; font-size: ${FONT_SIZE}px; position: absolute; visibility: hidden; white-space: pre;`;
-    span.textContent = "W";
-    document.body.appendChild(span);
-    const raw = span.getBoundingClientRect().width;
-    document.body.removeChild(span);
-    const dpr = window.devicePixelRatio || 1;
-    const quantized = Math.round(raw * dpr) / dpr;
-    cellWRef.current = quantized;
-    setCellW(quantized);
+    const probed = probeCellMetrics({
+      fontFamily: FONT_FAMILY,
+      fontSize: FONT_SIZE,
+      useWebgl: false,
+      dpr: window.devicePixelRatio || 1,
+      charTracking: 1,
+      lineHeightMultiplier: LINE_HEIGHT_MULT,
+      configLineHeightMultiplier: LINE_HEIGHT_MULT,
+    });
+    cellWRef.current = probed.width;
+    cellHRef.current = probed.height;
+    setCellW(probed.width);
+    setCellH(probed.height);
   }, []);
 
   const scrollbackLoadedRef = useRef(false);
-  const MAX_ROWS = 1000;
-
-  const applyGridUpdate = useCallback(
-    (update: GridUpdate, isScrollback = false, viewportRows = 0) => {
-      if (update.full && !scrollbackLoadedRef.current) {
-        linesRef.current.clear();
-      }
-
-      if (isScrollback) {
-        // HTTP scrollback — rows map directly by index
-        for (const line of update.lines) {
-          linesRef.current.set(line.row, line);
-        }
-      } else {
-        // WS grid event — use display_offset for absolute row positioning
-        const offset = update.display_offset ?? 0;
-        for (const line of update.lines) {
-          const absRow = offset + line.row;
-          linesRef.current.set(absRow, { ...line, row: absRow });
-        }
-      }
-
-      // Roll off oldest rows if buffer exceeds max
-      if (linesRef.current.size > MAX_ROWS) {
-        const keys = Array.from(linesRef.current.keys()).sort((a, b) => a - b);
-        const toRemove = keys.length - MAX_ROWS;
-        for (let i = 0; i < toRemove; i++) {
-          linesRef.current.delete(keys[i]);
-        }
-      }
-
-      const maxKey = linesRef.current.size > 0
-        ? Math.max(...Array.from(linesRef.current.keys())) + 1
-        : update.rows;
-
-      setGrid({
-        rows: maxKey,
-        cols: update.cols,
-        viewportRows,
-        cursorRow: update.cursor_row,
-        cursorCol: update.cursor_col,
-        cursorVisible: update.cursor_visible,
-        cursorShape: update.cursor_shape?.toLowerCase() || "block",
-        displayOffset: update.display_offset ?? 0,
-        version: Date.now(),
-      });
-    },
-    []
-  );
 
   // Probe: k1 + companion token → companion grid. Miss → Connect /cli Watch.
   useEffect(() => {
@@ -399,9 +420,16 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         lastText = text;
         scrollbackLoadedRef.current = true;
         linesRef.current.clear();
+        const painted: RenderRun[][] = [];
         for (let i = 0; i < lines.length; i++) {
+          const run = plainRun(lines[i]);
           linesRef.current.set(i, { row: i, text: lines[i] });
+          painted.push([run]);
         }
+        setLegacyRows(painted);
+        setLiveSnap(null);
+        liveRef.current = null;
+        renderedRef.current = null;
         setGrid((prev) => ({
           ...prev,
           rows: lines!.length,
@@ -412,101 +440,80 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       }
     };
 
-    // Two-buffer terminal model (GridModel): snapshot replaces the
-    // viewport + scrollback; delta patches damaged viewport rows and
-    // appends scrollback. `lines()` flattens to absolute-row CompactLines
-    // which feed the fixed-grid renderer via applyGridUpdate.
-    const model = new GridModel();
-    const render = () => {
-      const gu: GridUpdate = {
-        cols: model.cols,
-        rows: model.totalRows(),
-        cursor_col: model.cursorCol,
-        cursor_row: model.cursorRow(),
-        cursor_visible: model.cursorVisible,
-        cursor_shape: "block",
-        lines: model.lines() as CompactLine[],
-        full: true,
-        display_offset: 0,
-      };
-      linesRef.current.clear();
-      scrollbackLoadedRef.current = true; // we own the clear above
-      applyGridUpdate(gu, true, model.viewport.length);
+    // k1 merge lives in gridState.applyFrameBatch (snapshot replace,
+    // delta patch, resize-hold blank suppression). The painter is a
+    // pure consumer of the resulting live grid.
+    const paintLive = (snap: LiveGrid) => {
+      liveRef.current = snap;
+      renderedRef.current = snap;
+      syncLinesFromSnap(snap, linesRef.current);
+      scrollbackLoadedRef.current = true;
+      setLiveSnap(snap);
+      setLegacyRows([]);
+      setGrid({
+        rows: snap.scrollback.length + snap.grid.length,
+        cols: snap.cols,
+        viewportRows: snap.rows,
+        cursorRow: snap.scrollback.length + snap.cursor.row,
+        cursorCol: snap.cursor.col,
+        cursorVisible: snap.cursor.visible,
+        cursorShape: "block",
+        displayOffset: snap.displayOffset,
+        version: snap.version,
+      });
     };
 
-    // Frame pacing (Kessel parity, frameCoalescer.ts): WS snapshot/delta
-    // frames queue and apply once per animation frame — one merge + one
-    // render per display refresh, a queued snapshot supersedes everything
-    // before it, and the starvation cap flushes synchronously if rAF
-    // stalls.
-    type PendingFrame =
-      | { kind: "snapshot"; payload: TermGridSnapshot }
-      | { kind: "delta"; payload: TermGridDelta };
     const coalescer = createFrameCoalescer<PendingFrame>({
       schedule: (flush) => requestAnimationFrame(flush),
       cancel: (id) => cancelAnimationFrame(id),
       apply: (batch) => {
-        let maxVersion = 0;
-        for (const f of batch) {
-          if (f.kind === "snapshot") {
-            model.applySnapshot(f.payload);
-            // T5a: latest mode bits (k1-only; JSON snapshots leave them
-            // unset → local scroll). LIVE by construction — a TUI
-            // toggling alt-screen/mouse-reporting mid-session rides the
-            // snapshot resend that switch triggers.
-            if (typeof f.payload.mouseReport === "boolean") {
-              mouseModeRef.current = {
-                mouseReport: f.payload.mouseReport,
-                sgrMouse: f.payload.sgrMouse === true,
-              };
-            }
-            debugRef.current = `ws-snapshot sb=${model.scrollback.length} vp=${model.viewport.length}`;
-          } else {
-            model.applyDelta(f.payload);
-            debugRef.current = `ws-delta dmg=${f.payload.damagedRows.length}`;
-          }
-          if (f.payload.version > maxVersion) maxVersion = f.payload.version;
+        const result = applyFrameBatch({
+          pending: batch,
+          live: liveRef.current,
+          rendered: renderedRef.current,
+          scrollPx: 0,
+          cellHeight: cellHRef.current || Math.ceil(FONT_SIZE * LINE_HEIGHT_MULT),
+          resizeHoldActive: holdRef.current !== null,
+        });
+        liveRef.current = result.live;
+        const live = result.live;
+        if (live && typeof live.mouseReport === "boolean") {
+          mouseModeRef.current = {
+            mouseReport: live.mouseReport,
+            sgrMouse: live.sgrMouse === true,
+          };
         }
-        // Hold-and-scale, apply half: while a resize we sent is in
-        // flight, blank merge results park in the model un-rendered
-        // (the daemon's cleared-grid intermediate — painting it IS the
-        // flash); old-dims content keeps rendering (the scale layout
-        // stretches it to the new box); the first non-blank frame at
-        // the target dims releases the hold and swaps 1:1.
+        const last = batch[batch.length - 1];
+        if (last?.kind === "snapshot") {
+          debugRef.current = `ws-snapshot sb=${live?.scrollback.length ?? 0} vp=${live?.grid.length ?? 0}`;
+        } else if (last?.kind === "delta") {
+          debugRef.current = `ws-delta dmg=${last.payload.damagedRows.length}`;
+        }
         const hold = holdRef.current;
-        if (hold) {
-          const blank = model.viewportBlank();
-          const atTarget =
-            model.cols === hold.cols && model.viewport.length === hold.rows;
-          if (blank) {
-            // park — keep the previous DOM until content or timeout
-          } else if (atTarget) {
+        if (hold && live && !result.suppressRender) {
+          const atTarget = live.cols === hold.cols && live.rows === hold.rows;
+          if (atTarget) {
             holdRef.current = null;
             if (holdTimerRef.current) {
               clearTimeout(holdTimerRef.current);
               holdTimerRef.current = null;
             }
             setPendingResize(null);
-            render();
-          } else {
-            render();
           }
-        } else {
-          render();
         }
-        // k1 flow control: one ack per APPLIED batch (applied-to-model,
-        // even when the render is parked by the hold), carrying the
-        // highest applied version — sent from the rAF flush, never per
-        // WS message (ackApplied no-ops until the daemon proves k1).
-        gridSock.ackApplied(maxVersion);
+        if (!result.suppressRender && live) paintLive(live);
+        gridSock.ackApplied(result.ackVersion);
       },
     });
 
     const onFrame = (frame: GridFrame) => {
       if (frame.event === "snapshot") {
-        coalescer.enqueue({ kind: "snapshot", payload: frame.payload as TermGridSnapshot });
+        coalescer.enqueue({
+          kind: "snapshot",
+          payload: toLiveSnapshot(frame.payload as TermGridSnapshot),
+        });
       } else if (frame.event === "delta") {
-        coalescer.enqueue({ kind: "delta", payload: frame.payload as TermGridDelta });
+        coalescer.enqueue(toLiveDelta(frame.payload as TermGridDelta));
       } else if (frame.event === "child_exit") {
         gridSock.close();
       } else if (frame.event === "socket_open") {
@@ -558,16 +565,14 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       ...(gridDial.tokenKind === "companion" ? { token: companionToken } : {}),
     });
 
-    // ── Phone-fit measurement + emission policy ──
+    // Phone-fit for local scale-to-fit only. Watch never emits
+    // set_active / resize — Drive is a later PR.
     const measureFit = (): { cols: number; rows: number } | null => {
-      const el = containerRef.current;
-      const cw = cellWRef.current;
-      if (!el || cw <= 0 || el.clientWidth <= 0 || el.clientHeight <= 0) return null;
-      // 8px L/R + 4px T/B strip padding; clamped into the daemon's
-      // pin/claim bounds (out-of-bounds claim_pin frames drop whole).
-      const cols = Math.min(PIN_COLS_MAX, Math.max(PIN_COLS_MIN, Math.floor((el.clientWidth - 16) / cw)));
-      const rows = Math.min(PIN_ROWS_MAX, Math.max(PIN_ROWS_MIN, Math.floor((el.clientHeight - 8) / LINE_HEIGHT)));
-      return { cols, rows };
+      return measurePaneFit(
+        contentBoxSize(containerRef.current),
+        cellWRef.current,
+        cellHRef.current,
+      );
     };
 
     // Measure the phone box for local scale-to-fit. Watch never
@@ -660,7 +665,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       // nobody left to render them.
       coalescer.clear();
     };
-  }, [terminalId, projectPath, applyGridUpdate, dispatchClaim, applyClipboardText, reloadKey, gridDial]);
+  }, [terminalId, projectPath, dispatchClaim, applyClipboardText, reloadKey, gridDial]);
 
   // Chrome tap handlers (the socket lives inside the effect; taps go
   // through actionsRef / the HTTP pin route).
@@ -741,7 +746,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         offsetX: layout.offsetX,
         scale: layout.scale,
         cellW: cellWRef.current,
-        cellH: LINE_HEIGHT,
+        cellH: cellHRef.current,
         cols: g.cols,
         totalRows: g.rows,
       });
@@ -839,7 +844,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         offsetX: layout.offsetX,
         scale: layout.scale,
         cellW: cw,
-        cellH: LINE_HEIGHT,
+        cellH: cellHRef.current,
         cols: g.cols,
         viewportRows: g.viewportRows,
         totalRows: g.rows,
@@ -847,7 +852,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       const r = accumulateDrag(
         dragWheelRef.current,
         deltaPx,
-        LINE_HEIGHT * (layout.scale > 0 ? layout.scale : 1),
+        cellHRef.current * (layout.scale > 0 ? layout.scale : 1),
         Math.abs(deltaPx) / dtMs,
       );
       dragWheelRef.current = r.state;
@@ -906,7 +911,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         offsetX: layout.offsetX,
         scale: layout.scale,
         cellW: cw,
-        cellH: LINE_HEIGHT,
+        cellH: cellHRef.current,
         cols: g.cols,
         viewportRows: g.viewportRows,
         totalRows: g.rows,
@@ -941,13 +946,8 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     };
   }, [clearSelection]);
 
-  // ── Scale-to-fit layout (lib/scaleLayout.ts, Kessel port) ──
-  // "Active" = our resizes drive the PTY right now: claimer, unpinned
-  // by others, and either the frames already track OUR fit or a resize
-  // we sent is in flight (hold-and-scale). Anything else (desktop drove
-  // the dims, pinned elsewhere, viewer) scales-to-fit. While our OWN
-  // ephemeral re-claim is in flight the pinned branch yields to the
-  // active hold path so keyboard reflows stretch instead of snapping.
+  // Watch-default: never the resize authority. Scale-to-fit with
+  // PASSIVE_SCALE_FLOOR 0.40 (pinned floor 0.25). Drive is a later PR.
   const lastFit = lastFitRef.current;
   const drivenByUs =
     lastFit !== null &&
@@ -957,20 +957,20 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     claimState.mode === "claimer" &&
     !pinnedByOther(claimState) &&
     (drivenByUs || pendingResize !== null);
+  const lineH = cellH || Math.ceil(FONT_SIZE * LINE_HEIGHT_MULT);
+  const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
   const layout = computeScaleLayout({
     snapCols: grid.cols,
     snapRows: grid.viewportRows,
     cellWidth: cellW,
-    cellHeight: LINE_HEIGHT,
-    availWidth: box.w - 16,
-    availHeight: box.h - 8,
+    cellHeight: lineH,
+    containerWidth: box.w,
+    containerHeight: box.h,
     isActiveViewer,
     pinned: claimState.pin !== null && !(claimState.claimedByMe && pendingResize !== null),
     pendingResize,
   });
 
-  // Mirror the render-scope values the bind-once T5a touch handlers
-  // read (grid dims for the SGR cell, scale for row quantization).
   gridStateRef.current = {
     cols: grid.cols,
     viewportRows: grid.viewportRows,
@@ -978,42 +978,42 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
   };
   layoutRef.current = { scale: layout.scale, offsetX: layout.offsetX };
 
-  // Fixed 1:1 grid needs live-stream dims + measured metrics; the HTTP
-  // fallback (bare text rows, unknown cols) keeps the legacy wrap block.
-  const fixedGrid = grid.cols > 0 && grid.viewportRows > 0 && cellW > 0;
-
-  // Build row elements — render all buffered lines for scrollback
-  const rowElements: React.ReactNode[] = [];
-  const maxRow = Math.max(grid.rows, linesRef.current.size, ...Array.from(linesRef.current.keys()).map(k => k + 1));
-  if (fixedGrid) {
-    for (let r = 0; r < maxRow; r++) {
-      rowElements.push(
-        <FixedRow
-          key={r}
-          line={linesRef.current.get(r)}
-          cols={grid.cols}
-          cellW={cellW}
-          lineHeight={LINE_HEIGHT}
-        />
-      );
+  const paintRows: { abs: number; row: RenderRun[] }[] = [];
+  if (liveSnap) {
+    const sb = liveSnap.scrollback;
+    for (let i = 0; i < sb.length; i++) paintRows.push({ abs: i, row: sb[i] });
+    for (let i = 0; i < liveSnap.grid.length; i++) {
+      paintRows.push({ abs: sb.length + i, row: liveSnap.grid[i] });
     }
   } else {
-    for (let r = 0; r < maxRow; r++) {
-      const line = linesRef.current.get(r);
-      rowElements.push(
-        <div key={r} style={{ minHeight: LINE_HEIGHT, lineHeight: `${LINE_HEIGHT}px` }}>
-          {line?.text || " "}
-        </div>
-      );
+    for (let i = 0; i < legacyRows.length; i++) {
+      paintRows.push({ abs: i, row: legacyRows[i] });
     }
   }
 
+  const rowElements = paintRows.map(({ abs, row }) => (
+    <TerminalRow
+      key={abs}
+      row={row}
+      absRow={abs}
+      defaultFg={DEFAULT_FG_CSS}
+      defaultBg={DEFAULT_BG_CSS}
+      cellWidth={cellW}
+      cellHeight={lineH}
+      dpr={dpr}
+    />
+  ));
+
+  const maxRow = paintRows.length;
+  const hasGrid = liveSnap !== null && liveSnap.cols > 0 && cellW > 0;
   const gridW = grid.cols * cellW;
-  const stripH = maxRow * LINE_HEIGHT;
+  const stripH = maxRow * lineH;
+  const seam = liveSnap ? pickSeamColor(liveSnap.grid, liveSnap.cols) : null;
   const fontStyles: React.CSSProperties = {
     fontFamily: FONT_FAMILY,
     fontSize: `${FONT_SIZE}px`,
-    color: colorToCSS(DEFAULT_FG),
+    lineHeight: `${lineH}px`,
+    color: DEFAULT_FG_CSS,
     fontVariantLigatures: "none",
   };
 
@@ -1026,7 +1026,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         right: 0,
         bottom: 0,
         overflow: "hidden",
-        background: colorToCSS(DEFAULT_BG),
+        background: hexToCss(seam ?? DEFAULT_BG),
       }}
     >
       {/* Scroll container — MUST stay `overflow: auto` (ChatSession's
@@ -1045,7 +1045,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
           WebkitOverflowScrolling: "touch",
         }}
       >
-        {fixedGrid ? (
+        {hasGrid ? (
           // Sizing shell: transforms don't affect layout, so this div
           // carries the SCALED strip footprint (scroll geometry), and
           // the inner block paints the 1:1 grid scaled about its
@@ -1085,7 +1085,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
                   row={grid.cursorRow}
                   col={grid.cursorCol}
                   cellW={cellW}
-                  lineHeight={LINE_HEIGHT}
+                  lineHeight={lineH}
                   shape={grid.cursorShape}
                   visible={grid.cursorVisible}
                 />
@@ -1099,7 +1099,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
                       grid.cols
                     )}
                     cellW={cellW}
-                    lineHeight={LINE_HEIGHT}
+                    lineHeight={lineH}
                   />
                 )}
               </div>
@@ -1113,20 +1113,21 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
                 Math.max(8, 8 + layout.offsetX + n.endCol * cellW * layout.scale),
                 Math.max(8, box.w - 88)
               );
-              const top = 4 + (n.endAbs + 1) * LINE_HEIGHT * layout.scale + 6;
+              const top = 4 + (n.endAbs + 1) * lineH * layout.scale + 6;
               return (
                 <CopyAffordance left={left} top={top} onCopy={handleCopySelection} />
               );
             })()}
           </div>
         ) : (
-          // HTTP fallback / pre-stream: legacy wrap block.
+          // HTTP fallback / pre-stream: same column-anchored painter
+          // (no wrap-to-width). Scale is identity until a k1 grid lands.
           <div
             style={{
               ...fontStyles,
               padding: "4px 8px",
-              wordBreak: "break-all",
-              whiteSpace: "pre-wrap",
+              position: "relative",
+              whiteSpace: "pre",
             }}
           >
             {DEV_MODE && (
@@ -1140,7 +1141,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       </div>
 
       {/* Badge/pill strip: claim/claimed/pinned/view-only + the
-          "viewing at C×R" pill. Rendered over the grid, outside the
+          "Viewing at C×R" pill. Rendered over the grid, outside the
           scroll flow. */}
       <TerminalChrome
         claim={claimState}
