@@ -11,6 +11,11 @@ import {
   type ColSpanRun,
 } from "../api/gridSocket";
 import { chooseGridDial, type GridDial } from "../kessel/gridUrl";
+import {
+  driveEnterFrames,
+  driveLeaveFrames,
+  driveResizeFrames,
+} from "../kessel/driveMode";
 import { createFrameCoalescer } from "../lib/frameCoalescer";
 import { computeScaleLayout } from "../kessel/scaleLayout";
 import {
@@ -100,6 +105,8 @@ const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 /** One re-fit per keyboard/rotation transition: emit at the END of the
  *  container-resize burst, never per animation frame. */
 const REFIT_DEBOUNCE_MS = 250;
+/** Hold-and-scale timeout — desktop Kessel parity. */
+const RESIZE_HOLD_TIMEOUT_MS = 500;
 /** Matches kessel `scaleLayout` (`container − 4`) and desktop pane
  *  padding (`4px 0 0 4px`). Do not mix with the old 8/4 strip. */
 const PAINT_PAD = 4;
@@ -180,9 +187,17 @@ interface Props {
   // session's grid-WS (tears down + re-opens → new snapshot). Lets a parent
   // (ChatSession's reload button) recover a broken/stale stream.
   onReloadRef?: { current: (() => void) | null };
+  /** Explicit Drive (header tap). Default Watch — never auto-claimed. */
+  drive?: boolean;
 }
 
-export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef }: Props) {
+export function TerminalView({
+  terminalId,
+  projectPath,
+  onInputRef,
+  onReloadRef,
+  drive = false,
+}: Props) {
   const linesRef = useRef<Map<number, CompactLine>>(new Map());
   const [grid, setGrid] = useState<{
     rows: number;
@@ -359,11 +374,17 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pendingResize, setPendingResize] = useState<{ cols: number; rows: number } | null>(null);
 
-  // Socket-effect internals exposed to the chrome's tap handlers.
-  const actionsRef = useRef<{ claim: () => void } | null>(null);
+  // Socket-effect internals exposed to the chrome / Drive toggle.
+  const actionsRef = useRef<{
+    claim: () => void;
+    enterDrive: () => void;
+    leaveDrive: () => void;
+  } | null>(null);
   // Last measured phone fit (cols×rows) — the claim button's dims and
   // the drove-the-dims check in the render path.
   const lastFitRef = useRef<{ cols: number; rows: number } | null>(null);
+  const driveRef = useRef(drive);
+  driveRef.current = drive;
 
   // Same font probe desktop uses (DOM path: raw width, height =
   // ceil(size × config line-height)). Do not keep Companion's old
@@ -514,6 +535,8 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       },
     });
 
+    const driveHooks = { onSocketOpen: () => {} };
+
     const onFrame = (frame: GridFrame) => {
       if (frame.event === "snapshot") {
         coalescer.enqueue({
@@ -529,6 +552,8 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         // ours (if any) and told the SURVIVORS — reset local ownership;
         // pin_initial on this connection restores pin truth if any.
         dispatchClaim({ type: "socket_open" });
+        // Reconnect while Driving: remasure this pane, then set_active.
+        driveHooks.onSocketOpen();
       } else if (frame.event === "mode") {
         const p = frame.payload as ModePayload;
         // Keep the daemon's real role for chrome. Watch is a local
@@ -539,7 +564,9 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
           mode: p.mode,
           capable: p.capable,
         });
-        gridSock.suppressClaim();
+        // Watch: drop a leftover claim so reconnects stay viewers.
+        // Drive owns claimDims until the user taps Watch.
+        if (!driveRef.current) gridSock.suppressClaim();
       } else if (frame.event === "pin_initial") {
         const p = frame.payload as PinInitialPayload;
         dispatchClaim({ type: "pin_initial", cols: p.cols, rows: p.rows, setBy: p.set_by });
@@ -572,8 +599,8 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       ...(gridDial.tokenKind === "companion" ? { token: companionToken } : {}),
     });
 
-    // Phone-fit for local scale-to-fit only. Watch never emits
-    // set_active / resize — Drive is a later PR.
+    // Phone-fit from the content box (RO contentRect). Null when the
+    // pane or cell probe is unmeasurable — Drive waits, never 80×24.
     const measureFit = (): { cols: number; rows: number } | null => {
       return measurePaneFit(
         contentBoxSize(containerRef.current),
@@ -582,12 +609,80 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       );
     };
 
-    // Measure the phone box for local scale-to-fit. Watch never
-    // emits set_active / resize / claim_pin — Drive is a later PR.
+    const clearHold = () => {
+      holdRef.current = null;
+      if (holdTimerRef.current) {
+        clearTimeout(holdTimerRef.current);
+        holdTimerRef.current = null;
+      }
+      setPendingResize(null);
+    };
+
+    const startHold = (dims: { cols: number; rows: number }) => {
+      const live = liveRef.current;
+      if (live && live.cols === dims.cols && live.rows === dims.rows) return;
+      holdRef.current = dims;
+      setPendingResize(dims);
+      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
+      holdTimerRef.current = setTimeout(() => {
+        holdTimerRef.current = null;
+        holdRef.current = null;
+        setPendingResize(null);
+      }, RESIZE_HOLD_TIMEOUT_MS);
+    };
+
+    const applyMeasuredClaim = (dims: { cols: number; rows: number }) => {
+      lastFitRef.current = dims;
+      startHold(dims);
+      gridSock.claim(dims.cols, dims.rows);
+    };
+
+    const measureThen = (then: (dims: { cols: number; rows: number }) => void) => {
+      const dims = measureFit();
+      if (dims) {
+        then(dims);
+        return;
+      }
+      requestAnimationFrame(() => {
+        if (!driveRef.current) return;
+        const retry = measureFit();
+        if (retry) then(retry);
+      });
+    };
+
+    const queueDriveClaim = () => {
+      gridSock.setDrive(true);
+      measureThen(applyMeasuredClaim);
+    };
+    driveHooks.onSocketOpen = () => {
+      if (driveRef.current) queueDriveClaim();
+    };
+
+    const enterDrive = () => {
+      gridSock.setDrive(true);
+      // set_mode:claimer first; set_active only after a real measure.
+      gridSock.sendFrames(driveEnterFrames(null));
+      measureThen(applyMeasuredClaim);
+    };
+
+    const leaveDrive = () => {
+      if (gridSock.driving) gridSock.sendFrames(driveLeaveFrames());
+      gridSock.setDrive(false);
+      clearHold();
+    };
+
+    // Keyboard/rotate: Watch only stores the local fit (scale-to-fit).
+    // Drive remasures and resizes the PTY — never on Watch.
     const refit = () => {
       const dims = measureFit();
       if (!dims) return;
       lastFitRef.current = dims;
+      if (!driveRef.current) return;
+      gridSock.setDrive(true);
+      const frames = driveResizeFrames(dims);
+      if (frames.length === 0) return;
+      startHold(dims);
+      gridSock.claim(dims.cols, dims.rows);
     };
 
     // K4: one emit per keyboard/rotation transition — debounce to the
@@ -611,18 +706,20 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     const ro = new ResizeObserver(onBoxChange);
     if (containerRef.current) ro.observe(containerRef.current);
     onBoxChange();
-    // Watch-default: do not claim on attach (Connect or companion).
     // Keyboard-height changes ride the container ResizeObserver (the
     // terminal frame is what shrinks), but the native injection's event
     // also nudges the debounce so a transition that ends without a final
-    // RO tick still re-fits.
+    // RO tick still re-fits. Drive is the only path that emits resize.
     window.addEventListener("k2-viewport-resize", debouncedRefit);
 
-    // Drive is a later PR — Watch never pins / claims / sends
-    // grid `{action:"input"}`. Composer stays on terminal.write.
-    actionsRef.current = { claim: () => {} };
-    rawInputRef.current = null;
+    actionsRef.current = { claim: () => {}, enterDrive, leaveDrive };
+    // SGR wheel/tap (PR3) rides this seam. Composer stays terminal.write.
+    rawInputRef.current = (text) => {
+      if (!driveRef.current) return;
+      gridSock.sendInput(text);
+    };
     if (onInputRef) onInputRef.current = null;
+    if (driveRef.current) enterDrive();
 
     // Expose a reload that forces a fresh reconnect (new snapshot) of this
     // session — bumping reloadKey re-runs this effect.
@@ -660,6 +757,12 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       coalescer.clear();
     };
   }, [terminalId, projectPath, dispatchClaim, applyClipboardText, reloadKey, gridDial]);
+
+  // Header Watch/Drive — flip the live socket, do not reconnect.
+  useEffect(() => {
+    if (drive) actionsRef.current?.enterDrive();
+    else actionsRef.current?.leaveDrive();
+  }, [drive]);
 
   // Chrome tap handlers (the socket lives inside the effect; taps go
   // through actionsRef / the HTTP pin route).
@@ -817,10 +920,10 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       // movement ceiling nothing wheels yet — a tick here would make a
       // pending long-press ALSO scroll the TUI.
       if (gest && !gest.moved) return;
-      // Input gate: viewer / not-capable connections' input frames are
+      // Input gate: Watch never sends. Viewer / not-capable frames are
       // dropped server-side — don't send them at all.
       const s = claimRef.current;
-      if (s.mode !== "claimer" || !s.capable) return;
+      if (!driveRef.current || s.mode !== "claimer" || !s.capable) return;
       const send = rawInputRef.current;
       const last = lastTouchRef.current;
       const g = gridStateRef.current;
@@ -896,7 +999,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       // scrollback mode taps stay local (Direct-mode focus etc.).
       if (mouseRoute(mouseModeRef.current) !== "forward") return;
       const s = claimRef.current;
-      if (s.mode !== "claimer" || !s.capable) return;
+      if (!driveRef.current || s.mode !== "claimer" || !s.capable) return;
       const send = rawInputRef.current;
       const cw = cellWRef.current;
       const g = gridStateRef.current;
@@ -948,9 +1051,9 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     };
   }, [clearSelection]);
 
-  // Watch-default: never the resize authority. Scale-to-fit with
-  // PASSIVE_SCALE_FLOOR 0.40 (pinned floor 0.25). Drive is a later PR.
-  const isActiveViewer = false;
+  // Watch: scale-to-fit. Drive: 1:1 + hold-and-scale while the
+  // measured resize is in flight. Pinned-by-other still letterboxes.
+  const isActiveViewer = drive && !pinnedByOther(claimState);
   const lineH = cellH || Math.ceil(FONT_SIZE * LINE_HEIGHT_MULT);
   const dpr = typeof window !== "undefined" ? window.devicePixelRatio || 1 : 1;
   const layout = computeScaleLayout({

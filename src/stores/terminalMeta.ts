@@ -7,9 +7,10 @@ import { create } from "zustand";
 // pin_initial / pin_changed events) here on every change and clears
 // its entry on unmount.
 //
-// T3 usage (read-only): daemon role for Drive later. Watch keeps
-// the composer (Safe send → terminal.write); viewer is not a
-// messaging gate. Absent entry defaults to "claimer".
+// T3 usage (read-only): daemon role. Watch keeps the composer
+// (Safe send → terminal.write); viewer is not a messaging gate.
+// Absent entry defaults to "claimer". Drive is the ChatSession
+// header flag, not this store.
 
 export interface TerminalMeta {
   /** Daemon-judged role for the live grid connection. */
