@@ -165,6 +165,13 @@ export function applyFrameBatch(
     const sbLen = next?.scrollback.length ?? 0
     nextScrollPx = anchorScrollPx(nextScrollPx, appendedRows, sbLen, ch)
   }
+  // Alt-screen / shrink: a leftover offset would hang above empty
+  // history. Follow stays at 0; a still-valid offset is identity.
+  nextScrollPx = clampScrollPx(
+    nextScrollPx,
+    next?.scrollback.length ?? 0,
+    ch,
+  )
   const suppressRender = Boolean(
     resizeHoldActive &&
       rendered &&

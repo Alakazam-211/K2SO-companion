@@ -12,6 +12,7 @@ import {
   type GridAttach,
   type GridRoute,
 } from "../kessel/gridUrl";
+import { sgrInputActions } from "../kessel/sgrWheel";
 
 // Live k1 grid-WS. Two origins (do not smash tokens):
 //   Connect/daemon (this app's `getBaseUrl()`):
@@ -315,9 +316,11 @@ export class GridSocket {
     }
   }
 
-  /** Send a keystroke / text input to the host PTY (optional). */
+  /** Drive-only grid `{action:"input"}`. Watch is a no-op — any Input
+   *  on a claimer-capable socket is a claim, and terminal.write would
+   *  append \\r after 150 ms. */
   sendInput(text: string): void {
-    this.send({ action: "input", text });
+    for (const action of sgrInputActions(this.drive, text)) this.send(action);
   }
 
   /** k1 flow control: acknowledge the highest APPLIED frame version.

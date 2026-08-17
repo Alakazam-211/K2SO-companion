@@ -34,15 +34,17 @@ import {
   type ClaimState,
 } from "../lib/claimState";
 import {
-  wheelRoute,
-  accumulateDrag,
-  initialDragWheel,
-  encodeSgrWheel,
-  cellFromPoint,
-  type DragWheelState,
-} from "../lib/sgrWheel";
+  clampScrollPx,
+  computeStripLayout,
+} from "../kessel/scrollMath";
 import {
-  mouseRoute,
+  accumulateWheelPx,
+  canSendSgrWheel,
+  flushWheelNotches,
+  initialWheelPump,
+} from "../kessel/sgrWheel";
+import { cellFromPoint } from "../lib/sgrWheel";
+import {
   encodeSgrTap,
   movedBeyond,
   classifyRelease,
@@ -252,15 +254,27 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
   // older daemons → stays "local", scrollback scrolling unchanged).
   // Refs, not state: read inside bind-once touch handlers; nothing
   // repaints when they flip.
-  const mouseModeRef = useRef<{ mouseReport: boolean; sgrMouse: boolean }>({
+  const mouseModeRef = useRef<{
+    mouseReport: boolean;
+    sgrMouse: boolean;
+    altScreen: boolean;
+  }>({
     mouseReport: false,
     sgrMouse: false,
+    altScreen: false,
   });
+  // Drive is PR4. Stay false so grid `{action:"input"}` / SGR are
+  // no-ops — any Input on a claimer-capable socket is a claim.
+  const driveRef = useRef(false);
   // Raw PTY input over the live socket — deliberately NOT the parent's
-  // onInputRef path (typing re-asserts the size claim; a wheel report
-  // must never trigger a resize).
+  // onInputRef path (that's terminal.write, which appends \\r).
   const rawInputRef = useRef<((text: string) => void) | null>(null);
-  const dragWheelRef = useRef<DragWheelState>(initialDragWheel());
+  const wheelPumpRef = useRef(initialWheelPump());
+  const wheelRafRef = useRef<number | null>(null);
+  const wheelPosRef = useRef({ col: 1, row: 1 });
+  const scrollPxRef = useRef(0);
+  const [scrollPx, setScrollPx] = useState(0);
+  const scrollRafRef = useRef<number | null>(null);
   const lastTouchRef = useRef<{ y: number; t: number } | null>(null);
   // Ref mirrors for the bind-once touch handlers (desktop TerminalPane
   // idiom: handlers read refs so the listener never re-binds per frame).
@@ -269,12 +283,20 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     viewportRows: 0,
     rows: 0,
   });
-  const layoutRef = useRef<{ scale: number; offsetX: number; padX: number; padY: number }>({
+  const layoutRef = useRef<{
+    scale: number;
+    offsetX: number;
+    offsetY: number;
+    padX: number;
+    padY: number;
+  }>({
     scale: 1,
     offsetX: 0,
+    offsetY: 0,
     padX: PAINT_PAD,
     padY: PAINT_PAD,
   });
+  const stripLayoutRef = useRef(computeStripLayout(0, 0, 0, 1));
 
   // ── T5b/T6: gesture classification + selection + clipboard ──
   // One tracker per touch: start point/time, whether it strayed past
@@ -479,16 +501,21 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
           pending: batch,
           live: liveRef.current,
           rendered: renderedRef.current,
-          scrollPx: 0,
+          scrollPx: scrollPxRef.current,
           cellHeight: cellHRef.current || Math.ceil(FONT_SIZE * LINE_HEIGHT_MULT),
           resizeHoldActive: holdRef.current !== null,
         });
         liveRef.current = result.live;
+        if (result.scrollPx !== scrollPxRef.current) {
+          scrollPxRef.current = result.scrollPx;
+          setScrollPx(result.scrollPx);
+        }
         const live = result.live;
         if (live && typeof live.mouseReport === "boolean") {
           mouseModeRef.current = {
             mouseReport: live.mouseReport,
             sgrMouse: live.sgrMouse === true,
+            altScreen: live.altScreen === true,
           };
         }
         const last = batch[batch.length - 1];
@@ -566,11 +593,16 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
 
     const gridSock = new GridSocket(onFrame);
     const companionToken = api.getCompanionToken();
+    // Drive is PR4 — omit so the socket flag stays false and SGR
+    // input is a no-op even if a handler calls sendInput.
     gridSock.connect(terminalId, {
       route: gridDial.route,
       attach: "watch",
       ...(gridDial.tokenKind === "companion" ? { token: companionToken } : {}),
     });
+    driveRef.current = false;
+    scrollPxRef.current = 0;
+    setScrollPx(0);
 
     // Phone-fit for local scale-to-fit only. Watch never emits
     // set_active / resize — Drive is a later PR.
@@ -621,7 +653,8 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     // Drive is a later PR — Watch never pins / claims / sends
     // grid `{action:"input"}`. Composer stays on terminal.write.
     actionsRef.current = { claim: () => {} };
-    rawInputRef.current = null;
+    // sendInput is Drive-gated on the socket — Watch stays a no-op.
+    rawInputRef.current = (text) => gridSock.sendInput(text);
     if (onInputRef) onInputRef.current = null;
 
     // Expose a reload that forces a fresh reconnect (new snapshot) of this
@@ -646,6 +679,14 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       ro.disconnect();
       window.removeEventListener("k2-viewport-resize", debouncedRefit);
       if (refitTimer) clearTimeout(refitTimer);
+      if (wheelRafRef.current !== null) {
+        cancelAnimationFrame(wheelRafRef.current);
+        wheelRafRef.current = null;
+      }
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
       if (holdTimerRef.current) {
         clearTimeout(holdTimerRef.current);
         holdTimerRef.current = null;
@@ -671,30 +712,6 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     dispatchClaim({ type: "release_sent" });
     void api.clearTerminalPin(terminalId);
   }, [dispatchClaim, terminalId]);
-
-  // Auto-scroll to bottom — only if user hasn't scrolled up
-  const userScrolledRef = useRef(false);
-  const [scrollTop, setScrollTop] = useState(0);
-
-  useEffect(() => {
-    const container = containerRef.current;
-    if (!container) return;
-
-    const handleScroll = () => {
-      const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
-      userScrolledRef.current = !atBottom;
-      setScrollTop(container.scrollTop);
-    };
-
-    container.addEventListener("scroll", handleScroll);
-    return () => container.removeEventListener("scroll", handleScroll);
-  }, []);
-
-  useEffect(() => {
-    if (containerRef.current && !userScrolledRef.current) {
-      containerRef.current.scrollTop = containerRef.current.scrollHeight;
-    }
-  }, [grid.version]);
 
   // ── T5a/T5b/T6: the terminal touch-gesture layer ───────────────
   // One movement threshold splits every single-finger touch into
@@ -734,13 +751,20 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     // for selection; null while grid metrics aren't measurable.
     const absCellAt = (clientX: number, clientY: number) => {
       const layout = layoutRef.current;
+      const strip = stripLayoutRef.current;
       const g = gridStateRef.current;
       const rect = el.getBoundingClientRect();
+      const s = layout.scale > 0 ? layout.scale : 1;
+      const localY =
+        (clientY - rect.top - layout.padY - layout.offsetY) / s -
+        strip.translateY;
+      const localX =
+        (clientX - rect.left - layout.padX - layout.offsetX) / s;
       return absCellFromPoint({
-        x: clientX - rect.left + el.scrollLeft,
-        y: clientY - rect.top + el.scrollTop,
+        x: localX + (layout.padX ?? 0) + layout.offsetX,
+        y: localY + strip.stripStart * cellHRef.current + (layout.padY ?? 0),
         offsetX: layout.offsetX,
-        scale: layout.scale,
+        scale: 1,
         cellW: cellWRef.current,
         cellH: cellHRef.current,
         cols: g.cols,
@@ -748,6 +772,59 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         padX: layout.padX,
         padY: layout.padY,
       });
+    };
+
+    const cancelWheelRaf = () => {
+      if (wheelRafRef.current !== null) {
+        cancelAnimationFrame(wheelRafRef.current);
+        wheelRafRef.current = null;
+      }
+    };
+    const flushSgrWheel = () => {
+      wheelRafRef.current = null;
+      if (
+        !canSendSgrWheel({
+          drive: driveRef.current,
+          mouseReport: mouseModeRef.current.mouseReport,
+          sgrMouse: mouseModeRef.current.sgrMouse,
+        })
+      ) {
+        return;
+      }
+      const send = rawInputRef.current;
+      const ch = cellHRef.current;
+      if (!send || ch <= 0) return;
+      const pos = wheelPosRef.current;
+      const flushed = flushWheelNotches(
+        wheelPumpRef.current,
+        ch,
+        pos.col,
+        pos.row,
+      );
+      wheelPumpRef.current = flushed.state;
+      if (flushed.seq) send(flushed.seq);
+    };
+    const scheduleSgrFlush = () => {
+      if (wheelRafRef.current === null) {
+        wheelRafRef.current = requestAnimationFrame(flushSgrWheel);
+      }
+    };
+
+    const applyLocalScroll = (deltaPx: number) => {
+      const scale = layoutRef.current.scale > 0 ? layoutRef.current.scale : 1;
+      const ch = cellHRef.current || Math.ceil(FONT_SIZE * LINE_HEIGHT_MULT);
+      const live = liveRef.current;
+      const sbLen =
+        live?.scrollback.length ??
+        Math.max(0, gridStateRef.current.rows - gridStateRef.current.viewportRows);
+      const next = clampScrollPx(
+        scrollPxRef.current - deltaPx / scale,
+        sbLen,
+        ch,
+      );
+      if (next === scrollPxRef.current) return;
+      scrollPxRef.current = next;
+      setScrollPx(next);
     };
 
     const onTouchStart = (e: TouchEvent) => {
@@ -761,7 +838,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         return;
       }
       const t0 = e.touches[0];
-      dragWheelRef.current = initialDragWheel();
+      wheelPumpRef.current = initialWheelPump();
       lastTouchRef.current = { y: t0.clientY, t: e.timeStamp };
       gestureRef.current = {
         x: t0.clientX,
@@ -809,58 +886,46 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         }
         return;
       }
-      // T5a wheel path (forward mode only). NORMAL mode returns before
-      // preventDefault, so the existing scrollback path (native scroll
-      // + ChatSession's touchmove→scrollTop shim) is untouched.
-      if (wheelRoute(mouseModeRef.current) !== "forward") return;
-      // Pre-classification stillness: inside the tap/long-press
-      // movement ceiling nothing wheels yet — a tick here would make a
-      // pending long-press ALSO scroll the TUI.
       if (gest && !gest.moved) return;
-      // Input gate: viewer / not-capable connections' input frames are
-      // dropped server-side — don't send them at all.
-      const s = claimRef.current;
-      if (s.mode !== "claimer" || !s.capable) return;
-      const send = rawInputRef.current;
       const last = lastTouchRef.current;
-      const g = gridStateRef.current;
-      const cw = cellWRef.current;
-      // Metrics/stream not ready → leave the drag to the local path
-      // (desktop parity: its wheel branch requires measured cells).
-      if (!send || !last || cw <= 0 || g.viewportRows <= 0) return;
-      e.preventDefault();
-      e.stopPropagation();
-      const deltaPx = last.y - touch.clientY; // >0 = finger up = wheel-down
-      const dtMs = Math.max(1, e.timeStamp - last.t);
+      if (!last) return;
+      const deltaPx = last.y - touch.clientY;
       lastTouchRef.current = { y: touch.clientY, t: e.timeStamp };
       if (deltaPx === 0) return;
-      const layout = layoutRef.current;
-      const rect = el.getBoundingClientRect();
-      const cell = cellFromPoint({
-        x: touch.clientX - rect.left + el.scrollLeft,
-        y: touch.clientY - rect.top + el.scrollTop,
-        offsetX: layout.offsetX,
-        scale: layout.scale,
-        cellW: cw,
-        cellH: cellHRef.current,
-        cols: g.cols,
-        viewportRows: g.viewportRows,
-        totalRows: g.rows,
-        padX: layout.padX,
-        padY: layout.padY,
+      e.preventDefault();
+      e.stopPropagation();
+      const sgr = canSendSgrWheel({
+        drive: driveRef.current,
+        mouseReport: mouseModeRef.current.mouseReport,
+        sgrMouse: mouseModeRef.current.sgrMouse,
       });
-      const r = accumulateDrag(
-        dragWheelRef.current,
-        deltaPx,
-        cellHRef.current * (layout.scale > 0 ? layout.scale : 1),
-        Math.abs(deltaPx) / dtMs,
-      );
-      dragWheelRef.current = r.state;
-      // Ticks of one move batch into ONE WS message (desktop's
-      // seq.repeat(ticks) flush parity).
-      if (r.ticks > 0) {
-        send(encodeSgrWheel(r.dir, cell.col, cell.row).repeat(r.ticks));
+      if (sgr) {
+        const g = gridStateRef.current;
+        const cw = cellWRef.current;
+        if (cw > 0 && g.viewportRows > 0) {
+          const layout = layoutRef.current;
+          const rect = el.getBoundingClientRect();
+          wheelPosRef.current = cellFromPoint({
+            x: touch.clientX - rect.left,
+            y: touch.clientY - rect.top,
+            offsetX: layout.offsetX,
+            scale: layout.scale,
+            cellW: cw,
+            cellH: cellHRef.current,
+            cols: g.cols,
+            viewportRows: g.viewportRows,
+            totalRows: g.rows,
+            padX: layout.padX,
+            padY: layout.padY,
+          });
+        }
+        wheelPumpRef.current = accumulateWheelPx(wheelPumpRef.current, deltaPx);
+        scheduleSgrFlush();
+        return;
       }
+      // Watch + alt-screen: no SGR (viewer) and no scrollback — no-op.
+      if (mouseModeRef.current.altScreen) return;
+      applyLocalScroll(deltaPx);
     };
 
     const onTouchEnd = (e: TouchEvent) => {
@@ -892,11 +957,17 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         if (e.cancelable) e.preventDefault();
         return;
       }
-      // T5b SGR tap-to-click: same gate as the wheel branch. Legacy
-      // scrollback mode taps stay local (Direct-mode focus etc.).
-      if (mouseRoute(mouseModeRef.current) !== "forward") return;
-      const s = claimRef.current;
-      if (s.mode !== "claimer" || !s.capable) return;
+      // T5b SGR tap: Drive-only, same gate as the wheel. Watch
+      // never injects (picker taps are a later cut).
+      if (
+        !canSendSgrWheel({
+          drive: driveRef.current,
+          mouseReport: mouseModeRef.current.mouseReport,
+          sgrMouse: mouseModeRef.current.sgrMouse,
+        })
+      ) {
+        return;
+      }
       const send = rawInputRef.current;
       const cw = cellWRef.current;
       const g = gridStateRef.current;
@@ -906,8 +977,8 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       const layout = layoutRef.current;
       const rect = el.getBoundingClientRect();
       const cell = cellFromPoint({
-        x: touch.clientX - rect.left + el.scrollLeft,
-        y: touch.clientY - rect.top + el.scrollTop,
+        x: touch.clientX - rect.left,
+        y: touch.clientY - rect.top,
         offsetX: layout.offsetX,
         scale: layout.scale,
         cellW: cw,
@@ -941,6 +1012,11 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     el.addEventListener("touchcancel", onTouchCancel, { passive: true });
     return () => {
       cancelLongPress();
+      cancelWheelRaf();
+      if (scrollRafRef.current !== null) {
+        cancelAnimationFrame(scrollRafRef.current);
+        scrollRafRef.current = null;
+      }
       el.removeEventListener("touchstart", onTouchStart);
       el.removeEventListener("touchmove", onTouchMove);
       el.removeEventListener("touchend", onTouchEnd);
@@ -975,21 +1051,35 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
   layoutRef.current = {
     scale: layout.scale,
     offsetX: layout.offsetX,
+    offsetY: layout.offsetY,
     padX: PAINT_PAD,
     padY: PAINT_PAD,
   };
 
-  const paintRows: { abs: number; row: RenderRun[] }[] = [];
+  const allRows: RenderRun[][] = [];
   if (liveSnap) {
-    const sb = liveSnap.scrollback;
-    for (let i = 0; i < sb.length; i++) paintRows.push({ abs: i, row: sb[i] });
-    for (let i = 0; i < liveSnap.grid.length; i++) {
-      paintRows.push({ abs: sb.length + i, row: liveSnap.grid[i] });
-    }
+    for (const row of liveSnap.scrollback) allRows.push(row);
+    for (const row of liveSnap.grid) allRows.push(row);
   } else {
-    for (let i = 0; i < legacyRows.length; i++) {
-      paintRows.push({ abs: i, row: legacyRows[i] });
-    }
+    for (const row of legacyRows) allRows.push(row);
+  }
+
+  const totalRows = allRows.length;
+  const viewportRows =
+    liveSnap?.rows ??
+    (grid.viewportRows > 0
+      ? grid.viewportRows
+      : Math.max(1, Math.floor(Math.max(0, box.h - originY) / (lineH || 1))));
+  const strip = computeStripLayout(scrollPx, totalRows, viewportRows, lineH);
+  stripLayoutRef.current = strip;
+
+  const paintRows: { abs: number; row: RenderRun[] }[] = [];
+  for (let i = 0; i < strip.rowCount; i++) {
+    const abs = strip.stripStart + i;
+    paintRows.push({
+      abs,
+      row: abs < 0 || abs >= totalRows ? [] : allRows[abs],
+    });
   }
 
   const rowElements = paintRows.map(({ abs, row }) => (
@@ -1005,18 +1095,10 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     />
   ));
 
-  const maxRow = paintRows.length;
+  const maxRow = totalRows;
   const hasGrid = liveSnap !== null && liveSnap.cols > 0 && cellW > 0;
   const gridW = grid.cols * cellW;
-  const stripH = maxRow * lineH;
-  const rowPx = lineH * (layout.scale > 0 ? layout.scale : 1);
-  const firstVisible =
-    rowPx > 0 ? Math.max(0, Math.floor((scrollTop - originY) / rowPx)) : 0;
-  const visibleCount =
-    rowPx > 0 ? Math.max(1, Math.ceil((box.h || lineH) / rowPx) + 1) : 0;
-  const visibleRuns = paintRows
-    .slice(firstVisible, firstVisible + visibleCount)
-    .map((p) => p.row);
+  const visibleRuns = paintRows.map((p) => p.row);
   const seam = liveSnap
     ? pickSeamColor(
         visibleRuns.length > 0 ? visibleRuns : liveSnap.grid,
@@ -1043,10 +1125,8 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         background: hexToCss(seam ?? DEFAULT_BG),
       }}
     >
-      {/* Scroll container — MUST stay `overflow: auto` (ChatSession's
-          touch-scroll shim finds it by that inline style). Native
-          vertical scroll through the scrollback strip is preserved;
-          the scale transform below never hijacks it. */}
+      {/* Native WKWebView scroll stays off. Touch writes scrollPx;
+          the strip translates (overscan already mounted). */}
       <div
         ref={containerRef}
         style={{
@@ -1055,30 +1135,23 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
           left: 0,
           right: 0,
           bottom: 0,
-          overflow: "auto",
-          WebkitOverflowScrolling: "touch",
+          overflow: "hidden",
         }}
       >
         {hasGrid ? (
-          // Sizing shell: transforms don't affect layout, so this div
-          // carries the SCALED strip footprint (scroll geometry), and
-          // the inner block paints the 1:1 grid scaled about its
-          // top-left. offsetX centers/letterboxes horizontally;
-          // vertical stays top-anchored — the scroll axis IS the
-          // letterbox there.
           <div
             style={{
-              position: "relative",
-              width: Math.max(box.w, originX + gridW * layout.scale),
-              height: originY + stripH * layout.scale,
+              position: "absolute",
+              top: originY,
+              right: PAINT_PAD,
+              bottom: PAINT_PAD,
+              left: originX,
+              overflow: "hidden",
             }}
           >
             <div
               style={{
                 ...fontStyles,
-                position: "absolute",
-                left: originX,
-                top: originY,
                 width: gridW,
                 transform: `scale(${layout.scale})`,
                 transformOrigin: "0 0",
@@ -1086,67 +1159,74 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
             >
               {DEV_MODE && (
                 <div style={{ color: "#22d3ee", fontSize: "9px", padding: "2px 0", opacity: 0.7 }}>
-                  {maxRow} lines | {grid.cols}×{grid.viewportRows} | s={layout.scale.toFixed(2)}
+                  {maxRow} lines | {grid.cols}×{grid.viewportRows} | s={layout.scale.toFixed(2)} | px={scrollPx.toFixed(0)}
                   {pendingResize ? ` | hold ${pendingResize.cols}×${pendingResize.rows}` : ""} | {debugRef.current}
                 </div>
               )}
-              {/* Rows + the session's own cursor share one relative
-                  box so the cursor's row math ignores the DEV debug
-                  line above (T4: the PTY cursor IS the typing caret). */}
-              <div style={{ position: "relative" }}>
+              <div
+                style={{
+                  position: "relative",
+                  transform: `translateY(${strip.translateY}px)`,
+                  willChange: "transform",
+                }}
+              >
                 {rowElements}
                 <TerminalCursor
-                  row={grid.cursorRow}
+                  row={grid.cursorRow - strip.stripStart}
                   col={grid.cursorCol}
                   cellW={cellW}
                   lineHeight={lineH}
                   shape={grid.cursorShape}
-                  visible={grid.cursorVisible}
+                  visible={
+                    grid.cursorVisible &&
+                    grid.cursorRow >= strip.stripStart &&
+                    grid.cursorRow < strip.stripStart + strip.rowCount
+                  }
                 />
-                {/* T6 selection highlight — grid space, so the scale
-                    transform and the rows' coordinate math apply
-                    unchanged. */}
                 {selection && (
                   <SelectionOverlay
                     segments={selectionRowSegments(
                       normalizeSelection(selection),
-                      grid.cols
-                    )}
+                      grid.cols,
+                    ).map((seg) => ({
+                      ...seg,
+                      abs: seg.abs - strip.stripStart,
+                    }))}
                     cellW={cellW}
                     lineHeight={lineH}
                   />
                 )}
               </div>
             </div>
-            {/* T6 Copy affordance — near the selection tail, UNSCALED
-                (outside the transformed strip) so it stays finger-sized;
-                inside the scroll container so it rides the content. */}
             {selection && selectionDone && (() => {
               const n = normalizeSelection(selection);
               const left = Math.min(
                 Math.max(PAINT_PAD, originX + n.endCol * cellW * layout.scale),
-                Math.max(PAINT_PAD, box.w - 88)
+                Math.max(PAINT_PAD, box.w - 88),
               );
-              const top = originY + (n.endAbs + 1) * lineH * layout.scale + 6;
+              const top =
+                originY +
+                ((n.endAbs - strip.stripStart + 1) * lineH + strip.translateY) *
+                  layout.scale +
+                6;
               return (
                 <CopyAffordance left={left} top={top} onCopy={handleCopySelection} />
               );
             })()}
           </div>
         ) : (
-          // HTTP fallback / pre-stream: same column-anchored painter
-          // (no wrap-to-width). Scale is identity until a k1 grid lands.
           <div
             style={{
               ...fontStyles,
               padding: "4px 0 0 4px",
               position: "relative",
               whiteSpace: "pre",
+              transform: `translateY(${strip.translateY}px)`,
             }}
           >
             {DEV_MODE && (
               <div style={{ color: "#22d3ee", fontSize: "9px", padding: "2px 0", opacity: 0.7 }}>
-                {maxRow} lines | buf={linesRef.current.size} | {grid.rows}r | {debugRef.current}
+                {maxRow} lines | buf={linesRef.current.size} | {grid.rows}r | px={scrollPx.toFixed(0)} | {debugRef.current}
               </div>
             )}
             {rowElements}
