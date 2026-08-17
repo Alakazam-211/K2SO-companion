@@ -149,6 +149,9 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
   // Bumping this tears down + recreates the grid-WS (reconnect → fresh
   // snapshot). Driven by the parent's reload button via onReloadRef.
   const [reloadKey, setReloadKey] = useState(0);
+  // null = still probing GET /companion/capabilities.
+  // true = k1 companion grid WS (Watch-default). false = today's painter.
+  const [k1Live, setK1Live] = useState<boolean | null>(null);
   // Container box (border-box px) — the scale-to-fit input. Updated
   // synchronously by the ResizeObserver so keyboard/rotation reflows
   // re-scale immediately (the DIMS emit is what's debounced, not this).
@@ -358,8 +361,24 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     []
   );
 
+  // Probe: `{gridProto:["k1"]}` → companion grid WS. Miss → legacy painter.
+  useEffect(() => {
+    let cancelled = false;
+    setK1Live(null);
+    void api.getCompanionCapabilities().then((r) => {
+      if (cancelled) return;
+      const live = api.supportsK1Grid(r.data);
+      if (!live) showToast("Legacy terminal");
+      setK1Live(live);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [terminalId, showToast]);
+
   // Live grid stream via the daemon grid-WS.
   useEffect(() => {
+    if (k1Live === null) return;
     let polling: ReturnType<typeof setInterval> | null = null;
     let lastText = "";
     let loadingContent = false;
@@ -556,7 +575,14 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     };
 
     const gridSock = new GridSocket(onFrame);
-    gridSock.connect(terminalId);
+    if (k1Live) {
+      // New daemon: public k1 route, Watch-default (no claim on attach).
+      dispatchClaim({ type: "mode", mode: "viewer", capable: true });
+      gridSock.connect(terminalId);
+    } else {
+      // Old daemon: today's /cli/sessions/grid painter + claimer-on-open.
+      gridSock.connect(terminalId, { route: "cli", attach: "legacy-claim" });
+    }
 
     // ── Phone-fit measurement + emission policy ──
     const measureFit = (): { cols: number; rows: number } | null => {
@@ -615,10 +641,8 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     const ro = new ResizeObserver(onBoxChange);
     if (containerRef.current) ro.observe(containerRef.current);
     onBoxChange();
-    // Claim-on-open (PRD W1): claim + reflow to phone dims immediately —
-    // through the hold, so the attach snapshot at the old size renders
-    // scaled until the phone-shaped frames land (no flash).
-    refit();
+    // Watch-default: do not claim on attach. Legacy painter still does.
+    if (!k1Live) refit();
     // Keyboard-height changes ride the container ResizeObserver (the
     // terminal frame is what shrinks), but the native injection's event
     // also nudges the debounce so a transition that ends without a final
@@ -694,7 +718,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       }
       holdRef.current = null;
       setPendingResize(null);
-      gridSock.release();
+      if (!k1Live) gridSock.release();
       clearTimeout(fallbackTimer);
       gridSock.close();
       if (polling) clearInterval(polling);
@@ -702,7 +726,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       // nobody left to render them.
       coalescer.clear();
     };
-  }, [terminalId, projectPath, applyGridUpdate, dispatchClaim, applyClipboardText, reloadKey]);
+  }, [terminalId, projectPath, applyGridUpdate, dispatchClaim, applyClipboardText, reloadKey, k1Live]);
 
   // Chrome tap handlers (the socket lives inside the effect; taps go
   // through actionsRef / the HTTP pin route).

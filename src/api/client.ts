@@ -2,6 +2,10 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { ws } from "./websocket";
 import { useServersStore } from "../stores/servers";
 import { isPossibleAuthFailure, reviveServerSession } from "../lib/revive";
+import type { CompanionCapabilities } from "../kessel/capabilities";
+
+export type { CompanionCapabilities };
+export { supportsK1Grid } from "../kessel/capabilities";
 
 export interface ApiResponse<T = unknown> {
   ok: boolean;
@@ -235,9 +239,9 @@ async function httpRequest<T>(
 //
 // WS-first is kept as a dormant path: the daemon has no companion RPC
 // WebSocket, so `ws.isConnected` stays false here and every data call
-// goes over HTTP. The grid-WS (`/cli/sessions/grid`) is a dedicated
-// per-session terminal stream used directly by TerminalView, not this
-// RPC wrapper. (Phase 4 wires that.)
+// goes over HTTP. The k1 grid-WS (`/companion/sessions/grid`) is a
+// dedicated per-session stream used directly by GridSocket, not this
+// RPC wrapper.
 
 async function request<T>(
   wsMethod: string,
@@ -386,3 +390,12 @@ export const clearTerminalPin = (session: string) =>
   );
 export const getStatus = (project: string) =>
   request("status", "/cli/companion/status", { project });
+
+/** Probe whether the daemon registered the k1 companion grid upgrade.
+ *  `{gridProto:["k1"]}` → new path is live. 404 / parse miss → legacy. */
+export const getCompanionCapabilities = () =>
+  request<CompanionCapabilities>(
+    "companion.capabilities",
+    "/companion/capabilities",
+    {},
+  );
