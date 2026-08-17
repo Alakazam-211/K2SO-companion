@@ -369,4 +369,26 @@ describe('applyFrameBatch', () => {
     })
     expect(result.scrollPx).toBe(140)
   })
+
+  it('pins scrollPx to 0 when a snapshot drops scrollback (alt-screen)', () => {
+    const live = snap({
+      rows: 4,
+      grid: [[run('g0')], [run('g1')], [run('g2')], [run('g3')]],
+      scrollback: Array.from({ length: 10 }, (_, i) => [run(`line-${i}`)]),
+    })
+    const alt = snap({
+      rows: 4,
+      version: 9,
+      altScreen: true,
+      grid: [[run('t0')], [run('t1')], [run('t2')], [run('t3')]],
+      scrollback: [],
+    })
+    const result = applyFrameBatch({
+      ...base,
+      live,
+      scrollPx: 80,
+      pending: [{ kind: 'snapshot', payload: alt }],
+    })
+    expect(result.scrollPx).toBe(0)
+  })
 })

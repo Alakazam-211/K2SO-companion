@@ -106,3 +106,6 @@ export function claimPinWireActions(
   if (!drive || cols <= 0 || rows <= 0) return [];
   return [{ action: "claim_pin", cols, rows }];
 }
+
+/** Re-export so socket + tests share the Drive gate. */
+export { sgrInputActions } from "./sgrWheel";

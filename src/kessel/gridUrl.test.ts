@@ -10,6 +10,7 @@ import {
   claimPinWireActions,
   claimWireActions,
   releaseWireActions,
+  sgrInputActions,
 } from "./gridUrl";
 
 describe("chooseGridDial", () => {
@@ -97,6 +98,13 @@ describe("Watch size emits (refit / claim / pin)", () => {
     expect(claimWireActions(true, 80, 24)).toEqual([
       { action: "set_active", active: true, cols: 80, rows: 24 },
       { action: "resize", cols: 80, rows: 24 },
+    ]);
+  });
+
+  it("Watch never emits grid {action:input}; Drive can", () => {
+    expect(sgrInputActions(false, "\x1b[<64;1;1M")).toEqual([]);
+    expect(sgrInputActions(true, "\x1b[<65;2;3M")).toEqual([
+      { action: "input", text: "\x1b[<65;2;3M" },
     ]);
   });
 });

@@ -79,74 +79,18 @@ export function ChatSession() {
   const [reloading, setReloading] = useState(false);
   const [debugInfo, setDebugInfo] = useState("");
 
-  // Manual touch-scroll: WKWebView with scrollEnabled=false sometimes blocks
-  // CSS overflow:auto scrolling. We handle it manually via touchmove.
-  // Fullscreen-TUI sessions (mouse-reporting mode) never reach this
-  // handler: TerminalView's T5a touch effect converts those drags to
-  // SGR wheel events and stopPropagation()s before this wrapper sees
-  // them (there's no scrollback to scrollTop through on the alt screen).
+  // Native WKWebView scroll stays off. TerminalView owns pixel
+  // scroll (scrollPx) and Drive-gated SGR; this wrapper only
+  // reports box size in DEV.
   useEffect(() => {
     const wrapper = terminalWrapperRef.current;
     if (!wrapper) return;
-
-    let startY = 0;
-    let scrollEl: HTMLElement | null = null;
-
-    const findScrollEl = () => {
-      if (!scrollEl) {
-        // Find the TerminalView's scroll container (overflow: auto), not the wrapper (overflow: hidden)
-        const candidates = wrapper.querySelectorAll('div');
-        for (const el of candidates) {
-          if (el.style.overflow === 'auto' && el.scrollHeight > el.clientHeight) {
-            scrollEl = el;
-            break;
-          }
-        }
-        // Fallback: first element with overflow auto
-        if (!scrollEl) {
-          for (const el of candidates) {
-            if (el.style.overflow === 'auto') {
-              scrollEl = el;
-              break;
-            }
-          }
-        }
-      }
-      return scrollEl;
-    };
-
-    const onTouchStart = (e: TouchEvent) => {
-      startY = e.touches[0].clientY;
-      findScrollEl();
-    };
-
-    const onTouchMove = (e: TouchEvent) => {
-      const el = findScrollEl();
-      if (!el) return;
-      const deltaY = startY - e.touches[0].clientY;
-      startY = e.touches[0].clientY;
-      el.scrollTop += deltaY;
-      // Dispatch scroll event so TerminalView's auto-scroll logic updates
-      el.dispatchEvent(new Event('scroll'));
-      e.preventDefault();
-    };
-
-    wrapper.addEventListener("touchstart", onTouchStart, { passive: true });
-    wrapper.addEventListener("touchmove", onTouchMove, { passive: false });
-
     const updateDebug = () => {
-      const el = findScrollEl();
-      setDebugInfo(`w=${wrapper.offsetHeight} s=${el?.clientHeight ?? -1}/${el?.scrollHeight ?? -1} top=${el?.scrollTop?.toFixed(0) ?? -1}`);
+      setDebugInfo(`w=${wrapper.offsetHeight} h=${containerHeight.toFixed(0)}`);
     };
     requestAnimationFrame(updateDebug);
     const t = setTimeout(updateDebug, 500);
-
-    return () => {
-      clearTimeout(t);
-      wrapper.removeEventListener("touchstart", onTouchStart);
-      wrapper.removeEventListener("touchmove", onTouchMove);
-      scrollEl = null;
-    };
+    return () => clearTimeout(t);
   }, [containerHeight]);
 
   const handleSend = () => {
@@ -295,10 +239,9 @@ export function ChatSession() {
         </div>
       )}
 
-      {/* Terminal — only scrollable area. In Direct mode a TAP focuses
-          the hidden capture (keyboard up, keystrokes live); click never
-          fires after a scroll/drag gesture, so T5a's TUI wheel drags and
-          the scrollback shim stay untouched. Never auto-focused on mode
+      {/* Terminal. In Direct mode a TAP focuses the hidden capture.
+          Click never fires after a scroll/drag, so pixel-scroll and
+          Drive-gated SGR stay untouched. Never auto-focused on mode
           switch (Orca rule). */}
       <div
         ref={terminalWrapperRef}
