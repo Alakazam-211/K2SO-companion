@@ -6,6 +6,9 @@ import { decodeGridFrame } from "./gridWire";
 import {
   attachOpenActions,
   buildGridWsUrl,
+  claimPinWireActions,
+  claimWireActions,
+  releaseWireActions,
   type GridAttach,
   type GridRoute,
 } from "../kessel/gridUrl";
@@ -35,6 +38,8 @@ export interface GridSocketConnectOpts {
   attach?: GridAttach;
   /** Companion-auth token. Required for `route: "companion"`. */
   token?: string;
+  /** Drive (later PR). Default false: claim/resize/pin are no-ops. */
+  drive?: boolean;
 }
 
 export interface GridFrame<P = unknown> {
@@ -106,6 +111,8 @@ export class GridSocket {
   private attach: GridAttach = "watch";
   /** Companion-auth token only. Never the Connect login token. */
   private companionToken = "";
+  /** Explicit Drive. Watch (default) never emits set_active / resize. */
+  private drive = false;
 
   constructor(onFrame: FrameHandler) {
     this.onFrame = onFrame;
@@ -117,6 +124,7 @@ export class GridSocket {
     this.route = opts?.route ?? "cli";
     this.attach = opts?.attach ?? "watch";
     this.companionToken = opts?.token ?? "";
+    this.drive = opts?.drive ?? false;
     this.serverId = useServersStore.getState().activeServerId;
     this.shouldReconnect = true;
     // Foreground recovery (orca terminal-foreground-recovery pattern):
@@ -323,9 +331,9 @@ export class GridSocket {
   }
 
   /** Claim this session as the active viewer and fit the shared PTY to THIS
-   *  device's viewport (cols×rows). Stored + re-asserted on every reconnect. */
+   *  device's viewport (cols×rows). Watch (default): no-op. */
   claim(cols: number, rows: number): void {
-    if (cols <= 0 || rows <= 0) return;
+    if (!this.drive || cols <= 0 || rows <= 0) return;
     const prev = this.claimDims;
     if (prev && prev.cols === cols && prev.rows === rows && this.isOpen) return;
     this.claimDims = { cols, rows };
@@ -335,13 +343,14 @@ export class GridSocket {
   /** Release the active claim so another device (e.g. the desktop) drives the size. */
   release(): void {
     this.claimDims = null;
-    this.send({ action: "set_active", active: false });
+    for (const action of releaseWireActions(this.drive)) this.send(action);
   }
 
   /** Re-send the stored claim even when the dims are unchanged — the
    *  last-claim-wins re-take after ANOTHER client drove the size away
    *  (`claim()` dedupes same-dims, which would no-op exactly then). */
   reassertClaim(): void {
+    if (!this.drive) return;
     this.sendClaim();
   }
 
@@ -363,18 +372,17 @@ export class GridSocket {
    *  contradict what they were told. TerminalView re-claims only on
    *  an explicit user tap. */
   claimPin(cols: number, rows: number): void {
-    if (cols <= 0 || rows <= 0) return;
-    this.send({ action: "claim_pin", cols, rows });
+    for (const action of claimPinWireActions(this.drive, cols, rows)) {
+      this.send(action);
+    }
   }
 
   private sendClaim(): void {
     const d = this.claimDims;
     if (!d) return;
-    // set_active(true, dims) claims + resizes on a FRESH claim; the explicit
-    // resize covers the already-active case (rotation / size change), which
-    // the daemon only honors from the active subscriber.
-    this.send({ action: "set_active", active: true, cols: d.cols, rows: d.rows });
-    this.send({ action: "resize", cols: d.cols, rows: d.rows });
+    for (const action of claimWireActions(this.drive, d.cols, d.rows)) {
+      this.send(action);
+    }
   }
 
   private send(obj: unknown): void {

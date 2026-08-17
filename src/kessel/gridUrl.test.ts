@@ -7,6 +7,9 @@ import {
   attachOpenActions,
   buildGridWsUrl,
   chooseGridDial,
+  claimPinWireActions,
+  claimWireActions,
+  releaseWireActions,
 } from "./gridUrl";
 
 describe("chooseGridDial", () => {
@@ -79,5 +82,21 @@ describe("attachOpenActions", () => {
   it("sends nothing that claims on Watch-default attach", () => {
     expect(attachOpenActions("watch", { cols: 80, rows: 24 })).toEqual([]);
     expect(attachOpenActions("watch", null)).toEqual([]);
+  });
+});
+
+describe("Watch size emits (refit / claim / pin)", () => {
+  it("are empty unless Drive is explicitly on", () => {
+    expect(claimWireActions(false, 80, 24)).toEqual([]);
+    expect(releaseWireActions(false)).toEqual([]);
+    expect(claimPinWireActions(false, 40, 12)).toEqual([]);
+    expect(chooseGridDial({ capabilities: {} }).attach).toBe("watch");
+  });
+
+  it("Drive (later PR) can emit set_active + resize", () => {
+    expect(claimWireActions(true, 80, 24)).toEqual([
+      { action: "set_active", active: true, cols: 80, rows: 24 },
+      { action: "resize", cols: 80, rows: 24 },
+    ]);
   });
 });

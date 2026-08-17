@@ -94,10 +94,6 @@ const LINE_HEIGHT = Math.ceil(FONT_SIZE * 1.35);
 const FONT_FAMILY = "'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace";
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
-/** Hold-and-scale: how long a sent resize/claim may keep the LAST grid
- *  scaled to the new box before we render whatever we have (the daemon
- *  may have coalesced the request away). Kessel parity. */
-const RESIZE_HOLD_TIMEOUT_MS = 500;
 /** One re-fit per keyboard/rotation transition: emit at the END of the
  *  container-resize burst, never per animation frame. */
 const REFIT_DEBOUNCE_MS = 250;
@@ -438,33 +434,6 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       applyGridUpdate(gu, true, model.viewport.length);
     };
 
-    // Hold-and-scale, request half: we asked the PTY for `cols`×`rows`
-    // (claim, claim_pin or keyboard re-fit); keep rendering the LAST
-    // grid scaled to the new box until a non-blank frame at those dims
-    // lands, or the fallback timeout shows the truth. Skipped when the
-    // model already sits at the target (the daemon's same-dims skip
-    // means no new frame is coming — nothing to hold for).
-    const noteResizeRequested = (cols: number, rows: number) => {
-      if (
-        model.cols === cols &&
-        model.viewport.length === rows &&
-        !model.viewportBlank()
-      ) {
-        return;
-      }
-      holdRef.current = { cols, rows };
-      setPendingResize({ cols, rows });
-      if (holdTimerRef.current) clearTimeout(holdTimerRef.current);
-      holdTimerRef.current = setTimeout(() => {
-        holdTimerRef.current = null;
-        holdRef.current = null;
-        setPendingResize(null);
-        // Show the truth on expiry, blank or not — an indefinite hold
-        // would freeze a terminal the child legitimately cleared.
-        render();
-      }, RESIZE_HOLD_TIMEOUT_MS);
-    };
-
     // Frame pacing (Kessel parity, frameCoalescer.ts): WS snapshot/delta
     // frames queue and apply once per animation frame — one merge + one
     // render per display refresh, a queued snapshot supersedes everything
@@ -547,12 +516,15 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         dispatchClaim({ type: "socket_open" });
       } else if (frame.event === "mode") {
         const p = frame.payload as ModePayload;
-        dispatchClaim({ type: "mode", mode: p.mode, capable: p.capable });
-        // Viewer = fully read-only: never claim/resize again (frames
-        // would be dropped server-side anyway; stop re-asserting on
-        // reconnect too). Input suppression itself is T3's seam via
-        // stores/terminalMeta.ts.
-        if (p.mode === "viewer") gridSock.suppressClaim();
+        // Connect-owner sockets report claimer. Watch stays viewer;
+        // `capable` is kept so Drive (later PR) can opt in. Never
+        // promote a mode frame into set_active / resize.
+        dispatchClaim({
+          type: "mode",
+          mode: "viewer",
+          capable: p.capable || p.mode === "claimer",
+        });
+        gridSock.suppressClaim();
       } else if (frame.event === "pin_initial") {
         const p = frame.payload as PinInitialPayload;
         dispatchClaim({ type: "pin_initial", cols: p.cols, rows: p.rows, setBy: p.set_by });
@@ -598,28 +570,12 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       return { cols, rows };
     };
 
-    // Re-fit the shared PTY to THIS phone's current terminal box.
-    // Routed by claim state (PRD W1/K4):
-    //   claimed (ephemeral pin) → re-issue claim_pin at the new dims
-    //     (in-place pin update; same dims = server-side no-op);
-    //   claimer, unpinned      → normal active claim + resize
-    //     (last-claim-wins, today's behavior made smooth);
-    //   viewer / pinned-by-others → NOTHING (scale-to-fit only —
-    //     the daemon clamps or drops anything we'd send).
+    // Measure the phone box for local scale-to-fit. Watch never
+    // emits set_active / resize / claim_pin — Drive is a later PR.
     const refit = () => {
       const dims = measureFit();
       if (!dims) return;
       lastFitRef.current = dims;
-      const s = claimRef.current;
-      if (s.mode !== "claimer") return;
-      if (s.claimedByMe) {
-        noteResizeRequested(dims.cols, dims.rows);
-        gridSock.claimPin(dims.cols, dims.rows);
-        dispatchClaim({ type: "claim_sent", cols: dims.cols, rows: dims.rows });
-      } else if (!s.pin) {
-        noteResizeRequested(dims.cols, dims.rows);
-        gridSock.claim(dims.cols, dims.rows);
-      }
     };
 
     // K4: one emit per keyboard/rotation transition — debounce to the
@@ -650,20 +606,8 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     // RO tick still re-fits.
     window.addEventListener("k2-viewport-resize", debouncedRefit);
 
-    // "Claim session" tap → ephemeral pin at the current phone fit.
-    actionsRef.current = {
-      claim: () => {
-        // No live socket = nothing to carry the pin; an optimistic
-        // badge with no daemon pin behind it would lie.
-        if (!gridSock.isOpen) return;
-        const dims = lastFitRef.current ?? measureFit();
-        if (!dims) return;
-        lastFitRef.current = dims;
-        noteResizeRequested(dims.cols, dims.rows);
-        gridSock.claimPin(dims.cols, dims.rows);
-        dispatchClaim({ type: "claim_sent", cols: dims.cols, rows: dims.rows });
-      },
-    };
+    // Drive is a later PR — Watch never pins / claims.
+    actionsRef.current = { claim: () => {} };
 
     // Raw input seam for the T5a touch-wheel effect: same connected
     // socket, none of the send bar's reassert-claim behavior below.
@@ -677,16 +621,6 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     // send even when our measured dims never changed (claim() dedupes).
     if (onInputRef) {
       onInputRef.current = (text: string) => {
-        const s = claimRef.current;
-        const fit = lastFitRef.current;
-        if (
-          s.mode === "claimer" && !s.pin && fit &&
-          (model.cols !== fit.cols || model.viewport.length !== fit.rows)
-        ) {
-          noteResizeRequested(fit.cols, fit.rows);
-          gridSock.claim(fit.cols, fit.rows);
-          gridSock.reassertClaim();
-        }
         gridSock.sendInput(text);
       };
     }
