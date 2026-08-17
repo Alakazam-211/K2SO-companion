@@ -136,13 +136,13 @@ try {
   );
   assert(viewerHtml.includes('data-k2="viewer-pill"') && viewerHtml.includes("View only"),
     "viewer → read-only pill, no claim UI");
-  assert(viewerHtml.includes('data-k2="viewing-pill"') && viewerHtml.includes("viewing at 190×50"),
-    "scaled to someone else's dims → viewing at C×R pill");
+  assert(viewerHtml.includes('data-k2="viewing-pill"') && viewerHtml.includes("Viewing at 190×50"),
+    "scaled to someone else's dims → Viewing at C×R pill");
 
   const passiveHtml = renderToStaticMarkup(
     h(TerminalChrome, { ...base, claim: initialClaimState, passive: true, gridCols: 190, gridRows: 50 })
   );
-  assert(passiveHtml.includes("viewing at 190×50") && passiveHtml.includes("Claim session"),
+  assert(passiveHtml.includes("Viewing at 190×50") && passiveHtml.includes("Claim session"),
     "desktop drove the dims → pill AND the claim affordance together");
 
   // ── T6: selection overlay + copy affordance + clipboard pills ──
