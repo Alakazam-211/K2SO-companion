@@ -75,6 +75,7 @@ export function ProjectChat() {
   const [limit, setLimit] = useState(MESSAGES_DEFAULT_LIMIT);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadingEarlier, setLoadingEarlier] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   // Composer — deliberately screen-local so live refetches can never
   // eat a mid-typed draft.
@@ -197,6 +198,21 @@ export function ProjectChat() {
     }
   }, [loadingEarlier, load]);
 
+  const handleRefresh = useCallback(async () => {
+    if (refreshing || !groupId) return;
+    setRefreshing(true);
+    try {
+      await load(limitRef.current);
+      const r = await fetchProjectGroupShow(groupId);
+      if (r.ok && r.data) {
+        setShow(r.data);
+        setShowError(null);
+      }
+    } finally {
+      setRefreshing(false);
+    }
+  }, [refreshing, groupId, load]);
+
   const send = useCallback((): void => {
     const text = draft.trim();
     if (!text || busy || !groupId) return;
@@ -273,6 +289,30 @@ export function ProjectChat() {
             <div className="text-[var(--text-muted)] text-[10px] truncate">PoC: {poc}</div>
           )}
         </div>
+        <button
+          type="button"
+          onClick={() => void handleRefresh()}
+          disabled={refreshing}
+          aria-label="Refresh chat"
+          className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 disabled:opacity-60"
+        >
+          <svg
+            width="15"
+            height="15"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            style={refreshing ? { animation: "spin 1s linear infinite" } : undefined}
+          >
+            <path d="M21 2v6h-6" />
+            <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+            <path d="M3 22v-6h6" />
+            <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+          </svg>
+        </button>
         {/* Top-right: the HTML dashboards browser */}
         <button
           onClick={() => navigate(`/projects/${groupId}/docs`)}
