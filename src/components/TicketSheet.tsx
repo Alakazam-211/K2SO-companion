@@ -116,7 +116,7 @@ export function TicketSheet({ item, nowSec, onClose }: Props) {
               <span className="text-[var(--text-muted)] text-[10px] uppercase tracking-wide">
                 Body
               </span>
-              <div className="px-3 py-2.5 bg-[var(--surface)] border border-[var(--border)]">
+              <div className="px-4 py-3 bg-[var(--surface)] border border-[var(--border)]">
                 <ChatMessageBody text={item.body} />
               </div>
             </div>

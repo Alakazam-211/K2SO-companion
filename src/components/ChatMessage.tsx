@@ -45,7 +45,7 @@ export function ChatMessage({
   const tint = authorTint(tintKey ?? author, isOwner);
   return (
     <div
-      className="flex flex-col gap-1 px-3 py-2 border"
+      className="flex flex-col gap-1.5 px-4 py-3 border"
       style={{
         background: tint.background,
         borderColor: tint.border,
