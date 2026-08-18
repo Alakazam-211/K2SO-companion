@@ -106,10 +106,10 @@ interface CompactLine {
 
 // ─── Constants ───
 
-// Desktop Kessel defaults (config.ts): Companion keeps its own
-// monospace stack; size/line-height come from defaultKesselConfig
-// so probeCellMetrics matches the desktop DOM painter.
-const FONT_SIZE = 14;
+// Desktop Kessel default is 13px. Phone Watch/Drive 1:1 at that size
+// reads huge; 10px is ~4pt smaller and still probes on the same
+// line-height / WebGL atlas path.
+const FONT_SIZE = 10;
 const LINE_HEIGHT_MULT = 1.2;
 const FONT_FAMILY = "'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace";
 const DEFAULT_FG_CSS = hexToCss(DEFAULT_FG);
