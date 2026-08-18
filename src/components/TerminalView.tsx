@@ -11,7 +11,7 @@ import {
   type ColSpanRun,
 } from "../api/gridSocket";
 import { chooseGridDial, type GridDial } from "../kessel/gridUrl";
-import { createFrameCoalescer } from "../lib/frameCoalescer";
+import { createFrameCoalescer, type FrameCoalescer } from "../lib/frameCoalescer";
 import { computeScaleLayout } from "../kessel/scaleLayout";
 import {
   applyFrameBatch,
@@ -24,10 +24,14 @@ import { pickSeamColor } from "../kessel/seamColor";
 import { createWebglPainter } from "../kessel/webgl/webglPainter";
 import type {
   PainterFrame,
-  PainterTheme,
   TerminalPainter,
 } from "../kessel/webgl/painterTypes";
-import { TEXT_GAMMA_DARK } from "../kessel/text-gamma";
+import { nativeScrollToPx } from "../kessel/webgl/nativeScroll";
+import {
+  PAINTER_THEME,
+  resolvePainterSurface,
+  shouldClearFatalOnForeground,
+} from "../kessel/webgl/painterSession";
 import {
   contentBoxSize,
   measurePaneFit,
@@ -110,25 +114,6 @@ const REFIT_DEBOUNCE_MS = 250;
 /** Matches kessel `scaleLayout` (`container − 4`) and desktop pane
  *  padding (`4px 0 0 4px`). Do not mix with the old 8/4 strip. */
 const PAINT_PAD = 4;
-const WEBGL_SELECTION = 0x444444;
-const PAINTER_THEME: PainterTheme = {
-  fg: DEFAULT_FG,
-  bg: DEFAULT_BG,
-  selection: WEBGL_SELECTION,
-  textGamma: TEXT_GAMMA_DARK,
-};
-
-/** Native overflow scroll → `scrollPx` (CSS px above buffer bottom). */
-export function nativeScrollToPx(
-  scrollTop: number,
-  scrollHeight: number,
-  clientHeight: number,
-  scale: number,
-): number {
-  const max = scrollHeight - clientHeight;
-  if (!(max > 0) || !(scale > 0)) return 0;
-  return (max - scrollTop) / scale;
-}
 
 function plainRun(text: string): RenderRun {
   return {
@@ -402,7 +387,10 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
   );
   const webglCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const painterRef = useRef<TerminalPainter | null>(null);
+  const coalescerRef = useRef<FrameCoalescer<PendingFrame> | null>(null);
   const scrollPxRef = useRef(0);
+  const useWebglRef = useRef(false);
+  const scrollMapRef = useRef({ sb: 0, cellH: 1 });
   const lastPaintedRef = useRef<{
     snapshot: PainterFrame["snapshot"] | null;
     scrollPx: number;
@@ -411,6 +399,13 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
   const paintWebglRef = useRef<
     (scrollPxValue: number, snapOverride?: LiveGrid | null) => void
   >(() => {});
+
+  useEffect(() => {
+    setPainterFatal(null);
+    painterFatalRef.current = null;
+    scrollPxRef.current = 0;
+    lastPaintedRef.current.snapshot = null;
+  }, [terminalId]);
 
   // Same font probe desktop uses. WebGL default uses the integer
   // device-grid path; a fatal remount re-probes the DOM metrics.
@@ -563,6 +558,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
         gridSock.ackApplied(result.ackVersion);
       },
     });
+    coalescerRef.current = coalescer;
 
     const onFrame = (frame: GridFrame) => {
       if (frame.event === "snapshot") {
@@ -705,6 +701,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
       clearTimeout(fallbackTimer);
       gridSock.close();
       if (polling) clearInterval(polling);
+      coalescerRef.current = null;
       // Cancels any scheduled rAF flush and drops queued frames —
       // nobody left to render them.
       coalescer.clear();
@@ -734,14 +731,17 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     const handleScroll = () => {
       const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 50;
       userScrolledRef.current = !atBottom;
-      setScrollTop(container.scrollTop);
-      const scale = layoutRef.current.scale || 1;
+      const { sb, cellH } = scrollMapRef.current;
       scrollPxRef.current = nativeScrollToPx(
         container.scrollTop,
         container.scrollHeight,
         container.clientHeight,
-        scale,
+        sb,
+        cellH,
       );
+      if (!useWebglRef.current) {
+        setScrollTop(container.scrollTop);
+      }
       if (!raf) {
         raf = requestAnimationFrame(() => {
           raf = 0;
@@ -763,18 +763,30 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     }
   }, [grid.version]);
 
+  useEffect(() => {
+    if (!useWebglRef.current && containerRef.current) {
+      setScrollTop(containerRef.current.scrollTop);
+    }
+  }, [painterFatal]);
+
   // Remount the GL surface when the app comes back to the foreground
   // after an unrestored context loss. Any other fatal stays on DOM.
   useEffect(() => {
-    const onVis = () => {
+    const onForeground = () => {
       const vis = document.visibilityState === "visible";
       setSurfaceWanted(vis);
-      if (vis && painterFatalRef.current === "webgl-context-lost-unrestored") {
+      if (!vis) return;
+      coalescerRef.current?.flushNow();
+      if (shouldClearFatalOnForeground(painterFatalRef.current)) {
         setPainterFatal(null);
       }
     };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
+    document.addEventListener("visibilitychange", onForeground);
+    window.addEventListener("focus", onForeground);
+    return () => {
+      document.removeEventListener("visibilitychange", onForeground);
+      window.removeEventListener("focus", onForeground);
+    };
   }, []);
 
   // ── T5a/T5b/T6: the terminal touch-gesture layer ───────────────
@@ -1059,9 +1071,20 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     padX: PAINT_PAD,
     padY: PAINT_PAD,
   };
+  scrollMapRef.current = {
+    sb: liveSnap?.scrollback.length ?? Math.max(0, grid.rows - grid.viewportRows),
+    cellH: lineH,
+  };
 
-  const useWebgl = painterFatal === null && liveSnap !== null && cellW > 0;
-  const webglSurfaceActive = useWebgl && surfaceWanted;
+  const surface = resolvePainterSurface({
+    painterFatal,
+    surfaceWanted,
+    hasLiveGrid: liveSnap !== null,
+    cellReady: cellW > 0,
+  });
+  const useWebgl = surface !== "dom";
+  const webglSurfaceActive = surface === "webgl";
+  useWebglRef.current = useWebgl;
 
   paintWebglRef.current = (scrollPxValue, snapOverride) => {
     const painter = painterRef.current;
@@ -1123,7 +1146,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     if (!webglSurfaceActive) return;
     if (!liveSnap) return;
     paintWebglRef.current(scrollPxRef.current, liveSnap);
-  }, [webglSurfaceActive, liveSnap, scrollTop, cellW, lineH, selection]);
+  }, [webglSurfaceActive, liveSnap, cellW, lineH, selection]);
 
   const paintRows: { abs: number; row: RenderRun[] }[] = [];
   if (liveSnap) {
@@ -1138,7 +1161,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     }
   }
 
-  const rowElements = webglSurfaceActive
+  const rowElements = useWebgl
     ? null
     : paintRows.map(({ abs, row }) => (
         <TerminalRow
@@ -1232,7 +1255,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
                 transformOrigin: "0 0",
               }}
             >
-              {DEV_MODE && !webglSurfaceActive && (
+              {DEV_MODE && !useWebgl && (
                 <div style={{ color: "#22d3ee", fontSize: "9px", padding: "2px 0", opacity: 0.7 }}>
                   {maxRow} lines | {grid.cols}×{grid.viewportRows} | s={layout.scale.toFixed(2)}
                   {pendingResize ? ` | hold ${pendingResize.cols}×${pendingResize.rows}` : ""} | {debugRef.current}
@@ -1242,7 +1265,7 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
               {/* Rows + the session's own cursor share one relative
                   box so the cursor's row math ignores the DEV debug
                   line above (T4: the PTY cursor IS the typing caret). */}
-              {!webglSurfaceActive && (
+              {!useWebgl && (
               <div style={{ position: "relative" }}>
                 {rowElements}
                 <TerminalCursor
@@ -1316,6 +1339,8 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
             transform: `scale(${layout.scale})`,
             transformOrigin: "0 0",
             pointerEvents: "none",
+            // Wrapper fill is the no-black hole: alpha:false GL hides
+            // canvas CSS, including after the 0×0 sanity collapse.
             background: DEFAULT_BG_CSS,
           }}
         >
@@ -1325,7 +1350,6 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
             style={{
               display: "block",
               pointerEvents: "none",
-              background: DEFAULT_BG_CSS,
             }}
           />
           {DEV_MODE && (

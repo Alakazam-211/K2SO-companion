@@ -197,6 +197,7 @@ export function createWebglPainter(
   const lossTracker = createContextLossTracker({
     onRestore: () => {
       if (disposed || !canvas) return
+      canvas.style.visibility = ''
       backend?.dispose()
       backend = createBackend(canvas)
       if (!backend) {
@@ -215,8 +216,13 @@ export function createWebglPainter(
   })
   const onContextLost = (e: Event): void => {
     e.preventDefault()
-    // Always-on prod breadcrumb — WKWebView reclaims GL under memory
-    // pressure; fatal path already warns if restore times out.
+    // Drop the opaque dead buffer now — alpha:false + unrestored
+    // would present black for the 3s restore window.
+    if (canvas) {
+      canvas.width = 0
+      canvas.height = 0
+      canvas.style.visibility = 'hidden'
+    }
     // eslint-disable-next-line no-console
     console.warn('[kessel-term/webgl] context lost — awaiting restore')
     lossTracker.handleLost()
@@ -252,6 +258,8 @@ export function createWebglPainter(
         Math.abs(px[1] - ((SANITY_COLOR >> 8) & 0xff)) <= 2 &&
         Math.abs(px[2] - (SANITY_COLOR & 0xff)) <= 2
       if (!ok) {
+        canvas.width = 0
+        canvas.height = 0
         fatal('webgl2-sanity-readback-failed')
         return
       }
