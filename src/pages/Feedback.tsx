@@ -85,7 +85,7 @@ function Card({ row, nowSec }: { row: FeedbackListRow; nowSec: number }) {
   return (
     <button
       onClick={() => navigate(`/feedback/${row.id}`)}
-      className="flex flex-col gap-2.5 mx-4 mb-3 px-4 py-4 min-w-0 max-w-full overflow-hidden bg-[var(--surface)] border border-[var(--border)] text-left hover:border-[var(--border-hover)] transition-colors"
+      className="flex flex-col gap-2.5 w-full min-w-0 overflow-hidden px-4 py-4 bg-[var(--surface)] border border-[var(--border)] text-left hover:border-[var(--border-hover)] transition-colors"
     >
       <div className="flex items-baseline gap-3 w-full min-w-0">
         <span className="text-[var(--text)] text-[15px] font-medium leading-6 flex-1 min-w-0 line-clamp-2 break-words [overflow-wrap:anywhere]">
@@ -100,15 +100,17 @@ function Card({ row, nowSec }: { row: FeedbackListRow; nowSec: number }) {
           {row.body}
         </div>
       )}
-      <div className="flex items-center gap-2 w-full min-w-0 pt-0.5">
-        <span className="text-[var(--text-muted)] text-[11px] truncate flex-1 min-w-0">
+      <div className="flex items-center gap-2 w-full min-w-0 flex-wrap pt-0.5">
+        <span className="text-[var(--text-muted)] text-[11px] truncate min-w-0 flex-1 basis-32">
           {row.projectName} · {row.agentName}
           {(row.assignees?.length ?? 0) > 0 ? ` · → ${row.assignees!.join(", ")}` : ""}
           {row.commentCount > 1 ? ` · ${row.commentCount} msgs` : ""}
         </span>
-        <PriorityTag priority={row.priority} />
-        <KindTag kind={row.kind} />
-        <StatusTag status={row.status} />
+        <span className="flex items-center gap-1.5 shrink-0">
+          <PriorityTag priority={row.priority} />
+          <KindTag kind={row.kind} />
+          <StatusTag status={row.status} />
+        </span>
       </div>
     </button>
   );
@@ -126,12 +128,14 @@ function Section({
   if (rows.length === 0) return null;
   return (
     <>
-      <div className="px-4 pt-5 pb-2.5 text-[var(--text-muted)] text-[11px] uppercase tracking-wide">
+      <div className="pt-5 pb-2.5 text-[var(--text-muted)] text-[11px] uppercase tracking-wide">
         {label} · {rows.length}
       </div>
-      {rows.map((row) => (
-        <Card key={row.id} row={row} nowSec={nowSec} />
-      ))}
+      <div className="flex flex-col gap-3">
+        {rows.map((row) => (
+          <Card key={row.id} row={row} nowSec={nowSec} />
+        ))}
+      </div>
     </>
   );
 }
@@ -309,7 +313,7 @@ function FeedbackList() {
   const grouped = groupByStatus(filtered);
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col h-full min-w-0 overflow-x-hidden">
       {/* Page header (Servers-page idiom) with the refresh affordance. */}
       <div className="flex items-center px-4 py-3 border-b border-[var(--border)] shrink-0">
         <h1 className="text-[var(--accent)] text-[15px] font-bold tracking-wide flex-1">
@@ -344,9 +348,9 @@ function FeedbackList() {
         />
       )}
 
-      <div className="flex-1 overflow-y-auto pb-6">
+      <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-6">
         {error && (
-          <div className="mx-3 mt-3 px-4 py-3 border border-[var(--error)]/40 text-[var(--error)] text-[11px] leading-5">
+          <div className="mt-3 px-4 py-3 border border-[var(--error)]/40 text-[var(--error)] text-[11px] leading-5">
             {error}
             <button
               onClick={() => void useFeedbackStore.getState().refresh()}
