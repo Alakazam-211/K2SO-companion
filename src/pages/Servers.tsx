@@ -49,8 +49,8 @@ export function Servers() {
   };
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto">
-      {/* Page header */}
+    <div className="flex flex-col h-full min-h-0">
+      {/* Stays put — only the list below scrolls. */}
       <div className="flex items-center px-4 py-3 border-b border-[var(--border)] shrink-0">
         <h1 className="text-[var(--accent)] text-[15px] font-bold tracking-wide flex-1">
           Servers
@@ -99,7 +99,7 @@ export function Servers() {
           </button>
         </div>
       ) : (
-        <div className="flex flex-col py-2">
+        <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-1.5 py-1 flex flex-col gap-1">
           {servers.map((server) => {
             const state = recovery[server.id] ?? "signin-required";
             const isActive = server.id === activeServerId;
@@ -108,11 +108,13 @@ export function Servers() {
               <div
                 key={server.id}
                 onClick={() => void selectServer(server)}
-                className={`flex items-center gap-3 mx-3 mb-2 px-4 py-3.5 bg-[var(--surface)] border cursor-pointer transition-colors ${
-                  isActive
-                    ? "border-[var(--accent-dim)]"
-                    : "border-[var(--border)] hover:border-[var(--border-hover)]"
-                }`}
+                className="flex items-center gap-2.5 cursor-pointer"
+                style={{
+                  padding: "8px 12px",
+                  minHeight: 44,
+                  background: "#1c1c1e",
+                  border: isActive ? "1px solid var(--accent-dim)" : "1px solid #333",
+                }}
               >
                 {/* State dot */}
                 <span
