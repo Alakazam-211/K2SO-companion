@@ -107,8 +107,13 @@ export function Sessions() {
                 onTouchEnd={cancelPress}
                 onTouchMove={cancelPress}
                 onContextMenu={(e) => e.preventDefault()}
-                className="flex items-center gap-2.5 bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--border-hover)] transition-colors text-left w-full"
-                style={{ padding: "8px 12px", minHeight: 44 }}
+                className="flex items-center gap-2.5 text-left w-full"
+                style={{
+                  padding: "8px 12px",
+                  minHeight: 44,
+                  background: "#1c1c1e",
+                  border: "1px solid #333",
+                }}
               >
                 {/* Workspace color bar */}
                 <div
