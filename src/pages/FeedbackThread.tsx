@@ -15,10 +15,12 @@ import {
   resolveFeedback,
 } from "../api/feedback";
 import { KindTag, PriorityTag, StatusTag } from "./Feedback";
+import { ChatMessage, ChatMessageBody } from "../components/ChatMessage";
 
 // Feedback C3 — the thread screen (`/feedback/:id`): the ask (title +
-// body) then the comment thread as chat bubbles (agent left, you right),
-// with a full-width composer. The header truncates the title, so tapping
+// body) then the comment thread as attributed cards (desktop
+// ChatMessage: You vs agent name, GFM markdown), with a full-width
+// composer. The header truncates the title, so tapping
 // ANYWHERE on it except the back button opens the read-only full-ticket
 // sheet (TicketSheet — chevron affordance on the right); the composer is
 // blurred first so the sheet never fights the keyboard.
@@ -217,8 +219,8 @@ export function FeedbackThread() {
           >
             {/* The ask body (title is in the header; body adds context). */}
             {item.body && (
-              <div className="mb-3 px-3 py-2.5 bg-[var(--surface)] border border-[var(--border)] text-[12px] text-[var(--text-secondary)] whitespace-pre-wrap break-words leading-5">
-                {item.body}
+              <div className="mb-3 px-3 py-2.5 bg-[var(--surface)] border border-[var(--border)]">
+                <ChatMessageBody text={item.body} />
               </div>
             )}
 
@@ -249,33 +251,20 @@ export function FeedbackThread() {
               </div>
             )}
 
-            {/* Thread — agent bubbles left, yours right. The first
-                comment is the ask itself, seeded in the agent's voice. */}
-            <div className="flex flex-col gap-2">
+            {/* Thread — desktop ChatMessage: full-width attributed
+                cards (You vs agent name) + GFM. The first comment is
+                the ask itself, seeded in the agent's voice. */}
+            <div className="flex flex-col gap-2.5">
               {item.comments.map((c, i) => {
                 const own = c.author === "owner";
                 return (
-                  <div key={`${c.at}-${i}`} className={`flex ${own ? "justify-end" : "justify-start"}`}>
-                    <div
-                      className={`max-w-[85%] px-3 py-2 border ${
-                        own
-                          ? "bg-[var(--accent-dim)]/20 border-[var(--accent-dim)]"
-                          : "bg-[var(--surface)] border-[var(--border)]"
-                      }`}
-                    >
-                      <div className="flex items-baseline gap-2 mb-0.5">
-                        <span className={`text-[9px] font-semibold ${own ? "text-[var(--accent)]" : "text-[var(--text-secondary)]"}`}>
-                          {own ? "You" : c.author}
-                        </span>
-                        <span className="text-[9px] text-[var(--text-muted)] tabular-nums">
-                          {relativeAge(c.at, nowSec)}
-                        </span>
-                      </div>
-                      <div className="text-[12px] text-[var(--text)] whitespace-pre-wrap break-words leading-5">
-                        {c.body}
-                      </div>
-                    </div>
-                  </div>
+                  <ChatMessage
+                    key={`${c.at}-${i}`}
+                    author={own ? "You" : c.author}
+                    isOwner={own}
+                    timeLabel={relativeAge(c.at, nowSec)}
+                    body={c.body}
+                  />
                 );
               })}
             </div>
