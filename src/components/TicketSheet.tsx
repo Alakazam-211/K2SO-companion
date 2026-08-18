@@ -1,6 +1,7 @@
 import type { FeedbackShow } from "../api/feedback";
 import { relativeAge } from "../api/feedback";
 import { KindTag, PriorityTag, StatusTag } from "../pages/Feedback";
+import { ChatMessageBody } from "./ChatMessage";
 
 // Feedback thread — the FULL-TICKET review sheet. The thread header
 // truncates the title to one line; tapping it opens this bottom sheet
@@ -115,8 +116,8 @@ export function TicketSheet({ item, nowSec, onClose }: Props) {
               <span className="text-[var(--text-muted)] text-[10px] uppercase tracking-wide">
                 Body
               </span>
-              <div className="px-3 py-2.5 bg-[var(--surface)] border border-[var(--border)] text-[12px] text-[var(--text-secondary)] whitespace-pre-wrap break-words leading-5">
-                {item.body}
+              <div className="px-3 py-2.5 bg-[var(--surface)] border border-[var(--border)]">
+                <ChatMessageBody text={item.body} />
               </div>
             </div>
           )}

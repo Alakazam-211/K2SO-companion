@@ -15,8 +15,8 @@
 //     msg response's delivery outcome renders the receipt line under
 //     the sent bubble ("delivered to <PoC>" / "stored — no Point of
 //     Contact yet" / "PoC session unreachable").
-//   - Bubbles: owner right in accent, agents left, author label +
-//     relative time (the mockup Chat layout).
+//   - Cards: full-width attributed rows (You in accent, agents by
+//     name) + GFM markdown — desktop ChatMessage.
 //
 // Rendered as a FULL-SCREEN OVERLAY (fixed, above ServerFooter/TabBar)
 // — the /chat/:id chrome-hiding behavior without editing the shared nav
@@ -33,6 +33,7 @@ import {
 } from "../api/projectGroups";
 import { useProjectGroupsStore, startEvents } from "../stores/projectGroups";
 import { MessageComposer } from "../components/MessageComposer";
+import { ChatMessage } from "../components/ChatMessage";
 import { useServersStore } from "../stores/servers";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { useBottomAnchor } from "../lib/useBottomAnchor";
@@ -331,37 +332,20 @@ export function ProjectChat() {
                     ? deliveredLine(lastPost.delivered, lastPost.deliveryReason, poc)
                     : null;
                 return (
-                  <div
+                  <ChatMessage
                     key={m.id}
-                    className={`flex flex-col max-w-[85%] ${isOwner ? "self-end items-end" : "self-start items-start"}`}
-                  >
-                    <div className="flex items-baseline gap-2 px-0.5">
-                      <span
-                        className={`text-[10px] font-semibold ${
-                          isOwner ? "text-[var(--accent)]" : "text-[var(--text-secondary)]"
-                        }`}
-                      >
-                        {isOwner ? "You" : m.author}
-                      </span>
-                      <span className="text-[9px] text-[var(--text-muted)] tabular-nums">
-                        {formatRelativeTime(m.createdAt, nowSec)}
-                      </span>
-                    </div>
-                    <div
-                      className={`mt-0.5 px-3 py-2 text-[12px] leading-5 whitespace-pre-wrap break-words border ${
-                        isOwner
-                          ? "bg-[var(--accent-dim)]/20 border-[var(--accent-dim)] text-[var(--text)]"
-                          : "bg-[var(--surface)] border-[var(--border)] text-[var(--text)]"
-                      }`}
-                    >
-                      {m.body}
-                    </div>
-                    {receipt && (
-                      <div className="mt-0.5 px-0.5 text-[9px] text-[var(--text-muted)] opacity-80 italic">
-                        {receipt}
-                      </div>
-                    )}
-                  </div>
+                    author={isOwner ? "You" : m.author}
+                    isOwner={isOwner}
+                    timeLabel={formatRelativeTime(m.createdAt, nowSec)}
+                    body={m.body}
+                    footer={
+                      receipt ? (
+                        <div className="text-[9px] text-[var(--text-muted)] opacity-80 italic">
+                          {receipt}
+                        </div>
+                      ) : null
+                    }
+                  />
                 );
               })}
             </div>
