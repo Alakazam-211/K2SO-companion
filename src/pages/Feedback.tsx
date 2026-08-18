@@ -94,17 +94,17 @@ function Card({ row, nowSec }: { row: FeedbackListRow; nowSec: number }) {
         <span className="text-[var(--text)] text-[13px] font-medium leading-5 flex-1 min-w-0 line-clamp-2 break-words [overflow-wrap:anywhere]">
           {row.title}
         </span>
-        <span className="text-[var(--text-muted)] text-[11px] tabular-nums shrink-0">
+        <span className="text-[var(--text-muted)] text-[10px] tabular-nums shrink-0">
           {relativeAge(row.createdAt, nowSec)}
         </span>
       </div>
       {row.body && (
-        <div className="w-full min-w-0 text-[var(--text-secondary)] text-[13px] leading-5 line-clamp-2 break-words [overflow-wrap:anywhere]">
+        <div className="w-full min-w-0 text-[var(--text-secondary)] text-[11px] leading-4 line-clamp-2 break-words [overflow-wrap:anywhere]">
           {row.body}
         </div>
       )}
       <div className="flex items-center gap-2 w-full min-w-0 flex-wrap pt-0.5">
-        <span className="text-[var(--text-muted)] text-[11px] truncate min-w-0 flex-1 basis-32">
+        <span className="text-[var(--text-muted)] text-[10px] truncate min-w-0 flex-1 basis-32">
           {row.projectName} · {row.agentName}
           {(row.assignees?.length ?? 0) > 0 ? ` · → ${row.assignees!.join(", ")}` : ""}
           {row.commentCount > 1 ? ` · ${row.commentCount} msgs` : ""}
