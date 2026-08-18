@@ -78,7 +78,7 @@ export function TicketSheet({ item, nowSec, onClose, onAssigneesChanged }: Props
         >
           {/* Full title — the whole point: no truncation. */}
           <div className="flex flex-col gap-2">
-            <h2 className="text-[var(--text)] text-[12px] font-semibold leading-5 whitespace-pre-wrap break-words">
+            <h2 className="text-[var(--text)] text-[11px] font-medium leading-4 whitespace-pre-wrap break-words">
               {item.title}
             </h2>
             <div className="flex items-center gap-1.5">
@@ -87,6 +87,15 @@ export function TicketSheet({ item, nowSec, onClose, onAssigneesChanged }: Props
               <StatusTag status={item.status} />
             </div>
           </div>
+
+          {onAssigneesChanged && (
+            <AssigneePicker
+              ticketId={item.id}
+              assignees={item.assignees ?? []}
+              menuInFlow
+              onChanged={onAssigneesChanged}
+            />
+          )}
 
           <div className="flex flex-col gap-1.5">
             {item.workspace && <MetaRow label="Workspace" value={item.workspace} />}
@@ -106,15 +115,6 @@ export function TicketSheet({ item, nowSec, onClose, onAssigneesChanged }: Props
               value={`${item.comments.length}`}
             />
           </div>
-
-          {onAssigneesChanged && (
-            <AssigneePicker
-              ticketId={item.id}
-              assignees={item.assignees ?? []}
-              menuInFlow
-              onChanged={onAssigneesChanged}
-            />
-          )}
 
           {item.body && (
             <div className="flex flex-col gap-1.5">
