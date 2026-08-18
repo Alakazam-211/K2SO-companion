@@ -23,6 +23,8 @@ export interface FeedbackItem {
   updatedAt: number;
   answeredAt: number | null;
   commentCount: number;
+  /** Username snapshots for push targeting + the people filter. */
+  assignees?: string[] | null;
 }
 
 /** A list row tagged with the workspace it was fetched for (the list
@@ -103,12 +105,21 @@ export function filterBySearch<
   T extends Pick<
     FeedbackListRow,
     "id" | "title" | "body" | "agentName" | "projectName" | "kind" | "status"
-  >,
+  > & { assignees?: string[] | null },
 >(rows: T[], query: string): T[] {
   const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
   if (terms.length === 0) return rows;
   return rows.filter((r) => {
-    const haystack = [r.title, r.body ?? "", r.agentName, r.projectName, r.kind, r.status, r.id]
+    const haystack = [
+      r.title,
+      r.body ?? "",
+      r.agentName,
+      r.projectName,
+      r.kind,
+      r.status,
+      r.id,
+      ...(r.assignees ?? []),
+    ]
       .join(" ")
       .toLowerCase();
     return terms.every((t) => haystack.includes(t));
@@ -139,6 +150,46 @@ export function sortRows<
     default:
       return sorted.sort(byNewest);
   }
+}
+
+/** People-filter values for the board dropdown. */
+export type AssigneeFilter = "all" | "unassigned" | string;
+
+/** Unique assignee usernames across rows, sorted A–Z. */
+export function collectAssignees<T extends { assignees?: string[] | null }>(
+  rows: T[],
+): string[] {
+  const set = new Set<string>();
+  for (const row of rows) {
+    for (const name of row.assignees ?? []) {
+      const t = name.trim();
+      if (t) set.add(t);
+    }
+  }
+  return [...set].sort((a, b) => a.localeCompare(b));
+}
+
+/** `all` = no filter; `unassigned` = empty assignee set; else username. */
+export function filterByAssignee<T extends { assignees?: string[] | null }>(
+  rows: T[],
+  assignee: AssigneeFilter,
+): T[] {
+  if (assignee === "all") return rows;
+  if (assignee === "unassigned") {
+    return rows.filter((r) => (r.assignees?.length ?? 0) === 0);
+  }
+  return rows.filter((r) => (r.assignees ?? []).includes(assignee));
+}
+
+/** Status chips (desktop AFSROW). Counted after search + people filter. */
+export type FeedbackStatusFilter = FeedbackStatus | "all";
+
+export function filterByStatus<T extends { status: FeedbackStatus }>(
+  rows: T[],
+  status: FeedbackStatusFilter,
+): T[] {
+  if (status === "all") return rows;
+  return rows.filter((r) => r.status === status);
 }
 
 /** TabBar badge count = items still waiting on the human. */

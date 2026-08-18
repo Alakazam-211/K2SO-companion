@@ -16,6 +16,8 @@ import {
 } from "../api/feedback";
 import { KindTag, PriorityTag, StatusTag } from "./Feedback";
 import { ChatMessage, ChatMessageBody } from "../components/ChatMessage";
+import { displayAuthor, isMyAuthor } from "../lib/sessionAuthor";
+import { useSessionIdentity } from "../lib/useSessionIdentity";
 
 // Feedback C3 — the thread screen (`/feedback/:id`): the ask (title +
 // body) then the comment thread as attributed cards (desktop
@@ -52,6 +54,7 @@ export function FeedbackThread() {
   const activeServerId = useServersStore((s) => s.activeServerId);
   const item = useFeedbackStore((s) => s.openItem);
   const openError = useFeedbackStore((s) => s.openError);
+  const identity = useSessionIdentity();
 
   const [reply, setReply] = useState("");
   /** Full-ticket review sheet (tap the header to open). */
@@ -256,12 +259,13 @@ export function FeedbackThread() {
                 the ask itself, seeded in the agent's voice. */}
             <div className="flex flex-col gap-2.5">
               {item.comments.map((c, i) => {
-                const own = c.author === "owner";
+                const mine = isMyAuthor(c.author, identity);
                 return (
                   <ChatMessage
                     key={`${c.at}-${i}`}
-                    author={own ? "You" : c.author}
-                    isOwner={own}
+                    author={displayAuthor(c.author, identity)}
+                    tintKey={c.author}
+                    isOwner={mine}
                     timeLabel={relativeAge(c.at, nowSec)}
                     body={c.body}
                   />

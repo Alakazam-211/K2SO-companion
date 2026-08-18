@@ -48,6 +48,8 @@ import {
   nextEarlierLimit,
   pocLabel,
 } from "../lib/projectChat";
+import { displayAuthor, isMyAuthor } from "../lib/sessionAuthor";
+import { useSessionIdentity } from "../lib/useSessionIdentity";
 
 /** The most recent post's delivery outcome, rendered under its bubble. */
 interface LastPost {
@@ -62,6 +64,7 @@ export function ProjectChat() {
   const activeServerId = useServersStore((s) => s.activeServerId);
   const revision = useProjectGroupsStore((s) => s.revision);
   const containerHeight = useViewportHeight();
+  const identity = useSessionIdentity();
 
   const [show, setShow] = useState<ProjectGroupShow | null>(null);
   const [showError, setShowError] = useState<string | null>(null);
@@ -326,7 +329,7 @@ export function ProjectChat() {
             )}
             <div className="flex flex-col gap-2.5">
               {messages.map((m) => {
-                const isOwner = m.author === "owner";
+                const mine = isMyAuthor(m.author, identity);
                 const receipt =
                   lastPost?.messageId === m.id
                     ? deliveredLine(lastPost.delivered, lastPost.deliveryReason, poc)
@@ -334,8 +337,9 @@ export function ProjectChat() {
                 return (
                   <ChatMessage
                     key={m.id}
-                    author={isOwner ? "You" : m.author}
-                    isOwner={isOwner}
+                    author={displayAuthor(m.author, identity)}
+                    tintKey={m.author}
+                    isOwner={mine}
                     timeLabel={formatRelativeTime(m.createdAt, nowSec)}
                     body={m.body}
                     footer={

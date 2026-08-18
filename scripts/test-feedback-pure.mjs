@@ -8,6 +8,7 @@
 import {
   groupByStatus, countWaiting, sortNewestFirst, feedbackEventTargets,
   relativeAge, deliveredLine, optionsActionable, filterBySearch, sortRows,
+  collectAssignees, filterByAssignee, filterByStatus,
 } from "../src/api/feedbackPure.ts";
 
 let failures = 0;
@@ -59,4 +60,15 @@ assert(sortRows(sortable, "oldest").map(r => r.id).join() === "s1,s3,s2,s4", "so
 assert(sortRows(sortable, "priority").map(r => r.id).join() === "s4,s2,s3,s1", "sort priority P1 first, newest tie-break");
 assert(sortRows(sortable, "workspace").map(r => r.id).join() === "s4,s2,s3,s1", "sort workspace A–Z case-insensitive, newest tie-break");
 assert(sortRows(sortable, "newest") !== sortable && sortable[0].id === "s1", "sortRows does not mutate input");
+
+const assigned = [
+  { id: "1", assignees: ["owner", "julie"] },
+  { id: "2", assignees: ["julie"] },
+  { id: "3", assignees: [] },
+];
+assert(collectAssignees(assigned).join() === "julie,owner", "collectAssignees unique A–Z");
+assert(filterByAssignee(assigned, "all").length === 3, "filter all people");
+assert(filterByAssignee(assigned, "unassigned").map((r) => r.id).join() === "3", "filter unassigned");
+assert(filterByAssignee(assigned, "julie").map((r) => r.id).join() === "1,2", "filter named person");
+assert(filterByStatus(rows, "all").length === 5 && filterByStatus(rows, "waiting").length === 2, "filterByStatus");
 process.exit(failures ? 1 : 0);

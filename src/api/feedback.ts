@@ -105,6 +105,7 @@ export async function fetchAllFeedback(
         );
         return (res.items ?? []).map((item) => ({
           ...item,
+          assignees: item.assignees ?? [],
           projectPath: p.path,
           projectName: p.name,
         }));

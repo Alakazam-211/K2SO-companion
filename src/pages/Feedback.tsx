@@ -3,14 +3,19 @@ import { Routes, Route, useNavigate } from "react-router-dom";
 import { useServersStore } from "../stores/servers";
 import { useFeedbackStore } from "../stores/feedback";
 import {
+  collectAssignees,
+  filterByAssignee,
   filterBySearch,
+  filterByStatus,
   groupByStatus,
   relativeAge,
   sortRows,
+  type AssigneeFilter,
   type FeedbackKind,
   type FeedbackListRow,
   type FeedbackSortKey,
   type FeedbackStatus,
+  type FeedbackStatusFilter,
 } from "../api/feedback";
 import { FeedbackThread } from "./FeedbackThread";
 
@@ -98,6 +103,7 @@ function Card({ row, nowSec }: { row: FeedbackListRow; nowSec: number }) {
       <div className="flex items-center gap-2 w-full min-w-0">
         <span className="text-[var(--text-muted)] text-[10px] truncate flex-1 min-w-0">
           {row.projectName} · {row.agentName}
+          {(row.assignees?.length ?? 0) > 0 ? ` · → ${row.assignees!.join(", ")}` : ""}
           {row.commentCount > 1 ? ` · ${row.commentCount} msgs` : ""}
         </span>
         <PriorityTag priority={row.priority} />
@@ -139,25 +145,75 @@ const SORT_OPTIONS: Array<{ key: FeedbackSortKey; label: string }> = [
   { key: "workspace", label: "Workspace" },
 ];
 
+const STATUS_CHIPS: Array<{ key: FeedbackStatusFilter; label: string }> = [
+  { key: "all", label: "All" },
+  { key: "waiting", label: "Waiting" },
+  { key: "answered", label: "Answered" },
+  { key: "resolved", label: "Resolved" },
+  { key: "dismissed", label: "Dismissed" },
+];
+
+function PeopleFilter({
+  value,
+  options,
+  onChange,
+}: {
+  value: AssigneeFilter;
+  options: string[];
+  onChange: (v: AssigneeFilter) => void;
+}) {
+  return (
+    <select
+      aria-label="Filter by person"
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+      className={`flex-1 min-w-0 bg-[var(--background)] border px-2 py-2 text-[12px] ${
+        value === "all"
+          ? "border-[var(--border)] text-[var(--text-secondary)]"
+          : "border-[var(--accent-dim)] text-[var(--accent)]"
+      }`}
+    >
+      <option value="all">All people</option>
+      <option value="unassigned">Unassigned</option>
+      {options.map((name) => (
+        <option key={name} value={name}>
+          {name}
+        </option>
+      ))}
+    </select>
+  );
+}
+
 function ListControls({
   query,
   onQuery,
   sortKey,
   onSortKey,
+  assignee,
+  onAssignee,
+  assigneeOptions,
+  status,
+  onStatus,
+  statusCounts,
 }: {
   query: string;
   onQuery: (q: string) => void;
   sortKey: FeedbackSortKey;
   onSortKey: (k: FeedbackSortKey) => void;
+  assignee: AssigneeFilter;
+  onAssignee: (v: AssigneeFilter) => void;
+  assigneeOptions: string[];
+  status: FeedbackStatusFilter;
+  onStatus: (s: FeedbackStatusFilter) => void;
+  statusCounts: Record<FeedbackStatusFilter, number>;
 }) {
   return (
     <div className="flex flex-col gap-2 px-3 pt-2 pb-2 border-b border-[var(--border)] shrink-0">
-      {/* Live tokenized search (Sessions-page input idiom + clear ✕). */}
       <div className="relative">
         <input
           value={query}
           onChange={(e) => onQuery(e.target.value)}
-          placeholder="Search feedback..."
+          placeholder="Search title, agent, workspace, person…"
           className="w-full bg-[var(--background)] border border-[var(--border)] px-3 py-2 pr-8 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent-dim)]"
         />
         {query !== "" && (
@@ -170,22 +226,48 @@ function ListControls({
           </button>
         )}
       </div>
-      {/* Compact segmented sort — order WITHIN the status sections;
-          Waiting-first sectioning always stays on top. */}
-      <div className="flex gap-1">
-        {SORT_OPTIONS.map((opt) => (
-          <button
-            key={opt.key}
-            onClick={() => onSortKey(opt.key)}
-            className={`flex-1 px-1.5 py-1 text-[9px] uppercase tracking-wide border transition-colors ${
-              sortKey === opt.key
-                ? "text-[var(--accent)] border-[var(--accent-dim)]"
-                : "text-[var(--text-muted)] border-[var(--border)]"
-            }`}
-          >
-            {opt.label}
-          </button>
-        ))}
+      <div className="flex gap-2">
+        <PeopleFilter
+          value={assignee}
+          options={assigneeOptions}
+          onChange={onAssignee}
+        />
+        <div className="flex gap-1 shrink-0">
+          {SORT_OPTIONS.map((opt) => (
+            <button
+              key={opt.key}
+              onClick={() => onSortKey(opt.key)}
+              className={`px-1.5 py-1 text-[9px] uppercase tracking-wide border transition-colors ${
+                sortKey === opt.key
+                  ? "text-[var(--accent)] border-[var(--accent-dim)]"
+                  : "text-[var(--text-muted)] border-[var(--border)]"
+              }`}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+      <div className="flex gap-1 flex-wrap">
+        {STATUS_CHIPS.map((chip) => {
+          const active = status === chip.key;
+          return (
+            <button
+              key={chip.key}
+              onClick={() => onStatus(chip.key)}
+              className={`px-2 py-1 text-[10px] border ${
+                active
+                  ? "text-[var(--accent)] border-[var(--accent-dim)]"
+                  : "text-[var(--text-muted)] border-[var(--border)]"
+              }`}
+            >
+              {chip.label}
+              <span className="tabular-nums ml-1 opacity-70">
+                {statusCounts[chip.key] ?? 0}
+              </span>
+            </button>
+          );
+        })}
       </div>
     </div>
   );
@@ -199,6 +281,8 @@ function FeedbackList() {
   const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<FeedbackSortKey>("newest");
+  const [assignee, setAssignee] = useState<AssigneeFilter>("all");
+  const [status, setStatus] = useState<FeedbackStatusFilter>("all");
 
   // First load + events WS for the active server; refetch on server switch.
   useEffect(() => {
@@ -211,9 +295,19 @@ function FeedbackList() {
     return () => clearInterval(t);
   }, []);
 
-  // Pipeline: tokenized search filter → status sections (Waiting first —
-  // the page's job) → the chosen sort WITHIN each section.
-  const filtered = filterBySearch(rows, query);
+  // Desktop pipeline: people → search → status chips; sections still
+  // Waiting-first for the "all" chip.
+  const byPerson = filterByAssignee(rows, assignee);
+  const searched = filterBySearch(byPerson, query);
+  const assigneeOptions = collectAssignees(rows);
+  const statusCounts = {
+    all: searched.length,
+    waiting: searched.filter((r) => r.status === "waiting").length,
+    answered: searched.filter((r) => r.status === "answered").length,
+    resolved: searched.filter((r) => r.status === "resolved").length,
+    dismissed: searched.filter((r) => r.status === "dismissed").length,
+  };
+  const filtered = filterByStatus(searched, status);
   const grouped = groupByStatus(filtered);
 
   return (
@@ -243,6 +337,12 @@ function FeedbackList() {
           onQuery={setQuery}
           sortKey={sortKey}
           onSortKey={setSortKey}
+          assignee={assignee}
+          onAssignee={setAssignee}
+          assigneeOptions={assigneeOptions}
+          status={status}
+          onStatus={setStatus}
+          statusCounts={statusCounts}
         />
       )}
 
@@ -276,8 +376,8 @@ function FeedbackList() {
             />
           )
         ) : filtered.length === 0 ? (
-          <div className="flex items-center justify-center pt-16 text-[var(--text-muted)] text-[11px]">
-            No feedback matches "{query.trim()}"
+          <div className="flex items-center justify-center pt-16 text-[var(--text-muted)] text-[11px] px-6 text-center">
+            No feedback matches those filters
           </div>
         ) : (
           <>
