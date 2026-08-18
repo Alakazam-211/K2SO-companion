@@ -20,7 +20,7 @@ import {
   type TermGridSnapshot as LiveGrid,
 } from "../kessel/gridState";
 import { TerminalRow, hexToCss, type RenderRun } from "../kessel/rowRender";
-import { pickSeamColor } from "../kessel/seamColor";
+import { pickSeamColor, seamRowsAtScroll } from "../kessel/seamColor";
 import { createWebglPainter } from "../kessel/webgl/webglPainter";
 import type {
   PainterFrame,
@@ -1190,7 +1190,16 @@ export function TerminalView({ terminalId, projectPath, onInputRef, onReloadRef 
     .map((p) => p.row);
   const seam = liveSnap
     ? pickSeamColor(
-        visibleRuns.length > 0 ? visibleRuns : liveSnap.grid,
+        useWebgl
+          ? seamRowsAtScroll(
+              liveSnap.scrollback,
+              liveSnap.grid,
+              scrollPxRef.current,
+              lineH,
+            )
+          : visibleRuns.length > 0
+            ? visibleRuns
+            : liveSnap.grid,
         liveSnap.cols,
       )
     : null;
