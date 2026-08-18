@@ -49,8 +49,12 @@ export function TicketSheet({ item, nowSec, onClose, onAssigneesChanged }: Props
       <div className="fixed inset-0 bg-black/60 z-50" onClick={onClose} />
 
       <div
-        className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--background)] border-t border-[var(--border)] max-h-[85vh] flex flex-col"
-        style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + var(--android-nav-lift, 0px))" }}
+        className="fixed left-0 right-0 z-50 bg-[var(--background)] border-t border-[var(--border)] flex flex-col"
+        style={{
+          top: "calc(env(safe-area-inset-top) + 8px)",
+          bottom: 0,
+          paddingBottom: "calc(env(safe-area-inset-bottom) + var(--android-nav-lift, 0px))",
+        }}
       >
         <div className="flex items-center justify-center py-2 shrink-0">
           <div className="w-10 h-1 bg-[var(--border)] rounded-full" />
