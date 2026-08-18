@@ -98,7 +98,12 @@ export function Login() {
         )}
 
         {/* Logo */}
-        <img src={loginLogo} alt="K2 by Alakazam Labs" className="w-44 mx-auto! mb-8! mt-4!" />
+        <img
+          src={loginLogo}
+          alt="K2 by Alakazam Labs"
+          className="mx-auto!"
+          style={{ width: 88, marginTop: 16, marginBottom: 24 }}
+        />
 
         <h1 className="text-[var(--text)] text-[14px] font-semibold mb-6! text-center">
           {editing ? "Edit server" : "Add server"}
