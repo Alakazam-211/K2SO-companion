@@ -9,11 +9,14 @@ export function AssigneePicker({
   assignees,
   busy,
   onChanged,
+  menuInFlow,
 }: {
   ticketId: string;
   assignees: string[];
   busy?: boolean;
   onChanged: () => void;
+  /** Sheet/scroll parents clip `absolute` menus — render the list in-flow. */
+  menuInFlow?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [candidates, setCandidates] = useState<string[]>(["owner"]);
@@ -102,7 +105,11 @@ export function AssigneePicker({
       </div>
       {open && (
         <div
-          className="absolute left-0 top-full mt-1 z-30 min-w-[200px] max-h-56 overflow-y-auto"
+          className={
+            menuInFlow
+              ? "mt-2 min-w-0 max-h-56 overflow-y-auto"
+              : "absolute left-0 top-full mt-1 z-30 min-w-[200px] max-h-56 overflow-y-auto"
+          }
           style={{
             background: "var(--background)",
             border: "1px solid var(--border-hover)",
