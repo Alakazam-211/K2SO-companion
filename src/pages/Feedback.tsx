@@ -185,11 +185,12 @@ function FilterMenu({
         aria-expanded={open}
         aria-label={label}
         onClick={() => onToggle(id)}
-        className="w-full min-w-0 flex items-center gap-1 border text-left"
+        className="w-full min-w-0 flex items-center gap-1 text-left"
         style={{
           padding: "8px 8px",
-          borderColor: active ? "var(--accent-dim)" : "var(--border)",
-          color: active ? "var(--accent)" : "var(--text-secondary)",
+          border: `1px solid ${active || open ? "var(--accent-dim)" : "var(--border-hover)"}`,
+          color: active || open ? "var(--accent)" : "var(--text-secondary)",
+          background: "var(--background)",
         }}
       >
         <span className="truncate text-[12px] flex-1 min-w-0">{summary}</span>
@@ -460,7 +461,7 @@ function FeedbackList() {
       {/* Page header (Servers-page idiom) with the refresh affordance. */}
       <div className="flex items-center px-4 py-3 border-b border-[var(--border)] shrink-0">
         <h1 className="text-[var(--accent)] text-[15px] font-bold tracking-wide flex-1">
-          Feedback
+          Tickets
         </h1>
         <button
           onClick={() => void useFeedbackStore.getState().refresh()}
@@ -506,22 +507,22 @@ function FeedbackList() {
         {!activeServerId ? (
           <EmptyState
             title="No server connected"
-            detail="Pick a server on the Servers tab to see its feedback."
+            detail="Pick a server on the Servers tab to see its tickets."
           />
         ) : rows.length === 0 && !error ? (
           isLoading ? (
             <div className="flex items-center justify-center pt-16 text-[var(--text-muted)] text-[11px]">
-              Loading feedback…
+              Loading tickets…
             </div>
           ) : (
             <EmptyState
-              title="No feedback yet"
-              detail="Questions and approvals your agents raise with `k2 feedback ask` will land here."
+              title="No tickets yet"
+              detail="Questions and approvals your agents raise will land here."
             />
           )
         ) : filtered.length === 0 ? (
           <div className="flex items-center justify-center pt-16 text-[var(--text-muted)] text-[11px] px-6 text-center">
-            No feedback matches those filters
+            No tickets match those filters
           </div>
         ) : (
           <>
