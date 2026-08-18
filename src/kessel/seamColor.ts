@@ -11,6 +11,8 @@
 //
 // Pure and allocation-light — this runs once per committed frame.
 
+import { computeStripLayout } from './scrollMath'
+
 /** The minimal slice of a CellRun this module reads. TerminalPane's
  *  wire `CellRun` (and gridWire's `WireCellRun`) are structurally
  *  assignable. */
@@ -119,4 +121,34 @@ export function pickSeamColor(
   // Strict majority: exactly half (e.g. a vertically split TUI) is
   // ambiguous → keep the theme background.
   return bestCount * 2 > total ? best : null
+}
+
+/** Rows `packFrame` is drawing at `scrollPx` (overscan 0). */
+export function seamRowsAtScroll<T>(
+  scrollback: readonly T[],
+  grid: readonly T[],
+  scrollPx: number,
+  cellHeight: number,
+): T[] {
+  const totalRows = scrollback.length + grid.length
+  const viewportRows = grid.length
+  const layout = computeStripLayout(
+    scrollPx,
+    totalRows,
+    viewportRows,
+    cellHeight,
+    0,
+  )
+  const out: T[] = []
+  for (let i = 0; i < layout.rowCount; i++) {
+    const abs = layout.stripStart + i
+    if (abs < 0) continue
+    if (abs < scrollback.length) {
+      out.push(scrollback[abs] as T)
+      continue
+    }
+    const row = grid[abs - scrollback.length]
+    if (row !== undefined) out.push(row)
+  }
+  return out
 }

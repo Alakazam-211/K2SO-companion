@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 
-import { pickSeamColor, type SeamRun } from './seamColor'
+import { pickSeamColor, seamRowsAtScroll, type SeamRun } from './seamColor'
+import { maxScrollPx } from './scrollMath'
+import { nativeScrollToPx } from './webgl/nativeScroll'
 
 const DARK = 0x1e1e2e // a TUI's own background (Grok/Claude style)
 const BLUE = 0x0000aa
@@ -137,5 +139,46 @@ describe('pickSeamColor — trimmed rows (cols hint)', () => {
   it('without the cols hint the last run is assumed to reach the edge', () => {
     const rows = Array.from({ length: 10 }, () => [run('x'.repeat(40), DARK)])
     expect(pickSeamColor(rows)).toBe(DARK)
+  })
+})
+
+describe('seamRowsAtScroll — same window as packFrame', () => {
+  const lineH = 17
+  const sb = Array.from({ length: 100 }, () => [run('hist', RED)])
+  const grid = Array.from({ length: 24 }, () => [run('live', DARK)])
+
+  it('scrollPx 0 (follow live) samples the grid, not scrollback top', () => {
+    const rows = seamRowsAtScroll(sb, grid, 0, lineH)
+    expect(rows).toHaveLength(24)
+    expect(rows[0]).toBe(grid[0])
+    expect(rows[23]).toBe(grid[23])
+  })
+
+  it('native-bottom (letterboxed) matches scrollPx 0', () => {
+    const scale = 0.58
+    const originY = 4 + 230
+    const scrollHeight = originY + (sb.length + grid.length) * lineH * scale
+    const clientHeight = 700
+    const overflow = scrollHeight - clientHeight
+    const px = nativeScrollToPx(
+      overflow,
+      scrollHeight,
+      clientHeight,
+      sb.length,
+      lineH,
+    )
+    expect(px).toBe(0)
+    expect(seamRowsAtScroll(sb, grid, px, lineH)[0]).toBe(grid[0])
+  })
+
+  it('native-top (letterboxed) samples the start of history', () => {
+    const scale = 0.58
+    const originY = 4 + 230
+    const scrollHeight = originY + (sb.length + grid.length) * lineH * scale
+    const px = nativeScrollToPx(0, scrollHeight, 700, sb.length, lineH)
+    expect(px).toBe(maxScrollPx(sb.length, lineH))
+    const rows = seamRowsAtScroll(sb, grid, px, lineH)
+    expect(rows[0]).toBe(sb[0])
+    expect(rows).not.toContain(grid[0])
   })
 })
