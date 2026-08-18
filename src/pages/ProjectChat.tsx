@@ -294,11 +294,11 @@ export function ProjectChat() {
           onClick={() => void handleRefresh()}
           disabled={refreshing}
           aria-label="Refresh chat"
-          className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 disabled:opacity-60"
+          className="w-8 h-8 flex items-center justify-center text-[var(--text-muted)] shrink-0 disabled:opacity-60"
         >
           <svg
-            width="15"
-            height="15"
+            width="14"
+            height="14"
             viewBox="0 0 24 24"
             fill="none"
             stroke="currentColor"
