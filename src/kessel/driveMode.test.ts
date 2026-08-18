@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   driveEnterFrames,
   driveLeaveFrames,
+  driveOpenFrames,
   driveResizeFrames,
   isUsableFit,
 } from "./driveMode";
@@ -75,5 +76,29 @@ describe("driveLeaveFrames", () => {
       { action: "set_mode", mode: "viewer" },
       { action: "set_active", active: false },
     ]);
+  });
+});
+
+describe("driveOpenFrames", () => {
+  it("Watch open is set_mode:viewer (Connect /cli stays viewer)", () => {
+    expect(driveOpenFrames(false, { cols: 80, rows: 24 })).toEqual([
+      { action: "set_mode", mode: "viewer" },
+    ]);
+    expect(jsonOf(driveOpenFrames(false, null))).not.toContain('"cols"');
+  });
+
+  it("Drive open flushes a stored measure as set_mode then set_active", () => {
+    expect(driveOpenFrames(true, { cols: 42, rows: 18 })).toEqual([
+      { action: "set_mode", mode: "claimer" },
+      { action: "set_active", active: true, cols: 42, rows: 18 },
+      { action: "resize", cols: 42, rows: 18 },
+    ]);
+  });
+
+  it("Drive open with no measure sends set_mode only — never 80×24", () => {
+    const frames = driveOpenFrames(true, null);
+    expect(frames).toEqual([{ action: "set_mode", mode: "claimer" }]);
+    expect(jsonOf(frames)).not.toContain(`"cols":${FALLBACK_SPAWN_COLS}`);
+    expect(jsonOf(frames)).not.toContain(`"rows":${FALLBACK_SPAWN_ROWS}`);
   });
 });

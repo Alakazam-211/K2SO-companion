@@ -79,9 +79,13 @@ describe("buildGridWsUrl", () => {
 });
 
 describe("attachOpenActions", () => {
-  it("sends nothing that claims on Watch-default attach", () => {
-    expect(attachOpenActions("watch", { cols: 80, rows: 24 })).toEqual([]);
-    expect(attachOpenActions("watch", null)).toEqual([]);
+  it("sends set_mode:viewer on Watch attach (never 80×24 / set_active)", () => {
+    expect(attachOpenActions("watch", { cols: 80, rows: 24 })).toEqual([
+      { action: "set_mode", mode: "viewer" },
+    ]);
+    expect(attachOpenActions("watch", null)).toEqual([
+      { action: "set_mode", mode: "viewer" },
+    ]);
   });
 });
 
