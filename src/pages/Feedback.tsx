@@ -45,7 +45,7 @@ export function KindTag({ kind }: { kind: FeedbackKind }) {
         ? "text-[var(--text-muted)] border-[var(--border-hover)]"
         : "text-[var(--accent)] border-[var(--accent-dim)]";
   return (
-    <span className={`px-1.5 py-0.5 text-[9px] uppercase tracking-wide border ${color}`}>
+    <span className={`px-2 py-1 text-[10px] uppercase tracking-wide border ${color}`}>
       {kind}
     </span>
   );
@@ -59,7 +59,7 @@ export function StatusTag({ status }: { status: FeedbackStatus }) {
         ? "text-[var(--success)] border-[var(--success)]/40"
         : "text-[var(--text-muted)] border-[var(--border-hover)]";
   return (
-    <span className={`px-1.5 py-0.5 text-[9px] uppercase tracking-wide border ${color}`}>
+    <span className={`px-2 py-1 text-[10px] uppercase tracking-wide border ${color}`}>
       {status}
     </span>
   );
@@ -72,7 +72,7 @@ export function PriorityTag({ priority }: { priority: number }) {
       : priority === 2
         ? "text-[var(--warning)]"
         : "text-[var(--text-muted)]";
-  return <span className={`text-[9px] tabular-nums ${color}`}>P{priority}</span>;
+  return <span className={`text-[11px] tabular-nums ${color}`}>P{priority}</span>;
 }
 
 // ─── List ───
@@ -85,23 +85,23 @@ function Card({ row, nowSec }: { row: FeedbackListRow; nowSec: number }) {
   return (
     <button
       onClick={() => navigate(`/feedback/${row.id}`)}
-      className="flex flex-col gap-1.5 mx-3 mb-2 px-4 py-3 min-w-0 max-w-full overflow-hidden bg-[var(--surface)] border border-[var(--border)] text-left hover:border-[var(--border-hover)] transition-colors"
+      className="flex flex-col gap-2.5 mx-4 mb-3 px-4 py-4 min-w-0 max-w-full overflow-hidden bg-[var(--surface)] border border-[var(--border)] text-left hover:border-[var(--border-hover)] transition-colors"
     >
-      <div className="flex items-baseline gap-2 w-full min-w-0">
-        <span className="text-[var(--text)] text-[13px] font-medium leading-5 flex-1 min-w-0 line-clamp-2 break-words [overflow-wrap:anywhere]">
+      <div className="flex items-baseline gap-3 w-full min-w-0">
+        <span className="text-[var(--text)] text-[15px] font-medium leading-6 flex-1 min-w-0 line-clamp-2 break-words [overflow-wrap:anywhere]">
           {row.title}
         </span>
-        <span className="text-[var(--text-muted)] text-[10px] tabular-nums shrink-0">
+        <span className="text-[var(--text-muted)] text-[11px] tabular-nums shrink-0">
           {relativeAge(row.createdAt, nowSec)}
         </span>
       </div>
       {row.body && (
-        <div className="w-full min-w-0 text-[var(--text-muted)] text-[11px] leading-4 line-clamp-2 break-words [overflow-wrap:anywhere]">
+        <div className="w-full min-w-0 text-[var(--text-secondary)] text-[13px] leading-5 line-clamp-2 break-words [overflow-wrap:anywhere]">
           {row.body}
         </div>
       )}
-      <div className="flex items-center gap-2 w-full min-w-0">
-        <span className="text-[var(--text-muted)] text-[10px] truncate flex-1 min-w-0">
+      <div className="flex items-center gap-2 w-full min-w-0 pt-0.5">
+        <span className="text-[var(--text-muted)] text-[11px] truncate flex-1 min-w-0">
           {row.projectName} · {row.agentName}
           {(row.assignees?.length ?? 0) > 0 ? ` · → ${row.assignees!.join(", ")}` : ""}
           {row.commentCount > 1 ? ` · ${row.commentCount} msgs` : ""}
@@ -126,7 +126,7 @@ function Section({
   if (rows.length === 0) return null;
   return (
     <>
-      <div className="px-4 pt-3 pb-2 text-[var(--text-muted)] text-[10px] uppercase tracking-wide">
+      <div className="px-4 pt-5 pb-2.5 text-[var(--text-muted)] text-[11px] uppercase tracking-wide">
         {label} · {rows.length}
       </div>
       {rows.map((row) => (
@@ -167,7 +167,7 @@ function PeopleFilter({
       aria-label="Filter by person"
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className={`flex-1 min-w-0 bg-[var(--background)] border px-2 py-2 text-[12px] ${
+      className={`flex-1 min-w-0 bg-[var(--background)] border px-3 py-2.5 text-[13px] ${
         value === "all"
           ? "border-[var(--border)] text-[var(--text-secondary)]"
           : "border-[var(--accent-dim)] text-[var(--accent)]"
@@ -208,13 +208,13 @@ function ListControls({
   statusCounts: Record<FeedbackStatusFilter, number>;
 }) {
   return (
-    <div className="flex flex-col gap-2 px-3 pt-2 pb-2 border-b border-[var(--border)] shrink-0">
+    <div className="flex flex-col gap-3 px-4 pt-3 pb-3 border-b border-[var(--border)] shrink-0">
       <div className="relative">
         <input
           value={query}
           onChange={(e) => onQuery(e.target.value)}
           placeholder="Search title, agent, workspace, person…"
-          className="w-full bg-[var(--background)] border border-[var(--border)] px-3 py-2 pr-8 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent-dim)]"
+          className="w-full bg-[var(--background)] border border-[var(--border)] px-3 py-2.5 pr-8 text-[var(--text)] text-[14px] focus:outline-none focus:border-[var(--accent-dim)]"
         />
         {query !== "" && (
           <button
@@ -226,36 +226,34 @@ function ListControls({
           </button>
         )}
       </div>
-      <div className="flex gap-2">
-        <PeopleFilter
-          value={assignee}
-          options={assigneeOptions}
-          onChange={onAssignee}
-        />
-        <div className="flex gap-1 shrink-0">
-          {SORT_OPTIONS.map((opt) => (
-            <button
-              key={opt.key}
-              onClick={() => onSortKey(opt.key)}
-              className={`px-1.5 py-1 text-[9px] uppercase tracking-wide border transition-colors ${
-                sortKey === opt.key
-                  ? "text-[var(--accent)] border-[var(--accent-dim)]"
-                  : "text-[var(--text-muted)] border-[var(--border)]"
-              }`}
-            >
-              {opt.label}
-            </button>
-          ))}
-        </div>
+      <PeopleFilter
+        value={assignee}
+        options={assigneeOptions}
+        onChange={onAssignee}
+      />
+      <div className="flex gap-1.5 flex-wrap">
+        {SORT_OPTIONS.map((opt) => (
+          <button
+            key={opt.key}
+            onClick={() => onSortKey(opt.key)}
+            className={`px-2.5 py-1.5 text-[11px] border transition-colors ${
+              sortKey === opt.key
+                ? "text-[var(--accent)] border-[var(--accent-dim)]"
+                : "text-[var(--text-muted)] border-[var(--border)]"
+            }`}
+          >
+            {opt.label}
+          </button>
+        ))}
       </div>
-      <div className="flex gap-1 flex-wrap">
+      <div className="flex gap-1.5 flex-wrap">
         {STATUS_CHIPS.map((chip) => {
           const active = status === chip.key;
           return (
             <button
               key={chip.key}
               onClick={() => onStatus(chip.key)}
-              className={`px-2 py-1 text-[10px] border ${
+              className={`px-2.5 py-1.5 text-[11px] border ${
                 active
                   ? "text-[var(--accent)] border-[var(--accent-dim)]"
                   : "text-[var(--text-muted)] border-[var(--border)]"
@@ -346,7 +344,7 @@ function FeedbackList() {
         />
       )}
 
-      <div className="flex-1 overflow-y-auto pb-2">
+      <div className="flex-1 overflow-y-auto pb-6">
         {error && (
           <div className="mx-3 mt-3 px-4 py-3 border border-[var(--error)]/40 text-[var(--error)] text-[11px] leading-5">
             {error}

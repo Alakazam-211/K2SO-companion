@@ -45,13 +45,13 @@ export function ChatMessage({
   const tint = authorTint(tintKey ?? author, isOwner);
   return (
     <div
-      className="flex flex-col gap-1.5 px-4 py-3 border"
+      className="flex flex-col border"
       style={{
         background: tint.background,
         borderColor: tint.border,
       }}
     >
-      <div className="flex items-baseline gap-2 min-w-0">
+      <div className="flex items-baseline gap-2 min-w-0 px-4 pt-3 pb-1">
         <span
           className="text-[12px] font-semibold truncate"
           style={{ color: tint.name }}
@@ -62,8 +62,10 @@ export function ChatMessage({
           {timeLabel}
         </span>
       </div>
-      <ChatMessageBody text={body} className="text-[var(--text)]" />
-      {footer}
+      <div className="px-4 pt-1 pb-3.5">
+        <ChatMessageBody text={body} className="text-[var(--text)]" />
+        {footer ? <div className="mt-2">{footer}</div> : null}
+      </div>
     </div>
   );
 }
