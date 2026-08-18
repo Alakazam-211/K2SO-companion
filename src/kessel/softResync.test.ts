@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { reconnectDelayMs, RECONNECT_CAP_MS } from "../lib/reconnect";
 import {
+  CONNECTING_STALL_MS,
+  GRID_ACK_PROBE_MS,
   GRID_STALL_NO_FRAME_MS,
   OUTBOUND_BUFFER_CAP,
   WS_CLOSED,
@@ -12,8 +14,11 @@ import {
   isAckAction,
   reconnectDelayMs as healBackoffMs,
   shouldBufferAndResync,
+  shouldHealConnectingStall,
   shouldHealOpenStall,
+  shouldProbeAck,
   shouldResyncOnForeground,
+  shouldSkipConnectingResync,
   socketIsOpen,
 } from "./softResync";
 
@@ -116,6 +121,87 @@ describe("backoff", () => {
       500, 1000, 2000, 4000, 5000,
     ]);
     expect(reconnectDelayMs(9)).toBe(RECONNECT_CAP_MS);
+  });
+});
+
+describe("shouldSkipConnectingResync", () => {
+  const fresh = {
+    readyState: WS_CONNECTING,
+    dialStartedAt: 1_000,
+    now: 1_000 + CONNECTING_STALL_MS - 1,
+    reason: "need-to-send",
+  };
+
+  it("skips a fresh CONNECTING dial so the first send does not abort it", () => {
+    expect(shouldSkipConnectingResync(fresh)).toBe(true);
+    expect(shouldSkipConnectingResync({ ...fresh, reason: "foreground" })).toBe(
+      true,
+    );
+  });
+
+  it("does not skip after the 5s deadline or on reload", () => {
+    expect(
+      shouldSkipConnectingResync({
+        ...fresh,
+        now: 1_000 + CONNECTING_STALL_MS,
+      }),
+    ).toBe(false);
+    expect(shouldSkipConnectingResync({ ...fresh, reason: "reload" })).toBe(
+      false,
+    );
+    expect(
+      shouldSkipConnectingResync({ ...fresh, readyState: WS_OPEN }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldHealConnectingStall", () => {
+  it("heals a hung CONNECTING dial after 5s while visible", () => {
+    expect(
+      shouldHealConnectingStall({
+        visible: true,
+        readyState: WS_CONNECTING,
+        dialStartedAt: 1_000,
+        now: 1_000 + CONNECTING_STALL_MS,
+      }),
+    ).toBe(true);
+    expect(
+      shouldHealConnectingStall({
+        visible: true,
+        readyState: WS_CONNECTING,
+        dialStartedAt: 1_000,
+        now: 1_000 + CONNECTING_STALL_MS - 1,
+      }),
+    ).toBe(false);
+    expect(
+      shouldHealConnectingStall({
+        visible: false,
+        readyState: WS_CONNECTING,
+        dialStartedAt: 1_000,
+        now: 1_000 + CONNECTING_STALL_MS,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe("shouldProbeAck", () => {
+  const base = {
+    visible: true,
+    readyState: WS_OPEN,
+    k1WireActive: true,
+    lastAckVersion: 7,
+    lastFrameAt: 1_000,
+    lastAckProbeAt: 0,
+    now: 1_000 + GRID_ACK_PROBE_MS,
+  };
+
+  it("re-sends the last ack after 15s OPEN silence", () => {
+    expect(shouldProbeAck(base)).toBe(true);
+    expect(
+      shouldProbeAck({ ...base, now: 1_000 + GRID_ACK_PROBE_MS - 1 }),
+    ).toBe(false);
+    expect(shouldProbeAck({ ...base, lastAckVersion: 0 })).toBe(false);
+    expect(shouldProbeAck({ ...base, k1WireActive: false })).toBe(false);
   });
 });
 

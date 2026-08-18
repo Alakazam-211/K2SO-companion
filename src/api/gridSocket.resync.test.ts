@@ -1,6 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { GRID_STALL_NO_FRAME_MS, GRID_STALL_POLL_MS } from "../kessel/softResync";
+import {
+  CONNECTING_STALL_MS,
+  GRID_STALL_NO_FRAME_MS,
+  GRID_STALL_POLL_MS,
+} from "../kessel/softResync";
 
 vi.mock("./client", () => ({
   getBaseUrl: () => "http://127.0.0.1:8080",
@@ -160,6 +164,9 @@ describe("GridSocket soft-resync", () => {
       expect.stringContaining("reason=grid-stall-no-frame"),
     );
     expect(MockWS.instances.length).toBeGreaterThan(1);
+    // New dial must reach OPEN so connecting-stall does not take over;
+    // episode latch then blocks a second no-frame heal.
+    MockWS.last!.openNow();
 
     const before = MockWS.instances.length;
     await vi.advanceTimersByTimeAsync(GRID_STALL_NO_FRAME_MS + GRID_STALL_POLL_MS);
@@ -185,10 +192,62 @@ describe("GridSocket soft-resync", () => {
     sock.close();
   });
 
+  it("fresh CONNECTING need-to-send buffers without aborting the dial", async () => {
+    const { GridSocket } = await import("./gridSocket");
+    const sock = new GridSocket(() => {});
+    sock.connect("sess", { drive: true });
+    sock.setDrive(true);
+    const first = MockWS.last!;
+    expect(first.readyState).toBe(MockWS.CONNECTING);
+    sock.sendInput("\x1b[<64;1;1M");
+    await flushResync();
+    expect(MockWS.last).toBe(first);
+    first.openNow();
+    expect(parsed().some((f) => (f as { action?: string }).action === "input")).toBe(
+      true,
+    );
+    sock.close();
+  });
+
+  it("hung CONNECTING past 5s is aborted and reopened", async () => {
+    vi.useFakeTimers({ now: 1_000_000 });
+    const { GridSocket } = await import("./gridSocket");
+    const sock = new GridSocket(() => {});
+    sock.connect("sess");
+    const first = MockWS.last!;
+    expect(first.readyState).toBe(MockWS.CONNECTING);
+    await vi.advanceTimersByTimeAsync(CONNECTING_STALL_MS + GRID_STALL_POLL_MS);
+    await flushResync();
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining("reason=connecting-stall"),
+    );
+    expect(MockWS.instances.length).toBeGreaterThan(1);
+    expect(MockWS.last).not.toBe(first);
+    sock.close();
+  });
+
+  it("reload aborts an in-flight CONNECTING dial immediately", async () => {
+    const { GridSocket } = await import("./gridSocket");
+    const sock = new GridSocket(() => {});
+    sock.connect("sess");
+    const first = MockWS.last!;
+    sock.forceGridResync("reload");
+    await flushResync();
+    expect(console.warn).toHaveBeenCalledWith(
+      expect.stringContaining("reason=reload"),
+    );
+    expect(MockWS.last).not.toBe(first);
+    sock.close();
+  });
+
   it("RPC companion WS module is not imported by the grid socket", async () => {
-    const grid = await import("./gridSocket");
-    const rpc = await import("./websocket");
-    expect(grid.GridSocket).not.toBe(rpc.CompanionWebSocket);
-    expect("CompanionWebSocket" in grid).toBe(false);
+    // Runtime isolation is forceGridResync not touching /companion/ws.
+    // Source must also never import the RPC socket (client.ts may).
+    // @ts-expect-error Node fs — vitest runtime, not in app tsconfig libs
+    const { readFileSync } = await import("fs");
+    const src = readFileSync(new URL("./gridSocket.ts", import.meta.url), "utf8") as string;
+    expect(src).not.toMatch(/from\s+["']\.\/websocket["']/);
+    expect(src).not.toMatch(/from\s+["']\.\.\/api\/websocket["']/);
+    expect(src).not.toContain("CompanionWebSocket");
   });
 });
