@@ -13,6 +13,15 @@ import {
 } from "../kessel/gridUrl";
 import { sgrInputActions } from "../kessel/sgrWheel";
 import { driveOpenFrames, driveResizeFrames } from "../kessel/driveMode";
+import {
+  GRID_STALL_POLL_MS,
+  enqueueOutbound,
+  isAckAction,
+  shouldBufferAndResync,
+  shouldHealOpenStall,
+  shouldResyncOnForeground,
+  type GridSoftResyncReason,
+} from "../kessel/softResync";
 
 // Live k1 grid-WS. Two origins (do not smash tokens):
 //   Connect/daemon (this app's `getBaseUrl()`):
@@ -29,6 +38,9 @@ import { driveOpenFrames, driveResizeFrames } from "../kessel/driveMode";
 // Watch-default: attach sends set_mode:viewer (Connect `/cli` owner
 // sockets start claimer). Drive later sends claimer + measured set_active.
 // Reconnect backoff: `500 * 2^min(n,4)` cap 5s (`lib/reconnect.ts`).
+//
+// Grid-only heal (PRD §6.3): forceGridResync — last painted snapshot
+// stays mounted. RPC `/companion/ws` is a different socket.
 
 export type { GridAttach, GridRoute };
 
@@ -116,6 +128,15 @@ export class GridSocket {
   private drive = false;
   /** True once the current OPEN socket actually sent `claimDims`. */
   private claimSent = false;
+  /** Outbound frames that arrived while the socket was not OPEN. */
+  private outboundQueue: unknown[] = [];
+  /** Date.now() of the last inbound WS frame; 0 = none yet. */
+  private lastFrameAt = 0;
+  /** One grid-stall-no-frame heal per silence episode. */
+  private stallHealed = false;
+  private stallTimer: ReturnType<typeof setInterval> | null = null;
+  /** Coalesce same-turn forceGridResync reasons into one dial. */
+  private resyncGen = 0;
 
   constructor(onFrame: FrameHandler) {
     this.onFrame = onFrame;
@@ -130,6 +151,10 @@ export class GridSocket {
     this.drive = opts?.drive ?? false;
     this.serverId = useServersStore.getState().activeServerId;
     this.shouldReconnect = true;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
     // Foreground recovery (orca terminal-foreground-recovery pattern):
     // iOS suspends timers AND drops sockets in the background, so a
     // return to the foreground must re-check the stream NOW instead of
@@ -138,6 +163,7 @@ export class GridSocket {
       document.addEventListener("visibilitychange", this.onVisibility);
       window.addEventListener("focus", this.onForeground);
     }
+    this.startStallWatch();
     this.open();
   }
 
@@ -145,23 +171,45 @@ export class GridSocket {
     if (document.visibilityState === "visible") this.onForeground();
   };
 
-  /** App came to the foreground: if a reconnect is pending, fire it
-   *  immediately (through the revive path); if the socket died silently
-   *  while backgrounded (no close event delivered → no timer), reopen.
-   *  A healthy open socket makes this a no-op. */
+  /** App came to the foreground: not-OPEN → forceGridResync('foreground').
+   *  OPEN zombies are the stall poll (and we sample immediately here).
+   *  WebGL remount lives in TerminalView — this is grid-socket only. */
   private onForeground = (): void => {
     if (!this.shouldReconnect) return;
+    const visible =
+      typeof document === "undefined" || document.visibilityState === "visible";
+    if (shouldResyncOnForeground({ visible, readyState: this.ws?.readyState })) {
+      this.forceGridResync("foreground");
+      return;
+    }
+    this.pollStall();
+  };
+
+  /**
+   * Grid-only reattach. Cancels a pending backoff, reopens the k1
+   * socket, does not touch `/companion/ws` or the last painted frame.
+   */
+  forceGridResync(reason: GridSoftResyncReason | (string & {})): void {
+    if (!this.shouldReconnect) return;
+    if (
+      this.ws?.readyState === WebSocket.CONNECTING &&
+      !this.reconnectTimer
+    ) {
+      return;
+    }
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
-      void this.reviveThenReopen();
-      return;
     }
-    const state = this.ws?.readyState;
-    if (state === undefined || state === WebSocket.CLOSED || state === WebSocket.CLOSING) {
+    // Always-on breadcrumb — lock/unlock freezes are diagnosed from
+    // release builds.
+    console.warn(`[grid-resync] reason=${reason}`);
+    const gen = ++this.resyncGen;
+    queueMicrotask(() => {
+      if (this.resyncGen !== gen || !this.shouldReconnect) return;
       void this.reviveThenReopen();
-    }
-  };
+    });
+  }
 
   /** Build the WS URL FRESH each open so a token revived between attempts
    *  is picked up (the daemon kicks stale tokens off the WS within 5s —
@@ -245,6 +293,7 @@ export class GridSocket {
       // task as sending child_exit, so latch BEFORE dispatching). The
       // consumer shows the dead state; its own close() is belt+braces.
       if (frame.event === "child_exit") this.shouldReconnect = false;
+      this.noteInboundFrame();
       // Don't swallow handler errors silently: an apply bug here (e.g. a
       // wire field-name mismatch) would otherwise look like a dead stream.
       try {
@@ -278,12 +327,69 @@ export class GridSocket {
       } else {
         this.sendFrames(attachOpenActions(this.attach, null));
       }
+      this.flushOutbound();
       try {
         this.onFrame({ event: "socket_open", payload: {} });
       } catch (err) {
         console.warn("[gridSocket] socket_open handler error:", err);
       }
     };
+  }
+
+  private noteInboundFrame(): void {
+    this.lastFrameAt = Date.now();
+    if (this.stallHealed) {
+      console.warn("[grid-stall] recovered");
+    }
+    this.stallHealed = false;
+  }
+
+  private startStallWatch(): void {
+    if (this.stallTimer) return;
+    this.stallTimer = setInterval(() => this.pollStall(), GRID_STALL_POLL_MS);
+  }
+
+  private stopStallWatch(): void {
+    if (!this.stallTimer) return;
+    clearInterval(this.stallTimer);
+    this.stallTimer = null;
+  }
+
+  private pollStall(): void {
+    if (!this.shouldReconnect) return;
+    const visible =
+      typeof document === "undefined" || document.visibilityState === "visible";
+    const now = Date.now();
+    if (
+      !shouldHealOpenStall({
+        visible,
+        readyState: this.ws?.readyState,
+        lastFrameAt: this.lastFrameAt,
+        now,
+        healedThisEpisode: this.stallHealed,
+      })
+    ) {
+      return;
+    }
+    this.stallHealed = true;
+    console.warn("[grid-stall]", {
+      reason: "no-frame",
+      readyState: this.ws?.readyState ?? null,
+      ageMs: Math.round(now - this.lastFrameAt),
+    });
+    this.forceGridResync("grid-stall-no-frame");
+  }
+
+  private flushOutbound(): void {
+    const queued = this.outboundQueue;
+    this.outboundQueue = [];
+    for (let i = 0; i < queued.length; i++) {
+      if (this.ws?.readyState !== WebSocket.OPEN) {
+        this.outboundQueue.push(...queued.slice(i));
+        return;
+      }
+      this.ws.send(JSON.stringify(queued[i]));
+    }
   }
 
   private scheduleReconnect(): void {
@@ -425,7 +531,11 @@ export class GridSocket {
 
   private sendClaim(): void {
     const d = this.claimDims;
-    if (!d || !this.isOpen) return;
+    if (!d) return;
+    if (!this.isOpen) {
+      this.forceGridResync("need-to-send");
+      return;
+    }
     const frames = driveResizeFrames(d);
     if (frames.length === 0) return;
     this.sendFrames(frames);
@@ -434,8 +544,25 @@ export class GridSocket {
 
   private send(obj: unknown): void {
     if (this.ws?.readyState === WebSocket.OPEN) {
-      this.ws.send(JSON.stringify(obj));
+      try {
+        this.ws.send(JSON.stringify(obj));
+      } catch {
+        if (!isAckAction(obj)) {
+          this.outboundQueue = enqueueOutbound(this.outboundQueue, obj);
+          this.forceGridResync("need-to-send");
+        }
+      }
+      return;
     }
+    const action =
+      obj && typeof obj === "object"
+        ? String((obj as { action?: string }).action ?? "")
+        : "";
+    if (!shouldBufferAndResync({ readyState: this.ws?.readyState, action })) {
+      return;
+    }
+    this.outboundQueue = enqueueOutbound(this.outboundQueue, obj);
+    this.forceGridResync("need-to-send");
   }
 
   get isOpen(): boolean {
@@ -444,6 +571,7 @@ export class GridSocket {
 
   close(): void {
     this.shouldReconnect = false;
+    this.stopStallWatch();
     if (typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", this.onVisibility);
       window.removeEventListener("focus", this.onForeground);
@@ -452,6 +580,7 @@ export class GridSocket {
       clearTimeout(this.reconnectTimer);
       this.reconnectTimer = null;
     }
+    this.outboundQueue = [];
     this.ws?.close();
     this.ws = null;
   }

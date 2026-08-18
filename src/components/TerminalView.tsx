@@ -242,9 +242,8 @@ export function TerminalView({
   const [liveSnap, setLiveSnap] = useState<LiveGrid | null>(null);
   const [legacyRows, setLegacyRows] = useState<RenderRun[][]>([]);
   const debugRef = useRef("");
-  // Bumping this tears down + recreates the grid-WS (reconnect → fresh
-  // snapshot). Driven by the parent's reload button via onReloadRef.
-  const [reloadKey, setReloadKey] = useState(0);
+  // Grid-only heal (forceGridResync). Never bump a remount key — that
+  // would unmount the last painted snapshot. Reload uses the live socket.
   // null = still probing GET /companion/capabilities.
   const [gridDial, setGridDial] = useState<GridDial | null>(null);
   // Container box (border-box px) — the scale-to-fit input. Updated
@@ -290,9 +289,6 @@ export function TerminalView({
     sgrMouse: false,
     altScreen: false,
   });
-  // Drive is PR4. Stay false so grid `{action:"input"}` / SGR are
-  // no-ops — any Input on a claimer-capable socket is a claim.
-  const driveRef = useRef(false);
   // Raw PTY input over the live socket — deliberately NOT the parent's
   // onInputRef path (that's terminal.write, which appends \\r).
   const rawInputRef = useRef<((text: string) => void) | null>(null);
@@ -433,7 +429,6 @@ export function TerminalView({
   const webglCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const painterRef = useRef<TerminalPainter | null>(null);
   const coalescerRef = useRef<FrameCoalescer<PendingFrame> | null>(null);
-  const scrollPxRef = useRef(0);
   const useWebglRef = useRef(false);
   const scrollMapRef = useRef({ sb: 0, cellH: 1 });
   const lastPaintedRef = useRef<{
@@ -501,6 +496,9 @@ export function TerminalView({
     // HTTP scrollback fallback — used only when the grid-WS can't open
     // (e.g. iOS-device WKWebView WS limitation). Renders text-by-row.
     const loadContent = async () => {
+      // Never replace a last-painted k1 snapshot with HTTP scrollback
+      // while the grid socket is merely reconnecting.
+      if (liveRef.current) return;
       if (loadingContent) return;
       loadingContent = true;
       let lines: string[] | null = null;
@@ -844,9 +842,10 @@ export function TerminalView({
       if (dims) gridSock.noteClaim(dims.cols, dims.rows);
     }
 
-    // Expose a reload that forces a fresh reconnect (new snapshot) of this
-    // session — bumping reloadKey re-runs this effect.
-    if (onReloadRef) onReloadRef.current = () => setReloadKey((k) => k + 1);
+    // Reload is a grid-only heal: last snapshot stays on screen.
+    if (onReloadRef) {
+      onReloadRef.current = () => gridSock.forceGridResync("reload");
+    }
 
     // If the WS hasn't produced a frame shortly after connect, fall back
     // to HTTP polling so the user still sees content on WS-restricted
@@ -888,7 +887,7 @@ export function TerminalView({
       // nobody left to render them.
       coalescer.clear();
     };
-  }, [terminalId, projectPath, dispatchClaim, applyClipboardText, reloadKey, gridDial]);
+  }, [terminalId, projectPath, dispatchClaim, applyClipboardText, gridDial]);
 
   // Header Watch/Drive — flip the live socket, do not reconnect.
   useEffect(() => {
@@ -904,7 +903,6 @@ export function TerminalView({
 
   // Auto-scroll to bottom — only if user hasn't scrolled up
   const userScrolledRef = useRef(false);
-  const [scrollTop, setScrollTop] = useState(0);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -922,9 +920,6 @@ export function TerminalView({
         sb,
         cellH,
       );
-      if (!useWebglRef.current) {
-        setScrollTop(container.scrollTop);
-      }
       if (!raf) {
         raf = requestAnimationFrame(() => {
           raf = 0;
@@ -946,14 +941,10 @@ export function TerminalView({
     }
   }, [grid.version]);
 
-  useEffect(() => {
-    if (!useWebglRef.current && containerRef.current) {
-      setScrollTop(containerRef.current.scrollTop);
-    }
-  }, [painterFatal]);
-
   // Remount the GL surface when the app comes back to the foreground
   // after an unrestored context loss. Any other fatal stays on DOM.
+  // Grid-socket heal is separate (GridSocket.forceGridResync) — this
+  // listener must not close or remount the k1 stream.
   useEffect(() => {
     const onForeground = () => {
       const vis = document.visibilityState === "visible";
@@ -1153,7 +1144,6 @@ export function TerminalView({
       if (gest && !gest.moved) return;
       const s = claimRef.current;
       if (!driveRef.current || s.mode !== "claimer" || !s.capable) return;
-      const send = rawInputRef.current;
       const last = lastTouchRef.current;
       if (!last) return;
       const deltaPx = last.y - touch.clientY;
