@@ -58,6 +58,10 @@ export interface ScaleLayoutInput {
   /** Resize hold-and-scale: an emitted resize whose frames haven't
    *  landed yet (active path only). */
   pendingResize: { cols: number; rows: number } | null
+  /** Override the passive/pinned scale floor. Phone Watch passes 0
+   *  so a 120-col desktop grid actually fits; omit to keep desktop
+   *  floors (0.4 / 0.25). */
+  minScale?: number
 }
 
 const IDENTITY: ScaleLayoutResult = {
@@ -78,6 +82,7 @@ export function computeScaleLayout(input: ScaleLayoutInput): ScaleLayoutResult {
     isActiveViewer,
     pinned,
     pendingResize,
+    minScale,
   } = input
   if (!snapCols || !snapRows || !cw || !ch) return IDENTITY
   // Same available-box formula as the ResizeObserver's cols/rows
@@ -122,11 +127,11 @@ export function computeScaleLayout(input: ScaleLayoutInput): ScaleLayoutResult {
   // emitted, so any stale hold must not stretch a clamped grid.
   if (pinned) {
     if (fit >= 1) return centered
-    return letterboxed(Math.max(fit, PINNED_SCALE_FLOOR), false)
+    return letterboxed(Math.max(fit, minScale ?? PINNED_SCALE_FLOOR), false)
   }
   if (!isActiveViewer) {
     if (fit >= 1) return centered
-    return letterboxed(Math.max(fit, PASSIVE_SCALE_FLOOR), true)
+    return letterboxed(Math.max(fit, minScale ?? PASSIVE_SCALE_FLOOR), true)
   }
   // Active pane, resize in flight (hold-and-scale): frames still
   // carry the OLD geometry — stretch the last grid to the new box
