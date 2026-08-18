@@ -529,7 +529,7 @@ export class GridSocket {
     return this.drive;
   }
 
-  sendFrames(frames: unknown[]): void {
+  sendFrames(frames: readonly unknown[]): void {
     for (const frame of frames) this.send(frame);
   }
 

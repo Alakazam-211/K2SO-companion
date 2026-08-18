@@ -119,7 +119,8 @@ describe("GridSocket Drive / Watch wire", () => {
       { action: "input", text: "\x1b" },
     ]);
     sock.sendPtyBytes("\x1b\r");
-    expect(parsed().at(-1)).toEqual({ action: "input", text: "\x1b\r" });
+    const last = parsed()[parsed().length - 1];
+    expect(last).toEqual({ action: "input", text: "\x1b\r" });
     expect(JSON.stringify(parsed())).not.toContain("set_active");
     sock.close();
   });
