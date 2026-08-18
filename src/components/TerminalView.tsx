@@ -1150,8 +1150,6 @@ export function TerminalView({
         return;
       }
       if (gest && !gest.moved) return;
-      const s = claimRef.current;
-      if (!driveRef.current || s.mode !== "claimer" || !s.capable) return;
       const last = lastTouchRef.current;
       if (!last) return;
       const deltaPx = last.y - touch.clientY;
@@ -1300,6 +1298,9 @@ export function TerminalView({
     isActiveViewer,
     pinned: claimState.pin !== null && !(claimState.claimedByMe && pendingResize !== null),
     pendingResize,
+    // Phone Watch must shrink to the pane. Desktop's 0.4 floor leaves
+    // a 120-col grid ~2× a phone-wide.
+    minScale: 0,
   });
   const originX = PAINT_PAD + layout.offsetX;
   const originY = PAINT_PAD + layout.offsetY;

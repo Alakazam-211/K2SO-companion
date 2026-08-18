@@ -81,6 +81,19 @@ describe('computeScaleLayout — unpinned (existing behavior)', () => {
     expect(r.offsetY).toBe(0)
   })
 
+  it('minScale 0 lets Watch shrink to the real fit (phone)', () => {
+    const r = computeScaleLayout(
+      input({
+        isActiveViewer: false,
+        containerWidth: 104,
+        containerHeight: 64,
+        minScale: 0,
+      }),
+    )
+    expect(r.scale).toBeCloseTo(0.1, 10)
+    expect(r.passive).toBe(true)
+  })
+
   it('passive floor stays 0.4: a tiny box clips instead of shrinking below it', () => {
     // avail 100×60 vs grid 1000×600 ⇒ fit 0.1 → floored to 0.4.
     const r = computeScaleLayout(

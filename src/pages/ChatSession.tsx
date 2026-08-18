@@ -182,39 +182,46 @@ export function ChatSession() {
             <span className="text-[var(--text)] text-[13px] font-semibold">Terminal</span>
           )}
         </div>
-        {/* Watch/Drive: size policy only. Default Watch. Drive is an
-            explicit tap — never auto. Composer stays terminal.write. */}
         <div
           data-k2="watch-drive"
           className="flex h-8 border border-[var(--accent-dim)] shrink-0"
           role="group"
-          aria-label="Watch or Drive"
+          aria-label="Viewer or claimer"
         >
           <button
             data-k2="watch-btn"
             type="button"
             aria-pressed={!drive}
+            aria-label="Viewer — watch only"
+            title="Viewer — watch only"
             onClick={() => setDrive(false)}
-            className={`px-2 text-[11px] font-semibold ${
+            className={`w-8 h-8 flex items-center justify-center ${
               !drive
                 ? "bg-[var(--accent)] text-black"
                 : "text-[var(--accent)]"
             }`}
           >
-            Watch
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
           </button>
           <button
             data-k2="drive-btn"
             type="button"
             aria-pressed={drive}
+            aria-label="Claimer — type and resize"
+            title="Claimer — type and resize"
             onClick={() => setDrive(true)}
-            className={`px-2 text-[11px] font-semibold ${
+            className={`w-8 h-8 flex items-center justify-center ${
               drive
                 ? "bg-[var(--accent)] text-black"
                 : "text-[var(--accent)]"
             }`}
           >
-            Drive
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round">
+              <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+            </svg>
           </button>
         </div>
         {/* Send-mode toggle — glyph is the current mode (bubble = Safe,
