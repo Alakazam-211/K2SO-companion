@@ -374,12 +374,12 @@ export function TerminalView({
   const holdTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [pendingResize, setPendingResize] = useState<{ cols: number; rows: number } | null>(null);
 
-  // Socket-effect internals exposed to the chrome / Drive toggle.
+  // Socket-effect internals exposed to the Drive toggle.
   const actionsRef = useRef<{
-    claim: () => void;
     enterDrive: () => void;
     leaveDrive: () => void;
   } | null>(null);
+  const prevDriveRef = useRef(drive);
   // Last measured phone fit (cols×rows) — the claim button's dims and
   // the drove-the-dims check in the render path.
   const lastFitRef = useRef<{ cols: number; rows: number } | null>(null);
@@ -631,10 +631,16 @@ export function TerminalView({
       }, RESIZE_HOLD_TIMEOUT_MS);
     };
 
-    const applyMeasuredClaim = (dims: { cols: number; rows: number }) => {
+    const applyMeasuredClaim = (dims: { cols: number; rows: number }, reassert = false) => {
       lastFitRef.current = dims;
+      // Pinned-by-other: daemon clamps — keep Drive header, no size frames.
+      if (pinnedByOther(claimRef.current)) return;
+      const frames = driveResizeFrames(dims);
+      if (frames.length === 0) return;
       startHold(dims);
-      gridSock.claim(dims.cols, dims.rows);
+      gridSock.noteClaim(dims.cols, dims.rows);
+      if (reassert) gridSock.reassertClaim();
+      else gridSock.sendFrames(frames);
     };
 
     const measureThen = (then: (dims: { cols: number; rows: number }) => void) => {
@@ -652,7 +658,9 @@ export function TerminalView({
 
     const queueDriveClaim = () => {
       gridSock.setDrive(true);
-      measureThen(applyMeasuredClaim);
+      // Reopen: remasure then reassert even at the same cols×rows so
+      // elect_on_detach cannot leave us Driving without the slot.
+      measureThen((dims) => applyMeasuredClaim(dims, true));
     };
     driveHooks.onSocketOpen = () => {
       if (driveRef.current) queueDriveClaim();
@@ -662,7 +670,7 @@ export function TerminalView({
       gridSock.setDrive(true);
       // set_mode:claimer first; set_active only after a real measure.
       gridSock.sendFrames(driveEnterFrames(null));
-      measureThen(applyMeasuredClaim);
+      measureThen((dims) => applyMeasuredClaim(dims, false));
     };
 
     const leaveDrive = () => {
@@ -679,10 +687,7 @@ export function TerminalView({
       lastFitRef.current = dims;
       if (!driveRef.current) return;
       gridSock.setDrive(true);
-      const frames = driveResizeFrames(dims);
-      if (frames.length === 0) return;
-      startHold(dims);
-      gridSock.claim(dims.cols, dims.rows);
+      applyMeasuredClaim(dims, false);
     };
 
     // K4: one emit per keyboard/rotation transition — debounce to the
@@ -712,14 +717,20 @@ export function TerminalView({
     // RO tick still re-fits. Drive is the only path that emits resize.
     window.addEventListener("k2-viewport-resize", debouncedRefit);
 
-    actionsRef.current = { claim: () => {}, enterDrive, leaveDrive };
+    actionsRef.current = { enterDrive, leaveDrive };
     // SGR wheel/tap (PR3) rides this seam. Composer stays terminal.write.
     rawInputRef.current = (text) => {
       if (!driveRef.current) return;
       gridSock.sendInput(text);
     };
     if (onInputRef) onInputRef.current = null;
-    if (driveRef.current) enterDrive();
+    // Already Driving (reload / remount): plant measured dims so OPEN
+    // flushes set_active. Do not enterDrive here — socket may not be OPEN.
+    if (driveRef.current) {
+      gridSock.setDrive(true);
+      const dims = lastFitRef.current ?? measureFit();
+      if (dims) gridSock.noteClaim(dims.cols, dims.rows);
+    }
 
     // Expose a reload that forces a fresh reconnect (new snapshot) of this
     // session — bumping reloadKey re-runs this effect.
@@ -764,11 +775,6 @@ export function TerminalView({
     else actionsRef.current?.leaveDrive();
   }, [drive]);
 
-  // Chrome tap handlers (the socket lives inside the effect; taps go
-  // through actionsRef / the HTTP pin route).
-  const handleClaimTap = useCallback(() => {
-    actionsRef.current?.claim();
-  }, []);
   const handleReleaseTap = useCallback(() => {
     // Optimistic; the pin_changed {cleared:true} broadcast confirms.
     dispatchClaim({ type: "release_sent" });
@@ -1051,6 +1057,36 @@ export function TerminalView({
     };
   }, [clearSelection]);
 
+  // Seed hold on the Drive tap render so the first paint letterboxes
+  // the old grid instead of 1:1-clipping it. Effect/measure then
+  // owns the timer.
+  if (drive && !prevDriveRef.current && !pinnedByOther(claimState)) {
+    let fit = lastFitRef.current;
+    if (!fit && cellW > 0 && cellH > 0) {
+      fit = measurePaneFit(
+        contentBoxSize(containerRef.current),
+        cellW,
+        cellH,
+      );
+      if (fit) lastFitRef.current = fit;
+    }
+    const live = liveRef.current;
+    if (fit && (!live || live.cols !== fit.cols || live.rows !== fit.rows)) {
+      holdRef.current = fit;
+      if (
+        !pendingResize ||
+        pendingResize.cols !== fit.cols ||
+        pendingResize.rows !== fit.rows
+      ) {
+        setPendingResize(fit);
+      }
+    }
+  } else if (!drive && prevDriveRef.current && pendingResize) {
+    holdRef.current = null;
+    setPendingResize(null);
+  }
+  prevDriveRef.current = drive;
+
   // Watch: scale-to-fit. Drive: 1:1 + hold-and-scale while the
   // measured resize is in flight. Pinned-by-other still letterboxes.
   const isActiveViewer = drive && !pinnedByOther(claimState);
@@ -1257,15 +1293,13 @@ export function TerminalView({
         )}
       </div>
 
-      {/* Badge/pill strip: claim/claimed/pinned/view-only + the
-          "Viewing at C×R" pill. Rendered over the grid, outside the
-          scroll flow. */}
+      {/* Badge/pill strip: pinned/view-only + "Viewing at C×R".
+          T0 "Claim session" is not v1 — Drive is the size control. */}
       <TerminalChrome
         claim={claimState}
         passive={layout.passive}
         gridCols={grid.cols}
         gridRows={grid.viewportRows}
-        onClaim={handleClaimTap}
         onRelease={handleReleaseTap}
       />
 

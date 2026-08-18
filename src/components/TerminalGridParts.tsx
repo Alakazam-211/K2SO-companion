@@ -6,9 +6,10 @@
 //   TerminalCursor — the terminal's own cursor painted at its true
 //                    cell (T4: Direct typing echoes THROUGH the PTY,
 //                    so this cursor is the only caret the user sees).
-//   TerminalChrome — the badge/pill strip above the grid ("Claim
-//                    session", claimed/pinned badges, "Viewing at
-//                    C×R" pill, view-only pill).
+//   TerminalChrome — the badge/pill strip above the grid (pinned
+//                    badge, "Viewing at C×R" pill, view-only pill).
+//                    T0 "Claim session" is not v1 — Drive is the size
+//                    control.
 //   SelectionOverlay / CopyAffordance / ToastPill /
 //   ClipboardFallbackPill — the T6 touch-selection + clipboard UX
 //                    (highlight rects, the post-release Copy button,
@@ -18,7 +19,6 @@
 import type { CSSProperties, ReactNode } from "react";
 import {
   pinnedByOther,
-  showClaimButton,
   type ClaimState,
 } from "../lib/claimState";
 import type { RowSegment } from "../lib/touchSelect";
@@ -121,7 +121,6 @@ export interface TerminalChromeProps {
   /** Current grid dims (the pill's C×R). */
   gridCols: number;
   gridRows: number;
-  onClaim: () => void;
   onRelease: () => void;
 }
 
@@ -133,7 +132,6 @@ export function TerminalChrome({
   passive,
   gridCols,
   gridRows,
-  onClaim,
   onRelease,
 }: TerminalChromeProps) {
   const bits: ReactNode[] = [];
@@ -186,24 +184,6 @@ export function TerminalChrome({
       >
         View only
       </span>
-    );
-  }
-
-  if (showClaimButton(claim)) {
-    bits.push(
-      <button
-        key="claim"
-        data-k2="claim-button"
-        onClick={onClaim}
-        style={{
-          ...PILL_BASE,
-          background: "rgba(10,10,10,0.75)",
-          color: "var(--accent, #f59e0b)",
-          border: "1px solid var(--accent-dim, rgba(245,158,11,0.4))",
-        }}
-      >
-        Claim session
-      </button>
     );
   }
 

@@ -48,3 +48,14 @@ export function driveLeaveFrames(): unknown[] {
     { action: "set_active", active: false },
   ];
 }
+
+/** Frames on WS open. Watch (Connect `/cli` included) must send
+ *  `set_mode:viewer` so an owner socket is not left claimer.
+ *  Drive flushes a stored measure as `set_active` — never 80×24. */
+export function driveOpenFrames(
+  drive: boolean,
+  fit: PaneFit | null | undefined,
+): unknown[] {
+  if (!drive) return [{ action: "set_mode", mode: "viewer" }];
+  return driveEnterFrames(fit);
+}
