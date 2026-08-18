@@ -83,7 +83,12 @@ function Card({ row, nowSec }: { row: FeedbackListRow; nowSec: number }) {
   return (
     <button
       onClick={() => navigate(`/feedback/${row.id}`)}
-      className="flex flex-col gap-2.5 w-full min-w-0 overflow-hidden px-4 py-4 bg-[var(--surface)] border border-[var(--border)] text-left hover:border-[var(--border-hover)] transition-colors"
+      className="flex flex-col gap-2.5 w-full min-w-0 overflow-hidden text-left"
+      style={{
+        padding: "16px",
+        background: "#1c1c1e",
+        border: "1px solid #333",
+      }}
     >
       <div className="flex items-baseline gap-3 w-full min-w-0">
         <span className="text-[var(--text)] text-[15px] font-medium leading-6 flex-1 min-w-0 line-clamp-2 break-words [overflow-wrap:anywhere]">
