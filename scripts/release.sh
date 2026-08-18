@@ -3,15 +3,20 @@ set -euo pipefail
 
 # ─── K2 iOS Release Script ───
 # Usage: ./scripts/release.sh <version>
-# Example: ./scripts/release.sh 0.3.0
+# Example: ./scripts/release.sh 3.1.0
+#
+# One marketing version. package.json, tauri.conf.json, Info.plist
+# CFBundleShortVersionString, the git tag (vX.Y.Z), and the App Store
+# Connect version string are the same number. CFBundleVersion is a
+# timestamp build id only. Do not pass a second "internal" tag version.
 #
 # What it does:
 #   1. Bumps version in package.json, tauri.conf.json, Info.plist
-#   2. Auto-increments build number (timestamp-based, always unique)
+#   2. Stamps a unique timestamp build number
 #   3. Builds frontend + iOS archive
 #   4. Exports App Store IPA
 #   5. Uploads to App Store Connect
-#   6. Commits, tags, and pushes to GitHub
+#   6. Commits, tags, and pushes HEAD to origin/main + the tag
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -35,26 +40,20 @@ EXPORT_PLIST="$PROJECT_DIR/src-tauri/gen/apple/build/AppStoreExport.plist"
 
 # ─── Validate ───
 
-if [ $# -lt 1 ]; then
+if [ $# -ne 1 ]; then
   echo "Usage: $0 <version>"
-  echo "Example: $0 0.3.0"
+  echo "Example: $0 3.1.0"
+  echo "One marketing version only — git tag, store version, and plist match."
   exit 1
 fi
 
-# $1 = App Store marketing version (CFBundleShortVersionString; Apple requires
-#      1.0.0+, no 0.x). $2 (optional) = internal git-tag version (our 0.x line);
-# defaults to $1 when omitted. e.g. `release.sh 2.0.0 0.4.0` → App Store 2.0.0,
-# git tag v0.4.0.
+# Marketing version (CFBundleShortVersionString). Apple rejects 0.x on
+# new submissions and rejects going backwards vs the highest train already
+# in App Store Connect (store or TestFlight). Floor as of 2026-08 is 3.0.1.
 VERSION="$1"
-TAG_VERSION="${2:-$VERSION}"
 
-# Validate version formats
-if ! echo "$VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-  echo "Error: App Store version must be X.Y.Z (e.g., 2.0.0)"
-  exit 1
-fi
-if ! echo "$TAG_VERSION" | grep -qE '^[0-9]+\.[0-9]+\.[0-9]+$'; then
-  echo "Error: tag version must be X.Y.Z (e.g., 0.4.0)"
+if ! echo "$VERSION" | grep -qE '^[1-9][0-9]*\.[0-9]+\.[0-9]+$'; then
+  echo "Error: version must be X.Y.Z with X >= 1 (e.g., 3.1.0). Apple rejects 0.x."
   exit 1
 fi
 
@@ -183,16 +182,17 @@ echo "  ✓ Uploaded to App Store Connect"
 echo "→ Committing and tagging..."
 cd "$PROJECT_DIR"
 git add package.json src-tauri/tauri.conf.json src-tauri/gen/apple/k2so-companion_iOS/Info.plist
-git commit -m "v${TAG_VERSION} — App Store ${VERSION}, release build ${BUILD_NUMBER}"
-git tag -a "v${TAG_VERSION}" -m "v${TAG_VERSION} (App Store ${VERSION})"
-git push
-git push origin "v${TAG_VERSION}"
+git commit -m "v${VERSION} — App Store ${VERSION}, release build ${BUILD_NUMBER}"
+git tag -a "v${VERSION}" -m "v${VERSION} (App Store ${VERSION})"
+# This worktree may be on an execute-plan branch; always land on GitHub main.
+git push origin HEAD:main
+git push origin "v${VERSION}"
 
 echo ""
 echo "═══════════════════════════════════════"
-echo "  ✓ K2 v${TAG_VERSION} released (App Store ${VERSION})!"
+echo "  ✓ K2 v${VERSION} released (App Store ${VERSION})!"
 echo ""
 echo "  App Store Connect: ${VERSION} build ${BUILD_NUMBER}"
-echo "  GitHub: v${TAG_VERSION} tag pushed"
+echo "  GitHub: v${VERSION} tag pushed to main"
 echo "═══════════════════════════════════════"
 echo ""
