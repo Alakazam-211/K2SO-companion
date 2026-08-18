@@ -106,5 +106,6 @@ describe("Watch size emits (refit / claim / pin)", () => {
     expect(sgrInputActions(true, "\x1b[<65;2;3M")).toEqual([
       { action: "input", text: "\x1b[<65;2;3M" },
     ]);
+    expect(sgrInputActions(true, "\x1b[<0;1;1M")).toEqual([]);
   });
 });

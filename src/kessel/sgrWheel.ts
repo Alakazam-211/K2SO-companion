@@ -92,13 +92,54 @@ export function flushWheelNotches(
   }
 }
 
-/** Grid `{action:"input"}` frames. Empty unless Drive is on — Watch
- *  must not send, and this must never go through terminal.write
- *  (handle_write appends \\r). */
+/** One-or-more CSI SGR wheel reports (`ESC[<64;` / `ESC[<65;`).
+ *  Tap/motion (`<0;` / `<32;`) and any other input are rejected. */
+const SGR_WHEEL_CSI = /^(?:\x1b\[<(?:64|65);\d+;\d+M)+$/
+
+/** Grid `{action:"input"}` frames. Empty unless Drive is on AND
+ *  `text` is wheel CSI 64/65 — Watch must not send, and this must
+ *  never go through terminal.write (handle_write appends \\r). */
 export function sgrInputActions(
   drive: boolean,
   text: string,
 ): ReadonlyArray<{ action: 'input'; text: string }> {
-  if (!drive || !text) return []
+  if (!drive || !text || !SGR_WHEEL_CSI.test(text)) return []
   return [{ action: 'input', text }]
+}
+
+export interface CellPointInput {
+  x: number
+  y: number
+  offsetX: number
+  offsetY?: number
+  scale: number
+  cellW: number
+  cellH: number
+  cols: number
+  viewportRows: number
+  padX?: number
+  padY?: number
+  /** From-bottom pixel scroll. Alt-screen clamps to 0 ⇒ identity. */
+  scrollPx?: number
+}
+
+/** Finger → 1-based SGR cell. Maps through scale/offset then subtracts
+ *  `scrollPx` (desktop TerminalPane), not a stacked-scrollback strip. */
+export function cellFromPoint(p: CellPointInput): { col: number; row: number } {
+  if (p.cellW <= 0 || p.cellH <= 0) return { col: 1, row: 1 }
+  const s = p.scale > 0 ? p.scale : 1
+  const clamp = (v: number, lo: number, hi: number) =>
+    Math.min(hi, Math.max(lo, v))
+  const col = clamp(
+    Math.floor((p.x - (p.padX ?? 4) - p.offsetX) / (p.cellW * s)) + 1,
+    1,
+    Math.max(1, p.cols),
+  )
+  const localY = (p.y - (p.padY ?? 4) - (p.offsetY ?? 0)) / s
+  const row = clamp(
+    Math.floor((localY - (p.scrollPx ?? 0)) / p.cellH) + 1,
+    1,
+    Math.max(1, p.viewportRows),
+  )
+  return { col, row }
 }

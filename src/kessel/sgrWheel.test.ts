@@ -4,6 +4,7 @@ import {
   MAX_NOTCHES_PER_FLUSH,
   accumulateWheelPx,
   canSendSgrWheel,
+  cellFromPoint,
   encodeSgrWheel,
   flushWheelNotches,
   initialWheelPump,
@@ -63,6 +64,19 @@ describe('sgrInputActions', () => {
     ])
     expect(sgrInputActions(true, '')).toEqual([])
   })
+
+  it('rejects tap/motion CSI even when Drive is on', () => {
+    expect(sgrInputActions(true, '\x1b[<0;5;10M\x1b[<0;5;10m')).toEqual([])
+    expect(sgrInputActions(true, '\x1b[<32;1;1M')).toEqual([])
+    expect(sgrInputActions(true, 'hello')).toEqual([])
+  })
+
+  it('allows a repeated 64/65 burst (one rAF flush)', () => {
+    const burst = '\x1b[<65;1;1M'.repeat(3)
+    expect(sgrInputActions(true, burst)).toEqual([
+      { action: 'input', text: burst },
+    ])
+  })
 })
 
 describe('wheel pump (rAF flush / 32-notch / remainder drop)', () => {
@@ -114,5 +128,46 @@ describe('wheel pump (rAF flush / 32-notch / remainder drop)', () => {
     expect(mid.accumPx).toBe(7)
     const flipped = accumulateWheelPx(mid, -10)
     expect(flipped.accumPx).toBe(-10)
+  })
+})
+
+describe('cellFromPoint', () => {
+  const base = {
+    offsetX: 0,
+    offsetY: 0,
+    scale: 1,
+    cellW: 6,
+    cellH: 14,
+    cols: 40,
+    viewportRows: 20,
+    padX: 4,
+    padY: 4,
+    scrollPx: 0,
+  }
+
+  it('1-based cells from the padded origin', () => {
+    expect(cellFromPoint({ ...base, x: 4, y: 4 })).toEqual({ col: 1, row: 1 })
+    expect(cellFromPoint({ ...base, x: 4 + 6, y: 4 + 14 })).toEqual({
+      col: 2,
+      row: 2,
+    })
+  })
+
+  it('subtracts scrollPx in unscaled space (desktop identity on alt-screen)', () => {
+    expect(
+      cellFromPoint({ ...base, x: 4, y: 4 + 14, scrollPx: 14 }),
+    ).toEqual({ col: 1, row: 1 })
+  })
+
+  it('respects scale + letterbox offset', () => {
+    expect(
+      cellFromPoint({
+        ...base,
+        scale: 0.5,
+        offsetX: 10,
+        x: 4 + 10 + 3 * 3,
+        y: 4 + 3 * 7,
+      }),
+    ).toEqual({ col: 4, row: 4 })
   })
 })
