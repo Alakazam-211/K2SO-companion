@@ -5,6 +5,7 @@
 import type { CSSProperties, ReactNode } from "react";
 import remarkGfm from "remark-gfm";
 import Markdown from "./Markdown";
+import { authorTint } from "../lib/authorTint";
 
 export function ChatMessageBody({
   text,
@@ -31,28 +32,29 @@ export function ChatMessage({
   timeLabel,
   body,
   footer,
+  /** Stable key for the per-person wash (the stored author, not "You"). */
+  tintKey,
 }: {
   author: string;
   isOwner: boolean;
   timeLabel: string;
   body: string;
   footer?: ReactNode;
+  tintKey?: string;
 }) {
+  const tint = authorTint(tintKey ?? author, isOwner);
   return (
     <div
-      className={`flex flex-col gap-1 px-3 py-2 ${
-        isOwner
-          ? "bg-[var(--accent-dim)]/15"
-          : "bg-[var(--surface)]"
-      }`}
+      className="flex flex-col gap-1 px-3 py-2 border"
+      style={{
+        background: tint.background,
+        borderColor: tint.border,
+      }}
     >
       <div className="flex items-baseline gap-2 min-w-0">
         <span
-          className={`text-[12px] font-semibold truncate ${
-            isOwner
-              ? "text-[var(--accent)]"
-              : "text-[var(--text-secondary)]"
-          }`}
+          className="text-[12px] font-semibold truncate"
+          style={{ color: tint.name }}
         >
           {author}
         </span>
