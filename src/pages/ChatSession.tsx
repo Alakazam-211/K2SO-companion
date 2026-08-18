@@ -299,9 +299,9 @@ export function ChatSession() {
         <TerminalView terminalId={terminalId} projectPath={projectPath} onInputRef={sendInputRef} onReloadRef={reloadRef} drive={drive} />
       </div>
 
-      {/* Input bar: Watch keeps Safe send (textarea → terminal.write).
-          Drive claims PTY size only — composer still uses terminal.write,
-          not grid `{action:"input"}` for text. */}
+      {/* Input bar: Watch keeps Safe send (textarea → send-message).
+          Direct type + accessory keys ride onInputRef → grid sendPtyBytes
+          (claimer for bytes only; size stays until Drive). */}
       {sendMode === "direct" ? (
         <div
           className="px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar input-bar-lift"

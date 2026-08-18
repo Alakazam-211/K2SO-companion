@@ -13,6 +13,7 @@ import {
 } from "../kessel/gridUrl";
 import { sgrInputActions } from "../kessel/sgrWheel";
 import { driveOpenFrames, driveResizeFrames } from "../kessel/driveMode";
+import { ptyInputFrames } from "../kessel/ptyInput";
 import {
   GRID_STALL_POLL_MS,
   enqueueOutbound,
@@ -129,6 +130,9 @@ export class GridSocket {
   private companionToken = "";
   /** Explicit Drive. Watch (default) never emits set_active / resize. */
   private drive = false;
+  /** This socket has sent `set_mode:claimer` (Drive, or the first
+   *  Direct/accessory keystroke). Watch reconnect resets it. */
+  private ptyInputArmed = false;
   /** True once the current OPEN socket actually sent `claimDims`. */
   private claimSent = false;
   /** Outbound frames that arrived while the socket was not OPEN. */
@@ -339,9 +343,11 @@ export class GridSocket {
       // Drive tap before OPEN / reconnect must still send set_active.
       this.claimSent = false;
       if (this.drive) {
+        this.ptyInputArmed = true;
         this.sendFrames(driveOpenFrames(true, this.claimDims));
         if (this.claimDims) this.claimSent = true;
       } else {
+        this.ptyInputArmed = false;
         this.sendFrames(attachOpenActions(this.attach, null));
       }
       this.flushOutbound();
@@ -486,6 +492,16 @@ export class GridSocket {
     for (const action of sgrInputActions(this.drive, text)) this.send(action);
   }
 
+  /** Direct type + accessory keys (Esc, ⇧⏎, Ctrl+C, live text).
+   *  First Watch keystroke sends `set_mode:claimer` so the daemon
+   *  accepts input; never `set_active` (size stays). */
+  sendPtyBytes(text: string): void {
+    const frames = ptyInputFrames(text, this.drive || this.ptyInputArmed);
+    if (frames.length === 0) return;
+    if (!this.drive) this.ptyInputArmed = true;
+    this.sendFrames(frames);
+  }
+
   /** k1 flow control: acknowledge the highest APPLIED frame version.
    *  Called by the render path once per applied batch (from the rAF
    *  flush, never per WS message — see frameCoalescer.ts), so ack
@@ -501,9 +517,11 @@ export class GridSocket {
    *  attach policy; claim/resize stay no-ops until this is true. */
   setDrive(on: boolean): void {
     this.drive = on;
+    if (on) this.ptyInputArmed = true;
     if (!on) {
       this.claimDims = null;
       this.claimSent = false;
+      this.ptyInputArmed = false;
     }
   }
 
