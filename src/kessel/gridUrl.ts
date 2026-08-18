@@ -57,15 +57,15 @@ export function buildGridWsUrl(
 
 /**
  * Frames sent on WS open.
- * Watch-default: send nothing that claims — no set_mode, no
- * set_active, no cols/rows. `legacy-claim` is Drive-era only; it is
- * not the capabilities-miss path.
+ * Watch: `set_mode:viewer` so Connect `/cli` owner sockets are not
+ * left claimer. No set_active / cols / rows. `legacy-claim` is
+ * Drive-era only; it is not the capabilities-miss path.
  */
 export function attachOpenActions(
   attach: GridAttach,
   claimDims: { cols: number; rows: number } | null,
 ): unknown[] {
-  if (attach === "watch") return [];
+  if (attach === "watch") return [{ action: "set_mode", mode: "viewer" }];
   const out: unknown[] = [{ action: "set_mode", mode: "claimer" }];
   if (claimDims) {
     out.push({
@@ -79,8 +79,9 @@ export function attachOpenActions(
   return out;
 }
 
-/** Size/claim frames are Drive-only. Watch (this PR default) emits none
- *  — including after a daemon `mode:claimer` on a Connect-owner socket. */
+/** Size/claim frames are Drive-only. Watch emits none — including after
+ *  a daemon `mode:claimer` on a Connect-owner socket. Caller must pass
+ *  a measured fit; never the 80×24 spawn fallback. */
 export function claimWireActions(
   drive: boolean,
   cols: number,

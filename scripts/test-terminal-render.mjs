@@ -69,11 +69,11 @@ try {
 
   // ── TerminalChrome: badges / pills ──
   console.log("\n[TerminalChrome] badges and pills");
-  const base = { passive: false, gridCols: 62, gridRows: 30, onClaim: () => {}, onRelease: () => {} };
+  const base = { passive: false, gridCols: 62, gridRows: 30, onRelease: () => {} };
 
   const idle = renderToStaticMarkup(h(TerminalChrome, { ...base, claim: initialClaimState }));
-  assert(idle.includes('data-k2="claim-button"') && idle.includes("Claim session"),
-    "claimer + unpinned → Claim session button");
+  assert(!idle.includes('data-k2="claim-button"') && !idle.includes("Claim session"),
+    "v1 Drive is the size control — no T0 Claim session button");
 
   const claimed = reduceClaim(initialClaimState, { type: "claim_sent", cols: 62, rows: 30 });
   const claimedHtml = renderToStaticMarkup(h(TerminalChrome, { ...base, claim: claimed }));
@@ -102,8 +102,8 @@ try {
   const passiveHtml = renderToStaticMarkup(
     h(TerminalChrome, { ...base, claim: initialClaimState, passive: true, gridCols: 190, gridRows: 50 })
   );
-  assert(passiveHtml.includes("Viewing at 190×50") && passiveHtml.includes("Claim session"),
-    "desktop drove the dims → pill AND the claim affordance together");
+  assert(passiveHtml.includes("Viewing at 190×50") && !passiveHtml.includes("Claim session"),
+    "desktop drove the dims → Viewing pill, no T0 Claim session button");
 
   // ── T6: selection overlay + copy affordance + clipboard pills ──
   console.log("\n[T6] selection + clipboard UX parts");
