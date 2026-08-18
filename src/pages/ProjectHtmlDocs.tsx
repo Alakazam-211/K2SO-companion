@@ -161,10 +161,9 @@ export function ProjectHtmlDocs() {
           <button
             onClick={handleRefresh}
             aria-label="Refresh"
-            className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0"
+            className="w-8 h-8 flex items-center justify-center text-[var(--text-muted)] shrink-0"
           >
-            {/* Spin the ICON, not the whole bordered button. */}
-            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={refreshing ? { animation: "spin 1s linear infinite" } : undefined}>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={refreshing ? { animation: "spin 1s linear infinite" } : undefined}>
               <path d="M21 2v6h-6" />
               <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
               <path d="M3 22v-6h6" />
