@@ -91,7 +91,7 @@ function Card({ row, nowSec }: { row: FeedbackListRow; nowSec: number }) {
       }}
     >
       <div className="flex items-baseline gap-3 w-full min-w-0">
-        <span className="text-[var(--text)] text-[15px] font-medium leading-6 flex-1 min-w-0 line-clamp-2 break-words [overflow-wrap:anywhere]">
+        <span className="text-[var(--text)] text-[13px] font-medium leading-5 flex-1 min-w-0 line-clamp-2 break-words [overflow-wrap:anywhere]">
           {row.title}
         </span>
         <span className="text-[var(--text-muted)] text-[11px] tabular-nums shrink-0">
