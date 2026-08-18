@@ -2,15 +2,10 @@ import type { FeedbackShow } from "../api/feedback";
 import { relativeAge } from "../api/feedback";
 import { KindTag, PriorityTag, StatusTag } from "../pages/Feedback";
 import { ChatMessageBody } from "./ChatMessage";
+import { AssigneePicker } from "./AssigneePicker";
 
-// Feedback thread — the FULL-TICKET review sheet. The thread header
-// truncates the title to one line; tapping it opens this bottom sheet
-// (the SessionSwitcher idiom: dim backdrop + grab handle + own scroll)
-// with everything on the item untruncated: title, body, chips, workspace/
-// agent, asked/answered/resolved times (relative + absolute), the
-// structured options as READ-ONLY labels (answering stays in the thread),
-// and the comment count. Strictly read-only — no mutations. Dismiss via
-// the X or the backdrop.
+// Full-ticket review sheet. Title, body, chips, times, options
+// (read-only — answering stays in the thread), and assignees (editable).
 //
 // Deliberately hook-free/presentational so the headless render check can
 // walk the element tree directly (the feedbackPure zero-import spirit).
@@ -19,6 +14,7 @@ interface Props {
   item: FeedbackShow;
   nowSec: number;
   onClose: () => void;
+  onAssigneesChanged?: () => void;
 }
 
 /** "Jul 5, 3:42 PM" (local) — the sheet pairs this with the relative age. */
@@ -37,14 +33,14 @@ function MetaRow({ label, value }: { label: string; value: string }) {
       <span className="w-20 shrink-0 text-[var(--text-muted)] text-[10px] uppercase tracking-wide">
         {label}
       </span>
-      <span className="text-[var(--text-secondary)] text-[11px] break-words min-w-0">
+      <span className="text-[var(--text-secondary)] text-[10px] break-words min-w-0">
         {value}
       </span>
     </div>
   );
 }
 
-export function TicketSheet({ item, nowSec, onClose }: Props) {
+export function TicketSheet({ item, nowSec, onClose, onAssigneesChanged }: Props) {
   const timeLine = (sec: number) => `${relativeAge(sec, nowSec)} ago · ${absoluteTime(sec)}`;
   const closed = item.status === "resolved" || item.status === "dismissed";
 
@@ -82,7 +78,7 @@ export function TicketSheet({ item, nowSec, onClose }: Props) {
         >
           {/* Full title — the whole point: no truncation. */}
           <div className="flex flex-col gap-2">
-            <h2 className="text-[var(--text)] text-[14px] font-semibold leading-6 whitespace-pre-wrap break-words">
+            <h2 className="text-[var(--text)] text-[12px] font-semibold leading-5 whitespace-pre-wrap break-words">
               {item.title}
             </h2>
             <div className="flex items-center gap-1.5">
@@ -106,18 +102,19 @@ export function TicketSheet({ item, nowSec, onClose }: Props) {
               />
             )}
             <MetaRow
-              label="Assignees"
-              value={
-                (item.assignees?.length ?? 0) > 0
-                  ? item.assignees!.join(", ")
-                  : "Unassigned"
-              }
-            />
-            <MetaRow
               label="Comments"
               value={`${item.comments.length}`}
             />
           </div>
+
+          {onAssigneesChanged && (
+            <AssigneePicker
+              ticketId={item.id}
+              assignees={item.assignees ?? []}
+              menuInFlow
+              onChanged={onAssigneesChanged}
+            />
+          )}
 
           {item.body && (
             <div className="flex flex-col gap-1.5">
@@ -126,9 +123,9 @@ export function TicketSheet({ item, nowSec, onClose }: Props) {
               </span>
               <div
                 className="bg-[var(--surface)] border border-[var(--border)]"
-                style={{ padding: "16px 18px" }}
+                style={{ padding: "10px 12px" }}
               >
-                <ChatMessageBody text={item.body} />
+                <ChatMessageBody text={item.body} style={{ fontSize: 12 }} />
               </div>
             </div>
           )}
@@ -145,7 +142,7 @@ export function TicketSheet({ item, nowSec, onClose }: Props) {
                   return (
                     <span
                       key={opt}
-                      className={`px-3 py-2 text-[11px] border break-words ${
+                      className={`px-2 py-1 text-[10px] border break-words ${
                         accepted
                           ? "border-[var(--accent)] text-[var(--accent)] bg-[var(--accent-dim)]/20"
                           : "border-[var(--border)] text-[var(--text-muted)]"

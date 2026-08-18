@@ -353,7 +353,15 @@ export function FeedbackThread() {
     {/* Full-ticket review sheet — read-only, above the thread column
         (backdrop z-50 over this overlay's z-40); X or backdrop closes. */}
     {sheetOpen && item && (
-      <TicketSheet item={item} nowSec={nowSec} onClose={() => setSheetOpen(false)} />
+      <TicketSheet
+        item={item}
+        nowSec={nowSec}
+        onClose={() => setSheetOpen(false)}
+        onAssigneesChanged={() => {
+          void useFeedbackStore.getState().refetchOpen();
+          void useFeedbackStore.getState().refresh();
+        }}
+      />
     )}
     </div>
   );
