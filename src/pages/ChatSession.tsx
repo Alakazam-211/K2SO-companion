@@ -58,6 +58,14 @@ export function ChatSession() {
 
   // Watch (default) is a size policy, not a messaging gate. Composer
   // stays on Safe send → terminal.write. Do not hide it for viewer.
+  // Drive is an explicit header tap — never auto-claimed. Reset on
+  // session change so a new open is always Watch.
+  const [driveForId, setDriveForId] = useState(terminalId);
+  const [drive, setDrive] = useState(false);
+  if (terminalId && driveForId !== terminalId) {
+    setDriveForId(terminalId);
+    setDrive(false);
+  }
 
   // Prune send-mode handles for terminals that no longer exist (skip
   // the pre-fetch empty list — it would GC live handles, not dead ones).
@@ -174,12 +182,43 @@ export function ChatSession() {
             <span className="text-[var(--text)] text-[13px] font-semibold">Terminal</span>
           )}
         </div>
-        {/* Send-mode toggle — a single icon button whose glyph shows the
-            CURRENT mode (chat bubble = Safe send active, >_ = Direct type
-            active); tap toggles. The glyph itself is the mode signal — in
-            Direct the accessory strip full of terminal keys is the visual
-            reference. Never auto-focuses the capture (no keyboard pop on
-            toggle — the Orca rule). */}
+        {/* Watch/Drive: size policy only. Default Watch. Drive is an
+            explicit tap — never auto. Composer stays terminal.write. */}
+        <div
+          data-k2="watch-drive"
+          className="flex h-8 border border-[var(--accent-dim)] shrink-0"
+          role="group"
+          aria-label="Watch or Drive"
+        >
+          <button
+            data-k2="watch-btn"
+            type="button"
+            aria-pressed={!drive}
+            onClick={() => setDrive(false)}
+            className={`px-2 text-[11px] font-semibold ${
+              !drive
+                ? "bg-[var(--accent)] text-black"
+                : "text-[var(--accent)]"
+            }`}
+          >
+            Watch
+          </button>
+          <button
+            data-k2="drive-btn"
+            type="button"
+            aria-pressed={drive}
+            onClick={() => setDrive(true)}
+            className={`px-2 text-[11px] font-semibold ${
+              drive
+                ? "bg-[var(--accent)] text-black"
+                : "text-[var(--accent)]"
+            }`}
+          >
+            Drive
+          </button>
+        </div>
+        {/* Send-mode toggle — glyph is the current mode (bubble = Safe,
+            >_ = Direct). Never auto-focuses the capture (Orca rule). */}
         <button
           data-k2="mode-toggle"
           onClick={() =>
@@ -250,13 +289,12 @@ export function ChatSession() {
           if (sendMode === "direct") captureFocusRef.current?.();
         }}
       >
-        <TerminalView terminalId={terminalId} projectPath={projectPath} onInputRef={sendInputRef} onReloadRef={reloadRef} />
+        <TerminalView terminalId={terminalId} projectPath={projectPath} onInputRef={sendInputRef} onReloadRef={reloadRef} drive={drive} />
       </div>
 
       {/* Input bar: Watch keeps Safe send (textarea → terminal.write).
-          Direct unmounts the composer (T4) and streams keystrokes;
-          grid `{action:"input"}` is Drive-only, so Direct is a no-op
-          until then. */}
+          Drive claims PTY size only — composer still uses terminal.write,
+          not grid `{action:"input"}` for text. */}
       {sendMode === "direct" ? (
         <div
           className="px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar input-bar-lift"

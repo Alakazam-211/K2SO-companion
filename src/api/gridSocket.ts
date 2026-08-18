@@ -7,12 +7,12 @@ import {
   attachOpenActions,
   buildGridWsUrl,
   claimPinWireActions,
-  claimWireActions,
   releaseWireActions,
   type GridAttach,
   type GridRoute,
 } from "../kessel/gridUrl";
 import { sgrInputActions } from "../kessel/sgrWheel";
+import { driveOpenFrames, driveResizeFrames } from "../kessel/driveMode";
 
 // Live k1 grid-WS. Two origins (do not smash tokens):
 //   Connect/daemon (this app's `getBaseUrl()`):
@@ -26,8 +26,8 @@ import { sgrInputActions } from "../kessel/sgrWheel";
 // JSON text. Client → `{action:"ack", version}` after a coalescer flush
 // once the daemon has proven it speaks k1.
 //
-// Watch-default: attach sends nothing that claims. Capabilities miss
-// is Connect `/cli` Watch — not claimer-on-open.
+// Watch-default: attach sends set_mode:viewer (Connect `/cli` owner
+// sockets start claimer). Drive later sends claimer + measured set_active.
 // Reconnect backoff: `500 * 2^min(n,4)` cap 5s (`lib/reconnect.ts`).
 
 export type { GridAttach, GridRoute };
@@ -35,11 +35,11 @@ export type { GridAttach, GridRoute };
 export interface GridSocketConnectOpts {
   /** Default: Connect `/cli` route. */
   route?: GridRoute;
-  /** Default: Watch — send nothing on attach. */
+  /** Default: Watch — set_mode:viewer on attach. */
   attach?: GridAttach;
   /** Companion-auth token. Required for `route: "companion"`. */
   token?: string;
-  /** Drive (later PR). Default false: claim/resize/pin are no-ops. */
+  /** Explicit Drive. Default false: claim/resize/pin are no-ops. */
   drive?: boolean;
 }
 
@@ -114,6 +114,8 @@ export class GridSocket {
   private companionToken = "";
   /** Explicit Drive. Watch (default) never emits set_active / resize. */
   private drive = false;
+  /** True once the current OPEN socket actually sent `claimDims`. */
+  private claimSent = false;
 
   constructor(onFrame: FrameHandler) {
     this.onFrame = onFrame;
@@ -266,14 +268,20 @@ export class GridSocket {
       // auto-clears + broadcasts to the SURVIVORS — we never see it),
       // so TerminalView resets its claim state here and lets the new
       // connection's pin_initial re-establish pin truth if any.
+      // Watch: set_mode:viewer (Connect /cli must not stay claimer).
+      // Drive: set_mode:claimer then flush stored measured dims — a
+      // Drive tap before OPEN / reconnect must still send set_active.
+      this.claimSent = false;
+      if (this.drive) {
+        this.sendFrames(driveOpenFrames(true, this.claimDims));
+        if (this.claimDims) this.claimSent = true;
+      } else {
+        this.sendFrames(attachOpenActions(this.attach, null));
+      }
       try {
         this.onFrame({ event: "socket_open", payload: {} });
       } catch (err) {
         console.warn("[gridSocket] socket_open handler error:", err);
-      }
-      // Watch-default: send nothing that claims.
-      for (const action of attachOpenActions(this.attach, this.claimDims)) {
-        this.send(action);
       }
     };
   }
@@ -316,9 +324,7 @@ export class GridSocket {
     }
   }
 
-  /** Drive-only grid `{action:"input"}`. Watch is a no-op — any Input
-   *  on a claimer-capable socket is a claim, and terminal.write would
-   *  append \\r after 150 ms. */
+  /** Drive-only grid `{action:"input"}`. Watch is a no-op. Only CSI 64/65. */
   sendInput(text: string): void {
     for (const action of sgrInputActions(this.drive, text)) this.send(action);
   }
@@ -333,12 +339,47 @@ export class GridSocket {
     this.send({ action: "ack", version });
   }
 
+  /** Flip Drive without tearing down the socket. Watch stays the
+   *  attach policy; claim/resize stay no-ops until this is true. */
+  setDrive(on: boolean): void {
+    this.drive = on;
+    if (!on) {
+      this.claimDims = null;
+      this.claimSent = false;
+    }
+  }
+
+  get driving(): boolean {
+    return this.drive;
+  }
+
+  sendFrames(frames: unknown[]): void {
+    for (const frame of frames) this.send(frame);
+  }
+
+  /** Store a measured fit for the next OPEN flush. Does not send.
+   *  Drive tap before OPEN / remount must plant dims here. */
+  noteClaim(cols: number, rows: number): void {
+    if (cols <= 0 || rows <= 0) return;
+    this.claimDims = { cols, rows };
+    this.claimSent = false;
+  }
+
   /** Claim this session as the active viewer and fit the shared PTY to THIS
-   *  device's viewport (cols×rows). Watch (default): no-op. */
+   *  device's viewport (cols×rows). Watch (default): no-op. Stores dims
+   *  even when the socket is not OPEN so onopen can flush them. */
   claim(cols: number, rows: number): void {
     if (!this.drive || cols <= 0 || rows <= 0) return;
     const prev = this.claimDims;
-    if (prev && prev.cols === cols && prev.rows === rows && this.isOpen) return;
+    if (
+      prev &&
+      prev.cols === cols &&
+      prev.rows === rows &&
+      this.claimSent &&
+      this.isOpen
+    ) {
+      return;
+    }
     this.claimDims = { cols, rows };
     this.sendClaim();
   }
@@ -354,6 +395,7 @@ export class GridSocket {
    *  (`claim()` dedupes same-dims, which would no-op exactly then). */
   reassertClaim(): void {
     if (!this.drive) return;
+    this.claimSent = false;
     this.sendClaim();
   }
 
@@ -362,6 +404,7 @@ export class GridSocket {
    *  re-asserting a claim this connection isn't allowed to hold. */
   suppressClaim(): void {
     this.claimDims = null;
+    this.claimSent = false;
   }
 
   /** T0 ephemeral "Claim session" pin: pin the PTY to cols×rows bound
@@ -382,10 +425,11 @@ export class GridSocket {
 
   private sendClaim(): void {
     const d = this.claimDims;
-    if (!d) return;
-    for (const action of claimWireActions(this.drive, d.cols, d.rows)) {
-      this.send(action);
-    }
+    if (!d || !this.isOpen) return;
+    const frames = driveResizeFrames(d);
+    if (frames.length === 0) return;
+    this.sendFrames(frames);
+    this.claimSent = true;
   }
 
   private send(obj: unknown): void {
