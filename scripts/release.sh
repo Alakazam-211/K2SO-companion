@@ -120,7 +120,14 @@ echo "  ✓ Archive built"
 
 echo "→ Exporting for App Store..."
 
-# Create export options plist
+# Automatic "Team Store" cloud signing cannot add Push to the Xcode-managed
+# profile (API key is not an Admin Apple ID). Use the ASC-created
+# "K2 Companion App Store Push" profile + local Apple Distribution cert.
+ENTITLEMENTS="$PROJECT_DIR/src-tauri/gen/apple/k2so-companion_iOS/k2so-companion_iOS.entitlements"
+if [ -f "$ENTITLEMENTS" ]; then
+  sed -i '' 's/<string>development<\/string>/<string>production<\/string>/' "$ENTITLEMENTS"
+fi
+
 cat > "$EXPORT_PLIST" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -131,7 +138,14 @@ cat > "$EXPORT_PLIST" << PLIST
     <key>teamID</key>
     <string>${TEAM_ID}</string>
     <key>signingStyle</key>
-    <string>automatic</string>
+    <string>manual</string>
+    <key>signingCertificate</key>
+    <string>Apple Distribution</string>
+    <key>provisioningProfiles</key>
+    <dict>
+        <key>com.alakazamlabs.k2so.companion</key>
+        <string>K2 Companion App Store Push</string>
+    </dict>
     <key>uploadSymbols</key>
     <true/>
 </dict>
@@ -143,10 +157,6 @@ xcodebuild -exportArchive \
   -archivePath "$ARCHIVE_PATH" \
   -exportOptionsPlist "$EXPORT_PLIST" \
   -exportPath "$EXPORT_DIR" \
-  -allowProvisioningUpdates \
-  -authenticationKeyPath "$API_KEY_PATH" \
-  -authenticationKeyID "$API_KEY" \
-  -authenticationKeyIssuerID "$API_ISSUER" \
   2>&1 | tee /tmp/k2-export.log | tail -8
 # Full export output (incl. signing/provisioning errors) is in /tmp/k2-export.log
 
