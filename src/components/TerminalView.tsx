@@ -241,6 +241,7 @@ export function TerminalView({
   const renderedRef = useRef<LiveGrid | null>(null);
   const [liveSnap, setLiveSnap] = useState<LiveGrid | null>(null);
   const [legacyRows, setLegacyRows] = useState<RenderRun[][]>([]);
+  const scrollbackLoadedRef = useRef(false);
   const debugRef = useRef("");
   // Grid-only heal (forceGridResync). Never bump a remount key — that
   // would unmount the last painted snapshot. Reload uses the live socket.
@@ -445,6 +446,14 @@ export function TerminalView({
     painterFatalRef.current = null;
     scrollPxRef.current = 0;
     lastPaintedRef.current.snapshot = null;
+    // Session-scoped last snap: do not paint A under B's chrome, and
+    // let HTTP fallback run if B's dial fails.
+    liveRef.current = null;
+    renderedRef.current = null;
+    scrollbackLoadedRef.current = false;
+    setLiveSnap(null);
+    setLegacyRows([]);
+    setScrollPx(0);
   }, [terminalId]);
 
   // Same font probe desktop uses. WebGL default uses the integer
@@ -464,8 +473,6 @@ export function TerminalView({
     setCellW(probed.width);
     setCellH(probed.height);
   }, [painterFatal]);
-
-  const scrollbackLoadedRef = useRef(false);
 
   // Probe: k1 + companion token → companion grid. Miss → Connect /cli Watch.
   useEffect(() => {
@@ -698,11 +705,12 @@ export function TerminalView({
     gridSock.connect(terminalId, {
       route: gridDial.route,
       attach: "watch",
+      drive: driveRef.current,
       ...(gridDial.tokenKind === "companion" ? { token: companionToken } : {}),
     });
-    driveRef.current = false;
-    scrollPxRef.current = 0;
-    setScrollPx(0);
+    // Do not zero driveRef / scrollPx here — session switch already
+    // resets Drive (ChatSession) and scroll (terminalId effect). A
+    // probe remount must keep a Driving last snap in place.
     mouseModeRef.current = {
       mouseReport: false,
       sgrMouse: false,

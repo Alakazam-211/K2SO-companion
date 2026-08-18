@@ -18,8 +18,11 @@ import {
   enqueueOutbound,
   isAckAction,
   shouldBufferAndResync,
+  shouldHealConnectingStall,
   shouldHealOpenStall,
+  shouldProbeAck,
   shouldResyncOnForeground,
+  shouldSkipConnectingResync,
   type GridSoftResyncReason,
 } from "../kessel/softResync";
 
@@ -132,6 +135,11 @@ export class GridSocket {
   private outboundQueue: unknown[] = [];
   /** Date.now() of the last inbound WS frame; 0 = none yet. */
   private lastFrameAt = 0;
+  /** Date.now() when the current dial entered CONNECTING; 0 = none. */
+  private dialStartedAt = 0;
+  /** Last k1 ack version sent on this socket; 0 = none. */
+  private lastAckVersion = 0;
+  private lastAckProbeAt = 0;
   /** One grid-stall-no-frame heal per silence episode. */
   private stallHealed = false;
   private stallTimer: ReturnType<typeof setInterval> | null = null;
@@ -189,10 +197,15 @@ export class GridSocket {
    * Grid-only reattach. Cancels a pending backoff, reopens the k1
    * socket, does not touch `/companion/ws` or the last painted frame.
    */
-  forceGridResync(reason: GridSoftResyncReason | (string & {})): void {
+  forceGridResync(reason: GridSoftResyncReason): void {
     if (!this.shouldReconnect) return;
     if (
-      this.ws?.readyState === WebSocket.CONNECTING &&
+      shouldSkipConnectingResync({
+        readyState: this.ws?.readyState,
+        dialStartedAt: this.dialStartedAt,
+        now: Date.now(),
+        reason,
+      }) &&
       !this.reconnectTimer
     ) {
       return;
@@ -261,6 +274,9 @@ export class GridSocket {
     // Fresh socket — the daemon's per-connection pacing state is new too,
     // so re-detect k1 from its first binary frame before resuming acks.
     this.k1WireActive = false;
+    this.lastAckVersion = 0;
+    this.lastAckProbeAt = 0;
+    this.dialStartedAt = Date.now();
     this.ws.onmessage = (e) => {
       let frame: GridFrame;
       if (e.data instanceof ArrayBuffer) {
@@ -312,6 +328,7 @@ export class GridSocket {
       // Successful open — the next drop starts the backoff ladder over
       // (desktop parity: a single-shot blip reconnects in ~500ms).
       this.reconnectAttempt = 0;
+      this.dialStartedAt = 0;
       // Synthetic frame so the consumer sees connection boundaries:
       // an ephemeral claim_pin dies with its socket (the daemon
       // auto-clears + broadcasts to the SURVIVORS — we never see it),
@@ -360,10 +377,36 @@ export class GridSocket {
     const visible =
       typeof document === "undefined" || document.visibilityState === "visible";
     const now = Date.now();
+    const readyState = this.ws?.readyState;
+    if (
+      shouldHealConnectingStall({
+        visible,
+        readyState,
+        dialStartedAt: this.dialStartedAt,
+        now,
+      })
+    ) {
+      this.forceGridResync("connecting-stall");
+      return;
+    }
+    if (
+      shouldProbeAck({
+        visible,
+        readyState,
+        k1WireActive: this.k1WireActive,
+        lastAckVersion: this.lastAckVersion,
+        lastFrameAt: this.lastFrameAt,
+        lastAckProbeAt: this.lastAckProbeAt,
+        now,
+      })
+    ) {
+      this.lastAckProbeAt = now;
+      this.send({ action: "ack", version: this.lastAckVersion });
+    }
     if (
       !shouldHealOpenStall({
         visible,
-        readyState: this.ws?.readyState,
+        readyState,
         lastFrameAt: this.lastFrameAt,
         now,
         healedThisEpisode: this.stallHealed,
@@ -374,7 +417,7 @@ export class GridSocket {
     this.stallHealed = true;
     console.warn("[grid-stall]", {
       reason: "no-frame",
-      readyState: this.ws?.readyState ?? null,
+      readyState: readyState ?? null,
       ageMs: Math.round(now - this.lastFrameAt),
     });
     this.forceGridResync("grid-stall-no-frame");
@@ -388,7 +431,15 @@ export class GridSocket {
         this.outboundQueue.push(...queued.slice(i));
         return;
       }
-      this.ws.send(JSON.stringify(queued[i]));
+      try {
+        this.ws.send(JSON.stringify(queued[i]));
+      } catch {
+        for (const item of queued.slice(i)) {
+          this.outboundQueue = enqueueOutbound(this.outboundQueue, item);
+        }
+        this.forceGridResync("need-to-send");
+        return;
+      }
     }
   }
 
@@ -442,6 +493,7 @@ export class GridSocket {
    *  speaking k1 on THIS socket; a JSON-only daemon gets no acks. */
   ackApplied(version: number): void {
     if (!this.k1WireActive || version <= 0) return;
+    this.lastAckVersion = version;
     this.send({ action: "ack", version });
   }
 
