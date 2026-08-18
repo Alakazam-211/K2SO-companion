@@ -15,9 +15,10 @@
   --error: #ef4444;
 }
 
+/* Tap highlight only. Do NOT zero padding/margin here — this rule is
+   unlayered and would beat every Tailwind px-/py-/m- utility (cards
+   then paint edge-to-edge). Preflight already resets in @layer base. */
 * {
-  margin: 0;
-  padding: 0;
   box-sizing: border-box;
   -webkit-tap-highlight-color: transparent;
 }
@@ -192,6 +193,8 @@ html, body, #root {
   font-size: 14px;
   line-height: 1.5;
   color: var(--text);
+  /* Unlayered so it cannot lose to a reset. Inset the prose from the card. */
+  padding: 4px 4px 2px;
 }
 .chat-markdown h1,
 .chat-markdown h2,

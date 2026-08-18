@@ -222,7 +222,10 @@ export function FeedbackThread() {
           >
             {/* The ask body (title is in the header; body adds context). */}
             {item.body && (
-              <div className="mb-4 px-5 py-4 bg-[var(--surface)] border border-[var(--border)]">
+              <div
+                className="mb-4 bg-[var(--surface)] border border-[var(--border)]"
+                style={{ padding: "16px 18px" }}
+              >
                 <ChatMessageBody text={item.body} />
               </div>
             )}

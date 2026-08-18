@@ -49,9 +49,10 @@ export function ChatMessage({
       style={{
         background: tint.background,
         borderColor: tint.border,
+        padding: "12px 16px 14px",
       }}
     >
-      <div className="flex items-baseline gap-2 min-w-0 px-4 pt-3 pb-1">
+      <div className="flex items-baseline gap-2 min-w-0" style={{ marginBottom: 8 }}>
         <span
           className="text-[12px] font-semibold truncate"
           style={{ color: tint.name }}
@@ -62,10 +63,8 @@ export function ChatMessage({
           {timeLabel}
         </span>
       </div>
-      <div className="px-4 pt-1 pb-3.5">
-        <ChatMessageBody text={body} className="text-[var(--text)]" />
-        {footer ? <div className="mt-2">{footer}</div> : null}
-      </div>
+      <ChatMessageBody text={body} className="text-[var(--text)]" />
+      {footer ? <div style={{ marginTop: 8 }}>{footer}</div> : null}
     </div>
   );
 }
