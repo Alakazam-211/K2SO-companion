@@ -74,41 +74,12 @@ export function AssigneePicker({
 
   const chips = local.length === 0 ? ["Unassigned"] : local;
 
-  return (
-    <div ref={rootRef} className="mb-4 relative">
-      <div className="flex items-center gap-2 flex-wrap">
-        <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
-          Assignees
-        </span>
-        {chips.map((a) => (
-          <span
-            key={a}
-            className="text-[11px] text-[var(--text-secondary)]"
-            style={{
-              padding: "3px 8px",
-              background: "var(--surface)",
-              border: "1px solid var(--border-hover)",
-            }}
-          >
-            {a}
-          </span>
-        ))}
-        <button
-          type="button"
-          disabled={busy || saving}
-          onClick={() => setOpen((o) => !o)}
-          className="text-[12px] text-[var(--accent)] disabled:opacity-50"
-          style={{ padding: "4px 8px" }}
-        >
-          Edit
-        </button>
-      </div>
-      {open && (
+  const menu = open ? (
         <div
           className={
             menuInFlow
-              ? "mt-2 min-w-0 max-h-56 overflow-y-auto"
-              : "absolute left-0 top-full mt-1 z-30 min-w-[200px] max-h-56 overflow-y-auto"
+              ? "mb-2 min-w-0 max-h-40 overflow-y-auto"
+              : "absolute left-0 bottom-full mb-1 z-30 min-w-[200px] max-h-40 overflow-y-auto"
           }
           style={{
             background: "var(--background)",
@@ -169,7 +140,38 @@ export function AssigneePicker({
             </button>
           </div>
         </div>
-      )}
+  ) : null;
+
+  return (
+    <div ref={rootRef} className="mb-4 relative">
+      {menu}
+      <div className="flex items-center gap-2 flex-wrap">
+        <span className="text-[10px] uppercase tracking-wider text-[var(--text-muted)]">
+          Assignees
+        </span>
+        {chips.map((a) => (
+          <span
+            key={a}
+            className="text-[11px] text-[var(--text-secondary)]"
+            style={{
+              padding: "3px 8px",
+              background: "var(--surface)",
+              border: "1px solid var(--border-hover)",
+            }}
+          >
+            {a}
+          </span>
+        ))}
+        <button
+          type="button"
+          disabled={busy || saving}
+          onClick={() => setOpen((o) => !o)}
+          className="text-[12px] text-[var(--accent)] disabled:opacity-50"
+          style={{ padding: "4px 8px" }}
+        >
+          Edit
+        </button>
+      </div>
     </div>
   );
 }
