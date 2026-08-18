@@ -319,7 +319,12 @@ function ListControls({
   return (
     <div
       ref={rootRef}
-      className="flex flex-col gap-3 px-4 pt-3 pb-3 border-b border-[var(--border)] shrink-0 relative z-20"
+      className="flex flex-col gap-3 px-4 pt-3 pb-3.5 shrink-0 relative z-20"
+      style={{
+        background: "var(--surface)",
+        borderBottom: "1px solid var(--border-hover)",
+        boxShadow: "0 8px 16px rgba(0,0,0,0.35)",
+      }}
     >
       <div className="relative min-w-0">
         <input
@@ -475,7 +480,7 @@ function FeedbackList() {
         />
       )}
 
-      <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-4 pb-6">
+      <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-4 pt-4 pb-6">
         {error && (
           <div className="mt-3 px-4 py-3 border border-[var(--error)]/40 text-[var(--error)] text-[11px] leading-5">
             {error}
