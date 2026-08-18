@@ -65,6 +65,31 @@ describe('createWebglPainter — fatal policy', () => {
     } as unknown as HTMLCanvasElement
     painter.mount(canvas)
     expect(onFatal).toHaveBeenCalledWith('webgl2-sanity-readback-failed')
+    expect(canvas.width).toBe(0)
+    expect(canvas.height).toBe(0)
+    painter.dispose()
+  })
+
+  it('hides the dead buffer on context lost (no 3s black canvas)', () => {
+    const backend = stubBackend()
+    const painter = createWebglPainter({ createBackend: () => backend })
+    const listeners = new Map<string, EventListener>()
+    const canvas = {
+      addEventListener: (type: string, fn: EventListener) => {
+        listeners.set(type, fn)
+      },
+      removeEventListener: vi.fn(),
+      width: 8,
+      height: 8,
+      style: { visibility: '' },
+    } as unknown as HTMLCanvasElement
+    painter.mount(canvas)
+    const lost = listeners.get('webglcontextlost')
+    expect(lost).toBeTypeOf('function')
+    lost?.({ preventDefault: vi.fn() } as unknown as Event)
+    expect(canvas.width).toBe(0)
+    expect(canvas.height).toBe(0)
+    expect(canvas.style.visibility).toBe('hidden')
     painter.dispose()
   })
 })
