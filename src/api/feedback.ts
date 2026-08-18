@@ -141,6 +141,29 @@ export function commentFeedback(id: string, body: string): Promise<CommentRespon
   });
 }
 
+/** GET /cli/users — Connect usernames for the assignee picker.
+ *  Viewers may 403; caller should fall back to `["owner"]`. */
+export async function fetchTicketUsers(): Promise<string[]> {
+  const res = await feedbackFetch<{ users?: Array<{ username?: string }> }>(
+    "/cli/users",
+  );
+  const names = (res.users ?? [])
+    .map((u) => (u.username ?? "").trim())
+    .filter(Boolean);
+  return ["owner", ...names.filter((n) => n !== "owner")];
+}
+
+/** POST /cli/feedback/assign — replace the assignee set. */
+export function assignFeedback(
+  id: string,
+  usernames: string[],
+): Promise<{ assignees?: string[] }> {
+  return feedbackFetch<{ assignees?: string[] }>("/cli/feedback/assign", {
+    method: "POST",
+    body: { id, usernames },
+  });
+}
+
 /** POST /cli/feedback/resolve — `resolved`, `dismissed`, or `waiting`
  *  (reopen). `answered` is NOT manually settable — only reachable
  *  through an actual reply. */

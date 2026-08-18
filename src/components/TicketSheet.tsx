@@ -106,6 +106,14 @@ export function TicketSheet({ item, nowSec, onClose }: Props) {
               />
             )}
             <MetaRow
+              label="Assignees"
+              value={
+                (item.assignees?.length ?? 0) > 0
+                  ? item.assignees!.join(", ")
+                  : "Unassigned"
+              }
+            />
+            <MetaRow
               label="Comments"
               value={`${item.comments.length}`}
             />

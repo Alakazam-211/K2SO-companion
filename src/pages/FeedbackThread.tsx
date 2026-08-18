@@ -16,6 +16,7 @@ import {
 } from "../api/feedback";
 import { KindTag, PriorityTag, StatusTag } from "./Feedback";
 import { ChatMessage, ChatMessageBody } from "../components/ChatMessage";
+import { AssigneePicker } from "../components/AssigneePicker";
 import { displayAuthor, isMyAuthor } from "../lib/sessionAuthor";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
 
@@ -174,7 +175,7 @@ export function FeedbackThread() {
         </button>
         <div className="flex flex-col flex-1 min-w-0">
           <span className="text-[var(--text)] text-[13px] font-medium truncate">
-            {item?.title ?? "Feedback"}
+            {item?.title ?? "Ticket"}
           </span>
           {item && (
             <span className="text-[var(--text-muted)] text-[10px] truncate">
@@ -229,6 +230,16 @@ export function FeedbackThread() {
                 <ChatMessageBody text={item.body} />
               </div>
             )}
+
+            <AssigneePicker
+              ticketId={item.id}
+              assignees={item.assignees ?? []}
+              busy={busy}
+              onChanged={() => {
+                void useFeedbackStore.getState().refetchOpen();
+                void useFeedbackStore.getState().refresh();
+              }}
+            />
 
             {/* Structured options — one-tap replies while waiting; the
                 accepted choice stays highlighted after. */}
