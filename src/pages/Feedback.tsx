@@ -331,8 +331,18 @@ function ListControls({
           value={query}
           onChange={(e) => onQuery(e.target.value)}
           placeholder="Search title, agent, workspace, person…"
-          className="w-full min-w-0 bg-[var(--background)] border border-[var(--border)] text-[var(--text)] text-[14px] focus:outline-none focus:border-[var(--accent-dim)]"
-          style={{ padding: "10px 32px 10px 12px" }}
+          className="w-full min-w-0 text-[var(--text)] text-[14px] focus:outline-none"
+          style={{
+            padding: "10px 32px 10px 12px",
+            background: "var(--background)",
+            border: "1px solid var(--border-hover)",
+          }}
+          onFocus={(e) => {
+            e.currentTarget.style.borderColor = "var(--accent-dim)";
+          }}
+          onBlur={(e) => {
+            e.currentTarget.style.borderColor = "var(--border-hover)";
+          }}
         />
         {query !== "" && (
           <button
