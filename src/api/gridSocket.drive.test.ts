@@ -107,6 +107,36 @@ describe("GridSocket Drive / Watch wire", () => {
     sock.close();
   });
 
+  it("Watch Direct/accessory bytes flip claimer then input — no set_active", async () => {
+    const { GridSocket } = await import("./gridSocket");
+    const sock = new GridSocket(() => {});
+    sock.connect("sess");
+    MockWS.last!.openNow();
+    sock.sendPtyBytes("\x1b");
+    expect(parsed()).toEqual([
+      { action: "set_mode", mode: "viewer" },
+      { action: "set_mode", mode: "claimer" },
+      { action: "input", text: "\x1b" },
+    ]);
+    sock.sendPtyBytes("\x1b\r");
+    expect(parsed().at(-1)).toEqual({ action: "input", text: "\x1b\r" });
+    expect(JSON.stringify(parsed())).not.toContain("set_active");
+    sock.close();
+  });
+
+  it("Drive sendPtyBytes is input only (already claimer)", async () => {
+    const { GridSocket } = await import("./gridSocket");
+    const sock = new GridSocket(() => {});
+    sock.connect("sess");
+    sock.setDrive(true);
+    sock.noteClaim(42, 18);
+    MockWS.last!.openNow();
+    const before = parsed().length;
+    sock.sendPtyBytes("hi");
+    expect(parsed().slice(before)).toEqual([{ action: "input", text: "hi" }]);
+    sock.close();
+  });
+
   it("Watch never invents 80×24 when a leftover fit exists", async () => {
     const { GridSocket } = await import("./gridSocket");
     const sock = new GridSocket(() => {});

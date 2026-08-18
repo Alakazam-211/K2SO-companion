@@ -290,8 +290,8 @@ export function TerminalView({
     sgrMouse: false,
     altScreen: false,
   });
-  // Raw PTY input over the live socket — deliberately NOT the parent's
-  // onInputRef path (that's terminal.write, which appends \\r).
+  // SGR wheel over the live socket — Drive-only, never onInputRef
+  // (Direct/accessory bytes go sendPtyBytes so they are not SGR-filtered).
   const rawInputRef = useRef<((text: string) => void) | null>(null);
   const wheelPumpRef = useRef(initialWheelPump());
   const wheelRafRef = useRef<number | null>(null);
@@ -841,7 +841,12 @@ export function TerminalView({
       if (!driveRef.current) return;
       gridSock.sendInput(text);
     };
-    if (onInputRef) onInputRef.current = null;
+    // Direct type + accessory strip (Esc / ⇧⏎ / Ctrl+C). Not SGR —
+    // sendInput is wheel-only. Watch flips claimer for bytes only;
+    // it does not set_active (size stays).
+    if (onInputRef) {
+      onInputRef.current = (text: string) => gridSock.sendPtyBytes(text);
+    }
     // Already Driving (reload / remount): plant measured dims so OPEN
     // flushes set_active. Do not enterDrive here — socket may not be OPEN.
     if (driveRef.current) {
