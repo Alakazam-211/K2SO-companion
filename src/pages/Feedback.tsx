@@ -1,21 +1,19 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Routes, Route, useNavigate } from "react-router-dom";
 import { useServersStore } from "../stores/servers";
 import { useFeedbackStore } from "../stores/feedback";
 import {
   collectAssignees,
-  filterByAssignee,
+  filterByAssignees,
   filterBySearch,
-  filterByStatus,
+  filterByStatuses,
   groupByStatus,
   relativeAge,
   sortRows,
-  type AssigneeFilter,
   type FeedbackKind,
   type FeedbackListRow,
   type FeedbackSortKey,
   type FeedbackStatus,
-  type FeedbackStatusFilter,
 } from "../api/feedback";
 import { FeedbackThread } from "./FeedbackThread";
 
@@ -149,42 +147,120 @@ const SORT_OPTIONS: Array<{ key: FeedbackSortKey; label: string }> = [
   { key: "workspace", label: "Workspace" },
 ];
 
-const STATUS_CHIPS: Array<{ key: FeedbackStatusFilter; label: string }> = [
-  { key: "all", label: "All" },
+const STATUS_OPTIONS: Array<{ key: FeedbackStatus; label: string }> = [
   { key: "waiting", label: "Waiting" },
   { key: "answered", label: "Answered" },
   { key: "resolved", label: "Resolved" },
   { key: "dismissed", label: "Dismissed" },
 ];
 
-function PeopleFilter({
-  value,
-  options,
-  onChange,
+type MenuId = "people" | "sort" | "status" | null;
+
+function toggleIn(list: string[], value: string): string[] {
+  return list.includes(value) ? list.filter((x) => x !== value) : [...list, value];
+}
+
+function FilterMenu({
+  id,
+  label,
+  summary,
+  active,
+  open,
+  onToggle,
+  children,
 }: {
-  value: AssigneeFilter;
-  options: string[];
-  onChange: (v: AssigneeFilter) => void;
+  id: Exclude<MenuId, null>;
+  label: string;
+  summary: string;
+  active: boolean;
+  open: boolean;
+  onToggle: (id: Exclude<MenuId, null>) => void;
+  children: ReactNode;
 }) {
   return (
-    <select
-      aria-label="Filter by person"
-      value={value}
-      onChange={(e) => onChange(e.target.value)}
-      className={`flex-1 min-w-0 bg-[var(--background)] border px-3 py-2.5 text-[13px] ${
-        value === "all"
-          ? "border-[var(--border)] text-[var(--text-secondary)]"
-          : "border-[var(--accent-dim)] text-[var(--accent)]"
-      }`}
+    <div className="relative flex-1 min-w-0">
+      <button
+        type="button"
+        aria-haspopup="listbox"
+        aria-expanded={open}
+        aria-label={label}
+        onClick={() => onToggle(id)}
+        className="w-full min-w-0 flex items-center gap-1 border text-left"
+        style={{
+          padding: "8px 8px",
+          borderColor: active ? "var(--accent-dim)" : "var(--border)",
+          color: active ? "var(--accent)" : "var(--text-secondary)",
+        }}
+      >
+        <span className="truncate text-[12px] flex-1 min-w-0">{summary}</span>
+        <svg
+          width="10"
+          height="10"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2.5"
+          className="shrink-0"
+          style={{ transform: open ? "rotate(180deg)" : undefined }}
+        >
+          <path d="M6 9l6 6 6-6" />
+        </svg>
+      </button>
+      {open && (
+        <div
+          role="listbox"
+          className="absolute left-0 right-0 top-full mt-1 z-30 border bg-[var(--background)]"
+          style={{
+            borderColor: "var(--border)",
+            maxHeight: 240,
+            overflowY: "auto",
+          }}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function MenuRow({
+  selected,
+  onClick,
+  children,
+}: {
+  selected: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return (
+    <button
+      type="button"
+      role="option"
+      aria-selected={selected}
+      onClick={onClick}
+      className="flex items-center gap-2 w-full text-left text-[12px]"
+      style={{
+        padding: "10px 10px",
+        color: selected ? "var(--text)" : "var(--text-secondary)",
+        background: selected ? "rgba(34, 211, 238, 0.08)" : "transparent",
+      }}
     >
-      <option value="all">All people</option>
-      <option value="unassigned">Unassigned</option>
-      {options.map((name) => (
-        <option key={name} value={name}>
-          {name}
-        </option>
-      ))}
-    </select>
+      <span
+        className="shrink-0 flex items-center justify-center"
+        style={{
+          width: 14,
+          height: 14,
+          border: "1px solid var(--border-hover)",
+          background: selected ? "var(--accent)" : "transparent",
+          color: selected ? "var(--background)" : "transparent",
+          fontSize: 10,
+          lineHeight: "14px",
+        }}
+      >
+        ✓
+      </span>
+      <span className="truncate flex-1 min-w-0">{children}</span>
+    </button>
   );
 }
 
@@ -193,32 +269,65 @@ function ListControls({
   onQuery,
   sortKey,
   onSortKey,
-  assignee,
-  onAssignee,
-  assigneeOptions,
-  status,
-  onStatus,
-  statusCounts,
+  people,
+  onPeople,
+  peopleOptions,
+  statuses,
+  onStatuses,
 }: {
   query: string;
   onQuery: (q: string) => void;
   sortKey: FeedbackSortKey;
   onSortKey: (k: FeedbackSortKey) => void;
-  assignee: AssigneeFilter;
-  onAssignee: (v: AssigneeFilter) => void;
-  assigneeOptions: string[];
-  status: FeedbackStatusFilter;
-  onStatus: (s: FeedbackStatusFilter) => void;
-  statusCounts: Record<FeedbackStatusFilter, number>;
+  people: string[];
+  onPeople: (v: string[]) => void;
+  peopleOptions: string[];
+  statuses: FeedbackStatus[];
+  onStatuses: (v: FeedbackStatus[]) => void;
 }) {
+  const [open, setOpen] = useState<MenuId>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: PointerEvent) => {
+      if (rootRef.current && !rootRef.current.contains(e.target as Node)) {
+        setOpen(null);
+      }
+    };
+    document.addEventListener("pointerdown", onDown);
+    return () => document.removeEventListener("pointerdown", onDown);
+  }, [open]);
+
+  const sortLabel =
+    SORT_OPTIONS.find((o) => o.key === sortKey)?.label ?? "Sort";
+  const peopleLabel =
+    people.length === 0
+      ? "People"
+      : people.length === 1
+        ? people[0] === "unassigned"
+          ? "Unassigned"
+          : people[0]
+        : `${people.length} people`;
+  const statusLabel =
+    statuses.length === 0
+      ? "Status"
+      : statuses.length === 1
+        ? (STATUS_OPTIONS.find((s) => s.key === statuses[0])?.label ?? "Status")
+        : `${statuses.length} statuses`;
+
   return (
-    <div className="flex flex-col gap-3 px-4 pt-3 pb-3 border-b border-[var(--border)] shrink-0">
-      <div className="relative">
+    <div
+      ref={rootRef}
+      className="flex flex-col gap-3 px-4 pt-3 pb-3 border-b border-[var(--border)] shrink-0 relative z-20"
+    >
+      <div className="relative min-w-0">
         <input
           value={query}
           onChange={(e) => onQuery(e.target.value)}
           placeholder="Search title, agent, workspace, person…"
-          className="w-full bg-[var(--background)] border border-[var(--border)] px-3 py-2.5 pr-8 text-[var(--text)] text-[14px] focus:outline-none focus:border-[var(--accent-dim)]"
+          className="w-full min-w-0 bg-[var(--background)] border border-[var(--border)] text-[var(--text)] text-[14px] focus:outline-none focus:border-[var(--accent-dim)]"
+          style={{ padding: "10px 32px 10px 12px" }}
         />
         {query !== "" && (
           <button
@@ -230,46 +339,72 @@ function ListControls({
           </button>
         )}
       </div>
-      <PeopleFilter
-        value={assignee}
-        options={assigneeOptions}
-        onChange={onAssignee}
-      />
-      <div className="flex gap-1.5 flex-wrap">
-        {SORT_OPTIONS.map((opt) => (
-          <button
-            key={opt.key}
-            onClick={() => onSortKey(opt.key)}
-            className={`px-2.5 py-1.5 text-[11px] border transition-colors ${
-              sortKey === opt.key
-                ? "text-[var(--accent)] border-[var(--accent-dim)]"
-                : "text-[var(--text-muted)] border-[var(--border)]"
-            }`}
+      <div className="flex gap-2 min-w-0">
+        <FilterMenu
+          id="people"
+          label="People"
+          summary={peopleLabel}
+          active={people.length > 0}
+          open={open === "people"}
+          onToggle={(id) => setOpen((cur) => (cur === id ? null : id))}
+        >
+          <MenuRow
+            selected={people.includes("unassigned")}
+            onClick={() => onPeople(toggleIn(people, "unassigned"))}
           >
-            {opt.label}
-          </button>
-        ))}
-      </div>
-      <div className="flex gap-1.5 flex-wrap">
-        {STATUS_CHIPS.map((chip) => {
-          const active = status === chip.key;
-          return (
-            <button
-              key={chip.key}
-              onClick={() => onStatus(chip.key)}
-              className={`px-2.5 py-1.5 text-[11px] border ${
-                active
-                  ? "text-[var(--accent)] border-[var(--accent-dim)]"
-                  : "text-[var(--text-muted)] border-[var(--border)]"
-              }`}
+            Unassigned
+          </MenuRow>
+          {peopleOptions.map((name) => (
+            <MenuRow
+              key={name}
+              selected={people.includes(name)}
+              onClick={() => onPeople(toggleIn(people, name))}
             >
-              {chip.label}
-              <span className="tabular-nums ml-1 opacity-70">
-                {statusCounts[chip.key] ?? 0}
-              </span>
-            </button>
-          );
-        })}
+              {name}
+            </MenuRow>
+          ))}
+        </FilterMenu>
+        <FilterMenu
+          id="sort"
+          label="Sort"
+          summary={sortLabel}
+          active={sortKey !== "newest"}
+          open={open === "sort"}
+          onToggle={(id) => setOpen((cur) => (cur === id ? null : id))}
+        >
+          {SORT_OPTIONS.map((opt) => (
+            <MenuRow
+              key={opt.key}
+              selected={sortKey === opt.key}
+              onClick={() => {
+                onSortKey(opt.key);
+                setOpen(null);
+              }}
+            >
+              {opt.label}
+            </MenuRow>
+          ))}
+        </FilterMenu>
+        <FilterMenu
+          id="status"
+          label="Status"
+          summary={statusLabel}
+          active={statuses.length > 0}
+          open={open === "status"}
+          onToggle={(id) => setOpen((cur) => (cur === id ? null : id))}
+        >
+          {STATUS_OPTIONS.map((opt) => (
+            <MenuRow
+              key={opt.key}
+              selected={statuses.includes(opt.key)}
+              onClick={() =>
+                onStatuses(toggleIn(statuses, opt.key) as FeedbackStatus[])
+              }
+            >
+              {opt.label}
+            </MenuRow>
+          ))}
+        </FilterMenu>
       </div>
     </div>
   );
@@ -283,8 +418,8 @@ function FeedbackList() {
   const [nowSec, setNowSec] = useState(() => Date.now() / 1000);
   const [query, setQuery] = useState("");
   const [sortKey, setSortKey] = useState<FeedbackSortKey>("newest");
-  const [assignee, setAssignee] = useState<AssigneeFilter>("all");
-  const [status, setStatus] = useState<FeedbackStatusFilter>("all");
+  const [people, setPeople] = useState<string[]>([]);
+  const [statuses, setStatuses] = useState<FeedbackStatus[]>([]);
 
   // First load + events WS for the active server; refetch on server switch.
   useEffect(() => {
@@ -299,21 +434,14 @@ function FeedbackList() {
 
   // Desktop pipeline: people → search → status chips; sections still
   // Waiting-first for the "all" chip.
-  const byPerson = filterByAssignee(rows, assignee);
+  const byPerson = filterByAssignees(rows, people);
   const searched = filterBySearch(byPerson, query);
-  const assigneeOptions = collectAssignees(rows);
-  const statusCounts = {
-    all: searched.length,
-    waiting: searched.filter((r) => r.status === "waiting").length,
-    answered: searched.filter((r) => r.status === "answered").length,
-    resolved: searched.filter((r) => r.status === "resolved").length,
-    dismissed: searched.filter((r) => r.status === "dismissed").length,
-  };
-  const filtered = filterByStatus(searched, status);
+  const peopleOptions = collectAssignees(rows);
+  const filtered = filterByStatuses(searched, statuses);
   const grouped = groupByStatus(filtered);
 
   return (
-    <div className="flex flex-col h-full min-w-0 overflow-x-hidden">
+    <div className="flex flex-col h-full min-w-0">
       {/* Page header (Servers-page idiom) with the refresh affordance. */}
       <div className="flex items-center px-4 py-3 border-b border-[var(--border)] shrink-0">
         <h1 className="text-[var(--accent)] text-[15px] font-bold tracking-wide flex-1">
@@ -339,12 +467,11 @@ function FeedbackList() {
           onQuery={setQuery}
           sortKey={sortKey}
           onSortKey={setSortKey}
-          assignee={assignee}
-          onAssignee={setAssignee}
-          assigneeOptions={assigneeOptions}
-          status={status}
-          onStatus={setStatus}
-          statusCounts={statusCounts}
+          people={people}
+          onPeople={setPeople}
+          peopleOptions={peopleOptions}
+          statuses={statuses}
+          onStatuses={setStatuses}
         />
       )}
 

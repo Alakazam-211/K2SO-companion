@@ -9,6 +9,7 @@ import {
   groupByStatus, countWaiting, sortNewestFirst, feedbackEventTargets,
   relativeAge, deliveredLine, optionsActionable, filterBySearch, sortRows,
   collectAssignees, filterByAssignee, filterByStatus,
+  filterByAssignees, filterByStatuses,
 } from "../src/api/feedbackPure.ts";
 
 let failures = 0;
@@ -71,4 +72,8 @@ assert(filterByAssignee(assigned, "all").length === 3, "filter all people");
 assert(filterByAssignee(assigned, "unassigned").map((r) => r.id).join() === "3", "filter unassigned");
 assert(filterByAssignee(assigned, "julie").map((r) => r.id).join() === "1,2", "filter named person");
 assert(filterByStatus(rows, "all").length === 5 && filterByStatus(rows, "waiting").length === 2, "filterByStatus");
+assert(filterByAssignees(assigned, []).length === 3, "empty people multi = all");
+assert(filterByAssignees(assigned, ["julie", "unassigned"]).map((r) => r.id).join() === "1,2,3", "people multi unions names + unassigned");
+assert(filterByStatuses(rows, []).length === 5, "empty status multi = all");
+assert(filterByStatuses(rows, ["waiting", "resolved"]).map((r) => r.id).join() === "a,c,e", "status multi");
 process.exit(failures ? 1 : 0);

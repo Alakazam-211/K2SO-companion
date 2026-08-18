@@ -175,10 +175,24 @@ export function filterByAssignee<T extends { assignees?: string[] | null }>(
   assignee: AssigneeFilter,
 ): T[] {
   if (assignee === "all") return rows;
-  if (assignee === "unassigned") {
-    return rows.filter((r) => (r.assignees?.length ?? 0) === 0);
-  }
-  return rows.filter((r) => (r.assignees ?? []).includes(assignee));
+  return filterByAssignees(rows, [assignee]);
+}
+
+/** Multi-select people filter. Empty = all. `unassigned` matches empty
+ *  assignee sets; other values match if the ticket lists that username. */
+export function filterByAssignees<T extends { assignees?: string[] | null }>(
+  rows: T[],
+  selected: string[],
+): T[] {
+  const picks = selected.map((s) => s.trim()).filter(Boolean);
+  if (picks.length === 0) return rows;
+  const wantUnassigned = picks.includes("unassigned");
+  const names = picks.filter((s) => s !== "unassigned");
+  return rows.filter((r) => {
+    const list = r.assignees ?? [];
+    if (wantUnassigned && list.length === 0) return true;
+    return names.some((n) => list.includes(n));
+  });
 }
 
 /** Status chips (desktop AFSROW). Counted after search + people filter. */
@@ -189,7 +203,17 @@ export function filterByStatus<T extends { status: FeedbackStatus }>(
   status: FeedbackStatusFilter,
 ): T[] {
   if (status === "all") return rows;
-  return rows.filter((r) => r.status === status);
+  return filterByStatuses(rows, [status]);
+}
+
+/** Multi-select status filter. Empty = all. */
+export function filterByStatuses<T extends { status: FeedbackStatus }>(
+  rows: T[],
+  selected: FeedbackStatus[],
+): T[] {
+  if (selected.length === 0) return rows;
+  const set = new Set(selected);
+  return rows.filter((r) => set.has(r.status));
 }
 
 /** TabBar badge count = items still waiting on the human. */
