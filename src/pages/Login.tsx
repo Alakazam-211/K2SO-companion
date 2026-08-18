@@ -88,7 +88,8 @@ export function Login() {
           <button
             type="button"
             onClick={() => navigate("/servers")}
-            className="flex items-center gap-1.5 self-start text-[var(--text-muted)] text-[11px] py-2 -ml-1 hover:text-[var(--text)] transition-colors"
+            className="flex items-center gap-1.5 self-start text-[11px] py-2 -ml-1 transition-colors"
+            style={{ color: "#fff" }}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 18l-6-6 6-6" />
@@ -102,7 +103,7 @@ export function Login() {
           src={loginLogo}
           alt="K2 by Alakazam Labs"
           className="mx-auto!"
-          style={{ width: 88, marginTop: 16, marginBottom: 24 }}
+          style={{ width: 106, marginTop: 16, marginBottom: 24 }}
         />
 
         <h1 className="text-[var(--text)] text-[14px] font-semibold mb-6! text-center">
