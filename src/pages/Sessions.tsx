@@ -59,31 +59,60 @@ export function Sessions() {
     .filter((s) => {
       if (!query) return true;
       const q = query.toLowerCase();
-      return (
-        s.label.toLowerCase().includes(q) ||
-        s.workspaceName.toLowerCase().includes(q) ||
-        s.agentName.toLowerCase().includes(q)
-      );
+      const hay = [
+        s.label,
+        s.workspaceName,
+        s.agentName,
+        s.isMainChat ? "main chat" : "",
+      ]
+        .join(" ")
+        .toLowerCase();
+      return hay.includes(q);
     })
     .sort((a, b) => a.label.localeCompare(b.label));
 
   return (
-    <div className="flex flex-col h-full pb-safe">
-      {/* Search bar — only visible when triggered from header */}
-      {query !== "" && (
-        <div className="px-4 pt-3 pb-2">
+    <div className="flex flex-col h-full min-h-0 pb-safe">
+      <div
+        className="shrink-0 px-4 pt-3 pb-3"
+        style={{
+          background: "var(--surface)",
+          borderBottom: "1px solid var(--border-hover)",
+        }}
+      >
+        <div className="relative min-w-0">
           <input
-            autoFocus
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Search sessions..."
-            className="w-full bg-[var(--background)] border border-[var(--border)] px-3 py-2 text-[var(--text)] text-[13px] focus:outline-none focus:border-[var(--accent-dim)]"
+            placeholder="Search sessions…"
+            className="w-full min-w-0 text-[var(--text)] text-[14px] focus:outline-none"
+            style={{
+              padding: "10px 32px 10px 12px",
+              background: "var(--background)",
+              border: "1px solid var(--border-hover)",
+            }}
+            onFocus={(e) => {
+              e.currentTarget.style.borderColor = "var(--accent-dim)";
+            }}
+            onBlur={(e) => {
+              e.currentTarget.style.borderColor = "var(--border-hover)";
+            }}
           />
+          {query !== "" && (
+            <button
+              type="button"
+              onClick={() => setQuery("")}
+              aria-label="Clear search"
+              className="absolute right-0 top-0 h-full w-8 flex items-center justify-center text-[var(--text-muted)]"
+            >
+              ✕
+            </button>
+          )}
         </div>
-      )}
+      </div>
 
       {/* Session list */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-full px-6 gap-2">
             <span className="text-[var(--text-muted)] text-[13px]">
