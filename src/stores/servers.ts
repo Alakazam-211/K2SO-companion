@@ -2,6 +2,11 @@ import { create } from "zustand";
 import { load } from "@tauri-apps/plugin-store";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { withNetRetry } from "../lib/netRetry";
+import {
+  k2DevApexLabel,
+  loginUrlFor,
+  LOGIN_404_K2DEV_MESSAGE,
+} from "../lib/loginUrl";
 
 // Multi-server model — the companion mirror of the desktop's
 // `stores/connect-host.ts`. Each saved server is a K2 daemon reachable over
@@ -340,22 +345,28 @@ async function migrateLegacy(): Promise<{
 
 export type LoginResult =
   | { ok: true; token: string }
-  | { ok: false; kind: "auth" | "network"; error: string };
+  | { ok: false; kind: "auth" | "network" | "not-found"; error: string };
 
 /**
  * `POST /cli/auth/login {username,password}` against a server. Rides
  * `withNetRetry` so a dead pooled WKWebView socket (thrown network error)
  * is evicted and immediately retried — the desktop's proven login-retry
  * idiom. Does NOT touch the store; callers commit the token.
+ *
+ * Hosted apex `https://<label>.k2.dev` POSTs through
+ * `https://<label>.app.k2.dev` (desktop `loginUrlFor`). Token-bearing
+ * traffic stays on `server.url`.
  */
 export async function loginToServer(
   server: Pick<ServerEntry, "url" | "username">,
   password: string
 ): Promise<LoginResult> {
+  const url = loginUrlFor(server.url);
+  const viaEdge = k2DevApexLabel(server.url) !== null;
   try {
     const res = await withNetRetry(() =>
       Promise.race([
-        tauriFetch(`${server.url}/cli/auth/login`, {
+        tauriFetch(url, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ username: server.username, password }),
@@ -367,6 +378,15 @@ export async function loginToServer(
     );
     if (res.status === 401 || res.status === 403) {
       return { ok: false, kind: "auth", error: "Invalid username or password" };
+    }
+    if (res.status === 404) {
+      return {
+        ok: false,
+        kind: "not-found",
+        error: viaEdge
+          ? LOGIN_404_K2DEV_MESSAGE
+          : "Server returned 404. It may not be a K2 server.",
+      };
     }
     if (!res.ok) {
       return { ok: false, kind: "network", error: `Login failed (HTTP ${res.status})` };

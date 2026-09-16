@@ -204,9 +204,9 @@ async function doRevive(serverId: string): Promise<ReviveOutcome> {
     state.setToken(serverId, result.token);
     return "revived";
   }
-  if (result.kind === "auth") {
-    // The remembered password itself is rejected — only the user can fix
-    // this. Drop the token so the UI surfaces sign-in instead of retrying.
+  if (result.kind === "auth" || result.kind === "not-found") {
+    // Password rejected, or the edge-only login gate 404'd — retrying
+    // will not mint a session. Drop the token so the UI surfaces sign-in.
     state.clearToken(serverId);
     return "signin-required";
   }
