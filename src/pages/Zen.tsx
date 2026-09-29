@@ -3,8 +3,9 @@ import { useNavigate } from "react-router-dom";
 import { AgentRail } from "../zen/AgentRail";
 import { FilePane } from "../zen/FilePane";
 import { FileStage } from "../zen/FileStage";
-import { STUB_BANNER, STUB_THREAD } from "../zen/stubData";
-import { useZenStore } from "../zen/zenStore";
+import { StubMark } from "../zen/StubMark";
+import { STUB_BANNER, STUB_THREAD, STUB_THREAD_FALLBACK } from "../zen/stubData";
+import { useZenStore, sourceWord } from "../zen/zenStore";
 
 export function Zen() {
   const navigate = useNavigate();
@@ -17,16 +18,7 @@ export function Zen() {
   const hydrateAgents = useZenStore((s) => s.hydrateAgents);
   const openFileIds = useZenStore((s) => s.openFileIds);
   const agent = agents.find((a) => a.id === agentId) ?? agents[0];
-  const thread = (agent && STUB_THREAD[agent.id]) || [
-    {
-      author: "system",
-      mine: false,
-      text:
-        agentSource === "live"
-          ? "LIVE rail. Thread is still stub until chat is wired to a session."
-          : STUB_BANNER,
-    },
-  ];
+  const thread = (agent && STUB_THREAD[agent.id]) || STUB_THREAD_FALLBACK;
   const filesOpen = openFileIds.length > 0;
 
   useEffect(() => {
@@ -34,9 +26,9 @@ export function Zen() {
   }, [hydrateAgents]);
 
   const banner =
-    agentSource === "live" || fileSource === "live"
-      ? `${agentSource === "live" ? "LIVE" : "STUB"} agents · ${fileSource === "live" ? "LIVE" : "STUB"} files`
-      : STUB_BANNER;
+    agentSource === "stub" && fileSource === "stub"
+      ? STUB_BANNER
+      : `${sourceWord(agentSource)} agents · ${sourceWord(fileSource)} files`;
   const err = [agentError, fileError].filter(Boolean).join(" · ");
 
   return (
@@ -64,8 +56,9 @@ export function Zen() {
               key={i}
               className="border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
             >
-              <div className="text-[10px] text-[var(--text-muted)] mb-1">
-                {m.author}
+              <div className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] mb-1">
+                <StubMark />
+                <span>{m.author}</span>
               </div>
               <div className="text-[13px] text-[var(--text)]">{m.text}</div>
             </div>

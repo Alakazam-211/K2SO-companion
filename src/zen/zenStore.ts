@@ -9,7 +9,13 @@ import {
 } from "../api/client";
 import { STUB_AGENTS, STUB_FILES, type StubAgent, type StubFile } from "./stubData";
 
-export type DataSource = "stub" | "live";
+export type DataSource = "stub" | "live" | "error";
+
+export function sourceWord(s: DataSource): "LIVE" | "STUB" | "ERROR" {
+  if (s === "live") return "LIVE";
+  if (s === "error") return "ERROR";
+  return "STUB";
+}
 
 function dirEntries(data: unknown): FsDirEntry[] {
   const arr = Array.isArray(data)
@@ -39,6 +45,8 @@ type ZenState = {
   files: StubFile[];
   agentError: string | null;
   fileError: string | null;
+  /** Bumped at the start of every hydrateFiles; stale responses must not apply. */
+  filesGen: number;
   hydrateAgents: () => Promise<void>;
   hydrateFiles: (dir: string) => Promise<void>;
   agentId: string;
@@ -57,6 +65,10 @@ type ZenState = {
   setSplitRatio: (n: number) => void;
 };
 
+function failFiles(message: string): Pick<ZenState, "fileSource" | "files" | "fileError"> {
+  return { fileSource: "error", files: [], fileError: message };
+}
+
 export const useZenStore = create<ZenState>((set, get) => ({
   agentSource: "stub",
   fileSource: "stub",
@@ -64,6 +76,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   files: STUB_FILES,
   agentError: null,
   fileError: null,
+  filesGen: 0,
 
   hydrateAgents: async () => {
     if (!getToken()) {
@@ -81,10 +94,16 @@ export const useZenStore = create<ZenState>((set, get) => ({
     try {
       const projects = await getProjectsSummary();
       if (!projects.ok || !projects.data) {
+        const msg = projects.error || "projects.summary failed";
         set({
-          agentSource: "stub",
-          agents: STUB_AGENTS,
-          agentError: projects.error || "projects.summary failed",
+          agentSource: "error",
+          agents: [],
+          agentError: msg,
+          agentId: "",
+          openFileIds: [],
+          focusId: null,
+          splitId: null,
+          ...failFiles(msg),
         });
         return;
       }
@@ -117,48 +136,46 @@ export const useZenStore = create<ZenState>((set, get) => ({
       });
       const path = agents.find((a) => a.id === agentId)?.path;
       if (path) await get().hydrateFiles(path);
-      else {
-        set({
-          fileSource: "stub",
-          files: STUB_FILES,
-          fileError: "live agents have no workspace path",
-        });
-      }
+      else set(failFiles("live agents have no workspace path"));
     } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
       set({
-        agentSource: "stub",
-        agents: STUB_AGENTS,
-        agentError: e instanceof Error ? e.message : String(e),
+        agentSource: "error",
+        agents: [],
+        agentError: msg,
+        agentId: "",
+        openFileIds: [],
+        focusId: null,
+        splitId: null,
+        ...failFiles(msg),
       });
     }
   },
 
   hydrateFiles: async (dir) => {
+    const gen = get().filesGen + 1;
+    set({ filesGen: gen, files: [], fileError: null });
+    const apply = (patch: Partial<ZenState>) => {
+      if (get().filesGen !== gen) return;
+      set(patch);
+    };
     try {
       const r = await getFsReadDir(dir);
       if (!r.ok || r.data === undefined) {
-        set({
-          fileSource: "stub",
-          files: STUB_FILES,
-          fileError: r.error || "read-dir failed",
-        });
+        apply(failFiles(r.error || "read-dir failed"));
         return;
       }
       const files: StubFile[] = dirEntries(r.data)
         .filter((e) => !e.isDirectory && !e.name.startsWith("."))
         .slice(0, 200)
         .map((e) => ({ id: e.path, name: e.name, body: "" }));
-      set({
+      apply({
         fileSource: "live",
         files,
         fileError: null,
       });
     } catch (e) {
-      set({
-        fileSource: "stub",
-        files: STUB_FILES,
-        fileError: e instanceof Error ? e.message : String(e),
-      });
+      apply(failFiles(e instanceof Error ? e.message : String(e)));
     }
   },
 
@@ -195,7 +212,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
       set({ openFileIds: [...openFileIds, id], focusId: id, filesOpen: true });
     }
     if (fileSource === "live" && !file.body) {
+      const gen = get().filesGen;
       void getFsReadFile(id).then((r) => {
+        if (get().filesGen !== gen) return;
+        if (!get().files.some((f) => f.id === id)) return;
         const body =
           r.ok && r.data
             ? r.data.content

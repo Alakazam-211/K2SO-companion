@@ -1,4 +1,5 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { StubMark } from "./StubMark";
 import { useZenStore } from "./zenStore";
 
 function Pane({ fileId, dragging }: { fileId: string; dragging?: boolean }) {
@@ -23,6 +24,7 @@ export function FileStage() {
   const focusFile = useZenStore((s) => s.focusFile);
   const setSplitRatio = useZenStore((s) => s.setSplitRatio);
   const files = useZenStore((s) => s.files);
+  const fileSource = useZenStore((s) => s.fileSource);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -64,6 +66,7 @@ export function FileStage() {
                 on ? "text-[var(--text)] bg-[var(--surface)]" : "text-[var(--text-muted)]"
               }`}
             >
+              {fileSource === "stub" ? <StubMark /> : null}
               <button onClick={() => focusFile(id)} className="truncate max-w-[120px]">
                 {f?.name ?? id}
               </button>
