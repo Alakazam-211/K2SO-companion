@@ -1,16 +1,15 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { STUB_FILES } from "./stubData";
 import { useZenStore } from "./zenStore";
 
 function Pane({ fileId, dragging }: { fileId: string; dragging?: boolean }) {
-  const file = STUB_FILES.find((f) => f.id === fileId);
+  const file = useZenStore((s) => s.files.find((f) => f.id === fileId));
   if (!file) return null;
   return (
     <pre
       className="flex-1 min-w-0 overflow-auto p-3 text-[12px] text-[var(--text-secondary)] leading-5 whitespace-pre-wrap"
       style={dragging ? { userSelect: "none", WebkitUserSelect: "none" } : undefined}
     >
-      {file.body}
+      {file.body || "…"}
     </pre>
   );
 }
@@ -23,6 +22,7 @@ export function FileStage() {
   const closeFile = useZenStore((s) => s.closeFile);
   const focusFile = useZenStore((s) => s.focusFile);
   const setSplitRatio = useZenStore((s) => s.setSplitRatio);
+  const files = useZenStore((s) => s.files);
   const wrapRef = useRef<HTMLDivElement>(null);
   const [dragging, setDragging] = useState(false);
 
@@ -55,7 +55,7 @@ export function FileStage() {
     <div className="flex flex-col flex-1 min-w-0 min-h-0 bg-[var(--background)]">
       <div className="flex items-center gap-0 border-b border-[var(--border)] shrink-0 overflow-x-auto">
         {openFileIds.map((id) => {
-          const f = STUB_FILES.find((x) => x.id === id);
+          const f = files.find((x) => x.id === id);
           const on = id === focusId || id === splitId;
           return (
             <div

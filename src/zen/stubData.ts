@@ -5,6 +5,8 @@ export type StubAgent = {
   id: string;
   name: string;
   initial: string;
+  /** Workspace path — live hydrate only; files list this dir. */
+  path?: string;
 };
 
 export type StubFile = {

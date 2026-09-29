@@ -112,6 +112,22 @@ export interface Review {
   summary?: string;
 }
 
+/** `GET /cli/fs/read-dir` — Skin gets a top-level array of these. */
+export interface FsDirEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size?: number;
+  modifiedAt?: string;
+}
+
+/** `GET /cli/fs/read-file` — text, 10MB cap. */
+export interface FsFileContent {
+  content: string;
+  path: string;
+  name: string;
+}
+
 // 0.40.x: the companion talks DIRECTLY to the K2 daemon's `/cli/*` routes.
 // The base URL is the daemon origin — `https://<sub>.k2.dev` over the
 // K2 Connect tunnel, or `http://127.0.0.1:<daemon.port>` for localhost
@@ -400,6 +416,11 @@ export const clearTerminalPin = (session: string) =>
   );
 export const getStatus = (project: string) =>
   request("status", "/cli/companion/status", { project });
+
+export const getFsReadDir = (path: string) =>
+  request<FsDirEntry[]>("fs.read_dir", "/cli/fs/read-dir", { path });
+export const getFsReadFile = (path: string) =>
+  request<FsFileContent>("fs.read_file", "/cli/fs/read-file", { path });
 
 /** Probe whether THIS origin registered the companion k1 grid upgrade.
  *  `{gridProto:["k1"]}` + a companion token → companion grid WS.
