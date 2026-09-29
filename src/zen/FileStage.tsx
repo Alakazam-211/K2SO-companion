@@ -88,23 +88,27 @@ export function FileStage() {
               <Pane fileId={splitId!} dragging={dragging} />
             </div>
             <div
-              role="separator"
-              aria-orientation="vertical"
-              onPointerDown={onDividerDown}
-              onPointerMove={onDividerMove}
-              onPointerUp={onDividerUp}
-              onPointerCancel={onDividerUp}
-              className="shrink-0 cursor-col-resize"
-              style={{
-                width: 24,
-                margin: "0 -9px",
-                zIndex: 2,
-                touchAction: "none",
-                userSelect: "none",
-                WebkitUserSelect: "none",
-                background: dragging ? "var(--accent-dim)" : "var(--border)",
-              }}
-            />
+              className="relative shrink-0"
+              style={{ width: 2, background: dragging ? "var(--accent)" : "var(--border)" }}
+            >
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                onPointerDown={onDividerDown}
+                onPointerMove={onDividerMove}
+                onPointerUp={onDividerUp}
+                onPointerCancel={onDividerUp}
+                className="absolute inset-y-0 cursor-col-resize"
+                style={{
+                  left: -11,
+                  width: 24,
+                  touchAction: "none",
+                  userSelect: "none",
+                  WebkitUserSelect: "none",
+                  background: "transparent",
+                }}
+              />
+            </div>
             <div className="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden">
               <Pane fileId={focusId} dragging={dragging} />
             </div>
