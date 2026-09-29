@@ -41,7 +41,7 @@ export function Settings() {
     : "signin-required";
 
   return (
-    <div className="flex flex-col h-full overflow-y-auto py-4 px-1.5 pb-safe">
+    <div className="flex flex-col h-full min-h-0 overflow-y-auto py-4 px-1.5 pb-safe">
       <Section title="Active server">
         {active ? (
           <>
@@ -204,7 +204,7 @@ function PushRow() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-[var(--surface)] border border-[var(--border)] overflow-hidden mb-4">
+    <div className="bg-[var(--surface)] border border-[var(--border)] overflow-hidden mb-4 shrink-0">
       <h3 className="text-[var(--text-muted)] text-[10px] font-semibold tracking-widest uppercase px-4 pt-4 pb-2">
         {title}
       </h3>
