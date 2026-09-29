@@ -34,3 +34,12 @@ objc2 = "0.6.4"
 strip = true
 lto = true
 codegen-units = 1
+
+# iOS 27 requires UIApplicationSceneManifest (Info.ios.plist). That makes
+# tao take its scene path. 0.35.3 then UAF-crashes in
+# configurationForConnectingSceneSession (Retained::as_ptr). Upstream
+# tauri-apps/tao#1245 (still versioned 0.35.3) uses autorelease_ptr.
+# Tauri 2.11.5 pins tao ^0.35, so 0.36+ cannot be pulled. Drop this
+# patch when tauri allows tao >= 0.36.
+[patch.crates-io]
+tao = { git = "https://github.com/tauri-apps/tao", rev = "f2163508104413ef0609178dcebdd5803b496211" }
