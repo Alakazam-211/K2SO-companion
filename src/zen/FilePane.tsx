@@ -1,4 +1,3 @@
-import { STUB_FILES } from "./stubData";
 import { useZenStore } from "./zenStore";
 
 export function FilePane() {
@@ -6,6 +5,8 @@ export function FilePane() {
   const openFileIds = useZenStore((s) => s.openFileIds);
   const openFile = useZenStore((s) => s.openFile);
   const toggleFiles = useZenStore((s) => s.toggleFiles);
+  const files = useZenStore((s) => s.files);
+  const source = useZenStore((s) => s.fileSource);
 
   if (!open) {
     return (
@@ -28,7 +29,7 @@ export function FilePane() {
     >
       <div className="flex items-center px-2 h-9 border-b border-[var(--border)]">
         <span className="flex-1 text-[10px] text-[var(--text-muted)] tracking-widest uppercase">
-          Files
+          {source === "live" ? "LIVE files" : "STUB files"}
         </span>
         <button
           onClick={toggleFiles}
@@ -39,7 +40,9 @@ export function FilePane() {
         </button>
       </div>
       <div className="flex-1 overflow-y-auto">
-        {STUB_FILES.map((f) => {
+        {files.length === 0 ? (
+          <div className="px-3 py-2 text-[12px] text-[var(--text-muted)]">empty</div>
+        ) : files.map((f) => {
           const active = openFileIds.includes(f.id);
           return (
             <button

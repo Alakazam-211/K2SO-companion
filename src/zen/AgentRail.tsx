@@ -1,9 +1,10 @@
-import { STUB_AGENTS, STUB_BANNER } from "./stubData";
 import { useZenStore } from "./zenStore";
 
 export function AgentRail() {
   const agentId = useZenStore((s) => s.agentId);
   const setAgent = useZenStore((s) => s.setAgent);
+  const agents = useZenStore((s) => s.agents);
+  const source = useZenStore((s) => s.agentSource);
 
   return (
     <aside
@@ -12,9 +13,9 @@ export function AgentRail() {
       aria-label="Agents"
     >
       <span className="text-[8px] text-[var(--text-muted)] tracking-widest uppercase px-1 text-center leading-tight">
-        {STUB_BANNER.split("—")[0].trim()}
+        {source === "live" ? "LIVE" : "STUB"}
       </span>
-      {STUB_AGENTS.map((a) => {
+      {agents.map((a) => {
         const on = a.id === agentId;
         return (
           <button
