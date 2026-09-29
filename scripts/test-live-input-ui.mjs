@@ -143,6 +143,7 @@ try {
 
   // ── Viewer / Watch: composer stays (Safe send → terminal.write) ──
   console.log("\n[viewer] Watch keeps Safe send");
+  setSendMode(TID, "safe"); // Direct section above left TID in Direct, which unmounts the composer by design
   setSessionRole(TID, "viewer");
   html = page();
   assert(!html.includes("View-only"), "Watch does not hide the composer");

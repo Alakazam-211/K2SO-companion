@@ -108,7 +108,7 @@ jarsigner -verify -verbose -certs <path-to>.aab | head
 ## 5. Version bump
 
 Play rejects a re-used `versionCode`. Bump it every upload.
-- `versionName` follows `tauri.conf.json` `version` (currently `2.0.0`).
+- `versionName` follows `tauri.conf.json` `version` (`3.1.1` as of 2026-09-28).
 - `versionCode` must strictly increase. Use a monotonic scheme (e.g. timestamp
   `yymmddHHMM`, or +1 each release). Set it in `tauri.conf.json` →
   `bundle.android.versionCode` (preferred) or the generated Gradle if you manage
