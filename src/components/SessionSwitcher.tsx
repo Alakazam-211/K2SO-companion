@@ -29,9 +29,9 @@ export function SessionSwitcher({ open, onClose }: Props) {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/60 z-40" onClick={onClose} />
+      <div className="fixed inset-0 bg-[var(--overlay)] z-40" onClick={onClose} />
 
-      <div className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--background)] border-t border-[var(--border)] max-h-[70vh] flex flex-col" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + var(--android-nav-lift, 0px))" }}>
+      <div className="fixed bottom-0 left-0 right-0 z-50 bg-[var(--chrome)] border-t border-[var(--border)] max-h-[70vh] flex flex-col" style={{ paddingBottom: "calc(env(safe-area-inset-bottom) + var(--android-nav-lift, 0px))" }}>
         <div className="flex items-center justify-center py-2 shrink-0">
           <div className="w-10 h-1 bg-[var(--border)] rounded-full" />
         </div>

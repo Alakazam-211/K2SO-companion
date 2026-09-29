@@ -1,5 +1,11 @@
 @import "tailwindcss";
 
+/* Palette + radius: THIS FILE.
+   Colours: the :root block below.
+   Radius: --radius (0 today — square. Raise it for glass).
+   Surfaces that fight glass are named, not restyled: --root, --chrome
+   are the same hex as --background. */
+
 :root {
   --background: #0a0a0a;
   --surface: #111111;
@@ -13,6 +19,72 @@
   --success: #22c55e;
   --warning: #f59e0b;
   --error: #ef4444;
+
+  /* Opaque chrome (TabBar, headers) and the document fill.
+     Same hex as --background today. Change these for glass; do not
+     change --background unless the page fill should move too. */
+  --root: #0a0a0a;
+  --chrome: #0a0a0a;
+
+  /* List cards that used to hardcode #1c1c1e / #333 */
+  --card: #1c1c1e;
+  --card-border: #333333;
+
+  /* Primary buttons that used to be bg-white / text-black / gray-200 */
+  --button: #ffffff;
+  --button-text: #000000;
+  --button-hover: oklch(92.8% 0.006 264.531);
+
+  /* White glyphs on a coloured fill (avatars, thumbs) */
+  --on-fill: #ffffff;
+
+  --overlay: rgba(0, 0, 0, 0.6);
+  --overlay-rail: rgba(0, 0, 0, 0.5);
+  --shadow: rgba(0, 0, 0, 0.35);
+  --accent-08: rgba(34, 211, 238, 0.08);
+  --warning-10: rgba(245, 158, 11, 0.1);
+  --wash-04: rgba(255, 255, 255, 0.04);
+  --wash-05: rgba(255, 255, 255, 0.05);
+  --wash-08: rgba(255, 255, 255, 0.08);
+  --scroll-thumb: rgba(255, 255, 255, 0.25);
+  --scroll-thumb-hover: rgba(255, 255, 255, 0.4);
+  --wash-15: rgba(255, 255, 255, 0.15);
+  --wash-20: rgba(255, 255, 255, 0.2);
+  --warning-15: rgba(245, 158, 11, 0.15);
+  --term-muted: rgba(224, 224, 224, 0.7);
+  --root-75: rgba(10, 10, 10, 0.75);
+  --root-85: rgba(10, 10, 10, 0.85);
+  --root-92: rgba(10, 10, 10, 0.92);
+  --selection: rgba(96, 165, 250, 0.35);
+  --shadow-50: rgba(0, 0, 0, 0.5);
+
+  --group-1: #3b82f6;
+  --group-2: #ef4444;
+  --group-3: #22c55e;
+  --group-4: #f59e0b;
+  --group-5: #a855f7;
+  --group-6: #ec4899;
+  --group-7: #06b6d4;
+  --group-8: #64748b;
+
+  --radius: 0px;
+  /* Existing 4px on the clipboard fallback pill — not --radius. */
+  --radius-pill: 4px;
+
+  /* Hashed author cards (src/lib/authorTint.ts). Hue is per-name. */
+  --author-s: 28%;
+  --author-l: 18%;
+  --author-a: 0.72;
+  --author-border-s: 32%;
+  --author-border-l: 42%;
+  --author-border-a: 0.45;
+  --author-name-s: 42%;
+  --author-name-l: 72%;
+}
+
+/* Square today. One class so --radius reaches every card/panel. */
+.theme-radius {
+  border-radius: var(--radius);
 }
 
 /* Tap highlight only. Do NOT zero padding/margin here — this rule is
@@ -27,7 +99,7 @@ html, body, #root {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: var(--background);
+  background: var(--root);
   color: var(--text);
   font-family: "SF Mono", "Fira Code", "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
 }
@@ -254,10 +326,10 @@ button, a, nav {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.25);
+  background: var(--scroll-thumb);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.4);
+  background: var(--scroll-thumb-hover);
 }
 
 @keyframes spin {

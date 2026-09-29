@@ -85,7 +85,7 @@ export function Workspaces() {
                 <button
                   key={terminal.terminalId}
                   onClick={() => navigate(`/chat/${terminal.terminalId}`)}
-                  className="w-full text-left bg-[var(--surface)] border border-[var(--border)] p-4 mb-2 transition-all duration-150 hover:border-[var(--border-hover)]"
+                  className="w-full text-left bg-[var(--surface)] border border-[var(--border)] p-4 mb-2 transition-all duration-150 hover:border-[var(--border-hover)] theme-radius"
                 >
                   <div className="flex items-center gap-2.5">
                     <div className="w-1.5 h-1.5 rounded-full bg-[var(--success)] shrink-0" />

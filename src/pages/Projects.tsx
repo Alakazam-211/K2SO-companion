@@ -70,7 +70,7 @@ function ProjectsList() {
     <div className="flex flex-col h-full">
       {/* Header — the AppHeader idiom, page-local (AppHeader is
           session-list chrome only). */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--background)] shrink-0">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--chrome)] shrink-0">
         <span className="text-[var(--accent)] text-[15px] font-bold tracking-wide flex-1">
           Projects
         </span>
@@ -127,7 +127,7 @@ function ProjectsList() {
               <button
                 key={g.id}
                 onClick={() => navigate(`/projects/${g.id}`)}
-                className="flex items-center gap-3 px-4 py-4 min-h-[60px] bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--border-hover)] transition-colors text-left w-full"
+                className="flex items-center gap-3 px-4 py-4 min-h-[60px] bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--border-hover)] transition-colors text-left w-full theme-radius"
               >
                 <GroupAvatar groupId={g.id} name={g.name} color={g.color} />
                 <div className="flex-1 min-w-0">

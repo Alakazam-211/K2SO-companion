@@ -66,7 +66,7 @@ export function Login() {
   };
 
   const inputClass =
-    "w-full min-h-[40px] bg-[var(--surface)] border border-[var(--border-hover)] px-4! text-[var(--text)] text-[14px] focus:outline-none focus:border-[var(--accent)] transition-colors";
+    "w-full min-h-[40px] bg-[var(--surface)] border border-[var(--border-hover)] px-4! text-[var(--text)] text-[14px] focus:outline-none focus:border-[var(--accent)] transition-colors theme-radius";
   const labelClass =
     "text-[var(--text-muted)] text-[10px] uppercase tracking-wide block";
 
@@ -89,7 +89,7 @@ export function Login() {
             type="button"
             onClick={() => navigate("/servers")}
             className="flex items-center gap-1.5 self-start text-[11px] py-2 -ml-1 transition-colors"
-            style={{ color: "#fff" }}
+            style={{ color: "var(--on-fill)" }}
           >
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
               <path d="M15 18l-6-6 6-6" />
@@ -215,7 +215,7 @@ export function Login() {
           <button
             type="submit"
             disabled={!isValid || busy}
-            className="w-full min-h-[40px] bg-white text-black font-semibold text-[14px] mt-2! disabled:opacity-40 hover:bg-gray-200 transition-colors"
+            className="w-full min-h-[40px] bg-[var(--button)] text-[var(--button-text)] font-semibold text-[14px] mt-2! disabled:opacity-40 hover:bg-[var(--button-hover)] transition-colors theme-radius"
           >
             {busy ? "Connecting..." : "Connect & save"}
           </button>

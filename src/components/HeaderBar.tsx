@@ -29,7 +29,7 @@ export function HeaderBar({ onMenuOpen, onSessionSwitch, onSearch }: Props) {
       {activeProject ? (
         <>
           <span
-            className="w-4 h-4 flex items-center justify-center text-[8px] font-bold text-black shrink-0"
+            className="w-4 h-4 flex items-center justify-center text-[8px] font-bold text-[var(--button-text)] shrink-0"
             style={{ background: activeProject.color }}
           >
             {activeProject.name.charAt(0).toUpperCase()}
@@ -72,7 +72,7 @@ export function HeaderBar({ onMenuOpen, onSessionSwitch, onSearch }: Props) {
           <path d="M6 12h2" strokeLinecap="round" />
         </svg>
         {totalSessions > 0 && (
-          <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-[var(--accent)] text-black text-[7px] font-bold flex items-center justify-center">
+          <span className="absolute -top-0.5 -right-0.5 w-3.5 h-3.5 bg-[var(--accent)] text-[var(--button-text)] text-[7px] font-bold flex items-center justify-center">
             {totalSessions}
           </span>
         )}

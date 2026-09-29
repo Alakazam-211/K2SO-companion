@@ -97,7 +97,7 @@ export function AssigneePicker({
                 style={{
                   padding: "10px 12px",
                   color: on ? "var(--text)" : "var(--text-secondary)",
-                  background: on ? "rgba(34, 211, 238, 0.08)" : "transparent",
+                  background: on ? "var(--accent-08)" : "transparent",
                 }}
               >
                 <span

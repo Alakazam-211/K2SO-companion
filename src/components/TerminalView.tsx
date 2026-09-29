@@ -1513,7 +1513,7 @@ export function TerminalView({
               }}
             >
               {DEV_MODE && !useWebgl && (
-                <div style={{ color: "#22d3ee", fontSize: "9px", padding: "2px 0", opacity: 0.7 }}>
+                <div style={{ color: "var(--accent)", fontSize: "9px", padding: "2px 0", opacity: 0.7 }}>
                   {maxRow} lines | {grid.cols}×{grid.viewportRows} | s={layout.scale.toFixed(2)} | px={scrollPx.toFixed(0)}
                   {pendingResize ? ` | hold ${pendingResize.cols}×${pendingResize.rows}` : ""} | {debugRef.current}
                   {painterFatal ? ` | dom(${painterFatal})` : ""}
@@ -1583,7 +1583,7 @@ export function TerminalView({
             }}
           >
             {DEV_MODE && (
-              <div style={{ color: "#22d3ee", fontSize: "9px", padding: "2px 0", opacity: 0.7 }}>
+              <div style={{ color: "var(--accent)", fontSize: "9px", padding: "2px 0", opacity: 0.7 }}>
                 {maxRow} lines | buf={linesRef.current.size} | {grid.rows}r | px={scrollPx.toFixed(0)} | {debugRef.current}
               </div>
             )}
@@ -1622,7 +1622,7 @@ export function TerminalView({
                 position: "absolute",
                 left: 0,
                 top: 0,
-                color: "#22d3ee",
+                color: "var(--accent)",
                 fontSize: "9px",
                 padding: "2px 0",
                 opacity: 0.7,

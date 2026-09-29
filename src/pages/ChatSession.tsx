@@ -171,7 +171,7 @@ export function ChatSession() {
       }}
     >
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--background)]" style={{ flexShrink: 0 }}>
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--chrome)]" style={{ flexShrink: 0 }}>
         <button onClick={() => navigate("/sessions")} className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 -ml-2">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 1L3 7l6 6" /></svg>
         </button>
@@ -197,7 +197,7 @@ export function ChatSession() {
             onClick={() => setDrive(false)}
             className={`w-8 h-8 flex items-center justify-center ${
               !drive
-                ? "bg-[var(--accent)] text-black"
+                ? "bg-[var(--accent)] text-[var(--button-text)]"
                 : "text-[var(--accent)]"
             }`}
           >
@@ -215,7 +215,7 @@ export function ChatSession() {
             onClick={() => setDrive(true)}
             className={`w-8 h-8 flex items-center justify-center ${
               drive
-                ? "bg-[var(--accent)] text-black"
+                ? "bg-[var(--accent)] text-[var(--button-text)]"
                 : "text-[var(--accent)]"
             }`}
           >
@@ -280,7 +280,7 @@ export function ChatSession() {
       </div>
 
       {DEV_MODE && (
-        <div style={{ flexShrink: 0, color: "#22d3ee", fontSize: 9, padding: "2px 8px", opacity: 0.7 }}>
+        <div style={{ flexShrink: 0, color: "var(--accent)", fontSize: 9, padding: "2px 8px", opacity: 0.7 }}>
           h={containerHeight.toFixed(0)} | vv={window.visualViewport?.height?.toFixed(0)} | {debugInfo}
         </div>
       )}

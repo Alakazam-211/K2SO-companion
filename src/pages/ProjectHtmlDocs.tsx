@@ -138,7 +138,7 @@ export function ProjectHtmlDocs() {
         }}
       >
         {/* Header: back · title · refresh */}
-        <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--background)] shrink-0">
+        <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--chrome)] shrink-0">
           <button
             onClick={goBack}
             aria-label="Back"
@@ -197,7 +197,7 @@ export function ProjectHtmlDocs() {
                 srcDoc={body + DOC_SCROLL_STYLE}
                 // Fills the viewer exactly; overflow lives inside the
                 // document, which owns scrolling on both axes.
-                className="block w-full h-full border-0 bg-white"
+                className="block w-full h-full border-0 bg-[var(--button)]"
               />
             )}
           </div>
@@ -240,7 +240,7 @@ export function ProjectHtmlDocs() {
                         <button
                           key={`${doc.workspaceId}:${doc.filePath}`}
                           onClick={() => openDocument(doc)}
-                          className="flex items-center gap-3 px-4 py-4 bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--border-hover)] transition-colors text-left w-full"
+                          className="flex items-center gap-3 px-4 py-4 bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--border-hover)] transition-colors text-left w-full theme-radius"
                         >
                           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
                             <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />

@@ -53,12 +53,12 @@ export function GroupAvatar({
 
   return (
     <span
-      className="flex items-center justify-center shrink-0 font-bold"
+      className="flex items-center justify-center shrink-0 font-bold theme-radius"
       style={{
         width: size,
         height: size,
         backgroundColor: fallbackColor,
-        color: "#ffffff",
+        color: "var(--on-fill)",
         fontSize: size * 0.45,
         lineHeight: 1,
       }}

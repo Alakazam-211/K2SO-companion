@@ -83,11 +83,11 @@ function Card({ row, nowSec }: { row: FeedbackListRow; nowSec: number }) {
   return (
     <button
       onClick={() => navigate(`/feedback/${row.id}`)}
-      className="flex flex-col gap-2.5 w-full min-w-0 overflow-hidden text-left"
+      className="flex flex-col gap-2.5 w-full min-w-0 overflow-hidden text-left theme-radius"
       style={{
         padding: "16px",
-        background: "#1c1c1e",
-        border: "1px solid #333",
+        background: "var(--card)",
+        border: "1px solid var(--card-border)",
       }}
     >
       <div className="flex items-baseline gap-3 w-full min-w-0">
@@ -248,7 +248,7 @@ function MenuRow({
       style={{
         padding: "10px 10px",
         color: selected ? "var(--text)" : "var(--text-secondary)",
-        background: selected ? "rgba(34, 211, 238, 0.08)" : "transparent",
+        background: selected ? "var(--accent-08)" : "transparent",
       }}
     >
       <span
@@ -329,7 +329,7 @@ function ListControls({
       style={{
         background: "var(--surface)",
         borderBottom: "1px solid var(--border-hover)",
-        boxShadow: "0 8px 16px rgba(0,0,0,0.35)",
+        boxShadow: "0 8px 16px var(--shadow)",
       }}
     >
       <div className="relative min-w-0">
@@ -464,7 +464,7 @@ function FeedbackList() {
   return (
     <div className="flex flex-col h-full min-w-0">
       {/* Page header (Servers-page idiom) with the refresh affordance. */}
-      <div className="flex items-center px-4 py-3 border-b border-[var(--border)] shrink-0">
+      <div className="flex items-center px-4 py-3 border-b border-[var(--border)] bg-[var(--chrome)] shrink-0">
         <h1 className="text-[var(--accent)] text-[15px] font-bold tracking-wide flex-1">
           Tickets
         </h1>

@@ -79,7 +79,7 @@ export function MessageComposer({
         // so live-keystroke mode is unmistakable at a glance.
         ...(warn
           ? {
-              background: "rgba(245, 158, 11, 0.10)",
+              background: "var(--warning-10)",
               borderTopColor: "var(--warning)",
             }
           : {}),

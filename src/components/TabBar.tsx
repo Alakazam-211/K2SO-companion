@@ -74,7 +74,7 @@ export function TabBar() {
   if (location.pathname.startsWith("/chat/") || /^\/feedback\/./.test(location.pathname) || location.pathname === "/login" || location.pathname === "/zen") return null;
 
   return (
-    <nav className="flex border-t border-[var(--border)] bg-[var(--background)] shrink-0 px-2" style={{ paddingBottom: "calc(20px + var(--android-nav-lift, 0px))" }}>
+    <nav className="flex border-t border-[var(--border)] bg-[var(--chrome)] shrink-0 px-2" style={{ paddingBottom: "calc(20px + var(--android-nav-lift, 0px))" }}>
       {tabs.map((tab) => {
         const isActive = location.pathname.startsWith(tab.path);
         return (
@@ -120,7 +120,7 @@ function FeedbackTabBadge() {
 
   if (count === 0) return null;
   return (
-    <span className="absolute top-1 left-1/2 ml-[8px] min-w-[15px] h-[15px] px-1 rounded-full bg-[var(--warning)] text-black text-[9px] font-bold leading-[15px] text-center">
+    <span className="absolute top-1 left-1/2 ml-[8px] min-w-[15px] h-[15px] px-1 rounded-full bg-[var(--warning)] text-[var(--button-text)] text-[9px] font-bold leading-[15px] text-center">
       {count > 99 ? "99+" : count}
     </span>
   );

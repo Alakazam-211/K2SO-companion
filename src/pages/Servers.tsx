@@ -51,7 +51,7 @@ export function Servers() {
   return (
     <div className="flex flex-col h-full min-h-0">
       {/* Stays put — only the list below scrolls. */}
-      <div className="flex items-center px-4 py-3 border-b border-[var(--border)] shrink-0">
+      <div className="flex items-center px-4 py-3 border-b border-[var(--border)] bg-[var(--chrome)] shrink-0">
         <h1 className="text-[var(--accent)] text-[15px] font-bold tracking-wide flex-1">
           Servers
         </h1>
@@ -93,7 +93,7 @@ export function Servers() {
           </p>
           <button
             onClick={() => navigate("/login")}
-            className="min-h-[44px] px-8 bg-white text-black font-semibold text-[14px] hover:bg-gray-200 transition-colors"
+            className="min-h-[44px] px-8 bg-[var(--button)] text-[var(--button-text)] font-semibold text-[14px] hover:bg-[var(--button-hover)] transition-colors theme-radius"
           >
             Add server
           </button>
@@ -108,12 +108,12 @@ export function Servers() {
               <div
                 key={server.id}
                 onClick={() => void selectServer(server)}
-                className="flex items-center gap-2.5 cursor-pointer"
+                className="flex items-center gap-2.5 cursor-pointer theme-radius"
                 style={{
                   padding: "8px 12px",
                   minHeight: 44,
-                  background: "#1c1c1e",
-                  border: isActive ? "1px solid var(--accent-dim)" : "1px solid #333",
+                  background: "var(--card)",
+                  border: isActive ? "1px solid var(--accent-dim)" : "1px solid var(--card-border)",
                 }}
               >
                 {/* State dot */}

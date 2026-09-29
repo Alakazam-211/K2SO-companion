@@ -136,12 +136,12 @@ export function Sessions() {
                 onTouchEnd={cancelPress}
                 onTouchMove={cancelPress}
                 onContextMenu={(e) => e.preventDefault()}
-                className="flex items-center gap-2.5 text-left w-full"
+                className="flex items-center gap-2.5 text-left w-full theme-radius"
                 style={{
                   padding: "8px 12px",
                   minHeight: 44,
-                  background: "#1c1c1e",
-                  border: "1px solid #333",
+                  background: "var(--card)",
+                  border: "1px solid var(--card-border)",
                 }}
               >
                 {/* Workspace color bar */}
@@ -167,9 +167,9 @@ export function Sessions() {
           className="fixed inset-0 z-50 flex items-center justify-center px-6"
           onClick={() => !savingRename && setRenameTarget(null)}
         >
-          <div className="absolute inset-0 bg-black/60" />
+          <div className="absolute inset-0 bg-[var(--overlay)]" />
           <div
-            className="relative w-full max-w-sm bg-[var(--surface)] border border-[var(--border)] p-4 flex flex-col gap-3"
+            className="relative w-full max-w-sm bg-[var(--surface)] border border-[var(--border)] p-4 flex flex-col gap-3 theme-radius"
             onClick={(e) => e.stopPropagation()}
           >
             <span className="text-[var(--text)] text-[13px] font-semibold">Rename tab</span>
@@ -192,7 +192,7 @@ export function Sessions() {
               <button
                 onClick={saveRename}
                 disabled={savingRename || !renameValue.trim()}
-                className="px-4 py-2 bg-white text-black font-semibold text-[12px] disabled:opacity-40"
+                className="px-4 py-2 bg-[var(--button)] text-[var(--button-text)] font-semibold text-[12px] disabled:opacity-40 theme-radius"
               >
                 {savingRename ? "Saving..." : "Save"}
               </button>

@@ -110,7 +110,7 @@ const PILL_BASE: CSSProperties = {
   fontSize: 10,
   lineHeight: "16px",
   padding: "3px 8px",
-  borderRadius: 4,
+  borderRadius: "var(--radius-pill)",
   whiteSpace: "nowrap",
 };
 
@@ -145,8 +145,8 @@ export function TerminalChrome({
         onClick={onRelease}
         style={{
           ...PILL_BASE,
-          background: "var(--accent, #f59e0b)",
-          color: "#0a0a0a",
+          background: "var(--accent)",
+          color: "var(--background)",
           fontWeight: 700,
           border: "none",
         }}
@@ -161,9 +161,9 @@ export function TerminalChrome({
         data-k2="pin-badge"
         style={{
           ...PILL_BASE,
-          background: "rgba(245,158,11,0.15)",
-          color: "var(--accent, #f59e0b)",
-          border: "1px solid var(--accent-dim, rgba(245,158,11,0.4))",
+          background: "var(--warning-15)",
+          color: "var(--accent)",
+          border: "1px solid var(--accent-dim)",
         }}
       >
         ⌖ Pinned {claim.pin.cols}×{claim.pin.rows}
@@ -177,9 +177,9 @@ export function TerminalChrome({
         data-k2="viewer-pill"
         style={{
           ...PILL_BASE,
-          background: "rgba(255,255,255,0.08)",
-          color: "rgba(224,224,224,0.7)",
-          border: "1px solid rgba(255,255,255,0.15)",
+          background: "var(--wash-08)",
+          color: "var(--term-muted)",
+          border: "1px solid var(--wash-15)",
         }}
       >
         View only
@@ -196,9 +196,9 @@ export function TerminalChrome({
         data-k2="viewing-pill"
         style={{
           ...PILL_BASE,
-          background: "rgba(10,10,10,0.75)",
-          color: "rgba(224,224,224,0.7)",
-          border: "1px solid rgba(255,255,255,0.15)",
+          background: "var(--root-75)",
+          color: "var(--term-muted)",
+          border: "1px solid var(--wash-15)",
         }}
       >
         Viewing at {gridCols}×{gridRows}
@@ -257,7 +257,7 @@ export function SelectionOverlay({
             top: seg.abs * lineHeight,
             width: (seg.endCol - seg.startCol) * cellW,
             height: lineHeight,
-            background: "rgba(96,165,250,0.35)",
+            background: "var(--selection)",
             pointerEvents: "none",
           }}
         />
@@ -292,11 +292,11 @@ export function CopyAffordance({ left, top, onCopy }: CopyAffordanceProps) {
         zIndex: 6,
         fontSize: 12,
         padding: "6px 14px",
-        background: "var(--accent, #f59e0b)",
-        color: "#0a0a0a",
+        background: "var(--accent)",
+        color: "var(--background)",
         fontWeight: 700,
         border: "none",
-        boxShadow: "0 2px 8px rgba(0,0,0,0.5)",
+        boxShadow: "0 2px 8px var(--shadow-50)",
       }}
     >
       Copy
@@ -319,9 +319,9 @@ export function ToastPill({ text }: { text: string }) {
         pointerEvents: "none",
         ...PILL_BASE,
         fontSize: 11,
-        background: "rgba(10,10,10,0.85)",
-        color: "var(--text, #e0e0e0)",
-        border: "1px solid rgba(255,255,255,0.2)",
+        background: "var(--root-85)",
+        color: "var(--text)",
+        border: "1px solid var(--wash-20)",
       }}
     >
       {text}
@@ -360,9 +360,9 @@ export function ClipboardFallbackPill({
         alignItems: "center",
         gap: 8,
         padding: "8px 10px",
-        background: "rgba(10,10,10,0.92)",
-        border: "1px solid var(--accent-dim, rgba(245,158,11,0.4))",
-        borderRadius: 4,
+        background: "var(--root-92)",
+        border: "1px solid var(--accent-dim)",
+        borderRadius: "var(--radius-pill)",
       }}
     >
       <span
@@ -373,7 +373,7 @@ export function ClipboardFallbackPill({
           textOverflow: "ellipsis",
           whiteSpace: "nowrap",
           fontSize: 11,
-          color: "var(--text, #e0e0e0)",
+          color: "var(--text)",
         }}
       >
         {text}
@@ -383,8 +383,8 @@ export function ClipboardFallbackPill({
         onClick={onCopy}
         style={{
           ...PILL_BASE,
-          background: "var(--accent, #f59e0b)",
-          color: "#0a0a0a",
+          background: "var(--accent)",
+          color: "var(--background)",
           fontWeight: 700,
           border: "none",
         }}
@@ -398,8 +398,8 @@ export function ClipboardFallbackPill({
         style={{
           ...PILL_BASE,
           background: "transparent",
-          color: "rgba(224,224,224,0.7)",
-          border: "1px solid rgba(255,255,255,0.15)",
+          color: "var(--term-muted)",
+          border: "1px solid var(--wash-15)",
         }}
       >
         ✕
