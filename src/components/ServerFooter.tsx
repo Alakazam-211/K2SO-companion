@@ -36,7 +36,7 @@ export function ServerFooter() {
   // (keyboard-layout constraints — docs/ios-keyboard-layout.md); match
   // the TabBar's behavior. The add/edit-server flow (/login) is
   // chrome-free too — it renders inside the shell since the freeze fix.
-  if (location.pathname.startsWith("/chat/") || /^\/feedback\/./.test(location.pathname) || location.pathname === "/login") return null;
+  if (location.pathname.startsWith("/chat/") || /^\/feedback\/./.test(location.pathname) || location.pathname === "/login" || location.pathname === "/zen") return null;
 
   const active = servers.find((s) => s.id === activeServerId) ?? null;
   const state: RecoveryState = active
