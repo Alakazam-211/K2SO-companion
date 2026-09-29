@@ -1,5 +1,12 @@
 # K2 Companion — revival to the new daemon (loop notes)
 
+> **Historical log, June 2026. Not current guidance.** Checked against the
+> repo on 2026-09-28: the phase status and "blocked on Rosson" items below
+> were replaced by later iterations. The bundle id is
+> `com.alakazamlabs.k2so.companion` (`tauri.conf.json` and
+> `gen/apple/project.yml` `PRODUCT_BUNDLE_IDENTIFIER`), not
+> `dev.k2.companion`. See `push-activation.md` for the current bundle id notes.
+
 Persistent scratchpad for the `/loop` reviving the mobile companion against the
 0.40.x K2 daemon (K2 Connect tunnel + login + live grid sessions).
 

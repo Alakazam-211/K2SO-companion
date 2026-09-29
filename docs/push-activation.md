@@ -70,17 +70,17 @@ mitigation is the content-free payload (see the C6 PRD §4.5 invariants).
      `src-tauri/gen/android/app/google-services.json`
    - a **service-account JSON** (Project settings → Service accounts →
      Generate new private key) → goes **on the relay only** (step 3).
-2. **Note — `gen/android` does not exist yet** (no Android project has been
-   generated in this repo). First run `npx tauri android init`, which
-   scaffolds `src-tauri/gen/android` and auto-links the plugin's
-   `android/` library. Then:
-3. **Enable the google-services gradle plugin** (the ONE build change; keep
-   it commented out until the json is in place):
+2. **`gen/android` exists and is tracked** (checked in the repo 2026-09-28;
+   it was missing when this runbook was first written). `google-services.json`
+   is already committed there. Do not re-run `npx tauri android init`; it
+   would overwrite the Firebase wiring.
+3. **The google-services gradle plugin is already enabled** (checked in the
+   repo 2026-09-28, version `4.5.0`). For reference, the two lines are:
    - `src-tauri/gen/android/build.gradle.kts` (project-level `plugins`
      block) — add:
 
      ```kotlin
-     id("com.google.gms.google-services") version "4.4.2" apply false
+     id("com.google.gms.google-services") version "4.5.0" apply false
      ```
 
    - `src-tauri/gen/android/app/build.gradle.kts` (app-level `plugins`

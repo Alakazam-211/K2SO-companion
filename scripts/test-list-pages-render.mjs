@@ -1,5 +1,5 @@
 // Headless render check for the list pages (mobile UX wave):
-//   - Feedback list renders the search input + segmented sort control,
+//   - Feedback list renders the search input + sort dropdown trigger,
 //     and a hostile fixture (unbroken 240-char title, long URL body)
 //     lands inside a card that carries the overflow-containment classes
 //     (min-w-0 chain, line-clamp, overflow-wrap:anywhere) — the classes
@@ -67,10 +67,12 @@ prime(useFeedbackStore, {
 const feedbackHtml = renderToString(
   <MemoryRouter initialEntries={["/"]}><Feedback /></MemoryRouter>
 );
-assert(feedbackHtml.includes('placeholder="Search feedback..."'), "feedback: search input rendered");
-for (const label of ["Newest", "Oldest", "Priority", "Workspace"]) {
-  assert(feedbackHtml.includes(">" + label + "<"), "feedback: sort segment '" + label + "'");
-}
+assert(feedbackHtml.includes('placeholder="Search title, agent, workspace, person…"'), "feedback: search input rendered");
+// Sort is a dropdown since ca2fd69: closed, only the trigger + current
+// choice render. The option rows mount on open, which a static render
+// cannot reach — they are not covered here.
+assert(/aria-haspopup="listbox"[^>]*aria-label="Sort"/.test(feedbackHtml), "feedback: sort menu trigger rendered");
+assert(feedbackHtml.includes(">Newest<"), "feedback: sort shows the default 'Newest'");
 assert(feedbackHtml.includes("Waiting on you"), "feedback: waiting section first-class");
 assert(feedbackHtml.includes(LONG_TITLE), "feedback: long-title fixture rendered");
 const longCard = feedbackHtml.split("<button").find((c) => c.includes(LONG_TITLE)) ?? "";
