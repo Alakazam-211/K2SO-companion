@@ -192,7 +192,7 @@ function PushRow() {
             }}
           >
             <span
-              className="absolute top-1 w-5 h-5 bg-white transition-all"
+              className="absolute top-1 w-5 h-5 bg-[var(--on-fill)] transition-all"
               style={{ left: enabled ? "24px" : "4px" }}
             />
           </span>
@@ -204,7 +204,7 @@ function PushRow() {
 
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div className="bg-[var(--surface)] border border-[var(--border)] overflow-hidden mb-4 shrink-0">
+    <div className="bg-[var(--surface)] border border-[var(--border)] overflow-hidden mb-4 shrink-0 theme-radius">
       <h3 className="text-[var(--text-muted)] text-[10px] font-semibold tracking-widest uppercase px-4 pt-4 pb-2">
         {title}
       </h3>

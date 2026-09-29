@@ -27,9 +27,9 @@ export function SearchOverlay({ open, onClose }: Props) {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/60 z-40" onClick={onClose} />
+      <div className="fixed inset-0 bg-[var(--overlay)] z-40" onClick={onClose} />
 
-      <div className="fixed top-0 left-0 right-0 z-50 bg-[var(--background)] border-b border-[var(--border)]" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+      <div className="fixed top-0 left-0 right-0 z-50 bg-[var(--chrome)] border-b border-[var(--border)]" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         <div className="flex items-center gap-3 px-4 py-3">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="2" strokeLinecap="round" className="shrink-0">
             <circle cx="11" cy="11" r="8" />
@@ -61,10 +61,10 @@ export function SearchOverlay({ open, onClose }: Props) {
                   <button
                     key={p.id}
                     onClick={() => handleSelect(p.id)}
-                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-white/[0.04] transition-colors"
+                    className="w-full flex items-center gap-2.5 px-3 py-2.5 text-left hover:bg-[var(--wash-04)] transition-colors"
                   >
                     <span
-                      className="w-5 h-5 shrink-0 flex items-center justify-center text-[9px] font-bold text-black"
+                      className="w-5 h-5 shrink-0 flex items-center justify-center text-[9px] font-bold text-[var(--button-text)]"
                       style={{ background: p.color }}
                     >
                       {p.name.charAt(0).toUpperCase()}

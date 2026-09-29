@@ -271,7 +271,7 @@ export function ProjectChat() {
       }}
     >
       {/* Header: back · name/PoC · dashboards */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--background)] shrink-0">
+      <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--chrome)] shrink-0">
         <button
           onClick={() => navigate("/projects")}
           aria-label="Back to projects"

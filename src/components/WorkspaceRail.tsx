@@ -46,7 +46,7 @@ export function WorkspaceDrawer({ open, onClose }: Props) {
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/50 z-40" onClick={onClose} />
+      <div className="fixed inset-0 bg-[var(--overlay-rail)] z-40" onClick={onClose} />
 
       <div className="fixed top-0 left-0 bottom-0 w-[300px] bg-[var(--background)] border-r border-[var(--border)] z-50 flex flex-col" style={{ paddingTop: "env(safe-area-inset-top)" }}>
         {/* Header */}
@@ -223,8 +223,8 @@ function ProjectRow({ project, isActive, summary, onSelect, badge }: {
       onClick={onSelect}
       className={`w-full flex items-center gap-2.5 px-3 py-2.5 transition-all duration-150 ${
         isActive
-          ? "bg-white/[0.08] text-[var(--text)]"
-          : "text-[var(--text-secondary)] hover:bg-white/[0.04]"
+          ? "bg-[var(--wash-08)] text-[var(--text)]"
+          : "text-[var(--text-secondary)] hover:bg-[var(--wash-04)]"
       }`}
     >
       {/* Color icon */}
@@ -232,7 +232,7 @@ function ProjectRow({ project, isActive, summary, onSelect, badge }: {
         <img src={project.iconUrl} alt="" className="w-5 h-5 shrink-0" />
       ) : (
         <span
-          className="w-5 h-5 shrink-0 flex items-center justify-center text-[9px] font-bold text-black"
+          className="w-5 h-5 shrink-0 flex items-center justify-center text-[9px] font-bold text-[var(--button-text)]"
           style={{ background: project.color }}
         >
           {project.name.charAt(0).toUpperCase()}
@@ -254,7 +254,7 @@ function ProjectRow({ project, isActive, summary, onSelect, badge }: {
         <span className={`text-[8px] font-bold tracking-wide px-1 py-0.5 shrink-0 ${
           badge === "AGENT"
             ? "text-[var(--accent)] bg-[var(--accent)]/10"
-            : "text-[var(--text-muted)] bg-white/5"
+            : "text-[var(--text-muted)] bg-[var(--wash-05)]"
         }`}>
           {badge === "AGENT" ? "AGT" : "PIN"}
         </span>

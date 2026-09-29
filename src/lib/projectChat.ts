@@ -103,14 +103,14 @@ export function deliveredLine(
 /** The same default palette workspaces offer, so projects and
  *  workspaces share one color language across desktop + mobile. */
 export const GROUP_AVATAR_COLORS = [
-  "#3b82f6",
-  "#ef4444",
-  "#22c55e",
-  "#f59e0b",
-  "#a855f7",
-  "#ec4899",
-  "#06b6d4",
-  "#64748b",
+  "var(--group-1)",
+  "var(--group-2)",
+  "var(--group-3)",
+  "var(--group-4)",
+  "var(--group-5)",
+  "var(--group-6)",
+  "var(--group-7)",
+  "var(--group-8)",
 ];
 
 /** Stable per-group fallback color: FNV-ish hash of the group id →

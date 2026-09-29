@@ -42,7 +42,7 @@ function AppHeader({ onNewSession }: { onNewSession: () => void }) {
   };
 
   return (
-    <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--background)]" style={{ flexShrink: 0 }}>
+    <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--chrome)]" style={{ flexShrink: 0 }}>
       <span className="text-[var(--accent)] text-[15px] font-bold tracking-wide flex-1">
         K2
       </span>

@@ -79,9 +79,9 @@ export function NewSessionModal({ open, onClose }: Props) {
   if (picked) {
     return (
       <div className="fixed inset-0 z-50 flex items-center justify-center px-6" onClick={close}>
-        <div className="absolute inset-0 bg-black/60" />
+        <div className="absolute inset-0 bg-[var(--overlay)]" />
         <div
-          className="relative w-full max-w-sm bg-[var(--surface)] border border-[var(--border)] flex flex-col"
+          className="relative w-full max-w-sm bg-[var(--surface)] border border-[var(--border)] flex flex-col theme-radius"
           onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center justify-between px-4 py-3 border-b border-[var(--border)]">
@@ -104,14 +104,14 @@ export function NewSessionModal({ open, onClose }: Props) {
             <div className="p-4 flex flex-col gap-3">
               <button
                 onClick={() => openMainChat(picked.path)}
-                className="flex flex-col gap-0.5 px-4 py-4 bg-[var(--background)] border border-[var(--border)] hover:border-[var(--accent-dim)] transition-colors text-left w-full"
+                className="flex flex-col gap-0.5 px-4 py-4 bg-[var(--background)] border border-[var(--border)] hover:border-[var(--accent-dim)] transition-colors text-left w-full theme-radius"
               >
                 <span className="text-[var(--text)] text-[14px] font-semibold">Open main chat tab</span>
                 <span className="text-[var(--text-muted)] text-[11px]">Resume this workspace's primary chat session</span>
               </button>
               <button
                 onClick={() => openNewTab(picked.path)}
-                className="flex flex-col gap-0.5 px-4 py-4 bg-[var(--background)] border border-[var(--border)] hover:border-[var(--accent-dim)] transition-colors text-left w-full"
+                className="flex flex-col gap-0.5 px-4 py-4 bg-[var(--background)] border border-[var(--border)] hover:border-[var(--accent-dim)] transition-colors text-left w-full theme-radius"
               >
                 <span className="text-[var(--text)] text-[14px] font-semibold">Open new tab</span>
                 <span className="text-[var(--text-muted)] text-[11px]">Start a fresh terminal in this workspace</span>
@@ -131,7 +131,7 @@ export function NewSessionModal({ open, onClose }: Props) {
       onClick={close}
     >
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60" />
+      <div className="absolute inset-0 bg-[var(--overlay)]" />
 
       {/* Modal */}
       <div
@@ -171,8 +171,8 @@ export function NewSessionModal({ open, onClose }: Props) {
                   className="flex items-center gap-3 px-3 py-3 hover:bg-[var(--background)] transition-colors text-left w-full"
                 >
                   <div
-                    className="w-8 h-8 flex items-center justify-center text-[11px] font-bold shrink-0"
-                    style={{ backgroundColor: project.color || "var(--accent)", color: "#000" }}
+                    className="w-8 h-8 flex items-center justify-center text-[11px] font-bold shrink-0 theme-radius"
+                    style={{ backgroundColor: project.color || "var(--accent)", color: "var(--button-text)" }}
                   >
                     {project.name.charAt(0).toUpperCase()}
                   </div>

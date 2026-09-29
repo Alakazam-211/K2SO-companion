@@ -160,7 +160,7 @@ export function FeedbackThread() {
           (document.activeElement as HTMLElement | null)?.blur?.();
           setSheetOpen(true);
         }}
-        className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--background)] shrink-0 active:bg-[var(--surface)] transition-colors"
+        className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--chrome)] shrink-0 active:bg-[var(--surface)] transition-colors"
       >
         <button
           onClick={(e) => {

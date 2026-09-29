@@ -67,7 +67,7 @@ export function useSwipeBack(
       el.style.transition = "";
       el.style.transform = px > 0 ? `translateX(${px}px)` : "";
       // Depth cue over whatever sits underneath the overlay.
-      el.style.boxShadow = px > 0 ? "-12px 0 24px rgba(0, 0, 0, 0.35)" : "";
+      el.style.boxShadow = px > 0 ? "-12px 0 24px var(--shadow)" : "";
     };
     const resetDrag = (): void => {
       el.style.transition = "";

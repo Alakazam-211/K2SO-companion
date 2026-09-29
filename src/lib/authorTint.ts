@@ -27,8 +27,8 @@ export function authorTint(authorKey: string, mine: boolean): AuthorTint {
   }
   const hue = authorHue(authorKey || "?");
   return {
-    background: `hsla(${hue}, 28%, 18%, 0.72)`,
-    border: `hsla(${hue}, 32%, 42%, 0.45)`,
-    name: `hsl(${hue}, 42%, 72%)`,
+    background: `hsla(${hue}, var(--author-s), var(--author-l), var(--author-a))`,
+    border: `hsla(${hue}, var(--author-border-s), var(--author-border-l), var(--author-border-a))`,
+    name: `hsl(${hue}, var(--author-name-s), var(--author-name-l))`,
   };
 }

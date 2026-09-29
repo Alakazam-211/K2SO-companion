@@ -46,10 +46,10 @@ export function TicketSheet({ item, nowSec, onClose, onAssigneesChanged }: Props
 
   return (
     <>
-      <div className="fixed inset-0 bg-black/60 z-50" onClick={onClose} />
+      <div className="fixed inset-0 bg-[var(--overlay)] z-50" onClick={onClose} />
 
       <div
-        className="fixed left-0 right-0 z-50 bg-[var(--background)] border-t border-[var(--border)] flex flex-col"
+        className="fixed left-0 right-0 z-50 bg-[var(--chrome)] border-t border-[var(--border)] flex flex-col"
         style={{
           top: "calc(env(safe-area-inset-top) + 8px)",
           bottom: 0,

@@ -35,7 +35,7 @@ export function Zen() {
     <div className="flex h-full min-h-0 bg-[var(--background)]">
       <AgentRail />
       <div className="relative flex flex-col flex-1 min-w-0 min-h-0">
-        <header className="flex items-center gap-2 px-3 h-9 border-b border-[var(--border)] shrink-0">
+        <header className="flex items-center gap-2 px-3 h-9 border-b border-[var(--border)] bg-[var(--chrome)] shrink-0">
           <button
             onClick={() => navigate("/servers")}
             className="text-[var(--text-muted)] text-[11px]"
@@ -54,7 +54,7 @@ export function Zen() {
           {thread.map((m, i) => (
             <div
               key={i}
-              className="border border-[var(--border)] bg-[var(--surface)] px-3 py-2"
+              className="border border-[var(--border)] bg-[var(--surface)] px-3 py-2 theme-radius"
             >
               <div className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] mb-1">
                 <StubMark />
