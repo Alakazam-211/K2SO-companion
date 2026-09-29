@@ -1,4 +1,5 @@
-import { useZenStore } from "./zenStore";
+import { StubMark } from "./StubMark";
+import { useZenStore, sourceWord } from "./zenStore";
 
 export function FilePane() {
   const open = useZenStore((s) => s.filesOpen);
@@ -7,6 +8,9 @@ export function FilePane() {
   const toggleFiles = useZenStore((s) => s.toggleFiles);
   const files = useZenStore((s) => s.files);
   const source = useZenStore((s) => s.fileSource);
+  const fileError = useZenStore((s) => s.fileError);
+  const word = sourceWord(source);
+  const heading = `${word} files`;
 
   if (!open) {
     return (
@@ -14,9 +18,9 @@ export function FilePane() {
         onClick={toggleFiles}
         className="shrink-0 border-l border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] text-[10px] tracking-widest uppercase"
         style={{ width: 28, writingMode: "vertical-rl" }}
-        aria-label="Open files"
+        aria-label={`Open ${heading}`}
       >
-        Files
+        {heading}
       </button>
     );
   }
@@ -29,7 +33,7 @@ export function FilePane() {
     >
       <div className="flex items-center px-2 h-9 border-b border-[var(--border)]">
         <span className="flex-1 text-[10px] text-[var(--text-muted)] tracking-widest uppercase">
-          {source === "live" ? "LIVE files" : "STUB files"}
+          {heading}
         </span>
         <button
           onClick={toggleFiles}
@@ -41,21 +45,26 @@ export function FilePane() {
       </div>
       <div className="flex-1 overflow-y-auto">
         {files.length === 0 ? (
-          <div className="px-3 py-2 text-[12px] text-[var(--text-muted)]">empty</div>
-        ) : files.map((f) => {
-          const active = openFileIds.includes(f.id);
-          return (
-            <button
-              key={f.id}
-              onClick={() => openFile(f.id)}
-              className={`w-full text-left px-3 py-2 text-[12px] truncate border-b border-[var(--border)] ${
-                active ? "text-[var(--accent)]" : "text-[var(--text)]"
-              }`}
-            >
-              {f.name}
-            </button>
-          );
-        })}
+          <div className="px-3 py-2 text-[12px] text-[var(--text-muted)]">
+            {fileError || "empty"}
+          </div>
+        ) : (
+          files.map((f) => {
+            const active = openFileIds.includes(f.id);
+            return (
+              <button
+                key={f.id}
+                onClick={() => openFile(f.id)}
+                className={`w-full flex items-center gap-1 text-left px-3 py-2 text-[12px] border-b border-[var(--border)] ${
+                  active ? "text-[var(--accent)]" : "text-[var(--text)]"
+                }`}
+              >
+                {source === "stub" ? <StubMark /> : null}
+                <span className="truncate">{f.name}</span>
+              </button>
+            );
+          })
+        )}
       </div>
     </aside>
   );

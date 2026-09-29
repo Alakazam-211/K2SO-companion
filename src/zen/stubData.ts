@@ -1,5 +1,5 @@
-/** Clearly labelled stub catalog. Home/agents-across-servers is not built.
- *  QA: this is not live data. */
+/** Clearly labelled stub catalog. Names cannot pass as a live fleet.
+ *  QA: this is not live data. Never use real agent or file names here. */
 
 export type StubAgent = {
   id: string;
@@ -15,37 +15,64 @@ export type StubFile = {
   body: string;
 };
 
+export const STUB_MARK = "STUB";
 export const STUB_BANNER = "STUB — not live agents or files";
 
+/** Names no real agent could have. Not fleet handles. */
 export const STUB_AGENTS: StubAgent[] = [
-  { id: "k2", name: "k2", initial: "K" },
-  { id: "appa", name: "appa", initial: "A" },
-  { id: "companion", name: "companion", initial: "C" },
+  { id: "stub-not-a-real-agent-1", name: "[STUB] not-a-real-agent-1", initial: "1" },
+  { id: "stub-not-a-real-agent-2", name: "[STUB] not-a-real-agent-2", initial: "2" },
+  { id: "stub-not-a-real-agent-3", name: "[STUB] not-a-real-agent-3", initial: "3" },
 ];
 
+/** Names no real workspace file could have. */
 export const STUB_FILES: StubFile[] = [
   {
-    id: "agent-md",
-    name: "AGENT.md",
-    body: "STUB FILE — AGENT.md\n\nCharter preview. Daemon file read is not wired here yet.\n",
+    id: "stub-not-a-real-file-1",
+    name: "[STUB] not-a-real-file-1.txt",
+    body: "STUB FILE — placeholder one.\n\nNot a live workspace file. Daemon read is not used in the no-token catalog.\n",
   },
   {
-    id: "home-md",
-    name: "Home.md",
-    body: "STUB FILE — Home.md\n\nWiki index placeholder. Right-click charter modal is a later carve-out.\n",
+    id: "stub-not-a-real-file-2",
+    name: "[STUB] not-a-real-file-2.txt",
+    body: "STUB FILE — placeholder two.\n\nClick another file to add a tab. Two open files sit side by side with one divider.\n",
   },
   {
-    id: "notes",
-    name: "notes.txt",
-    body: "STUB FILE — notes.txt\n\nClick another file to add a tab. Two open files sit side by side with one divider.\n",
+    id: "stub-not-a-real-file-3",
+    name: "[STUB] not-a-real-file-3.txt",
+    body: "STUB FILE — placeholder three.\n\nThis catalog is labelled STUB on every row and tab.\n",
   },
 ];
 
+/** Stub thread only. No user-authored lines — the human wrote none of these. */
 export const STUB_THREAD: Record<string, { author: string; mine: boolean; text: string }[]> = {
-  k2: [
-    { author: "k2", mine: false, text: "STUB thread. Pick a file on the right." },
-    { author: "You", mine: true, text: "Structure only — look stays the current tokens." },
+  "stub-not-a-real-agent-1": [
+    {
+      author: "[STUB] not-a-real-agent-1",
+      mine: false,
+      text: "STUB thread. Pick a file on the right.",
+    },
   ],
-  appa: [{ author: "appa", mine: false, text: "STUB. This is not a live appa session." }],
-  companion: [{ author: "companion", mine: false, text: "STUB. Companion workspace agent." }],
+  "stub-not-a-real-agent-2": [
+    {
+      author: "[STUB] not-a-real-agent-2",
+      mine: false,
+      text: "STUB thread. Not a live session.",
+    },
+  ],
+  "stub-not-a-real-agent-3": [
+    {
+      author: "[STUB] not-a-real-agent-3",
+      mine: false,
+      text: "STUB thread. Not a live session.",
+    },
+  ],
 };
+
+export const STUB_THREAD_FALLBACK: { author: string; mine: boolean; text: string }[] = [
+  {
+    author: "[STUB] thread",
+    mine: false,
+    text: "STUB thread. Chat is not wired to a session.",
+  },
+];

@@ -1,0 +1,142 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+vi.mock("../api/client", () => ({
+  getToken: vi.fn(),
+  getProjectsSummary: vi.fn(),
+  getAgents: vi.fn(),
+  getFsReadDir: vi.fn(),
+  getFsReadFile: vi.fn(),
+}));
+
+import {
+  getAgents,
+  getFsReadDir,
+  getProjectsSummary,
+  getToken,
+} from "../api/client";
+import { STUB_AGENTS, STUB_FILES } from "./stubData";
+import { useZenStore } from "./zenStore";
+
+function deferred<T>() {
+  let resolve!: (v: T) => void;
+  let reject!: (e: unknown) => void;
+  const promise = new Promise<T>((ok, err) => {
+    resolve = ok;
+    reject = err;
+  });
+  return { promise, resolve, reject };
+}
+
+function dir(name: string, path: string) {
+  return { ok: true as const, data: [{ name, path, isDirectory: false }] };
+}
+
+function reset() {
+  useZenStore.setState({
+    agentSource: "stub",
+    fileSource: "stub",
+    agents: STUB_AGENTS,
+    files: STUB_FILES,
+    agentError: null,
+    fileError: null,
+    filesGen: 0,
+    agentId: STUB_AGENTS[0].id,
+    filesOpen: true,
+    openFileIds: [],
+    focusId: null,
+    splitId: null,
+    splitRatio: 0.5,
+  });
+}
+
+describe("hydrateFiles generation token", () => {
+  beforeEach(() => {
+    reset();
+    vi.mocked(getToken).mockReturnValue("");
+    vi.mocked(getFsReadDir).mockReset();
+    vi.mocked(getProjectsSummary).mockReset();
+    vi.mocked(getAgents).mockReset();
+  });
+
+  it("drops a slower older read-dir so the later agent wins", async () => {
+    const first = deferred<ReturnType<typeof dir>>();
+    const second = deferred<ReturnType<typeof dir>>();
+    vi.mocked(getFsReadDir)
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+
+    const p1 = useZenStore.getState().hydrateFiles("/ws-a");
+    const p2 = useZenStore.getState().hydrateFiles("/ws-b");
+
+    second.resolve(dir("from-b.txt", "/ws-b/from-b.txt"));
+    await p2;
+    first.resolve(dir("from-a.txt", "/ws-a/from-a.txt"));
+    await p1;
+
+    const s = useZenStore.getState();
+    expect(s.files.map((f) => f.name)).toEqual(["from-b.txt"]);
+    expect(s.fileSource).toBe("live");
+    expect(s.filesGen).toBe(2);
+  });
+
+  it("also drops an older success that arrives before the newer one resolves", async () => {
+    const first = deferred<ReturnType<typeof dir>>();
+    const second = deferred<ReturnType<typeof dir>>();
+    vi.mocked(getFsReadDir)
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+
+    const p1 = useZenStore.getState().hydrateFiles("/ws-a");
+    const p2 = useZenStore.getState().hydrateFiles("/ws-b");
+
+    first.resolve(dir("from-a.txt", "/ws-a/from-a.txt"));
+    await Promise.resolve();
+    expect(useZenStore.getState().files).toEqual([]);
+
+    second.resolve(dir("from-b.txt", "/ws-b/from-b.txt"));
+    await Promise.all([p1, p2]);
+    expect(useZenStore.getState().files.map((f) => f.name)).toEqual(["from-b.txt"]);
+  });
+});
+
+describe("live failure never shows the stub catalog", () => {
+  beforeEach(() => {
+    reset();
+    vi.mocked(getToken).mockReturnValue("tok");
+    vi.mocked(getFsReadDir).mockReset();
+    vi.mocked(getProjectsSummary).mockReset();
+    vi.mocked(getAgents).mockReset();
+  });
+
+  it("read-dir fail → empty files + error, not STUB_FILES", async () => {
+    useZenStore.setState({ agentSource: "live", agents: [{ id: "alpha", name: "alpha", initial: "A", path: "/ws" }] });
+    vi.mocked(getFsReadDir).mockResolvedValue({ ok: false, error: "read-dir failed" });
+    await useZenStore.getState().hydrateFiles("/ws");
+    const s = useZenStore.getState();
+    expect(s.fileSource).toBe("error");
+    expect(s.files).toEqual([]);
+    expect(s.fileError).toMatch(/read-dir failed/);
+    expect(s.files).not.toBe(STUB_FILES);
+  });
+
+  it("projects.summary fail → empty rail, not STUB_AGENTS", async () => {
+    vi.mocked(getProjectsSummary).mockResolvedValue({ ok: false, error: "projects.summary failed" });
+    await useZenStore.getState().hydrateAgents();
+    const s = useZenStore.getState();
+    expect(s.agentSource).toBe("error");
+    expect(s.agents).toEqual([]);
+    expect(s.files).toEqual([]);
+    expect(s.fileSource).toBe("error");
+    expect(s.agents).not.toBe(STUB_AGENTS);
+  });
+
+  it("no token still uses the labelled stub catalog", async () => {
+    vi.mocked(getToken).mockReturnValue("");
+    await useZenStore.getState().hydrateAgents();
+    const s = useZenStore.getState();
+    expect(s.agentSource).toBe("stub");
+    expect(s.fileSource).toBe("stub");
+    expect(s.agents).toEqual(STUB_AGENTS);
+    expect(s.files).toEqual(STUB_FILES);
+  });
+});
