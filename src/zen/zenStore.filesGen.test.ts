@@ -58,6 +58,24 @@ describe("hydrateFiles generation token", () => {
     vi.mocked(getAgents).mockReset();
   });
 
+  it("in-flight hydrate is loading, not LIVE empty", async () => {
+    const pending = deferred<ReturnType<typeof dir>>();
+    vi.mocked(getFsReadDir).mockImplementationOnce(() => pending.promise);
+    useZenStore.setState({
+      agentSource: "live",
+      fileSource: "live",
+      files: [{ id: "/old/a.txt", name: "a.txt", body: "" }],
+    });
+    const p = useZenStore.getState().hydrateFiles("/ws-new");
+    const mid = useZenStore.getState();
+    expect(mid.files).toEqual([]);
+    expect(mid.fileSource).toBe("loading");
+    pending.resolve(dir("b.txt", "/ws-new/b.txt"));
+    await p;
+    expect(useZenStore.getState().fileSource).toBe("live");
+    expect(useZenStore.getState().files.map((f) => f.name)).toEqual(["b.txt"]);
+  });
+
   it("drops a slower older read-dir so the later agent wins", async () => {
     const first = deferred<ReturnType<typeof dir>>();
     const second = deferred<ReturnType<typeof dir>>();

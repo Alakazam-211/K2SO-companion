@@ -9,11 +9,12 @@ import {
 } from "../api/client";
 import { STUB_AGENTS, STUB_FILES, type StubAgent, type StubFile } from "./stubData";
 
-export type DataSource = "stub" | "live" | "error";
+export type DataSource = "stub" | "live" | "error" | "loading";
 
-export function sourceWord(s: DataSource): "LIVE" | "STUB" | "ERROR" {
+export function sourceWord(s: DataSource): "LIVE" | "STUB" | "ERROR" | "LOADING" {
   if (s === "live") return "LIVE";
   if (s === "error") return "ERROR";
+  if (s === "loading") return "LOADING";
   return "STUB";
 }
 
@@ -154,7 +155,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
 
   hydrateFiles: async (dir) => {
     const gen = get().filesGen + 1;
-    set({ filesGen: gen, files: [], fileError: null });
+    set({ filesGen: gen, files: [], fileError: null, fileSource: "loading" });
     const apply = (patch: Partial<ZenState>) => {
       if (get().filesGen !== gen) return;
       set(patch);
