@@ -13,6 +13,7 @@ import { Settings } from "./pages/Settings";
 import { ProjectsPage } from "./pages/Projects";
 import { Feedback } from "./pages/Feedback";
 import { NewSessionModal } from "./components/NewSessionModal";
+import { Zen } from "./pages/Zen";
 
 /** C1 guard: content pages need at least one saved server. A fresh install
  *  (0 servers) lands on /servers with the add CTA — login is no longer the
@@ -130,6 +131,9 @@ function AppLayout() {
           <Route path="/projects/*" element={<ServerGuard><ProjectsPage /></ServerGuard>} />
           <Route path="/feedback/*" element={<ServerGuard><Feedback /></ServerGuard>} />
           <Route path="/settings" element={<ServerGuard><Settings /></ServerGuard>} />
+          {/* Stub door: toggle location is not decided. No server required
+              so the structure is visible on the Vite loop. Data is labelled STUB. */}
+          <Route path="/zen" element={<Zen />} />
           <Route path="*" element={<Navigate to="/servers" replace />} />
         </Routes>
       </div>

@@ -74,6 +74,15 @@ export function Settings() {
         <PushRow />
       </Section>
 
+      <Section title="Zen mode">
+        <button
+          onClick={() => navigate("/zen")}
+          className="w-full text-left px-4 py-3 text-[13px] text-[var(--accent)]"
+        >
+          Open stub (structure only — not live data)
+        </button>
+      </Section>
+
       <Section title="About">
         <Row label="Version" value="2.0.0" />
         <Row label="App" value="K2" />
