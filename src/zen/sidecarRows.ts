@@ -46,6 +46,20 @@ export function sidecarSuffix(addr: string): string {
   return parts.slice(1).join("/");
 }
 
+const UUID =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Overlay sidecar suffix (`1`, `reviewer`). Desktop PTY tabs (`tab-<uuid>`,
+ *  heartbeat `…:hb:…`) are not overlay addrs — listing them is QA FAIL 2e76f7f. */
+export function isOverlaySidecarSuffix(suffix: string): boolean {
+  const s = (suffix || "").trim();
+  if (!s) return false;
+  if (s.includes(":")) return false;
+  if (/^tab-/i.test(s)) return false;
+  if (UUID.test(s)) return false;
+  return true;
+}
+
 export function parseCompanionSessions(data: unknown): SessionSidecarInput[] | null {
   if (Array.isArray(data)) {
     return data.filter((item) => item && typeof item === "object") as SessionSidecarInput[];
@@ -94,6 +108,7 @@ export function sidecarsFromSessions(
     if (suffix === parent.addr) continue;
     const addr = suffix.includes("/") ? suffix : `${parent.addr}/${suffix}`;
     if (addr === parent.addr || seen.has(addr)) continue;
+    if (!isOverlaySidecarSuffix(sidecarSuffix(addr))) continue;
     seen.add(addr);
     const label = asText(s.label);
     const fromAddr = sidecarSuffix(addr) || addr;
