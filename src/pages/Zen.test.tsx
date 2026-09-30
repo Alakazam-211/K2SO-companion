@@ -152,12 +152,13 @@ describe("Zen keeps the chats list mounted", () => {
     );
   });
 
-  it("has no lightning Files button on the thread", async () => {
+  it("thread header has Files and Terminal icons, no side View Files bar", async () => {
     vi.mocked(getToken).mockReturnValue("");
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
       screen: "list",
+      filesOpen: false,
       agentError: null,
     });
     render(
@@ -171,8 +172,33 @@ describe("Zen keeps the chats list mounted", () => {
     act(() => {
       useZenStore.getState().setAgent(STUB_AGENTS[0].id);
     });
-    expect(screen.queryByRole("button", { name: "Files" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Files" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Terminal" })).not.toBeNull();
     expect(screen.queryByText("⌁")).toBeNull();
+    expect(screen.queryByLabelText(/View Files/i)).toBeNull();
+    expect(screen.queryByTestId("file-pane")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Files" }));
+    expect(screen.getByTestId("file-pane")).not.toBeNull();
+  });
+
+  it("?thread= opens that overlay chat after hydrate", async () => {
+    vi.mocked(getToken).mockReturnValue("");
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: STUB_AGENTS,
+      screen: "list",
+      agentError: null,
+    });
+    render(
+      <MemoryRouter initialEntries={[`/zen?thread=${STUB_AGENTS[0].id}`]}>
+        <Zen />
+      </MemoryRouter>
+    );
+    await waitFor(() =>
+      expect(useZenStore.getState().screen).toBe("thread")
+    );
+    expect(useZenStore.getState().agentId).toBe(STUB_AGENTS[0].id);
+    expect(screen.getByRole("button", { name: "Terminal" })).not.toBeNull();
   });
 
   it("tapping the visible chat while a file is open closes the file pane", async () => {
