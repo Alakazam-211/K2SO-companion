@@ -11,6 +11,7 @@ import { TicketsOverlay } from "./TicketsOverlay";
 import { lastAtKeyFor, sortChatsByRecency } from "./lastAtFetch";
 import { mountainListWhen } from "./threadModel";
 import { usePinDrag } from "./usePinDrag";
+import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { useZenStore } from "./zenStore";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
@@ -258,17 +259,15 @@ export function ChatsList() {
               aria-label={`Pinned ${a.name}`}
               onClick={() => onPinClick(a.id)}
             >
-              <div
-                className="mx-auto mb-2 flex items-center justify-center font-bold"
-                style={{
-                  width: 74,
-                  height: 74,
-                  borderRadius: "50%",
-                  background: "#2c2c2e",
-                  fontSize: 26,
-                }}
-              >
-                {a.initial}
+              <div className="mx-auto mb-2">
+                <WorkspaceAvatar
+                  initial={a.initial}
+                  color={a.color}
+                  iconUrl={a.iconUrl}
+                  size={74}
+                  fontSize={26}
+                  fallback="#2c2c2e"
+                />
               </div>
               <div
                 className="text-[12px] truncate mx-auto"
@@ -346,18 +345,13 @@ export function ChatsList() {
             data-pin-id={a.id}
             data-pin-from="list"
           >
-            <span
-              className="flex items-center justify-center shrink-0 font-bold"
-              style={{
-                width: 50,
-                height: 50,
-                borderRadius: "50%",
-                background: "#3a3a3c",
-                fontSize: 18,
-              }}
-            >
-              {a.initial}
-            </span>
+            <WorkspaceAvatar
+              initial={a.initial}
+              color={a.color}
+              iconUrl={a.iconUrl}
+              size={50}
+              fontSize={18}
+            />
             <span className="flex-1 min-w-0">
               <span className="flex justify-between items-baseline gap-2">
                 <span className="truncate text-[16px] font-semibold" style={{ letterSpacing: "-0.2px" }}>
@@ -403,18 +397,15 @@ export function ChatsList() {
             opacity: 0.9,
           }}
         >
-          <div
-            className="mx-auto mb-2 flex items-center justify-center font-bold"
-            style={{
-              width: 74,
-              height: 74,
-              borderRadius: "50%",
-              background: "#2c2c2e",
-              fontSize: 26,
-              color: "#fff",
-            }}
-          >
-            {ghost.initial}
+          <div className="mx-auto mb-2">
+            <WorkspaceAvatar
+              initial={ghost.initial}
+              color={ghost.color}
+              iconUrl={ghost.iconUrl}
+              size={74}
+              fontSize={26}
+              fallback="#2c2c2e"
+            />
           </div>
           <div className="text-[12px]" style={{ color: "#d1d1d6" }}>
             {ghost.title}

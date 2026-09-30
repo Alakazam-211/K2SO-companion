@@ -27,6 +27,8 @@ export function usePinDrag(pinsRef: { current: HTMLElement | null }) {
     id: string;
     title: string;
     initial: string;
+    color: string | null;
+    iconUrl: string | null;
     x: number;
     y: number;
   } | null>(null);
@@ -58,6 +60,8 @@ export function usePinDrag(pinsRef: { current: HTMLElement | null }) {
       id: d.id,
       title: row?.name ?? d.id,
       initial: row?.initial ?? "?",
+      color: row?.color ?? null,
+      iconUrl: row?.iconUrl ?? null,
       x,
       y,
     });

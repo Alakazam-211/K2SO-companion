@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { StubAgent } from "./stubData";
+import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { useZenStore } from "./zenStore";
 
 /** New Message picker. Groups open immediately. Agents ask main vs sidecar. */
@@ -84,18 +85,13 @@ export function OverlayCompose({ onClose }: { onClose: () => void }) {
               style={{ gap: 10, padding: "10px 14px" }}
               onClick={() => pick(a)}
             >
-              <span
-                className="flex items-center justify-center shrink-0 font-bold"
-                style={{
-                  width: 50,
-                  height: 50,
-                  borderRadius: "50%",
-                  background: "#3a3a3c",
-                  fontSize: 18,
-                }}
-              >
-                {a.initial}
-              </span>
+              <WorkspaceAvatar
+                initial={a.initial}
+                color={a.color}
+                iconUrl={a.iconUrl}
+                size={50}
+                fontSize={18}
+              />
               <span className="truncate text-[16px] font-semibold">{a.name}</span>
             </button>
           ))

@@ -20,6 +20,10 @@ export type StubAgent = {
   live?: boolean | null;
   /** Sidecar line-two title from the server. Main chats omit this. */
   chatTitle?: string | null;
+  /** Desktop workspace colour from `/cli/projects/list`. */
+  color?: string | null;
+  /** Desktop workspace icon from `/cli/projects/list`. http(s) or data:image. */
+  iconUrl?: string | null;
 };
 
 export type StubFile = {

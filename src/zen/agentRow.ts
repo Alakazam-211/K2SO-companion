@@ -1,4 +1,5 @@
 import { posixNormalize } from "./workspacePath";
+import { workspaceColorOf, workspaceIconOf } from "./workspaceSwatch";
 
 /**
  * Live GET /cli/skin/agents (guest read-a, 8793, 2026-09-29):
@@ -101,6 +102,8 @@ export type CliProjectRow = {
   name?: unknown;
   handle?: unknown;
   path?: unknown;
+  color?: unknown;
+  iconUrl?: unknown;
 };
 
 export function parseCliProjects(data: unknown): CliProjectRow[] | null {
@@ -123,12 +126,24 @@ export function parseCliProjects(data: unknown): CliProjectRow[] | null {
 
 export function cliProjectOf(
   a: CliProjectRow
-): { name: string; path: string; handle: string | null } | null {
+): {
+  name: string;
+  path: string;
+  handle: string | null;
+  color: string | null;
+  iconUrl: string | null;
+} | null {
   const name = typeof a.name === "string" ? a.name.trim() : "";
   if (!name) return null;
   const path = typeof a.path === "string" ? a.path : "";
   const handle = typeof a.handle === "string" ? a.handle.trim() : "";
-  return { name, path, handle: handle || null };
+  return {
+    name,
+    path,
+    handle: handle || null,
+    color: workspaceColorOf(a.color),
+    iconUrl: workspaceIconOf(a.iconUrl),
+  };
 }
 
 export const JOIN_NO_PROJECT =
@@ -149,6 +164,8 @@ export type ProjectHandlePath = {
   name: string;
   path: string;
   handle: string | null;
+  color?: string | null;
+  iconUrl?: string | null;
 };
 export type JoinedOverlayRow = {
   id: string;
@@ -161,11 +178,16 @@ export type JoinedOverlayRow = {
   live: boolean | null;
   /** Line-two sidecar title from the server. Null on a main chat. */
   chatTitle: string | null;
+  color: string | null;
+  iconUrl: string | null;
 };
 
 function fromAgent(
   a: FleetNamePath,
-  rest: Omit<JoinedOverlayRow, "name" | "mode" | "enabled" | "live">
+  rest: Omit<JoinedOverlayRow, "name" | "mode" | "enabled" | "live" | "color" | "iconUrl"> & {
+    color?: string | null;
+    iconUrl?: string | null;
+  }
 ): JoinedOverlayRow {
   return {
     name: a.name,
@@ -174,6 +196,8 @@ function fromAgent(
     live: a.live ?? null,
     ...rest,
     chatTitle: rest.chatTitle ?? null,
+    color: rest.color ?? null,
+    iconUrl: rest.iconUrl ?? null,
   };
 }
 
@@ -200,6 +224,8 @@ function sidecarFromProject(
     addr: handle,
     joinMiss: null,
     chatTitle: sidecarTitle(handle, project.name, a.name),
+    color: project.color ?? null,
+    iconUrl: project.iconUrl ?? null,
   });
 }
 
@@ -290,12 +316,22 @@ export function joinAgentsWithProjects(
             addr: handle,
             joinMiss: null,
             chatTitle: null,
+            color: mains[0].color ?? null,
+            iconUrl: mains[0].iconUrl ?? null,
           })
         );
       }
       for (const side of sides) {
         const h = (side.handle ?? "").trim();
-        if (h) out.push(sidecarFromProject(a, key, side));
+        if (h) {
+          out.push(
+            sidecarFromProject(a, key, {
+              ...side,
+              color: side.color || mains[0]?.color || null,
+              iconUrl: side.iconUrl || mains[0]?.iconUrl || null,
+            })
+          );
+        }
       }
       continue;
     }
@@ -330,6 +366,8 @@ export function joinAgentsWithProjects(
         enabled: null,
         live: null,
         chatTitle: null,
+        color: p.color ?? null,
+        iconUrl: p.iconUrl ?? null,
       });
       continue;
     }
@@ -345,6 +383,8 @@ export function joinAgentsWithProjects(
       enabled: null,
       live: null,
       chatTitle: null,
+      color: p.color ?? null,
+      iconUrl: p.iconUrl ?? null,
     });
   }
   return out;
