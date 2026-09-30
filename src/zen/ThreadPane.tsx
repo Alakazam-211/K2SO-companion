@@ -9,6 +9,7 @@ import {
   stickToNewest,
   type MessageAnchor,
 } from "./threadScroll";
+import { isSendTestAddr, SEND_TEST_REFUSED } from "./sendGate";
 import { sourceWord, useZenStore } from "./zenStore";
 
 function Bubble({ m }: { m: ThreadMessage }) {
@@ -54,8 +55,8 @@ function Bubble({ m }: { m: ThreadMessage }) {
 
 /**
  * Overlay thread pane. LOOK: iMessage in/out bubbles + Mountain Time.
- * BEHAVE: GET /cli/thread. Composer stays labelled; sending is not
- * shipped until owner authorship is proven. Never sends to a PTY.
+ * BEHAVE: GET /cli/thread. Send is on for test rooms only
+ * (skin-test-a, k2so-companion-qa). Never sends to a PTY.
  */
 export function ThreadPane() {
   const thread = useZenStore((s) => s.thread);
@@ -65,8 +66,11 @@ export function ThreadPane() {
   const hasMore = useZenStore((s) => s.threadHasMore);
   const loadingEarlier = useZenStore((s) => s.threadLoadingEarlier);
   const loadEarlier = useZenStore((s) => s.loadEarlier);
+  const sendThread = useZenStore((s) => s.sendThread);
+  const threadAddr = useZenStore((s) => s.threadAddr);
   const sending = useZenStore((s) => s.sending);
   const sendError = useZenStore((s) => s.sendError);
+  const canSend = source === "live" && isSendTestAddr(threadAddr);
   const [draft, setDraft] = useState("");
   const scrollerRef = useRef<HTMLDivElement>(null);
   const pendingAnchor = useRef<MessageAnchor | null>(null);
@@ -181,17 +185,24 @@ export function ThreadPane() {
               ? "Sending…"
               : sendError
                 ? sendError
-                : "Cannot send — POST /cli/thread/post not proven"}
+                : canSend
+                  ? ""
+                  : SEND_TEST_REFUSED}
         </p>
         <form
           className="flex items-center min-w-0 gap-2"
           onSubmit={(e) => {
             e.preventDefault();
+            if (!canSend) return;
+            const text = draft;
+            void sendThread(text).then(() => {
+              if (!useZenStore.getState().sendError) setDraft("");
+            });
           }}
         >
           <div className="flex-1 min-w-0 overflow-hidden flex items-center rounded-full px-3 py-2 bg-[var(--card)]">
             <input
-              disabled
+              disabled={!canSend || sending}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Message"
@@ -199,6 +210,15 @@ export function ThreadPane() {
               aria-label="Message"
             />
           </div>
+          {canSend ? (
+            <button
+              type="submit"
+              disabled={sending || !draft.trim()}
+              className="shrink-0 text-[15px] font-semibold text-[#0a84ff] disabled:opacity-40"
+            >
+              Send
+            </button>
+          ) : null}
         </form>
       </div>
     </div>

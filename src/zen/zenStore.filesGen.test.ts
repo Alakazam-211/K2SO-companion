@@ -494,7 +494,7 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
     useZenStore.setState({
       agentSource: "live",
       threadSource: "live",
-      threadAddr: "appa",
+      threadAddr: "skin-test-a",
       thread: [
         {
           id: "old",
@@ -522,11 +522,60 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
     expect(getThread).not.toHaveBeenCalled();
   });
 
-  it("does not treat a POST ack as delivered until GET shows the id", async () => {
+  it("refuses to POST to a room that is not a named test addr", async () => {
     useZenStore.setState({
       agentSource: "live",
       threadSource: "live",
       threadAddr: "appa",
+      thread: [
+        {
+          id: "old",
+          seq: 1,
+          text: "already here",
+          from: "appa",
+          at: 1,
+          mine: false,
+          kind: "text",
+          choice: null,
+        },
+      ],
+      sendError: null,
+      sending: false,
+    });
+    await useZenStore.getState().sendThread("hello");
+    const s = useZenStore.getState();
+    expect(postThread).not.toHaveBeenCalled();
+    expect(s.thread.map((m) => m.id)).toEqual(["old"]);
+    expect(s.sendError).toMatch(/only posts to skin-test-a or k2so-companion-qa/);
+    expect(s.sending).toBe(false);
+  });
+
+  it("does not fall back when via=compose is refused", async () => {
+    useZenStore.setState({
+      agentSource: "live",
+      threadSource: "live",
+      threadAddr: "k2so-companion-qa",
+      thread: [],
+      sendError: null,
+    });
+    vi.mocked(postThread).mockResolvedValue({
+      ok: false,
+      error: "skin tokens cannot use via=compose",
+    });
+    await useZenStore.getState().sendThread("hello");
+    const s = useZenStore.getState();
+    expect(s.thread).toEqual([]);
+    expect(s.sendError).toBe("skin tokens cannot use via=compose");
+    expect(s.sending).toBe(false);
+    expect(getThread).not.toHaveBeenCalled();
+    expect(postThread).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not treat a POST ack as delivered until GET shows the id", async () => {
+    useZenStore.setState({
+      agentSource: "live",
+      threadSource: "live",
+      threadAddr: "skin-test-a",
       thread: [],
       sendError: null,
     });
@@ -603,7 +652,7 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
     useZenStore.setState({
       agentSource: "live",
       threadSource: "live",
-      threadAddr: "appa",
+      threadAddr: "skin-test-a",
       thread: [],
       sendError: null,
     });
