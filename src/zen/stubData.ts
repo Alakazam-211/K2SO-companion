@@ -18,6 +18,8 @@ export type StubAgent = {
   mode?: string | null;
   enabled?: boolean | null;
   live?: boolean | null;
+  /** Sidecar line-two title from the server. Main chats omit this. */
+  chatTitle?: string | null;
 };
 
 export type StubFile = {

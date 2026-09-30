@@ -9,11 +9,15 @@ export function OverlayCompose({ onClose }: { onClose: () => void }) {
   const setAgent = useZenStore((s) => s.setAgent);
   const openSidecar = useZenStore((s) => s.openSidecar);
   const [ask, setAsk] = useState<StubAgent | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [sideError, setSideError] = useState<string | null>(null);
 
   const pickable = agents.filter((a) => {
     if (a.kind === "group") return true;
     if (source === "stub") return true;
-    return Boolean(a.addr) && !a.joinMiss;
+    const addr = (a.addr || "").trim();
+    if (!addr || a.joinMiss) return false;
+    return !addr.includes("/");
   });
 
   const pick = (a: StubAgent) => {
@@ -146,16 +150,35 @@ export function OverlayCompose({ onClose }: { onClose: () => void }) {
                 background: "#2c2c2e",
                 color: "#fff",
                 marginBottom: 8,
+                opacity: busy ? 0.4 : 1,
               }}
+              disabled={busy}
               onClick={() => {
                 const id = ask.id;
-                setAsk(null);
-                onClose();
-                openSidecar(id);
+                setBusy(true);
+                setSideError(null);
+                void openSidecar(id).then((result) => {
+                  setBusy(false);
+                  if (result.ok) {
+                    setAsk(null);
+                    onClose();
+                    return;
+                  }
+                  setSideError(result.error || "Could not start a separate chat");
+                });
               }}
             >
-              Separate chat
+              {busy ? "Starting…" : "Separate chat"}
             </button>
+            {sideError ? (
+              <p
+                className="text-[13px] text-center"
+                style={{ color: "#ef4444", padding: "0 8px 8px" }}
+                data-testid="compose-sidecar-error"
+              >
+                {sideError}
+              </p>
+            ) : null}
             <button
               type="button"
               className="w-full text-[17px]"

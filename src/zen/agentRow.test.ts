@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  JOIN_DUP_PATH,
   JOIN_NO_AGENT,
   JOIN_NO_HANDLE,
   JOIN_NO_PATH,
@@ -201,6 +202,7 @@ describe("joinAgentsWithProjects", () => {
         mode: null,
         enabled: null,
         live: null,
+        chatTitle: null,
       },
     ]);
   });
@@ -220,6 +222,7 @@ describe("joinAgentsWithProjects", () => {
         mode: null,
         enabled: null,
         live: null,
+        chatTitle: null,
       },
     ]);
   });
@@ -256,6 +259,34 @@ describe("joinAgentsWithProjects", () => {
     expect(joined.every((r) => r.addr === null)).toBe(true);
     expect(joined.every((r) => r.joinMiss === JOIN_NO_PATH)).toBe(true);
     expect(joined).toHaveLength(2);
+  });
+
+  it("slash handles on the same path become sidecar rows, not JOIN_DUP_PATH", () => {
+    const joined = joinAgentsWithProjects(
+      [{ name: "appa", path: "/Users/Baden/Appa", mode: "custom", enabled: true, live: true }],
+      [
+        { name: "appa", path: "/Users/Baden/Appa", handle: "appa" },
+        { name: "1", path: "/Users/Baden/Appa", handle: "appa/1" },
+      ]
+    );
+    expect(joined.map((r) => [r.name, r.addr, r.chatTitle, r.joinMiss])).toEqual([
+      ["appa", "appa", null, null],
+      ["appa", "appa/1", "1", null],
+    ]);
+    expect(joined[1].id).toBe("/Users/Baden/Appa::appa/1");
+  });
+
+  it("two non-slash handles on one path are still JOIN_DUP_PATH", () => {
+    const joined = joinAgentsWithProjects(
+      [{ name: "appa", path: "/Users/Baden/Appa" }],
+      [
+        { name: "appa", path: "/Users/Baden/Appa", handle: "appa" },
+        { name: "other", path: "/Users/Baden/Appa", handle: "other" },
+      ]
+    );
+    expect(joined).toHaveLength(1);
+    expect(joined[0].joinMiss).toBe(JOIN_DUP_PATH);
+    expect(joined[0].addr).toBeNull();
   });
 });
 

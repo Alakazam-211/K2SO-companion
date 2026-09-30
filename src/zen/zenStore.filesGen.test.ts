@@ -8,6 +8,8 @@ vi.mock("../api/client", () => ({
   getFsReadFile: vi.fn(),
   getThread: vi.fn(),
   postThread: vi.fn(),
+  getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
+  spawnSidecarSession: vi.fn(),
 }));
 
 vi.mock("../api/projectGroups", () => ({
@@ -24,11 +26,13 @@ vi.mock("../stores/servers", () => ({
 
 import {
   getAgentList,
+  getAllSessions,
   getCliProjectsList,
   getFsReadDir,
   getThread,
   getToken,
   postThread,
+  spawnSidecarSession,
 } from "../api/client";
 import { fetchProjectGroupMessages, fetchProjectGroups } from "../api/projectGroups";
 import { getActiveServer } from "../stores/servers";
@@ -89,6 +93,9 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
     vi.mocked(getAgentList).mockReset();
     vi.mocked(getCliProjectsList).mockReset();
     vi.mocked(getCliProjectsList).mockResolvedValue({ ok: true, data: [] });
+    vi.mocked(getAllSessions).mockReset();
+    vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [] });
+    vi.mocked(spawnSidecarSession).mockReset();
     vi.mocked(fetchProjectGroups).mockReset();
     vi.mocked(fetchProjectGroups).mockResolvedValue({ ok: true, data: [] });
     vi.mocked(fetchProjectGroupMessages).mockReset();
@@ -362,6 +369,8 @@ describe("live failure never shows the stub catalog", () => {
     vi.mocked(getFsReadDir).mockReset();
     vi.mocked(getThread).mockReset();
     vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
+    vi.mocked(getAllSessions).mockReset();
+    vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [] });
   });
 
   it("read-dir fail → empty files + error, not STUB_FILES", async () => {
@@ -513,6 +522,9 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
     vi.mocked(postThread).mockReset();
     vi.mocked(getActiveServer).mockReset();
     vi.mocked(getActiveServer).mockReturnValue(null);
+    vi.mocked(getAllSessions).mockReset();
+    vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [] });
+    vi.mocked(spawnSidecarSession).mockReset();
   });
 
   it("setAgent threads the handle, never a display name", async () => {
@@ -897,6 +909,9 @@ describe("OPEN 8 project groups in hydrateAgents", () => {
     vi.mocked(getToken).mockReturnValue("tok");
     vi.mocked(getAgentList).mockReset();
     vi.mocked(getCliProjectsList).mockReset();
+    vi.mocked(getAllSessions).mockReset();
+    vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [] });
+    vi.mocked(spawnSidecarSession).mockReset();
     vi.mocked(fetchProjectGroups).mockReset();
     vi.mocked(fetchProjectGroupMessages).mockReset();
     vi.mocked(postThread).mockReset();
@@ -985,5 +1000,149 @@ describe("OPEN 8 project groups in hydrateAgents", () => {
     await useZenStore.getState().sendThread("nope");
     expect(postThread).not.toHaveBeenCalled();
     expect(useZenStore.getState().sendError).toBe("Not chattable");
+  });
+});
+
+describe("sidecar rows come from the session list, not invented / 1", () => {
+  beforeEach(() => {
+    reset();
+    vi.mocked(getToken).mockReturnValue("tok");
+    vi.mocked(getAgentList).mockReset();
+    vi.mocked(getCliProjectsList).mockReset();
+    vi.mocked(getAllSessions).mockReset();
+    vi.mocked(spawnSidecarSession).mockReset();
+    vi.mocked(fetchProjectGroups).mockReset();
+    vi.mocked(fetchProjectGroups).mockResolvedValue({ ok: true, data: [] });
+    vi.mocked(getThread).mockReset();
+    vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
+  });
+
+  it("appa/1 from the server survives hydrate with the workspace name and the session title", async () => {
+    vi.mocked(getAgentList).mockResolvedValue({
+      ok: true,
+      data: {
+        ok: true,
+        agents: [
+          { name: "appa", path: "/Users/Baden/Appa", enabled: true, live: true, mode: "custom" },
+        ],
+      },
+    });
+    vi.mocked(getCliProjectsList).mockResolvedValue({
+      ok: true,
+      data: [{ name: "appa", handle: "appa", path: "/Users/Baden/Appa" }],
+    });
+    vi.mocked(getAllSessions).mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          cwd: "/Users/Baden/Appa",
+          workspaceName: "appa",
+          agentName: "appa",
+          label: "main chat tab",
+          isMainChat: true,
+        },
+        {
+          cwd: "/Users/Baden/Appa",
+          workspaceName: "appa",
+          agentName: "1",
+          label: "1",
+          isMainChat: false,
+        },
+      ] as never,
+    });
+    await useZenStore.getState().hydrateAgents();
+    const s = useZenStore.getState();
+    expect(s.agentSource).toBe("live");
+    const side = s.agents.find((a) => a.addr === "appa/1");
+    expect(side).toMatchObject({
+      name: "appa",
+      addr: "appa/1",
+      chatTitle: "1",
+      path: "/Users/Baden/Appa",
+    });
+    expect(side?.name).not.toBe("appa / 1");
+    expect(s.agents.some((a) => a.addr === "appa")).toBe(true);
+  });
+
+  it("openSidecar spawns the next unused suffix and does not invent name / 1", async () => {
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [
+        {
+          id: "/ws",
+          name: "appa",
+          initial: "A",
+          path: "/ws",
+          addr: "appa",
+          joinMiss: null,
+          kind: "agent",
+        },
+        {
+          id: "/ws::appa/1",
+          name: "appa",
+          initial: "A",
+          path: "/ws",
+          addr: "appa/1",
+          chatTitle: "1",
+          joinMiss: null,
+          kind: "agent",
+        },
+      ],
+    });
+    vi.mocked(spawnSidecarSession).mockResolvedValue({
+      ok: true,
+      data: { sessionId: "sid-2", agentName: "2" },
+    });
+    vi.mocked(getAgentList).mockResolvedValue({
+      ok: true,
+      data: {
+        ok: true,
+        agents: [{ name: "appa", path: "/ws", enabled: true, live: true, mode: "custom" }],
+      },
+    });
+    vi.mocked(getCliProjectsList).mockResolvedValue({
+      ok: true,
+      data: [{ name: "appa", handle: "appa", path: "/ws" }],
+    });
+    vi.mocked(getAllSessions).mockResolvedValue({
+      ok: true,
+      data: [
+        { cwd: "/ws", agentName: "1", label: "1", isMainChat: false },
+        { cwd: "/ws", agentName: "2", label: "2", isMainChat: false },
+      ] as never,
+    });
+    const result = await useZenStore.getState().openSidecar("/ws");
+    expect(result.ok).toBe(true);
+    expect(spawnSidecarSession).toHaveBeenCalledWith("/ws", "2", "2");
+    const s = useZenStore.getState();
+    const side = s.agents.find((a) => a.addr === "appa/2");
+    expect(side).toMatchObject({ name: "appa", addr: "appa/2", chatTitle: "2" });
+    expect(s.agents.some((a) => a.name === "appa / 1" || a.name === "appa / 2")).toBe(false);
+    expect(s.agentId).toBe(`${"/ws"}::appa/2`);
+  });
+
+  it("openSidecar does not invent a row when spawn fails", async () => {
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [
+        {
+          id: "/ws",
+          name: "appa",
+          initial: "A",
+          path: "/ws",
+          addr: "appa",
+          joinMiss: null,
+          kind: "agent",
+        },
+      ],
+    });
+    vi.mocked(spawnSidecarSession).mockResolvedValue({
+      ok: false,
+      error: "unknown overlay addr 'appa/1'",
+    });
+    const result = await useZenStore.getState().openSidecar("/ws");
+    expect(result.ok).toBe(false);
+    expect(result.error).toMatch(/unknown overlay addr|Could not start/i);
+    expect(useZenStore.getState().agents.some((a) => a.addr === "appa/1")).toBe(false);
   });
 });

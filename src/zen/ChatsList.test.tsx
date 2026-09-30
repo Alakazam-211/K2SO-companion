@@ -14,6 +14,8 @@ vi.mock("../api/client", () => ({
   getFsReadFile: vi.fn(),
   getThread: vi.fn(),
   postThread: vi.fn(),
+  getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
+  spawnSidecarSession: vi.fn(),
 }));
 
 vi.mock("../api/projectGroups", () => ({
@@ -276,11 +278,12 @@ describe("ChatsList", () => {
       agentSource: "live",
       agents: [
         {
-          id: "/ws",
-          name: "k2so-companion / 1",
+          id: "/ws::k2so-companion/1",
+          name: "K2 Companion",
           initial: "K",
           path: "/ws",
           addr: "k2so-companion/1",
+          chatTitle: "1",
           joinMiss: null,
           kind: "agent",
           mode: "custom",
@@ -293,8 +296,33 @@ describe("ChatsList", () => {
       screen: "list",
     });
     mount();
-    expect(screen.getByLabelText("k2so-companion / 1")).not.toBeNull();
-    expect(screen.getByTestId("row-preview").textContent).toBe("k2so-companion / 1");
+    expect(screen.getByLabelText("K2 Companion")).not.toBeNull();
+    expect(screen.getByTestId("row-preview").textContent).toBe("1");
+    expect(screen.getByTestId("row-preview").textContent).not.toBe("K2 Companion");
+  });
+
+  it("a server with no recovery entry is sign-in required, not connected", () => {
+    useServersStore.setState({
+      servers: [SEEDED_SERVER],
+      activeServerId: "s1",
+      hydrated: true,
+      tokens: {},
+      recovery: {},
+    });
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: STUB_AGENTS,
+      screen: "list",
+    });
+    mount();
+    const serverBtn = screen.getByRole("button", { name: /Server / });
+    const headerDot = serverBtn.querySelector("span");
+    expect(headerDot?.getAttribute("style") || headerDot?.style.background).toMatch(
+      /#ef4444|rgb\(239,\s*68,\s*68\)/
+    );
+    fireEvent.click(serverBtn);
+    expect(screen.getByText("sign-in required")).not.toBeNull();
+    expect(screen.queryByText("connected")).toBeNull();
   });
 
   it("the plus button opens the New Message picker", () => {

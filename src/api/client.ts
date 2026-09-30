@@ -424,6 +424,23 @@ export const spawnNewTab = (cwd: string, label = "new tab") => {
     { method: "POST" }
   );
 };
+
+/** Extra overlay chat: desktop sidecar is `POST /cli/sessions/v2/spawn`.
+ *  `agent_name` is the overlay suffix (`1`, `2`, …). The first persist
+ *  allocates `workspace/handle`. Do not invent the row client-side. */
+export const spawnSidecarSession = (cwd: string, agentName: string, label: string) =>
+  request<{ sessionId: string; agentName: string; reused?: boolean }>(
+    "sessions.v2_spawn",
+    "/cli/sessions/v2/spawn",
+    {
+      agent_name: agentName,
+      cwd,
+      command: "claude",
+      args: ["--dangerously-skip-permissions"],
+      label,
+    },
+    { method: "POST" }
+  );
 // Rename a TAB — writes the CANONICAL tab title in SQLite (the same
 // `tab_titles` row the desktop uses), `locked` so program-generated PTY
 // titles can't overwrite the user's chosen name. Both surfaces read this.

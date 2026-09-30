@@ -39,7 +39,7 @@ export function ChatsList() {
   const waitingCount = useFeedbackStore((s) => s.waitingCount);
   const activeServer = servers.find((s) => s.id === activeServerId) ?? null;
   const recoveryState: RecoveryState = activeServer
-    ? recovery[activeServer.id] ?? "connected"
+    ? recovery[activeServer.id] ?? "signin-required"
     : "signin-required";
   const serverLabel = activeServer
     ? activeServer.nickname || hostLabel(activeServer.url)

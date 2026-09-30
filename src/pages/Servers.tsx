@@ -36,13 +36,18 @@ export function Servers() {
   const [connectingId, setConnectingId] = useState<string | null>(null);
 
   const selectServer = async (server: ServerEntry) => {
-    useServersStore.getState().setActive(server.id);
     setConnectingId(server.id);
     // Reconnect through the revive path: alive token → still-valid; dead
     // token + remembered password → silent re-login; otherwise the server
     // is marked signin-required and the user finishes in the login flow.
+    // Do not setActive until the connection completes — a cancel on the
+    // sign-in form must leave the previous server active.
     const outcome = await connectServer(server.id);
     setConnectingId(null);
+    if (outcome === "still-valid" || outcome === "revived") {
+      useServersStore.getState().setActive(server.id);
+      return;
+    }
     if (outcome === "signin-required") {
       navigate(`/login?server=${encodeURIComponent(server.id)}`);
     }

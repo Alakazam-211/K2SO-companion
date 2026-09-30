@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useServersStore } from "../stores/servers";
 import { OverlayAddServer } from "./OverlayAddServer";
 
 afterEach(() => cleanup());
@@ -24,5 +25,34 @@ describe("OverlayAddServer", () => {
   it("Cancel is present when the in-overlay list can go back", () => {
     render(<OverlayAddServer onCancel={() => {}} />);
     expect(screen.getByRole("button", { name: "Cancel" })).not.toBeNull();
+  });
+
+  it("Remove asks for confirmation before deleting the server", () => {
+    useServersStore.setState({
+      servers: [
+        {
+          id: "s1",
+          nickname: "Home",
+          url: "https://home.k2.dev",
+          username: "baden",
+          rememberPassword: false,
+        },
+      ],
+      activeServerId: "s1",
+      hydrated: true,
+      tokens: { s1: "t" },
+      recovery: { s1: "connected" },
+    });
+    const onCancel = vi.fn();
+    render(<OverlayAddServer editingId="s1" onCancel={onCancel} />);
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    expect(useServersStore.getState().servers).toHaveLength(1);
+    expect(onCancel).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button", { name: "Keep server" }));
+    expect(useServersStore.getState().servers).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    fireEvent.click(screen.getByRole("button", { name: "Remove server" }));
+    expect(useServersStore.getState().servers).toHaveLength(0);
+    expect(onCancel).toHaveBeenCalled();
   });
 });
