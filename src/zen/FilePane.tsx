@@ -11,20 +11,9 @@ export function FilePane() {
   const source = useZenStore((s) => s.fileSource);
   const fileError = useZenStore((s) => s.fileError);
   const heading =
-    source === "live" ? "View Files" : `${sourceWord(source)} files`;
+    source === "live" ? "Files" : `${sourceWord(source)} files`;
 
-  if (!open) {
-    return (
-      <button
-        onClick={toggleFiles}
-        className={`shrink-0 border-l border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] text-[10px] tracking-widest ${source === "live" ? "" : "uppercase"}`}
-        style={{ width: 28, writingMode: "vertical-rl" }}
-        aria-label={`Open ${heading}`}
-      >
-        {heading}
-      </button>
-    );
-  }
+  if (!open) return null;
 
   return (
     <aside

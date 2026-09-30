@@ -15,6 +15,7 @@ import { Feedback } from "./pages/Feedback";
 import { NewSessionModal } from "./components/NewSessionModal";
 import { Zen } from "./pages/Zen";
 import { overlayHomePath } from "./zen/overlayHome";
+import { ZenReturnButton } from "./zen/ZenReturnButton";
 
 /** Cold-start home is always the overlay. Zero stored servers still
  *  open `/zen` (overlay Add server). `/login` and `/servers` are old UI. */
@@ -53,6 +54,7 @@ function AppHeader({ onNewSession }: { onNewSession: () => void }) {
       <span className="text-[var(--text-muted)] text-[11px]">
         {allSessions.length} active
       </span>
+      <ZenReturnButton />
       {/* Refresh */}
       <button
         onClick={handleRefresh}

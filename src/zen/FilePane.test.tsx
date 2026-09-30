@@ -8,30 +8,17 @@ import { useZenStore } from "./zenStore";
 afterEach(() => cleanup());
 
 describe("FilePane stub markers", () => {
-  it("collapsed live tab says View Files, not LIVE files", () => {
+  it("renders nothing when the files pane is closed — no side bar", () => {
     useZenStore.setState({
       filesOpen: false,
       fileSource: "live",
       files: STUB_FILES,
       fileError: null,
     });
-    render(<FilePane />);
-    const tab = screen.getByLabelText("Open View Files");
-    expect(tab.textContent).toMatch(/View Files/);
-    expect(tab.textContent).not.toMatch(/LIVE files/i);
-  });
-
-  it("collapsed tab says STUB files, not a bare Files", () => {
-    useZenStore.setState({
-      filesOpen: false,
-      fileSource: "stub",
-      files: STUB_FILES,
-      fileError: null,
-    });
-    render(<FilePane />);
-    const tab = screen.getByLabelText("Open STUB files");
-    expect(tab.textContent).toMatch(/STUB files/i);
-    expect(tab.textContent).not.toBe("Files");
+    const { container } = render(<FilePane />);
+    expect(container.textContent).toBe("");
+    expect(screen.queryByLabelText(/View Files/i)).toBeNull();
+    expect(screen.queryByLabelText(/STUB files/i)).toBeNull();
   });
 
   it("each stub file row carries its own STUB mark", () => {

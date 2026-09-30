@@ -1,5 +1,6 @@
 import { useState, useRef, useEffect, useSyncExternalStore } from "react";
 import { useParams, useNavigate } from "react-router-dom";
+import { ZenReturnButton } from "../zen/ZenReturnButton";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { TerminalView } from "../components/TerminalView";
@@ -182,6 +183,7 @@ export function ChatSession() {
             <span className="text-[var(--text)] text-[13px] font-semibold">Terminal</span>
           )}
         </div>
+        <ZenReturnButton />
         <div
           data-k2="watch-drive"
           className="flex h-8 border border-[var(--accent-dim)] shrink-0"
