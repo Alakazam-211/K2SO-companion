@@ -82,7 +82,7 @@ describe("ThreadPane", () => {
     expect(pill?.className).toMatch(/min-w-0/);
   });
 
-  it("live thread with an addr shows Send; stub does not", () => {
+  it("live thread with an addr still cannot send — authorship not proven", () => {
     useZenStore.setState({
       threadSource: "live",
       threadAddr: "appa",
@@ -104,8 +104,11 @@ describe("ThreadPane", () => {
     });
     render(<ThreadPane />);
     expect(screen.getByText("hello from the agent")).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Send" })).not.toBeNull();
-    expect(screen.getByTestId("composer-label").textContent).not.toMatch(/not proven/);
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
+    expect(screen.getByTestId("composer-label").textContent).toMatch(
+      /Cannot send — POST \/cli\/thread\/post not proven/
+    );
+    expect(screen.getByPlaceholderText("Message")).toHaveProperty("disabled", true);
   });
 
   it("renders markdown and choice options, not raw asterisks or a blank card", () => {

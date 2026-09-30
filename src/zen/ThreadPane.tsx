@@ -54,8 +54,8 @@ function Bubble({ m }: { m: ThreadMessage }) {
 
 /**
  * Overlay thread pane. LOOK: iMessage in/out bubbles + Mountain Time.
- * BEHAVE this hash: GET /cli/thread. Composer is labelled; POST /cli/thread/post
- * is not proven on this client yet. Never sends to a PTY.
+ * BEHAVE: GET /cli/thread. Composer stays labelled; sending is not
+ * shipped until owner authorship is proven. Never sends to a PTY.
  */
 export function ThreadPane() {
   const thread = useZenStore((s) => s.thread);
@@ -65,8 +65,6 @@ export function ThreadPane() {
   const hasMore = useZenStore((s) => s.threadHasMore);
   const loadingEarlier = useZenStore((s) => s.threadLoadingEarlier);
   const loadEarlier = useZenStore((s) => s.loadEarlier);
-  const sendThread = useZenStore((s) => s.sendThread);
-  const threadAddr = useZenStore((s) => s.threadAddr);
   const sending = useZenStore((s) => s.sending);
   const sendError = useZenStore((s) => s.sendError);
   const [draft, setDraft] = useState("");
@@ -183,21 +181,17 @@ export function ThreadPane() {
               ? "Sending…"
               : sendError
                 ? sendError
-                : ""}
+                : "Cannot send — POST /cli/thread/post not proven"}
         </p>
         <form
           className="flex items-center min-w-0 gap-2"
           onSubmit={(e) => {
             e.preventDefault();
-            const text = draft;
-            void sendThread(text).then(() => {
-              if (!useZenStore.getState().sendError) setDraft("");
-            });
           }}
         >
           <div className="flex-1 min-w-0 overflow-hidden flex items-center rounded-full px-3 py-2 bg-[var(--card)]">
             <input
-              disabled={source !== "live" || !threadAddr || sending}
+              disabled
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Message"
@@ -205,15 +199,6 @@ export function ThreadPane() {
               aria-label="Message"
             />
           </div>
-          {source === "live" && threadAddr ? (
-            <button
-              type="submit"
-              disabled={sending || !draft.trim()}
-              className="shrink-0 text-[15px] font-semibold text-[#0a84ff] disabled:opacity-40"
-            >
-              Send
-            </button>
-          ) : null}
         </form>
       </div>
     </div>
