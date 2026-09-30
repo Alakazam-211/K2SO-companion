@@ -16,6 +16,7 @@ vi.mock("../api/client", () => ({
   inspectProjectsSummary: vi.fn(),
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),
+  uploadFsBinary: vi.fn(),
 }));
 
 vi.mock("../api/projectGroups", () => ({
@@ -24,6 +25,7 @@ vi.mock("../api/projectGroups", () => ({
     ok: true,
     data: { messages: [], truncated: false },
   })),
+  postProjectGroupMessage: vi.fn(),
 }));
 
 import { getAgentList, getCliProjectsList, getToken } from "../api/client";
@@ -258,6 +260,52 @@ describe("Zen keeps the chats list mounted", () => {
     expect(screen.getByTestId("chats-layer").getAttribute("aria-hidden")).not.toBe(
       "true"
     );
+  });
+
+  it("?thread= first paint is loading, not leftover bubbles", async () => {
+    vi.mocked(getToken).mockReturnValue("t");
+    vi.mocked(getAgentList).mockReturnValue(new Promise(() => {}));
+    vi.mocked(getCliProjectsList).mockResolvedValue({ ok: true, data: [] });
+    useZenStore.setState({
+      agentSource: "live",
+      fileSource: "live",
+      agents: [
+        {
+          id: "/ws",
+          name: "appa",
+          initial: "A",
+          path: "/ws",
+          addr: "appa",
+          joinMiss: null,
+        },
+      ],
+      agentId: "/ws",
+      screen: "thread",
+      threadSource: "live",
+      threadError: null,
+      thread: [
+        {
+          id: "stale",
+          seq: 1,
+          text: "STALE BUBBLE",
+          from: "appa",
+          at: 1,
+          mine: false,
+          kind: "text",
+          choice: null,
+        },
+      ],
+      agentError: null,
+      fileError: null,
+    });
+    render(
+      <MemoryRouter initialEntries={["/zen?thread=/ws"]}>
+        <Zen />
+      </MemoryRouter>
+    );
+    expect(screen.getByTestId("thread-column")).not.toBeNull();
+    expect(screen.getByTestId("thread-loading").textContent).toMatch(/LOADING thread/);
+    expect(screen.queryByText("STALE BUBBLE")).toBeNull();
   });
 
   it("tapping the visible chat while a file is open closes the file pane", async () => {

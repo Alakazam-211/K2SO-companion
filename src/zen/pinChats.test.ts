@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { dropIsPins, isListPan, pinId, unpinId } from "./pinChats";
+import { dropIsPins, insertPinned, isListPan, pinId, unpinId } from "./pinChats";
 
 describe("pinChats", () => {
   it("pins to the front and de-dupes", () => {
@@ -23,5 +23,12 @@ describe("pinChats", () => {
   it("a mostly-vertical move is a list pan, not a lift", () => {
     expect(isListPan(2, 20)).toBe(true);
     expect(isListPan(20, 2)).toBe(false);
+  });
+
+  it("reorders a pin before another, or to the end", () => {
+    expect(insertPinned(["a", "b", "c"], "c", "a")).toEqual(["c", "a", "b"]);
+    expect(insertPinned(["a", "b", "c"], "a", "c")).toEqual(["b", "a", "c"]);
+    expect(insertPinned(["a", "b"], "a", null)).toEqual(["b", "a"]);
+    expect(insertPinned(["a"], "b", "a")).toEqual(["b", "a"]);
   });
 });

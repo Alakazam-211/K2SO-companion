@@ -285,7 +285,7 @@ export function ChatsList() {
         style={{ fontSize: 11, color: "#8e8e93", padding: "0 16px 10px", lineHeight: 1.3 }}
       >
         {pinned.length
-          ? "Hold a chat, then drag it up here to pin. Drag a pin down to unpin."
+          ? "Hold a pin, then drag it to reorder. Hold a chat, then drag it up here to pin. Drag a pin down to unpin."
           : "Hold a chat, then drag it up here to pin."}
       </p>
 

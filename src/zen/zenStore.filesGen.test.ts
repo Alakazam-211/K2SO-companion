@@ -10,6 +10,7 @@ vi.mock("../api/client", () => ({
   postThread: vi.fn(),
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),
+  uploadFsBinary: vi.fn(),
 }));
 
 vi.mock("../api/projectGroups", () => ({
@@ -18,6 +19,7 @@ vi.mock("../api/projectGroups", () => ({
     ok: true,
     data: { messages: [], truncated: false },
   })),
+  postProjectGroupMessage: vi.fn(),
 }));
 
 vi.mock("../stores/servers", () => ({
@@ -34,7 +36,11 @@ import {
   postThread,
   spawnSidecarSession,
 } from "../api/client";
-import { fetchProjectGroupMessages, fetchProjectGroups } from "../api/projectGroups";
+import {
+  fetchProjectGroupMessages,
+  fetchProjectGroups,
+  postProjectGroupMessage,
+} from "../api/projectGroups";
 import { getActiveServer } from "../stores/servers";
 import { JOIN_NO_AGENT, JOIN_NO_PROJECT } from "./agentRow";
 import { resetLastAtQueue } from "./lastAtFetch";
@@ -104,6 +110,7 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
       ok: true,
       data: { messages: [], truncated: false },
     });
+    vi.mocked(postProjectGroupMessage).mockReset();
     vi.mocked(getFsReadDir).mockReset();
     vi.mocked(getThread).mockReset();
     vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
@@ -939,6 +946,7 @@ describe("OPEN 8 project groups in hydrateAgents", () => {
     vi.mocked(spawnSidecarSession).mockReset();
     vi.mocked(fetchProjectGroups).mockReset();
     vi.mocked(fetchProjectGroupMessages).mockReset();
+    vi.mocked(postProjectGroupMessage).mockReset();
     vi.mocked(postThread).mockReset();
     vi.mocked(getActiveServer).mockReturnValue(null);
   });
@@ -980,7 +988,7 @@ describe("OPEN 8 project groups in hydrateAgents", () => {
     expect(s.agentError).toBeNull();
   });
 
-  it("opening a project chat hydrates messages, refuses files, and does not send", async () => {
+  it("opening a project chat hydrates messages, refuses files, and sends via project-group/msg", async () => {
     vi.mocked(getActiveServer).mockReturnValue({
       id: "s1",
       nickname: "test",
@@ -1022,9 +1030,54 @@ describe("OPEN 8 project groups in hydrateAgents", () => {
     expect(useZenStore.getState().thread.map((m) => m.text)).toEqual(["hello"]);
     expect(useZenStore.getState().thread[0].mine).toBe(true);
     expect(useZenStore.getState().threadAddr).toBeNull();
+    expect(useZenStore.getState().threadGroupId).toBe("pg1");
+    vi.mocked(postProjectGroupMessage).mockResolvedValue({
+      ok: true,
+      data: {
+        id: "m2",
+        groupId: "pg1",
+        author: "baden",
+        body: "nope",
+        createdAt: 11,
+        delivered: true,
+        deliveryReason: null,
+        deliveredSessionId: null,
+      },
+    });
     await useZenStore.getState().sendThread("nope");
     expect(postThread).not.toHaveBeenCalled();
-    expect(useZenStore.getState().sendError).toBe("Not chattable");
+    expect(postProjectGroupMessage).toHaveBeenCalledWith("pg1", "nope");
+    expect(useZenStore.getState().sendError).toBeNull();
+    expect(useZenStore.getState().thread.map((m) => m.text)).toEqual(["hello", "nope"]);
+  });
+
+  it("Chat return resume clears leftover thread to loading before fetch", async () => {
+    const d = deferred<{ ok: true; data: { ok: true; agents: unknown[] } }>();
+    vi.mocked(getAgentList).mockReturnValue(d.promise as never);
+    vi.mocked(getCliProjectsList).mockResolvedValue({ ok: true, data: [] });
+    vi.mocked(fetchProjectGroups).mockResolvedValue({ ok: true, data: [] });
+    useZenStore.setState({
+      agentSource: "live",
+      threadSource: "live",
+      threadAddr: "appa",
+      thread: [
+        {
+          id: "stale",
+          seq: 1,
+          text: "STALE",
+          from: "appa",
+          at: 1,
+          mine: false,
+          kind: "text",
+          choice: null,
+        },
+      ],
+    });
+    const p = useZenStore.getState().hydrateAgents({ resumeId: "/ws" });
+    expect(useZenStore.getState().threadSource).toBe("loading");
+    expect(useZenStore.getState().thread).toEqual([]);
+    d.resolve({ ok: true, data: { ok: true, agents: [] } });
+    await p;
   });
 });
 

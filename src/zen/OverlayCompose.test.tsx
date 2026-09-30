@@ -15,6 +15,7 @@ vi.mock("../api/client", () => ({
   inspectProjectsSummary: vi.fn(),
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),
+  uploadFsBinary: vi.fn(),
 }));
 
 vi.mock("../api/projectGroups", () => ({
@@ -23,6 +24,7 @@ vi.mock("../api/projectGroups", () => ({
     ok: true,
     data: { messages: [], truncated: false },
   })),
+  postProjectGroupMessage: vi.fn(),
 }));
 
 import { getAgentList, getAllSessions, getCliProjectsList, spawnSidecarSession } from "../api/client";

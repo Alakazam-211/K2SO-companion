@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { COMPOSER_MAX_PX, ThreadPane, composerHeight } from "./ThreadPane";
 import { normaliseThreadItem } from "./threadModel";
 import { useZenStore } from "./zenStore";
@@ -254,5 +254,77 @@ describe("ThreadPane", () => {
         return 0;
       },
     });
+  });
+
+  it("a live project chat shows Send", () => {
+    useZenStore.setState({
+      threadSource: "live",
+      threadAddr: null,
+      threadGroupId: "pg1",
+      threadError: null,
+      sendError: null,
+      sending: false,
+      thread: [
+        {
+          id: "m1",
+          seq: 0,
+          text: "hello project",
+          from: "owner",
+          at: 10,
+          mine: true,
+          kind: "text",
+          choice: null,
+        },
+      ],
+    });
+    render(<ThreadPane />);
+    expect(screen.getByRole("button", { name: "Send" })).not.toBeNull();
+    expect(screen.getByPlaceholderText("Message")).toHaveProperty("disabled", false);
+    expect(screen.getByTestId("composer-label").textContent).not.toMatch(/Not chattable/);
+    expect(screen.getByTestId("composer-attach")).toHaveProperty("disabled", true);
+  });
+
+  it("loading hides leftover bubbles", () => {
+    useZenStore.setState({
+      threadSource: "loading",
+      threadError: null,
+      thread: [
+        {
+          id: "stale",
+          seq: 1,
+          text: "STALE BUBBLE",
+          from: "appa",
+          at: 1,
+          mine: false,
+          kind: "text",
+          choice: null,
+        },
+      ],
+    });
+    render(<ThreadPane />);
+    expect(screen.getByTestId("thread-loading").textContent).toMatch(/LOADING thread/);
+    expect(screen.queryByText("STALE BUBBLE")).toBeNull();
+  });
+
+  it("live workspace thread has an Add file control and paste lands a chip", () => {
+    useZenStore.setState({
+      threadSource: "live",
+      threadAddr: "appa",
+      threadGroupId: null,
+      threadError: null,
+      sendError: null,
+      sending: false,
+      thread: [],
+    });
+    render(<ThreadPane />);
+    expect(screen.getByRole("button", { name: "Add file" })).not.toBeNull();
+    const file = new File(["x"], "shot.png", { type: "image/png" });
+    fireEvent.paste(screen.getByTestId("composer-form"), {
+      clipboardData: {
+        files: [file],
+        items: [],
+      },
+    });
+    expect(screen.getByTestId("attach-chip").textContent).toMatch(/shot.png/);
   });
 });

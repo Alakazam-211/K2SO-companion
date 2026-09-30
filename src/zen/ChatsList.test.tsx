@@ -16,6 +16,7 @@ vi.mock("../api/client", () => ({
   postThread: vi.fn(),
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),
+  uploadFsBinary: vi.fn(),
 }));
 
 vi.mock("../api/projectGroups", () => ({
@@ -24,6 +25,7 @@ vi.mock("../api/projectGroups", () => ({
     ok: true,
     data: { messages: [], truncated: false },
   })),
+  postProjectGroupMessage: vi.fn(),
 }));
 
 vi.mock("../lib/revive", () => ({
@@ -280,6 +282,62 @@ describe("ChatsList", () => {
     });
     expect(useZenStore.getState().pinnedIds).toEqual([]);
     expect(screen.queryByLabelText("Pinned [STUB] not-a-real-agent-1")).toBeNull();
+    vi.useRealTimers();
+  });
+
+  it("hold-drag a pin onto another pin reorders", () => {
+    vi.useFakeTimers();
+    Element.prototype.setPointerCapture = () => {};
+    Element.prototype.releasePointerCapture = () => {};
+    Element.prototype.hasPointerCapture = () => true;
+    const a = STUB_AGENTS[0];
+    const b = STUB_AGENTS[1];
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: STUB_AGENTS,
+      agentError: null,
+      screen: "list",
+      pinnedIds: [a.id, b.id],
+    });
+    mount();
+    expect(screen.getByTestId("chats-home").textContent).toMatch(
+      /Hold a pin, then drag it to reorder/
+    );
+    const rect = (left: number, width: number) =>
+      ({
+        left,
+        right: left + width,
+        top: 10,
+        bottom: 90,
+        width,
+        height: 80,
+        x: left,
+        y: 10,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+    const pins = screen.getByTestId("chats-pins");
+    pins.getBoundingClientRect = () => rect(0, 300);
+    screen.getByLabelText(`Pinned ${a.name}`).getBoundingClientRect = () =>
+      rect(10, 80);
+    screen.getByLabelText(`Pinned ${b.name}`).getBoundingClientRect = () =>
+      rect(110, 80);
+    fireEvent.pointerDown(screen.getByLabelText(`Pinned ${b.name}`), {
+      clientX: 150,
+      clientY: 50,
+      button: 0,
+      pointerId: 1,
+    });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    fireEvent.pointerUp(screen.getByTestId("chats-home"), {
+      clientX: 30,
+      clientY: 50,
+      pointerId: 1,
+    });
+    expect(useZenStore.getState().pinnedIds).toEqual([b.id, a.id]);
     vi.useRealTimers();
   });
 
