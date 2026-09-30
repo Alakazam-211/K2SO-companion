@@ -101,20 +101,26 @@ export function ThreadPane() {
         ))}
       </div>
       <div
-        className="flex items-center gap-2 px-3 pt-2 shrink-0 min-w-0 w-full overflow-hidden"
+        className="shrink-0 min-w-0 w-full overflow-hidden px-3 pt-2"
         style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
       >
-        <div className="flex-1 min-w-0 overflow-hidden flex items-center rounded-full px-3 py-2 bg-[var(--card)]">
-          <input
-            disabled
-            placeholder="Cannot send — POST /cli/thread/post not proven"
-            className="flex-1 min-w-0 w-full bg-transparent border-0 text-[17px] text-[var(--text)] outline-none overflow-hidden text-ellipsis"
-            aria-label="Message"
-          />
+        <p
+          className="text-[11px] text-[var(--text-muted)] leading-snug break-words mb-1.5"
+          data-testid="composer-label"
+        >
+          {source === "stub" ? "STUB — " : ""}
+          Cannot send — POST /cli/thread/post not proven
+        </p>
+        <div className="flex items-center min-w-0">
+          <div className="flex-1 min-w-0 overflow-hidden flex items-center rounded-full px-3 py-2 bg-[var(--card)]">
+            <input
+              disabled
+              placeholder="Message"
+              className="flex-1 min-w-0 w-full bg-transparent border-0 text-[17px] text-[var(--text)] outline-none"
+              aria-label="Message"
+            />
+          </div>
         </div>
-        <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-widest shrink-0">
-          {source === "stub" ? "STUB" : "no send"}
-        </span>
       </div>
     </div>
   );

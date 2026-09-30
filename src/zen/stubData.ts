@@ -7,7 +7,7 @@ export type StubAgent = {
   initial: string;
   /** Workspace path — live hydrate only; files list this dir. */
   path?: string;
-  /** Overlay addr from handle/addr/roomHandle. Null = daemon did not send one. */
+  /** Overlay addr = skin `handle`. Null = no handle. */
   addr?: string | null;
   agentType?: string;
 };

@@ -17,7 +17,8 @@ import {
 // fresh.
 //
 // The events WS is THIS store's own subscription (no shared events
-// module): `<base>/events?token=` broadcasts `{"event":"feedback:*",
+// module): `<base>/events?token=` (WebSocket cannot set Authorization;
+// HTTP /cli uses Bearer) broadcasts `{"event":"feedback:*",
 // "payload":{id, projectPath, ...}}` frames (events.rs WireEvent).
 // Reconnects consult the C1 revive path BEFORE reopening — a WS close
 // after a daemon restart is a stale-token kick indistinguishable from a

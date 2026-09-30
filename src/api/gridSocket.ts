@@ -35,6 +35,7 @@ import {
 //   Never put the Connect `/cli/auth/login` token on the companion route.
 //
 // Query `token=` is the only JS path (WebSocket cannot set Authorization).
+// HTTP `/cli/*` uses Bearer; this socket stays query.
 // Server → snapshot/delta as k1 BINARY (gridWire.ts); other events stay
 // JSON text. Client → `{action:"ack", version}` after a coalescer flush
 // once the daemon has proven it speaks k1.

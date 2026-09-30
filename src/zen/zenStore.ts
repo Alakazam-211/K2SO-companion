@@ -1,19 +1,22 @@
 import { create } from "zustand";
 import {
-  getAgents,
+  getAgentList,
   getFsReadDir,
   getFsReadFile,
-  getProjectsSummary,
   getThread,
   getToken,
   type FsDirEntry,
 } from "../api/client";
 import { getActiveServer } from "../stores/servers";
-import { displayNameOf, isChattableAgentType, overlayAddrOf } from "./agentRow";
+import { ownerAgentOf, parseOwnerAgents, skinInitials } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
 import { normaliseThreadItem, type ThreadMessage } from "./threadModel";
 
 export type DataSource = "stub" | "live" | "error" | "loading";
+
+/** Signed-in empty list. Honest: 0 agents, and why. Do not invent a mapping. */
+export const OWNER_LIST_HOLD =
+  "No agents on this list. A fleet-sized owner list is not confirmed yet. /cli/skin/agents is grant-scoped. /cli/agents/list is the skills enumerator. This overlay does not invent a mapping.";
 
 export function sourceWord(s: DataSource): "LIVE" | "STUB" | "ERROR" | "LOADING" {
   if (s === "live") return "LIVE";
@@ -35,7 +38,7 @@ function dirEntries(data: unknown): FsDirEntry[] {
       const e = raw as Record<string, unknown>;
       return {
         name: String(e.name ?? ""),
-        path: String(e.path ?? ""),
+        path: String(e.path ?? e.name ?? ""),
         isDirectory: Boolean(e.isDirectory ?? e.is_directory),
         size: typeof e.size === "number" ? e.size : undefined,
       };
@@ -59,6 +62,8 @@ type ZenState = {
   hydrateAgents: () => Promise<void>;
   hydrateFiles: (dir: string) => Promise<void>;
   hydrateThread: (addr: string) => Promise<void>;
+  /** Overlay home is the chats list. A row opens the thread. */
+  screen: "list" | "thread";
   agentId: string;
   filesOpen: boolean;
   openFileIds: string[];
@@ -68,6 +73,7 @@ type ZenState = {
   /** 0..1 width of the left split pane. */
   splitRatio: number;
   setAgent: (id: string) => void;
+  closeChat: () => void;
   toggleFiles: () => void;
   openFile: (id: string) => void;
   closeFile: (id: string) => void;
@@ -118,14 +124,16 @@ export const useZenStore = create<ZenState>((set, get) => ({
         files: STUB_FILES,
         agentError: null,
         fileError: null,
-        agentId: get().agentId || STUB_AGENTS[0].id,
+        screen: "list",
+        agentId: "",
         threadSource: "stub",
         threadError: null,
-        thread: stubThread(get().agentId || STUB_AGENTS[0].id),
+        thread: [],
       });
       return;
     }
-    // Session exists: stub is unreachable for the whole in-flight window.
+    // Session exists: stub is unreachable. Owner fleet is GET /cli/agent/list
+    // (singular). Plural /cli/agents/list is the skills enumerator.
     set({
       agentSource: "loading",
       fileSource: "loading",
@@ -133,6 +141,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       files: [],
       agentError: null,
       fileError: null,
+      screen: "list",
       agentId: "",
       openFileIds: [],
       focusId: null,
@@ -142,81 +151,79 @@ export const useZenStore = create<ZenState>((set, get) => ({
       thread: [],
     });
     try {
-      const projects = await getProjectsSummary();
-      if (!projects.ok || !projects.data) {
-        const msg = projects.error || "projects.summary failed";
+      const r = await getAgentList();
+      if (!r.ok) {
+        const msg = r.error || "GET /cli/agent/list failed";
         set({
           agentSource: "error",
+          fileSource: "error",
           agents: [],
+          files: [],
           agentError: msg,
-          agentId: "",
-          openFileIds: [],
-          focusId: null,
-          splitId: null,
+          fileError: msg,
           threadSource: "error",
-          thread: [],
           threadError: msg,
-          ...failFiles(msg),
+          thread: [],
         });
         return;
       }
-      const seen = new Map<string, StubAgent>();
-      for (const p of projects.data) {
-        const r = await getAgents(p.path);
-        if (!r.ok || !r.data) continue;
-        for (const a of r.data) {
-          if (!isChattableAgentType(a.agentType)) continue;
-          const name = displayNameOf(a);
-          if (!name || seen.has(name)) continue;
-          seen.set(name, {
-            id: name,
-            name,
-            initial: (name[0] || "?").toUpperCase(),
-            path: p.path,
-            addr: overlayAddrOf(a),
-            agentType: a.agentType,
-          });
-        }
+      const parsed = parseOwnerAgents(r.data);
+      if (!parsed) {
+        const msg =
+          "GET /cli/agent/list returned an unrecognised shape. This overlay does not invent a mapping.";
+        set({
+          agentSource: "error",
+          fileSource: "error",
+          agents: [],
+          files: [],
+          agentError: msg,
+          fileError: msg,
+          threadSource: "error",
+          threadError: msg,
+          thread: [],
+        });
+        return;
       }
-      const agents = [...seen.values()];
-      const agentId = agents.some((a) => a.id === get().agentId)
-        ? get().agentId
-        : agents[0]?.id ?? "";
+      const agents: StubAgent[] = [];
+      for (const raw of parsed) {
+        const row = ownerAgentOf(raw);
+        if (!row) continue;
+        agents.push({
+          id: row.id,
+          name: row.name,
+          initial: skinInitials(row.name),
+          path: row.path,
+          addr: row.addr,
+        });
+      }
       set({
         agentSource: "live",
         agents,
-        agentError: agents.length ? null : "live: 0 agents",
-        agentId,
-        openFileIds: [],
-        focusId: null,
-        splitId: null,
+        agentError:
+          agents.length === 0
+            ? "No agents on this list."
+            : agents.every((a) => !a.addr)
+              ? "No thread addr on these rows. This overlay does not invent one from name."
+              : null,
+        fileSource: "live",
+        files: [],
+        fileError: null,
+        threadSource: "live",
+        threadError: null,
+        thread: [],
       });
-      const path = agents.find((a) => a.id === agentId)?.path;
-      if (path) await get().hydrateFiles(path);
-      else set(failFiles("live agents have no workspace path"));
-      const row = agents.find((a) => a.id === agentId);
-      if (row?.addr) await get().hydrateThread(row.addr);
-      else {
-        set({
-          threadSource: "error",
-          thread: [],
-          threadError: agentId ? "no overlay addr" : "live: 0 agents",
-        });
-      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       set({
         agentSource: "error",
+        fileSource: "error",
         agents: [],
+        files: [],
         agentError: msg,
-        agentId: "",
-        openFileIds: [],
-        focusId: null,
-        splitId: null,
+        fileError: msg,
         threadSource: "error",
-        thread: [],
         threadError: msg,
-        ...failFiles(msg),
+        thread: [],
       });
     }
   },
@@ -229,7 +236,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       set(patch);
     };
     try {
-      const r = await getFsReadDir(dir);
+      const r = await getFsReadDir(dir, ".");
       if (!r.ok || r.data === undefined) {
         apply(failFiles(r.error || "read-dir failed"));
         return;
@@ -248,6 +255,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
   },
 
+  screen: "list",
   agentId: "",
   filesOpen: true,
   openFileIds: [],
@@ -295,7 +303,13 @@ export const useZenStore = create<ZenState>((set, get) => ({
   },
 
   setAgent: (id) => {
-    set({ agentId: id, openFileIds: [], focusId: null, splitId: null });
+    set({
+      screen: "thread",
+      agentId: id,
+      openFileIds: [],
+      focusId: null,
+      splitId: null,
+    });
     const row = get().agents.find((a) => a.id === id);
     if (row?.path) void get().hydrateFiles(row.path);
     if (get().agentSource === "stub") {
@@ -307,10 +321,21 @@ export const useZenStore = create<ZenState>((set, get) => ({
       set({
         threadSource: "error",
         thread: [],
-        threadError: "no overlay addr",
+        threadError: "Not chattable",
       });
     }
   },
+  closeChat: () =>
+    set({
+      screen: "list",
+      agentId: "",
+      openFileIds: [],
+      focusId: null,
+      splitId: null,
+      thread: [],
+      threadError: null,
+      files: [],
+    }),
   toggleFiles: () => set({ filesOpen: !get().filesOpen }),
 
   openFile: (id) => {
@@ -333,7 +358,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
     if (fileSource === "live" && !file.body) {
       const gen = get().filesGen;
-      void getFsReadFile(id).then((r) => {
+      const workspace = get().agents.find((a) => a.id === get().agentId)?.path;
+      if (!workspace) return;
+      void getFsReadFile(workspace, id).then((r) => {
         if (get().filesGen !== gen) return;
         if (!get().files.some((f) => f.id === id)) return;
         const body =

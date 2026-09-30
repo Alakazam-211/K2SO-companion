@@ -92,6 +92,7 @@ export class CompanionWebSocket {
 
   private open() {
     this.ws?.close();
+    // Query token: WebSocket cannot set Authorization. HTTP /cli uses Bearer.
     this.ws = new WebSocket(`${this.url}/companion/ws?token=${encodeURIComponent(this.token)}`);
 
     this.ws.onopen = () => {

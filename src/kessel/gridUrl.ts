@@ -36,8 +36,10 @@ export function chooseGridDial(opts: {
   return { route: "cli", attach: "watch", tokenKind: "connect" };
 }
 
-/** Build the grid WebSocket URL. Companion route requires a companion
- *  token — returns null rather than stamp a Connect token on it. */
+/** Build the grid WebSocket URL. Query `token=` is required: WebSocket
+ *  cannot set Authorization (HTTP `/cli` uses Bearer). Companion route
+ *  requires a companion token — returns null rather than stamp a Connect
+ *  token on it. */
 export function buildGridWsUrl(
   baseHttp: string,
   sessionId: string,

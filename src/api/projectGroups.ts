@@ -17,13 +17,14 @@
 //   POST /cli/project-group/msg {group, body}          → stored row + delivery outcome
 //   GET  /cli/fs/read-file?path=                       → {content, path, name}
 //     (misc_routes.rs GET chain → fs_routes::handle_read_file; text files
-//      only, 10MB cap; auth = the same `?token=` every /cli/* call uses)
+//      only, 10MB cap; auth = Authorization Bearer, same as other HTTP /cli)
 //
 // Project-group errors arrive as `{"ok":false,"error":{"code","hint"}}`
 // (stable codes); plain routes use `{"error":"..."}`. Both are folded
 // into the ApiResponse `error` string here.
 
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { cliAuthHeaders } from "./cliAuth";
 import { getBaseUrl, getToken, type ApiResponse } from "./client";
 import { useServersStore } from "../stores/servers";
 import { isPossibleAuthFailure, reviveServerSession } from "../lib/revive";
@@ -152,14 +153,13 @@ async function pgRequest<T>(
     for (const [k, v] of Object.entries(options.params ?? {})) {
       parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
     }
-    if (token) parts.push(`token=${encodeURIComponent(token)}`);
     let url = `${base}${path}`;
     if (parts.length > 0) url += `?${parts.join("&")}`;
 
     const res = await Promise.race([
       tauriFetch(url, {
         method: options.method || "GET",
-        headers: { "Content-Type": "application/json" },
+        headers: cliAuthHeaders(token),
         body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
       }),
       new Promise<never>((_, reject) =>

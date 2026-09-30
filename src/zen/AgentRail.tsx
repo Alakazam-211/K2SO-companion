@@ -41,14 +41,33 @@ export function AgentRail() {
               <span className="w-full text-[8px] leading-tight text-center truncate text-[var(--text-secondary)]">
                 {a.name}
               </span>
+              {source === "live" && !a.addr ? (
+                <span className="text-[7px] text-[var(--warning)] leading-tight text-center">
+                  no chat
+                </span>
+              ) : null}
               {source === "stub" ? <StubMark /> : null}
             </div>
           );
         })}
-        {source === "error" && agentError ? (
-          <span className="text-[8px] text-[var(--warning)] uppercase tracking-widest px-1 text-center leading-tight">
-            {agentError}
-          </span>
+        {source !== "loading" && agents.length === 0 ? (
+          <div
+            className="px-1 py-2 text-center leading-tight"
+            data-testid="agent-rail-empty"
+          >
+            {source === "error" && agentError ? (
+              <span className="text-[8px] text-[var(--warning)]">{agentError}</span>
+            ) : (
+              <>
+                <span className="block text-[8px] text-[var(--text-muted)] tracking-widest uppercase">
+                  No chats
+                </span>
+                <span className="block mt-1 text-[8px] text-[var(--text-secondary)]">
+                  No agents on this list.
+                </span>
+              </>
+            )}
+          </div>
         ) : null}
       </div>
     </aside>

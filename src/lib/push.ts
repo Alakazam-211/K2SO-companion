@@ -1,6 +1,7 @@
 import { invoke, addPluginListener } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { load } from "@tauri-apps/plugin-store";
+import { cliAuthHeaders } from "../api/cliAuth";
 import { useServersStore, getActiveServer, type ServerEntry } from "../stores/servers";
 
 // Push glue — Companion C6 (prd-companion-v2 §4). Talks to the local
@@ -89,7 +90,7 @@ export async function setPushEnabled(enabled: boolean): Promise<void> {
   await store.save();
 }
 
-// ─── Daemon calls (same ?token= transport as api/client.ts) ───
+// ─── Daemon calls (same Bearer transport as api/client.ts) ───
 
 async function postPush(
   server: ServerEntry,
@@ -98,10 +99,10 @@ async function postPush(
 ): Promise<void> {
   const token = useServersStore.getState().tokens[server.id];
   if (!token) throw new Error("no session token");
-  const url = `${server.url}${path}?token=${encodeURIComponent(token)}`;
+  const url = `${server.url}${path}`;
   const res = await tauriFetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: cliAuthHeaders(token),
     body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`${path} -> ${res.status}`);

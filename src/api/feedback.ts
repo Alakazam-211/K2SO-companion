@@ -1,4 +1,5 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { cliAuthHeaders } from "./cliAuth";
 import { getBaseUrl, getToken } from "./client";
 import { useServersStore } from "../stores/servers";
 import { isPossibleAuthFailure, reviveServerSession } from "../lib/revive";
@@ -46,12 +47,11 @@ async function feedbackFetch<T>(
       params.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
     }
     const token = getToken();
-    if (token) params.push(`token=${encodeURIComponent(token)}`);
     const url = `${base}${path}${params.length ? `?${params.join("&")}` : ""}`;
     const res = await Promise.race([
       tauriFetch(url, {
         method: opts.method ?? "GET",
-        headers: { "Content-Type": "application/json" },
+        headers: cliAuthHeaders(token),
         body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
       }),
       new Promise<never>((_, reject) =>
