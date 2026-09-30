@@ -1,10 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
-  UPLOAD_DIR,
   attachmentSendBody,
   extensionForType,
   filesFromClipboard,
   safeFilename,
+  uploadDirOf,
   uploadFilename,
   workspaceHandleOf,
 } from "./composerAttach";
@@ -53,9 +53,15 @@ describe("composerAttach", () => {
     expect(extensionForType("video/quicktime")).toBe("mov");
   });
 
-  it("uploads into the workspace root dir the daemon accepts", () => {
-    expect(UPLOAD_DIR).toBe(".");
-    expect(UPLOAD_DIR).not.toBe("");
+  it("uploads into this agent's own absolute workspace path", () => {
+    expect(uploadDirOf("/Users/Baden/Appa")).toBe("/Users/Baden/Appa");
+    expect(uploadDirOf("/Users/Baden/AI Projects/Skin Test B")).toBe(
+      "/Users/Baden/AI Projects/Skin Test B"
+    );
+    expect(uploadDirOf(".")).toBeNull();
+    expect(uploadDirOf("")).toBeNull();
+    expect(uploadDirOf("/")).toBeNull();
+    expect(uploadDirOf("appa")).toBeNull();
   });
 
   it("joins a caption with uploaded paths", () => {

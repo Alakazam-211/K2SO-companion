@@ -493,8 +493,9 @@ export const getFsReadFile = (path: string) =>
   request<FsFileContent>("fs.read_file", "/cli/fs/read-file", { path });
 
 /** Skin route POST /cli/fs/upload-binary. `workspace` is the overlay
- *  handle. `dir` is workspace-relative (`"."` = room root). Empty dir
- *  is refused as "Destination Directory is Empty". */
+ *  handle. Companion `dir` is this agent's own absolute workspace path.
+ *  Skin `dir: "."` is room-relative; here it is the daemon cwd and
+ *  writes EROFS. Empty dir is refused as "Destination Directory is Empty". */
 export const uploadFsBinary = (
   workspace: string,
   dir: string,

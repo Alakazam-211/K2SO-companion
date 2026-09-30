@@ -318,6 +318,16 @@ describe("ThreadPane", () => {
 
   it("live workspace thread has an Add file control and paste lands a chip", () => {
     useZenStore.setState({
+      agentId: "appa",
+      agents: [
+        {
+          id: "appa",
+          name: "appa",
+          initial: "A",
+          path: "/Users/Baden/Appa",
+          addr: "appa",
+        },
+      ],
       threadSource: "live",
       threadAddr: "appa",
       threadGroupId: null,
@@ -338,13 +348,23 @@ describe("ThreadPane", () => {
     expect(screen.getByTestId("attach-chip").textContent).toMatch(/shot.png/);
   });
 
-  it("uploads into dir . so the daemon does not see an empty destination", async () => {
+  it("uploads into this agent's own absolute workspace path", async () => {
     vi.mocked(uploadFsBinary).mockResolvedValue({
       ok: true,
-      data: { path: "shot.png" },
+      data: { path: "/Users/Baden/Appa/shot.png" },
     });
     const sendThread = vi.fn(async () => {});
     useZenStore.setState({
+      agentId: "appa",
+      agents: [
+        {
+          id: "appa",
+          name: "appa",
+          initial: "A",
+          path: "/Users/Baden/Appa",
+          addr: "appa",
+        },
+      ],
       threadSource: "live",
       threadAddr: "appa",
       threadGroupId: null,
@@ -364,9 +384,46 @@ describe("ThreadPane", () => {
     });
     fireEvent.submit(screen.getByTestId("composer-form"));
     await waitFor(() => expect(uploadFsBinary).toHaveBeenCalled());
-    expect(vi.mocked(uploadFsBinary).mock.calls[0][1]).toBe(".");
     expect(vi.mocked(uploadFsBinary).mock.calls[0][0]).toBe("appa");
+    expect(vi.mocked(uploadFsBinary).mock.calls[0][1]).toBe("/Users/Baden/Appa");
     expect(vi.mocked(uploadFsBinary).mock.calls[0][2]).toBe("shot.png");
-    await waitFor(() => expect(sendThread).toHaveBeenCalledWith("shot.png"));
+    await waitFor(() =>
+      expect(sendThread).toHaveBeenCalledWith("/Users/Baden/Appa/shot.png")
+    );
+  });
+
+  it("does not upload when the agent path is the daemon cwd", async () => {
+    const sendThread = vi.fn(async () => {});
+    useZenStore.setState({
+      agentId: "appa",
+      agents: [
+        {
+          id: "appa",
+          name: "appa",
+          initial: "A",
+          path: ".",
+          addr: "appa",
+        },
+      ],
+      threadSource: "live",
+      threadAddr: "appa",
+      threadGroupId: null,
+      threadError: null,
+      sendError: null,
+      sending: false,
+      thread: [],
+      sendThread,
+    });
+    render(<ThreadPane />);
+    expect(screen.getByTestId("composer-attach")).toHaveProperty("disabled", true);
+    const file = new File(["x"], "shot.png", { type: "image/png" });
+    fireEvent.paste(screen.getByTestId("composer-form"), {
+      clipboardData: {
+        files: [file],
+        items: [],
+      },
+    });
+    expect(screen.queryByTestId("attach-chip")).toBeNull();
+    expect(uploadFsBinary).not.toHaveBeenCalled();
   });
 });

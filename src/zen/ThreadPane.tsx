@@ -4,10 +4,10 @@ import { ChatMessageBody } from "../components/ChatMessage";
 import { asErrorText } from "../lib/apiError";
 import {
   MAX_UPLOAD_BYTES,
-  UPLOAD_DIR,
   attachmentSendBody,
   fileToBase64,
   filesFromClipboard,
+  uploadDirOf,
   uploadFilename,
   workspaceHandleOf,
 } from "./composerAttach";
@@ -87,13 +87,16 @@ export function ThreadPane() {
   const sendThread = useZenStore((s) => s.sendThread);
   const threadAddr = useZenStore((s) => s.threadAddr);
   const threadGroupId = useZenStore((s) => s.threadGroupId);
+  const agents = useZenStore((s) => s.agents);
   const sending = useZenStore((s) => s.sending);
   const sendError = useZenStore((s) => s.sendError);
   const canSend =
     source === "live" &&
     (Boolean((threadGroupId || "").trim()) || isSendableAddr(threadAddr));
   const attachWorkspace = workspaceHandleOf(threadAddr);
-  const canAttach = canSend && Boolean(attachWorkspace);
+  const agent = agents.find((a) => a.id === agentId);
+  const attachDir = uploadDirOf(agent?.path);
+  const canAttach = canSend && Boolean(attachWorkspace) && Boolean(attachDir);
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -304,7 +307,7 @@ export function ThreadPane() {
             void (async () => {
               let body = text;
               if (pending.length) {
-                if (!canAttach || !attachWorkspace) {
+                if (!canAttach || !attachWorkspace || !attachDir) {
                   setAttachError("Files are per workspace, not per project chat.");
                   return;
                 }
@@ -317,7 +320,7 @@ export function ThreadPane() {
                     const b64 = await fileToBase64(f);
                     const r = await uploadFsBinary(
                       attachWorkspace,
-                      UPLOAD_DIR,
+                      attachDir,
                       filename,
                       b64
                     );
