@@ -11,6 +11,12 @@ import { getActiveServer } from "../stores/servers";
 import { ownerAgentOf, parseOwnerAgents, skinInitials } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
 import { normaliseThreadItem, type ThreadMessage } from "./threadModel";
+import {
+  NO_WORKSPACE_PATH,
+  ROOT_LISTING_HIDDEN,
+  looksLikeRootListing,
+  usableFsPath,
+} from "./workspacePath";
 
 export type DataSource = "stub" | "live" | "error" | "loading";
 
@@ -230,18 +236,28 @@ export const useZenStore = create<ZenState>((set, get) => ({
 
   hydrateFiles: async (dir) => {
     const gen = get().filesGen + 1;
+    const usable = usableFsPath(dir);
+    if (!usable) {
+      set({ filesGen: gen, ...failFiles(NO_WORKSPACE_PATH) });
+      return;
+    }
     set({ filesGen: gen, files: [], fileError: null, fileSource: "loading" });
     const apply = (patch: Partial<ZenState>) => {
       if (get().filesGen !== gen) return;
       set(patch);
     };
     try {
-      const r = await getFsReadDir(dir, ".");
+      const r = await getFsReadDir(usable);
       if (!r.ok || r.data === undefined) {
         apply(failFiles(r.error || "read-dir failed"));
         return;
       }
-      const files: StubFile[] = dirEntries(r.data)
+      const entries = dirEntries(r.data);
+      if (looksLikeRootListing(entries)) {
+        apply(failFiles(ROOT_LISTING_HIDDEN));
+        return;
+      }
+      const files: StubFile[] = entries
         .filter((e) => !e.isDirectory && !e.name.startsWith("."))
         .slice(0, 200)
         .map((e) => ({ id: e.path, name: e.name, body: "" }));
@@ -311,7 +327,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
       splitId: null,
     });
     const row = get().agents.find((a) => a.id === id);
-    if (row?.path) void get().hydrateFiles(row.path);
+    const dir = usableFsPath(row?.path);
+    if (dir) void get().hydrateFiles(dir);
+    else if (get().agentSource !== "stub") set(failFiles(NO_WORKSPACE_PATH));
     if (get().agentSource === "stub") {
       void get().hydrateThread(id);
       return;
@@ -358,9 +376,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
     if (fileSource === "live" && !file.body) {
       const gen = get().filesGen;
-      const workspace = get().agents.find((a) => a.id === get().agentId)?.path;
-      if (!workspace) return;
-      void getFsReadFile(workspace, id).then((r) => {
+      const filePath = usableFsPath(id);
+      if (!filePath) return;
+      void getFsReadFile(filePath).then((r) => {
         if (get().filesGen !== gen) return;
         if (!get().files.some((f) => f.id === id)) return;
         const body =
