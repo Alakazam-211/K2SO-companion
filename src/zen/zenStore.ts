@@ -13,8 +13,11 @@ import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAg
 import { normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import {
   NO_WORKSPACE_PATH,
+  PATH_NOT_OWNED,
   ROOT_LISTING_HIDDEN,
+  isUnderWorkspace,
   looksLikeRootListing,
+  ownedWorkspacePath,
   usableFsPath,
 } from "./workspacePath";
 
@@ -236,9 +239,13 @@ export const useZenStore = create<ZenState>((set, get) => ({
 
   hydrateFiles: async (dir) => {
     const gen = get().filesGen + 1;
-    const usable = usableFsPath(dir);
+    const agent = get().agents.find((a) => a.id === get().agentId);
+    const owned = typeof agent?.path === "string" ? agent.path.trim() : "";
+    const usable = ownedWorkspacePath(dir, owned);
     if (!usable) {
-      set({ filesGen: gen, ...failFiles(NO_WORKSPACE_PATH) });
+      const reason =
+        owned && dir !== owned ? PATH_NOT_OWNED : NO_WORKSPACE_PATH;
+      set({ filesGen: gen, ...failFiles(reason) });
       return;
     }
     set({ filesGen: gen, files: [], fileError: null, fileSource: "loading" });
@@ -327,8 +334,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
       splitId: null,
     });
     const row = get().agents.find((a) => a.id === id);
-    const dir = usableFsPath(row?.path);
-    if (dir) void get().hydrateFiles(dir);
+    const owned = typeof row?.path === "string" ? row.path.trim() : "";
+    if (owned) void get().hydrateFiles(owned);
     else if (get().agentSource !== "stub") set(failFiles(NO_WORKSPACE_PATH));
     if (get().agentSource === "stub") {
       void get().hydrateThread(id);
@@ -376,8 +383,11 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
     if (fileSource === "live" && !file.body) {
       const gen = get().filesGen;
+      const row = get().agents.find((a) => a.id === get().agentId);
+      const owned = typeof row?.path === "string" ? row.path.trim() : "";
+      const workspace = ownedWorkspacePath(owned, owned);
       const filePath = usableFsPath(id);
-      if (!filePath) return;
+      if (!filePath || !workspace || !isUnderWorkspace(filePath, workspace)) return;
       void getFsReadFile(filePath).then((r) => {
         if (get().filesGen !== gen) return;
         if (!get().files.some((f) => f.id === id)) return;

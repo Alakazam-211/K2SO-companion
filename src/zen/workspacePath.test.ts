@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   looksLikeRootListing,
+  ownedWorkspacePath,
   usableFsPath,
 } from "./workspacePath";
 
 describe("usableFsPath", () => {
   it("keeps an absolute workspace path", () => {
     expect(usableFsPath("/Users/Baden/Appa")).toBe("/Users/Baden/Appa");
+    expect(usableFsPath("/Users/Baden/AI Projects/Skin Test B")).toBe(
+      "/Users/Baden/AI Projects/Skin Test B"
+    );
   });
 
-  it("rejects root, cwd, tilde, handles, and empty", () => {
+  it("rejects root, cwd, tilde, handles, empty, and traversals that resolve to root", () => {
     expect(usableFsPath("/")).toBeNull();
     expect(usableFsPath(".")).toBeNull();
     expect(usableFsPath("~")).toBeNull();
@@ -17,6 +21,23 @@ describe("usableFsPath", () => {
     expect(usableFsPath("appa")).toBeNull();
     expect(usableFsPath("")).toBeNull();
     expect(usableFsPath(null)).toBeNull();
+    expect(usableFsPath("//")).toBeNull();
+    expect(usableFsPath("/.")).toBeNull();
+    expect(usableFsPath("/./")).toBeNull();
+    expect(usableFsPath("/..")).toBeNull();
+    expect(usableFsPath("/tmp/..")).toBeNull();
+    expect(usableFsPath("/Users/..")).toBeNull();
+  });
+});
+
+describe("ownedWorkspacePath", () => {
+  it("returns the row path only when dir equals that agent's own path", () => {
+    expect(
+      ownedWorkspacePath("/Users/Baden/Appa", "/Users/Baden/Appa")
+    ).toBe("/Users/Baden/Appa");
+    expect(ownedWorkspacePath("/Users/Baden", "/Users/Baden/Appa")).toBeNull();
+    expect(ownedWorkspacePath("/Users/Baden/Appa", "/Users/Baden")).toBeNull();
+    expect(ownedWorkspacePath("/tmp/..", "/tmp/..")).toBeNull();
   });
 });
 

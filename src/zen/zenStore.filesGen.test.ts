@@ -16,7 +16,17 @@ import {
 } from "../api/client";
 import { STUB_AGENTS, STUB_FILES } from "./stubData";
 import { useZenStore } from "./zenStore";
-import { NO_WORKSPACE_PATH, ROOT_LISTING_HIDDEN } from "./workspacePath";
+import { NO_WORKSPACE_PATH, PATH_NOT_OWNED, ROOT_LISTING_HIDDEN } from "./workspacePath";
+
+function liveAt(path: string, id = "ag") {
+  return {
+    agentSource: "live" as const,
+    agentId: id,
+    agents: [
+      { id, name: id, initial: "A", path, addr: null as string | null },
+    ],
+  };
+}
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -111,14 +121,26 @@ describe("files never list the filesystem root", () => {
   });
 
   it("does not request read-dir for /, ~, or a handle", async () => {
+    useZenStore.setState(liveAt("/"));
     await useZenStore.getState().hydrateFiles("/");
+    useZenStore.setState(liveAt("~"));
     await useZenStore.getState().hydrateFiles("~");
+    useZenStore.setState(liveAt("~/Appa"));
     await useZenStore.getState().hydrateFiles("~/Appa");
+    useZenStore.setState(liveAt("appa"));
     await useZenStore.getState().hydrateFiles("appa");
     expect(getFsReadDir).not.toHaveBeenCalled();
     expect(useZenStore.getState().fileSource).toBe("error");
     expect(useZenStore.getState().files).toEqual([]);
     expect(useZenStore.getState().fileError).toBe(NO_WORKSPACE_PATH);
+  });
+
+  it("refuses a path that is not this agent's own row path", async () => {
+    useZenStore.setState(liveAt("/Users/Baden/Appa", "appa"));
+    await useZenStore.getState().hydrateFiles("/Users/Baden");
+    expect(getFsReadDir).not.toHaveBeenCalled();
+    expect(useZenStore.getState().files).toEqual([]);
+    expect(useZenStore.getState().fileError).toBe(PATH_NOT_OWNED);
   });
 
   it("setAgent with / does not call read-dir", async () => {
@@ -134,7 +156,8 @@ describe("files never list the filesystem root", () => {
     expect(useZenStore.getState().fileError).toBe(NO_WORKSPACE_PATH);
   });
 
-  it("sends the absolute directory as path, not path=.", async () => {
+  it("sends this agent's own absolute path, not path=.", async () => {
+    useZenStore.setState(liveAt("/Users/Baden/Appa", "appa"));
     vi.mocked(getFsReadDir).mockResolvedValue({
       ok: true,
       data: [
@@ -152,6 +175,7 @@ describe("files never list the filesystem root", () => {
   });
 
   it("hides a root listing even if the request returned 200", async () => {
+    useZenStore.setState(liveAt("/Users/Baden/Appa", "appa"));
     vi.mocked(getFsReadDir).mockResolvedValue({
       ok: true,
       data: [
@@ -179,7 +203,7 @@ describe("hydrateFiles generation token", () => {
     const pending = deferred<ReturnType<typeof dir>>();
     vi.mocked(getFsReadDir).mockImplementationOnce(() => pending.promise);
     useZenStore.setState({
-      agentSource: "live",
+      ...liveAt("/ws-new"),
       fileSource: "live",
       files: [{ id: "/old/a.txt", name: "a.txt", body: "" }],
     });
@@ -200,7 +224,16 @@ describe("hydrateFiles generation token", () => {
       .mockImplementationOnce(() => first.promise)
       .mockImplementationOnce(() => second.promise);
 
+    useZenStore.setState({
+      agentSource: "live",
+      agentId: "a",
+      agents: [
+        { id: "a", name: "a", initial: "A", path: "/ws-a", addr: null },
+        { id: "b", name: "b", initial: "B", path: "/ws-b", addr: null },
+      ],
+    });
     const p1 = useZenStore.getState().hydrateFiles("/ws-a");
+    useZenStore.setState({ agentId: "b" });
     const p2 = useZenStore.getState().hydrateFiles("/ws-b");
 
     second.resolve(dir("from-b.txt", "/ws-b/from-b.txt"));
@@ -221,7 +254,16 @@ describe("hydrateFiles generation token", () => {
       .mockImplementationOnce(() => first.promise)
       .mockImplementationOnce(() => second.promise);
 
+    useZenStore.setState({
+      agentSource: "live",
+      agentId: "a",
+      agents: [
+        { id: "a", name: "a", initial: "A", path: "/ws-a", addr: null },
+        { id: "b", name: "b", initial: "B", path: "/ws-b", addr: null },
+      ],
+    });
     const p1 = useZenStore.getState().hydrateFiles("/ws-a");
+    useZenStore.setState({ agentId: "b" });
     const p2 = useZenStore.getState().hydrateFiles("/ws-b");
 
     first.resolve(dir("from-a.txt", "/ws-a/from-a.txt"));
@@ -244,7 +286,10 @@ describe("live failure never shows the stub catalog", () => {
   });
 
   it("read-dir fail → empty files + error, not STUB_FILES", async () => {
-    useZenStore.setState({ agentSource: "live", agents: [{ id: "alpha", name: "alpha", initial: "A", path: "/ws" }] });
+    useZenStore.setState({
+      ...liveAt("/ws", "alpha"),
+      agents: [{ id: "alpha", name: "alpha", initial: "A", path: "/ws" }],
+    });
     vi.mocked(getFsReadDir).mockResolvedValue({ ok: false, error: "read-dir failed" });
     await useZenStore.getState().hydrateFiles("/ws");
     const s = useZenStore.getState();
