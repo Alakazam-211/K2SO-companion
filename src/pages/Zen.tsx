@@ -30,12 +30,11 @@ export function Zen() {
   const agent = agents.find((a) => a.id === agentId);
   const viewingFile = openFileIds.length > 0;
   const filesPaneOpen = filesOpen || viewingFile;
+  const wantThread = screen === "thread" || Boolean((threadParam || "").trim());
 
   useEffect(() => {
-    void hydrateAgents().then(() => {
-      const id = (threadParam || "").trim();
-      if (id) useZenStore.getState().setAgent(id);
-    });
+    const id = (threadParam || "").trim();
+    void hydrateAgents(id ? { resumeId: id } : undefined);
   }, [hydrateAgents, threadParam]);
 
   const stubBanner =
@@ -49,20 +48,20 @@ export function Zen() {
         className="h-full min-h-0"
         data-testid="chats-layer"
         style={
-          screen === "list"
-            ? undefined
-            : {
+          wantThread
+            ? {
                 visibility: "hidden",
                 position: "absolute",
                 inset: 0,
                 pointerEvents: "none",
               }
+            : undefined
         }
-        aria-hidden={screen !== "list"}
+        aria-hidden={wantThread}
       >
         <ChatsList />
       </div>
-      {screen === "thread" ? (
+      {wantThread ? (
         <div
           className="relative flex flex-col h-full min-h-0 overflow-x-hidden"
           data-testid="thread-column"

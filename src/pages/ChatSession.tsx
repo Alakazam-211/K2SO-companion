@@ -172,18 +172,18 @@ export function ChatSession() {
       }}
     >
       {/* Header */}
-      <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--chrome)]" style={{ flexShrink: 0 }}>
+      <div className="flex items-center gap-2 px-3 py-3 border-b border-[var(--border)] bg-[var(--chrome)]" style={{ flexShrink: 0 }}>
         <button onClick={() => navigate("/sessions")} className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 -ml-2">
           <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 1L3 7l6 6" /></svg>
         </button>
-        <div className="flex-1 min-w-0">
+        <div className="flex-1 min-w-0 overflow-hidden">
           {session ? (
             <SessionTitle session={session} />
           ) : (
             <span className="text-[var(--text)] text-[13px] font-semibold">Terminal</span>
           )}
         </div>
-        <ZenReturnButton />
+        <div className="flex items-center shrink-0 gap-1">
         <div
           data-k2="watch-drive"
           className="flex h-8 border border-[var(--accent-dim)] shrink-0"
@@ -226,8 +226,8 @@ export function ChatSession() {
             </svg>
           </button>
         </div>
-        {/* Send-mode toggle — glyph is the current mode (bubble = Safe,
-            >_ = Direct). Never auto-focuses the capture (Orca rule). */}
+        {/* Send-mode toggle — keyboard = Safe composer, >_ = Direct.
+            Chat bubble is the overlay-thread door, not this control. */}
         <button
           data-k2="mode-toggle"
           onClick={() =>
@@ -238,7 +238,7 @@ export function ChatSession() {
               ? "Switch to direct typing"
               : "Switch to safe send"
           }
-          className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0"
+          className="w-8 h-8 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0"
         >
           {sendMode === "direct" ? (
             // Terminal prompt — Direct type is active.
@@ -249,7 +249,6 @@ export function ChatSession() {
               &gt;_
             </span>
           ) : (
-            // Chat bubble — Safe send is active.
             <svg
               width="15"
               height="15"
@@ -261,15 +260,17 @@ export function ChatSession() {
               strokeLinejoin="round"
               aria-hidden="true"
             >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              <rect x="2" y="6" width="20" height="12" rx="2" />
+              <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" />
             </svg>
           )}
         </button>
+        <ZenReturnButton />
         <button
           onClick={handleReload}
           disabled={reloading}
           aria-label="Reload session"
-          className="w-10 h-10 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 disabled:opacity-60"
+          className="w-8 h-8 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 disabled:opacity-60"
         >
           <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={reloading ? "animate-spin" : ""}>
             <path d="M21 2v6h-6" />
@@ -279,6 +280,7 @@ export function ChatSession() {
           </svg>
         </button>
         <div className="w-2 h-2 rounded-full bg-[var(--success)] shrink-0" />
+        </div>
       </div>
 
       {DEV_MODE && (

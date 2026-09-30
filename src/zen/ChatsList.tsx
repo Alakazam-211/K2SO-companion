@@ -292,7 +292,12 @@ export function ChatsList() {
       <div
         ref={listRef}
         className="flex-1 min-h-0 overflow-y-auto"
-        style={{ paddingBottom: 96, WebkitOverflowScrolling: "touch" }}
+        style={{
+          paddingBottom: 96,
+          WebkitOverflowScrolling: ghost ? "auto" : "touch",
+          overflowY: ghost ? "hidden" : "auto",
+          touchAction: ghost ? "none" : undefined,
+        }}
         data-testid="chats-list"
       >
         {source === "loading" ? (
@@ -327,7 +332,11 @@ export function ChatsList() {
             key={a.id}
             type="button"
             className="w-full flex items-center text-left relative"
-            style={{ gap: 10, padding: "10px 14px 10px 6px", touchAction: "pan-y" }}
+            style={{
+              gap: 10,
+              padding: "10px 14px 10px 6px",
+              touchAction: ghost ? "none" : "pan-y",
+            }}
             onClick={() => {
               if (consumeSkipClick()) return;
               setAgent(a.id);
@@ -507,14 +516,14 @@ export function ChatsList() {
               navigate("/servers");
             }}
           >
-            <span>Current app</span>
+            <span>Terminal view</span>
             <span style={{ color: "#8e8e93" }}>›</span>
           </button>
           <p
             className="text-[13px]"
             style={{ color: "#8e8e93", padding: "8px 16px 16px", lineHeight: 1.35 }}
           >
-            Leave this overlay and use the app as it is today — Servers, Sessions, Tickets.
+            Leave this overlay and open the terminal view — Servers, Sessions, Tickets.
           </p>
         </div>
       ) : null}

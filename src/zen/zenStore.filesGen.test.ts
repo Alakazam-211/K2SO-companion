@@ -154,6 +154,30 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
     });
   });
 
+  it("hydrateAgents with resumeId keeps the thread instead of flashing the list", async () => {
+    vi.mocked(getAgentList).mockResolvedValue({
+      ok: true,
+      data: {
+        ok: true,
+        agents: [
+          { enabled: true, live: false, mode: "local", name: "aspen", path: "/Users/Bob/Aspen" },
+        ],
+      },
+    });
+    vi.mocked(getCliProjectsList).mockResolvedValue({
+      ok: true,
+      data: [{ name: "aspen", handle: "aspen", path: "/Users/Bob/Aspen" }],
+    });
+    await useZenStore.getState().hydrateAgents({
+      resumeId: "/Users/Bob/Aspen",
+    });
+    const s = useZenStore.getState();
+    expect(s.screen).toBe("thread");
+    expect(s.agentId).toBe("/Users/Bob/Aspen");
+    expect(s.agentSource).toBe("live");
+    expect(getThread).toHaveBeenCalled();
+  });
+
   it("ensureLastAt GETs thread limit=1 once and stores created_at", async () => {
     resetLastAtQueue();
     vi.mocked(getThread).mockResolvedValue({
@@ -1120,6 +1144,7 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
     expect(side).toMatchObject({ name: "aspen", addr: "aspen/2", chatTitle: "2" });
     expect(s.agents.some((a) => a.name === "aspen / 1" || a.name === "aspen / 2")).toBe(false);
     expect(s.agentId).toBe(`${"/ws"}::aspen/2`);
+    expect(s.screen).toBe("thread");
   });
 
   it("openSidecar does not invent a row when spawn fails", async () => {
