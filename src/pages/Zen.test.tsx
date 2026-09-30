@@ -205,6 +205,61 @@ describe("Zen keeps the chats list mounted", () => {
     expect(screen.getByRole("button", { name: "Terminal" })).not.toBeNull();
   });
 
+  it("Back from a ?thread= entry shows the chats list, not an empty thread", async () => {
+    vi.mocked(getToken).mockReturnValue("");
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: STUB_AGENTS,
+      screen: "list",
+      agentError: null,
+    });
+    render(
+      <MemoryRouter initialEntries={[`/zen?thread=${STUB_AGENTS[0].id}`]}>
+        <Zen />
+      </MemoryRouter>
+    );
+    await waitFor(() =>
+      expect(useZenStore.getState().screen).toBe("thread")
+    );
+    expect(screen.getByTestId("thread-column")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Back to chats" }));
+    expect(useZenStore.getState().screen).toBe("list");
+    expect(useZenStore.getState().agentId).toBe("");
+    expect(screen.queryByTestId("thread-column")).toBeNull();
+    expect(screen.getByTestId("chats-layer").getAttribute("aria-hidden")).not.toBe(
+      "true"
+    );
+    expect(screen.getByTestId("chats-home")).not.toBeNull();
+  });
+
+  it("Back from a list-opened thread still shows the chats list", async () => {
+    vi.mocked(getToken).mockReturnValue("");
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: STUB_AGENTS,
+      screen: "list",
+      agentError: null,
+    });
+    render(
+      <MemoryRouter>
+        <Zen />
+      </MemoryRouter>
+    );
+    await waitFor(() =>
+      expect(useZenStore.getState().agentSource).toBe("stub")
+    );
+    act(() => {
+      useZenStore.getState().setAgent(STUB_AGENTS[0].id);
+    });
+    expect(screen.getByTestId("thread-column")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Back to chats" }));
+    expect(useZenStore.getState().screen).toBe("list");
+    expect(screen.queryByTestId("thread-column")).toBeNull();
+    expect(screen.getByTestId("chats-layer").getAttribute("aria-hidden")).not.toBe(
+      "true"
+    );
+  });
+
   it("tapping the visible chat while a file is open closes the file pane", async () => {
     vi.mocked(getToken).mockReturnValue("");
     useZenStore.setState({
