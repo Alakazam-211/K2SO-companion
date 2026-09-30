@@ -62,6 +62,18 @@ export function isMine(from: string, username: string): boolean {
   return !!username && from === username;
 }
 
+/** Send authorship: owner or the signed-in username, never this
+ *  thread's own agent handle — even when that handle equals username. */
+export function isOwnerAuthored(
+  from: string,
+  username: string,
+  agentHandle: string
+): boolean {
+  if (!from) return false;
+  if (agentHandle && from === agentHandle) return false;
+  return isMine(from, username);
+}
+
 /** Live GET /cli/thread (k2so-companion-qa seq 18, 2026-09-30):
  *  options are `{label}` objects, not strings. String(object) is
  *  "[object Object]". Take `label` from the wire; a plain string is

@@ -10,6 +10,10 @@ vi.mock("../api/client", () => ({
   postThread: vi.fn(),
 }));
 
+vi.mock("../stores/servers", () => ({
+  getActiveServer: vi.fn(() => null),
+}));
+
 import {
   getAgentList,
   getCliProjectsList,
@@ -18,6 +22,7 @@ import {
   getToken,
   postThread,
 } from "../api/client";
+import { getActiveServer } from "../stores/servers";
 import { JOIN_NO_AGENT, JOIN_NO_PROJECT } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES } from "./stubData";
 import { useZenStore } from "./zenStore";
@@ -459,6 +464,8 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
     vi.mocked(getThread).mockReset();
     vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
     vi.mocked(postThread).mockReset();
+    vi.mocked(getActiveServer).mockReset();
+    vi.mocked(getActiveServer).mockReturnValue(null);
   });
 
   it("setAgent threads the handle, never a display name", async () => {
@@ -646,6 +653,89 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
       "sent but the speaker was wrong (from='k2so-companion-qa')"
     );
     expect(s.sending).toBe(false);
+  });
+
+  it("rejects the room agent even when the signed-in username is that handle", async () => {
+    vi.mocked(getActiveServer).mockReturnValue({
+      id: "s",
+      nickname: "x",
+      url: "https://baden.k2.dev",
+      username: "k2so-companion-qa",
+      rememberPassword: false,
+    });
+    useZenStore.setState({
+      agentSource: "live",
+      threadSource: "live",
+      threadAddr: "k2so-companion-qa",
+      thread: [],
+      sendError: null,
+    });
+    vi.mocked(postThread).mockResolvedValue({
+      ok: true,
+      data: { id: "66fa", seq: 20, body: "hello" },
+    });
+    vi.mocked(getThread).mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: "66fa",
+            seq: 20,
+            doc: {
+              id: "66fa",
+              from: "k2so-companion-qa",
+              body: "hello",
+              created_at: 2,
+            },
+          },
+        ],
+      },
+    });
+    await useZenStore.getState().sendThread("hello");
+    const s = useZenStore.getState();
+    expect(s.thread).toEqual([]);
+    expect(s.sendError).toBe(
+      "sent but the speaker was wrong (from='k2so-companion-qa')"
+    );
+  });
+
+  it("accepts from= the signed-in username as owner authorship", async () => {
+    vi.mocked(getActiveServer).mockReturnValue({
+      id: "s",
+      nickname: "x",
+      url: "https://baden.k2.dev",
+      username: "baden",
+      rememberPassword: false,
+    });
+    useZenStore.setState({
+      agentSource: "live",
+      threadSource: "live",
+      threadAddr: "k2so-companion-qa",
+      thread: [],
+      sendError: null,
+    });
+    vi.mocked(postThread).mockResolvedValue({
+      ok: true,
+      data: { id: "ok1", seq: 21, body: "hello" },
+    });
+    vi.mocked(getThread).mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: "ok1",
+            seq: 21,
+            doc: { id: "ok1", from: "baden", body: "hello", created_at: 1 },
+          },
+        ],
+      },
+    });
+    await useZenStore.getState().sendThread("hello");
+    const s = useZenStore.getState();
+    expect(s.sendError).toBeNull();
+    expect(s.thread.map((m) => [m.id, m.from, m.mine])).toEqual([
+      ["ok1", "baden", true],
+    ]);
   });
 
   it("appends a send only after GET returns the posted id", async () => {
