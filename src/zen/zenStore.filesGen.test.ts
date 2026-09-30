@@ -544,6 +544,61 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
     expect(s.sendError).toBe("sent but not on the wire");
   });
 
+  it("does not treat a POST ack as delivered when GET shows the id as the agent", async () => {
+    useZenStore.setState({
+      agentSource: "live",
+      threadSource: "live",
+      threadAddr: "skin-test-a",
+      thread: [
+        {
+          id: "old",
+          seq: 1,
+          text: "already here",
+          from: "owner",
+          at: 1,
+          mine: true,
+          kind: "text",
+          choice: null,
+        },
+      ],
+      sendError: null,
+      sending: false,
+    });
+    vi.mocked(postThread).mockResolvedValue({
+      ok: true,
+      data: { id: "66fa", seq: 20, body: "hello" },
+    });
+    vi.mocked(getThread).mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: "old",
+            seq: 1,
+            doc: { id: "old", from: "owner", body: "already here", created_at: 1 },
+          },
+          {
+            id: "66fa",
+            seq: 20,
+            doc: {
+              id: "66fa",
+              from: "k2so-companion-qa",
+              body: "hello",
+              created_at: 2,
+            },
+          },
+        ],
+      },
+    });
+    await useZenStore.getState().sendThread("hello");
+    const s = useZenStore.getState();
+    expect(s.thread.map((m) => m.id)).toEqual(["old"]);
+    expect(s.sendError).toBe(
+      "sent but the speaker was wrong (from='k2so-companion-qa')"
+    );
+    expect(s.sending).toBe(false);
+  });
+
   it("appends a send only after GET returns the posted id", async () => {
     useZenStore.setState({
       agentSource: "live",

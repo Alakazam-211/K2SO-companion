@@ -477,12 +477,21 @@ export const useZenStore = create<ZenState>((set, get) => ({
         .filter((m): m is ThreadMessage => !!m)
         .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
       const onWire = postedId
-        ? items.some((m) => m.id === postedId)
-        : items.some((m) => m.text === trimmed && !before.includes(m.id));
+        ? items.find((m) => m.id === postedId)
+        : items.find((m) => m.text === trimmed && !before.includes(m.id));
       if (!onWire) {
         set({
           sending: false,
           sendError: "sent but not on the wire",
+        });
+        return;
+      }
+      // Arrival is not authorship. POST /cli/thread/post without the
+      // owner door records from=<agent>; the bubble must not appear.
+      if (onWire.from !== "owner") {
+        set({
+          sending: false,
+          sendError: `sent but the speaker was wrong (from='${onWire.from}')`,
         });
         return;
       }

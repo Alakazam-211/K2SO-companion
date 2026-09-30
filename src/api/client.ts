@@ -507,9 +507,16 @@ export const getThread = (addr: string, limit = 50, beforeSeq?: number) =>
     ...(beforeSeq != null ? { before_seq: beforeSeq } : {}),
   });
 
-/** Send a message. Skin: POST /cli/thread/post {addr,text} */
+/** Owner send. Same route as skin. `via: "compose"` is the owner door
+ *  (loopback skin-test-a seq 32: from=owner via=compose). Omit it and
+ *  the daemon records from=<addr> via=thread. Skin tokens 403 this field. */
 export const postThread = (addr: string, text: string) =>
-  request<ThreadItem>("thread.post", "/cli/thread/post", { addr, text }, { method: "POST" });
+  request<ThreadItem>(
+    "thread.post",
+    "/cli/thread/post",
+    { addr, text, via: "compose" },
+    { method: "POST" }
+  );
 
 /** Answer a prompt card. Skin: POST /cli/thread/answer — not wired in the overlay yet. */
 export const answerThread = (addr: string, id: string, value: string) =>
