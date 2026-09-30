@@ -159,7 +159,7 @@ describe("ChatsList", () => {
     expect(useZenStore.getState().agentId).toBe(STUB_AGENTS[1].id);
   });
 
-  it("Settings → Current app is the toggle to the original UI", () => {
+  it("Settings → Terminal view is the toggle to the original UI", () => {
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
@@ -168,9 +168,10 @@ describe("ChatsList", () => {
     mount();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
     expect(screen.getByTestId("overlay-settings").textContent).toMatch(
-      /Leave this overlay and use the app as it is today/
+      /Leave this overlay and open the terminal view/
     );
-    expect(screen.getByRole("button", { name: /Current app/ })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Terminal view/ })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: /Current app/ })).toBeNull();
   });
 
   it("signed-in unconfirmed list is honest and empty, not stub", () => {
@@ -253,6 +254,8 @@ describe("ChatsList", () => {
     act(() => {
       vi.advanceTimersByTime(300);
     });
+    expect(screen.getByTestId("chats-list").style.overflowY).toBe("hidden");
+    expect(screen.getByTestId("chats-list").style.touchAction).toBe("none");
     fireEvent.pointerUp(screen.getByTestId("chats-home"), {
       clientX: 40,
       clientY: 40,

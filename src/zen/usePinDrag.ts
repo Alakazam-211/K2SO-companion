@@ -95,6 +95,7 @@ export function usePinDrag(pinsRef: { current: HTMLElement | null }) {
       return;
     }
     e.preventDefault();
+    e.stopPropagation();
     setGhost((g) => (g ? { ...g, x: e.clientX, y: e.clientY } : g));
   };
 

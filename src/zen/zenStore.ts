@@ -99,7 +99,7 @@ type ZenState = {
   threadLoadingEarlier: boolean;
   sending: boolean;
   sendError: string | null;
-  hydrateAgents: () => Promise<void>;
+  hydrateAgents: (opts?: { resumeId?: string }) => Promise<void>;
   hydrateFiles: (dir: string) => Promise<void>;
   hydrateThread: (addr: string) => Promise<void>;
   hydrateGroup: (groupId: string) => Promise<void>;
@@ -224,7 +224,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
       });
   },
 
-  hydrateAgents: async () => {
+  hydrateAgents: async (opts) => {
+    const resumeId = (opts?.resumeId || "").trim();
     if (!getToken()) {
       set({
         agentSource: "stub",
@@ -233,12 +234,13 @@ export const useZenStore = create<ZenState>((set, get) => ({
         files: STUB_FILES,
         agentError: null,
         fileError: null,
-        screen: "list",
-        agentId: "",
+        screen: resumeId ? "thread" : "list",
+        agentId: resumeId || "",
         threadSource: "stub",
         threadError: null,
-        thread: [],
+        thread: resumeId ? get().thread : [],
       });
+      if (resumeId) get().setAgent(resumeId);
       return;
     }
     // Session exists: stub is unreachable. Owner fleet is GET /cli/agent/list
@@ -246,19 +248,19 @@ export const useZenStore = create<ZenState>((set, get) => ({
     // Plural /cli/agents/list is the skills enumerator.
     set({
       agentSource: "loading",
-      fileSource: "loading",
-      agents: [],
-      files: [],
+      fileSource: resumeId ? get().fileSource : "loading",
+      agents: resumeId ? get().agents : [],
+      files: resumeId ? get().files : [],
       agentError: null,
       fileError: null,
-      screen: "list",
-      agentId: "",
-      openFileIds: [],
-      focusId: null,
-      splitId: null,
-      threadSource: "loading",
-      threadError: null,
-      thread: [],
+      screen: resumeId ? "thread" : "list",
+      agentId: resumeId || "",
+      openFileIds: resumeId ? get().openFileIds : [],
+      focusId: resumeId ? get().focusId : null,
+      splitId: resumeId ? get().splitId : null,
+      threadSource: resumeId ? get().threadSource : "loading",
+      threadError: resumeId ? get().threadError : null,
+      thread: resumeId ? get().thread : [],
     });
     try {
       const [rAgents, rProjects, rGroups, rSessions] = await Promise.all([
@@ -406,26 +408,37 @@ export const useZenStore = create<ZenState>((set, get) => ({
         agentSource: "live",
         agents,
         agentError: notices.length ? notices.join(" · ") : null,
-        fileSource: "live",
-        files: [],
-        fileError: null,
-        threadSource: "live",
-        threadError: null,
-        thread: [],
+        fileSource: resumeId ? get().fileSource : "live",
+        files: resumeId ? get().files : [],
+        fileError: resumeId ? get().fileError : null,
+        threadSource: resumeId ? get().threadSource : "live",
+        threadError: resumeId ? get().threadError : null,
+        thread: resumeId ? get().thread : [],
+        screen: resumeId ? "thread" : "list",
+        agentId: resumeId || "",
       });
+      if (resumeId) {
+        const hit =
+          agents.find((a) => a.id === resumeId) ||
+          agents.find((a) => a.addr === resumeId);
+        get().setAgent(hit?.id || resumeId);
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       set({
         agentSource: "error",
         fileSource: "error",
-        agents: [],
-        files: [],
+        agents: resumeId ? get().agents : [],
+        files: resumeId ? get().files : [],
         agentError: msg,
         fileError: msg,
-        threadSource: "error",
-        threadError: msg,
-        thread: [],
+        threadSource: resumeId ? get().threadSource : "error",
+        threadError: resumeId ? get().threadError : msg,
+        thread: resumeId ? get().thread : [],
+        screen: resumeId ? "thread" : "list",
+        agentId: resumeId || "",
       });
+      if (resumeId) get().setAgent(resumeId);
     }
   },
 
@@ -776,25 +789,33 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const sidecarAddr = serverName.includes("/")
       ? serverName
       : `${addr.split("/")[0]}/${serverName}`;
-    await get().hydrateAgents();
-    let row = get().agents.find((a) => a.addr === sidecarAddr);
-    if (!row) {
-      row = {
-        id: `${path}::${sidecarAddr}`,
-        name: base.name,
-        initial: base.initial,
-        path,
-        addr: sidecarAddr,
-        joinMiss: null,
-        kind: "agent",
-        chatTitle: sidecarSuffix(sidecarAddr) || serverName,
-        mode: base.mode,
-        enabled: base.enabled,
-        live: base.live,
-      };
-      set({ agents: [row, ...get().agents] });
-    }
-    get().setAgent(row.id);
+    const placeholder: StubAgent = {
+      id: `${path}::${sidecarAddr}`,
+      name: base.name,
+      initial: base.initial,
+      path,
+      addr: sidecarAddr,
+      joinMiss: null,
+      kind: "agent",
+      chatTitle: sidecarSuffix(sidecarAddr) || serverName,
+      mode: base.mode,
+      enabled: base.enabled,
+      live: base.live,
+    };
+    set({
+      agents: [
+        placeholder,
+        ...get().agents.filter(
+          (a) => a.id !== placeholder.id && a.addr !== sidecarAddr
+        ),
+      ],
+    });
+    get().setAgent(placeholder.id);
+    await get().hydrateAgents({ resumeId: placeholder.id });
+    const row =
+      get().agents.find((a) => a.addr === sidecarAddr) ??
+      get().agents.find((a) => a.id === placeholder.id);
+    if (row && row.id !== get().agentId) get().setAgent(row.id);
     return { ok: true };
   },
   closeChat: () =>

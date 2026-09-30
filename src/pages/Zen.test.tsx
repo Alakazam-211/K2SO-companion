@@ -194,6 +194,10 @@ describe("Zen keeps the chats list mounted", () => {
         <Zen />
       </MemoryRouter>
     );
+    expect(screen.getByTestId("chats-layer").getAttribute("aria-hidden")).toBe(
+      "true"
+    );
+    expect(screen.getByTestId("thread-column")).not.toBeNull();
     await waitFor(() =>
       expect(useZenStore.getState().screen).toBe("thread")
     );
