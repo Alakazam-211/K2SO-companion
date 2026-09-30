@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   getAgentList,
+  getCliProjectsList,
   getFsReadDir,
   getFsReadFile,
   getThread,
@@ -8,7 +9,14 @@ import {
   type FsDirEntry,
 } from "../api/client";
 import { getActiveServer } from "../stores/servers";
-import { ownerAgentOf, parseOwnerAgents, skinInitials } from "./agentRow";
+import {
+  cliProjectOf,
+  joinAgentsWithProjects,
+  ownerAgentOf,
+  parseCliProjects,
+  parseOwnerAgents,
+  skinInitials,
+} from "./agentRow";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
 import { normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import {
@@ -142,7 +150,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
       return;
     }
     // Session exists: stub is unreachable. Owner fleet is GET /cli/agent/list
-    // (singular). Plural /cli/agents/list is the skills enumerator.
+    // (singular). Address book is GET /cli/projects/list. Join on path.
+    // Plural /cli/agents/list is the skills enumerator.
     set({
       agentSource: "loading",
       fileSource: "loading",
@@ -160,26 +169,50 @@ export const useZenStore = create<ZenState>((set, get) => ({
       thread: [],
     });
     try {
-      const r = await getAgentList();
-      if (!r.ok) {
-        const msg = r.error || "GET /cli/agent/list failed";
-        set({
-          agentSource: "error",
-          fileSource: "error",
-          agents: [],
-          files: [],
-          agentError: msg,
-          fileError: msg,
-          threadSource: "error",
-          threadError: msg,
-          thread: [],
-        });
-        return;
+      const [rAgents, rProjects] = await Promise.all([
+        getAgentList(),
+        getCliProjectsList(),
+      ]);
+      const notices: string[] = [];
+      let fleet: { name: string; path: string }[] = [];
+      let book: { name: string; path: string; handle: string | null }[] = [];
+
+      if (!rAgents.ok) {
+        notices.push(rAgents.error || "GET /cli/agent/list failed");
+      } else {
+        const parsed = parseOwnerAgents(rAgents.data);
+        if (!parsed) {
+          notices.push(
+            "GET /cli/agent/list returned an unrecognised shape. This overlay does not invent a mapping."
+          );
+        } else {
+          for (const raw of parsed) {
+            const row = ownerAgentOf(raw);
+            if (row) fleet.push({ name: row.name, path: row.path });
+          }
+        }
       }
-      const parsed = parseOwnerAgents(r.data);
-      if (!parsed) {
+
+      if (!rProjects.ok) {
+        notices.push(rProjects.error || "GET /cli/projects/list failed");
+      } else {
+        const parsed = parseCliProjects(rProjects.data);
+        if (!parsed) {
+          notices.push(
+            "GET /cli/projects/list returned an unrecognised shape. This overlay does not invent a mapping."
+          );
+        } else {
+          for (const raw of parsed) {
+            const row = cliProjectOf(raw);
+            if (row) book.push(row);
+          }
+        }
+      }
+
+      if (fleet.length === 0 && book.length === 0) {
         const msg =
-          "GET /cli/agent/list returned an unrecognised shape. This overlay does not invent a mapping.";
+          notices[0] ||
+          "No agents on this list. This overlay does not invent a mapping.";
         set({
           agentSource: "error",
           fileSource: "error",
@@ -193,27 +226,21 @@ export const useZenStore = create<ZenState>((set, get) => ({
         });
         return;
       }
-      const agents: StubAgent[] = [];
-      for (const raw of parsed) {
-        const row = ownerAgentOf(raw);
-        if (!row) continue;
-        agents.push({
+
+      const agents: StubAgent[] = joinAgentsWithProjects(fleet, book).map(
+        (row) => ({
           id: row.id,
           name: row.name,
           initial: skinInitials(row.name),
           path: row.path,
           addr: row.addr,
-        });
-      }
+          joinMiss: row.joinMiss,
+        })
+      );
       set({
         agentSource: "live",
         agents,
-        agentError:
-          agents.length === 0
-            ? "No agents on this list."
-            : agents.every((a) => !a.addr)
-              ? "No thread addr on these rows. This overlay does not invent one from name."
-              : null,
+        agentError: notices.length ? notices.join(" · ") : null,
         fileSource: "live",
         files: [],
         fileError: null,
@@ -346,7 +373,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       set({
         threadSource: "error",
         thread: [],
-        threadError: "Not chattable",
+        threadError: row?.joinMiss || "Not chattable",
       });
     }
   },

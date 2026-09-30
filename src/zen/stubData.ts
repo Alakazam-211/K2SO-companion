@@ -7,8 +7,10 @@ export type StubAgent = {
   initial: string;
   /** Workspace path — live hydrate only; files list this dir. */
   path?: string;
-  /** Overlay addr = skin `handle`. Null = no handle. */
+  /** Overlay addr from `/cli/projects/list` handle after a path join. Null = not chattable. */
   addr?: string | null;
+  /** Why this row is not chattable. Set when the path join missed. */
+  joinMiss?: string | null;
   agentType?: string;
 };
 

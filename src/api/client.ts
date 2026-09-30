@@ -366,9 +366,17 @@ export const getAllSessions = () =>
 export const getAgents = (project: string) =>
   request<Agent[]>("agents.list", "/cli/agents/list", { project });
 /** Owner fleet. Live 200: `{ok:true, agents:[{enabled,live,mode,name,path}]}`.
- *  This is what `k2 agent list` calls. Plural `/cli/agents/list` is skills. */
+ *  This is what `k2 agent list` calls. Plural `/cli/agents/list` is skills.
+ *  No handle on this route. Overlay addrs come from `getCliProjectsList`. */
 export const getAgentList = () =>
   request<unknown>("agent.list", "/cli/agent/list", {});
+/** Full project rows. Live 200 (loopback 60753, 2026-09-30): a bare JSON
+ *  array; every row has `handle` and `path`. This is the overlay address
+ *  book. Not `/cli/companion/projects-summary` (name+path only) and not
+ *  `getProjects` (`/cli/companion/projects`). Join to the agent list on
+ *  `path`, never on `name`. */
+export const getCliProjectsList = () =>
+  request<unknown>("projects.cli_list", "/cli/projects/list", {});
 /** Skin rooms. Live 200: `{agents:[{displayName,handle,projectId}]}`. Grant-scoped. */
 export const getSkinAgents = () =>
   request<unknown>("skin.agents", "/cli/skin/agents", {});

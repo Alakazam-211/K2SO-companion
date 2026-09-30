@@ -155,7 +155,7 @@ export function ChatsList() {
                   ? "STUB"
                   : a.addr
                     ? "Thread"
-                    : "No thread addr"}
+                    : a.joinMiss || "No thread addr"}
               </span>
             </span>
           </button>
