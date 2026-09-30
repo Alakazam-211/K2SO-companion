@@ -51,8 +51,12 @@ export function ownedWorkspacePath(
   return usableFsPath(owned);
 }
 
+/** Prefix check after posixNormalize on both sides. `own/../Other/x` is not under `own`. */
 export function isUnderWorkspace(filePath: string, workspace: string): boolean {
-  return filePath === workspace || filePath.startsWith(`${workspace}/`);
+  const file = posixNormalize(filePath);
+  const root = posixNormalize(workspace);
+  if (!file || !root) return false;
+  return file === root || file.startsWith(`${root}/`);
 }
 
 /** QA saw etc/home/tmp/var (root symlinks) labelled LIVE FILES. */

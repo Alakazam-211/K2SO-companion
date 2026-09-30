@@ -66,6 +66,171 @@ export function ownerAgentOf(
   return { id: name, name, path, addr };
 }
 
+/** Live GET /cli/projects/list (loopback 60753, 2026-09-30):
+ *   bare JSON array of project rows. handle + path populated 61/61.
+ *   `/cli/companion/projects-summary` is a different route (name+path only).
+ *   A `{ok, agents}` object is `/cli/agent/list` — reject.
+ *   A bare array of skill rows (no handle+path) is `/cli/agents/list` — reject. */
+export type CliProjectRow = {
+  name?: unknown;
+  handle?: unknown;
+  path?: unknown;
+};
+
+export function parseCliProjects(data: unknown): CliProjectRow[] | null {
+  if (!Array.isArray(data)) return null;
+  const rows: CliProjectRow[] = [];
+  for (const item of data) {
+    if (item && typeof item === "object") rows.push(item as CliProjectRow);
+  }
+  if (data.length > 0 && rows.length === 0) return null;
+  if (
+    rows.length > 0 &&
+    !rows.some(
+      (r) => typeof r.handle === "string" && typeof r.path === "string"
+    )
+  ) {
+    return null;
+  }
+  return rows;
+}
+
+export function cliProjectOf(
+  a: CliProjectRow
+): { name: string; path: string; handle: string | null } | null {
+  const name = typeof a.name === "string" ? a.name.trim() : "";
+  if (!name) return null;
+  const path = typeof a.path === "string" ? a.path : "";
+  const handle = typeof a.handle === "string" ? a.handle.trim() : "";
+  return { name, path, handle: handle || null };
+}
+
+export const JOIN_NO_PROJECT =
+  "No thread handle — this path is missing from /cli/projects/list";
+export const JOIN_NO_AGENT = "No agent list row for this path";
+export const JOIN_NO_HANDLE = "Project row has no handle";
+export const JOIN_NO_PATH = "No usable path to join";
+export const JOIN_DUP_PATH = "Multiple project rows share this path";
+
+export type FleetNamePath = { name: string; path: string };
+export type ProjectHandlePath = {
+  name: string;
+  path: string;
+  handle: string | null;
+};
+export type JoinedOverlayRow = {
+  id: string;
+  name: string;
+  path: string;
+  addr: string | null;
+  joinMiss: string | null;
+};
+
+function pathKey(path: string): string | null {
+  const p = path.trim();
+  return p ? p : null;
+}
+
+/**
+ * Overlay rows = union of `/cli/agent/list` and `/cli/projects/list`, joined
+ * on absolute `path`. Never on `name`. Chattable only when both sides share
+ * that path and the project row sent a non-empty handle. A miss stays visible
+ * and not chattable, with a reason — never a silent drop, never a guessed handle.
+ */
+export function joinAgentsWithProjects(
+  agents: FleetNamePath[],
+  projects: ProjectHandlePath[]
+): JoinedOverlayRow[] {
+  const projectsByPath = new Map<string, ProjectHandlePath[]>();
+  for (const p of projects) {
+    const key = pathKey(p.path);
+    if (!key) continue;
+    const list = projectsByPath.get(key);
+    if (list) list.push(p);
+    else projectsByPath.set(key, [p]);
+  }
+  const usedPaths = new Set<string>();
+  const out: JoinedOverlayRow[] = [];
+
+  for (const a of agents) {
+    const key = pathKey(a.path);
+    if (!key) {
+      out.push({
+        id: `agent:${a.name}`,
+        name: a.name,
+        path: a.path,
+        addr: null,
+        joinMiss: JOIN_NO_PATH,
+      });
+      continue;
+    }
+    usedPaths.add(key);
+    const matches = projectsByPath.get(key) ?? [];
+    if (matches.length === 0) {
+      out.push({
+        id: key,
+        name: a.name,
+        path: key,
+        addr: null,
+        joinMiss: JOIN_NO_PROJECT,
+      });
+      continue;
+    }
+    if (matches.length > 1) {
+      out.push({
+        id: key,
+        name: a.name,
+        path: key,
+        addr: null,
+        joinMiss: JOIN_DUP_PATH,
+      });
+      continue;
+    }
+    const handle = (matches[0].handle ?? "").trim();
+    if (!handle) {
+      out.push({
+        id: key,
+        name: a.name,
+        path: key,
+        addr: null,
+        joinMiss: JOIN_NO_HANDLE,
+      });
+      continue;
+    }
+    out.push({
+      id: key,
+      name: a.name,
+      path: key,
+      addr: handle,
+      joinMiss: null,
+    });
+  }
+
+  for (const p of projects) {
+    const key = pathKey(p.path);
+    if (!key) {
+      out.push({
+        id: `project:${p.name}`,
+        name: p.name,
+        path: p.path,
+        addr: null,
+        joinMiss: JOIN_NO_PATH,
+      });
+      continue;
+    }
+    if (usedPaths.has(key)) continue;
+    usedPaths.add(key);
+    out.push({
+      id: key,
+      name: p.name,
+      path: key,
+      addr: null,
+      joinMiss: JOIN_NO_AGENT,
+    });
+  }
+  return out;
+}
+
 /** Live 200 is `{ok, agents:[]}`. A bare array is the skills enumerator — error. */
 export function parseOwnerAgents(data: unknown): OwnerAgentRow[] | null {
   if (Array.isArray(data)) return null;

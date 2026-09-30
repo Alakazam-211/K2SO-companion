@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.mock("../api/client", () => ({
   getToken: vi.fn(),
   getAgentList: vi.fn(),
+  getCliProjectsList: vi.fn(),
   getFsReadDir: vi.fn(),
   getFsReadFile: vi.fn(),
   getThread: vi.fn(),
@@ -10,10 +11,12 @@ vi.mock("../api/client", () => ({
 
 import {
   getAgentList,
+  getCliProjectsList,
   getFsReadDir,
   getThread,
   getToken,
 } from "../api/client";
+import { JOIN_NO_AGENT, JOIN_NO_PROJECT } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES } from "./stubData";
 import { useZenStore } from "./zenStore";
 import { NO_WORKSPACE_PATH, PATH_NOT_OWNED, ROOT_LISTING_HIDDEN } from "./workspacePath";
@@ -66,12 +69,14 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
     reset();
     vi.mocked(getToken).mockReturnValue("tok");
     vi.mocked(getAgentList).mockReset();
+    vi.mocked(getCliProjectsList).mockReset();
+    vi.mocked(getCliProjectsList).mockResolvedValue({ ok: true, data: [] });
     vi.mocked(getFsReadDir).mockReset();
     vi.mocked(getThread).mockReset();
     vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
   });
 
-  it("does not install stub and does not call a grant-scoped list yet", async () => {
+  it("does not install stub; joins handle from /cli/projects/list on path", async () => {
     vi.mocked(getAgentList).mockResolvedValue({
       ok: true,
       data: {
@@ -79,24 +84,44 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
         agents: [
           { enabled: true, live: false, mode: "local", name: "appa", path: "/Users/Baden/Appa" },
           { enabled: true, live: false, mode: "local", name: "Skin Test A", path: "/ws/skin-a" },
+          { enabled: true, live: false, mode: "local", name: "K2 Companion QA", path: "/qa" },
+          { enabled: true, live: false, mode: "local", name: "Skydio", path: "/skydio" },
         ],
       },
+    });
+    vi.mocked(getCliProjectsList).mockResolvedValue({
+      ok: true,
+      data: [
+        { name: "appa", handle: "appa", path: "/Users/Baden/Appa" },
+        { name: "Skin Test A", handle: "skin-test-a", path: "/ws/skin-a" },
+        { name: "K2 Companion QA", handle: "k2so-companion-qa", path: "/qa" },
+        { name: "Skydio", handle: "manager-2", path: "/skydio" },
+      ],
     });
     await useZenStore.getState().hydrateAgents();
     const mid = useZenStore.getState();
     expect(mid.agentSource).toBe("live");
-    expect(mid.agents.map((a) => a.name)).toEqual(["appa", "Skin Test A"]);
-    expect(mid.agents.every((a) => a.addr == null)).toBe(true);
+    expect(mid.agents.map((a) => [a.name, a.addr, a.joinMiss])).toEqual([
+      ["appa", "appa", null],
+      ["Skin Test A", "skin-test-a", null],
+      ["K2 Companion QA", "k2so-companion-qa", null],
+      ["Skydio", "manager-2", null],
+    ]);
     expect(mid.screen).toBe("list");
-    expect(mid.agentError).toMatch(/No thread addr/);
+    expect(mid.agentError).toBeNull();
     expect(mid.agents.some((a) => a.id.startsWith("stub-"))).toBe(false);
     expect(getAgentList).toHaveBeenCalledOnce();
+    expect(getCliProjectsList).toHaveBeenCalledOnce();
   });
 
-  it("a bare array from the skills enumerator is a shape error, not a rail", async () => {
+  it("a skills enumerator plus a non-array projects body is a shape error, not a rail", async () => {
     vi.mocked(getAgentList).mockResolvedValue({
       ok: true,
       data: [{ name: "k2-cli", agentType: "skill" }],
+    });
+    vi.mocked(getCliProjectsList).mockResolvedValue({
+      ok: true,
+      data: { ok: true, agents: [] },
     });
     await useZenStore.getState().hydrateAgents();
     const mid = useZenStore.getState();
@@ -304,6 +329,10 @@ describe("live failure never shows the stub catalog", () => {
       ok: false,
       error: "GET /cli/agent/list failed",
     });
+    vi.mocked(getCliProjectsList).mockResolvedValue({
+      ok: false,
+      error: "GET /cli/projects/list failed",
+    });
     await useZenStore.getState().hydrateAgents();
     const s = useZenStore.getState();
     expect(s.agentSource).toBe("error");
@@ -312,6 +341,63 @@ describe("live failure never shows the stub catalog", () => {
     expect(s.fileSource).toBe("error");
     expect(s.agentError).toMatch(/agent\/list/);
     expect(s.agents).not.toBe(STUB_AGENTS);
+  });
+
+  it("agent-only path stays on the list as not chattable", async () => {
+    vi.mocked(getAgentList).mockResolvedValue({
+      ok: true,
+      data: {
+        ok: true,
+        agents: [{ name: "appa", path: "/Users/Baden/Appa" }],
+      },
+    });
+    vi.mocked(getCliProjectsList).mockResolvedValue({ ok: true, data: [] });
+    await useZenStore.getState().hydrateAgents();
+    const s = useZenStore.getState();
+    expect(s.agentSource).toBe("live");
+    expect(s.agents).toHaveLength(1);
+    expect(s.agents[0].name).toBe("appa");
+    expect(s.agents[0].addr).toBeNull();
+    expect(s.agents[0].joinMiss).toBe(JOIN_NO_PROJECT);
+  });
+
+  it("project-only path stays on the list as not chattable and does not use its handle", async () => {
+    vi.mocked(getAgentList).mockResolvedValue({
+      ok: true,
+      data: { ok: true, agents: [] },
+    });
+    vi.mocked(getCliProjectsList).mockResolvedValue({
+      ok: true,
+      data: [
+        { name: "Skin Test A", handle: "skin-test-a", path: "/ws/skin-a" },
+      ],
+    });
+    await useZenStore.getState().hydrateAgents();
+    const s = useZenStore.getState();
+    expect(s.agentSource).toBe("live");
+    expect(s.agents).toHaveLength(1);
+    expect(s.agents[0].name).toBe("Skin Test A");
+    expect(s.agents[0].addr).toBeNull();
+    expect(s.agents[0].joinMiss).toBe(JOIN_NO_AGENT);
+  });
+
+  it("matching names with different paths do not transfer a handle", async () => {
+    vi.mocked(getAgentList).mockResolvedValue({
+      ok: true,
+      data: {
+        ok: true,
+        agents: [{ name: "Skydio", path: "/Users/Baden/AI Projects/Skydio" }],
+      },
+    });
+    vi.mocked(getCliProjectsList).mockResolvedValue({
+      ok: true,
+      data: [{ name: "Skydio", handle: "manager-2", path: "/not/skydio" }],
+    });
+    await useZenStore.getState().hydrateAgents();
+    const s = useZenStore.getState();
+    expect(s.agents).toHaveLength(2);
+    expect(s.agents.every((a) => a.addr == null)).toBe(true);
+    expect(s.agents.map((a) => a.joinMiss)).toEqual([JOIN_NO_PROJECT, JOIN_NO_AGENT]);
   });
 
   it("no token still uses the labelled stub catalog", async () => {

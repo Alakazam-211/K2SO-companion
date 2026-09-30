@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 vi.mock("../api/client", () => ({
   getToken: vi.fn(() => ""),
   getAgentList: vi.fn(),
+  getCliProjectsList: vi.fn(),
   getFsReadDir: vi.fn(),
   getFsReadFile: vi.fn(),
   getThread: vi.fn(),

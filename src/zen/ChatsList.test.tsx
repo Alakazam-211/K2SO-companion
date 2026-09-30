@@ -6,6 +6,7 @@ import { MemoryRouter } from "react-router-dom";
 vi.mock("../api/client", () => ({
   inspectProjectsSummary: vi.fn(),
   getAgentList: vi.fn(),
+  getCliProjectsList: vi.fn(),
   getToken: vi.fn(() => ""),
   getFsReadDir: vi.fn(),
   getFsReadFile: vi.fn(),
@@ -14,6 +15,7 @@ vi.mock("../api/client", () => ({
 
 import { inspectProjectsSummary } from "../api/client";
 import { ChatsList } from "./ChatsList";
+import { JOIN_NO_PROJECT } from "./agentRow";
 import { STUB_AGENTS } from "./stubData";
 import { OWNER_LIST_HOLD, useZenStore } from "./zenStore";
 
@@ -90,18 +92,52 @@ describe("ChatsList", () => {
     useZenStore.setState({
       agentSource: "live",
       agents: [
-        { id: "appa", name: "appa", initial: "A", path: "/ws", addr: null },
-        { id: "Skin Test A", name: "Skin Test A", initial: "ST", path: "/ws2", addr: null },
+        {
+          id: "/ws",
+          name: "appa",
+          initial: "A",
+          path: "/ws",
+          addr: null,
+          joinMiss: JOIN_NO_PROJECT,
+        },
+        {
+          id: "/ws2",
+          name: "Skin Test A",
+          initial: "ST",
+          path: "/ws2",
+          addr: null,
+          joinMiss: JOIN_NO_PROJECT,
+        },
       ],
-      agentError: "No thread addr on these rows. This overlay does not invent one from name.",
+      agentError: null,
       screen: "list",
     });
     mount();
     expect(screen.getByLabelText("appa")).not.toBeNull();
     expect(screen.getByLabelText("Skin Test A")).not.toBeNull();
-    expect(screen.getAllByText("No thread addr").length).toBe(2);
-    expect(screen.queryByText("Conversation")).toBeNull();
-    expect(screen.getByText(/does not invent one from name/)).not.toBeNull();
+    expect(screen.getAllByText(JOIN_NO_PROJECT).length).toBe(2);
+    expect(screen.queryByText("Thread")).toBeNull();
+  });
+
+  it("a joined live row is labelled Thread", () => {
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [
+        {
+          id: "/Users/Baden/Appa",
+          name: "appa",
+          initial: "A",
+          path: "/Users/Baden/Appa",
+          addr: "appa",
+          joinMiss: null,
+        },
+      ],
+      agentError: null,
+      screen: "list",
+    });
+    mount();
+    expect(screen.getByLabelText("appa")).not.toBeNull();
+    expect(screen.getByText("Thread")).not.toBeNull();
   });
 
   it("DEBUG dump is behind a tap and never shown on load", async () => {
