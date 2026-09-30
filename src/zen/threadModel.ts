@@ -62,12 +62,41 @@ export function isMine(from: string, username: string): boolean {
   return !!username && from === username;
 }
 
+/** Live GET /cli/thread (k2so-companion-qa seq 18, 2026-09-30):
+ *  options are `{label}` objects, not strings. String(object) is
+ *  "[object Object]". Take `label` from the wire; a plain string is
+ *  still accepted. Drop an option that has neither. */
+function optionLabel(o: unknown): string | null {
+  if (typeof o === "string") {
+    const s = o.trim();
+    return s || null;
+  }
+  if (o && typeof o === "object" && "label" in o) {
+    const label = (o as { label: unknown }).label;
+    if (typeof label === "string") {
+      const s = label.trim();
+      return s || null;
+    }
+  }
+  return null;
+}
+
+function choiceAnswer(raw: unknown): string | null {
+  if (raw == null) return null;
+  if (typeof raw === "string") return raw;
+  if (raw && typeof raw === "object" && "label" in raw) {
+    const label = (raw as { label: unknown }).label;
+    if (typeof label === "string") return label;
+  }
+  return null;
+}
+
 function choiceOf(doc: ThreadDoc): ThreadChoice | null {
   const c = doc.choice;
   if (!c || typeof c !== "object") return null;
   const raw = c.options;
   const options = Array.isArray(raw)
-    ? raw.map((o) => String(o))
+    ? raw.map(optionLabel).filter((s): s is string => !!s)
     : typeof raw === "string"
       ? raw.split(",").map((s) => s.trim()).filter(Boolean)
       : [];
@@ -75,7 +104,7 @@ function choiceOf(doc: ThreadDoc): ThreadChoice | null {
   return {
     prompt,
     options,
-    answer: c.answer == null ? null : String(c.answer),
+    answer: choiceAnswer(c.answer),
   };
 }
 
