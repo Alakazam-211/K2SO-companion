@@ -7,6 +7,7 @@ import {
   loginUrlFor,
   LOGIN_404_K2DEV_MESSAGE,
 } from "../lib/loginUrl";
+import { loginErrorFromStatus } from "../lib/loginError";
 
 // Multi-server model — the companion mirror of the desktop's
 // `stores/connect-host.ts`. Each saved server is a K2 daemon reachable over
@@ -19,11 +20,9 @@ import {
 //   "servers"        → ServerEntry[]
 //   "activeServerId" → string | null
 //   "tokens"         → Record<serverId, sessionToken>
-//   "passwords"      → Record<serverId, password> — ONLY servers where the
-//                      user opted into "Remember password". OPEN DEFECT:
-//                      plaintext in this file. Not Keychain. There is no
-//                      PRD §1 for this. Wiki:
-//                      `.k2/wiki/Defect - Plaintext remembered passwords.md`
+// OPEN 12: never write a `passwords` key. Hydrate deletes any leftover
+// `passwords` map from older builds (Baden device `EC351036` is the
+// positive control). Session survives via the token.
 //
 // One-time migration: the pre-v2 single session in plugin-store `auth.json`
 // + the saved-server list in localStorage `k2_connections` fold into this
@@ -41,7 +40,7 @@ export interface ServerEntry {
   /** Normalized origin, e.g. `https://foo.k2.dev` (no trailing slash). */
   url: string;
   username: string;
-  /** Whether the user opted into storing the password for silent re-login. */
+  /** Leftover flag from when remember-me stored a password. Always false now. */
   rememberPassword: boolean;
 }
 
@@ -66,9 +65,12 @@ function newId(): string {
 
 // ─── Persistence backend (plugin-store with localStorage fallback) ───
 
+export const PASSWORDS_STORE_KEY = "passwords";
+
 interface Backend {
   get<T>(key: string): Promise<T | undefined>;
   set(key: string, value: unknown): Promise<void>;
+  delete(key: string): Promise<void>;
 }
 
 const STORE_FILE = "servers.json";
@@ -85,6 +87,10 @@ function getBackend(): Promise<Backend> {
           get: async <T>(key: string) => store.get<T>(key),
           set: async (key, value) => {
             await store.set(key, value);
+            await store.save();
+          },
+          delete: async (key) => {
+            await store.delete(key);
             await store.save();
           },
         };
@@ -107,6 +113,13 @@ function getBackend(): Promise<Backend> {
               /* quota / private mode — model stays in-memory */
             }
           },
+          delete: async (key) => {
+            try {
+              localStorage.removeItem(LS_PREFIX + key);
+            } catch {
+              /* private mode */
+            }
+          },
         };
       }
     })();
@@ -114,32 +127,29 @@ function getBackend(): Promise<Backend> {
   return backendPromise;
 }
 
-// ─── Remembered passwords (opt-in only; never held in zustand state) ───
-
-export async function resolvePassword(serverId: string): Promise<string | null> {
-  try {
-    const backend = await getBackend();
-    const map = (await backend.get<Record<string, string>>("passwords")) ?? {};
-    return map[serverId] ?? null;
-  } catch {
-    return null;
-  }
+/** OPEN 12 condition 2: drop a leftover `passwords` key. Empty `{}` still
+ *  names the key; delete it. Called on every hydrate, login or not. */
+export async function purgeStoredPasswords(
+  backend: Pick<Backend, "delete">
+): Promise<void> {
+  await backend.delete(PASSWORDS_STORE_KEY);
 }
 
-/** Persist (password given) or forget (null) a server's remembered
- *  password. Only called with a password when the user opted in. */
+/** Always null. The password is not on disk and not used after login. */
+export async function resolvePassword(_serverId: string): Promise<string | null> {
+  return null;
+}
+
+/** OPEN 12 condition 1: never write a password. Forget-only. */
 export async function setRememberedPassword(
-  serverId: string,
-  password: string | null
+  _serverId: string,
+  _password: string | null
 ): Promise<void> {
   try {
     const backend = await getBackend();
-    const map = (await backend.get<Record<string, string>>("passwords")) ?? {};
-    if (password !== null) map[serverId] = password;
-    else delete map[serverId];
-    await backend.set("passwords", map);
+    await purgeStoredPasswords(backend);
   } catch {
-    /* store unavailable — silent re-login just won't survive relaunch */
+    /* store unavailable */
   }
 }
 
@@ -182,6 +192,13 @@ export const useServersStore = create<ServersState>((set, get) => ({
   hydrate: async () => {
     try {
       const backend = await getBackend();
+      // OPEN 12 condition 2: drop leftover passwords before anything else,
+      // including when there are no servers and the user does not log in.
+      try {
+        await purgeStoredPasswords(backend);
+      } catch {
+        /* still load the rest of the model */
+      }
       let servers = await backend.get<ServerEntry[]>("servers");
       let tokens = (await backend.get<Record<string, string>>("tokens")) ?? {};
       let activeServerId =
@@ -347,7 +364,7 @@ async function migrateLegacy(): Promise<{
 
 export type LoginResult =
   | { ok: true; token: string }
-  | { ok: false; kind: "auth" | "network" | "not-found"; error: string };
+  | { ok: false; kind: "auth" | "forbidden" | "network" | "not-found"; error: string };
 
 /**
  * `POST /cli/auth/login {username,password}` against a server. Rides
@@ -378,19 +395,15 @@ export async function loginToServer(
         ),
       ])
     );
-    if (res.status === 401 || res.status === 403) {
-      return { ok: false, kind: "auth", error: "Invalid username or password" };
-    }
-    if (res.status === 404) {
-      return {
-        ok: false,
-        kind: "not-found",
-        error: viaEdge
-          ? LOGIN_404_K2DEV_MESSAGE
-          : "Server returned 404. It may not be a K2 server.",
-      };
-    }
     if (!res.ok) {
+      const bodyText = await res.text();
+      const fail = loginErrorFromStatus(
+        res.status,
+        bodyText,
+        viaEdge,
+        LOGIN_404_K2DEV_MESSAGE
+      );
+      if (fail) return { ok: false, ...fail };
       return { ok: false, kind: "network", error: `Login failed (HTTP ${res.status})` };
     }
     const data = (await res.json()) as { token?: string };
@@ -432,11 +445,11 @@ export async function loginAndSaveServer(input: {
     nickname: input.nickname.trim() || hostLabel(url),
     url,
     username,
-    rememberPassword: input.rememberPassword,
+    rememberPassword: false,
   });
   store.setToken(id, result.token);
   store.setRecovery(id, "connected");
-  await setRememberedPassword(id, input.rememberPassword ? input.password : null);
+  await setRememberedPassword(id, null);
   store.setActive(id);
   return { ok: true, id };
 }

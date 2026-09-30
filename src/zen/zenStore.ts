@@ -19,6 +19,7 @@ import {
   skinInitials,
 } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
+import { beginLastAt, fetchLastAt } from "./lastAtFetch";
 import { isSendTestAddr, SEND_TEST_REFUSED } from "./sendGate";
 import { isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import {
@@ -89,6 +90,9 @@ type ZenState = {
   hydrateThread: (addr: string) => Promise<void>;
   loadEarlier: () => Promise<void>;
   sendThread: (text: string) => Promise<void>;
+  /** Last-message unix seconds, keyed `t:<addr>` / `g:<groupId>`. Null = fetched empty. */
+  lastAtByKey: Record<string, number | null>;
+  ensureLastAt: (key: string) => void;
   /** Overlay home is the chats list. A row opens the thread. */
   screen: "list" | "thread";
   agentId: string;
@@ -100,6 +104,7 @@ type ZenState = {
   /** 0..1 width of the left split pane. */
   splitRatio: number;
   setAgent: (id: string) => void;
+  openSidecar: (baseId: string) => void;
   closeChat: () => void;
   toggleFiles: () => void;
   openFile: (id: string) => void;
@@ -147,6 +152,24 @@ export const useZenStore = create<ZenState>((set, get) => ({
   threadLoadingEarlier: false,
   sending: false,
   sendError: null,
+  lastAtByKey: {},
+  ensureLastAt: (key) => {
+    if (!beginLastAt(key)) return;
+    const kind = key.startsWith("g:") ? "group" : "thread";
+    const id = key.slice(2);
+    if (!id) return;
+    void fetchLastAt(kind, id)
+      .then((at) => {
+        set((s) => ({
+          lastAtByKey: { ...s.lastAtByKey, [key]: at },
+        }));
+      })
+      .catch(() => {
+        set((s) => ({
+          lastAtByKey: { ...s.lastAtByKey, [key]: null },
+        }));
+      });
+  },
 
   hydrateAgents: async () => {
     if (!getToken()) {
@@ -190,7 +213,13 @@ export const useZenStore = create<ZenState>((set, get) => ({
         getCliProjectsList(),
       ]);
       const notices: string[] = [];
-      let fleet: { name: string; path: string }[] = [];
+      let fleet: {
+        name: string;
+        path: string;
+        mode: string | null;
+        enabled: boolean | null;
+        live: boolean | null;
+      }[] = [];
       let book: { name: string; path: string; handle: string | null }[] = [];
 
       if (!rAgents.ok) {
@@ -204,7 +233,14 @@ export const useZenStore = create<ZenState>((set, get) => ({
         } else {
           for (const raw of parsed) {
             const row = ownerAgentOf(raw);
-            if (row) fleet.push({ name: row.name, path: row.path });
+            if (row)
+              fleet.push({
+                name: row.name,
+                path: row.path,
+                mode: row.mode,
+                enabled: row.enabled,
+                live: row.live,
+              });
           }
         }
       }
@@ -251,6 +287,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
           path: row.path,
           addr: row.addr,
           joinMiss: row.joinMiss,
+          kind: "agent" as const,
+          mode: row.mode,
+          enabled: row.enabled,
+          live: row.live,
         })
       );
       set({
@@ -546,6 +586,29 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadError: row?.joinMiss || "Not chattable",
       });
     }
+  },
+  openSidecar: (baseId) => {
+    const base = get().agents.find((a) => a.id === baseId);
+    const addr = (base?.addr || "").trim();
+    if (!base || !addr) return;
+    const sidecarAddr = `${addr.split("/")[0]}/1`;
+    let row = get().agents.find((a) => a.addr === sidecarAddr);
+    if (!row) {
+      row = {
+        id: `${base.path || base.id}::sidecar-1`,
+        name: `${base.name} / 1`,
+        initial: base.initial,
+        path: base.path,
+        addr: sidecarAddr,
+        joinMiss: null,
+        kind: "agent",
+        mode: base.mode,
+        enabled: base.enabled,
+        live: base.live,
+      };
+      set({ agents: [row, ...get().agents] });
+    }
+    get().setAgent(row.id);
   },
   closeChat: () =>
     set({

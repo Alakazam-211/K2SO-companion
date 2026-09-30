@@ -48,10 +48,7 @@ export function Settings() {
             <Row label="Nickname" value={active.nickname} />
             <Row label="Server" value={hostLabel(active.url)} />
             <Row label="Username" value={active.username} />
-            <Row
-              label="Password"
-              value={active.rememberPassword ? "Remembered" : "Not stored"}
-            />
+            <Row label="Password" value="Not stored" />
             <Row
               label="State"
               value={

@@ -10,9 +10,8 @@ import loginLogo from "../assets/login-logo.png";
 
 // The add/edit-server flow (formerly the app-gating Login page). Reached
 // from the Servers home: "Add server" (blank) or a row's edit affordance
-// (`?server=<id>`, prefilled). A successful sign-in saves the server (+
-// token, + password when "Remember password" is on), makes it active, and
-// opens the overlay. The password is stored ONLY when the user opts in.
+// (`?server=<id>`, prefilled). A successful sign-in saves the server +
+// token, makes it active, and opens the overlay. The password is never stored.
 
 export function Login() {
   const navigate = useNavigate();
@@ -29,7 +28,6 @@ export function Login() {
   );
   const [username, setUsername] = useState(editing?.username ?? "");
   const [password, setPassword] = useState("");
-  const [remember, setRemember] = useState(editing?.rememberPassword ?? false);
   const [showPassword, setShowPassword] = useState(false);
   // Keyboard-aware height (the chat-pages idiom): the scroll area is sized
   // to the VISUAL viewport, so with the keyboard open the whole form —
@@ -52,7 +50,7 @@ export function Login() {
       url: serverUrl,
       username,
       password,
-      rememberPassword: remember,
+      rememberPassword: false,
     });
     setBusy(false);
     if (result.ok) navigate("/zen", { replace: true });
@@ -182,31 +180,6 @@ export function Login() {
               className={inputClass}
             />
           </div>
-
-          {/* Remember password — opt-in; enables silent re-login when the
-              server restarts and the session token goes stale. */}
-          <label className="flex items-center gap-2.5 cursor-pointer pt-1">
-            <div
-              onClick={(e) => {
-                e.preventDefault();
-                setRemember(!remember);
-              }}
-              className={`w-5 h-5 border flex items-center justify-center shrink-0 transition-all duration-150 ${
-                remember
-                  ? "border-[var(--accent)] bg-[var(--accent)]/10"
-                  : "border-[var(--border-hover)]"
-              }`}
-            >
-              {remember && (
-                <svg width="12" height="12" viewBox="0 0 12 12" fill="none" stroke="var(--accent)" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M2 6l3 3 5-5" />
-                </svg>
-              )}
-            </div>
-            <span className="text-[var(--text-muted)] text-[12px]">
-              Remember password (auto re-sign-in on this device)
-            </span>
-          </label>
 
           {error && (
             <p className="text-[var(--error)] text-[11px] text-center">{error}</p>

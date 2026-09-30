@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { isMine, isOwnerAuthored, mountainTime, normaliseThreadItem } from "./threadModel";
+import {
+  isMine,
+  isOwnerAuthored,
+  mountainListWhen,
+  mountainTime,
+  normaliseThreadItem,
+} from "./threadModel";
 
 describe("threadModel", () => {
   it("treats owner and matching username as mine", () => {
@@ -20,6 +26,18 @@ describe("threadModel", () => {
   it("formats Mountain Time from unix seconds", () => {
     const s = mountainTime(1759198521);
     expect(s).toMatch(/\d{1,2}:\d{2}\s?(AM|PM)/i);
+  });
+
+  it("list when is time today, Yesterday, weekday this week, date beyond", () => {
+    const nowSec = Date.now() / 1000;
+    expect(mountainListWhen(nowSec)).toMatch(/\d{1,2}:\d{2}\s?(AM|PM)/i);
+    expect(mountainListWhen(nowSec - 86400)).toBe("Yesterday");
+    const midWeek = mountainListWhen(nowSec - 3 * 86400);
+    expect(midWeek).toMatch(
+      /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/
+    );
+    expect(mountainListWhen(1700000000)).toMatch(/\d{1,2}\/\d{1,2}\/\d{2}/);
+    expect(mountainListWhen(null)).toBe("");
   });
 
   it("includes a date when the message is not today", () => {

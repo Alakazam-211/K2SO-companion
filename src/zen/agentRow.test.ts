@@ -66,6 +66,9 @@ describe("parseOwnerAgents / ownerAgentOf", () => {
       name: "appa",
       path: "/Users/Baden/Appa",
       addr: null,
+      mode: "local",
+      enabled: true,
+      live: false,
     });
     expect(mapped[1]?.addr).toBeNull();
   });
@@ -141,6 +144,27 @@ describe("joinAgentsWithProjects", () => {
     ]);
   });
 
+  it("carries mode, enabled, and live from the fleet row", () => {
+    const joined = joinAgentsWithProjects(
+      [
+        {
+          name: "appa",
+          path: "/Users/Baden/Appa",
+          mode: "custom",
+          enabled: true,
+          live: true,
+        },
+      ],
+      [{ name: "appa", path: "/Users/Baden/Appa", handle: "appa" }]
+    );
+    expect(joined[0]).toMatchObject({
+      addr: "appa",
+      mode: "custom",
+      enabled: true,
+      live: true,
+    });
+  });
+
   it("does not join on display name when paths differ", () => {
     const joined = joinAgentsWithProjects(
       [{ name: "Skydio", path: "/Users/Baden/AI Projects/Skydio" }],
@@ -174,6 +198,9 @@ describe("joinAgentsWithProjects", () => {
         path: "/Users/Baden/Appa",
         addr: null,
         joinMiss: JOIN_NO_PROJECT,
+        mode: null,
+        enabled: null,
+        live: null,
       },
     ]);
   });
@@ -190,6 +217,9 @@ describe("joinAgentsWithProjects", () => {
         path: "/Users/Baden/AI Projects/Skin Test A",
         addr: null,
         joinMiss: JOIN_NO_AGENT,
+        mode: null,
+        enabled: null,
+        live: null,
       },
     ]);
   });

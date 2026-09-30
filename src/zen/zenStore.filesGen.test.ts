@@ -24,6 +24,7 @@ import {
 } from "../api/client";
 import { getActiveServer } from "../stores/servers";
 import { JOIN_NO_AGENT, JOIN_NO_PROJECT } from "./agentRow";
+import { resetLastAtQueue } from "./lastAtFetch";
 import { STUB_AGENTS, STUB_FILES } from "./stubData";
 import { useZenStore } from "./zenStore";
 import { NO_WORKSPACE_PATH, PATH_NOT_OWNED, ROOT_LISTING_HIDDEN } from "./workspacePath";
@@ -68,6 +69,7 @@ function reset() {
     focusId: null,
     splitId: null,
     splitRatio: 0.5,
+    lastAtByKey: {},
   });
 }
 
@@ -119,6 +121,35 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
     expect(mid.agents.some((a) => a.id.startsWith("stub-"))).toBe(false);
     expect(getAgentList).toHaveBeenCalledOnce();
     expect(getCliProjectsList).toHaveBeenCalledOnce();
+    expect(getThread).not.toHaveBeenCalled();
+    expect(mid.agents[0]).toMatchObject({
+      name: "appa",
+      mode: "local",
+      enabled: true,
+      live: false,
+    });
+  });
+
+  it("ensureLastAt GETs thread limit=1 once and stores created_at", async () => {
+    resetLastAtQueue();
+    vi.mocked(getThread).mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          {
+            seq: 22,
+            doc: { seq: 22, from: "baden", body: "hi", created_at: 1700000000 },
+          },
+        ],
+      },
+    });
+    useZenStore.getState().ensureLastAt("t:appa");
+    useZenStore.getState().ensureLastAt("t:appa");
+    await vi.waitFor(() => {
+      expect(useZenStore.getState().lastAtByKey["t:appa"]).toBe(1700000000);
+    });
+    expect(getThread).toHaveBeenCalledTimes(1);
+    expect(getThread).toHaveBeenCalledWith("appa", 1);
   });
 
   it("a skills enumerator plus a non-array projects body is a shape error, not a rail", async () => {

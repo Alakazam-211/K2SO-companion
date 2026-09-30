@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 vi.mock("../api/client", () => ({
@@ -8,6 +8,8 @@ vi.mock("../api/client", () => ({
   getAgentList: vi.fn(),
   getCliProjectsList: vi.fn(),
   getToken: vi.fn(() => ""),
+  getBaseUrl: vi.fn(() => ""),
+  getProjects: vi.fn(),
   getFsReadDir: vi.fn(),
   getFsReadFile: vi.fn(),
   getThread: vi.fn(),
@@ -15,12 +17,36 @@ vi.mock("../api/client", () => ({
 }));
 
 import { inspectProjectsSummary } from "../api/client";
+import { useFeedbackStore } from "../stores/feedback";
+import { useServersStore } from "../stores/servers";
 import { ChatsList } from "./ChatsList";
 import { JOIN_NO_PROJECT } from "./agentRow";
 import { STUB_AGENTS } from "./stubData";
 import { OWNER_LIST_HOLD, useZenStore } from "./zenStore";
 
+const SEEDED_SERVER = {
+  id: "s1",
+  nickname: "test",
+  url: "https://example.k2.dev",
+  username: "u",
+  rememberPassword: false,
+};
+
 afterEach(() => cleanup());
+
+beforeEach(() => {
+  seedServer();
+});
+
+function seedServer() {
+  useServersStore.setState({
+    servers: [SEEDED_SERVER],
+    activeServerId: "s1",
+    hydrated: true,
+    tokens: { s1: "t" },
+    recovery: { s1: "connected" },
+  });
+}
 
 function mount() {
   return render(
@@ -31,7 +57,48 @@ function mount() {
 }
 
 describe("ChatsList", () => {
+  it("zero stored servers is the overlay Add server form, not /login or stub chats", () => {
+    useServersStore.setState({
+      servers: [],
+      activeServerId: null,
+      hydrated: true,
+    });
+    mount();
+    expect(screen.getByTestId("overlay-add-server")).not.toBeNull();
+    expect(screen.getByText("Add server")).not.toBeNull();
+    expect(screen.queryByTestId("chats-home")).toBeNull();
+  });
+
+  it("zero-server then a stored server then zero again does not throw (same hook order)", () => {
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: STUB_AGENTS,
+      agentError: null,
+      screen: "list",
+    });
+    useServersStore.setState({
+      servers: [],
+      activeServerId: null,
+      hydrated: true,
+    });
+    mount();
+    expect(screen.getByTestId("overlay-add-server")).not.toBeNull();
+    act(() => {
+      seedServer();
+    });
+    expect(screen.getByTestId("chats-home")).not.toBeNull();
+    act(() => {
+      useServersStore.setState({
+        servers: [],
+        activeServerId: null,
+      });
+    });
+    expect(screen.getByTestId("overlay-add-server")).not.toBeNull();
+    expect(screen.queryByTestId("chats-home")).toBeNull();
+  });
+
   it("is the overlay home: Chats title, pin slot, search, stub rows", () => {
+    seedServer();
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
@@ -44,7 +111,25 @@ describe("ChatsList", () => {
     expect(screen.getByTestId("chats-pins").textContent).toMatch(/Drop here/);
     expect(screen.getByPlaceholderText("Search")).not.toBeNull();
     expect(screen.getByLabelText(/STUB \[STUB\] not-a-real-agent-1/)).not.toBeNull();
-    expect((screen.getByRole("button", { name: "New message" }) as HTMLButtonElement).disabled).toBe(true);
+    expect((screen.getByRole("button", { name: "New message" }) as HTMLButtonElement).disabled).toBe(false);
+    expect(screen.getByRole("button", { name: "Tickets" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Server / })).not.toBeNull();
+    expect(screen.queryByTestId("tickets-badge")).toBeNull();
+  });
+
+  it("the ticket icon shows the waiting count and opens the existing ticket tray", () => {
+    seedServer();
+    useFeedbackStore.setState({ waitingCount: 3, rows: [], isLoading: false, error: null });
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: STUB_AGENTS,
+      screen: "list",
+    });
+    mount();
+    expect(screen.getByTestId("tickets-badge").textContent).toBe("3");
+    fireEvent.click(screen.getByRole("button", { name: /Tickets, 3 waiting/ }));
+    expect(screen.getByTestId("overlay-tickets")).not.toBeNull();
+    expect(screen.getByText("No tickets yet.")).not.toBeNull();
   });
 
   it("opening a row switches the store to the thread screen", () => {
@@ -118,9 +203,10 @@ describe("ChatsList", () => {
     expect(screen.getByLabelText("Skin Test A")).not.toBeNull();
     expect(screen.getAllByText(JOIN_NO_PROJECT).length).toBe(2);
     expect(screen.queryByText("Thread")).toBeNull();
+    expect(screen.getAllByTestId("row-when").length).toBe(2);
   });
 
-  it("a joined live row is labelled Thread", () => {
+  it("a joined live row describes what it is, with time and a chevron", () => {
     useZenStore.setState({
       agentSource: "live",
       agents: [
@@ -131,14 +217,87 @@ describe("ChatsList", () => {
           path: "/Users/Baden/Appa",
           addr: "appa",
           joinMiss: null,
+          kind: "agent",
+          mode: "custom",
+          enabled: true,
+          live: true,
         },
       ],
+      lastAtByKey: { "t:appa": Date.now() / 1000 },
       agentError: null,
       screen: "list",
     });
     mount();
     expect(screen.getByLabelText("appa")).not.toBeNull();
-    expect(screen.getByText("Thread")).not.toBeNull();
+    expect(screen.queryByText("Thread")).toBeNull();
+    expect(screen.getByTestId("row-preview").textContent).toBe("Live · custom");
+    expect(screen.getByTestId("row-when").textContent).toMatch(/›/);
+    expect(screen.getByTestId("row-when").textContent).toMatch(/\d{1,2}:\d{2}/);
+  });
+
+  it("an empty last-message time is an empty slot next to the chevron", () => {
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [
+        {
+          id: "/ws",
+          name: "appa",
+          initial: "A",
+          path: "/ws",
+          addr: "appa",
+          joinMiss: null,
+          kind: "agent",
+          mode: "custom",
+          enabled: true,
+          live: true,
+        },
+      ],
+      lastAtByKey: {},
+      agentError: null,
+      screen: "list",
+    });
+    mount();
+    expect(screen.getByTestId("row-when").textContent?.replace(/\s/g, "")).toBe("›");
+  });
+
+  it("a sidecar row keeps the name on line one and the sidecar descriptor on line two", () => {
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [
+        {
+          id: "/ws",
+          name: "k2so-companion / 1",
+          initial: "K",
+          path: "/ws",
+          addr: "k2so-companion/1",
+          joinMiss: null,
+          kind: "agent",
+          mode: "custom",
+          enabled: true,
+          live: true,
+        },
+      ],
+      lastAtByKey: {},
+      agentError: null,
+      screen: "list",
+    });
+    mount();
+    expect(screen.getByLabelText("k2so-companion / 1")).not.toBeNull();
+    expect(screen.getByTestId("row-preview").textContent).toBe(
+      "Sidecar · same workspace, extra chat"
+    );
+  });
+
+  it("the plus button opens the New Message picker", () => {
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: STUB_AGENTS,
+      screen: "list",
+    });
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: "New message" }));
+    expect(screen.getByTestId("overlay-compose")).not.toBeNull();
+    expect(screen.getByText("New Message")).not.toBeNull();
   });
 
   it("DEBUG dump is behind a tap and never shown on load", async () => {
