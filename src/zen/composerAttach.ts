@@ -1,9 +1,12 @@
+import { usableFsPath } from "./workspacePath";
+
 /** Skin door: POST /cli/fs/upload-binary. 50MB single-shot ceiling.
- *  `dir` is workspace-relative. Skin room root is `"."`. Empty string
- *  is refused as "Destination Directory is Empty". This is not
- *  read-dir `path=.` (daemon cwd). */
+ *  Companion is an owner token: `dir` is this agent's own absolute
+ *  workspace path (same as read-dir). Skin's `dir: "."` is room-relative
+ *  because the gateway jails it. Here `"."` is the daemon cwd (`/` on
+ *  this box) and writes EROFS (os error 30). Empty dir is refused as
+ *  "Destination Directory is Empty". */
 export const MAX_UPLOAD_BYTES = 50_000_000;
-export const UPLOAD_DIR = ".";
 
 const MIME_EXT: Record<string, string> = {
   "image/jpeg": "jpg",
@@ -56,6 +59,13 @@ export function workspaceHandleOf(
   addr: string | null | undefined
 ): string {
   return (addr || "").trim().split("/")[0] || "";
+}
+
+/** Absolute workspace directory this agent owns. Null for `.` / `` / `/`. */
+export function uploadDirOf(
+  agentPath: string | null | undefined
+): string | null {
+  return usableFsPath(agentPath ?? "");
 }
 
 export async function fileToBase64(file: File): Promise<string> {

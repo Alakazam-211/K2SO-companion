@@ -318,6 +318,16 @@ describe("ThreadPane", () => {
 
   it("live workspace thread has an Add file control and paste lands a chip", () => {
     useZenStore.setState({
+      agentId: "aspen",
+      agents: [
+        {
+          id: "aspen",
+          name: "aspen",
+          initial: "A",
+          path: "/Users/Bob/Aspen",
+          addr: "aspen",
+        },
+      ],
       threadSource: "live",
       threadAddr: "aspen",
       threadGroupId: null,
@@ -338,13 +348,23 @@ describe("ThreadPane", () => {
     expect(screen.getByTestId("attach-chip").textContent).toMatch(/shot.png/);
   });
 
-  it("uploads into dir . so the daemon does not see an empty destination", async () => {
+  it("uploads into this agent's own absolute workspace path", async () => {
     vi.mocked(uploadFsBinary).mockResolvedValue({
       ok: true,
-      data: { path: "shot.png" },
+      data: { path: "/Users/Bob/Aspen/shot.png" },
     });
     const sendThread = vi.fn(async () => {});
     useZenStore.setState({
+      agentId: "aspen",
+      agents: [
+        {
+          id: "aspen",
+          name: "aspen",
+          initial: "A",
+          path: "/Users/Bob/Aspen",
+          addr: "aspen",
+        },
+      ],
       threadSource: "live",
       threadAddr: "aspen",
       threadGroupId: null,
@@ -364,9 +384,46 @@ describe("ThreadPane", () => {
     });
     fireEvent.submit(screen.getByTestId("composer-form"));
     await waitFor(() => expect(uploadFsBinary).toHaveBeenCalled());
-    expect(vi.mocked(uploadFsBinary).mock.calls[0][1]).toBe(".");
     expect(vi.mocked(uploadFsBinary).mock.calls[0][0]).toBe("aspen");
+    expect(vi.mocked(uploadFsBinary).mock.calls[0][1]).toBe("/Users/Bob/Aspen");
     expect(vi.mocked(uploadFsBinary).mock.calls[0][2]).toBe("shot.png");
-    await waitFor(() => expect(sendThread).toHaveBeenCalledWith("shot.png"));
+    await waitFor(() =>
+      expect(sendThread).toHaveBeenCalledWith("/Users/Bob/Aspen/shot.png")
+    );
+  });
+
+  it("does not upload when the agent path is the daemon cwd", async () => {
+    const sendThread = vi.fn(async () => {});
+    useZenStore.setState({
+      agentId: "aspen",
+      agents: [
+        {
+          id: "aspen",
+          name: "aspen",
+          initial: "A",
+          path: ".",
+          addr: "aspen",
+        },
+      ],
+      threadSource: "live",
+      threadAddr: "aspen",
+      threadGroupId: null,
+      threadError: null,
+      sendError: null,
+      sending: false,
+      thread: [],
+      sendThread,
+    });
+    render(<ThreadPane />);
+    expect(screen.getByTestId("composer-attach")).toHaveProperty("disabled", true);
+    const file = new File(["x"], "shot.png", { type: "image/png" });
+    fireEvent.paste(screen.getByTestId("composer-form"), {
+      clipboardData: {
+        files: [file],
+        items: [],
+      },
+    });
+    expect(screen.queryByTestId("attach-chip")).toBeNull();
+    expect(uploadFsBinary).not.toHaveBeenCalled();
   });
 });
