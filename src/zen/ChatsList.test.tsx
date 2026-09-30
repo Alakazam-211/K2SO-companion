@@ -219,6 +219,39 @@ describe("ChatsList", () => {
     expect(screen.getAllByTestId("row-when").length).toBe(2);
   });
 
+  it("orders chats by last-message time, newest first", () => {
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [
+        {
+          id: "/old",
+          name: "older chat",
+          initial: "O",
+          path: "/old",
+          addr: "old",
+          joinMiss: null,
+          kind: "agent",
+        },
+        {
+          id: "/new",
+          name: "newer chat",
+          initial: "N",
+          path: "/new",
+          addr: "new",
+          joinMiss: null,
+          kind: "agent",
+        },
+      ],
+      lastAtByKey: { "t:old": 10, "t:new": 50 },
+      agentError: null,
+      screen: "list",
+    });
+    mount();
+    const names = screen.getAllByRole("button").map((b) => b.getAttribute("aria-label"));
+    const chats = names.filter((n) => n === "older chat" || n === "newer chat");
+    expect(chats).toEqual(["newer chat", "older chat"]);
+  });
+
   it("a joined live row describes what it is, with time and a chevron", () => {
     useZenStore.setState({
       agentSource: "live",

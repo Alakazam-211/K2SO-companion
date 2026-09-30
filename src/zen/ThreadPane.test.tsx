@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { ThreadPane } from "./ThreadPane";
+import { COMPOSER_MAX_PX, ThreadPane, composerHeight } from "./ThreadPane";
 import { normaliseThreadItem } from "./threadModel";
 import { useZenStore } from "./zenStore";
 
@@ -77,9 +77,20 @@ describe("ThreadPane", () => {
     const label = screen.getByTestId("composer-label");
     expect(label.className).toMatch(/break-words/);
     const input = screen.getByPlaceholderText("Message");
+    expect(input.tagName).toBe("TEXTAREA");
     expect(input.className).toMatch(/min-w-0/);
+    expect(input.className).toMatch(/resize-none/);
+    expect(input.className).toMatch(/overflow-x-hidden/);
+    expect(input.className).toMatch(/whitespace-pre-wrap/);
     const pill = input.parentElement;
     expect(pill?.className).toMatch(/min-w-0/);
+    expect(pill?.className).toMatch(/items-end/);
+  });
+
+  it("composer height grows then caps", () => {
+    expect(composerHeight(22)).toBe(24);
+    expect(composerHeight(88)).toBe(88);
+    expect(composerHeight(400)).toBe(COMPOSER_MAX_PX);
   });
 
   it("live thread that is not a test room can send", () => {
