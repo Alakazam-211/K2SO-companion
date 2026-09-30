@@ -78,7 +78,7 @@ export function mountainListWhen(at: number | null): string {
     if (key === k) {
       return d.toLocaleDateString("en-US", {
         timeZone: TZ,
-        weekday: "long",
+        weekday: "short",
       });
     }
   }

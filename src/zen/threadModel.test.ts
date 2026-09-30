@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   isMine,
   isOwnerAuthored,
@@ -6,6 +6,10 @@ import {
   mountainTime,
   normaliseThreadItem,
 } from "./threadModel";
+
+afterEach(() => {
+  vi.useRealTimers();
+});
 
 describe("threadModel", () => {
   it("treats owner and matching username as mine", () => {
@@ -33,11 +37,17 @@ describe("threadModel", () => {
     expect(mountainListWhen(nowSec)).toMatch(/\d{1,2}:\d{2}\s?(AM|PM)/i);
     expect(mountainListWhen(nowSec - 86400)).toBe("Yesterday");
     const midWeek = mountainListWhen(nowSec - 3 * 86400);
-    expect(midWeek).toMatch(
-      /^(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)$/
-    );
+    expect(midWeek).toMatch(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)$/);
     expect(mountainListWhen(1700000000)).toMatch(/\d{1,2}\/\d{1,2}\/\d{2}/);
     expect(mountainListWhen(null)).toBe("");
+  });
+
+  it("weekday is Sun, not Sunday", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-09-30T18:00:00-06:00"));
+    const sunday = Date.parse("2026-09-27T12:00:00-06:00") / 1000;
+    expect(mountainListWhen(sunday)).toBe("Sun");
+    expect(mountainListWhen(sunday)).not.toBe("Sunday");
   });
 
   it("includes a date when the message is not today", () => {

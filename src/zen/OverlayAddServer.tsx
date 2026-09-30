@@ -1,14 +1,26 @@
 import { useState, type CSSProperties, type FormEvent } from "react";
-import { loginAndSaveServer } from "../stores/servers";
+import { hostLabel, loginAndSaveServer, useServersStore } from "../stores/servers";
 import { useZenStore } from "./zenStore";
 
-/** Overlay Add server. Donor is `Login.tsx` / `loginAndSaveServer`.
- *  This is the zero-stored-server overlay destination — not `/login`. */
-export function OverlayAddServer() {
-  const [serverUrl, setServerUrl] = useState("");
-  const [username, setUsername] = useState("");
+/** Overlay Add / Edit server. Donor is `Login.tsx` / `loginAndSaveServer`.
+ *  Zero stored servers lands here. The in-overlay server list reuses it
+ *  with `editingId` / `onCancel` so a sign-in never leaves `/zen`. */
+export function OverlayAddServer({
+  editingId,
+  onCancel,
+  onSaved,
+}: {
+  editingId?: string | null;
+  onCancel?: () => void;
+  onSaved?: () => void;
+} = {}) {
+  const editing = useServersStore((s) =>
+    editingId ? s.servers.find((x) => x.id === editingId) : undefined
+  );
+  const [serverUrl, setServerUrl] = useState(editing ? hostLabel(editing.url) : "");
+  const [username, setUsername] = useState(editing?.username ?? "");
   const [password, setPassword] = useState("");
-  const [nickname, setNickname] = useState("");
+  const [nickname, setNickname] = useState(editing?.nickname ?? "");
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,6 +32,7 @@ export function OverlayAddServer() {
     setBusy(true);
     setError(null);
     const result = await loginAndSaveServer({
+      id: editing?.id,
       nickname,
       url: serverUrl,
       username,
@@ -32,6 +45,7 @@ export function OverlayAddServer() {
       return;
     }
     await useZenStore.getState().hydrateAgents();
+    onSaved?.();
   };
 
   const field: CSSProperties = {
@@ -52,13 +66,37 @@ export function OverlayAddServer() {
       data-testid="overlay-add-server"
     >
       <header
-        className="shrink-0"
+        className={onCancel ? "flex items-center justify-between relative shrink-0" : "shrink-0"}
         style={{
           minHeight: 44,
           padding: "max(12px, env(safe-area-inset-top)) 16px 8px",
         }}
       >
-        <h1 className="text-center text-[17px] font-semibold">Add server</h1>
+        {onCancel ? (
+          <button
+            type="button"
+            className="text-[17px]"
+            style={{
+              minHeight: 34,
+              padding: "0 14px",
+              borderRadius: 17,
+              background: "#1c1c1e",
+            }}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        ) : null}
+        <h1
+          className={
+            onCancel
+              ? "absolute left-1/2 -translate-x-1/2 text-[17px] font-semibold pointer-events-none"
+              : "text-center text-[17px] font-semibold"
+          }
+        >
+          {editing ? "Edit server" : "Add server"}
+        </h1>
+        {onCancel ? <span style={{ width: 72 }} /> : null}
       </header>
       <form
         className="flex-1 min-h-0 overflow-y-auto px-6 pb-8 flex flex-col gap-4"
@@ -100,6 +138,10 @@ export function OverlayAddServer() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="Password"
+              autoCapitalize="off"
+              autoCorrect="off"
+              autoComplete="off"
+              spellCheck={false}
               style={{ ...field, paddingRight: 44 }}
             />
             <button
@@ -143,6 +185,19 @@ export function OverlayAddServer() {
         >
           {busy ? "Connecting..." : "Connect & save"}
         </button>
+        {editing ? (
+          <button
+            type="button"
+            className="w-full text-[17px]"
+            style={{ minHeight: 44, color: "#ef4444" }}
+            onClick={() => {
+              useServersStore.getState().removeServer(editing.id);
+              onCancel?.();
+            }}
+          >
+            Remove
+          </button>
+        ) : null}
         <p className="text-[11px] text-center" style={{ color: "#8e8e93" }}>
           Sign in with your K2 Connect account to reach your machine
         </p>
