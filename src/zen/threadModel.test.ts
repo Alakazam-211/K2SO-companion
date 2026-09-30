@@ -1,11 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { isMine, mountainTime, normaliseThreadItem } from "./threadModel";
+import { isMine, isOwnerAuthored, mountainTime, normaliseThreadItem } from "./threadModel";
 
 describe("threadModel", () => {
   it("treats owner and matching username as mine", () => {
     expect(isMine("owner", "bob")).toBe(true);
     expect(isMine("bob", "bob")).toBe(true);
     expect(isMine("k2so-Skin-Test-A", "bob")).toBe(false);
+  });
+
+  it("send authorship accepts owner or username and still rejects the room agent", () => {
+    expect(isOwnerAuthored("owner", "bob", "k2so-companion-qa")).toBe(true);
+    expect(isOwnerAuthored("bob", "bob", "k2so-companion-qa")).toBe(true);
+    expect(isOwnerAuthored("k2so-companion-qa", "bob", "k2so-companion-qa")).toBe(false);
+    expect(isOwnerAuthored("k2so-companion-qa", "k2so-companion-qa", "k2so-companion-qa")).toBe(false);
+    expect(isOwnerAuthored("bob", "", "k2so-companion-qa")).toBe(false);
+    expect(isOwnerAuthored("skin-test-a", "bob", "k2so-companion-qa")).toBe(false);
   });
 
   it("formats Mountain Time from unix seconds", () => {

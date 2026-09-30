@@ -20,7 +20,7 @@ import {
 } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
 import { isSendTestAddr, SEND_TEST_REFUSED } from "./sendGate";
-import { normaliseThreadItem, type ThreadMessage } from "./threadModel";
+import { isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import {
   NO_WORKSPACE_PATH,
   PATH_NOT_OWNED,
@@ -491,9 +491,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
         });
         return;
       }
-      // Arrival is not authorship. POST /cli/thread/post without the
-      // owner door records from=<agent>; the bubble must not appear.
-      if (onWire.from !== "owner") {
+      // Arrival is not authorship. Accept owner or the signed-in
+      // username; never this thread's own agent handle.
+      if (!isOwnerAuthored(onWire.from, username, addr)) {
         set({
           sending: false,
           sendError: `sent but the speaker was wrong (from='${onWire.from}')`,
