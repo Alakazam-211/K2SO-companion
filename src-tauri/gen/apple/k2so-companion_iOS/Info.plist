@@ -22,8 +22,13 @@
 	<true/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
+		<!-- MUST stay true. tao 0.35.3 only registers the scene delegate
+		     when this is true. false = solid black screen on iOS 26 and 27,
+		     verified 2026-09-29 (e24b6bc FAIL). iPad second window is an
+		     accepted tradeoff; if it becomes a problem, handle the second
+		     scene — do not flip this flag. -->
 		<key>UIApplicationSupportsMultipleScenes</key>
-		<false/>
+		<true/>
 		<key>UISceneConfigurations</key>
 		<dict>
 			<key>UIWindowSceneSessionRoleApplication</key>
