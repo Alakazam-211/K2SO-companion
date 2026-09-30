@@ -16,17 +16,16 @@ import { NewSessionModal } from "./components/NewSessionModal";
 import { Zen } from "./pages/Zen";
 import { overlayHomePath } from "./zen/overlayHome";
 
-/** Signed-in home is the overlay (`/zen`). A fresh install (0 servers)
- *  still lands on /servers with the add CTA. Content pages besides /zen
- *  still need a saved server. */
+/** Cold-start home is always the overlay. Zero stored servers still
+ *  open `/zen` (overlay Add server). `/login` and `/servers` are old UI. */
 function HomeRedirect() {
-  const hasServers = useServersStore((s) => s.servers.length > 0);
-  return <Navigate to={overlayHomePath(hasServers)} replace />;
+  const stored = useServersStore((s) => s.servers.length);
+  return <Navigate to={overlayHomePath(stored)} replace />;
 }
 
 function ServerGuard({ children }: { children: React.ReactNode }) {
-  const hasServers = useServersStore((s) => s.servers.length > 0);
-  if (!hasServers) return <Navigate to="/servers" replace />;
+  const stored = useServersStore((s) => s.servers.length);
+  if (stored === 0) return <Navigate to="/zen" replace />;
   return <>{children}</>;
 }
 

@@ -56,16 +56,40 @@ export type OwnerAgentRow = {
   addr?: unknown;
 };
 
+function asBool(v: unknown): boolean | null {
+  if (typeof v === "boolean") return v;
+  if (v === 1 || v === "1") return true;
+  if (v === 0 || v === "0") return false;
+  return null;
+}
+
 export function ownerAgentOf(
   a: OwnerAgentRow
-): { id: string; name: string; path: string; addr: string | null } | null {
+): {
+  id: string;
+  name: string;
+  path: string;
+  addr: string | null;
+  mode: string | null;
+  enabled: boolean | null;
+  live: boolean | null;
+} | null {
   const name = typeof a.name === "string" ? a.name.trim() : "";
   if (!name) return null;
   const path = typeof a.path === "string" ? a.path : "";
   const handle = typeof a.handle === "string" ? a.handle.trim() : "";
   const addrField = typeof a.addr === "string" ? a.addr.trim() : "";
   const addr = handle || addrField || null;
-  return { id: name, name, path, addr };
+  const mode = typeof a.mode === "string" ? a.mode.trim() : "";
+  return {
+    id: name,
+    name,
+    path,
+    addr,
+    mode: mode || null,
+    enabled: asBool(a.enabled),
+    live: asBool(a.live),
+  };
 }
 
 /** Live GET /cli/projects/list (loopback 60753, 2026-09-30):
@@ -114,7 +138,13 @@ export const JOIN_NO_HANDLE = "Project row has no handle";
 export const JOIN_NO_PATH = "No usable path to join";
 export const JOIN_DUP_PATH = "Multiple project rows share this path";
 
-export type FleetNamePath = { name: string; path: string };
+export type FleetNamePath = {
+  name: string;
+  path: string;
+  mode?: string | null;
+  enabled?: boolean | null;
+  live?: boolean | null;
+};
 export type ProjectHandlePath = {
   name: string;
   path: string;
@@ -126,7 +156,23 @@ export type JoinedOverlayRow = {
   path: string;
   addr: string | null;
   joinMiss: string | null;
+  mode: string | null;
+  enabled: boolean | null;
+  live: boolean | null;
 };
+
+function fromAgent(
+  a: FleetNamePath,
+  rest: Omit<JoinedOverlayRow, "name" | "mode" | "enabled" | "live">
+): JoinedOverlayRow {
+  return {
+    name: a.name,
+    mode: a.mode ?? null,
+    enabled: a.enabled ?? null,
+    live: a.live ?? null,
+    ...rest,
+  };
+}
 
 function pathKey(path: string): string | null {
   return posixNormalize(path.trim());
@@ -156,55 +202,60 @@ export function joinAgentsWithProjects(
   for (const a of agents) {
     const key = pathKey(a.path);
     if (!key) {
-      out.push({
-        id: `agent:${a.name}`,
-        name: a.name,
-        path: a.path,
-        addr: null,
-        joinMiss: JOIN_NO_PATH,
-      });
+      out.push(
+        fromAgent(a, {
+          id: `agent:${a.name}`,
+          path: a.path,
+          addr: null,
+          joinMiss: JOIN_NO_PATH,
+        })
+      );
       continue;
     }
     usedPaths.add(key);
     const matches = projectsByPath.get(key) ?? [];
     if (matches.length === 0) {
-      out.push({
-        id: key,
-        name: a.name,
-        path: key,
-        addr: null,
-        joinMiss: JOIN_NO_PROJECT,
-      });
+      out.push(
+        fromAgent(a, {
+          id: key,
+          path: key,
+          addr: null,
+          joinMiss: JOIN_NO_PROJECT,
+        })
+      );
       continue;
     }
     if (matches.length > 1) {
-      out.push({
-        id: key,
-        name: a.name,
-        path: key,
-        addr: null,
-        joinMiss: JOIN_DUP_PATH,
-      });
+      out.push(
+        fromAgent(a, {
+          id: key,
+          path: key,
+          addr: null,
+          joinMiss: JOIN_DUP_PATH,
+        })
+      );
       continue;
     }
     const handle = (matches[0].handle ?? "").trim();
     if (!handle) {
-      out.push({
-        id: key,
-        name: a.name,
-        path: key,
-        addr: null,
-        joinMiss: JOIN_NO_HANDLE,
-      });
+      out.push(
+        fromAgent(a, {
+          id: key,
+          path: key,
+          addr: null,
+          joinMiss: JOIN_NO_HANDLE,
+        })
+      );
       continue;
     }
-    out.push({
-      id: key,
-      name: a.name,
-      path: key,
-      addr: handle,
-      joinMiss: null,
-    });
+    out.push(
+      fromAgent(a, {
+        id: key,
+        path: key,
+        addr: handle,
+        joinMiss: null,
+      })
+    );
   }
 
   for (const p of projects) {
@@ -216,6 +267,9 @@ export function joinAgentsWithProjects(
         path: p.path,
         addr: null,
         joinMiss: JOIN_NO_PATH,
+        mode: null,
+        enabled: null,
+        live: null,
       });
       continue;
     }
@@ -227,6 +281,9 @@ export function joinAgentsWithProjects(
       path: key,
       addr: null,
       joinMiss: JOIN_NO_AGENT,
+      mode: null,
+      enabled: null,
+      live: null,
     });
   }
   return out;

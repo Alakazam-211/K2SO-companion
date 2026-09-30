@@ -10,28 +10,22 @@
 // the app was force-quit and relaunched.
 //
 // THE FIX
-// `reviveServerSession` re-runs the same session-mint flow login uses:
-// confirm the session is dead via `GET /cli/auth/whoami` (the daemon's
-// token-gate 403 body is byte-identical to a role-denial 403, so only
-// whoami can tell "stale token" from "not permitted"), then re-login with
-// the remembered password — committing the fresh token into the servers
-// store, where `api/client.ts` and the grid-WS pick it up on their next
-// attempt.
+// `reviveServerSession` confirms the session is dead via
+// `GET /cli/auth/whoami` (the daemon's token-gate 403 body is
+// byte-identical to a role-denial 403, so only whoami can tell "stale
+// token" from "not permitted"). OPEN 12: there is no remembered password
+// on disk. A dead token is `signin-required` — the user signs in again.
 //
 // Guarantees:
-//   - SINGLE-FLIGHT per server: concurrent 401/403s share one re-login.
-//   - BACKOFF between failed attempts ([1s, 4s, 15s, 30s] cap) so a
-//     plaintext login is never hammered in a loop.
+//   - SINGLE-FLIGHT per server: concurrent 401/403s share one probe.
+//   - BACKOFF between failed attempts ([1s, 4s, 15s, 30s] cap).
 //   - `unreachable` (network blip) NEVER drops a token.
-//   - No remembered password / password rejected → token dropped + the
-//     server marked `signin-required` — the one case that needs the user.
+//   - Dead token → dropped + `signin-required`.
 
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { cliAuthHeaders } from "../api/cliAuth";
 import {
   useServersStore,
-  loginToServer,
-  resolvePassword,
   type ServerEntry,
 } from "../stores/servers";
 
@@ -191,27 +185,9 @@ async function doRevive(serverId: string): Promise<ReviveOutcome> {
     if (probe === "unknown") return "unreachable";
   }
 
-  const password = await resolvePassword(serverId);
-  if (!password) {
-    state.clearToken(serverId);
-    return "signin-required";
-  }
-
-  // The SAME mint flow the add-server page uses (loginToServer already rides
-  // withNetRetry for the dead-pooled-socket eviction). The password never
-  // leaves this scope.
-  const result = await loginToServer(server, password);
-  if (result.ok) {
-    state.setToken(serverId, result.token);
-    return "revived";
-  }
-  if (result.kind === "auth" || result.kind === "not-found") {
-    // Password rejected, or the edge-only login gate 404'd — retrying
-    // will not mint a session. Drop the token so the UI surfaces sign-in.
-    state.clearToken(serverId);
-    return "signin-required";
-  }
-  return "unreachable";
+  // OPEN 12: the password is not on disk. A dead token means sign in again.
+  state.clearToken(serverId);
+  return "signin-required";
 }
 
 /** Explicit user gesture: make a server active elsewhere, then call this to

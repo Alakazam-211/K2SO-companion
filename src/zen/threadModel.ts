@@ -56,6 +56,40 @@ export function mountainTime(at: number | null): string {
   return `${date} ${time}`;
 }
 
+/** Chats-list when: today = time, yesterday = Yesterday, this week =
+ *  weekday, older = numeric date. Mountain Time. Empty if no at. */
+export function mountainListWhen(at: number | null): string {
+  if (at == null || !Number.isFinite(at)) return "";
+  const d = asDate(at);
+  if (Number.isNaN(d.getTime())) return "";
+  const key = mountainDayKey(d);
+  const today = mountainDayKey(new Date());
+  if (key === today) {
+    return d.toLocaleTimeString("en-US", {
+      timeZone: TZ,
+      hour: "numeric",
+      minute: "2-digit",
+    });
+  }
+  const yesterday = mountainDayKey(new Date(Date.now() - 86400000));
+  if (key === yesterday) return "Yesterday";
+  for (let i = 2; i <= 6; i++) {
+    const k = mountainDayKey(new Date(Date.now() - i * 86400000));
+    if (key === k) {
+      return d.toLocaleDateString("en-US", {
+        timeZone: TZ,
+        weekday: "long",
+      });
+    }
+  }
+  return d.toLocaleDateString("en-US", {
+    timeZone: TZ,
+    month: "numeric",
+    day: "numeric",
+    year: "2-digit",
+  });
+}
+
 export function isMine(from: string, username: string): boolean {
   if (!from) return false;
   if (from === "owner") return true;

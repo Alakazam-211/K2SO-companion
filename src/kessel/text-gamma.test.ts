@@ -14,7 +14,7 @@ import {
 } from './text-gamma'
 
 const mem = new Map<string, string>()
-if (typeof localStorage === 'undefined') {
+if (typeof localStorage === 'undefined' || typeof localStorage.getItem !== 'function') {
   Object.defineProperty(globalThis, 'localStorage', {
     value: {
       getItem: (k: string) => (mem.has(k) ? mem.get(k)! : null),

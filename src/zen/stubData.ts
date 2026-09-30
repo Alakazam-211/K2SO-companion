@@ -12,6 +12,12 @@ export type StubAgent = {
   /** Why this row is not chattable. Set when the path join missed. */
   joinMiss?: string | null;
   agentType?: string;
+  kind?: "agent" | "group";
+  groupId?: string;
+  memberCount?: number | null;
+  mode?: string | null;
+  enabled?: boolean | null;
+  live?: boolean | null;
 };
 
 export type StubFile = {

@@ -5,7 +5,7 @@ import { FileStage } from "../zen/FileStage";
 import { PaneErrorBoundary } from "../zen/PaneErrorBoundary";
 import { ThreadPane } from "../zen/ThreadPane";
 import { STUB_BANNER } from "../zen/stubData";
-import { useZenStore, sourceWord } from "../zen/zenStore";
+import { useZenStore } from "../zen/zenStore";
 
 export function Zen() {
   const screen = useZenStore((s) => s.screen);
@@ -26,11 +26,10 @@ export function Zen() {
     void hydrateAgents();
   }, [hydrateAgents]);
 
-  const banner =
-    agentSource === "stub" && fileSource === "stub"
-      ? STUB_BANNER
-      : `${sourceWord(agentSource)} agents · ${sourceWord(fileSource)} files`;
+  const stubBanner =
+    agentSource === "stub" && fileSource === "stub" ? STUB_BANNER : "";
   const err = [agentError, fileError].filter(Boolean).join(" · ");
+  const headerSub = [stubBanner, err].filter(Boolean).join(" · ");
 
   return (
     <div className="relative h-full min-h-0" style={{ background: "#000" }}>
@@ -83,13 +82,15 @@ export function Zen() {
                 >
                   {agent?.name ?? "—"}
                 </span>
-                <span
-                  className="block w-full text-[9px] tracking-widest uppercase truncate text-center"
-                  style={{ color: "#f59e0b" }}
-                >
-                  {banner}
-                  {err ? ` · ${err}` : ""}
-                </span>
+                {headerSub ? (
+                  <span
+                    className="block w-full text-[9px] tracking-widest uppercase truncate text-center"
+                    style={{ color: "#f59e0b" }}
+                    data-testid="chat-header-sub"
+                  >
+                    {headerSub}
+                  </span>
+                ) : null}
               </div>
               <button
                 type="button"

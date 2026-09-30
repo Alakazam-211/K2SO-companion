@@ -1,9 +1,23 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { inspectProjectsSummary } from "../api/client";
+import { useFeedbackStore } from "../stores/feedback";
+import { hostLabel, useServersStore, type RecoveryState } from "../stores/servers";
+import { overlayRowPreview } from "./rowPreview";
 import { StubMark } from "./StubMark";
 import { summariseProjectsSummary, type SummaryDump } from "./summaryDump";
-import { sourceWord, useZenStore } from "./zenStore";
+import { OverlayAddServer } from "./OverlayAddServer";
+import { OverlayCompose } from "./OverlayCompose";
+import { TicketsOverlay } from "./TicketsOverlay";
+import { mountainListWhen } from "./threadModel";
+import { useZenStore } from "./zenStore";
+
+const RECOVERY_DOT: Record<RecoveryState, string> = {
+  connected: "#22c55e",
+  reconnecting: "#f59e0b",
+  reauthenticating: "#f59e0b",
+  "signin-required": "#ef4444",
+};
 
 /** Phone-width overlay home. Look is public/imessage-baseline.html (7724968). */
 export function ChatsList() {
@@ -12,14 +26,54 @@ export function ChatsList() {
   const source = useZenStore((s) => s.agentSource);
   const agentError = useZenStore((s) => s.agentError);
   const setAgent = useZenStore((s) => s.setAgent);
+  const lastAtByKey = useZenStore((s) => s.lastAtByKey);
+  const ensureLastAt = useZenStore((s) => s.ensureLastAt);
+  const listRef = useRef<HTMLDivElement | null>(null);
   const [q, setQ] = useState("");
   const [settings, setSettings] = useState(false);
+  const [tickets, setTickets] = useState(false);
+  const [compose, setCompose] = useState(false);
   const [dump, setDump] = useState<SummaryDump | null>(null);
   const [dumpBusy, setDumpBusy] = useState(false);
+  const servers = useServersStore((s) => s.servers);
+  const activeServerId = useServersStore((s) => s.activeServerId);
+  const recovery = useServersStore((s) => s.recovery);
+  const waitingCount = useFeedbackStore((s) => s.waitingCount);
+  const activeServer = servers.find((s) => s.id === activeServerId) ?? null;
+  const recoveryState: RecoveryState = activeServer
+    ? recovery[activeServer.id] ?? "connected"
+    : "signin-required";
+  const serverLabel = activeServer
+    ? activeServer.nickname || hostLabel(activeServer.url)
+    : "No server";
 
   const filtered = agents.filter((a) =>
     a.name.toLowerCase().includes(q.trim().toLowerCase())
   );
+
+  useEffect(() => {
+    useFeedbackStore.getState().ensureLive();
+  }, [activeServerId]);
+
+  useEffect(() => {
+    if (source !== "live") return;
+    const root = listRef.current;
+    if (!root || typeof IntersectionObserver === "undefined") return;
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const e of entries) {
+          if (!e.isIntersecting) continue;
+          const key = (e.target as HTMLElement).dataset.lastAtKey;
+          if (key) ensureLastAt(key);
+        }
+      },
+      { root, rootMargin: "80px" }
+    );
+    root.querySelectorAll("[data-last-at-key]").forEach((el) => io.observe(el));
+    return () => io.disconnect();
+  }, [filtered, source, ensureLastAt]);
+
+  if (servers.length === 0) return <OverlayAddServer />;
 
   return (
     <div
@@ -33,15 +87,17 @@ export function ChatsList() {
       data-testid="chats-home"
     >
       <header
-        className="flex items-center justify-between relative shrink-0"
+        className="grid items-center shrink-0 w-full min-w-0"
         style={{
+          gridTemplateColumns: "1fr auto 1fr",
           minHeight: 44,
-          padding: "max(12px, env(safe-area-inset-top)) 16px 8px",
+          padding: "max(12px, env(safe-area-inset-top)) 12px 8px",
+          columnGap: 8,
         }}
       >
         <button
           type="button"
-          className="text-[17px]"
+          className="text-[17px] justify-self-start"
           style={{
             minHeight: 34,
             padding: "0 14px",
@@ -54,13 +110,84 @@ export function ChatsList() {
           Settings
         </button>
         <h1
-          className="absolute left-1/2 -translate-x-1/2 text-[17px] font-semibold pointer-events-none"
+          className="text-[17px] font-semibold pointer-events-none"
           style={{ letterSpacing: "-0.2px" }}
         >
           Chats
         </h1>
-        <span className="text-[11px] tracking-widest uppercase" style={{ color: "#8e8e93" }}>
-          {sourceWord(source)}
+        <span className="flex items-center justify-self-end" style={{ gap: 8 }} data-testid="chats-header-right">
+          <button
+            type="button"
+            className="relative flex items-center justify-center shrink-0"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 17,
+              background: "#1c1c1e",
+              color: "#fff",
+            }}
+            onClick={() => setTickets(true)}
+            aria-label={waitingCount ? `Tickets, ${waitingCount} waiting` : "Tickets"}
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+            >
+              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+            </svg>
+            {waitingCount > 0 ? (
+              <span
+                className="absolute"
+                data-testid="tickets-badge"
+                style={{
+                  top: -2,
+                  right: -2,
+                  minWidth: 15,
+                  height: 15,
+                  padding: "0 4px",
+                  borderRadius: 8,
+                  background: "#f59e0b",
+                  color: "#000",
+                  fontSize: 9,
+                  fontWeight: 700,
+                  lineHeight: "15px",
+                  textAlign: "center",
+                }}
+              >
+                {waitingCount > 99 ? "99+" : waitingCount}
+              </span>
+            ) : null}
+          </button>
+          <button
+            type="button"
+            className="flex items-center justify-center shrink-0"
+            style={{
+              width: 34,
+              height: 34,
+              borderRadius: 17,
+              background: "#1c1c1e",
+            }}
+            onClick={() => navigate("/servers")}
+            aria-label={`Server ${serverLabel}`}
+            title={serverLabel}
+          >
+            <span
+              className="shrink-0"
+              style={{
+                width: 8,
+                height: 8,
+                borderRadius: "50%",
+                background: activeServer ? RECOVERY_DOT[recoveryState] : "#8e8e93",
+              }}
+            />
+          </button>
         </span>
       </header>
 
@@ -96,6 +223,7 @@ export function ChatsList() {
       </p>
 
       <div
+        ref={listRef}
         className="flex-1 min-h-0 overflow-y-auto"
         style={{ paddingBottom: 96, WebkitOverflowScrolling: "touch" }}
         data-testid="chats-list"
@@ -119,7 +247,20 @@ export function ChatsList() {
             {agentError || "No agents on this list."}
           </p>
         ) : null}
-        {filtered.map((a) => (
+        {filtered.map((a) => {
+          const lastKey =
+            source === "live" && a.kind === "group" && a.groupId
+              ? `g:${a.groupId}`
+              : source === "live" && a.addr
+                ? `t:${a.addr}`
+                : undefined;
+          const when =
+            lastKey && lastAtByKey[lastKey] != null
+              ? mountainListWhen(lastAtByKey[lastKey] as number)
+              : "";
+          const preview =
+            source === "stub" ? "STUB" : overlayRowPreview(a);
+          return (
           <button
             key={a.id}
             type="button"
@@ -127,6 +268,7 @@ export function ChatsList() {
             style={{ gap: 10, padding: "10px 14px 10px 6px" }}
             onClick={() => setAgent(a.id)}
             aria-label={source === "stub" ? `STUB ${a.name}` : a.name}
+            data-last-at-key={lastKey}
           >
             <span
               className="flex items-center justify-center shrink-0 font-bold"
@@ -145,21 +287,31 @@ export function ChatsList() {
                 <span className="truncate text-[16px] font-semibold" style={{ letterSpacing: "-0.2px" }}>
                   {a.name}
                 </span>
-                {source === "stub" ? <StubMark /> : null}
+                {source === "stub" ? (
+                  <StubMark />
+                ) : (
+                  <span
+                    className="shrink-0 flex items-center gap-1 text-[14px]"
+                    style={{ color: "#8e8e93", fontWeight: 400 }}
+                    data-testid="row-when"
+                  >
+                    {when}
+                    {when ? " " : ""}
+                    ›
+                  </span>
+                )}
               </span>
               <span
                 className="block text-[14px] truncate"
                 style={{ color: "#8e8e93", lineHeight: 1.3 }}
+                data-testid="row-preview"
               >
-                {source === "stub"
-                  ? "STUB"
-                  : a.addr
-                    ? "Thread"
-                    : a.joinMiss || "No thread addr"}
+                {preview}
               </span>
             </span>
           </button>
-        ))}
+          );
+        })}
       </div>
 
       <div
@@ -171,7 +323,7 @@ export function ChatsList() {
         }}
       >
         <label
-          className="flex-1 flex items-center"
+          className="flex-1 min-w-0 flex items-center"
           style={{
             gap: 8,
             background: "#1c1c1e",
@@ -185,15 +337,14 @@ export function ChatsList() {
             value={q}
             onChange={(e) => setQ(e.target.value)}
             placeholder="Search"
-            className="flex-1 bg-transparent border-0 outline-none text-[17px]"
+            className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[17px]"
             style={{ color: "#fff" }}
             aria-label="Search"
           />
         </label>
         <button
           type="button"
-          disabled
-          title="New message — not wired"
+          title="New message"
           aria-label="New message"
           className="flex items-center justify-center"
           style={{
@@ -201,12 +352,16 @@ export function ChatsList() {
             height: 44,
             borderRadius: 14,
             background: "#1c1c1e",
-            color: "#8e8e93",
+            color: "#fff",
           }}
+          onClick={() => setCompose(true)}
         >
           +
         </button>
       </div>
+
+      {tickets ? <TicketsOverlay onClose={() => setTickets(false)} /> : null}
+      {compose ? <OverlayCompose onClose={() => setCompose(false)} /> : null}
 
       {settings ? (
         <div
