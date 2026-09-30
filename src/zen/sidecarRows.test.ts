@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isOverlaySidecarSuffix,
   nextSidecarAddr,
   parseCompanionSessions,
   sidecarSuffix,
@@ -82,6 +83,55 @@ describe("sidecarsFromSessions", () => {
         [appa]
       )
     ).toEqual([]);
+  });
+
+  it("a desktop tab session is not listed as an overlay chat", () => {
+    const rows = sidecarsFromSessions(
+      [
+        {
+          cwd: appa.path,
+          agentName: "1",
+          label: "1",
+          isMainChat: false,
+        },
+        {
+          cwd: appa.path,
+          agentName: "tab-dda4b7a4-08f4-4e85-8001-2b5bb9592cf7",
+          label: "Get the grok code installed.",
+          isMainChat: false,
+        },
+        {
+          cwd: appa.path,
+          agentName: "20bb835b-2741-49b1-901d-2733f7c830:hb:project-drive",
+          label: "20bb835b-2741-49b1-901d-2733f7c830:hb:project-drive",
+          isMainChat: false,
+        },
+        {
+          cwd: appa.path,
+          agentName: "tab-beeb4d79-43c3-48f3-aa4e-cc28801eec13",
+          label: "tab-beeb4d79-43c3-48f3-aa4e-cc28801eec13",
+          isMainChat: false,
+        },
+      ],
+      [appa]
+    );
+    expect(rows.map((r) => r.addr)).toEqual(["appa/1"]);
+    expect(rows.some((r) => (r.addr || "").includes("tab-"))).toBe(false);
+    expect(rows.some((r) => (r.addr || "").includes(":hb:"))).toBe(false);
+  });
+});
+
+describe("isOverlaySidecarSuffix", () => {
+  it("keeps overlay suffixes and drops desktop tab ids", () => {
+    expect(isOverlaySidecarSuffix("1")).toBe(true);
+    expect(isOverlaySidecarSuffix("2")).toBe(true);
+    expect(isOverlaySidecarSuffix("reviewer")).toBe(true);
+    expect(isOverlaySidecarSuffix("tab-dda4b7a4-08f4-4e85-8001-2b5bb9592cf7")).toBe(
+      false
+    );
+    expect(
+      isOverlaySidecarSuffix("20bb835b-2741-49b1-901d-2733f7c830:hb:project-drive")
+    ).toBe(false);
   });
 });
 
