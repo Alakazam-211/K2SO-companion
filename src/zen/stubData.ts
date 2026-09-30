@@ -7,6 +7,9 @@ export type StubAgent = {
   initial: string;
   /** Workspace path — live hydrate only; files list this dir. */
   path?: string;
+  /** Overlay addr from handle/addr/roomHandle. Null = daemon did not send one. */
+  addr?: string | null;
+  agentType?: string;
 };
 
 export type StubFile = {

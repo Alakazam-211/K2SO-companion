@@ -9,6 +9,7 @@ import {
   type FsDirEntry,
 } from "../api/client";
 import { getActiveServer } from "../stores/servers";
+import { displayNameOf, isChattableAgentType, overlayAddrOf } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
 import { normaliseThreadItem, type ThreadMessage } from "./threadModel";
 
@@ -164,12 +165,16 @@ export const useZenStore = create<ZenState>((set, get) => ({
         const r = await getAgents(p.path);
         if (!r.ok || !r.data) continue;
         for (const a of r.data) {
-          if (seen.has(a.name)) continue;
-          seen.set(a.name, {
-            id: a.name,
-            name: a.name,
-            initial: (a.name[0] || "?").toUpperCase(),
+          if (!isChattableAgentType(a.agentType)) continue;
+          const name = displayNameOf(a);
+          if (!name || seen.has(name)) continue;
+          seen.set(name, {
+            id: name,
+            name,
+            initial: (name[0] || "?").toUpperCase(),
             path: p.path,
+            addr: overlayAddrOf(a),
+            agentType: a.agentType,
           });
         }
       }
@@ -189,7 +194,15 @@ export const useZenStore = create<ZenState>((set, get) => ({
       const path = agents.find((a) => a.id === agentId)?.path;
       if (path) await get().hydrateFiles(path);
       else set(failFiles("live agents have no workspace path"));
-      if (agentId) await get().hydrateThread(agentId);
+      const row = agents.find((a) => a.id === agentId);
+      if (row?.addr) await get().hydrateThread(row.addr);
+      else {
+        set({
+          threadSource: "error",
+          thread: [],
+          threadError: agentId ? "no overlay addr" : "live: 0 agents",
+        });
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       set({
@@ -283,9 +296,20 @@ export const useZenStore = create<ZenState>((set, get) => ({
 
   setAgent: (id) => {
     set({ agentId: id, openFileIds: [], focusId: null, splitId: null });
-    const path = get().agents.find((a) => a.id === id)?.path;
-    if (path) void get().hydrateFiles(path);
-    void get().hydrateThread(id);
+    const row = get().agents.find((a) => a.id === id);
+    if (row?.path) void get().hydrateFiles(row.path);
+    if (get().agentSource === "stub") {
+      void get().hydrateThread(id);
+      return;
+    }
+    if (row?.addr) void get().hydrateThread(row.addr);
+    else {
+      set({
+        threadSource: "error",
+        thread: [],
+        threadError: "no overlay addr",
+      });
+    }
   },
   toggleFiles: () => set({ filesOpen: !get().filesOpen }),
 

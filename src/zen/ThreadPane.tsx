@@ -55,12 +55,15 @@ export function ThreadPane() {
   const source = useZenStore((s) => s.threadSource);
   const error = useZenStore((s) => s.threadError);
 
+  const empty =
+    (source === "live" || source === "stub") && !error && thread.length === 0;
+
   return (
     <div
-      className="flex flex-col flex-1 min-h-0 min-w-0"
+      className="flex flex-col flex-1 min-h-0 min-w-0 overflow-x-hidden"
       style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' }}
     >
-      <div className="flex-1 overflow-y-auto px-2.5 py-3 flex flex-col gap-1">
+      <div className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-2.5 py-3 flex flex-col gap-1">
         {source === "loading" ? (
           <span className="text-[11px] text-[var(--text-muted)] tracking-widest uppercase px-2">
             {sourceWord(source)} thread
@@ -69,6 +72,14 @@ export function ThreadPane() {
         {source === "error" && error ? (
           <span className="text-[11px] text-[var(--warning)] px-2">
             {asErrorText(error)}
+          </span>
+        ) : null}
+        {empty ? (
+          <span
+            className="text-[11px] text-[var(--text-muted)] px-2"
+            data-testid="thread-empty"
+          >
+            No messages
           </span>
         ) : null}
         {thread.map((m, i) => (
@@ -90,14 +101,14 @@ export function ThreadPane() {
         ))}
       </div>
       <div
-        className="flex items-center gap-2 px-3 pt-2 shrink-0"
+        className="flex items-center gap-2 px-3 pt-2 shrink-0 min-w-0 w-full overflow-hidden"
         style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
       >
-        <div className="flex-1 flex items-center rounded-full px-3 py-2 bg-[var(--card)]">
+        <div className="flex-1 min-w-0 overflow-hidden flex items-center rounded-full px-3 py-2 bg-[var(--card)]">
           <input
             disabled
             placeholder="Cannot send — POST /cli/thread/post not proven"
-            className="flex-1 bg-transparent border-0 text-[17px] text-[var(--text)] outline-none"
+            className="flex-1 min-w-0 w-full bg-transparent border-0 text-[17px] text-[var(--text)] outline-none overflow-hidden text-ellipsis"
             aria-label="Message"
           />
         </div>

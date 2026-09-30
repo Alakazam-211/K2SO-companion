@@ -15,9 +15,36 @@ import {
   getProjectsSummary,
   getThread,
   getToken,
+  type Agent,
 } from "../api/client";
 import { STUB_AGENTS, STUB_FILES } from "./stubData";
 import { useZenStore } from "./zenStore";
+
+function agent(partial: Partial<Agent> & { name: string }): Agent {
+  return {
+    name: partial.name,
+    role: partial.role ?? "",
+    isManager: partial.isManager ?? false,
+    agentType: partial.agentType ?? "skill",
+    inboxCount: 0,
+    activeCount: 0,
+    doneCount: 0,
+    handle: partial.handle,
+    addr: partial.addr,
+    roomHandle: partial.roomHandle,
+    displayName: partial.displayName,
+  };
+}
+
+const PROJECT = {
+  id: "k2",
+  name: "K2",
+  path: "/ws",
+  color: "",
+  agentMode: "",
+  agentsRunning: 0,
+  reviewsPending: 0,
+};
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -234,5 +261,114 @@ describe("hydrateThread", () => {
     expect(s.threadSource).toBe("error");
     expect(s.thread).toEqual([]);
     expect(s.threadError).toMatch(/thread failed/);
+  });
+});
+
+describe("hydrateAgents keys the rail on agentType, not name", () => {
+  beforeEach(() => {
+    reset();
+    vi.mocked(getToken).mockReturnValue("tok");
+    vi.mocked(getProjectsSummary).mockReset();
+    vi.mocked(getAgents).mockReset();
+    vi.mocked(getFsReadDir).mockReset();
+    vi.mocked(getThread).mockReset();
+    vi.mocked(getProjectsSummary).mockResolvedValue({ ok: true, data: [PROJECT] });
+    vi.mocked(getFsReadDir).mockResolvedValue({ ok: true, data: [] });
+    vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
+  });
+
+  it("drops skill packs and leftover templates; keeps an agent row untransformed", async () => {
+    const skillish = [
+      agent({ name: "k2-canonical-agents", agentType: "skill" }),
+      agent({ name: "k2so-manager", agentType: "agent-template" }),
+      agent({ name: "k2so-agent", agentType: "k2so" }),
+      agent({ name: "k2-cli" }),
+    ];
+    expect(skillish.length).toBeGreaterThan(0);
+    vi.mocked(getAgents).mockResolvedValue({
+      ok: true,
+      data: [
+        ...skillish,
+        agent({ name: "k2so-Denali", agentType: "agent", handle: "denali" }),
+      ],
+    });
+    await useZenStore.getState().hydrateAgents();
+    const s = useZenStore.getState();
+    expect(s.agents.map((a) => a.name)).toEqual(["k2so-Denali"]);
+    expect(s.agents[0].addr).toBe("denali");
+    expect(s.agents.some((a) => a.name === "k2-canonical-agents")).toBe(false);
+    expect(vi.mocked(getThread).mock.calls.map((c) => c[0])).toEqual(["denali"]);
+  });
+
+  it("does not GET /cli/thread with the row name when no handle/addr is present", async () => {
+    vi.mocked(getAgents).mockResolvedValue({
+      ok: true,
+      data: [agent({ name: "Denali", agentType: "agent" })],
+    });
+    await useZenStore.getState().hydrateAgents();
+    const s = useZenStore.getState();
+    expect(s.agents.map((a) => a.name)).toEqual(["Denali"]);
+    expect(s.agents[0].addr).toBeNull();
+    expect(vi.mocked(getThread)).not.toHaveBeenCalled();
+    expect(s.threadSource).toBe("error");
+    expect(s.threadError).toBe("no overlay addr");
+    expect(s.thread).toEqual([]);
+  });
+
+  it("skill-only list is live 0 agents and does not call getThread", async () => {
+    const skillish = [
+      agent({ name: "k2-canonical-agents", agentType: "skill" }),
+      agent({ name: "k2so-.archive", agentType: "agent-template" }),
+    ];
+    expect(skillish.length).toBeGreaterThan(0);
+    vi.mocked(getAgents).mockResolvedValue({ ok: true, data: skillish });
+    await useZenStore.getState().hydrateAgents();
+    const s = useZenStore.getState();
+    expect(s.agentSource).toBe("live");
+    expect(s.agents).toEqual([]);
+    expect(s.agentError).toBe("live: 0 agents");
+    expect(vi.mocked(getThread)).not.toHaveBeenCalled();
+    expect(s.threadError).toBe("live: 0 agents");
+  });
+
+  it("setAgent uses overlay addr, never the display name", async () => {
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [
+        {
+          id: "k2so-Denali",
+          name: "k2so-Denali",
+          initial: "K",
+          path: "/ws",
+          addr: "denali",
+          agentType: "agent",
+        },
+        {
+          id: "NoAddr",
+          name: "NoAddr",
+          initial: "N",
+          path: "/ws",
+          addr: null,
+          agentType: "agent",
+        },
+      ],
+      agentId: "k2so-Denali",
+    });
+    vi.mocked(getThread).mockClear();
+    useZenStore.getState().setAgent("NoAddr");
+    expect(vi.mocked(getThread)).not.toHaveBeenCalled();
+    expect(useZenStore.getState().threadError).toBe("no overlay addr");
+    useZenStore.getState().setAgent("k2so-Denali");
+    expect(vi.mocked(getThread).mock.calls.map((c) => c[0])).toEqual(["denali"]);
+  });
+
+  it("stub setAgent still loads the stub thread", async () => {
+    vi.mocked(getToken).mockReturnValue("");
+    await useZenStore.getState().hydrateAgents();
+    useZenStore.getState().setAgent(STUB_AGENTS[1].id);
+    const s = useZenStore.getState();
+    expect(s.threadSource).toBe("stub");
+    expect(s.threadError).toBeNull();
+    expect(s.thread.length).toBeGreaterThan(0);
   });
 });
