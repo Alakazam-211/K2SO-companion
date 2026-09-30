@@ -159,6 +159,8 @@ export type JoinedOverlayRow = {
   mode: string | null;
   enabled: boolean | null;
   live: boolean | null;
+  /** Line-two sidecar title from the server. Null on a main chat. */
+  chatTitle: string | null;
 };
 
 function fromAgent(
@@ -171,7 +173,34 @@ function fromAgent(
     enabled: a.enabled ?? null,
     live: a.live ?? null,
     ...rest,
+    chatTitle: rest.chatTitle ?? null,
   };
+}
+
+function isSlashHandle(handle: string): boolean {
+  return handle.includes("/");
+}
+
+function sidecarTitle(handle: string, projectName: string, fleetName: string): string {
+  const suffix = handle.split("/").slice(1).join("/");
+  const pn = projectName.trim();
+  if (pn && pn !== fleetName && pn !== handle) return pn;
+  return suffix || handle;
+}
+
+function sidecarFromProject(
+  a: FleetNamePath,
+  path: string,
+  project: ProjectHandlePath
+): JoinedOverlayRow {
+  const handle = (project.handle ?? "").trim();
+  return fromAgent(a, {
+    id: `${path}::${handle}`,
+    path,
+    addr: handle,
+    joinMiss: null,
+    chatTitle: sidecarTitle(handle, project.name, a.name),
+  });
 }
 
 function pathKey(path: string): string | null {
@@ -208,6 +237,7 @@ export function joinAgentsWithProjects(
           path: a.path,
           addr: null,
           joinMiss: JOIN_NO_PATH,
+          chatTitle: null,
         })
       );
       continue;
@@ -221,39 +251,68 @@ export function joinAgentsWithProjects(
           path: key,
           addr: null,
           joinMiss: JOIN_NO_PROJECT,
+          chatTitle: null,
         })
       );
       continue;
     }
-    if (matches.length > 1) {
+    const mains = matches.filter((p) => !isSlashHandle((p.handle ?? "").trim()));
+    const sides = matches.filter((p) => isSlashHandle((p.handle ?? "").trim()));
+    if (mains.length > 1) {
       out.push(
         fromAgent(a, {
           id: key,
           path: key,
           addr: null,
           joinMiss: JOIN_DUP_PATH,
+          chatTitle: null,
         })
       );
       continue;
     }
-    const handle = (matches[0].handle ?? "").trim();
-    if (!handle) {
-      out.push(
-        fromAgent(a, {
-          id: key,
-          path: key,
-          addr: null,
-          joinMiss: JOIN_NO_HANDLE,
-        })
-      );
+    if (mains.length === 1) {
+      const handle = (mains[0].handle ?? "").trim();
+      if (!handle) {
+        out.push(
+          fromAgent(a, {
+            id: key,
+            path: key,
+            addr: null,
+            joinMiss: JOIN_NO_HANDLE,
+            chatTitle: null,
+          })
+        );
+      } else {
+        out.push(
+          fromAgent(a, {
+            id: key,
+            path: key,
+            addr: handle,
+            joinMiss: null,
+            chatTitle: null,
+          })
+        );
+      }
+      for (const side of sides) {
+        const h = (side.handle ?? "").trim();
+        if (h) out.push(sidecarFromProject(a, key, side));
+      }
+      continue;
+    }
+    if (sides.length > 0) {
+      for (const side of sides) {
+        const h = (side.handle ?? "").trim();
+        if (h) out.push(sidecarFromProject(a, key, side));
+      }
       continue;
     }
     out.push(
       fromAgent(a, {
         id: key,
         path: key,
-        addr: handle,
-        joinMiss: null,
+        addr: null,
+        joinMiss: JOIN_NO_HANDLE,
+        chatTitle: null,
       })
     );
   }
@@ -270,6 +329,7 @@ export function joinAgentsWithProjects(
         mode: null,
         enabled: null,
         live: null,
+        chatTitle: null,
       });
       continue;
     }
@@ -284,6 +344,7 @@ export function joinAgentsWithProjects(
       mode: null,
       enabled: null,
       live: null,
+      chatTitle: null,
     });
   }
   return out;

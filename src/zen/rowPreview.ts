@@ -6,6 +6,7 @@ export type OverlayPreviewInput = {
   joinMiss?: string | null;
   addr?: string | null;
   name?: string | null;
+  chatTitle?: string | null;
 };
 
 export function overlayRowPreview(row: OverlayPreviewInput): string {
@@ -13,8 +14,10 @@ export function overlayRowPreview(row: OverlayPreviewInput): string {
   if (row.joinMiss) return row.joinMiss;
   const addr = (row.addr || "").trim();
   if (addr.includes("/")) {
-    const title = (row.name || "").trim();
-    return title || addr;
+    const title = (row.chatTitle || "").trim();
+    if (title) return title;
+    const suffix = addr.split("/").slice(1).join("/");
+    return suffix || addr;
   }
   return "main chat";
 }

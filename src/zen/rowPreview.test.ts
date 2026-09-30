@@ -48,17 +48,30 @@ describe("overlayRowPreview", () => {
   });
 
   it("two different sidecars produce two different lines", () => {
-    const a = { addr: "k2so-companion/1", name: "k2so-companion / 1" };
-    const b = { addr: "aspen/1", name: "aspen / 1" };
+    const a = {
+      addr: "k2so-companion/1",
+      name: "K2 Companion",
+      chatTitle: "1",
+    };
+    const b = { addr: "aspen/1", name: "aspen", chatTitle: "1" };
     // e976d27 rowPreview: every sidecar got the same category sentence.
     const oldA = oldRowPreview(a);
     const oldB = oldRowPreview(b);
     expect(oldA).toBe("Sidecar · same workspace, extra chat");
     expect(oldB).toBe("Sidecar · same workspace, extra chat");
     expect(oldA).toBe(oldB);
-    expect(overlayRowPreview(a)).toBe("k2so-companion / 1");
-    expect(overlayRowPreview(b)).toBe("aspen / 1");
-    expect(overlayRowPreview(a)).not.toBe(overlayRowPreview(b));
+    // Line 2 is the sidecar's own title, not the workspace name.
+    expect(overlayRowPreview(a)).toBe("1");
+    expect(overlayRowPreview(b)).toBe("1");
+    expect(overlayRowPreview({ addr: "aspen/1", name: "aspen", chatTitle: "reviewer" })).toBe(
+      "reviewer"
+    );
+    expect(overlayRowPreview(a)).not.toBe(a.name);
+    expect(
+      overlayRowPreview({ addr: "k2so-companion/1", name: "K2 Companion", chatTitle: "1" })
+    ).not.toBe(
+      overlayRowPreview({ addr: "aspen/reviewer", name: "aspen", chatTitle: "reviewer" })
+    );
   });
 
   it("a main chat says the literal words main chat", () => {

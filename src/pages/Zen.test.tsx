@@ -14,6 +14,8 @@ vi.mock("../api/client", () => ({
   getThread: vi.fn(),
   postThread: vi.fn(),
   inspectProjectsSummary: vi.fn(),
+  getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
+  spawnSidecarSession: vi.fn(),
 }));
 
 vi.mock("../api/projectGroups", () => ({

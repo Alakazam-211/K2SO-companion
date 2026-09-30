@@ -1,12 +1,14 @@
 import { create } from "zustand";
 import {
   getAgentList,
+  getAllSessions,
   getCliProjectsList,
   getFsReadDir,
   getFsReadFile,
   getThread,
   getToken,
   postThread,
+  spawnSidecarSession,
   type FsDirEntry,
 } from "../api/client";
 import {
@@ -26,6 +28,12 @@ import {
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
 import { beginLastAt, fetchLastAt } from "./lastAtFetch";
 import { isSendableAddr } from "./sendGate";
+import {
+  nextSidecarAddr,
+  parseCompanionSessions,
+  sidecarSuffix,
+  sidecarsFromSessions,
+} from "./sidecarRows";
 import { isMine, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import {
   NO_WORKSPACE_PATH,
@@ -110,7 +118,7 @@ type ZenState = {
   /** 0..1 width of the left split pane. */
   splitRatio: number;
   setAgent: (id: string) => void;
-  openSidecar: (baseId: string) => void;
+  openSidecar: (baseId: string) => Promise<{ ok: boolean; error?: string }>;
   closeChat: () => void;
   toggleFiles: () => void;
   openFile: (id: string) => void;
@@ -230,10 +238,11 @@ export const useZenStore = create<ZenState>((set, get) => ({
       thread: [],
     });
     try {
-      const [rAgents, rProjects, rGroups] = await Promise.all([
+      const [rAgents, rProjects, rGroups, rSessions] = await Promise.all([
         getAgentList(),
         getCliProjectsList(),
         fetchProjectGroups(),
+        getAllSessions(),
       ]);
       const notices: string[] = [];
       let fleet: {
@@ -321,21 +330,55 @@ export const useZenStore = create<ZenState>((set, get) => ({
         return;
       }
 
-      const agents: StubAgent[] = [
-        ...groups,
-        ...joinAgentsWithProjects(fleet, book).map((row) => ({
-          id: row.id,
-          name: row.name,
-          initial: skinInitials(row.name),
-          path: row.path,
-          addr: row.addr,
-          joinMiss: row.joinMiss,
-          kind: "agent" as const,
-          mode: row.mode,
-          enabled: row.enabled,
-          live: row.live,
-        })),
-      ];
+      const joined = joinAgentsWithProjects(fleet, book);
+      const mapped: StubAgent[] = joined.map((row) => ({
+        id: row.id,
+        name: row.name,
+        initial: skinInitials(row.name),
+        path: row.path,
+        addr: row.addr,
+        joinMiss: row.joinMiss,
+        kind: "agent" as const,
+        mode: row.mode,
+        enabled: row.enabled,
+        live: row.live,
+        chatTitle: row.chatTitle,
+      }));
+      const haveAddr = new Set(
+        mapped.map((a) => (a.addr || "").trim()).filter(Boolean)
+      );
+      if (rSessions.ok) {
+        const parsed = parseCompanionSessions(rSessions.data);
+        if (parsed) {
+          const mains = joined.filter(
+            (r) => r.addr && !r.addr.includes("/") && !r.joinMiss
+          );
+          for (const side of sidecarsFromSessions(parsed, mains)) {
+            if (haveAddr.has(side.addr)) continue;
+            haveAddr.add(side.addr);
+            mapped.push({
+              id: `${side.path}::${side.addr}`,
+              name: side.name,
+              initial: skinInitials(side.name),
+              path: side.path,
+              addr: side.addr,
+              joinMiss: null,
+              kind: "agent",
+              mode: null,
+              enabled: null,
+              live: null,
+              chatTitle: side.chatTitle,
+            });
+          }
+        } else {
+          notices.push(
+            "GET /cli/companion/sessions returned an unrecognised shape. Sidecars were not listed."
+          );
+        }
+      } else {
+        notices.push(rSessions.error || "GET /cli/companion/sessions failed");
+      }
+      const agents: StubAgent[] = [...groups, ...mapped];
       set({
         agentSource: "live",
         agents,
@@ -672,21 +715,47 @@ export const useZenStore = create<ZenState>((set, get) => ({
       });
     }
   },
-  openSidecar: (baseId) => {
+  openSidecar: async (baseId) => {
     const base = get().agents.find((a) => a.id === baseId);
     const addr = (base?.addr || "").trim();
-    if (!base || !addr) return;
-    const sidecarAddr = `${addr.split("/")[0]}/1`;
+    const path = (base?.path || "").trim();
+    if (!base || !addr || base.kind === "group") {
+      return { ok: false, error: "Not chattable" };
+    }
+    if (!path) {
+      return { ok: false, error: "No workspace path to start a separate chat" };
+    }
+    const next = nextSidecarAddr(
+      addr,
+      get()
+        .agents.map((a) => (a.addr || "").trim())
+        .filter(Boolean)
+    );
+    if (!next) return { ok: false, error: "Could not pick a sidecar address" };
+    const suffix = sidecarSuffix(next);
+    const spawned = await spawnSidecarSession(path, suffix, suffix);
+    if (!spawned.ok) {
+      return {
+        ok: false,
+        error: spawned.error || "Could not start a separate chat",
+      };
+    }
+    const serverName = (spawned.data?.agentName || "").trim() || suffix;
+    const sidecarAddr = serverName.includes("/")
+      ? serverName
+      : `${addr.split("/")[0]}/${serverName}`;
+    await get().hydrateAgents();
     let row = get().agents.find((a) => a.addr === sidecarAddr);
     if (!row) {
       row = {
-        id: `${base.path || base.id}::sidecar-1`,
-        name: `${base.name} / 1`,
+        id: `${path}::${sidecarAddr}`,
+        name: base.name,
         initial: base.initial,
-        path: base.path,
+        path,
         addr: sidecarAddr,
         joinMiss: null,
         kind: "agent",
+        chatTitle: sidecarSuffix(sidecarAddr) || serverName,
         mode: base.mode,
         enabled: base.enabled,
         live: base.live,
@@ -694,6 +763,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       set({ agents: [row, ...get().agents] });
     }
     get().setAgent(row.id);
+    return { ok: true };
   },
   closeChat: () =>
     set({

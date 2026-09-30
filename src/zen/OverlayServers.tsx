@@ -30,17 +30,19 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
 
   const pick = async (server: ServerEntry) => {
     if (connectingId) return;
-    useServersStore.getState().setActive(server.id);
     setConnectingId(server.id);
     const outcome = await connectServer(server.id);
     setConnectingId(null);
+    if (outcome === "still-valid" || outcome === "revived") {
+      useServersStore.getState().setActive(server.id);
+      await useZenStore.getState().hydrateAgents();
+      onClose();
+      return;
+    }
     if (outcome === "signin-required") {
       setEditingId(server.id);
       return;
     }
-    if (outcome === "unreachable") return;
-    await useZenStore.getState().hydrateAgents();
-    onClose();
   };
 
   const closeForm = () => {

@@ -24,6 +24,7 @@ export function OverlayAddServer({
   const [showPassword, setShowPassword] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmingRemove, setConfirmingRemove] = useState(false);
   const isValid = serverUrl.length > 0 && username.length > 0 && password.length > 0;
 
   const onSubmit = async (e: FormEvent) => {
@@ -186,17 +187,41 @@ export function OverlayAddServer({
           {busy ? "Connecting..." : "Connect & save"}
         </button>
         {editing ? (
-          <button
-            type="button"
-            className="w-full text-[17px]"
-            style={{ minHeight: 44, color: "#ef4444" }}
-            onClick={() => {
-              useServersStore.getState().removeServer(editing.id);
-              onCancel?.();
-            }}
-          >
-            Remove
-          </button>
+          confirmingRemove ? (
+            <div className="flex flex-col gap-2">
+              <p className="text-[13px] text-center" style={{ color: "#8e8e93" }}>
+                Remove this server from the phone? You will need to sign in again to add it back.
+              </p>
+              <button
+                type="button"
+                className="w-full text-[17px] font-semibold"
+                style={{ minHeight: 44, color: "#fff", background: "#ef4444", borderRadius: 12 }}
+                onClick={() => {
+                  useServersStore.getState().removeServer(editing.id);
+                  onCancel?.();
+                }}
+              >
+                Remove server
+              </button>
+              <button
+                type="button"
+                className="w-full text-[17px]"
+                style={{ minHeight: 44, color: "#8e8e93" }}
+                onClick={() => setConfirmingRemove(false)}
+              >
+                Keep server
+              </button>
+            </div>
+          ) : (
+            <button
+              type="button"
+              className="w-full text-[17px]"
+              style={{ minHeight: 44, color: "#ef4444" }}
+              onClick={() => setConfirmingRemove(true)}
+            >
+              Remove
+            </button>
+          )
         ) : null}
         <p className="text-[11px] text-center" style={{ color: "#8e8e93" }}>
           Sign in with your K2 Connect account to reach your machine
