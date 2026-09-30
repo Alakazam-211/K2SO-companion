@@ -492,6 +492,20 @@ export const getFsReadDir = (path: string) =>
 export const getFsReadFile = (path: string) =>
   request<FsFileContent>("fs.read_file", "/cli/fs/read-file", { path });
 
+/** Skin route POST /cli/fs/upload-binary. `workspace` is the overlay handle. */
+export const uploadFsBinary = (
+  workspace: string,
+  dir: string,
+  filename: string,
+  base64: string
+) =>
+  request<{ path: string }>(
+    "fs.upload_binary",
+    "/cli/fs/upload-binary",
+    { workspace, dir, filename, base64 },
+    { method: "POST" }
+  );
+
 /** Thread history. Skin: GET /cli/thread?addr=&limit=&before_seq= */
 export type ThreadDoc = {
   id?: string;

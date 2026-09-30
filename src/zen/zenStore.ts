@@ -14,6 +14,7 @@ import {
 import {
   fetchProjectGroupMessages,
   fetchProjectGroups,
+  postProjectGroupMessage,
   type ProjectGroupMessage,
 } from "../api/projectGroups";
 import { getActiveServer } from "../stores/servers";
@@ -27,7 +28,7 @@ import {
 } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
 import { beginLastAt, fetchLastAt } from "./lastAtFetch";
-import { pinId, readPinnedIds, unpinId, writePinnedIds } from "./pinChats";
+import { insertPinned, pinId, readPinnedIds, unpinId, writePinnedIds } from "./pinChats";
 import { isSendableAddr } from "./sendGate";
 import {
   nextSidecarAddr,
@@ -94,6 +95,7 @@ type ZenState = {
   thread: ThreadMessage[];
   threadGen: number;
   threadAddr: string | null;
+  threadGroupId: string | null;
   threadHasMore: boolean;
   threadOldestSeq: number | null;
   threadLoadingEarlier: boolean;
@@ -109,7 +111,8 @@ type ZenState = {
   lastAtByKey: Record<string, number | null>;
   ensureLastAt: (key: string) => void;
   pinnedIds: string[];
-  pinChat: (id: string) => void;
+  pinChat: (id: string, beforeId?: string | null) => void;
+  movePin: (id: string, beforeId: string | null) => void;
   unpinChat: (id: string) => void;
   dismissFiles: () => void;
   /** Overlay home is the chats list. A row opens the thread. */
@@ -182,6 +185,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   thread: [],
   threadGen: 0,
   threadAddr: null,
+  threadGroupId: null,
   threadHasMore: false,
   threadOldestSeq: null,
   threadLoadingEarlier: false,
@@ -189,8 +193,16 @@ export const useZenStore = create<ZenState>((set, get) => ({
   sendError: null,
   lastAtByKey: {},
   pinnedIds: readPinnedIds(),
-  pinChat: (id) => {
-    const pinnedIds = pinId(get().pinnedIds, id);
+  pinChat: (id, beforeId) => {
+    const pinnedIds =
+      beforeId === undefined
+        ? pinId(get().pinnedIds, id)
+        : insertPinned(get().pinnedIds, id, beforeId);
+    writePinnedIds(pinnedIds);
+    set({ pinnedIds });
+  },
+  movePin: (id, beforeId) => {
+    const pinnedIds = insertPinned(get().pinnedIds, id, beforeId);
     writePinnedIds(pinnedIds);
     set({ pinnedIds });
   },
@@ -236,9 +248,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
         fileError: null,
         screen: resumeId ? "thread" : "list",
         agentId: resumeId || "",
-        threadSource: "stub",
+        threadSource: resumeId ? "loading" : "stub",
         threadError: null,
-        thread: resumeId ? get().thread : [],
+        thread: resumeId ? [] : get().thread,
+        threadGroupId: resumeId ? null : get().threadGroupId,
       });
       if (resumeId) get().setAgent(resumeId);
       return;
@@ -258,9 +271,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
       openFileIds: resumeId ? get().openFileIds : [],
       focusId: resumeId ? get().focusId : null,
       splitId: resumeId ? get().splitId : null,
-      threadSource: resumeId ? get().threadSource : "loading",
-      threadError: resumeId ? get().threadError : null,
-      thread: resumeId ? get().thread : [],
+      threadSource: "loading",
+      threadError: null,
+      thread: [],
+      threadGroupId: null,
     });
     try {
       const [rAgents, rProjects, rGroups, rSessions] = await Promise.all([
@@ -411,9 +425,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
         fileSource: resumeId ? get().fileSource : "live",
         files: resumeId ? get().files : [],
         fileError: resumeId ? get().fileError : null,
-        threadSource: resumeId ? get().threadSource : "live",
-        threadError: resumeId ? get().threadError : null,
-        thread: resumeId ? get().thread : [],
+        threadSource: resumeId ? "loading" : "live",
+        threadError: null,
+        thread: [],
         screen: resumeId ? "thread" : "list",
         agentId: resumeId || "",
       });
@@ -432,9 +446,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
         files: resumeId ? get().files : [],
         agentError: msg,
         fileError: msg,
-        threadSource: resumeId ? get().threadSource : "error",
-        threadError: resumeId ? get().threadError : msg,
-        thread: resumeId ? get().thread : [],
+        threadSource: resumeId ? "loading" : "error",
+        threadError: resumeId ? null : msg,
+        thread: [],
         screen: resumeId ? "thread" : "list",
         agentId: resumeId || "",
       });
@@ -499,6 +513,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadError: null,
       threadSource: "loading",
       threadAddr: null,
+      threadGroupId: groupId,
       threadHasMore: false,
       threadOldestSeq: null,
     });
@@ -539,6 +554,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadError: null,
         thread: stubThread(addr),
         threadAddr: addr,
+        threadGroupId: null,
         threadHasMore: false,
         threadOldestSeq: null,
       });
@@ -551,6 +567,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadError: null,
       threadSource: "loading",
       threadAddr: addr,
+      threadGroupId: null,
       threadHasMore: false,
       threadOldestSeq: null,
     });
@@ -645,6 +662,53 @@ export const useZenStore = create<ZenState>((set, get) => ({
     if (!trimmed) return;
     if (get().agentSource === "stub" || get().threadSource === "stub") {
       set({ sendError: "STUB — Cannot send — POST /cli/thread/post not proven" });
+      return;
+    }
+    const groupId = (get().threadGroupId || "").trim();
+    if (groupId) {
+      const gen = get().threadGen;
+      set({ sending: true, sendError: null });
+      try {
+        const posted = await postProjectGroupMessage(groupId, trimmed);
+        if (get().threadGen !== gen) return;
+        if (!posted.ok || !posted.data) {
+          set({
+            sending: false,
+            sendError: posted.error || "send failed",
+          });
+          return;
+        }
+        const username = getActiveServer()?.username ?? "";
+        const row = posted.data;
+        const msg = groupMessagesToThread(
+          [
+            {
+              id: row.id,
+              groupId: row.groupId,
+              author: row.author,
+              body: row.body,
+              createdAt: row.createdAt,
+            },
+          ],
+          username
+        )[0];
+        const seen = new Set(get().thread.map((m) => m.id));
+        set({
+          sending: false,
+          sendError: null,
+          thread: msg && !seen.has(msg.id) ? [...get().thread, msg] : get().thread,
+          lastAtByKey: {
+            ...get().lastAtByKey,
+            [`g:${groupId}`]: row.createdAt,
+          },
+        });
+      } catch (e) {
+        if (get().threadGen !== gen) return;
+        set({
+          sending: false,
+          sendError: e instanceof Error ? e.message : String(e),
+        });
+      }
       return;
     }
     const addr = get().threadAddr;
@@ -757,6 +821,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadSource: "error",
         thread: [],
         threadError: row?.joinMiss || "Not chattable",
+        threadGroupId: null,
       });
     }
   },
@@ -827,6 +892,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       splitId: null,
       thread: [],
       threadError: null,
+      threadGroupId: null,
       files: [],
     }),
   toggleFiles: () => set({ filesOpen: !get().filesOpen }),

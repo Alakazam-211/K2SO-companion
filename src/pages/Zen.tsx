@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
@@ -38,6 +38,23 @@ export function Zen() {
   const wantThread =
     screen === "thread" ||
     (Boolean((threadParam || "").trim()) && !ignoreThreadQuery);
+
+  // Chat return (`?thread=`) must first-paint LOADING, never leftover bubbles.
+  // hydrateAgents is useEffect (after paint); this runs before paint.
+  useLayoutEffect(() => {
+    const id = (threadParam || "").trim();
+    if (!id || ignoreThreadQuery) return;
+    useZenStore.setState({
+      screen: "thread",
+      agentId: id,
+      thread: [],
+      threadError: null,
+      threadSource: "loading",
+      sending: false,
+      sendError: null,
+      threadGroupId: null,
+    });
+  }, [threadParam, ignoreThreadQuery]);
 
   useEffect(() => {
     const id = (threadParam || "").trim();

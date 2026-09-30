@@ -1,5 +1,11 @@
 import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { PIN_HOLD_MS, PIN_LIFT_PX, dropIsPins, isListPan } from "./pinChats";
+import {
+  PIN_HOLD_MS,
+  PIN_LIFT_PX,
+  dropIsPins,
+  isListPan,
+  pinBeforeId,
+} from "./pinChats";
 import { useZenStore } from "./zenStore";
 
 type Drag = {
@@ -13,6 +19,7 @@ type Drag = {
 
 export function usePinDrag(pinsRef: { current: HTMLElement | null }) {
   const pinChat = useZenStore((s) => s.pinChat);
+  const movePin = useZenStore((s) => s.movePin);
   const unpinChat = useZenStore((s) => s.unpinChat);
   const skipClick = useRef(false);
   const dragRef = useRef<Drag | null>(null);
@@ -112,7 +119,9 @@ export function usePinDrag(pinsRef: { current: HTMLElement | null }) {
       )
         ? "pins"
         : "list";
-      if (from === "list" && zone === "pins") pinChat(id);
+      const before = pinBeforeId(e.clientX, e.clientY, pinsRef.current);
+      if (from === "list" && zone === "pins") pinChat(id, before);
+      if (from === "pin" && zone === "pins") movePin(id, before);
       if (from === "pin" && zone === "list") unpinChat(id);
     }
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
