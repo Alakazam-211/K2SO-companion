@@ -1,4 +1,5 @@
-import { useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import { flushSync } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { ChatsList } from "../zen/ChatsList";
@@ -12,7 +13,7 @@ import { useZenStore } from "../zen/zenStore";
 
 export function Zen() {
   const navigate = useNavigate();
-  const [params] = useSearchParams();
+  const [params, setParams] = useSearchParams();
   const threadParam = params.get("thread");
   const screen = useZenStore((s) => s.screen);
   const agentId = useZenStore((s) => s.agentId);
@@ -30,12 +31,45 @@ export function Zen() {
   const agent = agents.find((a) => a.id === agentId);
   const viewingFile = openFileIds.length > 0;
   const filesPaneOpen = filesOpen || viewingFile;
-  const wantThread = screen === "thread" || Boolean((threadParam || "").trim());
+  // ?thread= paints the thread on first frame (no chats-list flash). After
+  // Back, ignore that query until it is stripped, or closeChat leaves an em dash.
+  const [ignoreThreadQuery, setIgnoreThreadQuery] = useState(false);
+  const skipHydrateOnClear = useRef(false);
+  const wantThread =
+    screen === "thread" ||
+    (Boolean((threadParam || "").trim()) && !ignoreThreadQuery);
 
   useEffect(() => {
     const id = (threadParam || "").trim();
-    void hydrateAgents(id ? { resumeId: id } : undefined);
+    if (id) {
+      setIgnoreThreadQuery(false);
+      void hydrateAgents({ resumeId: id });
+      return;
+    }
+    if (skipHydrateOnClear.current) {
+      skipHydrateOnClear.current = false;
+      return;
+    }
+    void hydrateAgents();
   }, [hydrateAgents, threadParam]);
+
+  const backToChats = () => {
+    // closeChat is zustand-sync and would re-render with the query still
+    // holding the thread column (empty name, em dash). Dismiss first.
+    flushSync(() => setIgnoreThreadQuery(true));
+    closeChat();
+    if ((threadParam || "").trim()) {
+      skipHydrateOnClear.current = true;
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.delete("thread");
+          return next;
+        },
+        { replace: true }
+      );
+    }
+  };
 
   const stubBanner =
     agentSource === "stub" && fileSource === "stub" ? STUB_BANNER : "";
@@ -78,7 +112,7 @@ export function Zen() {
             }}
           >
             <button
-              onClick={() => closeChat()}
+              onClick={backToChats}
               className="text-[17px] font-semibold justify-self-start"
               style={{
                 minHeight: 34,
