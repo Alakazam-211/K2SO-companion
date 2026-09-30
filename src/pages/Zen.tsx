@@ -34,7 +34,7 @@ export function Zen() {
   return (
     <div className="flex h-full min-h-0 bg-[var(--background)]">
       <AgentRail />
-      <div className="relative flex flex-col flex-1 min-w-0 min-h-0">
+      <div className="relative flex flex-col flex-1 min-w-0 min-h-0 overflow-x-hidden">
         <header className="flex items-center gap-2 px-3 h-9 border-b border-[var(--border)] bg-[var(--chrome)] shrink-0">
           <button
             onClick={() => navigate("/servers")}

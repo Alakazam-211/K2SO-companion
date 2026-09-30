@@ -56,10 +56,19 @@ export interface Agent {
   name: string;
   role: string;
   isManager: boolean;
+  /**
+   * What the row is. `/cli/agents/list` enumerates `.k2/skills` (`k2 skills list`).
+   * `agent-template` / `k2so` / missing (`skill`) are not conversations.
+   */
   agentType: string;
   inboxCount: number;
   activeCount: number;
   doneCount: number;
+  /** Overlay handle if the daemon sends one. Not derived from `name`. */
+  handle?: string;
+  addr?: string;
+  roomHandle?: string;
+  displayName?: string;
 }
 
 export interface RunningTerminal {

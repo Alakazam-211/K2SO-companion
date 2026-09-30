@@ -40,6 +40,42 @@ describe("ThreadPane", () => {
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
   });
 
+  it("live empty thread is labelled No messages, not a blank pane", () => {
+    useZenStore.setState({
+      threadSource: "live",
+      threadError: null,
+      thread: [],
+    });
+    render(<ThreadPane />);
+    expect(screen.getByTestId("thread-empty").textContent).toBe("No messages");
+    expect(screen.queryByText(/unknown overlay addr/)).toBeNull();
+  });
+
+  it("error pane does not also say No messages", () => {
+    useZenStore.setState({
+      threadSource: "error",
+      threadError: "no overlay addr",
+      thread: [],
+    });
+    render(<ThreadPane />);
+    expect(screen.getByText("no overlay addr")).not.toBeNull();
+    expect(screen.queryByTestId("thread-empty")).toBeNull();
+  });
+
+  it("composer row is min-w-0 so the pill cannot span the files column", () => {
+    useZenStore.setState({
+      threadSource: "live",
+      threadError: null,
+      thread: [],
+    });
+    render(<ThreadPane />);
+    const input = screen.getByPlaceholderText(/not proven/);
+    expect(input.className).toMatch(/min-w-0/);
+    const pill = input.parentElement;
+    expect(pill?.className).toMatch(/min-w-0/);
+    expect(pill?.parentElement?.className).toMatch(/min-w-0/);
+  });
+
   it("renders live bubbles without a send control", () => {
     useZenStore.setState({
       threadSource: "live",
