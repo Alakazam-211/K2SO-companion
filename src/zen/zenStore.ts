@@ -19,6 +19,7 @@ import {
   skinInitials,
 } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
+import { isSendTestAddr, SEND_TEST_REFUSED } from "./sendGate";
 import { normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import {
   NO_WORKSPACE_PATH,
@@ -441,6 +442,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const addr = get().threadAddr;
     if (!addr) {
       set({ sendError: get().threadError || "Not chattable" });
+      return;
+    }
+    if (!isSendTestAddr(addr)) {
+      set({ sendError: SEND_TEST_REFUSED });
       return;
     }
     const gen = get().threadGen;
