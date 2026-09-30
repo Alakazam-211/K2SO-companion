@@ -27,7 +27,7 @@ export function FilePane() {
 
   return (
     <aside
-      className="flex flex-col border-l border-[var(--border)] bg-[var(--surface)] shrink-0"
+      className="flex flex-col h-full min-h-0 border-l border-[var(--border)] bg-[var(--surface)] shrink-0"
       style={{ width: 168 }}
       aria-label="Files"
     >

@@ -79,7 +79,7 @@ export function Settings() {
           onClick={() => navigate("/zen")}
           className="w-full text-left px-4 py-3 text-[13px] text-[var(--accent)]"
         >
-          Open stub (structure only — not live data)
+          Open Zen
         </button>
       </Section>
 

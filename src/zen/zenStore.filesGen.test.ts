@@ -49,6 +49,38 @@ function reset() {
   });
 }
 
+describe("signed-in hydrate never exposes the stub catalogue", () => {
+  beforeEach(() => {
+    reset();
+    vi.mocked(getToken).mockReturnValue("tok");
+    vi.mocked(getProjectsSummary).mockReset();
+    vi.mocked(getAgents).mockReset();
+    vi.mocked(getFsReadDir).mockReset();
+  });
+
+  it("clears stubs synchronously before the first await", async () => {
+    const pending = deferred<Awaited<ReturnType<typeof getProjectsSummary>>>();
+    vi.mocked(getProjectsSummary).mockImplementationOnce(() => pending.promise);
+    const p = useZenStore.getState().hydrateAgents();
+    const mid = useZenStore.getState();
+    expect(mid.agentSource).toBe("loading");
+    expect(mid.fileSource).toBe("loading");
+    expect(mid.agents).toEqual([]);
+    expect(mid.files).toEqual([]);
+    expect(mid.agents.some((a) => a.id.startsWith("stub-"))).toBe(false);
+    expect(mid.files.some((f) => String(f.id).startsWith("stub-"))).toBe(false);
+    pending.resolve({ ok: true, data: [] } as Awaited<ReturnType<typeof getProjectsSummary>>);
+    await p;
+  });
+
+  it("no token is the only path that installs the stub catalogue", async () => {
+    vi.mocked(getToken).mockReturnValue("");
+    await useZenStore.getState().hydrateAgents();
+    expect(useZenStore.getState().agentSource).toBe("stub");
+    expect(useZenStore.getState().agents).toEqual(STUB_AGENTS);
+  });
+});
+
 describe("hydrateFiles generation token", () => {
   beforeEach(() => {
     reset();
