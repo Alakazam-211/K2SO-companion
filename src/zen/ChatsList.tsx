@@ -8,6 +8,7 @@ import { OverlayAddServer } from "./OverlayAddServer";
 import { OverlayCompose } from "./OverlayCompose";
 import { OverlayServers } from "./OverlayServers";
 import { TicketsOverlay } from "./TicketsOverlay";
+import { lastAtKeyFor, sortChatsByRecency } from "./lastAtFetch";
 import { mountainListWhen } from "./threadModel";
 import { useZenStore } from "./zenStore";
 
@@ -45,13 +46,23 @@ export function ChatsList() {
     ? activeServer.nickname || hostLabel(activeServer.url)
     : "No server";
 
-  const filtered = agents.filter((a) =>
-    a.name.toLowerCase().includes(q.trim().toLowerCase())
+  const filtered = sortChatsByRecency(
+    agents.filter((a) => a.name.toLowerCase().includes(q.trim().toLowerCase())),
+    lastAtByKey,
+    lastAtKeyFor
   );
 
   useEffect(() => {
     useFeedbackStore.getState().ensureLive();
   }, [activeServerId]);
+
+  useEffect(() => {
+    if (source !== "live") return;
+    for (const a of agents) {
+      const key = lastAtKeyFor(a);
+      if (key) ensureLastAt(key);
+    }
+  }, [agents, source, ensureLastAt]);
 
   useEffect(() => {
     if (source !== "live") return;
@@ -246,12 +257,7 @@ export function ChatsList() {
           </p>
         ) : null}
         {filtered.map((a) => {
-          const lastKey =
-            source === "live" && a.kind === "group" && a.groupId
-              ? `g:${a.groupId}`
-              : source === "live" && a.addr
-                ? `t:${a.addr}`
-                : undefined;
+          const lastKey = source === "live" ? lastAtKeyFor(a) ?? undefined : undefined;
           const when =
             lastKey && lastAtByKey[lastKey] != null
               ? mountainListWhen(lastAtByKey[lastKey] as number)

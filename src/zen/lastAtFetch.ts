@@ -35,6 +35,32 @@ export function lastAtKey(kind: LastAtKind, id: string): string {
   return kind === "group" ? `g:${id}` : `t:${id}`;
 }
 
+export function lastAtKeyFor(row: {
+  kind?: string | null;
+  groupId?: string | null;
+  addr?: string | null;
+}): string | null {
+  if (row.kind === "group" && row.groupId) return lastAtKey("group", row.groupId);
+  if (row.addr) return lastAtKey("thread", row.addr);
+  return null;
+}
+
+/** Newest last-message first. Untimed rows keep their original relative order at the bottom. */
+export function sortChatsByRecency<T>(
+  rows: T[],
+  lastAtByKey: Record<string, number | null>,
+  keyOf: (row: T) => string | null
+): T[] {
+  return rows
+    .map((row, index) => {
+      const key = keyOf(row);
+      const at = key ? lastAtByKey[key] : undefined;
+      return { row, index, at: typeof at === "number" ? at : -Infinity };
+    })
+    .sort((a, b) => b.at - a.at || a.index - b.index)
+    .map((x) => x.row);
+}
+
 const started = new Set<string>();
 let inflight = 0;
 const waiters: Array<() => void> = [];

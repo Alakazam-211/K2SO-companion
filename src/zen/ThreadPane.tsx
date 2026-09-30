@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState } from "react";
+import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { ChatMessageBody } from "../components/ChatMessage";
 import { asErrorText } from "../lib/apiError";
 import { StubMark } from "./StubMark";
@@ -11,6 +11,14 @@ import {
 } from "./threadScroll";
 import { isSendableAddr } from "./sendGate";
 import { sourceWord, useZenStore } from "./zenStore";
+
+/** iMessage grows the field then caps (~5 lines) and scrolls inside. */
+export const COMPOSER_MAX_PX = 132;
+
+export function composerHeight(scrollHeight: number, maxPx = COMPOSER_MAX_PX): number {
+  if (!Number.isFinite(scrollHeight) || scrollHeight < 24) return 24;
+  return Math.min(scrollHeight, maxPx);
+}
 
 function Bubble({ m }: { m: ThreadMessage }) {
   return (
@@ -55,8 +63,8 @@ function Bubble({ m }: { m: ThreadMessage }) {
 
 /**
  * Overlay thread pane. LOOK: iMessage in/out bubbles + Mountain Time.
- * BEHAVE: GET /cli/thread. Send is on for test rooms only
- * (skin-test-a, k2so-companion-qa). Never sends to a PTY.
+ * BEHAVE: GET /cli/thread. Send is on for any live overlay addr.
+ * Never sends to a PTY.
  */
 export function ThreadPane() {
   const thread = useZenStore((s) => s.thread);
@@ -72,6 +80,7 @@ export function ThreadPane() {
   const sendError = useZenStore((s) => s.sendError);
   const canSend = source === "live" && isSendableAddr(threadAddr);
   const [draft, setDraft] = useState("");
+  const composerRef = useRef<HTMLTextAreaElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const pendingAnchor = useRef<MessageAnchor | null>(null);
   const prevAgent = useRef<string>("");
@@ -96,6 +105,13 @@ export function ThreadPane() {
     prevAgent.current = agentId;
     prevFirst.current = first;
   }, [thread, agentId, source]);
+
+  useLayoutEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${composerHeight(el.scrollHeight)}px`;
+  }, [draft]);
 
   async function onLoadEarlier() {
     const el = scrollerRef.current;
@@ -192,8 +208,8 @@ export function ThreadPane() {
                     : ""}
         </p>
         <form
-          className="flex items-center min-w-0 gap-2"
-          onSubmit={(e) => {
+          className="flex items-end min-w-0 gap-2"
+          onSubmit={(e: FormEvent) => {
             e.preventDefault();
             if (!canSend) return;
             const text = draft;
@@ -202,14 +218,18 @@ export function ThreadPane() {
             });
           }}
         >
-          <div className="flex-1 min-w-0 overflow-hidden flex items-center rounded-full px-3 py-2 bg-[var(--card)]">
-            <input
+          <div className="flex-1 min-w-0 overflow-hidden flex items-end rounded-[20px] px-3 py-2 bg-[var(--card)]">
+            <textarea
+              ref={composerRef}
               disabled={!canSend || sending}
               value={draft}
+              rows={1}
               onChange={(e) => setDraft(e.target.value)}
               placeholder="Message"
-              className="flex-1 min-w-0 w-full bg-transparent border-0 text-[17px] text-[var(--text)] outline-none"
+              className="flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[17px] leading-[22px] text-[var(--text)] outline-none"
+              style={{ maxHeight: COMPOSER_MAX_PX }}
               aria-label="Message"
+              data-testid="composer-input"
             />
           </div>
           {canSend ? (

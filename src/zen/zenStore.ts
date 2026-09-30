@@ -543,12 +543,17 @@ export const useZenStore = create<ZenState>((set, get) => ({
         if (it.seq == null) return m;
         return m == null || it.seq < m ? it.seq : m;
       }, null);
+      const last = items[items.length - 1];
       set({
         threadSource: "live",
         thread: items,
         threadError: null,
         threadHasMore: !!r.data.has_more,
         threadOldestSeq: oldest,
+        lastAtByKey: {
+          ...get().lastAtByKey,
+          [`t:${addr}`]: last?.at ?? get().lastAtByKey[`t:${addr}`] ?? null,
+        },
       });
     } catch (e) {
       if (get().threadGen !== gen) return;
@@ -673,6 +678,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
         thread: items,
         threadHasMore: !!reread.data.has_more,
         threadOldestSeq: oldest,
+        lastAtByKey: {
+          ...get().lastAtByKey,
+          [`t:${addr}`]: onWire.at ?? Date.now() / 1000,
+        },
       });
     } catch (e) {
       if (get().threadGen !== gen) return;

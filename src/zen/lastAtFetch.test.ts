@@ -3,7 +3,9 @@ import {
   LAST_AT_CAP,
   beginLastAt,
   groupLastAt,
+  lastAtKeyFor,
   resetLastAtQueue,
+  sortChatsByRecency,
   threadLastAt,
 } from "./lastAtFetch";
 
@@ -28,6 +30,32 @@ describe("groupLastAt", () => {
       ])
     ).toBe(1789088677);
     expect(groupLastAt([])).toBeNull();
+  });
+});
+
+describe("sortChatsByRecency", () => {
+  it("puts the newest last-message row first", () => {
+    const rows = [
+      { name: "old", addr: "old" },
+      { name: "new", addr: "new" },
+      { name: "mid", addr: "mid" },
+    ];
+    const sorted = sortChatsByRecency(
+      rows,
+      { "t:old": 10, "t:new": 50, "t:mid": 20 },
+      lastAtKeyFor
+    );
+    expect(sorted.map((r) => r.name)).toEqual(["new", "mid", "old"]);
+  });
+
+  it("keeps untimed rows under timed ones, in original order", () => {
+    const rows = [
+      { name: "a", addr: "a" },
+      { name: "b", addr: "b" },
+      { name: "c", addr: "c" },
+    ];
+    const sorted = sortChatsByRecency(rows, { "t:b": 100 }, lastAtKeyFor);
+    expect(sorted.map((r) => r.name)).toEqual(["b", "a", "c"]);
   });
 });
 
