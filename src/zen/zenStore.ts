@@ -71,10 +71,13 @@ function failFiles(message: string): Pick<ZenState, "fileSource" | "files" | "fi
 }
 
 export const useZenStore = create<ZenState>((set, get) => ({
-  agentSource: "stub",
-  fileSource: "stub",
-  agents: STUB_AGENTS,
-  files: STUB_FILES,
+  // Never start on the stub catalogue. A signed-in first paint used to
+  // show STUB_AGENTS until hydrateAgents resolved. Stub is only applied
+  // when hydrateAgents sees no token.
+  agentSource: "loading",
+  fileSource: "loading",
+  agents: [],
+  files: [],
   agentError: null,
   fileError: null,
   filesGen: 0,
@@ -92,6 +95,19 @@ export const useZenStore = create<ZenState>((set, get) => ({
       });
       return;
     }
+    // Session exists: stub is unreachable for the whole in-flight window.
+    set({
+      agentSource: "loading",
+      fileSource: "loading",
+      agents: [],
+      files: [],
+      agentError: null,
+      fileError: null,
+      agentId: "",
+      openFileIds: [],
+      focusId: null,
+      splitId: null,
+    });
     try {
       const projects = await getProjectsSummary();
       if (!projects.ok || !projects.data) {
@@ -180,7 +196,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
   },
 
-  agentId: STUB_AGENTS[0].id,
+  agentId: "",
   filesOpen: true,
   openFileIds: [],
   focusId: null,

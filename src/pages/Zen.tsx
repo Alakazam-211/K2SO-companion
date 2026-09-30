@@ -18,7 +18,10 @@ export function Zen() {
   const hydrateAgents = useZenStore((s) => s.hydrateAgents);
   const openFileIds = useZenStore((s) => s.openFileIds);
   const agent = agents.find((a) => a.id === agentId) ?? agents[0];
-  const thread = (agent && STUB_THREAD[agent.id]) || STUB_THREAD_FALLBACK;
+  const thread =
+    agentSource === "stub"
+      ? (agent && STUB_THREAD[agent.id]) || STUB_THREAD_FALLBACK
+      : [];
   const filesOpen = openFileIds.length > 0;
 
   useEffect(() => {
@@ -42,13 +45,15 @@ export function Zen() {
           >
             Leave
           </button>
-          <span className="text-[var(--text)] text-[13px] font-semibold truncate">
-            {agent?.name ?? "—"}
-          </span>
-          <span className="text-[var(--warning)] text-[9px] tracking-widest uppercase truncate">
-            {banner}
-            {err ? ` · ${err}` : ""}
-          </span>
+          <div className="flex-1 min-w-0 flex flex-col justify-center">
+            <span className="text-[var(--text)] text-[13px] font-semibold truncate">
+              {agent?.name ?? "—"}
+            </span>
+            <span className="text-[var(--warning)] text-[9px] tracking-widest uppercase truncate">
+              {banner}
+              {err ? ` · ${err}` : ""}
+            </span>
+          </div>
         </header>
         <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
           {thread.map((m, i) => (

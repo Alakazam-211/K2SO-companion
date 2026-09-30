@@ -31,4 +31,26 @@ describe("AgentRail stub markers", () => {
     expect(document.querySelectorAll("[data-stub='true']").length).toBe(0);
     expect(screen.getByLabelText("alpha")).not.toBeNull();
   });
+
+  it("61 agents are all in the DOM inside a scroll region, with names not just initials", () => {
+    const agents = Array.from({ length: 61 }, (_, i) => ({
+      id: `k2-agent-${i}`,
+      name: `k2-agent-${i}`,
+      initial: "K",
+      path: "/ws",
+    }));
+    useZenStore.setState({
+      agentSource: "live",
+      agents,
+      agentId: agents[0].id,
+      agentError: null,
+    });
+    render(<AgentRail />);
+    const scroller = document.querySelector("[data-testid='agent-rail-scroll']");
+    expect(scroller).not.toBeNull();
+    expect(scroller?.className).toMatch(/overflow-y-auto/);
+    expect(screen.getAllByRole("button").length).toBe(61);
+    expect(screen.getByText("k2-agent-40")).not.toBeNull();
+    expect(screen.getByLabelText("k2-agent-40")).not.toBeNull();
+  });
 });
