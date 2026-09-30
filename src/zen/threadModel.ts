@@ -37,6 +37,7 @@ function mountainDayKey(d: Date): string {
 export function mountainTime(at: number | null): string {
   if (at == null || !Number.isFinite(at)) return "";
   const d = asDate(at);
+  if (Number.isNaN(d.getTime())) return "";
   const time = d.toLocaleTimeString("en-US", {
     timeZone: TZ,
     hour: "numeric",
@@ -90,7 +91,10 @@ export function normaliseThreadItem(
   const seq = typeof seqRaw === "number" && Number.isFinite(seqRaw) ? seqRaw : null;
   const kind = String(doc.kind || "text");
   const choice = choiceOf(doc);
-  const text = typeof doc.body === "string" ? doc.body : typeof doc.text === "string" ? doc.text : "";
+  // Skin: item.doc.body ?? item.doc.text. Never item.text when doc exists.
+  const textRaw = doc.body ?? doc.text ?? "";
+  const text = typeof textRaw === "string" ? textRaw : "";
+  if (!text && kind === "text") return null;
   if (!text && !choice) return null;
   const from = String(doc.from || "");
   const atRaw = doc.created_at;

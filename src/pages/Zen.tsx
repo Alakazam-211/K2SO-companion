@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { AgentRail } from "../zen/AgentRail";
 import { FilePane } from "../zen/FilePane";
 import { FileStage } from "../zen/FileStage";
+import { PaneErrorBoundary } from "../zen/PaneErrorBoundary";
 import { ThreadPane } from "../zen/ThreadPane";
 import { STUB_BANNER } from "../zen/stubData";
 import { useZenStore, sourceWord } from "../zen/zenStore";
@@ -51,14 +52,18 @@ export function Zen() {
             </span>
           </div>
         </header>
-        <ThreadPane />
+        <PaneErrorBoundary name="thread">
+          <ThreadPane />
+        </PaneErrorBoundary>
         {filesOpen && (
           <div className="absolute inset-y-0 right-0 w-[78%] border-l border-[var(--border)] bg-[var(--background)] flex flex-col">
             <FileStage />
           </div>
         )}
       </div>
-      <FilePane />
+      <PaneErrorBoundary name="files">
+        <FilePane />
+      </PaneErrorBoundary>
     </div>
   );
 }

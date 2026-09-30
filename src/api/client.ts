@@ -2,6 +2,7 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { ws } from "./websocket";
 import { useServersStore } from "../stores/servers";
 import { isPossibleAuthFailure, reviveServerSession } from "../lib/revive";
+import { apiErrorText } from "../lib/apiError";
 import type { CompanionCapabilities } from "../kessel/capabilities";
 
 export type { CompanionCapabilities };
@@ -243,15 +244,12 @@ async function httpRequest<T>(
     }
     if (out.status === 401) return { ok: false, error: "Unauthorized" };
     if (!out.ok) {
-      // Daemon error bodies are `{error: "..."}` on non-2xx.
-      let msg = `HTTP ${out.status}`;
-      try {
-        const j = JSON.parse(out.text) as { error?: string };
-        if (j?.error) msg = j.error;
-      } catch {
-        /* non-JSON error body */
-      }
-      return { ok: false, error: msg };
+      // Daemon bodies are `{error:"..."}` or `{error:{code,hint}}`. The
+      // object form is not a React child — stringify before it reaches JSX.
+      return {
+        ok: false,
+        error: apiErrorText(out.text, `HTTP ${out.status}`),
+      };
     }
     const data = JSON.parse(out.text) as T;
     return { ok: true, data };
@@ -324,10 +322,10 @@ export const getAllSessions = () =>
 // Project-scoped.
 // NOTE: the PRIMARY path (sessions list + live terminal) uses the
 // verified routes below — list-running / terminal read+write+spawn /
-// companion sessions. The secondary screens (agents, work, wake,
-// reviews) are mapped to the closest verified `/cli/*` route but their
-// param shapes still need per-screen verification (Phase 4+). Tracked in
-// docs/companion-revival.md.
+// companion sessions. Secondary screens (agents, work, wake, reviews)
+// map onto `/cli/*` whose param shapes are UNVERIFIED and untracked.
+// docs/companion-revival.md Phase 4 is grid-WS, marked done — it does
+// not track this. Wiki: `.k2/wiki/Unverified - CLI param shapes.md`.
 export const getAgents = (project: string) =>
   request<Agent[]>("agents.list", "/cli/agents/list", { project });
 export const getRunningTerminals = (project: string) =>

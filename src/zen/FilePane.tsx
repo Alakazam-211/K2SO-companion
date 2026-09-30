@@ -1,3 +1,4 @@
+import { asErrorText } from "../lib/apiError";
 import { StubMark } from "./StubMark";
 import { useZenStore, sourceWord } from "./zenStore";
 
@@ -46,7 +47,7 @@ export function FilePane() {
       <div className="flex-1 overflow-y-auto">
         {files.length === 0 ? (
           <div className="px-3 py-2 text-[12px] text-[var(--text-muted)]">
-            {source === "loading" ? "loading" : fileError || "empty"}
+            {source === "loading" ? "loading" : asErrorText(fileError, "empty")}
           </div>
         ) : (
           files.map((f) => {
