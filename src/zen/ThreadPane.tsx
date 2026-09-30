@@ -1,6 +1,48 @@
+import { ChatMessageBody } from "../components/ChatMessage";
 import { StubMark } from "./StubMark";
-import { mountainTime } from "./threadModel";
+import { mountainTime, type ThreadMessage } from "./threadModel";
 import { sourceWord, useZenStore } from "./zenStore";
+
+function Bubble({ m }: { m: ThreadMessage }) {
+  return (
+    <div
+      className="px-3 py-2 text-[17px] leading-snug break-words"
+      style={{
+        borderRadius: 18,
+        background: m.mine ? "#0a84ff" : "#3a3a3c",
+        color: "#fff",
+        opacity: m.pending ? 0.7 : 1,
+      }}
+    >
+      {m.choice ? (
+        <div>
+          {m.choice.prompt ? (
+            <ChatMessageBody
+              text={m.choice.prompt}
+              className="!p-0 text-white"
+              style={{ color: "#fff" }}
+            />
+          ) : null}
+          {m.choice.options.length ? (
+            <ul className="mt-2 text-[15px]">
+              {m.choice.options.map((o) => (
+                <li key={o}>
+                  {m.choice && m.choice.answer === o ? "● " : "○ "}
+                  {o}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+          <p className="mt-1 text-[12px] opacity-80">
+            {m.choice.answer != null ? "Answered." : "Reply is not wired on this client."}
+          </p>
+        </div>
+      ) : (
+        <ChatMessageBody text={m.text} className="!p-0 text-white" style={{ color: "#fff" }} />
+      )}
+    </div>
+  );
+}
 
 /**
  * Overlay thread pane. LOOK: iMessage in/out bubbles + Mountain Time.
@@ -37,17 +79,7 @@ export function ThreadPane() {
                 {m.from}
               </span>
             ) : null}
-            <div
-              className="px-3 py-2 text-[17px] leading-snug break-words"
-              style={{
-                borderRadius: 18,
-                background: m.mine ? "#0a84ff" : "#3a3a3c",
-                color: "#fff",
-                opacity: m.pending ? 0.7 : 1,
-              }}
-            >
-              {m.text}
-            </div>
+            <Bubble m={m} />
             <span className="text-[11px] text-[var(--text-muted)] px-2 mt-0.5">
               {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
             </span>

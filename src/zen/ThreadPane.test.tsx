@@ -19,6 +19,8 @@ describe("ThreadPane", () => {
           from: "[STUB] not-a-real-agent-1",
           at: null,
           mine: false,
+          kind: "text",
+          choice: null,
         },
       ],
     });
@@ -39,6 +41,8 @@ describe("ThreadPane", () => {
           from: "k2so-Skin-Test-A",
           at: 1759198521,
           mine: false,
+          kind: "text",
+          choice: null,
         },
       ],
     });
@@ -46,5 +50,40 @@ describe("ThreadPane", () => {
     expect(screen.getByText("hello from the agent")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
     expect(screen.getByPlaceholderText(/not proven/)).not.toBeNull();
+  });
+
+  it("renders markdown and choice options, not raw asterisks or a blank card", () => {
+    useZenStore.setState({
+      threadSource: "live",
+      threadError: null,
+      thread: [
+        {
+          id: "md",
+          seq: 1,
+          text: "**bold one**",
+          from: "k2so-companion-qa",
+          at: 1759198521,
+          mine: false,
+          kind: "text",
+          choice: null,
+        },
+        {
+          id: "ch",
+          seq: 2,
+          text: "",
+          from: "k2",
+          at: 1759198521,
+          mine: false,
+          kind: "choice",
+          choice: { prompt: "Pick one", options: ["left", "right"], answer: null },
+        },
+      ],
+    });
+    render(<ThreadPane />);
+    expect(screen.getByText("bold one")).not.toBeNull();
+    expect(document.body.textContent).not.toMatch(/\*\*bold one\*\*/);
+    expect(screen.getByText("Pick one")).not.toBeNull();
+    expect(screen.getByText(/left/)).not.toBeNull();
+    expect(screen.getByText(/right/)).not.toBeNull();
   });
 });
