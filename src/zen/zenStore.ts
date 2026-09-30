@@ -6,6 +6,7 @@ import {
   getFsReadFile,
   getThread,
   getToken,
+  postThread,
   type FsDirEntry,
 } from "../api/client";
 import { getActiveServer } from "../stores/servers";
@@ -76,9 +77,17 @@ type ZenState = {
   threadError: string | null;
   thread: ThreadMessage[];
   threadGen: number;
+  threadAddr: string | null;
+  threadHasMore: boolean;
+  threadOldestSeq: number | null;
+  threadLoadingEarlier: boolean;
+  sending: boolean;
+  sendError: string | null;
   hydrateAgents: () => Promise<void>;
   hydrateFiles: (dir: string) => Promise<void>;
   hydrateThread: (addr: string) => Promise<void>;
+  loadEarlier: () => Promise<void>;
+  sendThread: (text: string) => Promise<void>;
   /** Overlay home is the chats list. A row opens the thread. */
   screen: "list" | "thread";
   agentId: string;
@@ -131,6 +140,12 @@ export const useZenStore = create<ZenState>((set, get) => ({
   threadError: null,
   thread: [],
   threadGen: 0,
+  threadAddr: null,
+  threadHasMore: false,
+  threadOldestSeq: null,
+  threadLoadingEarlier: false,
+  sending: false,
+  sendError: null,
 
   hydrateAgents: async () => {
     if (!getToken()) {
@@ -315,11 +330,26 @@ export const useZenStore = create<ZenState>((set, get) => ({
 
   hydrateThread: async (addr) => {
     if (get().agentSource === "stub") {
-      set({ threadSource: "stub", threadError: null, thread: stubThread(addr) });
+      set({
+        threadSource: "stub",
+        threadError: null,
+        thread: stubThread(addr),
+        threadAddr: addr,
+        threadHasMore: false,
+        threadOldestSeq: null,
+      });
       return;
     }
     const gen = get().threadGen + 1;
-    set({ threadGen: gen, thread: [], threadError: null, threadSource: "loading" });
+    set({
+      threadGen: gen,
+      thread: [],
+      threadError: null,
+      threadSource: "loading",
+      threadAddr: addr,
+      threadHasMore: false,
+      threadOldestSeq: null,
+    });
     const username = getActiveServer()?.username ?? "";
     try {
       const r = await getThread(addr);
@@ -341,13 +371,137 @@ export const useZenStore = create<ZenState>((set, get) => ({
         .map((it) => normaliseThreadItem(it, username))
         .filter((m): m is ThreadMessage => !!m)
         .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
-      set({ threadSource: "live", thread: items, threadError: null });
+      const oldest = items.reduce<number | null>((m, it) => {
+        if (it.seq == null) return m;
+        return m == null || it.seq < m ? it.seq : m;
+      }, null);
+      set({
+        threadSource: "live",
+        thread: items,
+        threadError: null,
+        threadHasMore: !!r.data.has_more,
+        threadOldestSeq: oldest,
+      });
     } catch (e) {
       if (get().threadGen !== gen) return;
       set({
         threadSource: "error",
         thread: [],
         threadError: e instanceof Error ? e.message : String(e),
+      });
+    }
+  },
+
+  loadEarlier: async () => {
+    const { threadAddr, threadOldestSeq, threadHasMore, threadLoadingEarlier, agentSource } =
+      get();
+    if (agentSource === "stub") return;
+    if (!threadAddr || threadOldestSeq == null || !threadHasMore || threadLoadingEarlier) {
+      return;
+    }
+    const gen = get().threadGen;
+    set({ threadLoadingEarlier: true });
+    const username = getActiveServer()?.username ?? "";
+    try {
+      const r = await getThread(threadAddr, 50, threadOldestSeq);
+      if (get().threadGen !== gen) return;
+      if (!r.ok || !r.data || !Array.isArray(r.data.items)) {
+        set({ threadLoadingEarlier: false });
+        return;
+      }
+      const seen = new Set(get().thread.map((m) => m.id));
+      const older = r.data.items
+        .map((it) => normaliseThreadItem(it, username))
+        .filter((m): m is ThreadMessage => !!m && !seen.has(m.id))
+        .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+      const thread = [...older, ...get().thread];
+      const oldest = thread.reduce<number | null>((m, it) => {
+        if (it.seq == null) return m;
+        return m == null || it.seq < m ? it.seq : m;
+      }, null);
+      set({
+        thread,
+        threadHasMore: !!r.data.has_more && older.length > 0,
+        threadOldestSeq: oldest,
+        threadLoadingEarlier: false,
+      });
+    } catch {
+      if (get().threadGen !== gen) return;
+      set({ threadLoadingEarlier: false });
+    }
+  },
+
+  sendThread: async (text) => {
+    const trimmed = text.trim();
+    if (!trimmed) return;
+    if (get().agentSource === "stub" || get().threadSource === "stub") {
+      set({ sendError: "STUB — Cannot send — POST /cli/thread/post not proven" });
+      return;
+    }
+    const addr = get().threadAddr;
+    if (!addr) {
+      set({ sendError: get().threadError || "Not chattable" });
+      return;
+    }
+    const gen = get().threadGen;
+    const before = get().thread.map((m) => m.id);
+    set({ sending: true, sendError: null });
+    try {
+      const posted = await postThread(addr, trimmed);
+      if (get().threadGen !== gen) return;
+      if (!posted.ok) {
+        set({
+          sending: false,
+          sendError: posted.error || "send failed",
+        });
+        return;
+      }
+      const postedId = String(
+        (posted.data &&
+          (posted.data.id ||
+            (posted.data.doc && posted.data.doc.id))) ||
+          ""
+      );
+      const reread = await getThread(addr);
+      if (get().threadGen !== gen) return;
+      if (!reread.ok || !reread.data || !Array.isArray(reread.data.items)) {
+        set({
+          sending: false,
+          sendError: "sent but the thread could not be re-read",
+        });
+        return;
+      }
+      const username = getActiveServer()?.username ?? "";
+      const items = reread.data.items
+        .map((it) => normaliseThreadItem(it, username))
+        .filter((m): m is ThreadMessage => !!m)
+        .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+      const onWire = postedId
+        ? items.some((m) => m.id === postedId)
+        : items.some((m) => m.text === trimmed && !before.includes(m.id));
+      if (!onWire) {
+        set({
+          sending: false,
+          sendError: "sent but not on the wire",
+        });
+        return;
+      }
+      const oldest = items.reduce<number | null>((m, it) => {
+        if (it.seq == null) return m;
+        return m == null || it.seq < m ? it.seq : m;
+      }, null);
+      set({
+        sending: false,
+        sendError: null,
+        thread: items,
+        threadHasMore: !!reread.data.has_more,
+        threadOldestSeq: oldest,
+      });
+    } catch (e) {
+      if (get().threadGen !== gen) return;
+      set({
+        sending: false,
+        sendError: e instanceof Error ? e.message : String(e),
       });
     }
   },
@@ -359,6 +513,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
       openFileIds: [],
       focusId: null,
       splitId: null,
+      sending: false,
+      sendError: null,
     });
     const row = get().agents.find((a) => a.id === id);
     const owned = typeof row?.path === "string" ? row.path.trim() : "";

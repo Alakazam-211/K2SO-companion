@@ -7,6 +7,7 @@ vi.mock("../api/client", () => ({
   getFsReadDir: vi.fn(),
   getFsReadFile: vi.fn(),
   getThread: vi.fn(),
+  postThread: vi.fn(),
 }));
 
 import {
@@ -15,6 +16,7 @@ import {
   getFsReadDir,
   getThread,
   getToken,
+  postThread,
 } from "../api/client";
 import { JOIN_NO_AGENT, JOIN_NO_PROJECT } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES } from "./stubData";
@@ -456,6 +458,7 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
     vi.mocked(getFsReadDir).mockReset();
     vi.mocked(getThread).mockReset();
     vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
+    vi.mocked(postThread).mockReset();
   });
 
   it("setAgent threads the handle, never a display name", async () => {
@@ -485,6 +488,131 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
     expect(useZenStore.getState().threadError).toBe("Not chattable");
     useZenStore.getState().setAgent("skin-test-a");
     expect(vi.mocked(getThread).mock.calls.map((c) => c[0])).toEqual(["skin-test-a"]);
+  });
+
+  it("a failed send leaves the thread unchanged and shows the wire reason", async () => {
+    useZenStore.setState({
+      agentSource: "live",
+      threadSource: "live",
+      threadAddr: "appa",
+      thread: [
+        {
+          id: "old",
+          seq: 1,
+          text: "already here",
+          from: "appa",
+          at: 1,
+          mine: false,
+          kind: "text",
+          choice: null,
+        },
+      ],
+      sendError: null,
+      sending: false,
+    });
+    vi.mocked(postThread).mockResolvedValue({
+      ok: false,
+      error: "unknown overlay addr 'nope'",
+    });
+    await useZenStore.getState().sendThread("hello");
+    const s = useZenStore.getState();
+    expect(s.thread.map((m) => m.id)).toEqual(["old"]);
+    expect(s.sendError).toMatch(/unknown overlay addr/);
+    expect(s.sending).toBe(false);
+    expect(getThread).not.toHaveBeenCalled();
+  });
+
+  it("does not treat a POST ack as delivered until GET shows the id", async () => {
+    useZenStore.setState({
+      agentSource: "live",
+      threadSource: "live",
+      threadAddr: "appa",
+      thread: [],
+      sendError: null,
+    });
+    vi.mocked(postThread).mockResolvedValue({
+      ok: true,
+      data: { id: "ghost", seq: 9, body: "hello" },
+    });
+    vi.mocked(getThread).mockResolvedValue({
+      ok: true,
+      data: { items: [] },
+    });
+    await useZenStore.getState().sendThread("hello");
+    const s = useZenStore.getState();
+    expect(s.thread).toEqual([]);
+    expect(s.sendError).toBe("sent but not on the wire");
+  });
+
+  it("appends a send only after GET returns the posted id", async () => {
+    useZenStore.setState({
+      agentSource: "live",
+      threadSource: "live",
+      threadAddr: "appa",
+      thread: [],
+      sendError: null,
+    });
+    vi.mocked(postThread).mockResolvedValue({
+      ok: true,
+      data: { id: "ed60", seq: 31, body: "hello" },
+    });
+    vi.mocked(getThread).mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: "ed60",
+            seq: 31,
+            doc: { id: "ed60", from: "owner", body: "hello", created_at: 1 },
+          },
+        ],
+      },
+    });
+    await useZenStore.getState().sendThread("hello");
+    const s = useZenStore.getState();
+    expect(s.sendError).toBeNull();
+    expect(s.thread.map((m) => [m.id, m.text, m.mine])).toEqual([
+      ["ed60", "hello", true],
+    ]);
+  });
+
+  it("empty text and stub do not POST", async () => {
+    useZenStore.setState({
+      agentSource: "stub",
+      threadSource: "stub",
+      threadAddr: "stub-1",
+    });
+    await useZenStore.getState().sendThread("   ");
+    await useZenStore.getState().sendThread("hello");
+    expect(postThread).not.toHaveBeenCalled();
+  });
+
+  it("loadEarlier prepends older items and keeps the ones already shown", async () => {
+    useZenStore.setState({ agentSource: "live" });
+    vi.mocked(getThread).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        has_more: true,
+        items: [
+          { id: "n", seq: 10, doc: { from: "appa", body: "new", created_at: 2 } },
+        ],
+      },
+    });
+    await useZenStore.getState().hydrateThread("appa");
+    expect(useZenStore.getState().threadHasMore).toBe(true);
+    vi.mocked(getThread).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        has_more: false,
+        items: [
+          { id: "o", seq: 1, doc: { from: "appa", body: "old", created_at: 1 } },
+        ],
+      },
+    });
+    await useZenStore.getState().loadEarlier();
+    expect(useZenStore.getState().thread.map((m) => m.id)).toEqual(["o", "n"]);
+    expect(vi.mocked(getThread).mock.calls[1][2]).toBe(10);
+    expect(useZenStore.getState().threadHasMore).toBe(false);
   });
 
   it("stub setAgent still loads the stub thread", async () => {

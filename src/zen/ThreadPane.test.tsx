@@ -2,6 +2,7 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { ThreadPane } from "./ThreadPane";
+import { normaliseThreadItem } from "./threadModel";
 import { useZenStore } from "./zenStore";
 
 afterEach(() => cleanup());
@@ -15,13 +16,12 @@ describe("ThreadPane", () => {
     });
     render(<ThreadPane />);
     expect(screen.getByText(/unknown overlay addr/)).not.toBeNull();
-    expect(screen.getByTestId("composer-label").textContent).toMatch(
-      /POST \/cli\/thread\/post not proven/
-    );
+    expect(screen.getByPlaceholderText("Message")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
     expect(screen.getByPlaceholderText("Message")).not.toBeNull();
   });
 
-  it("labels the composer on stub and live — POST is not proven", () => {
+  it("labels the composer on stub — POST is not proven", () => {
     useZenStore.setState({
       threadSource: "stub",
       threadError: null,
@@ -75,7 +75,6 @@ describe("ThreadPane", () => {
     });
     render(<ThreadPane />);
     const label = screen.getByTestId("composer-label");
-    expect(label.textContent).toMatch(/Cannot send — POST \/cli\/thread\/post not proven/);
     expect(label.className).toMatch(/break-words/);
     const input = screen.getByPlaceholderText("Message");
     expect(input.className).toMatch(/min-w-0/);
@@ -83,10 +82,13 @@ describe("ThreadPane", () => {
     expect(pill?.className).toMatch(/min-w-0/);
   });
 
-  it("renders live bubbles without a send control", () => {
+  it("live thread with an addr shows Send; stub does not", () => {
     useZenStore.setState({
       threadSource: "live",
+      threadAddr: "appa",
       threadError: null,
+      sendError: null,
+      sending: false,
       thread: [
         {
           id: "m1",
@@ -102,8 +104,8 @@ describe("ThreadPane", () => {
     });
     render(<ThreadPane />);
     expect(screen.getByText("hello from the agent")).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
-    expect(screen.getByTestId("composer-label").textContent).toMatch(/not proven/);
+    expect(screen.getByRole("button", { name: "Send" })).not.toBeNull();
+    expect(screen.getByTestId("composer-label").textContent).not.toMatch(/not proven/);
   });
 
   it("renders markdown and choice options, not raw asterisks or a blank card", () => {
@@ -139,5 +141,80 @@ describe("ThreadPane", () => {
     expect(screen.getByText("Pick one")).not.toBeNull();
     expect(screen.getByText(/left/)).not.toBeNull();
     expect(screen.getByText(/right/)).not.toBeNull();
+  });
+
+  it("renders choice option labels from wire objects, not [object Object]", () => {
+    const m = normaliseThreadItem(
+      {
+        id: "c18",
+        seq: 18,
+        doc: {
+          kind: "choice",
+          from: "k2so-companion-qa",
+          choice: {
+            prompt: "How do you want to sign in?",
+            options: [{ label: "Secret" }, { label: "Phone" }, { label: "Hold" }],
+          },
+        },
+      },
+      "baden"
+    );
+    expect(m).not.toBeNull();
+    useZenStore.setState({
+      threadSource: "live",
+      threadError: null,
+      thread: [m!],
+    });
+    render(<ThreadPane />);
+    expect(screen.getByText(/Secret/)).not.toBeNull();
+    expect(screen.getByText(/Phone/)).not.toBeNull();
+    expect(screen.getByText(/Hold/)).not.toBeNull();
+    expect(document.body.textContent).not.toMatch(/\[object Object\]/);
+  });
+
+  it("lands the scroller on the newest message on first layout", () => {
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.getAttribute?.("data-testid") === "thread-scroller" ? 1800 : 0;
+      },
+    });
+    useZenStore.setState({
+      agentId: "appa",
+      threadSource: "live",
+      threadError: null,
+      threadHasMore: false,
+      thread: [
+        {
+          id: "old",
+          seq: 1,
+          text: "oldest",
+          from: "appa",
+          at: 1,
+          mine: false,
+          kind: "text",
+          choice: null,
+        },
+        {
+          id: "new",
+          seq: 19,
+          text: "newest",
+          from: "appa",
+          at: 2,
+          mine: false,
+          kind: "text",
+          choice: null,
+        },
+      ],
+    });
+    render(<ThreadPane />);
+    expect(screen.getByTestId("thread-scroller").scrollTop).toBe(1800);
+    expect(screen.getByText("newest")).not.toBeNull();
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return 0;
+      },
+    });
   });
 });

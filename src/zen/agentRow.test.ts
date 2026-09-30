@@ -205,6 +205,19 @@ describe("joinAgentsWithProjects", () => {
     });
   });
 
+  it("joins paths that differ only by a trailing slash", () => {
+    const joined = joinAgentsWithProjects(
+      [{ name: "appa", path: "/Users/Baden/Appa/" }],
+      [{ name: "appa", path: "/Users/Baden/Appa", handle: "appa" }]
+    );
+    expect(joined).toHaveLength(1);
+    expect(joined[0]).toMatchObject({
+      addr: "appa",
+      joinMiss: null,
+      path: "/Users/Baden/Appa",
+    });
+  });
+
   it("an empty path cannot join", () => {
     const joined = joinAgentsWithProjects(
       [{ name: "orphan", path: "" }],

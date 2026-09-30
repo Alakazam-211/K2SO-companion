@@ -1,3 +1,5 @@
+import { posixNormalize } from "./workspacePath";
+
 /**
  * Live GET /cli/skin/agents (guest read-a, 8793, 2026-09-29):
  *   { agents: [{ displayName, handle, projectId }] }
@@ -127,8 +129,7 @@ export type JoinedOverlayRow = {
 };
 
 function pathKey(path: string): string | null {
-  const p = path.trim();
-  return p ? p : null;
+  return posixNormalize(path.trim());
 }
 
 /**

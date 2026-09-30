@@ -485,7 +485,7 @@ export type ThreadDoc = {
   text?: string;
   created_at?: number;
   conversation_id?: string;
-  choice?: { prompt?: string; options?: string[] | string; answer?: unknown };
+  choice?: { prompt?: string; options?: unknown; answer?: unknown };
   secret?: { prompt?: string };
 };
 

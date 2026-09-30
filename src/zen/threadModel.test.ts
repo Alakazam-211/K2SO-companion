@@ -53,4 +53,24 @@ describe("threadModel", () => {
     expect(c?.choice?.options).toEqual(["A", "B"]);
     expect(c?.choice?.prompt).toBe("Pick one");
   });
+
+  it("takes choice option labels from the wire objects, not String(object)", () => {
+    const c = normaliseThreadItem(
+      {
+        id: "c2",
+        seq: 18,
+        doc: {
+          kind: "choice",
+          from: "k2so-companion-qa",
+          choice: {
+            prompt: "How do you want to sign in?",
+            options: [{ label: "Secret" }, { label: "Phone" }, { label: "Hold" }],
+          },
+        },
+      },
+      "baden"
+    );
+    expect(c?.choice?.options).toEqual(["Secret", "Phone", "Hold"]);
+    expect(c?.choice?.options.join(" ")).not.toMatch(/\[object Object\]/);
+  });
 });
