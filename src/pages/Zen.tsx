@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
@@ -10,6 +10,14 @@ import { rememberZenThread, terminalIdForAgent } from "../zen/terminalJump";
 import { ThreadPane } from "../zen/ThreadPane";
 import { STUB_BANNER } from "../zen/stubData";
 import { useZenStore } from "../zen/zenStore";
+
+const HEADER_BTN: CSSProperties = {
+  width: 36,
+  height: 36,
+  borderRadius: "50%",
+  background: "#1c1c1e",
+  color: "#fff",
+};
 
 export function Zen() {
   const navigate = useNavigate();
@@ -129,18 +137,16 @@ export function Zen() {
             }}
           >
             <button
+              type="button"
               onClick={backToChats}
-              className="text-[17px] font-semibold justify-self-start"
-              style={{
-                minHeight: 34,
-                padding: "0 10px 0 6px",
-                borderRadius: 17,
-                background: "#1c1c1e",
-                color: "#fff",
-              }}
+              data-testid="chat-back"
+              className="flex items-center justify-center shrink-0 justify-self-start"
+              style={HEADER_BTN}
               aria-label="Back to chats"
             >
-              ‹
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
             </button>
             <div className="min-w-0 flex flex-col items-center justify-center">
               <span
@@ -164,13 +170,7 @@ export function Zen() {
                 type="button"
                 aria-label="Terminal"
                 className="flex items-center justify-center shrink-0"
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: "50%",
-                  background: "#1c1c1e",
-                  color: "#fff",
-                }}
+                style={HEADER_BTN}
                 onClick={(e) => {
                   e.stopPropagation();
                   rememberZenThread(agentId);
@@ -196,11 +196,8 @@ export function Zen() {
                 aria-label="Files"
                 className="flex items-center justify-center shrink-0"
                 style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: "50%",
+                  ...HEADER_BTN,
                   background: filesPaneOpen ? "#3a3a3c" : "#1c1c1e",
-                  color: "#fff",
                 }}
                 onClick={(e) => {
                   e.stopPropagation();

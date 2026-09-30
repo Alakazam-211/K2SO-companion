@@ -4,6 +4,7 @@ import { ChatMessageBody } from "../components/ChatMessage";
 import { asErrorText } from "../lib/apiError";
 import {
   MAX_UPLOAD_BYTES,
+  UPLOAD_DIR,
   attachmentSendBody,
   fileToBase64,
   filesFromClipboard,
@@ -314,7 +315,12 @@ export function ThreadPane() {
                   for (const f of pending) {
                     const filename = uploadFilename(f);
                     const b64 = await fileToBase64(f);
-                    const r = await uploadFsBinary(attachWorkspace, "", filename, b64);
+                    const r = await uploadFsBinary(
+                      attachWorkspace,
+                      UPLOAD_DIR,
+                      filename,
+                      b64
+                    );
                     if (!r.ok || !r.data?.path) {
                       setAttachError(r.error || `Could not upload ${filename}`);
                       return;

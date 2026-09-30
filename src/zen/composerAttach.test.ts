@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
+  UPLOAD_DIR,
   attachmentSendBody,
+  extensionForType,
   filesFromClipboard,
   safeFilename,
   uploadFilename,
@@ -32,6 +34,28 @@ describe("composerAttach", () => {
     expect(uploadFilename(new File(["x"], "", { type: "image/png" }))).toBe(
       "image.png"
     );
+    expect(uploadFilename(new File(["x"], "", { type: "image/jpeg" }))).toBe(
+      "image.jpg"
+    );
+    expect(uploadFilename(new File(["x"], "", { type: "application/pdf" }))).toBe(
+      "upload.pdf"
+    );
+  });
+
+  it("keeps a named file's extension and fills one from the MIME type", () => {
+    expect(
+      uploadFilename(new File(["x"], "notes", { type: "text/plain" }))
+    ).toBe("notes.txt");
+    expect(
+      uploadFilename(new File(["x"], "photo.HEIC", { type: "image/heic" }))
+    ).toBe("photo.HEIC");
+    expect(extensionForType("image/webp")).toBe("webp");
+    expect(extensionForType("video/quicktime")).toBe("mov");
+  });
+
+  it("uploads into the workspace root dir the daemon accepts", () => {
+    expect(UPLOAD_DIR).toBe(".");
+    expect(UPLOAD_DIR).not.toBe("");
   });
 
   it("joins a caption with uploaded paths", () => {

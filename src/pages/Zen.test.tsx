@@ -224,7 +224,17 @@ describe("Zen keeps the chats list mounted", () => {
       expect(useZenStore.getState().screen).toBe("thread")
     );
     expect(screen.getByTestId("thread-column")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Back to chats" }));
+    const back = screen.getByTestId("chat-back");
+    const files = screen.getByRole("button", { name: "Files" });
+    const terminal = screen.getByRole("button", { name: "Terminal" });
+    expect(back.style.width).toBe("36px");
+    expect(back.style.height).toBe("36px");
+    expect(back.style.borderRadius).toBe("50%");
+    expect(files.style.width).toBe(back.style.width);
+    expect(files.style.height).toBe(back.style.height);
+    expect(files.style.borderRadius).toBe(back.style.borderRadius);
+    expect(terminal.style.width).toBe(back.style.width);
+    fireEvent.click(back);
     expect(useZenStore.getState().screen).toBe("list");
     expect(useZenStore.getState().agentId).toBe("");
     expect(screen.queryByTestId("thread-column")).toBeNull();

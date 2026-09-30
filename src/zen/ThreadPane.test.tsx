@@ -1,11 +1,21 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+
+vi.mock("../api/client", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api/client")>();
+  return { ...actual, uploadFsBinary: vi.fn() };
+});
+
+import { uploadFsBinary } from "../api/client";
 import { COMPOSER_MAX_PX, ThreadPane, composerHeight } from "./ThreadPane";
 import { normaliseThreadItem } from "./threadModel";
 import { useZenStore } from "./zenStore";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.mocked(uploadFsBinary).mockReset();
+});
 
 describe("ThreadPane", () => {
   it("renders a structured daemon error as text, not a throw", () => {
@@ -326,5 +336,37 @@ describe("ThreadPane", () => {
       },
     });
     expect(screen.getByTestId("attach-chip").textContent).toMatch(/shot.png/);
+  });
+
+  it("uploads into dir . so the daemon does not see an empty destination", async () => {
+    vi.mocked(uploadFsBinary).mockResolvedValue({
+      ok: true,
+      data: { path: "shot.png" },
+    });
+    const sendThread = vi.fn(async () => {});
+    useZenStore.setState({
+      threadSource: "live",
+      threadAddr: "appa",
+      threadGroupId: null,
+      threadError: null,
+      sendError: null,
+      sending: false,
+      thread: [],
+      sendThread,
+    });
+    render(<ThreadPane />);
+    const file = new File(["x"], "shot.png", { type: "image/png" });
+    fireEvent.paste(screen.getByTestId("composer-form"), {
+      clipboardData: {
+        files: [file],
+        items: [],
+      },
+    });
+    fireEvent.submit(screen.getByTestId("composer-form"));
+    await waitFor(() => expect(uploadFsBinary).toHaveBeenCalled());
+    expect(vi.mocked(uploadFsBinary).mock.calls[0][1]).toBe(".");
+    expect(vi.mocked(uploadFsBinary).mock.calls[0][0]).toBe("appa");
+    expect(vi.mocked(uploadFsBinary).mock.calls[0][2]).toBe("shot.png");
+    await waitFor(() => expect(sendThread).toHaveBeenCalledWith("shot.png"));
   });
 });
