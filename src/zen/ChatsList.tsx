@@ -1,13 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
-import { inspectProjectsSummary } from "../api/client";
 import { useFeedbackStore } from "../stores/feedback";
 import { hostLabel, useServersStore, type RecoveryState } from "../stores/servers";
 import { overlayRowPreview } from "./rowPreview";
 import { StubMark } from "./StubMark";
-import { summariseProjectsSummary, type SummaryDump } from "./summaryDump";
 import { OverlayAddServer } from "./OverlayAddServer";
 import { OverlayCompose } from "./OverlayCompose";
+import { OverlayServers } from "./OverlayServers";
 import { TicketsOverlay } from "./TicketsOverlay";
 import { mountainListWhen } from "./threadModel";
 import { useZenStore } from "./zenStore";
@@ -33,8 +32,7 @@ export function ChatsList() {
   const [settings, setSettings] = useState(false);
   const [tickets, setTickets] = useState(false);
   const [compose, setCompose] = useState(false);
-  const [dump, setDump] = useState<SummaryDump | null>(null);
-  const [dumpBusy, setDumpBusy] = useState(false);
+  const [serversSheet, setServersSheet] = useState(false);
   const servers = useServersStore((s) => s.servers);
   const activeServerId = useServersStore((s) => s.activeServerId);
   const recovery = useServersStore((s) => s.recovery);
@@ -174,7 +172,7 @@ export function ChatsList() {
               borderRadius: 17,
               background: "#1c1c1e",
             }}
-            onClick={() => navigate("/servers")}
+            onClick={() => setServersSheet(true)}
             aria-label={`Server ${serverLabel}`}
             title={serverLabel}
           >
@@ -362,6 +360,7 @@ export function ChatsList() {
 
       {tickets ? <TicketsOverlay onClose={() => setTickets(false)} /> : null}
       {compose ? <OverlayCompose onClose={() => setCompose(false)} /> : null}
+      {serversSheet ? <OverlayServers onClose={() => setServersSheet(false)} /> : null}
 
       {settings ? (
         <div
@@ -415,59 +414,6 @@ export function ChatsList() {
           >
             Leave this overlay and use the app as it is today — Servers, Sessions, Tickets.
           </p>
-          <button
-            type="button"
-            className="w-full flex justify-between text-[17px]"
-            style={{
-              padding: "14px 16px",
-              borderTop: "0.5px solid rgba(255,255,255,.12)",
-              borderBottom: "0.5px solid rgba(255,255,255,.12)",
-            }}
-            onClick={() => {
-              if (dumpBusy) return;
-              setDumpBusy(true);
-              void inspectProjectsSummary()
-                .then((r) => setDump(summariseProjectsSummary(r.status, r.data, r.note)))
-                .finally(() => setDumpBusy(false));
-            }}
-          >
-            <span>DEBUG projects-summary</span>
-            <span style={{ color: "#8e8e93" }}>{dumpBusy ? "…" : "›"}</span>
-          </button>
-          <p
-            className="text-[13px]"
-            style={{ color: "#f59e0b", padding: "8px 16px 8px", lineHeight: 1.35 }}
-          >
-            DEBUG — not a release. Dumps live shape on this screen. Never the token.
-          </p>
-          {dump ? (
-            <div
-              data-testid="summary-dump"
-              className="text-[13px] overflow-y-auto"
-              style={{
-                color: "#d1d1d6",
-                padding: "8px 16px 24px",
-                lineHeight: 1.45,
-                fontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
-              }}
-            >
-              <p>HTTP status: {dump.status ?? "none"}</p>
-              <p>Top-level: {dump.top}</p>
-              <p>Row count: {dump.rowCount ?? "none"}</p>
-              <p>Row keys: {dump.rowKeys.length ? dump.rowKeys.join(", ") : "none"}</p>
-              {dump.note ? <p>Note: {dump.note}</p> : null}
-              <p style={{ marginTop: 8 }}>Samples (name · path):</p>
-              {dump.samples.length === 0 ? (
-                <p>none</p>
-              ) : (
-                dump.samples.map((s, i) => (
-                  <p key={i}>
-                    {i + 1}. {s.name} · {s.path}
-                  </p>
-                ))
-              )}
-            </div>
-          ) : null}
         </div>
       ) : null}
     </div>

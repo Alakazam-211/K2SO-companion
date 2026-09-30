@@ -16,7 +16,18 @@ vi.mock("../api/client", () => ({
   postThread: vi.fn(),
 }));
 
-import { inspectProjectsSummary } from "../api/client";
+vi.mock("../api/projectGroups", () => ({
+  fetchProjectGroups: vi.fn(async () => ({ ok: true, data: [] })),
+  fetchProjectGroupMessages: vi.fn(async () => ({
+    ok: true,
+    data: { messages: [], truncated: false },
+  })),
+}));
+
+vi.mock("../lib/revive", () => ({
+  connectServer: vi.fn(async () => "still-valid"),
+}));
+
 import { useFeedbackStore } from "../stores/feedback";
 import { useServersStore } from "../stores/servers";
 import { ChatsList } from "./ChatsList";
@@ -230,7 +241,7 @@ describe("ChatsList", () => {
     mount();
     expect(screen.getByLabelText("appa")).not.toBeNull();
     expect(screen.queryByText("Thread")).toBeNull();
-    expect(screen.getByTestId("row-preview").textContent).toBe("Live · custom");
+    expect(screen.getByTestId("row-preview").textContent).toBe("main chat");
     expect(screen.getByTestId("row-when").textContent).toMatch(/›/);
     expect(screen.getByTestId("row-when").textContent).toMatch(/\d{1,2}:\d{2}/);
   });
@@ -260,7 +271,7 @@ describe("ChatsList", () => {
     expect(screen.getByTestId("row-when").textContent?.replace(/\s/g, "")).toBe("›");
   });
 
-  it("a sidecar row keeps the name on line one and the sidecar descriptor on line two", () => {
+  it("a sidecar row keeps the name on line one and the chat title on line two", () => {
     useZenStore.setState({
       agentSource: "live",
       agents: [
@@ -283,9 +294,7 @@ describe("ChatsList", () => {
     });
     mount();
     expect(screen.getByLabelText("k2so-companion / 1")).not.toBeNull();
-    expect(screen.getByTestId("row-preview").textContent).toBe(
-      "Sidecar · same workspace, extra chat"
-    );
+    expect(screen.getByTestId("row-preview").textContent).toBe("k2so-companion / 1");
   });
 
   it("the plus button opens the New Message picker", () => {
@@ -300,12 +309,7 @@ describe("ChatsList", () => {
     expect(screen.getByText("New Message")).not.toBeNull();
   });
 
-  it("DEBUG dump is behind a tap and never shown on load", async () => {
-    vi.mocked(inspectProjectsSummary).mockResolvedValue({
-      status: 200,
-      data: [{ name: "appa", path: "/Users/Baden/Appa", token: "SESSION-SECRET" }],
-      note: null,
-    });
+  it("Settings has no DEBUG projects-summary", () => {
     useZenStore.setState({
       agentSource: "error",
       agents: [],
@@ -313,15 +317,45 @@ describe("ChatsList", () => {
       screen: "list",
     });
     mount();
-    expect(screen.queryByTestId("summary-dump")).toBeNull();
-    expect(inspectProjectsSummary).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    expect(screen.queryByText(/DEBUG/)).toBeNull();
     expect(screen.queryByTestId("summary-dump")).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: /DEBUG projects-summary/ }));
-    const dump = await screen.findByTestId("summary-dump");
-    expect(dump.textContent).toMatch(/HTTP status: 200/);
-    expect(dump.textContent).toMatch(/Row count: 1/);
-    expect(dump.textContent).toMatch(/appa · \/Users\/Baden\/Appa/);
-    expect(dump.textContent).not.toMatch(/SESSION-SECRET/);
+  });
+
+  it("a project chat row says Project Chat", () => {
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [
+        {
+          id: "group:pg1",
+          name: "K2 Companion",
+          initial: "K",
+          kind: "group",
+          groupId: "pg1",
+          memberCount: 3,
+          addr: null,
+          joinMiss: null,
+        },
+      ],
+      lastAtByKey: {},
+      agentError: null,
+      screen: "list",
+    });
+    mount();
+    expect(screen.getByLabelText("K2 Companion")).not.toBeNull();
+    expect(screen.getByTestId("row-preview").textContent).toBe("Project Chat");
+  });
+
+  it("the server button opens the overlay server list", () => {
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: STUB_AGENTS,
+      screen: "list",
+    });
+    mount();
+    fireEvent.click(screen.getByRole("button", { name: /Server / }));
+    expect(screen.getByTestId("overlay-servers")).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Servers" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "test" })).not.toBeNull();
   });
 });

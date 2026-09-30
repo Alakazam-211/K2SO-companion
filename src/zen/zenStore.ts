@@ -9,6 +9,11 @@ import {
   postThread,
   type FsDirEntry,
 } from "../api/client";
+import {
+  fetchProjectGroupMessages,
+  fetchProjectGroups,
+  type ProjectGroupMessage,
+} from "../api/projectGroups";
 import { getActiveServer } from "../stores/servers";
 import {
   cliProjectOf,
@@ -20,8 +25,8 @@ import {
 } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
 import { beginLastAt, fetchLastAt } from "./lastAtFetch";
-import { isSendTestAddr, SEND_TEST_REFUSED } from "./sendGate";
-import { isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
+import { isSendableAddr } from "./sendGate";
+import { isMine, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import {
   NO_WORKSPACE_PATH,
   PATH_NOT_OWNED,
@@ -88,6 +93,7 @@ type ZenState = {
   hydrateAgents: () => Promise<void>;
   hydrateFiles: (dir: string) => Promise<void>;
   hydrateThread: (addr: string) => Promise<void>;
+  hydrateGroup: (groupId: string) => Promise<void>;
   loadEarlier: () => Promise<void>;
   sendThread: (text: string) => Promise<void>;
   /** Last-message unix seconds, keyed `t:<addr>` / `g:<groupId>`. Null = fetched empty. */
@@ -115,6 +121,22 @@ type ZenState = {
 
 function failFiles(message: string): Pick<ZenState, "fileSource" | "files" | "fileError"> {
   return { fileSource: "error", files: [], fileError: message };
+}
+
+function groupMessagesToThread(
+  messages: ProjectGroupMessage[],
+  username: string
+): ThreadMessage[] {
+  return messages.map((m, i) => ({
+    id: m.id,
+    seq: i,
+    text: m.body,
+    from: m.author,
+    at: m.createdAt,
+    mine: isMine(m.author, username),
+    kind: "text",
+    choice: null,
+  }));
 }
 
 function stubThread(agentId: string): ThreadMessage[] {
@@ -208,9 +230,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
       thread: [],
     });
     try {
-      const [rAgents, rProjects] = await Promise.all([
+      const [rAgents, rProjects, rGroups] = await Promise.all([
         getAgentList(),
         getCliProjectsList(),
+        fetchProjectGroups(),
       ]);
       const notices: string[] = [];
       let fleet: {
@@ -261,7 +284,26 @@ export const useZenStore = create<ZenState>((set, get) => ({
         }
       }
 
-      if (fleet.length === 0 && book.length === 0) {
+      const groups: StubAgent[] = [];
+      if (!rGroups.ok) {
+        notices.push(rGroups.error || "GET /cli/project-group/list failed");
+      } else {
+        for (const g of rGroups.data ?? []) {
+          if (!g?.id || !g.name) continue;
+          groups.push({
+            id: `group:${g.id}`,
+            name: g.name,
+            initial: skinInitials(g.name),
+            addr: null,
+            joinMiss: null,
+            kind: "group",
+            groupId: g.id,
+            memberCount: g.memberCount ?? 0,
+          });
+        }
+      }
+
+      if (fleet.length === 0 && book.length === 0 && groups.length === 0) {
         const msg =
           notices[0] ||
           "No agents on this list. This overlay does not invent a mapping.";
@@ -279,8 +321,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
         return;
       }
 
-      const agents: StubAgent[] = joinAgentsWithProjects(fleet, book).map(
-        (row) => ({
+      const agents: StubAgent[] = [
+        ...groups,
+        ...joinAgentsWithProjects(fleet, book).map((row) => ({
           id: row.id,
           name: row.name,
           initial: skinInitials(row.name),
@@ -291,8 +334,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
           mode: row.mode,
           enabled: row.enabled,
           live: row.live,
-        })
-      );
+        })),
+      ];
       set({
         agentSource: "live",
         agents,
@@ -368,6 +411,47 @@ export const useZenStore = create<ZenState>((set, get) => ({
   focusId: null,
   splitId: null,
   splitRatio: 0.5,
+
+  hydrateGroup: async (groupId) => {
+    const gen = get().threadGen + 1;
+    set({
+      threadGen: gen,
+      thread: [],
+      threadError: null,
+      threadSource: "loading",
+      threadAddr: null,
+      threadHasMore: false,
+      threadOldestSeq: null,
+    });
+    const username = getActiveServer()?.username ?? "";
+    try {
+      const r = await fetchProjectGroupMessages(groupId, { limit: 50 });
+      if (get().threadGen !== gen) return;
+      if (!r.ok) {
+        set({
+          threadSource: "error",
+          thread: [],
+          threadError: r.error || "project chat failed",
+        });
+        return;
+      }
+      const items = groupMessagesToThread(r.data?.messages ?? [], username);
+      set({
+        threadSource: "live",
+        thread: items,
+        threadError: null,
+        threadHasMore: !!r.data?.truncated,
+        threadOldestSeq: items.length ? 0 : null,
+      });
+    } catch (e) {
+      if (get().threadGen !== gen) return;
+      set({
+        threadSource: "error",
+        thread: [],
+        threadError: e instanceof Error ? e.message : String(e),
+      });
+    }
+  },
 
   hydrateThread: async (addr) => {
     if (get().agentSource === "stub") {
@@ -480,12 +564,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
       return;
     }
     const addr = get().threadAddr;
-    if (!addr) {
+    if (!isSendableAddr(addr)) {
       set({ sendError: get().threadError || "Not chattable" });
-      return;
-    }
-    if (!isSendTestAddr(addr)) {
-      set({ sendError: SEND_TEST_REFUSED });
       return;
     }
     const gen = get().threadGen;
@@ -571,6 +651,11 @@ export const useZenStore = create<ZenState>((set, get) => ({
       sendError: null,
     });
     const row = get().agents.find((a) => a.id === id);
+    if (row?.kind === "group" && row.groupId) {
+      set(failFiles("Files are per workspace, not per project chat."));
+      void get().hydrateGroup(row.groupId);
+      return;
+    }
     const owned = typeof row?.path === "string" ? row.path.trim() : "";
     if (owned) void get().hydrateFiles(owned);
     else if (get().agentSource !== "stub") set(failFiles(NO_WORKSPACE_PATH));

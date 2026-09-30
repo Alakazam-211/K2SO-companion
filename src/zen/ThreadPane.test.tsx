@@ -82,7 +82,7 @@ describe("ThreadPane", () => {
     expect(pill?.className).toMatch(/min-w-0/);
   });
 
-  it("live thread that is not a test room cannot send", () => {
+  it("live thread that is not a test room can send", () => {
     useZenStore.setState({
       threadSource: "live",
       threadAddr: "appa",
@@ -94,7 +94,7 @@ describe("ThreadPane", () => {
           id: "m1",
           seq: 1,
           text: "hello from the agent",
-          from: "k2so-Skin-Test-A",
+          from: "appa",
           at: 1759198521,
           mine: false,
           kind: "text",
@@ -104,11 +104,9 @@ describe("ThreadPane", () => {
     });
     render(<ThreadPane />);
     expect(screen.getByText("hello from the agent")).not.toBeNull();
-    expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
-    expect(screen.getByTestId("composer-label").textContent).toMatch(
-      /only posts to skin-test-a or k2so-companion-qa/
-    );
-    expect(screen.getByPlaceholderText("Message")).toHaveProperty("disabled", true);
+    expect(screen.getByRole("button", { name: "Send" })).not.toBeNull();
+    expect(screen.getByPlaceholderText("Message")).toHaveProperty("disabled", false);
+    expect(screen.getByTestId("composer-label").textContent).not.toMatch(/Cannot send/);
   });
 
   it("live test-room thread shows Send", () => {

@@ -10,6 +10,14 @@ vi.mock("../api/client", () => ({
   postThread: vi.fn(),
 }));
 
+vi.mock("../api/projectGroups", () => ({
+  fetchProjectGroups: vi.fn(async () => ({ ok: true, data: [] })),
+  fetchProjectGroupMessages: vi.fn(async () => ({
+    ok: true,
+    data: { messages: [], truncated: false },
+  })),
+}));
+
 vi.mock("../stores/servers", () => ({
   getActiveServer: vi.fn(() => null),
 }));
@@ -22,6 +30,7 @@ import {
   getToken,
   postThread,
 } from "../api/client";
+import { fetchProjectGroupMessages, fetchProjectGroups } from "../api/projectGroups";
 import { getActiveServer } from "../stores/servers";
 import { JOIN_NO_AGENT, JOIN_NO_PROJECT } from "./agentRow";
 import { resetLastAtQueue } from "./lastAtFetch";
@@ -80,6 +89,13 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
     vi.mocked(getAgentList).mockReset();
     vi.mocked(getCliProjectsList).mockReset();
     vi.mocked(getCliProjectsList).mockResolvedValue({ ok: true, data: [] });
+    vi.mocked(fetchProjectGroups).mockReset();
+    vi.mocked(fetchProjectGroups).mockResolvedValue({ ok: true, data: [] });
+    vi.mocked(fetchProjectGroupMessages).mockReset();
+    vi.mocked(fetchProjectGroupMessages).mockResolvedValue({
+      ok: true,
+      data: { messages: [], truncated: false },
+    });
     vi.mocked(getFsReadDir).mockReset();
     vi.mocked(getThread).mockReset();
     vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
@@ -560,31 +576,43 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
     expect(getThread).not.toHaveBeenCalled();
   });
 
-  it("refuses to POST to a room that is not a named test addr", async () => {
+  it("POSTs to a live room that is not a named test addr", async () => {
+    vi.mocked(getActiveServer).mockReturnValue({
+      id: "s",
+      nickname: "x",
+      url: "https://baden.k2.dev",
+      username: "baden",
+      rememberPassword: false,
+    });
     useZenStore.setState({
       agentSource: "live",
       threadSource: "live",
       threadAddr: "appa",
-      thread: [
-        {
-          id: "old",
-          seq: 1,
-          text: "already here",
-          from: "appa",
-          at: 1,
-          mine: false,
-          kind: "text",
-          choice: null,
-        },
-      ],
+      thread: [],
       sendError: null,
       sending: false,
     });
+    vi.mocked(postThread).mockResolvedValue({
+      ok: true,
+      data: { id: "n1", seq: 40, body: "hello" },
+    });
+    vi.mocked(getThread).mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: "n1",
+            seq: 40,
+            doc: { id: "n1", from: "baden", body: "hello", created_at: 3 },
+          },
+        ],
+      },
+    });
     await useZenStore.getState().sendThread("hello");
     const s = useZenStore.getState();
-    expect(postThread).not.toHaveBeenCalled();
-    expect(s.thread.map((m) => m.id)).toEqual(["old"]);
-    expect(s.sendError).toMatch(/only posts to skin-test-a or k2so-companion-qa/);
+    expect(postThread).toHaveBeenCalledWith("appa", "hello");
+    expect(s.sendError).toBeNull();
+    expect(s.thread.map((m) => m.id)).toEqual(["n1"]);
     expect(s.sending).toBe(false);
   });
 
@@ -848,5 +876,114 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
     expect(s.threadSource).toBe("stub");
     expect(s.threadError).toBeNull();
     expect(s.thread.length).toBeGreaterThan(0);
+  });
+});
+
+const GROUP_ROW = {
+  id: "pg1",
+  name: "K2 Companion",
+  pocWorkspaceId: null,
+  pinned: false,
+  color: null,
+  sortOrder: 0,
+  createdAt: 0,
+  updatedAt: 0,
+  memberCount: 3,
+};
+
+describe("OPEN 8 project groups in hydrateAgents", () => {
+  beforeEach(() => {
+    reset();
+    vi.mocked(getToken).mockReturnValue("tok");
+    vi.mocked(getAgentList).mockReset();
+    vi.mocked(getCliProjectsList).mockReset();
+    vi.mocked(fetchProjectGroups).mockReset();
+    vi.mocked(fetchProjectGroupMessages).mockReset();
+    vi.mocked(postThread).mockReset();
+    vi.mocked(getActiveServer).mockReturnValue(null);
+  });
+
+  it("prepends project groups ahead of agent rows", async () => {
+    vi.mocked(getAgentList).mockResolvedValue({
+      ok: true,
+      data: {
+        ok: true,
+        agents: [{ name: "appa", path: "/ws", enabled: true, live: true, mode: "custom" }],
+      },
+    });
+    vi.mocked(getCliProjectsList).mockResolvedValue({
+      ok: true,
+      data: [{ name: "appa", handle: "appa", path: "/ws" }],
+    });
+    vi.mocked(fetchProjectGroups).mockResolvedValue({ ok: true, data: [GROUP_ROW] });
+    await useZenStore.getState().hydrateAgents();
+    const s = useZenStore.getState();
+    expect(s.agentSource).toBe("live");
+    expect(s.agents.map((a) => [a.id, a.kind, a.name])).toEqual([
+      ["group:pg1", "group", "K2 Companion"],
+      ["/ws", "agent", "appa"],
+    ]);
+    expect(s.agents[0].groupId).toBe("pg1");
+    expect(s.agents[0].memberCount).toBe(3);
+    expect(s.agents[0].addr).toBeNull();
+  });
+
+  it("a group-only list is live, not an empty error", async () => {
+    vi.mocked(getAgentList).mockResolvedValue({ ok: true, data: { ok: true, agents: [] } });
+    vi.mocked(getCliProjectsList).mockResolvedValue({ ok: true, data: [] });
+    vi.mocked(fetchProjectGroups).mockResolvedValue({ ok: true, data: [GROUP_ROW] });
+    await useZenStore.getState().hydrateAgents();
+    const s = useZenStore.getState();
+    expect(s.agentSource).toBe("live");
+    expect(s.agents).toHaveLength(1);
+    expect(s.agents[0].kind).toBe("group");
+    expect(s.agentError).toBeNull();
+  });
+
+  it("opening a project chat hydrates messages, refuses files, and does not send", async () => {
+    vi.mocked(getActiveServer).mockReturnValue({
+      id: "s1",
+      nickname: "test",
+      url: "https://example.k2.dev",
+      username: "baden",
+      rememberPassword: false,
+    });
+    vi.mocked(fetchProjectGroupMessages).mockResolvedValue({
+      ok: true,
+      data: {
+        messages: [
+          { id: "m1", groupId: "pg1", author: "owner", body: "hello", createdAt: 10 },
+        ],
+        truncated: false,
+      },
+    });
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [
+        {
+          id: "group:pg1",
+          name: "K2 Companion",
+          initial: "K",
+          kind: "group",
+          groupId: "pg1",
+          memberCount: 3,
+          addr: null,
+          joinMiss: null,
+        },
+      ],
+      threadAddr: "leftover",
+      sendError: null,
+    });
+    useZenStore.getState().setAgent("group:pg1");
+    expect(useZenStore.getState().fileError).toMatch(/per workspace/);
+    expect(useZenStore.getState().files).toEqual([]);
+    await vi.waitFor(() => expect(useZenStore.getState().threadSource).toBe("live"));
+    expect(fetchProjectGroupMessages).toHaveBeenCalledWith("pg1", { limit: 50 });
+    expect(useZenStore.getState().thread.map((m) => m.text)).toEqual(["hello"]);
+    expect(useZenStore.getState().thread[0].mine).toBe(true);
+    expect(useZenStore.getState().threadAddr).toBeNull();
+    await useZenStore.getState().sendThread("nope");
+    expect(postThread).not.toHaveBeenCalled();
+    expect(useZenStore.getState().sendError).toBe("Not chattable");
   });
 });

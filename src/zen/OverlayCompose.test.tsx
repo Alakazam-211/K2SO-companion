@@ -15,6 +15,14 @@ vi.mock("../api/client", () => ({
   inspectProjectsSummary: vi.fn(),
 }));
 
+vi.mock("../api/projectGroups", () => ({
+  fetchProjectGroups: vi.fn(async () => ({ ok: true, data: [] })),
+  fetchProjectGroupMessages: vi.fn(async () => ({
+    ok: true,
+    data: { messages: [], truncated: false },
+  })),
+}));
+
 import { OverlayCompose } from "./OverlayCompose";
 import { useZenStore } from "./zenStore";
 

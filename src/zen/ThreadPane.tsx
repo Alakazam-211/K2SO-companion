@@ -9,7 +9,7 @@ import {
   stickToNewest,
   type MessageAnchor,
 } from "./threadScroll";
-import { isSendTestAddr, SEND_TEST_REFUSED } from "./sendGate";
+import { isSendableAddr } from "./sendGate";
 import { sourceWord, useZenStore } from "./zenStore";
 
 function Bubble({ m }: { m: ThreadMessage }) {
@@ -70,7 +70,7 @@ export function ThreadPane() {
   const threadAddr = useZenStore((s) => s.threadAddr);
   const sending = useZenStore((s) => s.sending);
   const sendError = useZenStore((s) => s.sendError);
-  const canSend = source === "live" && isSendTestAddr(threadAddr);
+  const canSend = source === "live" && isSendableAddr(threadAddr);
   const [draft, setDraft] = useState("");
   const scrollerRef = useRef<HTMLDivElement>(null);
   const pendingAnchor = useRef<MessageAnchor | null>(null);
@@ -187,7 +187,9 @@ export function ThreadPane() {
                 ? sendError
                 : canSend
                   ? ""
-                  : SEND_TEST_REFUSED}
+                  : source === "live"
+                    ? "Not chattable"
+                    : ""}
         </p>
         <form
           className="flex items-center min-w-0 gap-2"

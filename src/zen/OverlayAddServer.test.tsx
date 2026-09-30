@@ -14,5 +14,15 @@ describe("OverlayAddServer", () => {
     expect(screen.getByPlaceholderText("Username")).not.toBeNull();
     expect(screen.getByPlaceholderText("Password")).not.toBeNull();
     expect(screen.queryByText(/Remember password/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Cancel" })).toBeNull();
+    const password = screen.getByPlaceholderText("Password") as HTMLInputElement;
+    expect(password.getAttribute("autocorrect")).toBe("off");
+    expect(password.getAttribute("autocapitalize")).toBe("off");
+    expect(password.getAttribute("spellcheck")).toBe("false");
+  });
+
+  it("Cancel is present when the in-overlay list can go back", () => {
+    render(<OverlayAddServer onCancel={() => {}} />);
+    expect(screen.getByRole("button", { name: "Cancel" })).not.toBeNull();
   });
 });
