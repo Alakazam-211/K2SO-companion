@@ -1,6 +1,5 @@
 import { useEffect } from "react";
-import { useNavigate } from "react-router-dom";
-import { AgentRail } from "../zen/AgentRail";
+import { ChatsList } from "../zen/ChatsList";
 import { FilePane } from "../zen/FilePane";
 import { FileStage } from "../zen/FileStage";
 import { PaneErrorBoundary } from "../zen/PaneErrorBoundary";
@@ -9,7 +8,7 @@ import { STUB_BANNER } from "../zen/stubData";
 import { useZenStore, sourceWord } from "../zen/zenStore";
 
 export function Zen() {
-  const navigate = useNavigate();
+  const screen = useZenStore((s) => s.screen);
   const agentId = useZenStore((s) => s.agentId);
   const agents = useZenStore((s) => s.agents);
   const agentSource = useZenStore((s) => s.agentSource);
@@ -17,13 +16,19 @@ export function Zen() {
   const agentError = useZenStore((s) => s.agentError);
   const fileError = useZenStore((s) => s.fileError);
   const hydrateAgents = useZenStore((s) => s.hydrateAgents);
+  const closeChat = useZenStore((s) => s.closeChat);
+  const toggleFiles = useZenStore((s) => s.toggleFiles);
   const openFileIds = useZenStore((s) => s.openFileIds);
-  const agent = agents.find((a) => a.id === agentId) ?? agents[0];
+  const agent = agents.find((a) => a.id === agentId);
   const filesOpen = openFileIds.length > 0;
 
   useEffect(() => {
     void hydrateAgents();
   }, [hydrateAgents]);
+
+  if (screen === "list") {
+    return <ChatsList />;
+  }
 
   const banner =
     agentSource === "stub" && fileSource === "stub"
@@ -32,25 +37,60 @@ export function Zen() {
   const err = [agentError, fileError].filter(Boolean).join(" · ");
 
   return (
-    <div className="flex h-full min-h-0 bg-[var(--background)]">
-      <AgentRail />
+    <div
+      className="flex h-full min-h-0"
+      style={{ background: "#000" }}
+    >
       <div className="relative flex flex-col flex-1 min-w-0 min-h-0 overflow-x-hidden">
-        <header className="flex items-center gap-2 px-3 h-9 border-b border-[var(--border)] bg-[var(--chrome)] shrink-0">
+        <header
+          className="flex items-center gap-2 px-3 shrink-0"
+          style={{
+            minHeight: 44,
+            paddingTop: "max(8px, env(safe-area-inset-top))",
+            background: "#000",
+          }}
+        >
           <button
-            onClick={() => navigate("/servers")}
-            className="text-[var(--text-muted)] text-[11px]"
+            onClick={() => closeChat()}
+            className="text-[17px] font-semibold"
+            style={{
+              minHeight: 34,
+              padding: "0 10px 0 6px",
+              borderRadius: 17,
+              background: "#1c1c1e",
+              color: "#fff",
+            }}
+            aria-label="Back to chats"
           >
-            Leave
+            ‹
           </button>
-          <div className="flex-1 min-w-0 flex flex-col justify-center">
-            <span className="text-[var(--text)] text-[13px] font-semibold truncate">
+          <div className="flex-1 min-w-0 flex flex-col items-center justify-center">
+            <span className="text-[15px] font-bold truncate" style={{ color: "#fff" }}>
               {agent?.name ?? "—"}
             </span>
-            <span className="text-[var(--warning)] text-[9px] tracking-widest uppercase truncate">
+            <span
+              className="text-[9px] tracking-widest uppercase truncate"
+              style={{ color: "#f59e0b" }}
+            >
               {banner}
               {err ? ` · ${err}` : ""}
             </span>
           </div>
+          <button
+            type="button"
+            onClick={() => toggleFiles()}
+            aria-label="Files"
+            className="flex items-center justify-center shrink-0"
+            style={{
+              width: 36,
+              height: 36,
+              borderRadius: "50%",
+              background: "#1c1c1e",
+              color: "#fff",
+            }}
+          >
+            ⌁
+          </button>
         </header>
         <PaneErrorBoundary name="thread">
           <ThreadPane />

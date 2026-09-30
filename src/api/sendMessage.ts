@@ -1,10 +1,11 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { cliAuthHeaders } from "./cliAuth";
 import { getBaseUrl, getToken } from "./client";
 import { useServersStore } from "../stores/servers";
 import { isPossibleAuthFailure, reviveServerSession } from "../lib/revive";
 import { interpretSendResponse, type SendOutcome } from "../lib/sendMode";
 
-// T3 Safe send — `POST /cli/terminal/send-message?token=<tok>` with body
+// T3 Safe send — `POST /cli/terminal/send-message` (Bearer) with body
 // `{"session_id":"<uuid>","text":"..."}` (the terminalId ChatSession holds
 // IS the daemon session uuid — the same `?session=` the grid-WS attaches
 // with). The daemon's injector (per-session lock + ESC-sanitize +
@@ -39,13 +40,11 @@ export async function sendMessageToSession(
     const base = getBaseUrl();
     if (!base) throw new Error("Not connected");
     const token = getToken();
-    const url =
-      `${base}/cli/terminal/send-message` +
-      (token ? `?token=${encodeURIComponent(token)}` : "");
+    const url = `${base}/cli/terminal/send-message`;
     const res = await Promise.race([
       tauriFetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: cliAuthHeaders(token),
         body: JSON.stringify({ session_id: sessionId, text }),
       }),
       new Promise<never>((_, reject) =>

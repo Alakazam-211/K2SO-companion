@@ -2,49 +2,20 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../api/client", () => ({
   getToken: vi.fn(),
-  getProjectsSummary: vi.fn(),
-  getAgents: vi.fn(),
+  getAgentList: vi.fn(),
   getFsReadDir: vi.fn(),
   getFsReadFile: vi.fn(),
   getThread: vi.fn(),
 }));
 
 import {
-  getAgents,
+  getAgentList,
   getFsReadDir,
-  getProjectsSummary,
   getThread,
   getToken,
-  type Agent,
 } from "../api/client";
 import { STUB_AGENTS, STUB_FILES } from "./stubData";
 import { useZenStore } from "./zenStore";
-
-function agent(partial: Partial<Agent> & { name: string }): Agent {
-  return {
-    name: partial.name,
-    role: partial.role ?? "",
-    isManager: partial.isManager ?? false,
-    agentType: partial.agentType ?? "skill",
-    inboxCount: 0,
-    activeCount: 0,
-    doneCount: 0,
-    handle: partial.handle,
-    addr: partial.addr,
-    roomHandle: partial.roomHandle,
-    displayName: partial.displayName,
-  };
-}
-
-const PROJECT = {
-  id: "k2",
-  name: "K2",
-  path: "/ws",
-  color: "",
-  agentMode: "",
-  agentsRunning: 0,
-  reviewsPending: 0,
-};
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -69,6 +40,7 @@ function reset() {
     agentError: null,
     fileError: null,
     filesGen: 0,
+    screen: "list",
     agentId: STUB_AGENTS[0].id,
     filesOpen: true,
     openFileIds: [],
@@ -82,28 +54,44 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
   beforeEach(() => {
     reset();
     vi.mocked(getToken).mockReturnValue("tok");
-    vi.mocked(getProjectsSummary).mockReset();
-    vi.mocked(getAgents).mockReset();
+    vi.mocked(getAgentList).mockReset();
     vi.mocked(getFsReadDir).mockReset();
     vi.mocked(getThread).mockReset();
     vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
   });
 
-  it("clears stubs synchronously before the first await", async () => {
-    const pending = deferred<Awaited<ReturnType<typeof getProjectsSummary>>>();
-    vi.mocked(getProjectsSummary).mockImplementationOnce(() => pending.promise);
-    const p = useZenStore.getState().hydrateAgents();
+  it("does not install stub and does not call a grant-scoped list yet", async () => {
+    vi.mocked(getAgentList).mockResolvedValue({
+      ok: true,
+      data: {
+        ok: true,
+        agents: [
+          { enabled: true, live: false, mode: "local", name: "appa", path: "/Users/Baden/Appa" },
+          { enabled: true, live: false, mode: "local", name: "Skin Test A", path: "/ws/skin-a" },
+        ],
+      },
+    });
+    await useZenStore.getState().hydrateAgents();
     const mid = useZenStore.getState();
-    expect(mid.agentSource).toBe("loading");
-    expect(mid.fileSource).toBe("loading");
-    expect(mid.agents).toEqual([]);
-    expect(mid.files).toEqual([]);
+    expect(mid.agentSource).toBe("live");
+    expect(mid.agents.map((a) => a.name)).toEqual(["appa", "Skin Test A"]);
+    expect(mid.agents.every((a) => a.addr == null)).toBe(true);
+    expect(mid.screen).toBe("list");
+    expect(mid.agentError).toMatch(/No thread addr/);
     expect(mid.agents.some((a) => a.id.startsWith("stub-"))).toBe(false);
-    expect(mid.files.some((f) => String(f.id).startsWith("stub-"))).toBe(false);
-    expect(mid.threadSource).toBe("loading");
-    expect(mid.thread).toEqual([]);
-    pending.resolve({ ok: true, data: [] } as Awaited<ReturnType<typeof getProjectsSummary>>);
-    await p;
+    expect(getAgentList).toHaveBeenCalledOnce();
+  });
+
+  it("a bare array from the skills enumerator is a shape error, not a rail", async () => {
+    vi.mocked(getAgentList).mockResolvedValue({
+      ok: true,
+      data: [{ name: "k2-cli", agentType: "skill" }],
+    });
+    await useZenStore.getState().hydrateAgents();
+    const mid = useZenStore.getState();
+    expect(mid.agentSource).toBe("error");
+    expect(mid.agents).toEqual([]);
+    expect(mid.agentError).toMatch(/unrecognised shape/);
   });
 
   it("no token is the only path that installs the stub catalogue", async () => {
@@ -119,8 +107,6 @@ describe("hydrateFiles generation token", () => {
     reset();
     vi.mocked(getToken).mockReturnValue("");
     vi.mocked(getFsReadDir).mockReset();
-    vi.mocked(getProjectsSummary).mockReset();
-    vi.mocked(getAgents).mockReset();
   });
 
   it("in-flight hydrate is loading, not LIVE empty", async () => {
@@ -187,8 +173,6 @@ describe("live failure never shows the stub catalog", () => {
     reset();
     vi.mocked(getToken).mockReturnValue("tok");
     vi.mocked(getFsReadDir).mockReset();
-    vi.mocked(getProjectsSummary).mockReset();
-    vi.mocked(getAgents).mockReset();
     vi.mocked(getThread).mockReset();
     vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
   });
@@ -204,14 +188,18 @@ describe("live failure never shows the stub catalog", () => {
     expect(s.files).not.toBe(STUB_FILES);
   });
 
-  it("projects.summary fail → empty rail, not STUB_AGENTS", async () => {
-    vi.mocked(getProjectsSummary).mockResolvedValue({ ok: false, error: "projects.summary failed" });
+  it("signed-in list is empty and honest, not STUB_AGENTS", async () => {
+    vi.mocked(getAgentList).mockResolvedValue({
+      ok: false,
+      error: "GET /cli/agent/list failed",
+    });
     await useZenStore.getState().hydrateAgents();
     const s = useZenStore.getState();
     expect(s.agentSource).toBe("error");
     expect(s.agents).toEqual([]);
     expect(s.files).toEqual([]);
     expect(s.fileSource).toBe("error");
+    expect(s.agentError).toMatch(/agent\/list/);
     expect(s.agents).not.toBe(STUB_AGENTS);
   });
 
@@ -264,102 +252,42 @@ describe("hydrateThread", () => {
   });
 });
 
-describe("hydrateAgents keys the rail on agentType, not name", () => {
+describe("hydrateAgents stays off /cli/skin/agents until owner content is counted", () => {
   beforeEach(() => {
     reset();
     vi.mocked(getToken).mockReturnValue("tok");
-    vi.mocked(getProjectsSummary).mockReset();
-    vi.mocked(getAgents).mockReset();
     vi.mocked(getFsReadDir).mockReset();
     vi.mocked(getThread).mockReset();
-    vi.mocked(getProjectsSummary).mockResolvedValue({ ok: true, data: [PROJECT] });
-    vi.mocked(getFsReadDir).mockResolvedValue({ ok: true, data: [] });
     vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
   });
 
-  it("drops skill packs and leftover templates; keeps an agent row untransformed", async () => {
-    const skillish = [
-      agent({ name: "k2-canonical-agents", agentType: "skill" }),
-      agent({ name: "k2so-manager", agentType: "agent-template" }),
-      agent({ name: "k2so-agent", agentType: "k2so" }),
-      agent({ name: "k2-cli" }),
-    ];
-    expect(skillish.length).toBeGreaterThan(0);
-    vi.mocked(getAgents).mockResolvedValue({
-      ok: true,
-      data: [
-        ...skillish,
-        agent({ name: "k2so-Denali", agentType: "agent", handle: "denali" }),
-      ],
-    });
-    await useZenStore.getState().hydrateAgents();
-    const s = useZenStore.getState();
-    expect(s.agents.map((a) => a.name)).toEqual(["k2so-Denali"]);
-    expect(s.agents[0].addr).toBe("denali");
-    expect(s.agents.some((a) => a.name === "k2-canonical-agents")).toBe(false);
-    expect(vi.mocked(getThread).mock.calls.map((c) => c[0])).toEqual(["denali"]);
-  });
-
-  it("does not GET /cli/thread with the row name when no handle/addr is present", async () => {
-    vi.mocked(getAgents).mockResolvedValue({
-      ok: true,
-      data: [agent({ name: "Denali", agentType: "agent" })],
-    });
-    await useZenStore.getState().hydrateAgents();
-    const s = useZenStore.getState();
-    expect(s.agents.map((a) => a.name)).toEqual(["Denali"]);
-    expect(s.agents[0].addr).toBeNull();
-    expect(vi.mocked(getThread)).not.toHaveBeenCalled();
-    expect(s.threadSource).toBe("error");
-    expect(s.threadError).toBe("no overlay addr");
-    expect(s.thread).toEqual([]);
-  });
-
-  it("skill-only list is live 0 agents and does not call getThread", async () => {
-    const skillish = [
-      agent({ name: "k2-canonical-agents", agentType: "skill" }),
-      agent({ name: "k2so-.archive", agentType: "agent-template" }),
-    ];
-    expect(skillish.length).toBeGreaterThan(0);
-    vi.mocked(getAgents).mockResolvedValue({ ok: true, data: skillish });
-    await useZenStore.getState().hydrateAgents();
-    const s = useZenStore.getState();
-    expect(s.agentSource).toBe("live");
-    expect(s.agents).toEqual([]);
-    expect(s.agentError).toBe("live: 0 agents");
-    expect(vi.mocked(getThread)).not.toHaveBeenCalled();
-    expect(s.threadError).toBe("live: 0 agents");
-  });
-
-  it("setAgent uses overlay addr, never the display name", async () => {
+  it("setAgent threads the handle, never a display name", async () => {
     useZenStore.setState({
       agentSource: "live",
       agents: [
         {
-          id: "k2so-Denali",
-          name: "k2so-Denali",
-          initial: "K",
-          path: "/ws",
-          addr: "denali",
-          agentType: "agent",
+          id: "skin-test-a",
+          name: "Skin Test A",
+          initial: "ST",
+          path: "skin-test-a",
+          addr: "skin-test-a",
         },
         {
           id: "NoAddr",
           name: "NoAddr",
           initial: "N",
-          path: "/ws",
+          path: "NoAddr",
           addr: null,
-          agentType: "agent",
         },
       ],
-      agentId: "k2so-Denali",
+      agentId: "skin-test-a",
     });
     vi.mocked(getThread).mockClear();
     useZenStore.getState().setAgent("NoAddr");
     expect(vi.mocked(getThread)).not.toHaveBeenCalled();
-    expect(useZenStore.getState().threadError).toBe("no overlay addr");
-    useZenStore.getState().setAgent("k2so-Denali");
-    expect(vi.mocked(getThread).mock.calls.map((c) => c[0])).toEqual(["denali"]);
+    expect(useZenStore.getState().threadError).toBe("Not chattable");
+    useZenStore.getState().setAgent("skin-test-a");
+    expect(vi.mocked(getThread).mock.calls.map((c) => c[0])).toEqual(["skin-test-a"]);
   });
 
   it("stub setAgent still loads the stub thread", async () => {

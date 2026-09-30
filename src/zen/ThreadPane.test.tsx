@@ -15,7 +15,10 @@ describe("ThreadPane", () => {
     });
     render(<ThreadPane />);
     expect(screen.getByText(/unknown overlay addr/)).not.toBeNull();
-    expect(screen.getByPlaceholderText(/not proven/)).not.toBeNull();
+    expect(screen.getByTestId("composer-label").textContent).toMatch(
+      /POST \/cli\/thread\/post not proven/
+    );
+    expect(screen.getByPlaceholderText("Message")).not.toBeNull();
   });
 
   it("labels the composer on stub and live — POST is not proven", () => {
@@ -36,7 +39,9 @@ describe("ThreadPane", () => {
       ],
     });
     render(<ThreadPane />);
-    expect(screen.getByPlaceholderText(/POST \/cli\/thread\/post not proven/)).not.toBeNull();
+    expect(screen.getByTestId("composer-label").textContent).toMatch(
+      /STUB — Cannot send — POST \/cli\/thread\/post not proven/
+    );
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
   });
 
@@ -54,11 +59,11 @@ describe("ThreadPane", () => {
   it("error pane does not also say No messages", () => {
     useZenStore.setState({
       threadSource: "error",
-      threadError: "no overlay addr",
+      threadError: "Not chattable",
       thread: [],
     });
     render(<ThreadPane />);
-    expect(screen.getByText("no overlay addr")).not.toBeNull();
+    expect(screen.getByText("Not chattable")).not.toBeNull();
     expect(screen.queryByTestId("thread-empty")).toBeNull();
   });
 
@@ -69,11 +74,13 @@ describe("ThreadPane", () => {
       thread: [],
     });
     render(<ThreadPane />);
-    const input = screen.getByPlaceholderText(/not proven/);
+    const label = screen.getByTestId("composer-label");
+    expect(label.textContent).toMatch(/Cannot send — POST \/cli\/thread\/post not proven/);
+    expect(label.className).toMatch(/break-words/);
+    const input = screen.getByPlaceholderText("Message");
     expect(input.className).toMatch(/min-w-0/);
     const pill = input.parentElement;
     expect(pill?.className).toMatch(/min-w-0/);
-    expect(pill?.parentElement?.className).toMatch(/min-w-0/);
   });
 
   it("renders live bubbles without a send control", () => {
@@ -96,7 +103,7 @@ describe("ThreadPane", () => {
     render(<ThreadPane />);
     expect(screen.getByText("hello from the agent")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
-    expect(screen.getByPlaceholderText(/not proven/)).not.toBeNull();
+    expect(screen.getByTestId("composer-label").textContent).toMatch(/not proven/);
   });
 
   it("renders markdown and choice options, not raw asterisks or a blank card", () => {

@@ -12,7 +12,7 @@ import loginLogo from "../assets/login-logo.png";
 // from the Servers home: "Add server" (blank) or a row's edit affordance
 // (`?server=<id>`, prefilled). A successful sign-in saves the server (+
 // token, + password when "Remember password" is on), makes it active, and
-// returns to /servers. The password is stored ONLY when the user opts in.
+// opens the overlay. The password is stored ONLY when the user opts in.
 
 export function Login() {
   const navigate = useNavigate();
@@ -55,7 +55,7 @@ export function Login() {
       rememberPassword: remember,
     });
     setBusy(false);
-    if (result.ok) navigate("/servers", { replace: true });
+    if (result.ok) navigate("/zen", { replace: true });
     else setError(result.error);
   };
 

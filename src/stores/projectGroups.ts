@@ -1,5 +1,6 @@
 // Slice C2 — project-groups store for the ACTIVE server: groups list,
-// unread dots, per-host icon cache, and the live `/events?token=` feed.
+// unread dots, per-host icon cache, and the live `/events?token=` feed
+// (WebSocket cannot set Authorization; HTTP /cli uses Bearer).
 //
 // Companion mirror of the desktop's `stores/project-groups.ts`:
 //   - Structural events (`project-group:groups-changed` /

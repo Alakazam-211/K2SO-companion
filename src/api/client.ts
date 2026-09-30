@@ -1,4 +1,5 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { cliAuthHeaders } from "./cliAuth";
 import { ws } from "./websocket";
 import { useServersStore } from "../stores/servers";
 import { isPossibleAuthFailure, reviveServerSession } from "../lib/revive";
@@ -56,19 +57,10 @@ export interface Agent {
   name: string;
   role: string;
   isManager: boolean;
-  /**
-   * What the row is. `/cli/agents/list` enumerates `.k2/skills` (`k2 skills list`).
-   * `agent-template` / `k2so` / missing (`skill`) are not conversations.
-   */
-  agentType: string;
+  agentType?: string;
   inboxCount: number;
   activeCount: number;
   doneCount: number;
-  /** Overlay handle if the daemon sends one. Not derived from `name`. */
-  handle?: string;
-  addr?: string;
-  roomHandle?: string;
-  displayName?: string;
 }
 
 export interface RunningTerminal {
@@ -141,9 +133,12 @@ export interface FsFileContent {
 // 0.40.x: the companion talks DIRECTLY to the K2 daemon's `/cli/*` routes.
 // The base URL is the daemon origin — `https://<sub>.k2.dev` over the
 // K2 Connect tunnel, or `http://127.0.0.1:<daemon.port>` for localhost
-// dev. The session token comes from `POST /cli/auth/login`; it
-// authenticates every `/cli/*` call as the `?token=` query param (the same
-// param the daemon's grid-WS and CLI use).
+// dev. The session token comes from `POST /cli/auth/login`. HTTP `/cli/*`
+// sends it as `Authorization: Bearer` (loopback owner GETs accept that
+// header, 2026-09-29). Query `?token=` stays only on WebSocket URLs that
+// cannot set headers: grid WS, `/companion/ws`, `/events`. Wiki:
+// `.k2/wiki/Defect - Query-string token.md`. Connect-tunnel Bearer is
+// unproven.
 //
 // C1: the old module globals are now DERIVED from the ACTIVE server in
 // `stores/servers.ts` — switching servers instantly redirects every call,
@@ -202,7 +197,7 @@ async function httpRequest<T>(
     const base = getBaseUrl();
     const token = getToken();
 
-    // Build query: project + extra params + the auth token.
+    // Build query: project + extra params. Auth is the Bearer header.
     let url = `${base}${path}`;
     const params: string[] = [];
     if (options.project) {
@@ -213,22 +208,17 @@ async function httpRequest<T>(
         params.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
       }
     }
-    if (token) {
-      params.push(`token=${encodeURIComponent(token)}`);
-    }
     if (params.length > 0) {
       // Use `&` when `path` already carries a query string (GET routes whose
-      // params the `request` wrapper appended to the path). Appending `?` here
-      // unconditionally produced `...?a=b?token=z`, folding the token into the
-      // last param value so the daemon saw NO token → 403 (e.g. rename "snapped
-      // back" because set-label silently failed).
+      // params the `request` wrapper appended to the path). Appending `?`
+      // unconditionally produced `...?a=b?other=z` and folded the last param.
       url += (url.includes("?") ? "&" : "?") + params.join("&");
     }
 
     const res = await Promise.race([
       tauriFetch(url, {
         method: options.method || "GET",
-        headers: { "Content-Type": "application/json" },
+        headers: cliAuthHeaders(token),
         body: options.body || undefined,
       }),
       new Promise<never>((_, reject) =>
@@ -323,6 +313,44 @@ export const getProjects = () =>
   request<Project[]>("projects.list", "/cli/companion/projects", {});
 export const getProjectsSummary = () =>
   request<ProjectSummary[]>("projects.summary", "/cli/companion/projects-summary", {});
+
+/** DEBUG-only. One GET of /cli/companion/projects-summary.
+ *  Returns HTTP status + parsed JSON. Never returns the URL, token, headers, or raw body. */
+export async function inspectProjectsSummary(): Promise<{
+  status: number | null;
+  data: unknown;
+  note: string | null;
+}> {
+  if (!getBaseUrl()) return { status: null, data: undefined, note: "Not connected" };
+  const token = getToken();
+  if (!token) return { status: null, data: undefined, note: "No session token" };
+  // Bearer, same as every other HTTP /cli call. Do not log headers.
+  const url = `${getBaseUrl()}/cli/companion/projects-summary`;
+  try {
+    const res = await Promise.race([
+      tauriFetch(url, {
+        method: "GET",
+        headers: cliAuthHeaders(token),
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error("Request timed out")), 15000)
+      ),
+    ]);
+    const text = await res.text();
+    try {
+      return {
+        status: res.status,
+        data: JSON.parse(text) as unknown,
+        note: res.ok ? null : `HTTP ${res.status}`,
+      };
+    } catch {
+      return { status: res.status, data: undefined, note: "Body is not JSON" };
+    }
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "Unknown error";
+    return { status: null, data: undefined, note: `Could not reach server: ${msg}` };
+  }
+}
 export const getPresets = () =>
   request<CliPreset[]>("presets.list", "/cli/companion/presets", {});
 export const getAllSessions = () =>
@@ -337,6 +365,13 @@ export const getAllSessions = () =>
 // not track this. Wiki: `.k2/wiki/Unverified - CLI param shapes.md`.
 export const getAgents = (project: string) =>
   request<Agent[]>("agents.list", "/cli/agents/list", { project });
+/** Owner fleet. Live 200: `{ok:true, agents:[{enabled,live,mode,name,path}]}`.
+ *  This is what `k2 agent list` calls. Plural `/cli/agents/list` is skills. */
+export const getAgentList = () =>
+  request<unknown>("agent.list", "/cli/agent/list", {});
+/** Skin rooms. Live 200: `{agents:[{displayName,handle,projectId}]}`. Grant-scoped. */
+export const getSkinAgents = () =>
+  request<unknown>("skin.agents", "/cli/skin/agents", {});
 export const getRunningTerminals = (project: string) =>
   request<RunningTerminal[]>("agents.running", "/cli/terminal/list-running", { project });
 export const getAgentWork = (project: string, agent: string, folder = "inbox") =>
@@ -424,10 +459,11 @@ export const clearTerminalPin = (session: string) =>
 export const getStatus = (project: string) =>
   request("status", "/cli/companion/status", { project });
 
-export const getFsReadDir = (path: string) =>
-  request<FsDirEntry[]>("fs.read_dir", "/cli/fs/read-dir", { path });
-export const getFsReadFile = (path: string) =>
-  request<FsFileContent>("fs.read_file", "/cli/fs/read-file", { path });
+/** Skin: GET /cli/fs/read-dir?workspace=<handle>&path=<rel> */
+export const getFsReadDir = (workspace: string, path = ".") =>
+  request<FsDirEntry[]>("fs.read_dir", "/cli/fs/read-dir", { workspace, path });
+export const getFsReadFile = (workspace: string, path: string) =>
+  request<FsFileContent>("fs.read_file", "/cli/fs/read-file", { workspace, path });
 
 /** Thread history. Skin: GET /cli/thread?addr=&limit=&before_seq= */
 export type ThreadDoc = {

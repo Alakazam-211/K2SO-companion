@@ -27,6 +27,7 @@
 //     server marked `signin-required` — the one case that needs the user.
 
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { cliAuthHeaders } from "../api/cliAuth";
 import {
   useServersStore,
   loginToServer,
@@ -91,7 +92,7 @@ export function reviveBackoffMs(failedCount: number): number {
   return REVIVE_BACKOFF_MS[Math.min(failedCount, REVIVE_BACKOFF_MS.length) - 1];
 }
 
-/** Probe a server's session via `GET /cli/auth/whoami?token=…`. 401/403 is
+/** Probe a server's session via `GET /cli/auth/whoami` (Bearer). 401/403 is
  *  an authoritative 'dead'; 2xx 'alive'; anything else (timeout, 5xx) is a
  *  blip — 'unknown', never grounds to drop a token. */
 async function probeSession(
@@ -100,10 +101,10 @@ async function probeSession(
 ): Promise<"alive" | "dead" | "unknown"> {
   try {
     const res = await Promise.race([
-      tauriFetch(
-        `${server.url}/cli/auth/whoami?token=${encodeURIComponent(token)}`,
-        { method: "GET" }
-      ),
+      tauriFetch(`${server.url}/cli/auth/whoami`, {
+        method: "GET",
+        headers: cliAuthHeaders(token),
+      }),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("whoami timed out")), WHOAMI_TIMEOUT_MS)
       ),

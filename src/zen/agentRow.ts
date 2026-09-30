@@ -1,29 +1,80 @@
-import type { Agent } from "../api/client";
-
 /**
- * `/cli/agents/list` is the skills enumerator (`k2 skills list` calls it).
- * `agentType` says what the row is. Missing type is skill (daemon/CLI default).
- * These types are skill packs / leftover templates — not conversations.
+ * Live GET /cli/skin/agents (guest read-a, 8793, 2026-09-29):
+ *   { agents: [{ displayName, handle, projectId }] }
+ * Addr and fs workspace are `handle`. Name is `displayName`.
+ * `roomHandle` is not sent — do not read it.
+ * `projectId` is present; files still use handle (skin does).
+ * Rows without a handle are dropped. Unrecognised shape is an error.
  */
-const SKILL_TYPES = new Set(["skill", "agent-template", "k2so"]);
+export type SkinAgentRow = {
+  handle?: string;
+  displayName?: string;
+  projectId?: string;
+};
 
-export function isChattableAgentType(agentType: string | undefined | null): boolean {
-  const t = (agentType ?? "skill").trim().toLowerCase();
-  if (!t) return false;
-  return !SKILL_TYPES.has(t);
+export function skinRoomOf(
+  a: SkinAgentRow
+): { handle: string; name: string } | null {
+  const handle = typeof a.handle === "string" ? a.handle.trim() : "";
+  if (!handle) return null;
+  const name =
+    (typeof a.displayName === "string" && a.displayName.trim()) || handle;
+  return { handle, name };
 }
 
-/** Overlay addr if the list row carried one. Never derived from `name`. */
-export function overlayAddrOf(a: Pick<Agent, "handle" | "addr" | "roomHandle">): string | null {
-  for (const v of [a.handle, a.addr, a.roomHandle]) {
-    if (typeof v === "string" && v.trim()) return v.trim();
+export function skinInitials(name: string): string {
+  const parts = String(name).trim().split(/[\s\-_]+/).filter(Boolean);
+  return ((parts[0] || "?")[0] + (parts[1] ? parts[1][0] : "")).toUpperCase();
+}
+
+/** Live 200 is `{agents:[]}`. A bare array or any other shape is an error. */
+export function parseSkinAgents(data: unknown): SkinAgentRow[] | null {
+  if (Array.isArray(data)) return null;
+  if (
+    data &&
+    typeof data === "object" &&
+    Array.isArray((data as { agents?: unknown }).agents)
+  ) {
+    return (data as { agents: SkinAgentRow[] }).agents;
   }
   return null;
 }
 
-/** Display as the server sent it. No k2so- strip, no lowercase. */
-export function displayNameOf(a: Pick<Agent, "displayName" | "name">): string {
-  const d = typeof a.displayName === "string" ? a.displayName.trim() : "";
-  if (d) return d;
-  return (a.name ?? "").trim();
+/** Live GET /cli/agent/list (singular; loopback 60753, 2026-09-29):
+ *   { ok: true, agents: [{ enabled, live, mode, name, path }] }
+ * `k2 agent list` calls this route. `/cli/agents/list` (plural) is skills.
+ * No handle/addr on the wire — do not invent one from name. */
+export type OwnerAgentRow = {
+  enabled?: unknown;
+  live?: unknown;
+  mode?: unknown;
+  name?: unknown;
+  path?: unknown;
+  handle?: unknown;
+  addr?: unknown;
+};
+
+export function ownerAgentOf(
+  a: OwnerAgentRow
+): { id: string; name: string; path: string; addr: string | null } | null {
+  const name = typeof a.name === "string" ? a.name.trim() : "";
+  if (!name) return null;
+  const path = typeof a.path === "string" ? a.path : "";
+  const handle = typeof a.handle === "string" ? a.handle.trim() : "";
+  const addrField = typeof a.addr === "string" ? a.addr.trim() : "";
+  const addr = handle || addrField || null;
+  return { id: name, name, path, addr };
+}
+
+/** Live 200 is `{ok, agents:[]}`. A bare array is the skills enumerator — error. */
+export function parseOwnerAgents(data: unknown): OwnerAgentRow[] | null {
+  if (Array.isArray(data)) return null;
+  if (
+    data &&
+    typeof data === "object" &&
+    Array.isArray((data as { agents?: unknown }).agents)
+  ) {
+    return (data as { agents: OwnerAgentRow[] }).agents;
+  }
+  return null;
 }

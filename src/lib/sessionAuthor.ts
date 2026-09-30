@@ -6,6 +6,7 @@
 // "mine" as that session identity — not every `"owner"` row.
 
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { cliAuthHeaders } from "../api/cliAuth";
 import { getBaseUrl, getToken } from "../api/client";
 import { useServersStore } from "../stores/servers";
 
@@ -67,9 +68,9 @@ export async function ensureIdentity(): Promise<SessionIdentity | null> {
     return fallback;
   }
   try {
-    const res = await tauriFetch(
-      `${base}/cli/auth/whoami?token=${encodeURIComponent(token)}`,
-    );
+    const res = await tauriFetch(`${base}/cli/auth/whoami`, {
+      headers: cliAuthHeaders(token),
+    });
     if (!res.ok) throw new Error(String(res.status));
     const j = (await res.json()) as {
       username?: string | null;

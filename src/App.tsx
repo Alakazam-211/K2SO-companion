@@ -14,11 +14,16 @@ import { ProjectsPage } from "./pages/Projects";
 import { Feedback } from "./pages/Feedback";
 import { NewSessionModal } from "./components/NewSessionModal";
 import { Zen } from "./pages/Zen";
+import { overlayHomePath } from "./zen/overlayHome";
 
-/** C1 guard: content pages need at least one saved server. A fresh install
- *  (0 servers) lands on /servers with the add CTA — login is no longer the
- *  app gate. A server in `signin-required` still renders content; the
- *  footer + Servers page surface the state instead of a hard logout. */
+/** Signed-in home is the overlay (`/zen`). A fresh install (0 servers)
+ *  still lands on /servers with the add CTA. Content pages besides /zen
+ *  still need a saved server. */
+function HomeRedirect() {
+  const hasServers = useServersStore((s) => s.servers.length > 0);
+  return <Navigate to={overlayHomePath(hasServers)} replace />;
+}
+
 function ServerGuard({ children }: { children: React.ReactNode }) {
   const hasServers = useServersStore((s) => s.servers.length > 0);
   if (!hasServers) return <Navigate to="/servers" replace />;
@@ -134,7 +139,7 @@ function AppLayout() {
           {/* Stub door: toggle location is not decided. No server required
               so the structure is visible on the Vite loop. Data is labelled STUB. */}
           <Route path="/zen" element={<Zen />} />
-          <Route path="*" element={<Navigate to="/servers" replace />} />
+          <Route path="*" element={<HomeRedirect />} />
         </Routes>
       </div>
       <ServerFooter />
