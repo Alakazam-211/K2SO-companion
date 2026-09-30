@@ -87,6 +87,8 @@ function stubThread(agentId: string): ThreadMessage[] {
     from: m.author,
     at: null,
     mine: m.mine,
+    kind: "text",
+    choice: null,
   }));
 }
 

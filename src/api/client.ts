@@ -423,20 +423,22 @@ export const getFsReadFile = (path: string) =>
   request<FsFileContent>("fs.read_file", "/cli/fs/read-file", { path });
 
 /** Thread history. Skin: GET /cli/thread?addr=&limit=&before_seq= */
-export type ThreadItem = {
+export type ThreadDoc = {
   id?: string;
   seq?: number;
+  kind?: string;
+  from?: string;
+  body?: string;
+  text?: string;
+  created_at?: number;
   conversation_id?: string;
-  doc?: {
-    id?: string;
-    seq?: number;
-    kind?: string;
-    from?: string;
-    body?: string;
-    text?: string;
-    created_at?: number;
-    conversation_id?: string;
-  };
+  choice?: { prompt?: string; options?: string[] | string; answer?: unknown };
+  secret?: { prompt?: string };
+};
+
+export type ThreadItem = ThreadDoc & {
+  doc?: ThreadDoc;
+  collection?: string;
 };
 
 export type ThreadPage = {
