@@ -459,11 +459,13 @@ export const clearTerminalPin = (session: string) =>
 export const getStatus = (project: string) =>
   request("status", "/cli/companion/status", { project });
 
-/** Skin: GET /cli/fs/read-dir?workspace=<handle>&path=<rel> */
-export const getFsReadDir = (workspace: string, path = ".") =>
-  request<FsDirEntry[]>("fs.read_dir", "/cli/fs/read-dir", { workspace, path });
-export const getFsReadFile = (workspace: string, path: string) =>
-  request<FsFileContent>("fs.read_file", "/cli/fs/read-file", { workspace, path });
+/** Companion daemon: `path` is the absolute filesystem path.
+ *  `path=.` lists the daemon cwd (`/` on this box) — 5a30d62 regression.
+ *  Skin's `workspace=<handle>&path=<rel>` is a different contract. */
+export const getFsReadDir = (path: string) =>
+  request<FsDirEntry[]>("fs.read_dir", "/cli/fs/read-dir", { path });
+export const getFsReadFile = (path: string) =>
+  request<FsFileContent>("fs.read_file", "/cli/fs/read-file", { path });
 
 /** Thread history. Skin: GET /cli/thread?addr=&limit=&before_seq= */
 export type ThreadDoc = {

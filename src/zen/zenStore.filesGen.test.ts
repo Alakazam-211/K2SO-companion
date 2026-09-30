@@ -16,6 +16,7 @@ import {
 } from "../api/client";
 import { STUB_AGENTS, STUB_FILES } from "./stubData";
 import { useZenStore } from "./zenStore";
+import { NO_WORKSPACE_PATH, ROOT_LISTING_HIDDEN } from "./workspacePath";
 
 function deferred<T>() {
   let resolve!: (v: T) => void;
@@ -99,6 +100,71 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
     await useZenStore.getState().hydrateAgents();
     expect(useZenStore.getState().agentSource).toBe("stub");
     expect(useZenStore.getState().agents).toEqual(STUB_AGENTS);
+  });
+});
+
+describe("files never list the filesystem root", () => {
+  beforeEach(() => {
+    reset();
+    vi.mocked(getToken).mockReturnValue("tok");
+    vi.mocked(getFsReadDir).mockReset();
+  });
+
+  it("does not request read-dir for /, ~, or a handle", async () => {
+    await useZenStore.getState().hydrateFiles("/");
+    await useZenStore.getState().hydrateFiles("~");
+    await useZenStore.getState().hydrateFiles("~/Appa");
+    await useZenStore.getState().hydrateFiles("appa");
+    expect(getFsReadDir).not.toHaveBeenCalled();
+    expect(useZenStore.getState().fileSource).toBe("error");
+    expect(useZenStore.getState().files).toEqual([]);
+    expect(useZenStore.getState().fileError).toBe(NO_WORKSPACE_PATH);
+  });
+
+  it("setAgent with / does not call read-dir", async () => {
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [
+        { id: "appa", name: "appa", initial: "A", path: "/", addr: null },
+      ],
+    });
+    useZenStore.getState().setAgent("appa");
+    expect(getFsReadDir).not.toHaveBeenCalled();
+    expect(useZenStore.getState().files).toEqual([]);
+    expect(useZenStore.getState().fileError).toBe(NO_WORKSPACE_PATH);
+  });
+
+  it("sends the absolute directory as path, not path=.", async () => {
+    vi.mocked(getFsReadDir).mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          name: "AGENTS.md",
+          path: "/Users/Baden/Appa/AGENTS.md",
+          isDirectory: false,
+        },
+      ],
+    });
+    await useZenStore.getState().hydrateFiles("/Users/Baden/Appa");
+    expect(getFsReadDir).toHaveBeenCalledWith("/Users/Baden/Appa");
+    expect(useZenStore.getState().fileSource).toBe("live");
+    expect(useZenStore.getState().files.map((f) => f.name)).toEqual(["AGENTS.md"]);
+  });
+
+  it("hides a root listing even if the request returned 200", async () => {
+    vi.mocked(getFsReadDir).mockResolvedValue({
+      ok: true,
+      data: [
+        { name: "etc", path: "/etc", isDirectory: false },
+        { name: "home", path: "/home", isDirectory: false },
+        { name: "tmp", path: "/tmp", isDirectory: false },
+        { name: "var", path: "/var", isDirectory: false },
+      ],
+    });
+    await useZenStore.getState().hydrateFiles("/Users/Baden/Appa");
+    expect(useZenStore.getState().fileSource).toBe("error");
+    expect(useZenStore.getState().files).toEqual([]);
+    expect(useZenStore.getState().fileError).toBe(ROOT_LISTING_HIDDEN);
   });
 });
 
