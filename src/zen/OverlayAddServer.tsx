@@ -70,7 +70,7 @@ export function OverlayAddServer({
         className={onCancel ? "flex items-center justify-between relative shrink-0" : "shrink-0"}
         style={{
           minHeight: 44,
-          padding: "max(12px, env(safe-area-inset-top)) 16px 8px",
+          padding: "12px 16px 8px",
         }}
       >
         {onCancel ? (

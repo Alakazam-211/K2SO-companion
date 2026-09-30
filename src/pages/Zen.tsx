@@ -17,10 +17,10 @@ export function Zen() {
   const fileError = useZenStore((s) => s.fileError);
   const hydrateAgents = useZenStore((s) => s.hydrateAgents);
   const closeChat = useZenStore((s) => s.closeChat);
-  const toggleFiles = useZenStore((s) => s.toggleFiles);
+  const dismissFiles = useZenStore((s) => s.dismissFiles);
   const openFileIds = useZenStore((s) => s.openFileIds);
   const agent = agents.find((a) => a.id === agentId);
-  const filesOpen = openFileIds.length > 0;
+  const viewingFile = openFileIds.length > 0;
 
   useEffect(() => {
     void hydrateAgents();
@@ -52,12 +52,16 @@ export function Zen() {
       </div>
       {screen === "thread" ? (
         <div className="flex h-full min-h-0">
-          <div className="relative flex flex-col flex-1 min-w-0 min-h-0 overflow-x-hidden">
+          <div
+            className="relative flex flex-col flex-1 min-w-0 min-h-0 overflow-x-hidden"
+            data-testid="thread-column"
+            onClick={viewingFile ? () => dismissFiles() : undefined}
+          >
             <header
               className="flex items-center gap-2 px-3 shrink-0"
               style={{
                 minHeight: 44,
-                paddingTop: "max(8px, env(safe-area-inset-top))",
+                paddingTop: 8,
                 background: "#000",
               }}
             >
@@ -92,27 +96,17 @@ export function Zen() {
                   </span>
                 ) : null}
               </div>
-              <button
-                type="button"
-                onClick={() => toggleFiles()}
-                aria-label="Files"
-                className="flex items-center justify-center shrink-0"
-                style={{
-                  width: 36,
-                  height: 36,
-                  borderRadius: "50%",
-                  background: "#1c1c1e",
-                  color: "#fff",
-                }}
-              >
-                ⌁
-              </button>
+              <span style={{ width: 36 }} aria-hidden />
             </header>
             <PaneErrorBoundary name="thread">
               <ThreadPane />
             </PaneErrorBoundary>
-            {filesOpen && (
-              <div className="absolute inset-y-0 right-0 w-[78%] border-l border-[var(--border)] bg-[var(--background)] flex flex-col">
+            {viewingFile && (
+              <div
+                className="absolute inset-y-0 right-0 w-[78%] border-l border-[var(--border)] bg-[var(--background)] flex flex-col"
+                data-testid="file-stage"
+                onClick={(e) => e.stopPropagation()}
+              >
                 <FileStage />
               </div>
             )}

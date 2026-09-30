@@ -8,6 +8,19 @@ import { useZenStore } from "./zenStore";
 afterEach(() => cleanup());
 
 describe("FilePane stub markers", () => {
+  it("collapsed live tab says View Files, not LIVE files", () => {
+    useZenStore.setState({
+      filesOpen: false,
+      fileSource: "live",
+      files: STUB_FILES,
+      fileError: null,
+    });
+    render(<FilePane />);
+    const tab = screen.getByLabelText("Open View Files");
+    expect(tab.textContent).toMatch(/View Files/);
+    expect(tab.textContent).not.toMatch(/LIVE files/i);
+  });
+
   it("collapsed tab says STUB files, not a bare Files", () => {
     useZenStore.setState({
       filesOpen: false,

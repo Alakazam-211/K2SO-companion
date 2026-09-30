@@ -83,6 +83,7 @@ function reset() {
     splitId: null,
     splitRatio: 0.5,
     lastAtByKey: {},
+    pinnedIds: [],
   });
 }
 

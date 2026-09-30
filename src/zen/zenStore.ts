@@ -27,6 +27,7 @@ import {
 } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
 import { beginLastAt, fetchLastAt } from "./lastAtFetch";
+import { pinId, readPinnedIds, unpinId, writePinnedIds } from "./pinChats";
 import { isSendableAddr } from "./sendGate";
 import {
   nextSidecarAddr,
@@ -107,6 +108,10 @@ type ZenState = {
   /** Last-message unix seconds, keyed `t:<addr>` / `g:<groupId>`. Null = fetched empty. */
   lastAtByKey: Record<string, number | null>;
   ensureLastAt: (key: string) => void;
+  pinnedIds: string[];
+  pinChat: (id: string) => void;
+  unpinChat: (id: string) => void;
+  dismissFiles: () => void;
   /** Overlay home is the chats list. A row opens the thread. */
   screen: "list" | "thread";
   agentId: string;
@@ -183,6 +188,24 @@ export const useZenStore = create<ZenState>((set, get) => ({
   sending: false,
   sendError: null,
   lastAtByKey: {},
+  pinnedIds: readPinnedIds(),
+  pinChat: (id) => {
+    const pinnedIds = pinId(get().pinnedIds, id);
+    writePinnedIds(pinnedIds);
+    set({ pinnedIds });
+  },
+  unpinChat: (id) => {
+    const pinnedIds = unpinId(get().pinnedIds, id);
+    writePinnedIds(pinnedIds);
+    set({ pinnedIds });
+  },
+  dismissFiles: () =>
+    set({
+      openFileIds: [],
+      focusId: null,
+      splitId: null,
+      filesOpen: false,
+    }),
   ensureLastAt: (key) => {
     if (!beginLastAt(key)) return;
     const kind = key.startsWith("g:") ? "group" : "thread";
@@ -449,7 +472,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
 
   screen: "list",
   agentId: "",
-  filesOpen: true,
+  filesOpen: false,
   openFileIds: [],
   focusId: null,
   splitId: null,

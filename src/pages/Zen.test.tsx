@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
 vi.mock("../api/client", () => ({
@@ -28,7 +28,7 @@ vi.mock("../api/projectGroups", () => ({
 
 import { getAgentList, getCliProjectsList, getToken } from "../api/client";
 import { useServersStore } from "../stores/servers";
-import { STUB_AGENTS } from "../zen/stubData";
+import { STUB_AGENTS, STUB_FILES } from "../zen/stubData";
 import { useZenStore } from "../zen/zenStore";
 import { Zen } from "./Zen";
 
@@ -150,5 +150,64 @@ describe("Zen keeps the chats list mounted", () => {
     expect(screen.getByTestId("chat-header-sub").textContent).toMatch(
       /STUB — not live agents or files/
     );
+  });
+
+  it("has no lightning Files button on the thread", async () => {
+    vi.mocked(getToken).mockReturnValue("");
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: STUB_AGENTS,
+      screen: "list",
+      agentError: null,
+    });
+    render(
+      <MemoryRouter>
+        <Zen />
+      </MemoryRouter>
+    );
+    await waitFor(() =>
+      expect(useZenStore.getState().agentSource).toBe("stub")
+    );
+    act(() => {
+      useZenStore.getState().setAgent(STUB_AGENTS[0].id);
+    });
+    expect(screen.queryByRole("button", { name: "Files" })).toBeNull();
+    expect(screen.queryByText("⌁")).toBeNull();
+  });
+
+  it("tapping the visible chat while a file is open closes the file pane", async () => {
+    vi.mocked(getToken).mockReturnValue("");
+    useZenStore.setState({
+      agentSource: "stub",
+      fileSource: "stub",
+      agents: STUB_AGENTS,
+      files: STUB_FILES,
+      screen: "list",
+      agentError: null,
+      fileError: null,
+    });
+    render(
+      <MemoryRouter>
+        <Zen />
+      </MemoryRouter>
+    );
+    await waitFor(() =>
+      expect(useZenStore.getState().agentSource).toBe("stub")
+    );
+    act(() => {
+      useZenStore.getState().setAgent(STUB_AGENTS[0].id);
+      useZenStore.setState({
+        files: STUB_FILES,
+        fileSource: "stub",
+        filesOpen: true,
+        openFileIds: [STUB_FILES[0].id],
+        focusId: STUB_FILES[0].id,
+      });
+    });
+    expect(screen.getByTestId("file-stage")).not.toBeNull();
+    fireEvent.click(screen.getByTestId("thread-column"));
+    expect(useZenStore.getState().openFileIds).toEqual([]);
+    expect(useZenStore.getState().filesOpen).toBe(false);
+    expect(screen.queryByTestId("file-stage")).toBeNull();
   });
 });
