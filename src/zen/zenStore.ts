@@ -257,7 +257,12 @@ export const useZenStore = create<ZenState>((set, get) => ({
         set({
           threadSource: "error",
           thread: [],
-          threadError: r.error || "thread failed",
+          threadError:
+            typeof r.error === "string" && r.error
+              ? r.error
+              : r.error
+                ? JSON.stringify(r.error)
+                : "thread failed",
         });
         return;
       }

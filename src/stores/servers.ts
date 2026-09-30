@@ -20,8 +20,10 @@ import {
 //   "activeServerId" → string | null
 //   "tokens"         → Record<serverId, sessionToken>
 //   "passwords"      → Record<serverId, password> — ONLY servers where the
-//                      user opted into "Remember password". (Keychain
-//                      hardening is a tracked follow-up; see PRD §1.)
+//                      user opted into "Remember password". OPEN DEFECT:
+//                      plaintext in this file. Not Keychain. There is no
+//                      PRD §1 for this. Wiki:
+//                      `.k2/wiki/Defect - Plaintext remembered passwords.md`
 //
 // One-time migration: the pre-v2 single session in plugin-store `auth.json`
 // + the saved-server list in localStorage `k2_connections` fold into this

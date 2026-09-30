@@ -1,4 +1,5 @@
 import { ChatMessageBody } from "../components/ChatMessage";
+import { asErrorText } from "../lib/apiError";
 import { StubMark } from "./StubMark";
 import { mountainTime, type ThreadMessage } from "./threadModel";
 import { sourceWord, useZenStore } from "./zenStore";
@@ -66,11 +67,13 @@ export function ThreadPane() {
           </span>
         ) : null}
         {source === "error" && error ? (
-          <span className="text-[11px] text-[var(--warning)] px-2">{error}</span>
+          <span className="text-[11px] text-[var(--warning)] px-2">
+            {asErrorText(error)}
+          </span>
         ) : null}
-        {thread.map((m) => (
+        {thread.map((m, i) => (
           <div
-            key={m.id}
+            key={m.id || `seq-${m.seq ?? i}`}
             className={`flex flex-col max-w-[78%] ${m.mine ? "self-end items-end" : "self-start items-start"}`}
           >
             {!m.mine ? (
@@ -86,7 +89,10 @@ export function ThreadPane() {
           </div>
         ))}
       </div>
-      <div className="flex items-center gap-2 px-3 py-2 shrink-0">
+      <div
+        className="flex items-center gap-2 px-3 pt-2 shrink-0"
+        style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
+      >
         <div className="flex-1 flex items-center rounded-full px-3 py-2 bg-[var(--card)]">
           <input
             disabled

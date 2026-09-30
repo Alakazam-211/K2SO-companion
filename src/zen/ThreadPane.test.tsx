@@ -7,6 +7,17 @@ import { useZenStore } from "./zenStore";
 afterEach(() => cleanup());
 
 describe("ThreadPane", () => {
+  it("renders a structured daemon error as text, not a throw", () => {
+    useZenStore.setState({
+      threadSource: "error",
+      threadError: { code: "not_found", hint: "unknown overlay addr 'k2so-Skin-Test-A'" } as unknown as string,
+      thread: [],
+    });
+    render(<ThreadPane />);
+    expect(screen.getByText(/unknown overlay addr/)).not.toBeNull();
+    expect(screen.getByPlaceholderText(/not proven/)).not.toBeNull();
+  });
+
   it("labels the composer on stub and live — POST is not proven", () => {
     useZenStore.setState({
       threadSource: "stub",
