@@ -47,6 +47,9 @@ targets:
           # verified 2026-09-29 (e24b6bc FAIL). iPad second window is an
           # accepted tradeoff; if it becomes a problem, handle the second
           # scene — do not flip this flag.
+          # Every `tauri ios build` rewrites k2so-companion_iOS/Info.plist
+          # and STRIPS this comment. That absence is EXPECTED, not tampering.
+          # Durable copies: this file and src-tauri/Info.ios.plist.
           UIApplicationSupportsMultipleScenes: true
           UISceneConfigurations:
             UIWindowSceneSessionRoleApplication:
