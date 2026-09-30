@@ -1,0 +1,881 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>K2 — iMessage baseline</title>
+  <style>
+    :root {
+      --bg: #000;
+      --elev: #1c1c1e;
+      --in: #3a3a3c;
+      --out: #0a84ff;
+      --text: #fff;
+      --muted: #8e8e93;
+      --hair: rgba(255,255,255,.12);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100%;
+      background: #000;
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", "Helvetica Neue", sans-serif;
+      -webkit-font-smoothing: antialiased;
+      overflow: hidden;
+    }
+    .phone {
+      width: 100%;
+      height: 100%;
+      background: #000;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      position: relative;
+    }
+    @media (min-width: 500px) {
+      html, body { overflow: auto; }
+      body { display: flex; justify-content: center; padding: 24px 0; }
+      .phone {
+        width: 393px;
+        height: 852px;
+        flex-shrink: 0;
+        border: 1px solid #1c1c1e;
+      }
+    }
+    .screen { display: none; flex: 1; flex-direction: column; min-height: 0; position: relative; }
+    .screen.on { display: flex; }
+
+    .nav {
+      display: flex; align-items: center; justify-content: space-between;
+      position: relative;
+      min-height: 44px;
+      padding: max(12px, env(safe-area-inset-top)) 16px 8px;
+    }
+    .nav h1 {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      font-size: 17px; font-weight: 600; letter-spacing: -.2px;
+      pointer-events: none;
+    }
+    .pill {
+      min-height: 34px; padding: 0 14px; border: 0; border-radius: 17px;
+      background: var(--elev); color: var(--text); font-size: 17px; font-weight: 400;
+    }
+    .round {
+      width: 36px; height: 36px; border: 0; border-radius: 50%;
+      background: var(--elev); color: var(--text);
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    .pins {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      padding: 4px 10px 8px;
+      gap: 14px 6px;
+      min-height: 96px;
+      border-radius: 16px;
+      margin: 0 8px;
+      transition: background .15s, outline-color .15s;
+      outline: 1.5px dashed transparent;
+    }
+    .pins.hot { background: rgba(10,132,255,.12); outline-color: rgba(10,132,255,.5); }
+    .pin-hint {
+      font-size: 11px; color: var(--muted); text-align: center;
+      padding: 0 16px 10px; line-height: 1.3;
+    }
+    .pin {
+      background: none; border: 0; color: var(--text);
+      text-align: center; cursor: grab; touch-action: none; user-select: none;
+    }
+    .pin.placeholder { cursor: default; opacity: .45; }
+    .pin .ring.dashed { border: 1.5px dashed #636366; background: transparent; color: #636366; font-weight: 400; }
+    .pin .ring {
+      width: 74px; height: 74px; border-radius: 50%;
+      margin: 0 auto 8px;
+      background: #2c2c2e;
+      display: flex; align-items: center; justify-content: center;
+      font-size: 26px; font-weight: 700;
+      position: relative;
+      overflow: hidden;
+    }
+    .pin .name {
+      font-size: 12px; color: #d1d1d6;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      max-width: 110px; margin: 0 auto;
+    }
+    .list { flex: 1; overflow-y: auto; padding-bottom: 96px; }
+    .row {
+      display: flex; gap: 10px; align-items: center;
+      padding: 10px 14px 10px 6px;
+      cursor: pointer; position: relative;
+      touch-action: pan-y; user-select: none;
+    }
+    .row.dragging, .pin.dragging { opacity: .35; }
+    .row::after {
+      content: "";
+      position: absolute; left: 76px; right: 0; bottom: 0;
+      height: 0.5px; background: var(--hair);
+    }
+    .dot {
+      width: 9px; height: 9px; border-radius: 50%;
+      background: var(--out); flex-shrink: 0; margin-left: 4px;
+    }
+    .dot.off { background: transparent; }
+    .ava {
+      width: 50px; height: 50px; border-radius: 50%;
+      background: #3a3a3c;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; flex-shrink: 0; font-size: 18px;
+    }
+    .meta { flex: 1; min-width: 0; }
+    .line1 {
+      display: flex; justify-content: space-between; align-items: baseline; gap: 8px;
+    }
+    .who { font-size: 16px; font-weight: 600; letter-spacing: -.2px; }
+    .when {
+      font-size: 14px; color: var(--muted); flex-shrink: 0;
+      display: flex; align-items: center; gap: 4px; font-weight: 400;
+    }
+    .preview {
+      font-size: 14px; color: var(--muted); line-height: 1.3;
+      display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+    .row.unread .preview { color: #c7c7cc; }
+
+    .dock {
+      position: absolute; left: 12px; right: 12px;
+      bottom: max(14px, env(safe-area-inset-bottom));
+      display: flex; align-items: center; gap: 10px; z-index: 4;
+    }
+    .search {
+      flex: 1; display: flex; align-items: center; gap: 8px;
+      background: #1c1c1e; border-radius: 22px; padding: 9px 14px;
+    }
+    .search input {
+      flex: 1; background: none; border: 0; color: var(--text);
+      font-size: 17px; outline: none; font-family: inherit;
+    }
+    .search input::placeholder { color: #8e8e93; }
+    .search .mic { color: #8e8e93; display: flex; }
+    .compose {
+      width: 44px; height: 44px; border-radius: 14px; border: 0;
+      background: #1c1c1e; color: var(--text);
+      display: flex; align-items: center; justify-content: center;
+    }
+
+    /* Thread: messages full-bleed; chrome floats on top like iMessage */
+    .thread {
+      flex: 1; overflow-y: auto;
+      padding: 120px 10px 8px;
+      display: flex; flex-direction: column; gap: 4px;
+    }
+    .chat-chrome {
+      position: absolute; top: 0; left: 0; right: 0; z-index: 3;
+      padding: max(8px, env(safe-area-inset-top)) 10px 10px;
+      background: linear-gradient(to bottom, #000 55%, rgba(0,0,0,.55) 80%, transparent);
+      pointer-events: none;
+    }
+    .chat-chrome > * { pointer-events: auto; }
+    .chat-top {
+      display: flex; align-items: flex-start; justify-content: space-between;
+      padding-top: 4px;
+    }
+    .back {
+      display: flex; align-items: center; gap: 4px;
+      min-height: 34px; padding: 0 10px 0 6px; border: 0; border-radius: 17px;
+      background: var(--elev); color: var(--text); font-size: 17px; font-weight: 600;
+      margin-top: 2px;
+    }
+    .back .n {
+      background: #3a3a3c; border-radius: 10px; padding: 1px 7px;
+      font-size: 15px; font-weight: 700;
+    }
+    .identity {
+      position: absolute; left: 50%; transform: translateX(-50%);
+      display: flex; flex-direction: column; align-items: center;
+      top: 6px;
+    }
+    .identity .faces {
+      display: flex; justify-content: center; z-index: 2;
+      margin-bottom: -16px;
+    }
+    .identity .faces .face {
+      width: 52px; height: 52px; border-radius: 50%;
+      background: #3a3a3c;
+      display: flex; align-items: center; justify-content: center;
+      font-weight: 700; font-size: 18px;
+      border: 2px solid #000;
+    }
+    .identity.group .faces { gap: 8px; margin-bottom: 6px; }
+    .identity.group .faces .face {
+      width: 36px; height: 36px; font-size: 13px;
+      border: 0;
+    }
+    .identity.group .chip { min-width: 148px; padding-top: 5px; }
+    .identity.group { top: 8px; }
+    .chip {
+      background: #1c1c1e; border-radius: 16px;
+      padding: 18px 14px 5px; min-width: 108px;
+      text-align: center;
+    }
+    .chip b { font-size: 15px; font-weight: 700; display: block; }
+    .chip .chev { font-weight: 500; opacity: .7; }
+    .chip span { font-size: 11px; color: var(--muted); }
+
+    .bubble {
+      max-width: 78%; padding: 9px 13px; font-size: 17px; line-height: 1.28;
+      border-radius: 18px; word-wrap: break-word;
+    }
+    .in { align-self: flex-start; background: var(--in); }
+    .out { align-self: flex-end; background: var(--out); }
+    .who-tag { font-size: 12px; color: var(--muted); margin: 8px 0 0 14px; }
+    .read { align-self: flex-end; font-size: 11px; color: var(--muted); margin: 2px 8px 6px; }
+    .filechip {
+      display: flex; align-items: center; gap: 8px;
+      background: rgba(255,255,255,.12); border-radius: 12px;
+      padding: 8px 10px; margin-top: 6px; cursor: pointer; text-align: left;
+    }
+    .filechip small { display: block; color: rgba(255,255,255,.7); font-size: 11px; }
+
+    .composer {
+      display: flex; align-items: center; gap: 8px;
+      padding: 8px 12px; padding-bottom: max(14px, env(safe-area-inset-bottom));
+      background: #000;
+    }
+    .composer .plus {
+      width: 34px; height: 34px; border-radius: 50%; border: 0;
+      background: var(--elev); color: #d1d1d6; font-size: 22px; line-height: 1;
+    }
+    .composer .field {
+      flex: 1; display: flex; align-items: center; gap: 8px;
+      background: var(--elev); border-radius: 20px; padding: 8px 12px 8px 14px;
+    }
+    .composer .field input {
+      flex: 1; background: none; border: 0; color: var(--text);
+      font-size: 17px; outline: none; font-family: inherit;
+    }
+    .composer .field input::placeholder { color: #8e8e93; }
+    .composer .mic { color: #8e8e93; display: flex; }
+
+    .sheet {
+      position: absolute; inset: 0; background: #000;
+      display: none; flex-direction: column; z-index: 6;
+    }
+    .sheet.on { display: flex; }
+    .sheet pre {
+      flex: 1; overflow: auto; padding: 16px;
+      font: 13px ui-monospace, Menlo, monospace; color: #ddd; white-space: pre-wrap;
+    }
+    .sheet .actions {
+      display: flex; gap: 8px; padding: 12px 16px;
+      padding-bottom: max(16px, env(safe-area-inset-bottom));
+    }
+    .sheet .actions button {
+      flex: 1; padding: 12px; border: 0; border-radius: 12px;
+      background: var(--elev); color: var(--text); font-size: 15px;
+    }
+    .set-row {
+      display: flex; justify-content: space-between; align-items: center;
+      padding: 14px 16px; border-bottom: 0.5px solid var(--hair);
+      font-size: 17px; cursor: pointer;
+    }
+    .set-cap {
+      font-size: 13px; color: var(--muted); padding: 8px 16px 16px; line-height: 1.35;
+    }
+    button { font-family: inherit; cursor: pointer; }
+
+    .ghost {
+      position: fixed; z-index: 20; pointer-events: none;
+      width: 72px; text-align: center; transform: translate(-50%, -70%);
+      filter: drop-shadow(0 8px 16px rgba(0,0,0,.5));
+    }
+    .ghost .ring {
+      width: 64px; height: 64px; border-radius: 50%; margin: 0 auto 4px;
+      background: #3a3a3c; display: flex; align-items: center; justify-content: center;
+      font-size: 22px; font-weight: 700;
+    }
+    .ghost .name { font-size: 11px; color: #d1d1d6; }
+
+    .ask {
+      position: absolute; inset: 0; z-index: 8;
+      background: rgba(0,0,0,.45);
+      display: none; align-items: flex-end; justify-content: center;
+    }
+    .ask.on { display: flex; }
+    .ask-card {
+      width: 100%; padding: 8px 12px max(16px, env(safe-area-inset-bottom));
+    }
+    .ask-card p {
+      text-align: center; font-size: 13px; color: var(--muted);
+      padding: 8px 12px 12px;
+    }
+    .ask-card button {
+      display: block; width: 100%; border: 0; border-radius: 14px;
+      background: var(--elev); color: var(--text);
+      font-size: 17px; padding: 14px; margin-bottom: 8px;
+    }
+    .ask-card button.primary { background: var(--out); font-weight: 600; }
+    .ask-card button.ghost-btn { background: transparent; color: var(--muted); }
+  </style>
+</head>
+<body>
+  <div class="phone">
+
+    <section id="chats" class="screen on">
+      <div class="nav">
+        <button class="pill" type="button" onclick="openSettings()">Settings</button>
+        <h1>Chats</h1>
+        <button class="round" type="button" onclick="openSettings()" aria-label="More">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><rect x="4" y="6" width="16" height="1.8" rx="1"/><rect x="4" y="11" width="16" height="1.8" rx="1"/><rect x="4" y="16" width="16" height="1.8" rx="1"/></svg>
+        </button>
+      </div>
+      <div class="pins" id="pins"></div>
+      <p class="pin-hint" id="pin-hint">Hold a chat, then drag it up here to pin. Drag a pin down to unpin.</p>
+      <div class="list" id="chat-list"></div>
+      <div class="dock">
+        <label class="search">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8e8e93" stroke-width="2"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg>
+          <input id="chat-search" type="search" placeholder="Search" oninput="filterChats(this.value)" />
+          <span class="mic" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8e8e93" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0"/><path d="M12 17v3"/></svg>
+          </span>
+        </label>
+        <button class="compose" type="button" title="New message" onclick="show('compose')" aria-label="New message">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 20h9"/>
+            <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z"/>
+          </svg>
+        </button>
+      </div>
+    </section>
+
+    <section id="compose" class="screen">
+      <div class="nav">
+        <button class="pill" type="button" onclick="show('chats')">Cancel</button>
+        <h1>New Message</h1>
+        <span style="width:72px"></span>
+      </div>
+      <p class="pin-hint">Pick someone. Next we’ll ask main chat or a separate chat.</p>
+      <div class="list" id="compose-list" style="padding-bottom:16px"></div>
+    </section>
+
+    <section id="thread" class="screen">
+      <div class="chat-chrome">
+        <div class="chat-top">
+          <button class="back" type="button" onclick="show('chats')"><span>‹</span><span class="n" id="back-n">1</span></button>
+          <div class="identity" id="identity"></div>
+          <button class="round" type="button" title="Files" onclick="openInfo()" aria-label="Files" style="margin-top:2px">
+            <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M3 7h5l2 2h11v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/>
+            </svg>
+          </button>
+        </div>
+      </div>
+      <div class="thread" id="thread-body"></div>
+      <div class="composer">
+        <button class="plus" type="button" onclick="alert('Upload — lands as a chip in the thread.')">＋</button>
+        <div class="field">
+          <input placeholder="iMessage" />
+          <span class="mic" aria-hidden="true">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#8e8e93" stroke-width="1.8"><rect x="9" y="3" width="6" height="11" rx="3"/><path d="M6 11a6 6 0 0 0 12 0"/><path d="M12 17v3"/></svg>
+          </span>
+        </div>
+      </div>
+    </section>
+
+    <div id="settings" class="sheet">
+      <div class="nav">
+        <button class="pill" type="button" onclick="closeSettings()">Done</button>
+        <h1>Settings</h1>
+        <span style="width:72px"></span>
+      </div>
+      <div class="set-row" onclick="closeSettings(); show('projects')">Projects <span style="color:#8e8e93">›</span></div>
+      <div class="set-row" onclick="closeSettings(); show('servers')">Servers <span style="color:#8e8e93">›</span></div>
+      <div class="set-row" onclick="leaveOverlay()">Current app <span style="color:#8e8e93">›</span></div>
+      <p class="set-cap">Leave this overlay and use the app as it is today — Servers, Sessions, Tickets.</p>
+    </div>
+
+    <section id="projects" class="screen">
+      <div class="nav">
+        <button class="pill" type="button" onclick="show('chats')">Chats</button>
+        <h1>Projects</h1>
+        <span style="width:72px"></span>
+      </div>
+      <div class="list" style="padding-bottom:16px">
+        <div class="row" onclick="openChat('group')">
+          <div class="dot off"></div>
+          <div class="ava">P</div>
+          <div class="meta"><div class="line1"><div class="who">K2 Companion</div></div><div class="preview">3 members · this server</div></div>
+          <div class="when">›</div>
+        </div>
+        <div class="row" onclick="openChat('k2')">
+          <div class="dot off"></div>
+          <div class="ava">K</div>
+          <div class="meta"><div class="line1"><div class="who">K2</div></div><div class="preview">Daemon workspace</div></div>
+          <div class="when">›</div>
+        </div>
+      </div>
+    </section>
+
+    <section id="servers" class="screen">
+      <div class="nav">
+        <button class="pill" type="button" onclick="show('chats')">Chats</button>
+        <h1>Servers</h1>
+        <button class="round" type="button">+</button>
+      </div>
+      <div class="list" style="padding-bottom:16px">
+        <div class="row">
+          <div class="dot off"></div>
+          <div class="ava">K</div>
+          <div class="meta"><div class="line1"><div class="who">label.k2.dev</div></div><div class="preview">you @ label.k2.dev</div></div>
+        </div>
+      </div>
+    </section>
+
+    <div id="info" class="sheet">
+      <div class="nav">
+        <button class="pill" type="button" onclick="closeInfo()">Close</button>
+        <h1>Files</h1>
+        <span style="width:72px"></span>
+      </div>
+      <div class="list" style="padding-bottom:16px" id="file-list"></div>
+    </div>
+
+    <div id="file" class="sheet">
+      <div class="nav">
+        <button class="pill" type="button" onclick="closeFile()">Close</button>
+        <h1 id="fname">AGENT.md</h1>
+        <button class="round" type="button" onclick="alert('Download')">↓</button>
+      </div>
+      <pre id="fbody">STUB FILE</pre>
+      <div class="actions">
+        <button type="button" onclick="alert('Download')">Download</button>
+        <button type="button" onclick="alert('Share')">Share</button>
+      </div>
+    </div>
+
+    <div id="ask" class="ask" onclick="if (event.target === this) closeAsk()">
+      <div class="ask-card">
+        <p id="ask-title">Talk to this agent?</p>
+        <button class="primary" type="button" onclick="chooseMain()">Main chat</button>
+        <button type="button" onclick="chooseSidecar()">Separate chat</button>
+        <button class="ghost-btn" type="button" onclick="closeAsk()">Cancel</button>
+      </div>
+    </div>
+    <div id="ghost" class="ghost" hidden></div>
+  </div>
+  <script>
+    const THREADS = {
+      companion: {
+        title: "k2so-companion",
+        sub: "canonical",
+        faces: [{ l: "K", bg: "#3a3a3c" }],
+        group: false,
+        unread: false,
+        when: "9:14 AM",
+        preview: "Got it.",
+        files: [
+          { name: "AGENT.md", preview: "Charter · this workspace" },
+          { name: "Home.md", preview: "Wiki" }
+        ],
+        messages: [
+          { from: "them", text: "Pushed loginUrlFor. 3.1.1 is on the phone." },
+          { from: "me", text: "That works. Submitting to Apple." },
+          { from: "them", text: "Here’s the revival note if you want it.", file: { name: "AGENT.md", size: "12 KB" } },
+          { from: "me", text: "Got it." },
+          { read: "Read 1:57 PM" }
+        ]
+      },
+      sidecar: {
+        title: "k2so-companion / 1",
+        sub: "sidecar",
+        faces: [{ l: "K", bg: "#3a3a3c" }],
+        group: false,
+        unread: true,
+        when: "9:22 AM",
+        preview: "Sidecar · same workspace, extra chat",
+        files: [{ name: "notes.txt", preview: "12 KB" }],
+        messages: [
+          { from: "them", text: "This is the extra chat on the same workspace." },
+          { from: "me", text: "Keep the canonical thread for the main work." },
+          { read: "Read 9:22 AM" }
+        ]
+      },
+      appa: {
+        title: "appa",
+        sub: "chief of staff",
+        faces: [{ l: "A", bg: "#3a3a3c" }],
+        group: false,
+        unread: false,
+        when: "8:41 AM",
+        preview: "QA PASS 3a8aa63. D3 still open for you.",
+        files: [{ name: "REPORT.md", preview: "QA evidence" }],
+        messages: [
+          { from: "them", text: "QA PASS 3a8aa63. D3 still open for you." },
+          { from: "me", text: "Keep D3 as a product call." },
+          { read: "Read 8:41 AM" }
+        ]
+      },
+      group: {
+        title: "K2 Companion",
+        sub: "3 people",
+        faces: [
+          { l: "A", bg: "#48484a" },
+          { l: "K", bg: "#3a3a3c" },
+          { l: "C", bg: "#636366" }
+        ],
+        group: true,
+        unread: true,
+        when: "2:07 PM",
+        preview: "appa: Stub file from the workspace.",
+        files: [
+          { name: "Home.md", preview: "Wiki" },
+          { name: "PRODUCT-BRIEF.md", preview: "8 KB" }
+        ],
+        messages: [
+          { who: "appa", from: "them", text: "QA PASS 3a8aa63. D3 still open for you." },
+          { who: "k2so-companion", from: "them", text: "Frozen at 3a8aa63. No further commits on it." },
+          { from: "me", text: "Keep D3 as a product call. Don’t redesign it." },
+          { who: "appa", from: "them", text: "Stub file from the workspace.", file: { name: "Home.md", size: "4 KB" } },
+          { read: "Read 2:07 PM" }
+        ]
+      },
+      k2: {
+        title: "k2",
+        sub: "daemon",
+        faces: [{ l: "K2", bg: "#2c2c2e" }],
+        group: false,
+        unread: false,
+        when: "Yesterday",
+        preview: "Protocol lives here.",
+        files: [],
+        messages: [
+          { from: "them", text: "Daemon / protocol SSOT is this workspace." },
+          { from: "me", text: "Companion stays the phone." },
+          { read: "Read Yesterday" }
+        ]
+      },
+      web: {
+        title: "k2-dev-web",
+        sub: "site / ops",
+        faces: [{ l: "W", bg: "#2c2c2e" }],
+        group: false,
+        unread: false,
+        when: "Sun",
+        preview: "Site and ops.",
+        files: [],
+        messages: [
+          { from: "them", text: "k2.dev + fleet ops." },
+          { read: "Read Sunday" }
+        ]
+      }
+    };
+
+    const PINNED = ["companion", "appa", "group"];
+    const LIST_ORDER = ["group", "sidecar", "companion", "appa", "k2", "web"];
+    const COMPOSE_ORDER = ["companion", "appa", "group", "k2", "web"];
+    const SIDE_OF = { companion: "sidecar" };
+
+    function initials(title, faces) {
+      if (faces && faces.length === 1) return faces[0].l;
+      const letters = String(title || "").split(/\s+/).map((w) => w[0]).join("");
+      return letters.slice(0, 2) || "?";
+    }
+    function pinFace(t) {
+      return `<div class="ring" style="background:${(t.faces[0] && t.faces[0].bg) || "#2c2c2e"}">${initials(t.title, t.group ? null : t.faces)}</div>`;
+    }
+
+    function renderPins() {
+      const el = document.getElementById("pins");
+      if (!PINNED.length) {
+        el.innerHTML = `<div class="pin placeholder"><div class="ring dashed">+</div><div class="name">Drop here</div></div>`;
+      } else {
+        el.innerHTML = PINNED.map((id) => {
+          const t = THREADS[id];
+          return `<button class="pin" type="button" data-id="${id}">
+            ${pinFace(t)}
+            <div class="name">${t.title}</div>
+          </button>`;
+        }).join("");
+      }
+      const hint = document.getElementById("pin-hint");
+      if (hint) {
+        hint.textContent = PINNED.length
+          ? "Hold a chat, then drag it up here to pin. Drag a pin down to unpin."
+          : "Hold a chat in the list, then drag it here to pin.";
+      }
+    }
+
+    function rowHtml(id, mode) {
+      const t = THREADS[id];
+      const unread = t.unread ? "unread" : "";
+      const face = `<div class="ava" style="background:${(t.faces[0] && t.faces[0].bg) || "#2c2c2e"}">${initials(t.title, t.group ? null : t.faces)}</div>`;
+      const go = mode === "compose" ? `pickCompose('${id}')` : `openChat('${id}', this)`;
+      return `<div class="row ${unread}" data-id="${id}" onclick="${go}">
+        <div class="dot ${t.unread ? "" : "off"}"></div>
+        ${face}
+        <div class="meta">
+          <div class="line1">
+            <div class="who">${t.title}</div>
+            <div class="when">${t.when} ›</div>
+          </div>
+          <div class="preview">${t.preview}</div>
+        </div>
+      </div>`;
+    }
+
+    function renderList() {
+      document.getElementById("chat-list").innerHTML = LIST_ORDER.map((id) => rowHtml(id)).join("");
+      document.getElementById("compose-list").innerHTML = COMPOSE_ORDER.map((id) => rowHtml(id, "compose")).join("");
+      refreshBack();
+    }
+
+    function show(id) {
+      document.querySelectorAll(".screen").forEach((s) => s.classList.remove("on"));
+      document.getElementById(id).classList.add("on");
+    }
+
+    function openChat(id, row) {
+      if (skipClick) return;
+      const t = THREADS[id];
+      if (!t) return;
+      t.unread = false;
+      if (row) {
+        row.classList.remove("unread");
+        const d = row.querySelector(".dot");
+        if (d) d.classList.add("off");
+      }
+      const ident = document.getElementById("identity");
+      ident.className = "identity" + (t.group ? " group" : "");
+      ident.innerHTML = `<div class="faces">${t.faces.map((f) =>
+        `<div class="face" style="background:${f.bg}">${f.l}</div>`
+      ).join("")}</div>
+        <div class="chip"><b>${t.title} <span class="chev">›</span></b><span>${t.sub}</span></div>`;
+
+      const body = document.getElementById("thread-body");
+      body.innerHTML = t.messages.map((m) => {
+        if (m.read) return `<div class="read">${m.read}</div>`;
+        const tag = t.group && m.who && m.from === "them" ? `<div class="who-tag">${m.who}</div>` : "";
+        const file = m.file
+          ? `<div class="filechip" onclick="openFile('${m.file.name}')">📄 <span>${m.file.name}<small>${m.file.size} · tap to open</small></span></div>`
+          : "";
+        return `${tag}<div class="bubble ${m.from === "me" ? "out" : "in"}">${m.text || ""}${file}</div>`;
+      }).join("");
+
+      const fl = document.getElementById("file-list");
+      fl.innerHTML = (t.files.length ? t.files : [{ name: "(empty)", preview: "No files in this workspace yet" }])
+        .map((f) => `<div class="row" onclick="${f.name === "(empty)" ? "" : `openFile('${f.name}')`}">
+          <div class="dot off"></div>
+          <div class="ava">📄</div>
+          <div class="meta"><div class="line1"><div class="who">${f.name}</div></div><div class="preview">${f.preview}</div></div>
+        </div>`).join("");
+
+      refreshBack();
+      show("thread");
+      body.scrollTop = body.scrollHeight;
+    }
+
+    function refreshBack() {
+      const n = Object.values(THREADS).filter((t) => t.unread).length;
+      const el = document.getElementById("back-n");
+      if (el) el.textContent = String(n);
+    }
+
+    function filterChats(q) {
+      const needle = (q || "").toLowerCase();
+      document.querySelectorAll("#chat-list .row").forEach((row) => {
+        row.style.display = (row.textContent || "").toLowerCase().includes(needle) ? "flex" : "none";
+      });
+      const hide = !!needle;
+      document.getElementById("pins").style.display = hide ? "none" : "grid";
+      const hint = document.getElementById("pin-hint");
+      if (hint) hint.style.display = hide ? "none" : "block";
+    }
+
+    let pendingCompose = null;
+    function pickCompose(id) {
+      const t = THREADS[id];
+      if (!t) return;
+      if (t.group) { openChat(id); return; }
+      pendingCompose = id;
+      document.getElementById("ask-title").textContent =
+        "Do you want to talk to the main chat or start a separate chat with " + t.title + "?";
+      document.getElementById("ask").classList.add("on");
+    }
+    function closeAsk() {
+      document.getElementById("ask").classList.remove("on");
+      pendingCompose = null;
+    }
+    function chooseMain() {
+      const id = pendingCompose;
+      document.getElementById("ask").classList.remove("on");
+      pendingCompose = null;
+      if (id) openChat(id);
+    }
+    function chooseSidecar() {
+      const id = pendingCompose;
+      document.getElementById("ask").classList.remove("on");
+      pendingCompose = null;
+      if (id) openChat(ensureSidecar(id));
+    }
+    function ensureSidecar(baseId) {
+      const existing = SIDE_OF[baseId];
+      if (existing && THREADS[existing]) return existing;
+      const t = THREADS[baseId];
+      const sid = baseId + "-side";
+      if (!THREADS[sid]) {
+        THREADS[sid] = {
+          title: t.title + " / 1",
+          sub: "sidecar",
+          faces: t.faces.slice(),
+          group: false,
+          unread: false,
+          when: "Now",
+          preview: "New separate chat",
+          files: [],
+          messages: [
+            { from: "them", text: "This is a separate chat with " + t.title + "." }
+          ]
+        };
+        SIDE_OF[baseId] = sid;
+        LIST_ORDER.unshift(sid);
+        renderList();
+      }
+      return sid;
+    }
+
+    function pinChat(id) {
+      if (!THREADS[id]) return;
+      const i = PINNED.indexOf(id);
+      if (i !== -1) PINNED.splice(i, 1);
+      PINNED.unshift(id);
+      renderPins();
+    }
+    function unpinChat(id) {
+      const i = PINNED.indexOf(id);
+      if (i !== -1) PINNED.splice(i, 1);
+      renderPins();
+    }
+
+    let drag = null;
+    let skipClick = false;
+    const ghost = document.getElementById("ghost");
+    const pinsEl = document.getElementById("pins");
+
+    function onDown(e) {
+      if (e.button && e.button !== 0) return;
+      const pin = e.target.closest(".pin");
+      const row = e.target.closest("#chat-list .row");
+      if ((!pin && !row) || (pin && pin.classList.contains("placeholder"))) return;
+      if (e.target.closest("input,button.round,button.pill,button.compose,.search")) return;
+      const node = pin || row;
+      drag = {
+        id: node.dataset.id,
+        from: pin ? "pin" : "list",
+        x: e.clientX,
+        y: e.clientY,
+        lifted: false,
+        node,
+        pointerId: e.pointerId,
+        timer: setTimeout(() => lift(e), 280)
+      };
+      window.addEventListener("pointermove", onMove, { passive: false });
+      window.addEventListener("pointerup", onUp);
+      window.addEventListener("pointercancel", onUp);
+    }
+    function lift(e) {
+      if (!drag || drag.lifted) return;
+      clearTimeout(drag.timer);
+      drag.lifted = true;
+      skipClick = true;
+      drag.node.classList.add("dragging");
+      const t = THREADS[drag.id];
+      ghost.innerHTML = pinFace(t) + `<div class="name">${t.title}</div>`;
+      ghost.hidden = false;
+      pinsEl.classList.add("hot");
+      moveGhost(e);
+    }
+    function onMove(e) {
+      if (!drag) return;
+      const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+      if (!drag.lifted) {
+        if (Math.hypot(dx, dy) > 14) {
+          if (drag.from === "list" && Math.abs(dy) > Math.abs(dx) * 1.5) {
+            cancelDrag();
+            return;
+          }
+          lift(e);
+        }
+        return;
+      }
+      e.preventDefault();
+      moveGhost(e);
+    }
+    function moveGhost(e) {
+      ghost.style.left = e.clientX + "px";
+      ghost.style.top = e.clientY + "px";
+    }
+    function dropZone(e) {
+      const r = pinsEl.getBoundingClientRect();
+      if (e.clientX >= r.left && e.clientX <= r.right && e.clientY >= r.top && e.clientY <= r.bottom + 12) {
+        return "pins";
+      }
+      return "list";
+    }
+    function onUp(e) {
+      if (!drag) return;
+      const wasLifted = drag.lifted;
+      const id = drag.id;
+      const from = drag.from;
+      if (wasLifted) {
+        const zone = dropZone(e);
+        if (from === "list" && zone === "pins") pinChat(id);
+        if (from === "pin" && zone === "list") unpinChat(id);
+      }
+      cancelDrag();
+      if (!wasLifted && from === "pin") openChat(id);
+    }
+    function cancelDrag() {
+      if (!drag) return;
+      clearTimeout(drag.timer);
+      drag.node.classList.remove("dragging");
+      ghost.hidden = true;
+      pinsEl.classList.remove("hot");
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      window.removeEventListener("pointercancel", onUp);
+      drag = null;
+      setTimeout(() => { skipClick = false; }, 0);
+    }
+
+    document.querySelector(".phone").addEventListener("pointerdown", onDown);
+
+    function openSettings() { document.getElementById("settings").classList.add("on"); }
+    function closeSettings() { document.getElementById("settings").classList.remove("on"); }
+    function leaveOverlay() {
+      window.location.href = "/servers";
+    }
+    function openInfo() { document.getElementById("info").classList.add("on"); }
+    function closeInfo() { document.getElementById("info").classList.remove("on"); }
+    function openFile(name) {
+      document.getElementById("fname").textContent = name;
+      document.getElementById("fbody").textContent = "STUB FILE — " + name + "\n\nWorkspace file. Download or close.";
+      document.getElementById("file").classList.add("on");
+    }
+    function closeFile() { document.getElementById("file").classList.remove("on"); }
+
+    renderPins();
+    renderList();
+
+    const hash = (location.hash || "").replace("#", "");
+    if (hash === "files") { openChat("companion"); openInfo(); }
+    else if (hash === "compose") show("compose");
+    else if (hash === "ask") { show("compose"); pickCompose("companion"); }
+    else if (hash === "servers") show("servers");
+    else if (hash === "settings") openSettings();
+    else if (hash === "group") openChat("group");
+    else if (hash === "chat" || hash === "companion") openChat("companion");
+    else if (THREADS[hash]) openChat(hash);
+  </script>
+</body>
+</html>
