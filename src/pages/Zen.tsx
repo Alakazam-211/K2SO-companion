@@ -3,8 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { AgentRail } from "../zen/AgentRail";
 import { FilePane } from "../zen/FilePane";
 import { FileStage } from "../zen/FileStage";
-import { StubMark } from "../zen/StubMark";
-import { STUB_BANNER, STUB_THREAD, STUB_THREAD_FALLBACK } from "../zen/stubData";
+import { ThreadPane } from "../zen/ThreadPane";
+import { STUB_BANNER } from "../zen/stubData";
 import { useZenStore, sourceWord } from "../zen/zenStore";
 
 export function Zen() {
@@ -18,10 +18,6 @@ export function Zen() {
   const hydrateAgents = useZenStore((s) => s.hydrateAgents);
   const openFileIds = useZenStore((s) => s.openFileIds);
   const agent = agents.find((a) => a.id === agentId) ?? agents[0];
-  const thread =
-    agentSource === "stub"
-      ? (agent && STUB_THREAD[agent.id]) || STUB_THREAD_FALLBACK
-      : [];
   const filesOpen = openFileIds.length > 0;
 
   useEffect(() => {
@@ -55,20 +51,7 @@ export function Zen() {
             </span>
           </div>
         </header>
-        <div className="flex-1 overflow-y-auto px-3 py-3 space-y-3">
-          {thread.map((m, i) => (
-            <div
-              key={i}
-              className="border border-[var(--border)] bg-[var(--surface)] px-3 py-2 theme-radius"
-            >
-              <div className="flex items-center gap-1 text-[10px] text-[var(--text-muted)] mb-1">
-                <StubMark />
-                <span>{m.author}</span>
-              </div>
-              <div className="text-[13px] text-[var(--text)]">{m.text}</div>
-            </div>
-          ))}
-        </div>
+        <ThreadPane />
         {filesOpen && (
           <div className="absolute inset-y-0 right-0 w-[78%] border-l border-[var(--border)] bg-[var(--background)] flex flex-col">
             <FileStage />

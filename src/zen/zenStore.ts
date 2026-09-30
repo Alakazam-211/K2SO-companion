@@ -4,10 +4,13 @@ import {
   getFsReadDir,
   getFsReadFile,
   getProjectsSummary,
+  getThread,
   getToken,
   type FsDirEntry,
 } from "../api/client";
-import { STUB_AGENTS, STUB_FILES, type StubAgent, type StubFile } from "./stubData";
+import { getActiveServer } from "../stores/servers";
+import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
+import { normaliseThreadItem, type ThreadMessage } from "./threadModel";
 
 export type DataSource = "stub" | "live" | "error" | "loading";
 
@@ -48,8 +51,13 @@ type ZenState = {
   fileError: string | null;
   /** Bumped at the start of every hydrateFiles; stale responses must not apply. */
   filesGen: number;
+  threadSource: DataSource;
+  threadError: string | null;
+  thread: ThreadMessage[];
+  threadGen: number;
   hydrateAgents: () => Promise<void>;
   hydrateFiles: (dir: string) => Promise<void>;
+  hydrateThread: (addr: string) => Promise<void>;
   agentId: string;
   filesOpen: boolean;
   openFileIds: string[];
@@ -70,6 +78,18 @@ function failFiles(message: string): Pick<ZenState, "fileSource" | "files" | "fi
   return { fileSource: "error", files: [], fileError: message };
 }
 
+function stubThread(agentId: string): ThreadMessage[] {
+  const rows = STUB_THREAD[agentId] || STUB_THREAD_FALLBACK;
+  return rows.map((m, i) => ({
+    id: `stub-${agentId}-${i}`,
+    seq: i,
+    text: m.text,
+    from: m.author,
+    at: null,
+    mine: m.mine,
+  }));
+}
+
 export const useZenStore = create<ZenState>((set, get) => ({
   // Never start on the stub catalogue. A signed-in first paint used to
   // show STUB_AGENTS until hydrateAgents resolved. Stub is only applied
@@ -81,6 +101,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
   agentError: null,
   fileError: null,
   filesGen: 0,
+  threadSource: "loading",
+  threadError: null,
+  thread: [],
+  threadGen: 0,
 
   hydrateAgents: async () => {
     if (!getToken()) {
@@ -92,6 +116,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
         agentError: null,
         fileError: null,
         agentId: get().agentId || STUB_AGENTS[0].id,
+        threadSource: "stub",
+        threadError: null,
+        thread: stubThread(get().agentId || STUB_AGENTS[0].id),
       });
       return;
     }
@@ -107,6 +134,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
       openFileIds: [],
       focusId: null,
       splitId: null,
+      threadSource: "loading",
+      threadError: null,
+      thread: [],
     });
     try {
       const projects = await getProjectsSummary();
@@ -120,6 +150,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
           openFileIds: [],
           focusId: null,
           splitId: null,
+          threadSource: "error",
+          thread: [],
+          threadError: msg,
           ...failFiles(msg),
         });
         return;
@@ -154,6 +187,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       const path = agents.find((a) => a.id === agentId)?.path;
       if (path) await get().hydrateFiles(path);
       else set(failFiles("live agents have no workspace path"));
+      if (agentId) await get().hydrateThread(agentId);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       set({
@@ -164,6 +198,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
         openFileIds: [],
         focusId: null,
         splitId: null,
+        threadSource: "error",
+        thread: [],
+        threadError: msg,
         ...failFiles(msg),
       });
     }
@@ -203,10 +240,45 @@ export const useZenStore = create<ZenState>((set, get) => ({
   splitId: null,
   splitRatio: 0.5,
 
+  hydrateThread: async (addr) => {
+    if (get().agentSource === "stub") {
+      set({ threadSource: "stub", threadError: null, thread: stubThread(addr) });
+      return;
+    }
+    const gen = get().threadGen + 1;
+    set({ threadGen: gen, thread: [], threadError: null, threadSource: "loading" });
+    const username = getActiveServer()?.username ?? "";
+    try {
+      const r = await getThread(addr);
+      if (get().threadGen !== gen) return;
+      if (!r.ok || !r.data || !Array.isArray(r.data.items)) {
+        set({
+          threadSource: "error",
+          thread: [],
+          threadError: r.error || "thread failed",
+        });
+        return;
+      }
+      const items = r.data.items
+        .map((it) => normaliseThreadItem(it, username))
+        .filter((m): m is ThreadMessage => !!m)
+        .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
+      set({ threadSource: "live", thread: items, threadError: null });
+    } catch (e) {
+      if (get().threadGen !== gen) return;
+      set({
+        threadSource: "error",
+        thread: [],
+        threadError: e instanceof Error ? e.message : String(e),
+      });
+    }
+  },
+
   setAgent: (id) => {
     set({ agentId: id, openFileIds: [], focusId: null, splitId: null });
     const path = get().agents.find((a) => a.id === id)?.path;
     if (path) void get().hydrateFiles(path);
+    void get().hydrateThread(id);
   },
   toggleFiles: () => set({ filesOpen: !get().filesOpen }),
 

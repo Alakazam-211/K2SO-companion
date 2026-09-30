@@ -6,12 +6,14 @@ vi.mock("../api/client", () => ({
   getAgents: vi.fn(),
   getFsReadDir: vi.fn(),
   getFsReadFile: vi.fn(),
+  getThread: vi.fn(),
 }));
 
 import {
   getAgents,
   getFsReadDir,
   getProjectsSummary,
+  getThread,
   getToken,
 } from "../api/client";
 import { STUB_AGENTS, STUB_FILES } from "./stubData";
@@ -56,6 +58,8 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
     vi.mocked(getProjectsSummary).mockReset();
     vi.mocked(getAgents).mockReset();
     vi.mocked(getFsReadDir).mockReset();
+    vi.mocked(getThread).mockReset();
+    vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
   });
 
   it("clears stubs synchronously before the first await", async () => {
@@ -69,6 +73,8 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
     expect(mid.files).toEqual([]);
     expect(mid.agents.some((a) => a.id.startsWith("stub-"))).toBe(false);
     expect(mid.files.some((f) => String(f.id).startsWith("stub-"))).toBe(false);
+    expect(mid.threadSource).toBe("loading");
+    expect(mid.thread).toEqual([]);
     pending.resolve({ ok: true, data: [] } as Awaited<ReturnType<typeof getProjectsSummary>>);
     await p;
   });
@@ -156,6 +162,8 @@ describe("live failure never shows the stub catalog", () => {
     vi.mocked(getFsReadDir).mockReset();
     vi.mocked(getProjectsSummary).mockReset();
     vi.mocked(getAgents).mockReset();
+    vi.mocked(getThread).mockReset();
+    vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
   });
 
   it("read-dir fail → empty files + error, not STUB_FILES", async () => {
@@ -188,5 +196,43 @@ describe("live failure never shows the stub catalog", () => {
     expect(s.fileSource).toBe("stub");
     expect(s.agents).toEqual(STUB_AGENTS);
     expect(s.files).toEqual(STUB_FILES);
+  });
+});
+
+describe("hydrateThread", () => {
+  beforeEach(() => {
+    reset();
+    vi.mocked(getThread).mockReset();
+  });
+
+  it("loads Skin-shaped items as live bubbles", async () => {
+    useZenStore.setState({ agentSource: "live", agentId: "k2so-Skin-Test-A" });
+    vi.mocked(getThread).mockResolvedValue({
+      ok: true,
+      data: {
+        items: [
+          {
+            id: "m1",
+            seq: 1,
+            doc: { from: "k2so-Skin-Test-A", body: "hello", created_at: 1759198521 },
+          },
+        ],
+      },
+    });
+    await useZenStore.getState().hydrateThread("k2so-Skin-Test-A");
+    const s = useZenStore.getState();
+    expect(s.threadSource).toBe("live");
+    expect(s.thread.map((m) => m.text)).toEqual(["hello"]);
+    expect(vi.mocked(getThread).mock.calls[0][0]).toBe("k2so-Skin-Test-A");
+  });
+
+  it("thread fail is error + empty, never stub copy", async () => {
+    useZenStore.setState({ agentSource: "live", agentId: "alpha", thread: [] });
+    vi.mocked(getThread).mockResolvedValue({ ok: false, error: "thread failed" });
+    await useZenStore.getState().hydrateThread("alpha");
+    const s = useZenStore.getState();
+    expect(s.threadSource).toBe("error");
+    expect(s.thread).toEqual([]);
+    expect(s.threadError).toMatch(/thread failed/);
   });
 });

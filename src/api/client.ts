@@ -422,6 +422,44 @@ export const getFsReadDir = (path: string) =>
 export const getFsReadFile = (path: string) =>
   request<FsFileContent>("fs.read_file", "/cli/fs/read-file", { path });
 
+/** Thread history. Skin: GET /cli/thread?addr=&limit=&before_seq= */
+export type ThreadItem = {
+  id?: string;
+  seq?: number;
+  conversation_id?: string;
+  doc?: {
+    id?: string;
+    seq?: number;
+    kind?: string;
+    from?: string;
+    body?: string;
+    text?: string;
+    created_at?: number;
+    conversation_id?: string;
+  };
+};
+
+export type ThreadPage = {
+  conversation_id?: string;
+  has_more?: boolean;
+  items?: ThreadItem[];
+};
+
+export const getThread = (addr: string, limit = 50, beforeSeq?: number) =>
+  request<ThreadPage>("thread.get", "/cli/thread", {
+    addr,
+    limit,
+    ...(beforeSeq != null ? { before_seq: beforeSeq } : {}),
+  });
+
+/** Send a message. Skin: POST /cli/thread/post {addr,text} */
+export const postThread = (addr: string, text: string) =>
+  request<ThreadItem>("thread.post", "/cli/thread/post", { addr, text }, { method: "POST" });
+
+/** Answer a prompt card. Skin: POST /cli/thread/answer — not wired in the overlay yet. */
+export const answerThread = (addr: string, id: string, value: string) =>
+  request("thread.answer", "/cli/thread/answer", { addr, id, value }, { method: "POST" });
+
 /** Probe whether THIS origin registered the companion k1 grid upgrade.
  *  `{gridProto:["k1"]}` + a companion token → companion grid WS.
  *  404 / miss → Connect daemon; dial `/cli/sessions/grid` Watch. */
