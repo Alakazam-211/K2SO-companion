@@ -10,14 +10,14 @@ export function FilePane() {
   const files = useZenStore((s) => s.files);
   const source = useZenStore((s) => s.fileSource);
   const fileError = useZenStore((s) => s.fileError);
-  const word = sourceWord(source);
-  const heading = `${word} files`;
+  const heading =
+    source === "live" ? "View Files" : `${sourceWord(source)} files`;
 
   if (!open) {
     return (
       <button
         onClick={toggleFiles}
-        className="shrink-0 border-l border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] text-[10px] tracking-widest uppercase"
+        className={`shrink-0 border-l border-[var(--border)] bg-[var(--surface)] text-[var(--text-muted)] text-[10px] tracking-widest ${source === "live" ? "" : "uppercase"}`}
         style={{ width: 28, writingMode: "vertical-rl" }}
         aria-label={`Open ${heading}`}
       >
@@ -33,7 +33,7 @@ export function FilePane() {
       aria-label="Files"
     >
       <div className="flex items-center px-2 h-9 border-b border-[var(--border)]">
-        <span className="flex-1 text-[10px] text-[var(--text-muted)] tracking-widest uppercase">
+        <span className={`flex-1 text-[10px] text-[var(--text-muted)] tracking-widest ${source === "live" ? "" : "uppercase"}`}>
           {heading}
         </span>
         <button

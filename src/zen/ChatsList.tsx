@@ -10,6 +10,7 @@ import { OverlayServers } from "./OverlayServers";
 import { TicketsOverlay } from "./TicketsOverlay";
 import { lastAtKeyFor, sortChatsByRecency } from "./lastAtFetch";
 import { mountainListWhen } from "./threadModel";
+import { usePinDrag } from "./usePinDrag";
 import { useZenStore } from "./zenStore";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
@@ -28,7 +29,14 @@ export function ChatsList() {
   const setAgent = useZenStore((s) => s.setAgent);
   const lastAtByKey = useZenStore((s) => s.lastAtByKey);
   const ensureLastAt = useZenStore((s) => s.ensureLastAt);
+  const pinnedIds = useZenStore((s) => s.pinnedIds);
   const listRef = useRef<HTMLDivElement | null>(null);
+  const pinsRef = useRef<HTMLDivElement | null>(null);
+  const { onPointerDown, onPointerMove, onPointerUp, ghost, hot, consumeSkipClick, onPinClick } =
+    usePinDrag(pinsRef);
+  const pinned = pinnedIds
+    .map((id) => agents.find((a) => a.id === id))
+    .filter((a): a is (typeof agents)[number] => !!a);
   const [q, setQ] = useState("");
   const [settings, setSettings] = useState(false);
   const [tickets, setTickets] = useState(false);
@@ -94,13 +102,18 @@ export function ChatsList() {
           '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif',
       }}
       data-testid="chats-home"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={onPointerUp}
     >
       <header
         className="grid items-center shrink-0 w-full min-w-0"
+        data-no-pin="1"
         style={{
           gridTemplateColumns: "1fr auto 1fr",
           minHeight: 44,
-          padding: "max(12px, env(safe-area-inset-top)) 12px 8px",
+          padding: "12px 12px 8px",
           columnGap: 8,
         }}
       >
@@ -201,34 +214,79 @@ export function ChatsList() {
       </header>
 
       <div
+        ref={pinsRef}
         className="grid grid-cols-3 shrink-0"
-        style={{ padding: "4px 10px 8px", gap: "14px 6px", minHeight: 96 }}
+        style={{
+          padding: "4px 10px 8px",
+          gap: "14px 6px",
+          minHeight: 96,
+          margin: "0 8px",
+          borderRadius: 16,
+          background: hot ? "rgba(10,132,255,.12)" : "transparent",
+          outline: hot ? "1.5px dashed rgba(10,132,255,.5)" : "1.5px dashed transparent",
+        }}
         data-testid="chats-pins"
       >
-        <div className="text-center" style={{ opacity: 0.45 }}>
-          <div
-            className="mx-auto mb-2 flex items-center justify-center"
-            style={{
-              width: 74,
-              height: 74,
-              borderRadius: "50%",
-              border: "1.5px dashed #636366",
-              color: "#636366",
-              fontSize: 26,
-            }}
-          >
-            +
+        {pinned.length === 0 ? (
+          <div className="text-center" style={{ opacity: 0.45 }} data-pin-id="" data-pin-from="pin" data-placeholder="1">
+            <div
+              className="mx-auto mb-2 flex items-center justify-center"
+              style={{
+                width: 74,
+                height: 74,
+                borderRadius: "50%",
+                border: "1.5px dashed #636366",
+                color: "#636366",
+                fontSize: 26,
+              }}
+            >
+              +
+            </div>
+            <div className="text-[12px]" style={{ color: "#d1d1d6" }}>
+              Drop here
+            </div>
           </div>
-          <div className="text-[12px]" style={{ color: "#d1d1d6" }}>
-            Drop here
-          </div>
-        </div>
+        ) : (
+          pinned.map((a) => (
+            <button
+              key={a.id}
+              type="button"
+              className="text-center bg-transparent border-0 p-0"
+              style={{ color: "#fff", touchAction: "none" }}
+              data-pin-id={a.id}
+              data-pin-from="pin"
+              aria-label={`Pinned ${a.name}`}
+              onClick={() => onPinClick(a.id)}
+            >
+              <div
+                className="mx-auto mb-2 flex items-center justify-center font-bold"
+                style={{
+                  width: 74,
+                  height: 74,
+                  borderRadius: "50%",
+                  background: "#2c2c2e",
+                  fontSize: 26,
+                }}
+              >
+                {a.initial}
+              </div>
+              <div
+                className="text-[12px] truncate mx-auto"
+                style={{ color: "#d1d1d6", maxWidth: 110 }}
+              >
+                {a.name}
+              </div>
+            </button>
+          ))
+        )}
       </div>
       <p
         className="text-center shrink-0"
         style={{ fontSize: 11, color: "#8e8e93", padding: "0 16px 10px", lineHeight: 1.3 }}
       >
-        Hold a chat, then drag it up here to pin.
+        {pinned.length
+          ? "Hold a chat, then drag it up here to pin. Drag a pin down to unpin."
+          : "Hold a chat, then drag it up here to pin."}
       </p>
 
       <div
@@ -269,10 +327,15 @@ export function ChatsList() {
             key={a.id}
             type="button"
             className="w-full flex items-center text-left relative"
-            style={{ gap: 10, padding: "10px 14px 10px 6px" }}
-            onClick={() => setAgent(a.id)}
+            style={{ gap: 10, padding: "10px 14px 10px 6px", touchAction: "pan-y" }}
+            onClick={() => {
+              if (consumeSkipClick()) return;
+              setAgent(a.id);
+            }}
             aria-label={source === "stub" ? `STUB ${a.name}` : a.name}
             data-last-at-key={lastKey}
+            data-pin-id={a.id}
+            data-pin-from="list"
           >
             <span
               className="flex items-center justify-center shrink-0 font-bold"
@@ -318,8 +381,41 @@ export function ChatsList() {
         })}
       </div>
 
+      {ghost ? (
+        <div
+          data-testid="pin-ghost"
+          className="pointer-events-none text-center"
+          style={{
+            position: "fixed",
+            left: ghost.x,
+            top: ghost.y,
+            transform: "translate(-50%, -50%)",
+            zIndex: 20,
+            opacity: 0.9,
+          }}
+        >
+          <div
+            className="mx-auto mb-2 flex items-center justify-center font-bold"
+            style={{
+              width: 74,
+              height: 74,
+              borderRadius: "50%",
+              background: "#2c2c2e",
+              fontSize: 26,
+              color: "#fff",
+            }}
+          >
+            {ghost.initial}
+          </div>
+          <div className="text-[12px]" style={{ color: "#d1d1d6" }}>
+            {ghost.title}
+          </div>
+        </div>
+      ) : null}
+
       <div
         className="absolute left-3 right-3 flex items-center"
+        data-no-pin="1"
         style={{
           bottom: "max(14px, env(safe-area-inset-bottom))",
           gap: 10,
@@ -378,7 +474,7 @@ export function ChatsList() {
             className="flex items-center justify-between relative shrink-0"
             style={{
               minHeight: 44,
-              padding: "max(12px, env(safe-area-inset-top)) 16px 8px",
+              padding: "12px 16px 8px",
             }}
           >
             <button

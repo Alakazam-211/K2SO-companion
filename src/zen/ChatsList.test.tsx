@@ -49,6 +49,7 @@ afterEach(() => cleanup());
 
 beforeEach(() => {
   seedServer();
+  useZenStore.setState({ pinnedIds: [] });
 });
 
 function seedServer() {
@@ -217,6 +218,66 @@ describe("ChatsList", () => {
     expect(screen.getAllByText(JOIN_NO_PROJECT).length).toBe(2);
     expect(screen.queryByText("Thread")).toBeNull();
     expect(screen.getAllByTestId("row-when").length).toBe(2);
+  });
+
+  it("hold-drag a chat onto the pin grid pins it, drag a pin down unpins", () => {
+    vi.useFakeTimers();
+    Element.prototype.setPointerCapture = () => {};
+    Element.prototype.releasePointerCapture = () => {};
+    Element.prototype.hasPointerCapture = () => true;
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: STUB_AGENTS,
+      agentError: null,
+      screen: "list",
+      pinnedIds: [],
+    });
+    mount();
+    const pins = screen.getByTestId("chats-pins");
+    pins.getBoundingClientRect = () =>
+      ({
+        left: 0,
+        right: 300,
+        top: 0,
+        bottom: 90,
+        width: 300,
+        height: 90,
+        x: 0,
+        y: 0,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
+    const row = screen.getByLabelText("STUB [STUB] not-a-real-agent-1");
+    fireEvent.pointerDown(row, { clientX: 20, clientY: 200, button: 0, pointerId: 1 });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    fireEvent.pointerUp(screen.getByTestId("chats-home"), {
+      clientX: 40,
+      clientY: 40,
+      pointerId: 1,
+    });
+    expect(useZenStore.getState().pinnedIds).toEqual(["stub-not-a-real-agent-1"]);
+    expect(screen.getByLabelText("Pinned [STUB] not-a-real-agent-1")).not.toBeNull();
+
+    fireEvent.pointerDown(screen.getByLabelText("Pinned [STUB] not-a-real-agent-1"), {
+      clientX: 40,
+      clientY: 40,
+      button: 0,
+      pointerId: 2,
+    });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    fireEvent.pointerUp(screen.getByTestId("chats-home"), {
+      clientX: 40,
+      clientY: 400,
+      pointerId: 2,
+    });
+    expect(useZenStore.getState().pinnedIds).toEqual([]);
+    expect(screen.queryByLabelText("Pinned [STUB] not-a-real-agent-1")).toBeNull();
+    vi.useRealTimers();
   });
 
   it("orders chats by last-message time, newest first", () => {
