@@ -223,6 +223,28 @@ describe("ChatsList", () => {
     expect(screen.getAllByTestId("row-when").length).toBe(2);
   });
 
+  it("paints the desktop workspace colour on the row avatar", () => {
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [
+        {
+          id: "/ws",
+          name: "appa",
+          initial: "A",
+          path: "/ws",
+          addr: "appa",
+          color: "#22c55e",
+        },
+      ],
+      agentError: null,
+      screen: "list",
+    });
+    mount();
+    const row = screen.getByLabelText("appa");
+    const avatar = row.querySelector("span");
+    expect(avatar?.getAttribute("style") || "").toMatch(/rgb\(34, 197, 94\)|#22c55e/);
+  });
+
   it("hold-drag a chat onto the pin grid pins it, drag a pin down unpins", () => {
     vi.useFakeTimers();
     Element.prototype.setPointerCapture = () => {};

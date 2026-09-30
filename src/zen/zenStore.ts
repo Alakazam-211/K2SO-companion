@@ -347,6 +347,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
             kind: "group",
             groupId: g.id,
             memberCount: g.memberCount ?? 0,
+            color: null,
+            iconUrl: null,
           });
         }
       }
@@ -382,6 +384,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
         enabled: row.enabled,
         live: row.live,
         chatTitle: row.chatTitle,
+        color: row.color,
+        iconUrl: row.iconUrl,
       }));
       const haveAddr = new Set(
         mapped.map((a) => (a.addr || "").trim()).filter(Boolean)
@@ -395,6 +399,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
           for (const side of sidecarsFromSessions(parsed, mains)) {
             if (haveAddr.has(side.addr)) continue;
             haveAddr.add(side.addr);
+            const parent = mapped.find((m) => m.path === side.path);
             mapped.push({
               id: `${side.path}::${side.addr}`,
               name: side.name,
@@ -407,6 +412,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
               enabled: null,
               live: null,
               chatTitle: side.chatTitle,
+              color: parent?.color ?? null,
+              iconUrl: parent?.iconUrl ?? null,
             });
           }
         } else {

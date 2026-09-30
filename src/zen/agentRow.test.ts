@@ -106,6 +106,8 @@ describe("parseCliProjects / cliProjectOf", () => {
       name: "K2 Companion QA",
       path: "/Users/Baden/AI Projects/K2SO Companion QA",
       handle: "k2so-companion-qa",
+      color: null,
+      iconUrl: null,
     });
     expect(mapped[3]?.handle).toBe("manager-2");
   });
@@ -143,6 +145,23 @@ describe("joinAgentsWithProjects", () => {
       ["K2 Companion QA", "k2so-companion-qa", null],
       ["Skydio", "manager-2", null],
     ]);
+  });
+
+  it("carries desktop color and iconUrl from the project row onto the overlay row", () => {
+    const joined = joinAgentsWithProjects(
+      [{ name: "appa", path: "/Users/Baden/Appa" }],
+      [
+        {
+          name: "appa",
+          path: "/Users/Baden/Appa",
+          handle: "appa",
+          color: "#22c55e",
+          iconUrl: "https://example.k2.dev/appa.png",
+        },
+      ]
+    );
+    expect(joined[0].color).toBe("#22c55e");
+    expect(joined[0].iconUrl).toBe("https://example.k2.dev/appa.png");
   });
 
   it("carries mode, enabled, and live from the fleet row", () => {
@@ -203,6 +222,8 @@ describe("joinAgentsWithProjects", () => {
         enabled: null,
         live: null,
         chatTitle: null,
+        color: null,
+        iconUrl: null,
       },
     ]);
   });
@@ -223,6 +244,8 @@ describe("joinAgentsWithProjects", () => {
         enabled: null,
         live: null,
         chatTitle: null,
+        color: null,
+        iconUrl: null,
       },
     ]);
   });
