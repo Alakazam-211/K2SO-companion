@@ -241,7 +241,8 @@ export function matchSidecarSession(
   });
 }
 
-/** Line-two title GET /cli/companion/sessions will show after a relaunch. */
+/** Line-two title GET /cli/companion/sessions returns after a Locked
+ *  rename (K2 `20c49e2b`+). Pty/Seed titles stay the derived name. */
 export function sidecarLiveLabel(session: SessionSidecarInput | undefined): string | null {
   if (!session) return null;
   const label = asText(session.label);

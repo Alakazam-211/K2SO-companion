@@ -57,6 +57,7 @@ describe("setSessionLabel", () => {
     expect(url).toBe(
       "http://127.0.0.1:9/cli/sessions/label?id=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee&label=qa731"
     );
+    expect(url).not.toMatch(/lock=/);
     expect(opts.method).toBe("GET");
     expect(opts.body).toBeUndefined();
   });
