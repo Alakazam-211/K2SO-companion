@@ -63,6 +63,13 @@ export function ChatsList() {
 
   useEffect(() => {
     useFeedbackStore.getState().ensureLive();
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        void useFeedbackStore.getState().refresh();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    return () => document.removeEventListener("visibilitychange", onVis);
   }, [activeServerId]);
 
   useEffect(() => {
