@@ -1132,6 +1132,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       const live = sidecarLiveLabel(
         matchSidecarSession(addr, row.path || "", next)
       );
+      // companion/sessions only echoes a Locked PTY label (20c49e2b+).
       if (live !== name) {
         return { ok: false, error: "K2 did not take the new name" };
       }

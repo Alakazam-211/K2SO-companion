@@ -449,12 +449,11 @@ export const setTabTitle = (projectId: string, tabId: string, title: string) =>
     "workspace.set_tab_title", "/cli/workspace/set-tab-title",
     { projectId, tabId, title, locked: true }, { method: "POST" }
   );
-/** Live PTY title. Companion `/cli/companion/sessions` `label` is this
- *  string, not a guessed `tab_titles` row. Overlay extras often have no
- *  tabId. Daemon `handle_sessions_label` is GET-only
- *  (`/cli/sessions/label?id=<uuid>&label=<text>[&lock=true]`); POST 405s
- *  `method not allowed for this route`. Default `lock` is true so a PTY
- *  title cannot overwrite the user's name. */
+/** Overlay extra title. GET `/cli/sessions/label?id=<uuid>&label=<text>`
+ *  (omit `lock`; daemon default true → Locked). Companion/sessions then
+ *  returns that label for non-tab extras (K2 `20c49e2b`+). Pty/Seed
+ *  titles stay the derived name. `tab-*` still uses `tab_titles`. POST
+ *  405s `method not allowed for this route`. */
 export const setSessionLabel = (id: string, label: string) =>
   request<{ success?: boolean }>(
     "sessions.label",
