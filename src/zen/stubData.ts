@@ -24,6 +24,8 @@ export type StubAgent = {
   tabId?: string | null;
   /** Workspace id for POST /cli/workspace/set-tab-title. */
   projectId?: string | null;
+  /** Live PTY id for POST /cli/sessions/label. */
+  terminalId?: string | null;
   /** Desktop workspace colour from `/cli/projects/list`. */
   color?: string | null;
   /** Desktop workspace icon from `/cli/projects/list`. http(s) or data:image. */

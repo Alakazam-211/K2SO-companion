@@ -18,6 +18,7 @@ vi.mock("../api/client", () => ({
   spawnSidecarSession: vi.fn(),
   uploadFsBinary: vi.fn(),
   setTabTitle: vi.fn(async () => ({ ok: true, data: { success: true } })),
+  setSessionLabel: vi.fn(async () => ({ ok: true, data: { success: true } })),
 }));
 
 vi.mock("../api/projectGroups", () => ({
@@ -29,7 +30,7 @@ vi.mock("../api/projectGroups", () => ({
   postProjectGroupMessage: vi.fn(),
 }));
 
-import { getAgentList, getAllSessions, getCliProjectsList, getToken, setTabTitle } from "../api/client";
+import { getAgentList, getAllSessions, getCliProjectsList, getToken, setSessionLabel, setTabTitle } from "../api/client";
 import { useServersStore } from "../stores/servers";
 import { STUB_AGENTS, STUB_FILES } from "../zen/stubData";
 import { useZenStore } from "../zen/zenStore";
@@ -360,23 +361,25 @@ describe("Zen keeps the chats list mounted", () => {
 
   it("an extra chat header is the workspace name with the sidecar title under it", async () => {
     vi.mocked(getToken).mockReturnValue("");
-    vi.mocked(getAllSessions).mockResolvedValue({
-      ok: true,
-      data: [
-        {
-          cwd: "/ws",
-          workspaceName: "Skin Test A",
-          workspaceId: "skin-test-a",
-          workspaceColor: "#000",
-          agentName: "qa088",
-          terminalId: "tid",
-          label: "Example Sidecar",
-          isMainChat: false,
-          tabId: "tab-qa088",
-          projectId: "proj-skin",
-        },
-      ],
-    });
+    const sess = {
+      cwd: "/ws",
+      workspaceName: "Skin Test A",
+      workspaceId: "skin-test-a",
+      workspaceColor: "#000",
+      agentName: "qa088",
+      terminalId: "tid-qa088",
+      label: "Example Sidecar",
+      isMainChat: false,
+      tabId: "tab-qa088",
+      projectId: "proj-skin",
+    };
+    vi.mocked(getAllSessions)
+      .mockResolvedValueOnce({ ok: true, data: [sess] })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: [{ ...sess, label: "notes" }],
+      });
+    vi.mocked(setSessionLabel).mockResolvedValue({ ok: true, data: { success: true } });
     vi.mocked(setTabTitle).mockResolvedValue({ ok: true, data: { success: true } });
     const extra = {
       id: "/ws::skin-test-a/qa088",
@@ -389,6 +392,7 @@ describe("Zen keeps the chats list mounted", () => {
       kind: "agent" as const,
       tabId: "tab-qa088",
       projectId: "proj-skin",
+      terminalId: "tid-qa088",
     };
     render(
       <MemoryRouter>
@@ -421,6 +425,7 @@ describe("Zen keeps the chats list mounted", () => {
     await waitFor(() => {
       expect(useZenStore.getState().agents[0]?.chatTitle).toBe("notes");
     });
+    expect(setSessionLabel).toHaveBeenCalledWith("tid-qa088", "notes");
     expect(setTabTitle).toHaveBeenCalledWith("proj-skin", "tab-qa088", "notes");
     fireEvent.click(screen.getByTestId("chat-hide"));
     expect(useZenStore.getState().screen).toBe("list");
@@ -437,7 +442,7 @@ describe("Zen keeps the chats list mounted", () => {
           workspaceId: "skin-test-a",
           workspaceColor: "#000",
           agentName: "qa088",
-          terminalId: "tid",
+          terminalId: "tid-qa088",
           label: "qa088",
           isMainChat: false,
           tabId: "tab-qa088",
@@ -445,6 +450,7 @@ describe("Zen keeps the chats list mounted", () => {
         },
       ],
     });
+    vi.mocked(setSessionLabel).mockResolvedValue({ ok: false, error: "locked" });
     vi.mocked(setTabTitle).mockResolvedValue({ ok: false, error: "locked" });
     const extra = {
       id: "/ws::skin-test-a/qa088",
@@ -457,6 +463,7 @@ describe("Zen keeps the chats list mounted", () => {
       kind: "agent" as const,
       tabId: "tab-qa088",
       projectId: "proj-skin",
+      terminalId: "tid-qa088",
     };
     render(
       <MemoryRouter>

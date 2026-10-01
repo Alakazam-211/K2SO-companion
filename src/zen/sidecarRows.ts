@@ -10,6 +10,7 @@ export type SessionSidecarInput = {
   isMainChat?: unknown;
   tabId?: unknown;
   projectId?: unknown;
+  terminalId?: unknown;
 };
 
 export type OverlaySidecar = {
@@ -19,6 +20,7 @@ export type OverlaySidecar = {
   chatTitle: string;
   tabId?: string;
   projectId?: string;
+  terminalId?: string;
 };
 
 export type MainForSidecar = {
@@ -120,6 +122,7 @@ export function sidecarsFromSessions(
       label && label.toLowerCase() !== "main chat tab" ? label : fromAddr;
     const tabId = asText(s.tabId);
     const projectId = asText(s.projectId);
+    const terminalId = asText(s.terminalId);
     out.push({
       addr,
       path: parent.path,
@@ -127,6 +130,7 @@ export function sidecarsFromSessions(
       chatTitle,
       ...(tabId ? { tabId } : {}),
       ...(projectId ? { projectId } : {}),
+      ...(terminalId ? { terminalId } : {}),
     });
   }
   return out;
@@ -201,6 +205,7 @@ export function mergeSidecarTitles<
     chatTitle?: string | null;
     tabId?: string | null;
     projectId?: string | null;
+    terminalId?: string | null;
   },
 >(rows: T[], sides: OverlaySidecar[]): T[] {
   if (sides.length === 0) return rows;
@@ -214,13 +219,45 @@ export function mergeSidecarTitles<
       chatTitle: side.chatTitle,
       tabId: side.tabId || r.tabId,
       projectId: side.projectId || r.projectId,
+      terminalId: side.terminalId || r.terminalId,
     };
   });
 }
 
-/** Ids for POST /cli/workspace/set-tab-title. Live session first, then
- *  values already on the overlay row, then the workspace project id.
- *  Overlay extras spawned without a tab id use the addr suffix. */
+export function matchSidecarSession(
+  addr: string,
+  path: string,
+  sessions: SessionSidecarInput[],
+): SessionSidecarInput | undefined {
+  const suffix = sidecarSuffix(addr);
+  if (!suffix) return undefined;
+  const norm = posixNormalize(path || "") || "";
+  return sessions.find((s) => {
+    if (s.isMainChat === true) return false;
+    const agent = asText(s.agentName);
+    const nameHit = agent === suffix || agent === addr || agent.endsWith(`/${suffix}`);
+    const pathHit = !norm || (posixNormalize(asText(s.cwd)) || "") === norm;
+    return nameHit && pathHit;
+  });
+}
+
+/** Line-two title GET /cli/companion/sessions will show after a relaunch. */
+export function sidecarLiveLabel(session: SessionSidecarInput | undefined): string | null {
+  if (!session) return null;
+  const label = asText(session.label);
+  if (label && label.toLowerCase() !== "main chat tab") return label;
+  return asText(session.agentName) || null;
+}
+
+export type SidecarRenameTarget = {
+  terminalId?: string;
+  projectId?: string;
+  tabId?: string;
+};
+
+/** Live PTY id for POST /cli/sessions/label. Real tab id only when the
+ *  session sent one — never the overlay suffix (that 200s set-tab-title
+ *  without changing companion/sessions label). */
 export function sidecarRenameTarget(opts: {
   addr: string;
   path: string;
@@ -228,28 +265,25 @@ export function sidecarRenameTarget(opts: {
   projects: { id?: string | null; path?: string | null }[];
   storedTabId?: string | null;
   storedProjectId?: string | null;
-}): { projectId: string; tabId: string } | null {
-  const addr = (opts.addr || "").trim();
-  const suffix = sidecarSuffix(addr);
-  if (!suffix) return null;
+  storedTerminalId?: string | null;
+}): SidecarRenameTarget | null {
+  const session = matchSidecarSession(opts.addr, opts.path, opts.sessions);
   const path = posixNormalize(opts.path || "") || "";
-  const session = opts.sessions.find((s) => {
-    if (s.isMainChat === true) return false;
-    const agent = asText(s.agentName);
-    const nameHit = agent === suffix || agent === addr || agent.endsWith(`/${suffix}`);
-    const pathHit = !path || (posixNormalize(asText(s.cwd)) || "") === path;
-    return nameHit && pathHit;
-  });
+  const terminalId =
+    asText(session?.terminalId) || (opts.storedTerminalId || "").trim();
   const projectId =
     asText(session?.projectId) ||
     (opts.storedProjectId || "").trim() ||
     (
       opts.projects.find((p) => (posixNormalize(p.path || "") || "") === path)?.id || ""
     ).trim();
-  const tabId =
-    asText(session?.tabId) || (opts.storedTabId || "").trim() || suffix;
-  if (!projectId || !tabId) return null;
-  return { projectId, tabId };
+  const tabId = asText(session?.tabId) || (opts.storedTabId || "").trim();
+  if (!terminalId && !(projectId && tabId)) return null;
+  return {
+    ...(terminalId ? { terminalId } : {}),
+    ...(projectId ? { projectId } : {}),
+    ...(tabId ? { tabId } : {}),
+  };
 }
 
 export function extrasFromRemembered(
