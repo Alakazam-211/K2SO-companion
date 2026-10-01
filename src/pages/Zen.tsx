@@ -9,7 +9,7 @@ import { PaneErrorBoundary } from "../zen/PaneErrorBoundary";
 import { rememberZenThread, terminalIdForAgent } from "../zen/terminalJump";
 import { ThreadPane } from "../zen/ThreadPane";
 import { STUB_BANNER } from "../zen/stubData";
-import { isOverlayExtraAddr, threadHeaderTitle } from "../zen/overlayExtras";
+import { isOverlayExtraAddr, threadHeaderTitle, threadSidecarTitle } from "../zen/overlayExtras";
 import { useZenStore } from "../zen/zenStore";
 
 const HEADER_BTN: CSSProperties = {
@@ -40,9 +40,11 @@ export function Zen() {
   const agent = agents.find((a) => a.id === agentId);
   const extraChat = isOverlayExtraAddr(agent?.addr);
   const headerTitle = threadHeaderTitle(agent);
+  const sidecarTitle = threadSidecarTitle(agent);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
   const viewingFile = openFileIds.length > 0;
   const filesPaneOpen = filesOpen || viewingFile;
   // ?thread= paints the thread on first frame (no chats-list flash). After
@@ -155,30 +157,44 @@ export function Zen() {
               </svg>
             </button>
             <div className="min-w-0 flex flex-col items-center justify-center">
-              {extraChat ? (
-                <button
-                  type="button"
-                  data-testid="chat-header-title"
-                  className="block w-full text-[15px] font-bold truncate text-center bg-transparent border-0 p-0"
-                  style={{ color: "#fff" }}
-                  aria-label={`Rename ${headerTitle}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    setRenameValue(headerTitle);
-                    setRenameOpen(true);
-                  }}
-                >
-                  {headerTitle}
-                </button>
-              ) : (
-                <span
-                  data-testid="chat-header-title"
-                  className="block w-full text-[15px] font-bold truncate text-center"
-                  style={{ color: "#fff" }}
-                >
-                  {headerTitle}
+              <span
+                data-testid="chat-header-title"
+                className="block w-full text-[15px] font-bold truncate text-center"
+                style={{ color: "#fff" }}
+              >
+                {headerTitle}
+              </span>
+              {sidecarTitle ? (
+                <span className="flex items-center justify-center gap-1 min-w-0 max-w-full">
+                  <span
+                    data-testid="chat-sidecar-title"
+                    className="text-[12px] truncate"
+                    style={{ color: "#8e8e93" }}
+                  >
+                    {sidecarTitle}
+                  </span>
+                  {extraChat ? (
+                    <button
+                      type="button"
+                      data-testid="chat-rename-open"
+                      className="shrink-0 flex items-center justify-center bg-transparent border-0 p-0"
+                      style={{ color: "#8e8e93", width: 18, height: 18 }}
+                      aria-label={`Rename ${sidecarTitle}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRenameValue(sidecarTitle);
+                        setRenameError(null);
+                        setRenameOpen(true);
+                      }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                      </svg>
+                    </button>
+                  ) : null}
                 </span>
-              )}
+              ) : null}
               {extraChat ? (
                 <button
                   type="button"
@@ -285,7 +301,10 @@ export function Zen() {
               style={{ background: "rgba(0,0,0,.55)" }}
               onClick={(e) => {
                 e.stopPropagation();
-                setRenameOpen(false);
+                if (!renameBusy) {
+                  setRenameOpen(false);
+                  setRenameError(null);
+                }
               }}
             >
               <form
@@ -300,12 +319,20 @@ export function Zen() {
                   const name = renameValue.trim();
                   if (!name || !agentId || renameBusy) return;
                   setRenameBusy(true);
+                  setRenameError(null);
                   void useZenStore
                     .getState()
                     .renameSidecarTitle(agentId, name)
+                    .then((r) => {
+                      if (r.ok) {
+                        setRenameOpen(false);
+                        setRenameError(null);
+                      } else {
+                        setRenameError(r.error || "K2 did not take the new name");
+                      }
+                    })
                     .finally(() => {
                       setRenameBusy(false);
-                      setRenameOpen(false);
                     });
                 }}
               >
@@ -320,6 +347,15 @@ export function Zen() {
                   style={{ background: "#2c2c2e", color: "#fff", border: "0" }}
                   autoFocus
                 />
+                {renameError ? (
+                  <p
+                    data-testid="chat-rename-error"
+                    className="mt-2 text-[12px]"
+                    style={{ color: "#ff453a" }}
+                  >
+                    {renameError}
+                  </p>
+                ) : null}
                 <div className="flex justify-end gap-2 mt-3">
                   <button
                     type="button"

@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { isOverlayExtraAddr, threadHeaderTitle, visibleOverlayAgents } from "./overlayExtras";
+import {
+  isOverlayExtraAddr,
+  threadHeaderTitle,
+  threadSidecarTitle,
+  visibleOverlayAgents,
+} from "./overlayExtras";
 
 describe("threadHeaderTitle", () => {
   it("uses the workspace name on main chat", () => {
@@ -8,16 +13,26 @@ describe("threadHeaderTitle", () => {
     );
   });
 
-  it("uses the chat title on an extra chat", () => {
+  it("uses the workspace name on an extra chat", () => {
     expect(
       threadHeaderTitle({ name: "Skin Test A", addr: "skin-test-a/qa088", chatTitle: "review" }),
-    ).toBe("review");
+    ).toBe("Skin Test A");
+  });
+});
+
+describe("threadSidecarTitle", () => {
+  it("is null on main chat", () => {
+    expect(threadSidecarTitle({ addr: "skin-test-a", chatTitle: "1" })).toBeNull();
+  });
+
+  it("is the sidecar title on an extra chat", () => {
+    expect(
+      threadSidecarTitle({ addr: "skin-test-a/qa088", chatTitle: "Example Sidecar" }),
+    ).toBe("Example Sidecar");
   });
 
   it("falls back to the suffix when the extra has no title", () => {
-    expect(threadHeaderTitle({ name: "Skin Test A", addr: "skin-test-a/qa088", chatTitle: "" })).toBe(
-      "qa088",
-    );
+    expect(threadSidecarTitle({ addr: "skin-test-a/qa088", chatTitle: "" })).toBe("qa088");
   });
 });
 
