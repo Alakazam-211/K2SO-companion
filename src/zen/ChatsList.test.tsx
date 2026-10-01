@@ -547,6 +547,53 @@ describe("ChatsList", () => {
     expect(screen.getByLabelText("K2 Companion, review")).not.toBeNull();
   });
 
+  it("searching from a scrolled list jumps to the top so the hit is on screen", () => {
+    const extra = {
+      id: "/ws::k2so-companion/1",
+      name: "K2 Companion",
+      initial: "K",
+      path: "/ws",
+      addr: "k2so-companion/1",
+      chatTitle: "qa1a5ee",
+      joinMiss: null,
+      kind: "agent" as const,
+      mode: "custom",
+      enabled: true,
+      live: true,
+    };
+    const filler = Array.from({ length: 12 }, (_, i) => ({
+      id: `/ws::filler-${i}`,
+      name: `Filler ${i}`,
+      initial: "F",
+      path: "/ws",
+      addr: `filler-${i}`,
+      chatTitle: null,
+      joinMiss: null,
+      kind: "agent" as const,
+      mode: "custom",
+      enabled: true,
+      live: true,
+    }));
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [...filler, extra],
+      lastAtByKey: {},
+      agentError: null,
+      screen: "list",
+      hiddenSidecarAddrs: [extra.addr],
+    });
+    mount();
+    const list = screen.getByTestId("chats-list");
+    Object.defineProperty(list, "scrollHeight", { value: 2400, configurable: true });
+    Object.defineProperty(list, "clientHeight", { value: 400, configurable: true });
+    list.scrollTop = 900;
+    fireEvent.change(screen.getByPlaceholderText("Search"), {
+      target: { value: "qa1a5ee" },
+    });
+    expect(list.scrollTop).toBe(0);
+    expect(screen.getByLabelText("K2 Companion, qa1a5ee")).not.toBeNull();
+  });
+
   it("a server with no recovery entry is sign-in required, not connected", () => {
     useServersStore.setState({
       servers: [SEEDED_SERVER],
