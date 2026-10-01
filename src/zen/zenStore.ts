@@ -898,7 +898,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const next = again.ok && Array.isArray(again.data) ? again.data : [];
     return {
       ok: true,
-      terminalId: terminalIdForAgent({ path, addr }, next),
+      terminalId:
+        terminalIdForAgent({ path, addr }, next) ??
+        spawned.data?.sessionId ??
+        null,
     };
   },
   openSidecar: async (baseId) => {

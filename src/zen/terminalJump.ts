@@ -43,7 +43,7 @@ export function terminalIdForAgent(
       const name = (s.agentName || "").trim();
       return name === suffix || name === (agent.addr || "").trim();
     });
-    if (hit) return hit.terminalId;
+    return hit?.terminalId ?? null;
   }
   const main = onPath.find((s) => s.isMainChat);
   if (main) return main.terminalId;
