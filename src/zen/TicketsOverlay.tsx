@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   groupByStatus,
   relativeAge,
+  resolveFeedback,
   type FeedbackListRow,
 } from "../api/feedback";
 import { TicketSheet } from "../components/TicketSheet";
@@ -15,6 +16,8 @@ export function TicketsOverlay({ onClose }: { onClose: () => void }) {
   const error = useFeedbackStore((s) => s.error);
   const openItem = useFeedbackStore((s) => s.openItem);
   const [sheet, setSheet] = useState(false);
+  const [statusBusy, setStatusBusy] = useState(false);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const nowSec = Math.floor(Date.now() / 1000);
   const grouped = groupByStatus(rows);
 
@@ -23,7 +26,24 @@ export function TicketsOverlay({ onClose }: { onClose: () => void }) {
   }, []);
 
   const openRow = (id: string) => {
+    setStatusError(null);
     void useFeedbackStore.getState().openThread(id).then(() => setSheet(true));
+  };
+
+  const setStatus = (status: "resolved" | "dismissed" | "waiting") => {
+    const item = useFeedbackStore.getState().openItem;
+    if (!item || statusBusy) return;
+    setStatusBusy(true);
+    setStatusError(null);
+    void resolveFeedback(item.id, status)
+      .then(() => {
+        void useFeedbackStore.getState().refetchOpen();
+        void useFeedbackStore.getState().refresh();
+      })
+      .catch((err) => {
+        setStatusError(err instanceof Error ? err.message : String(err));
+      })
+      .finally(() => setStatusBusy(false));
   };
 
   return (
@@ -89,6 +109,9 @@ export function TicketsOverlay({ onClose }: { onClose: () => void }) {
             void useFeedbackStore.getState().refetchOpen();
             void useFeedbackStore.getState().refresh();
           }}
+          onSetStatus={setStatus}
+          statusBusy={statusBusy}
+          statusError={statusError}
         />
       ) : null}
     </div>

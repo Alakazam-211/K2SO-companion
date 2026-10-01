@@ -145,7 +145,6 @@ describe("ChatsList", () => {
     expect(screen.getByTestId("tickets-badge").textContent).toBe("3");
     fireEvent.click(screen.getByRole("button", { name: /Tickets, 3 waiting/ }));
     expect(screen.getByTestId("overlay-tickets")).not.toBeNull();
-    expect(screen.getByText("No tickets yet.")).not.toBeNull();
   });
 
   it("opening a row switches the store to the thread screen", () => {

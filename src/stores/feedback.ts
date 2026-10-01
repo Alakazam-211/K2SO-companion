@@ -69,8 +69,11 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
       // Server switch: drop the old server's rows immediately (no stale
       // badge/cards from the previous host) and refetch.
       set({ rows: [], waitingCount: 0, error: null, loadedForServer: serverId });
-      void get().refresh();
     }
+    // Always refetch. A remount (Back from terminal, reopen Chats) used
+    // to skip when loadedForServer already matched, so a desktop resolve
+    // that missed /events left the waiting badge stuck.
+    void get().refresh();
     events.ensure(serverId);
   },
 
