@@ -17,6 +17,7 @@ vi.mock("../api/client", () => ({
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),
   uploadFsBinary: vi.fn(),
+  setTabTitle: vi.fn(async () => ({ ok: true, data: { success: true } })),
 }));
 
 vi.mock("../api/projectGroups", () => ({
@@ -47,11 +48,14 @@ const SEEDED_SERVER = {
   rememberPassword: false,
 };
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  useZenStore.setState({ hiddenSidecarAddrs: [] });
+});
 
 beforeEach(() => {
   seedServer();
-  useZenStore.setState({ pinnedIds: [] });
+  useZenStore.setState({ pinnedIds: [], hiddenSidecarAddrs: [] });
 });
 
 function seedServer() {
@@ -498,9 +502,49 @@ describe("ChatsList", () => {
       screen: "list",
     });
     mount();
-    expect(screen.getByLabelText("K2 Companion")).not.toBeNull();
+    expect(screen.getByLabelText("K2 Companion, 1")).not.toBeNull();
     expect(screen.getByTestId("row-preview").textContent).toBe("1");
     expect(screen.getByTestId("row-preview").textContent).not.toBe("K2 Companion");
+  });
+
+  it("a hidden extra chat leaves the list until you search for it", () => {
+    const extra = {
+      id: "/ws::k2so-companion/1",
+      name: "K2 Companion",
+      initial: "K",
+      path: "/ws",
+      addr: "k2so-companion/1",
+      chatTitle: "review",
+      joinMiss: null,
+      kind: "agent" as const,
+      mode: "custom",
+      enabled: true,
+      live: true,
+    };
+    const main = {
+      ...extra,
+      id: "/ws::k2so-companion",
+      addr: "k2so-companion",
+      chatTitle: null,
+    };
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [main, extra],
+      lastAtByKey: {},
+      agentError: null,
+      screen: "list",
+    });
+    mount();
+    expect(screen.getByLabelText("K2 Companion, review")).not.toBeNull();
+    act(() => {
+      useZenStore.getState().hideSidecarChat(extra.id);
+    });
+    expect(screen.queryByLabelText("K2 Companion, review")).toBeNull();
+    expect(screen.getByLabelText("K2 Companion")).not.toBeNull();
+    fireEvent.change(screen.getByPlaceholderText("Search"), {
+      target: { value: "review" },
+    });
+    expect(screen.getByLabelText("K2 Companion, review")).not.toBeNull();
   });
 
   it("a server with no recovery entry is sign-in required, not connected", () => {

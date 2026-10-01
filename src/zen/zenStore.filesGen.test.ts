@@ -11,6 +11,7 @@ vi.mock("../api/client", () => ({
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),
   uploadFsBinary: vi.fn(),
+  setTabTitle: vi.fn(async () => ({ ok: true, data: { success: true } })),
 }));
 
 vi.mock("../api/projectGroups", () => ({

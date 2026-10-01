@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
@@ -9,6 +9,7 @@ import { PaneErrorBoundary } from "../zen/PaneErrorBoundary";
 import { rememberZenThread, terminalIdForAgent } from "../zen/terminalJump";
 import { ThreadPane } from "../zen/ThreadPane";
 import { STUB_BANNER } from "../zen/stubData";
+import { isOverlayExtraAddr, threadHeaderTitle } from "../zen/overlayExtras";
 import { useZenStore } from "../zen/zenStore";
 
 const HEADER_BTN: CSSProperties = {
@@ -37,6 +38,11 @@ export function Zen() {
   const filesOpen = useZenStore((s) => s.filesOpen);
   const openFileIds = useZenStore((s) => s.openFileIds);
   const agent = agents.find((a) => a.id === agentId);
+  const extraChat = isOverlayExtraAddr(agent?.addr);
+  const headerTitle = threadHeaderTitle(agent);
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameBusy, setRenameBusy] = useState(false);
   const viewingFile = openFileIds.length > 0;
   const filesPaneOpen = filesOpen || viewingFile;
   // ?thread= paints the thread on first frame (no chats-list flash). After
@@ -149,12 +155,45 @@ export function Zen() {
               </svg>
             </button>
             <div className="min-w-0 flex flex-col items-center justify-center">
-              <span
-                className="block w-full text-[15px] font-bold truncate text-center"
-                style={{ color: "#fff" }}
-              >
-                {agent?.name ?? "—"}
-              </span>
+              {extraChat ? (
+                <button
+                  type="button"
+                  data-testid="chat-header-title"
+                  className="block w-full text-[15px] font-bold truncate text-center bg-transparent border-0 p-0"
+                  style={{ color: "#fff" }}
+                  aria-label={`Rename ${headerTitle}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setRenameValue(headerTitle);
+                    setRenameOpen(true);
+                  }}
+                >
+                  {headerTitle}
+                </button>
+              ) : (
+                <span
+                  data-testid="chat-header-title"
+                  className="block w-full text-[15px] font-bold truncate text-center"
+                  style={{ color: "#fff" }}
+                >
+                  {headerTitle}
+                </span>
+              )}
+              {extraChat ? (
+                <button
+                  type="button"
+                  data-testid="chat-hide"
+                  className="text-[11px] bg-transparent border-0 p-0"
+                  style={{ color: "#8e8e93" }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (agentId) useZenStore.getState().hideSidecarChat(agentId);
+                    backToChats();
+                  }}
+                >
+                  Hide chat
+                </button>
+              ) : null}
               {headerSub ? (
                 <span
                   className="block w-full text-[9px] tracking-widest uppercase truncate text-center"
@@ -237,6 +276,70 @@ export function Zen() {
               onClick={(e) => e.stopPropagation()}
             >
               <FileStage />
+            </div>
+          ) : null}
+          {renameOpen && extraChat ? (
+            <div
+              className="absolute inset-0 z-20 flex items-end justify-center"
+              data-testid="chat-rename"
+              style={{ background: "rgba(0,0,0,.55)" }}
+              onClick={(e) => {
+                e.stopPropagation();
+                setRenameOpen(false);
+              }}
+            >
+              <form
+                className="w-full px-4 pt-4"
+                style={{
+                  background: "#1c1c1e",
+                  paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
+                }}
+                onClick={(e) => e.stopPropagation()}
+                onSubmit={(e: FormEvent) => {
+                  e.preventDefault();
+                  const name = renameValue.trim();
+                  if (!name || !agentId || renameBusy) return;
+                  setRenameBusy(true);
+                  void useZenStore
+                    .getState()
+                    .renameSidecarTitle(agentId, name)
+                    .finally(() => {
+                      setRenameBusy(false);
+                      setRenameOpen(false);
+                    });
+                }}
+              >
+                <label className="block text-[12px] mb-2" style={{ color: "#8e8e93" }}>
+                  Chat name
+                </label>
+                <input
+                  data-testid="chat-rename-input"
+                  value={renameValue}
+                  onChange={(e) => setRenameValue(e.target.value)}
+                  className="w-full px-3 py-2 text-[16px] rounded-lg"
+                  style={{ background: "#2c2c2e", color: "#fff", border: "0" }}
+                  autoFocus
+                />
+                <div className="flex justify-end gap-2 mt-3">
+                  <button
+                    type="button"
+                    className="px-3 py-2 text-[14px] bg-transparent border-0"
+                    style={{ color: "#8e8e93" }}
+                    onClick={() => setRenameOpen(false)}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    data-testid="chat-rename-save"
+                    disabled={renameBusy || !renameValue.trim()}
+                    className="px-3 py-2 text-[14px] bg-transparent border-0"
+                    style={{ color: "#0a84ff" }}
+                  >
+                    Save
+                  </button>
+                </div>
+              </form>
             </div>
           ) : null}
         </div>

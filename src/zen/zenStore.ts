@@ -8,8 +8,10 @@ import {
   getThread,
   getToken,
   postThread,
+  setTabTitle,
   spawnSidecarSession,
   type FsDirEntry,
+  type GlobalSession,
   type ThreadItem,
 } from "../api/client";
 import {
@@ -53,8 +55,10 @@ import {
   isUnderWorkspace,
   looksLikeRootListing,
   ownedWorkspacePath,
+  posixNormalize,
   usableFsPath,
 } from "./workspacePath";
+import { hideSidecarAddr, isOverlayExtraAddr, readHiddenSidecarAddrs, unhideSidecarAddr } from "./overlayExtras";
 
 export type DataSource = "stub" | "live" | "error" | "loading";
 
@@ -143,6 +147,9 @@ type ZenState = {
     row: Pick<StubAgent, "path" | "addr" | "chatTitle">
   ) => Promise<{ ok: boolean; terminalId?: string | null; error?: string }>;
   openSidecar: (baseId: string) => Promise<{ ok: boolean; error?: string }>;
+  renameSidecarTitle: (id: string, title: string) => Promise<{ ok: boolean; error?: string }>;
+  hideSidecarChat: (id: string) => void;
+  hiddenSidecarAddrs: string[];
   closeChat: () => void;
   toggleFiles: () => void;
   openFile: (id: string) => void;
@@ -240,6 +247,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   sendError: null,
   lastAtByKey: {},
   pinnedIds: readPinnedIds(),
+  hiddenSidecarAddrs: readHiddenSidecarAddrs(),
   pinChat: (id, beforeId) => {
     const pinnedIds =
       beforeId === undefined
@@ -1067,6 +1075,56 @@ export const useZenStore = create<ZenState>((set, get) => ({
       get().agents.find((a) => a.id === placeholder.id);
     if (row && row.id !== get().agentId) get().setAgent(row.id);
     return { ok: true };
+  },
+  renameSidecarTitle: async (id, title) => {
+    const name = (title || "").trim();
+    if (!name) return { ok: false, error: "Name required" };
+    const row = get().agents.find((a) => a.id === id);
+    const addr = (row?.addr || "").trim();
+    if (!row || !isOverlayExtraAddr(addr)) {
+      return { ok: false, error: "Only extra chats can be renamed" };
+    }
+    set({
+      agents: get().agents.map((a) => (a.id === id ? { ...a, chatTitle: name } : a)),
+    });
+    rememberSidecar({
+      addr,
+      path: row.path || "",
+      name: row.name,
+      chatTitle: name,
+    });
+    unhideSidecarAddr(addr);
+    try {
+      const listed = await getAllSessions();
+      const sessions: GlobalSession[] = listed.ok && Array.isArray(listed.data) ? listed.data : [];
+      const suffix = sidecarSuffix(addr);
+      const path = posixNormalize(row.path || "") || "";
+      const session = sessions.find((s) => {
+        if (s.isMainChat) return false;
+        if ((posixNormalize(s.cwd || "") || "") !== path) return false;
+        return s.agentName === suffix || s.agentName === addr;
+      });
+      if (session?.tabId && session.projectId) {
+        await setTabTitle(session.projectId, session.tabId, name);
+      }
+    } catch {
+      /* local title still sticks */
+    }
+    return { ok: true };
+  },
+  hideSidecarChat: (id) => {
+    const row = get().agents.find((a) => a.id === id);
+    const addr = (row?.addr || "").trim();
+    if (!row || !isOverlayExtraAddr(addr)) return;
+    hideSidecarAddr(addr);
+    set({
+      hiddenSidecarAddrs: [
+        addr,
+        ...get().hiddenSidecarAddrs.filter((x) => x !== addr),
+      ],
+    });
+    get().unpinChat(id);
+    if (get().agentId === id) get().closeChat();
   },
   closeChat: () =>
     set({
