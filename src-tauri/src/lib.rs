@@ -162,12 +162,17 @@ fn open_external_url(url: String, webview: tauri::WebviewWindow) -> Result<(), S
     #[cfg(target_os = "ios")]
     {
         let to_open = trimmed.clone();
+        let slot = std::sync::Arc::new(std::sync::Mutex::new(Ok(())));
+        let out = slot.clone();
         webview
             .with_webview(move |_wv| {
-                let _ = ios_open::open_url(&to_open);
+                *out.lock().expect("opener slot") = ios_open::open_url(&to_open);
             })
             .map_err(|e| e.to_string())?;
-        return Ok(());
+        return slot
+            .lock()
+            .map_err(|e| e.to_string())?
+            .clone();
     }
     #[cfg(not(target_os = "ios"))]
     {
@@ -199,12 +204,17 @@ mod ios_open {
             if app.is_null() {
                 return Err("app".into());
             }
-            let ok: bool = msg_send![app, openURL: nsurl];
-            if ok {
-                Ok(())
-            } else {
-                Err("openURL false".into())
-            }
+            // iOS 26 forces UIApplication.openURL(_:) to return false.
+            // Use openURL:options:completionHandler: (completion may be nil).
+            let opts: *mut AnyObject = msg_send![class!(NSDictionary), dictionary];
+            let handler: *mut AnyObject = std::ptr::null_mut();
+            let _: () = msg_send![
+                app,
+                openURL: nsurl,
+                options: opts,
+                completionHandler: handler
+            ];
+            Ok(())
         }
     }
 }
