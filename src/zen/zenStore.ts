@@ -21,6 +21,7 @@ import {
   type ProjectGroupMessage,
 } from "../api/projectGroups";
 import { getActiveServer } from "../stores/servers";
+import { useWorkspacesStore } from "../stores/workspaces";
 import {
   cliProjectOf,
   joinAgentsWithProjects,
@@ -37,10 +38,12 @@ import { terminalIdForAgent } from "./terminalJump";
 import { resolveFileRef } from "./chatLinks";
 import {
   extrasFromRemembered,
+  mergeSidecarTitles,
   nextSidecarAddr,
   parseCompanionSessions,
   readRememberedSidecars,
   rememberSidecar,
+  sidecarRenameTarget,
   sidecarSuffix,
   sidecarsFromSessions,
   writeRememberedSidecars,
@@ -55,7 +58,6 @@ import {
   isUnderWorkspace,
   looksLikeRootListing,
   ownedWorkspacePath,
-  posixNormalize,
   usableFsPath,
 } from "./workspacePath";
 import { hideSidecarAddr, isOverlayExtraAddr, readHiddenSidecarAddrs, unhideSidecarAddr } from "./overlayExtras";
@@ -166,7 +168,7 @@ function failFiles(message: string): Pick<ZenState, "fileSource" | "files" | "fi
 
 function overlaySidecarAgent(
   side: OverlaySidecar,
-  parent?: Pick<StubAgent, "color" | "iconUrl" | "mode" | "enabled" | "live"> | null
+  parent?: Pick<StubAgent, "color" | "iconUrl" | "mode" | "enabled" | "live" | "projectId"> | null
 ): StubAgent {
   return {
     id: `${side.path}::${side.addr}`,
@@ -182,6 +184,8 @@ function overlaySidecarAgent(
     chatTitle: side.chatTitle,
     color: parent?.color ?? null,
     iconUrl: parent?.iconUrl ?? null,
+    tabId: side.tabId ?? null,
+    projectId: side.projectId ?? parent?.projectId ?? null,
   };
 }
 
@@ -428,7 +432,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       }
 
       const joined = joinAgentsWithProjects(fleet, book);
-      const mapped: StubAgent[] = joined.map((row) => ({
+      let mapped: StubAgent[] = joined.map((row) => ({
         id: row.id,
         name: row.name,
         initial: skinInitials(row.name),
@@ -452,12 +456,14 @@ export const useZenStore = create<ZenState>((set, get) => ({
       if (rSessions.ok) {
         const parsed = parseCompanionSessions(rSessions.data);
         if (parsed) {
-          for (const side of sidecarsFromSessions(parsed, mains)) {
+          const sides = sidecarsFromSessions(parsed, mains);
+          for (const side of sides) {
             if (haveAddr.has(side.addr)) continue;
             haveAddr.add(side.addr);
             const parent = mapped.find((m) => m.path === side.path);
             mapped.push(overlaySidecarAgent(side, parent));
           }
+          mapped = mergeSidecarTitles(mapped, sides);
         } else {
           notices.push(
             "GET /cli/companion/sessions returned an unrecognised shape. Sidecars were not listed."
@@ -1084,8 +1090,33 @@ export const useZenStore = create<ZenState>((set, get) => ({
     if (!row || !isOverlayExtraAddr(addr)) {
       return { ok: false, error: "Only extra chats can be renamed" };
     }
+    try {
+      const listed = await getAllSessions();
+      const sessions: GlobalSession[] =
+        listed.ok && Array.isArray(listed.data) ? listed.data : [];
+      const target = sidecarRenameTarget({
+        addr,
+        path: row.path || "",
+        sessions,
+        projects: useWorkspacesStore.getState().projects,
+        storedTabId: row.tabId,
+        storedProjectId: row.projectId,
+      });
+      if (!target) {
+        return { ok: false, error: "Couldn't find this sidecar in K2" };
+      }
+      const r = await setTabTitle(target.projectId, target.tabId, name);
+      if (!r.ok) return { ok: false, error: r.error || "K2 did not take the new name" };
+    } catch (err) {
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : String(err),
+      };
+    }
     set({
-      agents: get().agents.map((a) => (a.id === id ? { ...a, chatTitle: name } : a)),
+      agents: get().agents.map((a) =>
+        a.id === id ? { ...a, chatTitle: name } : a
+      ),
     });
     rememberSidecar({
       addr,
@@ -1094,22 +1125,6 @@ export const useZenStore = create<ZenState>((set, get) => ({
       chatTitle: name,
     });
     unhideSidecarAddr(addr);
-    try {
-      const listed = await getAllSessions();
-      const sessions: GlobalSession[] = listed.ok && Array.isArray(listed.data) ? listed.data : [];
-      const suffix = sidecarSuffix(addr);
-      const path = posixNormalize(row.path || "") || "";
-      const session = sessions.find((s) => {
-        if (s.isMainChat) return false;
-        if ((posixNormalize(s.cwd || "") || "") !== path) return false;
-        return s.agentName === suffix || s.agentName === addr;
-      });
-      if (session?.tabId && session.projectId) {
-        await setTabTitle(session.projectId, session.tabId, name);
-      }
-    } catch {
-      /* local title still sticks */
-    }
     return { ok: true };
   },
   hideSidecarChat: (id) => {

@@ -36,6 +36,7 @@ import {
   getThread,
   getToken,
   postThread,
+  setTabTitle,
   spawnSidecarSession,
 } from "../api/client";
 import { SIDECAR_STORAGE_KEY } from "./sidecarRows";
@@ -1181,6 +1182,7 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
     vi.mocked(getAgentList).mockReset();
     vi.mocked(getCliProjectsList).mockReset();
     vi.mocked(getAllSessions).mockReset();
+    vi.mocked(setTabTitle).mockReset();
     vi.mocked(spawnSidecarSession).mockReset();
     vi.mocked(fetchProjectGroups).mockReset();
     vi.mocked(fetchProjectGroups).mockResolvedValue({ ok: true, data: [] });
@@ -1233,6 +1235,105 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
     });
     expect(side?.name).not.toBe("appa / 1");
     expect(s.agents.some((a) => a.addr === "appa")).toBe(true);
+  });
+
+  it("hydrate stamps the live sidecar label over a join-derived suffix title", async () => {
+    vi.mocked(getAgentList).mockResolvedValue({
+      ok: true,
+      data: {
+        ok: true,
+        agents: [
+          {
+            name: "Skin Test A",
+            path: "/Users/Baden/AI Projects/Skin Test A",
+            enabled: true,
+            live: true,
+            mode: "custom",
+          },
+        ],
+      },
+    });
+    vi.mocked(getCliProjectsList).mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          name: "Skin Test A",
+          handle: "skin-test-a",
+          path: "/Users/Baden/AI Projects/Skin Test A",
+        },
+        {
+          name: "qa088",
+          handle: "skin-test-a/qa088",
+          path: "/Users/Baden/AI Projects/Skin Test A",
+        },
+      ],
+    });
+    vi.mocked(getAllSessions).mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          cwd: "/Users/Baden/AI Projects/Skin Test A",
+          workspaceName: "Skin Test A",
+          agentName: "qa088",
+          label: "Example Sidecar",
+          isMainChat: false,
+          tabId: "tab-example",
+          projectId: "proj-skin",
+        },
+      ] as never,
+    });
+    await useZenStore.getState().hydrateAgents();
+    const extra = useZenStore.getState().agents.find((a) => a.addr === "skin-test-a/qa088");
+    expect(extra).toMatchObject({
+      name: "Skin Test A",
+      chatTitle: "Example Sidecar",
+      tabId: "tab-example",
+      projectId: "proj-skin",
+    });
+  });
+
+  it("renameSidecarTitle writes the name to K2 before the overlay row", async () => {
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [
+        {
+          id: "/ws::skin-test-a/qa088",
+          name: "Skin Test A",
+          initial: "ST",
+          path: "/ws",
+          addr: "skin-test-a/qa088",
+          chatTitle: "qa088",
+          joinMiss: null,
+          kind: "agent",
+          tabId: "tab-qa088",
+          projectId: "proj-skin",
+        },
+      ],
+    });
+    vi.mocked(getAllSessions).mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          cwd: "/ws",
+          workspaceName: "Skin Test A",
+          workspaceId: "skin-test-a",
+          workspaceColor: "#000",
+          agentName: "qa088",
+          terminalId: "tid",
+          label: "qa088",
+          isMainChat: false,
+          tabId: "tab-qa088",
+          projectId: "proj-skin",
+        },
+      ],
+    });
+    vi.mocked(setTabTitle).mockResolvedValue({ ok: true, data: { success: true } });
+    const r = await useZenStore
+      .getState()
+      .renameSidecarTitle("/ws::skin-test-a/qa088", "Example Sidecar");
+    expect(r).toEqual({ ok: true });
+    expect(setTabTitle).toHaveBeenCalledWith("proj-skin", "tab-qa088", "Example Sidecar");
+    expect(useZenStore.getState().agents[0]?.chatTitle).toBe("Example Sidecar");
   });
 
   it("openSidecar spawns the next unused suffix and does not invent name / 1", async () => {

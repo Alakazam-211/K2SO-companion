@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   extrasFromRemembered,
   isOverlaySidecarSuffix,
+  mergeSidecarTitles,
   nextSidecarAddr,
   parseCompanionSessions,
+  sidecarRenameTarget,
   sidecarSuffix,
   sidecarsFromSessions,
 } from "./sidecarRows";
@@ -152,6 +154,79 @@ describe("sidecarSuffix", () => {
     expect(sidecarSuffix("appa/1")).toBe("1");
     expect(sidecarSuffix("sales/reviewer")).toBe("reviewer");
     expect(sidecarSuffix("appa")).toBe("");
+  });
+});
+
+describe("mergeSidecarTitles", () => {
+  it("live session labels win over join-derived suffix titles", () => {
+    const rows = mergeSidecarTitles(
+      [
+        { addr: "skin-test-a/qa088", chatTitle: "qa088" },
+        { addr: "skin-test-a", chatTitle: null },
+      ],
+      [
+        {
+          addr: "skin-test-a/qa088",
+          path: "/ws",
+          name: "Skin Test A",
+          chatTitle: "Example Sidecar",
+          tabId: "tab-1",
+          projectId: "proj-1",
+        },
+      ]
+    );
+    expect(rows[0]).toMatchObject({
+      addr: "skin-test-a/qa088",
+      chatTitle: "Example Sidecar",
+      tabId: "tab-1",
+      projectId: "proj-1",
+    });
+    expect(rows[1].chatTitle).toBeNull();
+  });
+});
+
+describe("sidecarRenameTarget", () => {
+  it("uses the live session tab and project ids", () => {
+    expect(
+      sidecarRenameTarget({
+        addr: "skin-test-a/qa088",
+        path: "/ws",
+        sessions: [
+          {
+            cwd: "/ws",
+            agentName: "qa088",
+            isMainChat: false,
+            tabId: "tab-qa088",
+            projectId: "proj-skin",
+          },
+        ],
+        projects: [],
+      })
+    ).toEqual({ projectId: "proj-skin", tabId: "tab-qa088" });
+  });
+
+  it("falls back to the suffix tab id and the workspace project id", () => {
+    expect(
+      sidecarRenameTarget({
+        addr: "skin-test-a/qa088",
+        path: "/ws",
+        sessions: [],
+        projects: [{ id: "proj-skin", path: "/ws" }],
+        storedTabId: null,
+        storedProjectId: null,
+      })
+    ).toEqual({ projectId: "proj-skin", tabId: "qa088" });
+  });
+
+  it("is null when there is no project id", () => {
+    expect(
+      sidecarRenameTarget({
+        addr: "skin-test-a/qa088",
+        path: "/ws",
+        sessions: [],
+        projects: [],
+      })
+    ).toBeNull();
   });
 });
 

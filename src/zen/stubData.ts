@@ -20,6 +20,10 @@ export type StubAgent = {
   live?: boolean | null;
   /** Sidecar line-two title from the server. Main chats omit this. */
   chatTitle?: string | null;
+  /** Desktop tab id for POST /cli/workspace/set-tab-title. */
+  tabId?: string | null;
+  /** Workspace id for POST /cli/workspace/set-tab-title. */
+  projectId?: string | null;
   /** Desktop workspace colour from `/cli/projects/list`. */
   color?: string | null;
   /** Desktop workspace icon from `/cli/projects/list`. http(s) or data:image. */

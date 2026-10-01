@@ -11,13 +11,18 @@ export function threadHeaderTitle(row: {
   addr?: string | null;
   chatTitle?: string | null;
 } | null | undefined): string {
-  if (!row) return "—";
-  if (isOverlayExtraAddr(row.addr)) {
-    const title = (row.chatTitle || "").trim();
-    if (title) return title;
-    return sidecarSuffix(row.addr || "") || (row.name || "").trim() || "—";
-  }
-  return (row.name || "").trim() || "—";
+  return (row?.name || "").trim() || "—";
+}
+
+/** Sidecar title under the workspace name. Null on main chat. */
+export function threadSidecarTitle(row: {
+  addr?: string | null;
+  chatTitle?: string | null;
+} | null | undefined): string | null {
+  if (!isOverlayExtraAddr(row?.addr)) return null;
+  const title = (row?.chatTitle || "").trim();
+  if (title) return title;
+  return sidecarSuffix(row?.addr || "") || null;
 }
 
 export function readHiddenSidecarAddrs(): string[] {

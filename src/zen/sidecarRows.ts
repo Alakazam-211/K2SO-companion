@@ -8,6 +8,8 @@ export type SessionSidecarInput = {
   agentName?: unknown;
   label?: unknown;
   isMainChat?: unknown;
+  tabId?: unknown;
+  projectId?: unknown;
 };
 
 export type OverlaySidecar = {
@@ -15,6 +17,8 @@ export type OverlaySidecar = {
   path: string;
   name: string;
   chatTitle: string;
+  tabId?: string;
+  projectId?: string;
 };
 
 export type MainForSidecar = {
@@ -114,11 +118,15 @@ export function sidecarsFromSessions(
     const fromAddr = sidecarSuffix(addr) || addr;
     const chatTitle =
       label && label.toLowerCase() !== "main chat tab" ? label : fromAddr;
+    const tabId = asText(s.tabId);
+    const projectId = asText(s.projectId);
     out.push({
       addr,
       path: parent.path,
       name: parent.name,
       chatTitle,
+      ...(tabId ? { tabId } : {}),
+      ...(projectId ? { projectId } : {}),
     });
   }
   return out;
@@ -186,6 +194,64 @@ export function rememberSidecar(row: RememberedSidecar): void {
 
 /** Overlay extra chats persist after the Mac tab closes. Parent main
  *  chat must still exist. Do not restore desktop PTY suffixes. */
+/** Live session labels win over join-derived suffix titles. */
+export function mergeSidecarTitles<
+  T extends {
+    addr?: string | null;
+    chatTitle?: string | null;
+    tabId?: string | null;
+    projectId?: string | null;
+  },
+>(rows: T[], sides: OverlaySidecar[]): T[] {
+  if (sides.length === 0) return rows;
+  const byAddr = new Map(sides.map((s) => [s.addr, s]));
+  return rows.map((r) => {
+    const addr = (r.addr || "").trim();
+    const side = addr ? byAddr.get(addr) : undefined;
+    if (!side) return r;
+    return {
+      ...r,
+      chatTitle: side.chatTitle,
+      tabId: side.tabId || r.tabId,
+      projectId: side.projectId || r.projectId,
+    };
+  });
+}
+
+/** Ids for POST /cli/workspace/set-tab-title. Live session first, then
+ *  values already on the overlay row, then the workspace project id.
+ *  Overlay extras spawned without a tab id use the addr suffix. */
+export function sidecarRenameTarget(opts: {
+  addr: string;
+  path: string;
+  sessions: SessionSidecarInput[];
+  projects: { id?: string | null; path?: string | null }[];
+  storedTabId?: string | null;
+  storedProjectId?: string | null;
+}): { projectId: string; tabId: string } | null {
+  const addr = (opts.addr || "").trim();
+  const suffix = sidecarSuffix(addr);
+  if (!suffix) return null;
+  const path = posixNormalize(opts.path || "") || "";
+  const session = opts.sessions.find((s) => {
+    if (s.isMainChat === true) return false;
+    const agent = asText(s.agentName);
+    const nameHit = agent === suffix || agent === addr || agent.endsWith(`/${suffix}`);
+    const pathHit = !path || (posixNormalize(asText(s.cwd)) || "") === path;
+    return nameHit && pathHit;
+  });
+  const projectId =
+    asText(session?.projectId) ||
+    (opts.storedProjectId || "").trim() ||
+    (
+      opts.projects.find((p) => (posixNormalize(p.path || "") || "") === path)?.id || ""
+    ).trim();
+  const tabId =
+    asText(session?.tabId) || (opts.storedTabId || "").trim() || suffix;
+  if (!projectId || !tabId) return null;
+  return { projectId, tabId };
+}
+
 export function extrasFromRemembered(
   remembered: RememberedSidecar[],
   already: Set<string>,
