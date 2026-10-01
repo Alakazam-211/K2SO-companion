@@ -255,7 +255,7 @@ export type SidecarRenameTarget = {
   tabId?: string;
 };
 
-/** Live PTY id for POST /cli/sessions/label. Real tab id only when the
+/** Live PTY id for GET /cli/sessions/label. Real tab id only when the
  *  session sent one — never the overlay suffix (that 200s set-tab-title
  *  without changing companion/sessions label). */
 export function sidecarRenameTarget(opts: {

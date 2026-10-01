@@ -451,14 +451,15 @@ export const setTabTitle = (projectId: string, tabId: string, title: string) =>
   );
 /** Live PTY title. Companion `/cli/companion/sessions` `label` is this
  *  string, not a guessed `tab_titles` row. Overlay extras often have no
- *  tabId; POST `/cli/sessions/label` `{id, label}` is the name that
- *  survives relaunch. */
+ *  tabId. Daemon `handle_sessions_label` is GET-only
+ *  (`/cli/sessions/label?id=<uuid>&label=<text>[&lock=true]`); POST 405s
+ *  `method not allowed for this route`. Default `lock` is true so a PTY
+ *  title cannot overwrite the user's name. */
 export const setSessionLabel = (id: string, label: string) =>
   request<{ success?: boolean }>(
     "sessions.label",
     "/cli/sessions/label",
-    { id, label },
-    { method: "POST" }
+    { id, label }
   );
 // Open (or resume) the workspace's pinned "main chat" session. Returns
 // the daemon PTY `sessionId` to navigate to. Idempotent — a live chat is
