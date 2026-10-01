@@ -259,7 +259,7 @@ export function ChatsList() {
               aria-label={`Pinned ${a.name}`}
               onClick={() => onPinClick(a.id)}
             >
-              <div className="mx-auto mb-2">
+              <div className="mb-2 flex justify-center" data-testid="pin-avatar">
                 <WorkspaceAvatar
                   initial={a.initial}
                   color={a.color}
@@ -397,7 +397,7 @@ export function ChatsList() {
             opacity: 0.9,
           }}
         >
-          <div className="mx-auto mb-2">
+          <div className="mb-2 flex justify-center">
             <WorkspaceAvatar
               initial={ghost.initial}
               color={ghost.color}

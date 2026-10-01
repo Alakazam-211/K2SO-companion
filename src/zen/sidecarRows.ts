@@ -123,3 +123,96 @@ export function sidecarsFromSessions(
   }
   return out;
 }
+
+export const SIDECAR_STORAGE_KEY = "k2-zen-sidecar-addrs";
+
+export type RememberedSidecar = {
+  addr: string;
+  path: string;
+  name: string;
+  chatTitle: string;
+};
+
+export function readRememberedSidecars(): RememberedSidecar[] {
+  try {
+    const raw = localStorage.getItem(SIDECAR_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    const out: RememberedSidecar[] = [];
+    for (const item of parsed) {
+      if (!item || typeof item !== "object") continue;
+      const row = item as Partial<RememberedSidecar>;
+      const addr = typeof row.addr === "string" ? row.addr.trim() : "";
+      const path = typeof row.path === "string" ? row.path.trim() : "";
+      if (!addr || !path) continue;
+      if (!isOverlaySidecarSuffix(sidecarSuffix(addr))) continue;
+      out.push({
+        addr,
+        path,
+        name: typeof row.name === "string" ? row.name : "",
+        chatTitle: typeof row.chatTitle === "string" ? row.chatTitle : sidecarSuffix(addr),
+      });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+export function writeRememberedSidecars(rows: RememberedSidecar[]): void {
+  try {
+    localStorage.setItem(SIDECAR_STORAGE_KEY, JSON.stringify(rows));
+  } catch {
+    /* quota / private mode */
+  }
+}
+
+export function rememberSidecar(row: RememberedSidecar): void {
+  const addr = (row.addr || "").trim();
+  const path = (row.path || "").trim();
+  if (!addr || !path || !isOverlaySidecarSuffix(sidecarSuffix(addr))) return;
+  const next = [
+    {
+      addr,
+      path,
+      name: (row.name || "").trim(),
+      chatTitle: (row.chatTitle || sidecarSuffix(addr)).trim(),
+    },
+    ...readRememberedSidecars().filter((r) => r.addr !== addr),
+  ];
+  writeRememberedSidecars(next);
+}
+
+/** Overlay extra chats persist after the Mac tab closes. Parent main
+ *  chat must still exist. Do not restore desktop PTY suffixes. */
+export function extrasFromRemembered(
+  remembered: RememberedSidecar[],
+  already: Set<string>,
+  mains: MainForSidecar[]
+): OverlaySidecar[] {
+  const byPath = new Map<string, MainForSidecar>();
+  for (const m of mains) {
+    const key = posixNormalize((m.path || "").trim());
+    const addr = (m.addr || "").trim();
+    if (!key || !addr || addr.includes("/")) continue;
+    byPath.set(key, m);
+  }
+  const out: OverlaySidecar[] = [];
+  for (const r of remembered) {
+    const addr = (r.addr || "").trim();
+    if (!addr || already.has(addr)) continue;
+    if (!isOverlaySidecarSuffix(sidecarSuffix(addr))) continue;
+    const key = posixNormalize((r.path || "").trim());
+    const parent = key ? byPath.get(key) : undefined;
+    if (!parent?.addr) continue;
+    already.add(addr);
+    out.push({
+      addr,
+      path: parent.path,
+      name: parent.name,
+      chatTitle: (r.chatTitle || sidecarSuffix(addr)).trim() || sidecarSuffix(addr),
+    });
+  }
+  return out;
+}

@@ -103,6 +103,21 @@ describe("ThreadPane", () => {
     expect(composerHeight(400)).toBe(COMPOSER_MAX_PX);
   });
 
+  it("a sidecar with a thread GET error can still send", () => {
+    useZenStore.setState({
+      threadSource: "error",
+      threadAddr: "appa/1",
+      threadError: "unknown overlay addr 'appa/1'",
+      sendError: null,
+      sending: false,
+      thread: [],
+    });
+    render(<ThreadPane />);
+    expect(screen.getByRole("button", { name: "Send" })).not.toBeNull();
+    expect(screen.getByPlaceholderText("Message")).toHaveProperty("disabled", false);
+    expect(screen.getByTestId("composer-label").textContent).not.toMatch(/Not chattable/);
+  });
+
   it("live thread that is not a test room can send", () => {
     useZenStore.setState({
       threadSource: "live",

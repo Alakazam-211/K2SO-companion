@@ -223,6 +223,32 @@ describe("ChatsList", () => {
     expect(screen.getAllByTestId("row-when").length).toBe(2);
   });
 
+  it("centers the pin image over the name", () => {
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [
+        {
+          id: "/ws",
+          name: "appa",
+          initial: "A",
+          path: "/ws",
+          addr: "appa",
+          color: "#22c55e",
+          iconUrl: "https://example.k2.dev/appa.png",
+        },
+      ],
+      pinnedIds: ["/ws"],
+      agentError: null,
+      screen: "list",
+    });
+    mount();
+    const wrap = screen.getByTestId("pin-avatar");
+    expect(wrap.className).toMatch(/justify-center/);
+    const img = wrap.querySelector("img");
+    expect(img?.getAttribute("src")).toBe("https://example.k2.dev/appa.png");
+    expect(img?.getAttribute("style") || "").toMatch(/object-position:\s*center/i);
+  });
+
   it("paints the desktop workspace colour on the row avatar", () => {
     useZenStore.setState({
       agentSource: "live",

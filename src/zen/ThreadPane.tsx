@@ -91,7 +91,8 @@ export function ThreadPane() {
   const sending = useZenStore((s) => s.sending);
   const sendError = useZenStore((s) => s.sendError);
   const canSend =
-    source === "live" &&
+    (source === "live" ||
+      (source === "error" && isSendableAddr(threadAddr))) &&
     (Boolean((threadGroupId || "").trim()) || isSendableAddr(threadAddr));
   const attachWorkspace = workspaceHandleOf(threadAddr);
   const agent = agents.find((a) => a.id === agentId);

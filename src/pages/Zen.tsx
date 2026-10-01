@@ -175,12 +175,16 @@ export function Zen() {
                   e.stopPropagation();
                   rememberZenThread(agentId);
                   const go = async () => {
-                    let sessions = useWorkspacesStore.getState().allSessions;
-                    if (!sessions.length) {
-                      await useWorkspacesStore.getState().fetchAllSessions();
-                      sessions = useWorkspacesStore.getState().allSessions;
+                    let tid: string | null = null;
+                    if (agent) {
+                      const host = await useZenStore
+                        .getState()
+                        .ensureSidecarHost(agent);
+                      tid = host.terminalId ?? null;
                     }
-                    const tid = terminalIdForAgent(agent, sessions);
+                    await useWorkspacesStore.getState().fetchAllSessions();
+                    const sessions = useWorkspacesStore.getState().allSessions;
+                    if (!tid) tid = terminalIdForAgent(agent, sessions);
                     navigate(tid ? `/chat/${tid}` : "/sessions");
                   };
                   void go();
