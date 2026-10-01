@@ -64,6 +64,11 @@ export function ChatsList() {
   );
 
   useEffect(() => {
+    const root = listRef.current;
+    if (root) root.scrollTop = 0;
+  }, [q]);
+
+  useEffect(() => {
     useFeedbackStore.getState().ensureLive();
     const onVis = () => {
       if (document.visibilityState === "visible") {
