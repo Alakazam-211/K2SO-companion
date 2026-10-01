@@ -92,6 +92,10 @@ function reset() {
     splitRatio: 0.5,
     lastAtByKey: {},
     pinnedIds: [],
+    threadConversationId: null,
+    threadAddr: null,
+    threadGroupId: null,
+    thread: [],
   });
 }
 
@@ -519,6 +523,7 @@ describe("hydrateThread", () => {
     vi.mocked(getThread).mockResolvedValue({
       ok: true,
       data: {
+        conversation_id: "conv-skin-a",
         items: [
           {
             id: "m1",
@@ -532,6 +537,7 @@ describe("hydrateThread", () => {
     const s = useZenStore.getState();
     expect(s.threadSource).toBe("live");
     expect(s.thread.map((m) => m.text)).toEqual(["hello"]);
+    expect(s.threadConversationId).toBe("conv-skin-a");
     expect(vi.mocked(getThread).mock.calls[0][0]).toBe("k2so-Skin-Test-A");
   });
 
@@ -543,6 +549,76 @@ describe("hydrateThread", () => {
     expect(s.threadSource).toBe("error");
     expect(s.thread).toEqual([]);
     expect(s.threadError).toMatch(/thread failed/);
+  });
+
+  it("ingestThreadRaw appends an unseen socket item", async () => {
+    useZenStore.setState({ agentSource: "live", agentId: "appa" });
+    vi.mocked(getThread).mockResolvedValue({
+      ok: true,
+      data: {
+        conversation_id: "conv-a",
+        items: [
+          { id: "a", seq: 1, doc: { from: "appa", body: "old", created_at: 1 } },
+        ],
+      },
+    });
+    await useZenStore.getState().hydrateThread("appa");
+    useZenStore.getState().ingestThreadRaw({
+      id: "b",
+      seq: 2,
+      doc: { from: "appa", body: "live", created_at: 2 },
+    });
+    expect(useZenStore.getState().thread.map((m) => m.id)).toEqual(["a", "b"]);
+  });
+
+  it("refreshOpenThread merges without wiping the open thread", async () => {
+    useZenStore.setState({ agentSource: "live", agentId: "appa" });
+    vi.mocked(getThread).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        conversation_id: "conv-a",
+        items: [
+          { id: "a", seq: 1, doc: { from: "appa", body: "old", created_at: 1 } },
+        ],
+      },
+    });
+    await useZenStore.getState().hydrateThread("appa");
+    const shown = useZenStore.getState().thread;
+    vi.mocked(getThread).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        conversation_id: "conv-a",
+        items: [
+          { id: "a", seq: 1, doc: { from: "appa", body: "old", created_at: 1 } },
+          { id: "b", seq: 2, doc: { from: "appa", body: "new", created_at: 2 } },
+        ],
+      },
+    });
+    await useZenStore.getState().refreshOpenThread();
+    const s = useZenStore.getState();
+    expect(s.threadSource).toBe("live");
+    expect(s.thread.map((m) => m.id)).toEqual(["a", "b"]);
+    expect(s.thread[0]).toBe(shown[0]);
+    expect(s.threadConversationId).toBe("conv-a");
+  });
+
+  it("refreshOpenThread keeps the thread when GET fails", async () => {
+    useZenStore.setState({ agentSource: "live", agentId: "appa" });
+    vi.mocked(getThread).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        conversation_id: "conv-a",
+        items: [
+          { id: "a", seq: 1, doc: { from: "appa", body: "old", created_at: 1 } },
+        ],
+      },
+    });
+    await useZenStore.getState().hydrateThread("appa");
+    vi.mocked(getThread).mockResolvedValueOnce({ ok: false, error: "down" });
+    await useZenStore.getState().refreshOpenThread();
+    const s = useZenStore.getState();
+    expect(s.threadSource).toBe("live");
+    expect(s.thread.map((m) => m.id)).toEqual(["a"]);
   });
 });
 

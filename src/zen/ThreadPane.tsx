@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
 import { uploadFsBinary } from "../api/client";
 import { ChatMessageBody } from "../components/ChatMessage";
 import { asErrorText } from "../lib/apiError";
@@ -19,6 +19,7 @@ import {
   stickToNewest,
   type MessageAnchor,
 } from "./threadScroll";
+import { connectOverlayEvents } from "./overlayEvents";
 import { isSendableAddr } from "./sendGate";
 import { sourceWord, useZenStore } from "./zenStore";
 
@@ -85,8 +86,8 @@ function Bubble({
 
 /**
  * Overlay thread pane. LOOK: iMessage in/out bubbles + Mountain Time.
- * BEHAVE: GET /cli/thread. Send is on for any live overlay addr.
- * Never sends to a PTY.
+ * BEHAVE: GET /cli/thread then WS /cli/overlay/events?conversation=.
+ * Send is on for any live overlay addr. Never sends to a PTY.
  */
 export function ThreadPane() {
   const thread = useZenStore((s) => s.thread);
@@ -99,6 +100,7 @@ export function ThreadPane() {
   const sendThread = useZenStore((s) => s.sendThread);
   const threadAddr = useZenStore((s) => s.threadAddr);
   const threadGroupId = useZenStore((s) => s.threadGroupId);
+  const conversationId = useZenStore((s) => s.threadConversationId);
   const agents = useZenStore((s) => s.agents);
   const sending = useZenStore((s) => s.sending);
   const sendError = useZenStore((s) => s.sendError);
@@ -147,6 +149,28 @@ export function ThreadPane() {
     setAttachments([]);
     setAttachError(null);
   }, [agentId]);
+
+  useEffect(() => {
+    if (source !== "live" && source !== "error") return;
+    const onVis = () => {
+      if (document.visibilityState === "visible") {
+        void useZenStore.getState().refreshOpenThread();
+      }
+    };
+    document.addEventListener("visibilitychange", onVis);
+    if (!conversationId || threadGroupId) {
+      return () => document.removeEventListener("visibilitychange", onVis);
+    }
+    const live = connectOverlayEvents({
+      conversationId,
+      onItem: (raw) => useZenStore.getState().ingestThreadRaw(raw),
+      onNeedCatchUp: () => void useZenStore.getState().refreshOpenThread(),
+    });
+    return () => {
+      live.stop();
+      document.removeEventListener("visibilitychange", onVis);
+    };
+  }, [source, conversationId, threadGroupId]);
 
   useLayoutEffect(() => {
     const el = composerRef.current;

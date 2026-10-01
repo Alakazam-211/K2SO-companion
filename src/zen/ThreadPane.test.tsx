@@ -7,7 +7,12 @@ vi.mock("../api/client", async (importOriginal) => {
   return { ...actual, uploadFsBinary: vi.fn() };
 });
 
+vi.mock("./overlayEvents", () => ({
+  connectOverlayEvents: vi.fn(() => ({ stop: vi.fn() })),
+}));
+
 import { uploadFsBinary } from "../api/client";
+import { connectOverlayEvents } from "./overlayEvents";
 import { COMPOSER_MAX_PX, ThreadPane, composerHeight } from "./ThreadPane";
 import { normaliseThreadItem } from "./threadModel";
 import { useZenStore } from "./zenStore";
@@ -15,6 +20,8 @@ import { useZenStore } from "./zenStore";
 afterEach(() => {
   cleanup();
   vi.mocked(uploadFsBinary).mockReset();
+  vi.mocked(connectOverlayEvents).mockClear();
+  useZenStore.setState({ threadConversationId: null, threadGroupId: null });
 });
 
 describe("ThreadPane", () => {
@@ -484,5 +491,38 @@ describe("ThreadPane", () => {
       "/Users/Baden/Appa/AGENTS.md",
     ]);
     expect(useZenStore.getState().filesOpen).toBe(true);
+  });
+
+  it("opens the overlay events socket for a live conversation", () => {
+    const stop = vi.fn();
+    vi.mocked(connectOverlayEvents).mockReturnValue({ stop });
+    useZenStore.setState({
+      threadSource: "live",
+      threadAddr: "k2so-companion",
+      threadGroupId: null,
+      threadConversationId: "conv-live",
+      threadError: null,
+      thread: [],
+    });
+    const { unmount } = render(<ThreadPane />);
+    expect(connectOverlayEvents).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(connectOverlayEvents).mock.calls[0][0].conversationId).toBe(
+      "conv-live"
+    );
+    unmount();
+    expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not open the overlay events socket without a conversation id", () => {
+    useZenStore.setState({
+      threadSource: "live",
+      threadAddr: "appa",
+      threadGroupId: null,
+      threadConversationId: null,
+      threadError: null,
+      thread: [],
+    });
+    render(<ThreadPane />);
+    expect(connectOverlayEvents).not.toHaveBeenCalled();
   });
 });
