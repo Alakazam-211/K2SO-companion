@@ -449,6 +449,17 @@ export const setTabTitle = (projectId: string, tabId: string, title: string) =>
     "workspace.set_tab_title", "/cli/workspace/set-tab-title",
     { projectId, tabId, title, locked: true }, { method: "POST" }
   );
+/** Live PTY title. Companion `/cli/companion/sessions` `label` is this
+ *  string, not a guessed `tab_titles` row. Overlay extras often have no
+ *  tabId; POST `/cli/sessions/label` `{id, label}` is the name that
+ *  survives relaunch. */
+export const setSessionLabel = (id: string, label: string) =>
+  request<{ success?: boolean }>(
+    "sessions.label",
+    "/cli/sessions/label",
+    { id, label },
+    { method: "POST" }
+  );
 // Open (or resume) the workspace's pinned "main chat" session. Returns
 // the daemon PTY `sessionId` to navigate to. Idempotent — a live chat is
 // returned as-is (reused) unless `forceRespawn` kills + re-resolves it (the

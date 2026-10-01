@@ -12,6 +12,7 @@ vi.mock("../api/client", () => ({
   spawnSidecarSession: vi.fn(),
   uploadFsBinary: vi.fn(),
   setTabTitle: vi.fn(async () => ({ ok: true, data: { success: true } })),
+  setSessionLabel: vi.fn(async () => ({ ok: true, data: { success: true } })),
 }));
 
 vi.mock("../api/projectGroups", () => ({
@@ -36,6 +37,7 @@ import {
   getThread,
   getToken,
   postThread,
+  setSessionLabel,
   setTabTitle,
   spawnSidecarSession,
 } from "../api/client";
@@ -1183,6 +1185,7 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
     vi.mocked(getCliProjectsList).mockReset();
     vi.mocked(getAllSessions).mockReset();
     vi.mocked(setTabTitle).mockReset();
+    vi.mocked(setSessionLabel).mockReset();
     vi.mocked(spawnSidecarSession).mockReset();
     vi.mocked(fetchProjectGroups).mockReset();
     vi.mocked(fetchProjectGroups).mockResolvedValue({ ok: true, data: [] });
@@ -1292,7 +1295,7 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
     });
   });
 
-  it("renameSidecarTitle writes the name to K2 before the overlay row", async () => {
+  it("renameSidecarTitle writes the PTY label and only keeps it when GET sessions agrees", async () => {
     useZenStore.setState({
       agentSource: "live",
       agents: [
@@ -1307,33 +1310,73 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
           kind: "agent",
           tabId: "tab-qa088",
           projectId: "proj-skin",
+          terminalId: "tid-qa088",
         },
       ],
     });
-    vi.mocked(getAllSessions).mockResolvedValue({
-      ok: true,
-      data: [
-        {
-          cwd: "/ws",
-          workspaceName: "Skin Test A",
-          workspaceId: "skin-test-a",
-          workspaceColor: "#000",
-          agentName: "qa088",
-          terminalId: "tid",
-          label: "qa088",
-          isMainChat: false,
-          tabId: "tab-qa088",
-          projectId: "proj-skin",
-        },
-      ],
-    });
+    const before = {
+      cwd: "/ws",
+      workspaceName: "Skin Test A",
+      workspaceId: "skin-test-a",
+      workspaceColor: "#000",
+      agentName: "qa088",
+      terminalId: "tid-qa088",
+      label: "qa088",
+      isMainChat: false,
+      tabId: "tab-qa088",
+      projectId: "proj-skin",
+    };
+    vi.mocked(getAllSessions)
+      .mockResolvedValueOnce({ ok: true, data: [before] })
+      .mockResolvedValueOnce({
+        ok: true,
+        data: [{ ...before, label: "Example Sidecar" }],
+      });
+    vi.mocked(setSessionLabel).mockResolvedValue({ ok: true, data: { success: true } });
     vi.mocked(setTabTitle).mockResolvedValue({ ok: true, data: { success: true } });
     const r = await useZenStore
       .getState()
       .renameSidecarTitle("/ws::skin-test-a/qa088", "Example Sidecar");
     expect(r).toEqual({ ok: true });
+    expect(setSessionLabel).toHaveBeenCalledWith("tid-qa088", "Example Sidecar");
     expect(setTabTitle).toHaveBeenCalledWith("proj-skin", "tab-qa088", "Example Sidecar");
     expect(useZenStore.getState().agents[0]?.chatTitle).toBe("Example Sidecar");
+  });
+
+  it("renameSidecarTitle leaves the old title when GET sessions still returns it", async () => {
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [
+        {
+          id: "/ws::skin-test-a/qa088",
+          name: "Skin Test A",
+          initial: "ST",
+          path: "/ws",
+          addr: "skin-test-a/qa088",
+          chatTitle: "qa088",
+          joinMiss: null,
+          kind: "agent",
+          terminalId: "tid-qa088",
+        },
+      ],
+    });
+    const sess = {
+      cwd: "/ws",
+      workspaceName: "Skin Test A",
+      workspaceId: "skin-test-a",
+      workspaceColor: "#000",
+      agentName: "qa088",
+      terminalId: "tid-qa088",
+      label: "qa088",
+      isMainChat: false,
+    };
+    vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [sess] });
+    vi.mocked(setSessionLabel).mockResolvedValue({ ok: true, data: { success: true } });
+    const r = await useZenStore
+      .getState()
+      .renameSidecarTitle("/ws::skin-test-a/qa088", "qa118");
+    expect(r).toEqual({ ok: false, error: "K2 did not take the new name" });
+    expect(useZenStore.getState().agents[0]?.chatTitle).toBe("qa088");
   });
 
   it("openSidecar spawns the next unused suffix and does not invent name / 1", async () => {

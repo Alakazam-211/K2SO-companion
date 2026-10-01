@@ -8,6 +8,7 @@ import {
   getThread,
   getToken,
   postThread,
+  setSessionLabel,
   setTabTitle,
   spawnSidecarSession,
   type FsDirEntry,
@@ -43,6 +44,8 @@ import {
   parseCompanionSessions,
   readRememberedSidecars,
   rememberSidecar,
+  matchSidecarSession,
+  sidecarLiveLabel,
   sidecarRenameTarget,
   sidecarSuffix,
   sidecarsFromSessions,
@@ -186,6 +189,7 @@ function overlaySidecarAgent(
     iconUrl: parent?.iconUrl ?? null,
     tabId: side.tabId ?? null,
     projectId: side.projectId ?? parent?.projectId ?? null,
+    terminalId: side.terminalId ?? null,
   };
 }
 
@@ -1101,12 +1105,36 @@ export const useZenStore = create<ZenState>((set, get) => ({
         projects: useWorkspacesStore.getState().projects,
         storedTabId: row.tabId,
         storedProjectId: row.projectId,
+        storedTerminalId: row.terminalId,
       });
       if (!target) {
         return { ok: false, error: "Couldn't find this sidecar in K2" };
       }
-      const r = await setTabTitle(target.projectId, target.tabId, name);
-      if (!r.ok) return { ok: false, error: r.error || "K2 did not take the new name" };
+      let wrote = false;
+      if (target.terminalId) {
+        const r = await setSessionLabel(target.terminalId, name);
+        if (!r.ok) return { ok: false, error: r.error || "K2 did not take the new name" };
+        wrote = true;
+      }
+      if (target.projectId && target.tabId) {
+        const r = await setTabTitle(target.projectId, target.tabId, name);
+        if (r.ok) wrote = true;
+        else if (!wrote) {
+          return { ok: false, error: r.error || "K2 did not take the new name" };
+        }
+      }
+      if (!wrote) {
+        return { ok: false, error: "Couldn't find this sidecar in K2" };
+      }
+      const again = await getAllSessions();
+      const next: GlobalSession[] =
+        again.ok && Array.isArray(again.data) ? again.data : [];
+      const live = sidecarLiveLabel(
+        matchSidecarSession(addr, row.path || "", next)
+      );
+      if (live !== name) {
+        return { ok: false, error: "K2 did not take the new name" };
+      }
     } catch (err) {
       return {
         ok: false,

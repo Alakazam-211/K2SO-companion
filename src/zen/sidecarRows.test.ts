@@ -5,6 +5,7 @@ import {
   mergeSidecarTitles,
   nextSidecarAddr,
   parseCompanionSessions,
+  sidecarLiveLabel,
   sidecarRenameTarget,
   sidecarSuffix,
   sidecarsFromSessions,
@@ -186,7 +187,7 @@ describe("mergeSidecarTitles", () => {
 });
 
 describe("sidecarRenameTarget", () => {
-  it("uses the live session tab and project ids", () => {
+  it("uses the live PTY id and a real tab id", () => {
     expect(
       sidecarRenameTarget({
         addr: "skin-test-a/qa088",
@@ -198,35 +199,58 @@ describe("sidecarRenameTarget", () => {
             isMainChat: false,
             tabId: "tab-qa088",
             projectId: "proj-skin",
+            terminalId: "tid-qa088",
           },
         ],
         projects: [],
       })
-    ).toEqual({ projectId: "proj-skin", tabId: "tab-qa088" });
+    ).toEqual({
+      terminalId: "tid-qa088",
+      projectId: "proj-skin",
+      tabId: "tab-qa088",
+    });
   });
 
-  it("falls back to the suffix tab id and the workspace project id", () => {
+  it("does not use the overlay suffix as a tab id", () => {
+    expect(
+      sidecarRenameTarget({
+        addr: "skin-test-a/qa088",
+        path: "/ws",
+        sessions: [
+          {
+            cwd: "/ws",
+            agentName: "qa088",
+            isMainChat: false,
+            terminalId: "tid-qa088",
+            label: "qa088",
+          },
+        ],
+        projects: [{ id: "proj-skin", path: "/ws" }],
+      })
+    ).toEqual({ terminalId: "tid-qa088", projectId: "proj-skin" });
+  });
+
+  it("is null when there is no live PTY and no real tab id", () => {
     expect(
       sidecarRenameTarget({
         addr: "skin-test-a/qa088",
         path: "/ws",
         sessions: [],
         projects: [{ id: "proj-skin", path: "/ws" }],
-        storedTabId: null,
-        storedProjectId: null,
-      })
-    ).toEqual({ projectId: "proj-skin", tabId: "qa088" });
-  });
-
-  it("is null when there is no project id", () => {
-    expect(
-      sidecarRenameTarget({
-        addr: "skin-test-a/qa088",
-        path: "/ws",
-        sessions: [],
-        projects: [],
       })
     ).toBeNull();
+  });
+});
+
+describe("sidecarLiveLabel", () => {
+  it("is the session label, not the agent name, when both exist", () => {
+    expect(
+      sidecarLiveLabel({
+        agentName: "qa088",
+        label: "qa118",
+        isMainChat: false,
+      })
+    ).toBe("qa118");
   });
 });
 
