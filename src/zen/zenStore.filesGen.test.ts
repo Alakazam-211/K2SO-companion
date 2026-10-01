@@ -1293,6 +1293,40 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
       "1"
     );
     expect(result.ok).toBe(true);
+    expect(result.terminalId).toBe("sid-1");
+  });
+
+  it("ensureSidecarHost respawns when only the workspace main chat is live", async () => {
+    vi.mocked(getAllSessions).mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          cwd: "/Users/Baden/AI Projects/Skin Test A",
+          workspaceName: "Skin Test A",
+          workspaceId: "skin-test-a",
+          workspaceColor: "#000",
+          agentName: "6fe8c8c6-a207-4612-930c-efa5c8051931",
+          terminalId: "main-tid",
+          label: "main chat",
+          isMainChat: true,
+        },
+      ],
+    });
+    vi.mocked(spawnSidecarSession).mockResolvedValue({
+      ok: true,
+      data: { sessionId: "qa088-tid", agentName: "qa088" },
+    });
+    const result = await useZenStore.getState().ensureSidecarHost({
+      path: "/Users/Baden/AI Projects/Skin Test A",
+      addr: "skin-test-a/qa088",
+      chatTitle: "qa088",
+    });
+    expect(spawnSidecarSession).toHaveBeenCalledWith(
+      "/Users/Baden/AI Projects/Skin Test A",
+      "qa088",
+      "qa088"
+    );
+    expect(result).toEqual({ ok: true, terminalId: "qa088-tid" });
   });
 
   it("ensureSidecarHost does not spawn when the host session is already live", async () => {

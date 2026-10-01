@@ -39,6 +39,26 @@ describe("terminalIdForAgent", () => {
     ).toBe("side");
   });
 
+  it("does not fall back to main chat when the sidecar host is gone", () => {
+    expect(
+      terminalIdForAgent(
+        {
+          path: "/Users/Baden/AI Projects/Skin Test A",
+          addr: "skin-test-a/qa088",
+        },
+        [
+          sess({
+            terminalId: "main",
+            cwd: "/Users/Baden/AI Projects/Skin Test A",
+            isMainChat: true,
+            agentName: "6fe8c8c6-a207-4612-930c-efa5c8051931",
+            label: "main chat",
+          }),
+        ]
+      )
+    ).toBeNull();
+  });
+
   it("returns null when nothing matches", () => {
     expect(
       terminalIdForAgent({ path: "/Users/Baden/Appa", addr: "appa" }, [
