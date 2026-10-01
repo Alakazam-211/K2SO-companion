@@ -10,6 +10,7 @@ import {
   postThread,
   spawnSidecarSession,
   type FsDirEntry,
+  type ThreadItem,
 } from "../api/client";
 import {
   fetchProjectGroupMessages,
@@ -44,6 +45,7 @@ import {
   type OverlaySidecar,
 } from "./sidecarRows";
 import { isMine, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
+import { mergeThreadMessages } from "./threadLive";
 import {
   NO_WORKSPACE_PATH,
   PATH_NOT_OWNED,
@@ -103,6 +105,7 @@ type ZenState = {
   threadGen: number;
   threadAddr: string | null;
   threadGroupId: string | null;
+  threadConversationId: string | null;
   threadHasMore: boolean;
   threadOldestSeq: number | null;
   threadLoadingEarlier: boolean;
@@ -114,6 +117,8 @@ type ZenState = {
   hydrateGroup: (groupId: string) => Promise<void>;
   loadEarlier: () => Promise<void>;
   sendThread: (text: string) => Promise<void>;
+  ingestThreadRaw: (raw: ThreadItem) => void;
+  refreshOpenThread: () => Promise<void>;
   /** Last-message unix seconds, keyed `t:<addr>` / `g:<groupId>`. Null = fetched empty. */
   lastAtByKey: Record<string, number | null>;
   ensureLastAt: (key: string) => void;
@@ -189,6 +194,13 @@ function groupMessagesToThread(
   }));
 }
 
+function oldestSeqOf(items: ThreadMessage[]): number | null {
+  return items.reduce<number | null>((m, it) => {
+    if (it.seq == null) return m;
+    return m == null || it.seq < m ? it.seq : m;
+  }, null);
+}
+
 function stubThread(agentId: string): ThreadMessage[] {
   const rows = STUB_THREAD[agentId] || STUB_THREAD_FALLBACK;
   return rows.map((m, i) => ({
@@ -220,6 +232,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   threadGen: 0,
   threadAddr: null,
   threadGroupId: null,
+  threadConversationId: null,
   threadHasMore: false,
   threadOldestSeq: null,
   threadLoadingEarlier: false,
@@ -309,6 +322,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadError: null,
       thread: [],
       threadGroupId: null,
+      threadConversationId: null,
     });
     try {
       const [rAgents, rProjects, rGroups, rSessions] = await Promise.all([
@@ -559,6 +573,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadSource: "loading",
       threadAddr: null,
       threadGroupId: groupId,
+      threadConversationId: null,
       threadHasMore: false,
       threadOldestSeq: null,
     });
@@ -600,6 +615,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         thread: stubThread(addr),
         threadAddr: addr,
         threadGroupId: null,
+        threadConversationId: null,
         threadHasMore: false,
         threadOldestSeq: null,
       });
@@ -613,6 +629,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadSource: "loading",
       threadAddr: addr,
       threadGroupId: null,
+      threadConversationId: null,
       threadHasMore: false,
       threadOldestSeq: null,
     });
@@ -637,17 +654,14 @@ export const useZenStore = create<ZenState>((set, get) => ({
         .map((it) => normaliseThreadItem(it, username))
         .filter((m): m is ThreadMessage => !!m)
         .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
-      const oldest = items.reduce<number | null>((m, it) => {
-        if (it.seq == null) return m;
-        return m == null || it.seq < m ? it.seq : m;
-      }, null);
       const last = items[items.length - 1];
       set({
         threadSource: "live",
         thread: items,
         threadError: null,
+        threadConversationId: (r.data.conversation_id || "").trim() || null,
         threadHasMore: !!r.data.has_more,
-        threadOldestSeq: oldest,
+        threadOldestSeq: oldestSeqOf(items),
         lastAtByKey: {
           ...get().lastAtByKey,
           [`t:${addr}`]: last?.at ?? get().lastAtByKey[`t:${addr}`] ?? null,
@@ -686,14 +700,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
         .filter((m): m is ThreadMessage => !!m && !seen.has(m.id))
         .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
       const thread = [...older, ...get().thread];
-      const oldest = thread.reduce<number | null>((m, it) => {
-        if (it.seq == null) return m;
-        return m == null || it.seq < m ? it.seq : m;
-      }, null);
       set({
         thread,
         threadHasMore: !!r.data.has_more && older.length > 0,
-        threadOldestSeq: oldest,
+        threadOldestSeq: oldestSeqOf(thread),
         threadLoadingEarlier: false,
       });
     } catch {
@@ -813,16 +823,15 @@ export const useZenStore = create<ZenState>((set, get) => ({
         });
         return;
       }
-      const oldest = items.reduce<number | null>((m, it) => {
-        if (it.seq == null) return m;
-        return m == null || it.seq < m ? it.seq : m;
-      }, null);
       set({
         sending: false,
         sendError: null,
         thread: items,
+        threadConversationId:
+          (reread.data.conversation_id || "").trim() ||
+          get().threadConversationId,
         threadHasMore: !!reread.data.has_more,
-        threadOldestSeq: oldest,
+        threadOldestSeq: oldestSeqOf(items),
         lastAtByKey: {
           ...get().lastAtByKey,
           [`t:${addr}`]: onWire.at ?? Date.now() / 1000,
@@ -834,6 +843,91 @@ export const useZenStore = create<ZenState>((set, get) => ({
         sending: false,
         sendError: e instanceof Error ? e.message : String(e),
       });
+    }
+  },
+
+  ingestThreadRaw: (raw) => {
+    if (get().agentSource === "stub") return;
+    if (!get().threadAddr) return;
+    const username = getActiveServer()?.username ?? "";
+    const msg = normaliseThreadItem(raw, username);
+    if (!msg) return;
+    const thread = mergeThreadMessages(get().thread, [msg]);
+    if (thread === get().thread) return;
+    const last = thread[thread.length - 1];
+    const addr = get().threadAddr;
+    const wasError = get().threadSource === "error";
+    set({
+      thread,
+      threadSource: wasError ? "live" : get().threadSource,
+      threadError: wasError ? null : get().threadError,
+      lastAtByKey: addr
+        ? {
+            ...get().lastAtByKey,
+            [`t:${addr}`]: last?.at ?? get().lastAtByKey[`t:${addr}`] ?? null,
+          }
+        : get().lastAtByKey,
+    });
+  },
+
+  refreshOpenThread: async () => {
+    if (get().agentSource === "stub") return;
+    const gen = get().threadGen;
+    const groupId = (get().threadGroupId || "").trim();
+    const username = getActiveServer()?.username ?? "";
+    if (groupId) {
+      try {
+        const r = await fetchProjectGroupMessages(groupId, { limit: 50 });
+        if (get().threadGen !== gen || get().threadGroupId !== groupId) return;
+        if (!r.ok) return;
+        const incoming = groupMessagesToThread(r.data?.messages ?? [], username);
+        const cur = get().thread;
+        const same =
+          cur.length === incoming.length &&
+          cur.every((m, i) => m.id === incoming[i]?.id);
+        if (same) return;
+        const last = incoming[incoming.length - 1];
+        set({
+          thread: incoming,
+          threadSource: "live",
+          threadError: null,
+          lastAtByKey: {
+            ...get().lastAtByKey,
+            [`g:${groupId}`]: last?.at ?? get().lastAtByKey[`g:${groupId}`] ?? null,
+          },
+        });
+      } catch {
+        /* keep what is on screen */
+      }
+      return;
+    }
+    const addr = get().threadAddr;
+    if (!addr) return;
+    try {
+      const r = await getThread(addr);
+      if (get().threadGen !== gen || get().threadAddr !== addr) return;
+      if (!r.ok || !r.data || !Array.isArray(r.data.items)) return;
+      const incoming = r.data.items
+        .map((it) => normaliseThreadItem(it, username))
+        .filter((m): m is ThreadMessage => !!m);
+      const thread = mergeThreadMessages(get().thread, incoming);
+      const conv =
+        (r.data.conversation_id || "").trim() || get().threadConversationId;
+      if (thread === get().thread && conv === get().threadConversationId) return;
+      const last = thread[thread.length - 1];
+      set({
+        thread,
+        threadSource: "live",
+        threadError: null,
+        threadConversationId: conv,
+        threadOldestSeq: get().threadOldestSeq ?? oldestSeqOf(thread),
+        lastAtByKey: {
+          ...get().lastAtByKey,
+          [`t:${addr}`]: last?.at ?? get().lastAtByKey[`t:${addr}`] ?? null,
+        },
+      });
+    } catch {
+      /* keep what is on screen */
     }
   },
 
@@ -869,6 +963,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         thread: [],
         threadError: row?.joinMiss || "Not chattable",
         threadGroupId: null,
+        threadConversationId: null,
       });
     }
   },
@@ -982,7 +1077,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
       splitId: null,
       thread: [],
       threadError: null,
+      threadAddr: null,
       threadGroupId: null,
+      threadConversationId: null,
       files: [],
     }),
   toggleFiles: () => set({ filesOpen: !get().filesOpen }),
