@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useFeedbackStore } from "../stores/feedback";
 import { hostLabel, useServersStore, type RecoveryState } from "../stores/servers";
+import { isOverlayExtraAddr, visibleOverlayAgents } from "./overlayExtras";
 import { overlayRowPreview } from "./rowPreview";
 import { StubMark } from "./StubMark";
 import { OverlayAddServer } from "./OverlayAddServer";
@@ -31,6 +32,7 @@ export function ChatsList() {
   const lastAtByKey = useZenStore((s) => s.lastAtByKey);
   const ensureLastAt = useZenStore((s) => s.ensureLastAt);
   const pinnedIds = useZenStore((s) => s.pinnedIds);
+  const hiddenSidecarAddrs = useZenStore((s) => s.hiddenSidecarAddrs);
   const listRef = useRef<HTMLDivElement | null>(null);
   const pinsRef = useRef<HTMLDivElement | null>(null);
   const { onPointerDown, onPointerMove, onPointerUp, ghost, hot, consumeSkipClick, onPinClick } =
@@ -56,7 +58,7 @@ export function ChatsList() {
     : "No server";
 
   const filtered = sortChatsByRecency(
-    agents.filter((a) => a.name.toLowerCase().includes(q.trim().toLowerCase())),
+    visibleOverlayAgents(agents, q, hiddenSidecarAddrs),
     lastAtByKey,
     lastAtKeyFor
   );
@@ -347,7 +349,13 @@ export function ChatsList() {
               if (consumeSkipClick()) return;
               setAgent(a.id);
             }}
-            aria-label={source === "stub" ? `STUB ${a.name}` : a.name}
+            aria-label={
+              source === "stub"
+                ? `STUB ${a.name}`
+                : isOverlayExtraAddr(a.addr)
+                  ? `${a.name}, ${overlayRowPreview(a)}`
+                  : a.name
+            }
             data-last-at-key={lastKey}
             data-pin-id={a.id}
             data-pin-from="list"

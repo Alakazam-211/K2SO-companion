@@ -17,6 +17,7 @@ vi.mock("../api/client", () => ({
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),
   uploadFsBinary: vi.fn(),
+  setTabTitle: vi.fn(async () => ({ ok: true, data: { success: true } })),
 }));
 
 vi.mock("../api/projectGroups", () => ({
@@ -34,7 +35,10 @@ import { STUB_AGENTS, STUB_FILES } from "../zen/stubData";
 import { useZenStore } from "../zen/zenStore";
 import { Zen } from "./Zen";
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  useZenStore.setState({ hiddenSidecarAddrs: [] });
+});
 
 beforeEach(() => {
   useServersStore.setState({
@@ -352,5 +356,86 @@ describe("Zen keeps the chats list mounted", () => {
     expect(useZenStore.getState().openFileIds).toEqual([]);
     expect(useZenStore.getState().filesOpen).toBe(false);
     expect(screen.queryByTestId("file-stage")).toBeNull();
+  });
+
+  it("an extra chat header is the chat title, which you can rename or hide", async () => {
+    vi.mocked(getToken).mockReturnValue("");
+    const extra = {
+      id: "/ws::skin-test-a/qa088",
+      name: "Skin Test A",
+      initial: "ST",
+      path: "/ws",
+      addr: "skin-test-a/qa088",
+      chatTitle: "qa088",
+      joinMiss: null,
+      kind: "agent" as const,
+    };
+    render(
+      <MemoryRouter>
+        <Zen />
+      </MemoryRouter>
+    );
+    await waitFor(() =>
+      expect(useZenStore.getState().agentSource).toBe("stub")
+    );
+    act(() => {
+      useZenStore.setState({
+        agentSource: "live",
+        agents: [extra],
+        screen: "thread",
+        agentId: extra.id,
+        agentError: null,
+        thread: [],
+        threadSource: "live",
+      });
+    });
+    expect(screen.getByTestId("chat-header-title").textContent).toBe("qa088");
+    expect(screen.getByTestId("chat-hide")).not.toBeNull();
+    fireEvent.click(screen.getByTestId("chat-header-title"));
+    fireEvent.change(screen.getByTestId("chat-rename-input"), {
+      target: { value: "notes" },
+    });
+    fireEvent.click(screen.getByTestId("chat-rename-save"));
+    await waitFor(() => {
+      expect(useZenStore.getState().agents[0]?.chatTitle).toBe("notes");
+    });
+    fireEvent.click(screen.getByTestId("chat-hide"));
+    expect(useZenStore.getState().screen).toBe("list");
+  });
+
+  it("main chat header is the workspace name with no Hide", async () => {
+    vi.mocked(getToken).mockReturnValue("");
+    render(
+      <MemoryRouter>
+        <Zen />
+      </MemoryRouter>
+    );
+    await waitFor(() =>
+      expect(useZenStore.getState().agentSource).toBe("stub")
+    );
+    act(() => {
+      useZenStore.setState({
+        agentSource: "live",
+        agents: [
+          {
+            id: "/ws::skin-test-a",
+            name: "Skin Test A",
+            initial: "ST",
+            path: "/ws",
+            addr: "skin-test-a",
+            chatTitle: null,
+            joinMiss: null,
+            kind: "agent",
+          },
+        ],
+        screen: "thread",
+        agentId: "/ws::skin-test-a",
+        agentError: null,
+        thread: [],
+        threadSource: "live",
+      });
+    });
+    expect(screen.getByTestId("chat-header-title").textContent).toBe("Skin Test A");
+    expect(screen.queryByTestId("chat-hide")).toBeNull();
   });
 });
