@@ -6,22 +6,27 @@ import type { CSSProperties, ReactNode } from "react";
 import remarkGfm from "remark-gfm";
 import Markdown from "./Markdown";
 import { authorTint } from "../lib/authorTint";
+import { linkifyFileMentions } from "../zen/chatLinks";
 
 export function ChatMessageBody({
   text,
   className = "",
   style,
+  onFileLink,
 }: {
   text: string;
   className?: string;
   style?: CSSProperties;
+  onFileLink?: (ref: string) => void;
 }) {
   return (
     <div
       className={`markdown-content chat-markdown ${className}`.trim()}
       style={style}
     >
-      <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>
+      <Markdown remarkPlugins={[remarkGfm]} onFileLink={onFileLink}>
+        {linkifyFileMentions(text)}
+      </Markdown>
     </div>
   );
 }

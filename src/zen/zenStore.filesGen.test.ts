@@ -31,6 +31,7 @@ import {
   getAllSessions,
   getCliProjectsList,
   getFsReadDir,
+  getFsReadFile,
   getThread,
   getToken,
   postThread,
@@ -1352,5 +1353,99 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
     });
     expect(spawnSidecarSession).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: true, terminalId: "term-1" });
+  });
+});
+
+describe("openFileFromPath", () => {
+  beforeEach(() => {
+    reset();
+    vi.mocked(getFsReadFile).mockReset();
+    vi.mocked(getFsReadFile).mockResolvedValue({
+      ok: true,
+      data: {
+        content: "charter\n",
+        path: "/Users/Baden/Appa/AGENTS.md",
+        name: "AGENTS.md",
+      },
+    });
+  });
+
+  it("opens a mentioned file the same way as a tree tap", async () => {
+    useZenStore.setState({
+      fileSource: "live",
+      agentId: "appa",
+      agents: [
+        {
+          id: "appa",
+          name: "appa",
+          initial: "A",
+          path: "/Users/Baden/Appa",
+          addr: "appa",
+        },
+      ],
+      files: [
+        { id: "/Users/Baden/Appa/AGENTS.md", name: "AGENTS.md", body: "" },
+      ],
+      openFileIds: [],
+      focusId: null,
+      filesOpen: false,
+    });
+    useZenStore.getState().openFileFromPath("AGENTS.md");
+    expect(useZenStore.getState().openFileIds).toEqual([
+      "/Users/Baden/Appa/AGENTS.md",
+    ]);
+    expect(useZenStore.getState().focusId).toBe("/Users/Baden/Appa/AGENTS.md");
+    expect(useZenStore.getState().filesOpen).toBe(true);
+    await Promise.resolve();
+    expect(getFsReadFile).toHaveBeenCalledWith("/Users/Baden/Appa/AGENTS.md");
+  });
+
+  it("opens a nested path that is not in the current listing", async () => {
+    useZenStore.setState({
+      fileSource: "live",
+      agentId: "appa",
+      agents: [
+        {
+          id: "appa",
+          name: "appa",
+          initial: "A",
+          path: "/Users/Baden/Appa",
+          addr: "appa",
+        },
+      ],
+      files: [
+        { id: "/Users/Baden/Appa/AGENTS.md", name: "AGENTS.md", body: "" },
+      ],
+      openFileIds: [],
+      focusId: null,
+      filesOpen: false,
+    });
+    useZenStore.getState().openFileFromPath("src/zen/ThreadPane.tsx");
+    const id = "/Users/Baden/Appa/src/zen/ThreadPane.tsx";
+    expect(useZenStore.getState().openFileIds).toEqual([id]);
+    expect(useZenStore.getState().files.some((f) => f.id === id)).toBe(true);
+    await Promise.resolve();
+    expect(getFsReadFile).toHaveBeenCalledWith(id);
+  });
+
+  it("does not open a path outside the workspace", () => {
+    useZenStore.setState({
+      fileSource: "live",
+      agentId: "appa",
+      agents: [
+        {
+          id: "appa",
+          name: "appa",
+          initial: "A",
+          path: "/Users/Baden/Appa",
+          addr: "appa",
+        },
+      ],
+      files: [],
+      openFileIds: [],
+    });
+    useZenStore.getState().openFileFromPath("/etc/passwd");
+    expect(useZenStore.getState().openFileIds).toEqual([]);
+    expect(getFsReadFile).not.toHaveBeenCalled();
   });
 });

@@ -30,7 +30,13 @@ export function composerHeight(scrollHeight: number, maxPx = COMPOSER_MAX_PX): n
   return Math.min(scrollHeight, maxPx);
 }
 
-function Bubble({ m }: { m: ThreadMessage }) {
+function Bubble({
+  m,
+  onFileLink,
+}: {
+  m: ThreadMessage;
+  onFileLink?: (ref: string) => void;
+}) {
   return (
     <div
       className="px-3 py-2 text-[17px] leading-snug break-words"
@@ -48,6 +54,7 @@ function Bubble({ m }: { m: ThreadMessage }) {
               text={m.choice.prompt}
               className="!p-0 text-white"
               style={{ color: "#fff" }}
+              onFileLink={onFileLink}
             />
           ) : null}
           {m.choice.options.length ? (
@@ -65,7 +72,12 @@ function Bubble({ m }: { m: ThreadMessage }) {
           </p>
         </div>
       ) : (
-        <ChatMessageBody text={m.text} className="!p-0 text-white" style={{ color: "#fff" }} />
+        <ChatMessageBody
+          text={m.text}
+          className="!p-0 text-white"
+          style={{ color: "#fff" }}
+          onFileLink={onFileLink}
+        />
       )}
     </div>
   );
@@ -90,6 +102,7 @@ export function ThreadPane() {
   const agents = useZenStore((s) => s.agents);
   const sending = useZenStore((s) => s.sending);
   const sendError = useZenStore((s) => s.sendError);
+  const openFileFromPath = useZenStore((s) => s.openFileFromPath);
   const canSend =
     (source === "live" ||
       (source === "error" && isSendableAddr(threadAddr))) &&
@@ -236,7 +249,7 @@ export function ThreadPane() {
                     {m.from}
                   </span>
                 ) : null}
-                <Bubble m={m} />
+                <Bubble m={m} onFileLink={openFileFromPath} />
                 <span className="text-[11px] text-[var(--text-muted)] px-2 mt-0.5">
                   {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
                 </span>

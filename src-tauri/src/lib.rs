@@ -149,6 +149,67 @@ mod ios_keyboard {
 /// each call. No-op on non-iOS targets (and the calling JS is only injected
 /// on iOS anyway).
 #[tauri::command]
+fn open_external_url(url: String, webview: tauri::WebviewWindow) -> Result<(), String> {
+    let trimmed = url.trim().to_string();
+    let lower = trimmed.to_ascii_lowercase();
+    if !(lower.starts_with("https://")
+        || lower.starts_with("http://")
+        || lower.starts_with("mailto:")
+        || lower.starts_with("tel:"))
+    {
+        return Err("unsupported url".into());
+    }
+    #[cfg(target_os = "ios")]
+    {
+        let to_open = trimmed.clone();
+        webview
+            .with_webview(move |_wv| {
+                let _ = ios_open::open_url(&to_open);
+            })
+            .map_err(|e| e.to_string())?;
+        return Ok(());
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = webview;
+        let _ = trimmed;
+        Err("no native opener".into())
+    }
+}
+
+#[cfg(target_os = "ios")]
+mod ios_open {
+    use objc2::runtime::AnyObject;
+    use objc2::{class, msg_send};
+    use std::ffi::CString;
+
+    pub fn open_url(url: &str) -> Result<(), String> {
+        let c = CString::new(url).map_err(|_| "url")?;
+        unsafe {
+            let nsstr: *mut AnyObject =
+                msg_send![class!(NSString), stringWithUTF8String: c.as_ptr()];
+            if nsstr.is_null() {
+                return Err("nsstring".into());
+            }
+            let nsurl: *mut AnyObject = msg_send![class!(NSURL), URLWithString: nsstr];
+            if nsurl.is_null() {
+                return Err("nsurl".into());
+            }
+            let app: *mut AnyObject = msg_send![class!(UIApplication), sharedApplication];
+            if app.is_null() {
+                return Err("app".into());
+            }
+            let ok: bool = msg_send![app, openURL: nsurl];
+            if ok {
+                Ok(())
+            } else {
+                Err("openURL false".into())
+            }
+        }
+    }
+}
+
+#[tauri::command]
 fn ios_strip_accessory_bar(webview: tauri::WebviewWindow) {
     #[cfg(target_os = "ios")]
     {
@@ -178,7 +239,11 @@ pub fn run() {
             }
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![greet, ios_strip_accessory_bar])
+        .invoke_handler(tauri::generate_handler![
+            greet,
+            ios_strip_accessory_bar,
+            open_external_url
+        ])
         .run(tauri::generate_context!())
         .expect("error while running K2 Companion");
 }

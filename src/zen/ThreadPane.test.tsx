@@ -441,4 +441,48 @@ describe("ThreadPane", () => {
     expect(screen.queryByTestId("attach-chip")).toBeNull();
     expect(uploadFsBinary).not.toHaveBeenCalled();
   });
+
+  it("tapping an @file mention opens that file in the stage", () => {
+    useZenStore.setState({
+      agentId: "appa",
+      agents: [
+        {
+          id: "appa",
+          name: "appa",
+          initial: "A",
+          path: "/Users/Baden/Appa",
+          addr: "appa",
+        },
+      ],
+      fileSource: "live",
+      files: [
+        { id: "/Users/Baden/Appa/AGENTS.md", name: "AGENTS.md", body: "hi" },
+      ],
+      openFileIds: [],
+      focusId: null,
+      filesOpen: false,
+      threadSource: "live",
+      threadAddr: "appa",
+      threadGroupId: null,
+      threadError: null,
+      thread: [
+        {
+          id: "m1",
+          seq: 1,
+          text: "see @AGENTS.md",
+          from: "appa",
+          at: 1,
+          mine: false,
+          kind: "text",
+          choice: null,
+        },
+      ],
+    });
+    render(<ThreadPane />);
+    fireEvent.click(screen.getByTestId("chat-file-link"));
+    expect(useZenStore.getState().openFileIds).toEqual([
+      "/Users/Baden/Appa/AGENTS.md",
+    ]);
+    expect(useZenStore.getState().filesOpen).toBe(true);
+  });
 });

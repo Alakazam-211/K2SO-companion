@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { describe, it, expect, vi } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { ChatMessage, ChatMessageBody } from "./ChatMessage";
 
 describe("ChatMessageBody", () => {
@@ -17,6 +17,15 @@ describe("ChatMessageBody", () => {
     render(<ChatMessageBody text={"```\nconst x = 1\n```"} />);
     expect(screen.getByText("const x = 1")).not.toBeNull();
     expect(document.querySelector("pre")).not.toBeNull();
+  });
+
+  it("turns an @file mention into a file link", () => {
+    const onFileLink = vi.fn();
+    render(
+      <ChatMessageBody text={"look at @AGENTS.md"} onFileLink={onFileLink} />,
+    );
+    fireEvent.click(screen.getByTestId("chat-file-link"));
+    expect(onFileLink).toHaveBeenCalledWith("AGENTS.md");
   });
 });
 

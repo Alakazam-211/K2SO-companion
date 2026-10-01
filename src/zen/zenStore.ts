@@ -31,6 +31,7 @@ import { beginLastAt, fetchLastAt } from "./lastAtFetch";
 import { insertPinned, pinId, readPinnedIds, unpinId, writePinnedIds } from "./pinChats";
 import { isSendableAddr } from "./sendGate";
 import { terminalIdForAgent } from "./terminalJump";
+import { resolveFileRef } from "./chatLinks";
 import {
   extrasFromRemembered,
   nextSidecarAddr,
@@ -140,6 +141,8 @@ type ZenState = {
   closeChat: () => void;
   toggleFiles: () => void;
   openFile: (id: string) => void;
+  /** Open a path mentioned in chat the same way as a file-tree tap. */
+  openFileFromPath: (ref: string) => void;
   closeFile: (id: string) => void;
   focusFile: (id: string) => void;
   setSplitRatio: (n: number) => void;
@@ -985,9 +988,29 @@ export const useZenStore = create<ZenState>((set, get) => ({
   toggleFiles: () => set({ filesOpen: !get().filesOpen }),
 
   openFile: (id) => {
-    const { files, openFileIds, focusId, fileSource } = get();
-    const file = files.find((f) => f.id === id);
-    if (!file) return;
+    get().openFileFromPath(id);
+  },
+  openFileFromPath: (ref) => {
+    const raw = (ref || "").trim();
+    if (!raw) return;
+    const { files, openFileIds, focusId, fileSource, agentId, agents } = get();
+    const row = agents.find((a) => a.id === agentId);
+    const owned = typeof row?.path === "string" ? row.path.trim() : "";
+    const workspace = usableFsPath(owned);
+    const listed =
+      files.find((f) => f.id === raw) ||
+      files.find((f) => f.name === raw) ||
+      files.find((f) => workspace && f.id === resolveFileRef(raw, workspace));
+    let id = listed?.id ?? resolveFileRef(raw, workspace);
+    if (!id) return;
+    let file = files.find((f) => f.id === id);
+    if (!file) {
+      if (fileSource === "stub") return;
+      if (!workspace || !isUnderWorkspace(id, workspace)) return;
+      const name = id.split("/").filter(Boolean).pop() || id;
+      file = { id, name, body: "" };
+      set({ files: [...get().files, file] });
+    }
     if (openFileIds.includes(id)) {
       set({ focusId: id, filesOpen: true });
     } else if (openFileIds.length === 0) {
@@ -1004,11 +1027,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
     if (fileSource === "live" && !file.body) {
       const gen = get().filesGen;
-      const row = get().agents.find((a) => a.id === get().agentId);
-      const owned = typeof row?.path === "string" ? row.path.trim() : "";
-      const workspace = ownedWorkspacePath(owned, owned);
+      const ws = ownedWorkspacePath(owned, owned);
       const filePath = usableFsPath(id);
-      if (!filePath || !workspace || !isUnderWorkspace(filePath, workspace)) return;
+      if (!filePath || !ws || !isUnderWorkspace(filePath, ws)) return;
       void getFsReadFile(filePath).then((r) => {
         if (get().filesGen !== gen) return;
         if (!get().files.some((f) => f.id === id)) return;
