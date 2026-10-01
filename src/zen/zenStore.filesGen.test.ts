@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("../api/client", () => ({
   getToken: vi.fn(),
@@ -36,6 +36,7 @@ import {
   postThread,
   spawnSidecarSession,
 } from "../api/client";
+import { SIDECAR_STORAGE_KEY } from "./sidecarRows";
 import {
   fetchProjectGroupMessages,
   fetchProjectGroups,
@@ -1082,8 +1083,22 @@ describe("OPEN 8 project groups in hydrateAgents", () => {
 });
 
 describe("sidecar rows come from the session list, not invented / 1", () => {
+  const mem = new Map<string, string>();
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
   beforeEach(() => {
     reset();
+    mem.clear();
+    vi.stubGlobal("localStorage", {
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => {
+        mem.set(k, v);
+      },
+      removeItem: (k: string) => {
+        mem.delete(k);
+      },
+    });
     vi.mocked(getToken).mockReturnValue("tok");
     vi.mocked(getAgentList).mockReset();
     vi.mocked(getCliProjectsList).mockReset();
@@ -1223,5 +1238,85 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/unknown overlay addr|Could not start/i);
     expect(useZenStore.getState().agents.some((a) => a.addr === "aspen/1")).toBe(false);
+  });
+
+  it("a remembered sidecar stays on the list after the Mac tab closes", async () => {
+    localStorage.setItem(
+      SIDECAR_STORAGE_KEY,
+      JSON.stringify([
+        {
+          addr: "aspen/1",
+          path: "/Users/Bob/Aspen",
+          name: "aspen",
+          chatTitle: "1",
+        },
+      ])
+    );
+    vi.mocked(getAgentList).mockResolvedValue({
+      ok: true,
+      data: {
+        ok: true,
+        agents: [
+          { name: "aspen", path: "/Users/Bob/Aspen", enabled: true, live: true, mode: "custom" },
+        ],
+      },
+    });
+    vi.mocked(getCliProjectsList).mockResolvedValue({
+      ok: true,
+      data: [{ name: "aspen", handle: "aspen", path: "/Users/Bob/Aspen" }],
+    });
+    vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [] });
+    await useZenStore.getState().hydrateAgents();
+    const side = useZenStore.getState().agents.find((a) => a.addr === "aspen/1");
+    expect(side).toMatchObject({
+      name: "aspen",
+      addr: "aspen/1",
+      chatTitle: "1",
+      path: "/Users/Bob/Aspen",
+    });
+  });
+
+  it("ensureSidecarHost respawns the PTY when the Mac tab is gone", async () => {
+    vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [] });
+    vi.mocked(spawnSidecarSession).mockResolvedValue({
+      ok: true,
+      data: { sessionId: "sid-1", agentName: "1" },
+    });
+    const result = await useZenStore.getState().ensureSidecarHost({
+      path: "/Users/Bob/Aspen",
+      addr: "aspen/1",
+      chatTitle: "1",
+    });
+    expect(spawnSidecarSession).toHaveBeenCalledWith(
+      "/Users/Bob/Aspen",
+      "1",
+      "1"
+    );
+    expect(result.ok).toBe(true);
+  });
+
+  it("ensureSidecarHost does not spawn when the host session is already live", async () => {
+    vi.mocked(getAllSessions).mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          cwd: "/Users/Bob/Aspen",
+          workspaceName: "aspen",
+          workspaceId: "aspen",
+          workspaceColor: "#000",
+          agentName: "1",
+          terminalId: "term-1",
+          label: "1",
+          isMainChat: false,
+        },
+      ],
+    });
+    const result = await useZenStore.getState().ensureSidecarHost({
+      path: "/Users/Bob/Aspen",
+      addr: "aspen/1",
+      chatTitle: "1",
+    });
+    expect(spawnSidecarSession).not.toHaveBeenCalled();
+    expect(result).toEqual({ ok: true, terminalId: "term-1" });
   });
 });

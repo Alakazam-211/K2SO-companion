@@ -30,11 +30,17 @@ import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAg
 import { beginLastAt, fetchLastAt } from "./lastAtFetch";
 import { insertPinned, pinId, readPinnedIds, unpinId, writePinnedIds } from "./pinChats";
 import { isSendableAddr } from "./sendGate";
+import { terminalIdForAgent } from "./terminalJump";
 import {
+  extrasFromRemembered,
   nextSidecarAddr,
   parseCompanionSessions,
+  readRememberedSidecars,
+  rememberSidecar,
   sidecarSuffix,
   sidecarsFromSessions,
+  writeRememberedSidecars,
+  type OverlaySidecar,
 } from "./sidecarRows";
 import { isMine, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import {
@@ -126,6 +132,10 @@ type ZenState = {
   /** 0..1 width of the left split pane. */
   splitRatio: number;
   setAgent: (id: string) => void;
+  /** Spawn the sidecar PTY if the Mac tab is gone. Overlay chat stays. */
+  ensureSidecarHost: (
+    row: Pick<StubAgent, "path" | "addr" | "chatTitle">
+  ) => Promise<{ ok: boolean; terminalId?: string | null; error?: string }>;
   openSidecar: (baseId: string) => Promise<{ ok: boolean; error?: string }>;
   closeChat: () => void;
   toggleFiles: () => void;
@@ -137,6 +147,27 @@ type ZenState = {
 
 function failFiles(message: string): Pick<ZenState, "fileSource" | "files" | "fileError"> {
   return { fileSource: "error", files: [], fileError: message };
+}
+
+function overlaySidecarAgent(
+  side: OverlaySidecar,
+  parent?: Pick<StubAgent, "color" | "iconUrl" | "mode" | "enabled" | "live"> | null
+): StubAgent {
+  return {
+    id: `${side.path}::${side.addr}`,
+    name: side.name,
+    initial: skinInitials(side.name),
+    path: side.path,
+    addr: side.addr,
+    joinMiss: null,
+    kind: "agent",
+    mode: parent?.mode ?? null,
+    enabled: parent?.enabled ?? null,
+    live: parent?.live ?? null,
+    chatTitle: side.chatTitle,
+    color: parent?.color ?? null,
+    iconUrl: parent?.iconUrl ?? null,
+  };
 }
 
 function groupMessagesToThread(
@@ -390,31 +421,17 @@ export const useZenStore = create<ZenState>((set, get) => ({
       const haveAddr = new Set(
         mapped.map((a) => (a.addr || "").trim()).filter(Boolean)
       );
+      const mains = joined.filter(
+        (r) => r.addr && !r.addr.includes("/") && !r.joinMiss
+      );
       if (rSessions.ok) {
         const parsed = parseCompanionSessions(rSessions.data);
         if (parsed) {
-          const mains = joined.filter(
-            (r) => r.addr && !r.addr.includes("/") && !r.joinMiss
-          );
           for (const side of sidecarsFromSessions(parsed, mains)) {
             if (haveAddr.has(side.addr)) continue;
             haveAddr.add(side.addr);
             const parent = mapped.find((m) => m.path === side.path);
-            mapped.push({
-              id: `${side.path}::${side.addr}`,
-              name: side.name,
-              initial: skinInitials(side.name),
-              path: side.path,
-              addr: side.addr,
-              joinMiss: null,
-              kind: "agent",
-              mode: null,
-              enabled: null,
-              live: null,
-              chatTitle: side.chatTitle,
-              color: parent?.color ?? null,
-              iconUrl: parent?.iconUrl ?? null,
-            });
+            mapped.push(overlaySidecarAgent(side, parent));
           }
         } else {
           notices.push(
@@ -424,6 +441,24 @@ export const useZenStore = create<ZenState>((set, get) => ({
       } else {
         notices.push(rSessions.error || "GET /cli/companion/sessions failed");
       }
+      for (const side of extrasFromRemembered(
+        readRememberedSidecars(),
+        haveAddr,
+        mains
+      )) {
+        const parent = mapped.find((m) => m.path === side.path);
+        mapped.push(overlaySidecarAgent(side, parent));
+      }
+      writeRememberedSidecars(
+        mapped
+          .filter((a) => (a.addr || "").includes("/") && (a.path || "").trim())
+          .map((a) => ({
+            addr: (a.addr || "").trim(),
+            path: (a.path || "").trim(),
+            name: a.name,
+            chatTitle: a.chatTitle || sidecarSuffix(a.addr || ""),
+          }))
+      );
       const agents: StubAgent[] = [...groups, ...mapped];
       set({
         agentSource: "live",
@@ -822,8 +857,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
       void get().hydrateThread(id);
       return;
     }
-    if (row?.addr) void get().hydrateThread(row.addr);
-    else {
+    if (row?.addr) {
+      void get().hydrateThread(row.addr);
+      if (sidecarSuffix(row.addr)) void get().ensureSidecarHost(row);
+    } else {
       set({
         threadSource: "error",
         thread: [],
@@ -831,6 +868,38 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadGroupId: null,
       });
     }
+  },
+  ensureSidecarHost: async (row) => {
+    const addr = (row.addr || "").trim();
+    const path = (row.path || "").trim();
+    const suffix = sidecarSuffix(addr);
+    if (!path || !suffix) return { ok: true, terminalId: null };
+    const listed = await getAllSessions();
+    const sessions =
+      listed.ok && Array.isArray(listed.data) ? listed.data : [];
+    const existing = terminalIdForAgent({ path, addr }, sessions);
+    if (existing) return { ok: true, terminalId: existing };
+    const label = (row.chatTitle || suffix).trim() || suffix;
+    const spawned = await spawnSidecarSession(path, suffix, label);
+    if (!spawned.ok) {
+      return {
+        ok: false,
+        terminalId: null,
+        error: spawned.error || "Could not start the host session",
+      };
+    }
+    rememberSidecar({
+      addr,
+      path,
+      name: "",
+      chatTitle: label,
+    });
+    const again = await getAllSessions();
+    const next = again.ok && Array.isArray(again.data) ? again.data : [];
+    return {
+      ok: true,
+      terminalId: terminalIdForAgent({ path, addr }, next),
+    };
   },
   openSidecar: async (baseId) => {
     const base = get().agents.find((a) => a.id === baseId);
@@ -873,7 +942,15 @@ export const useZenStore = create<ZenState>((set, get) => ({
       mode: base.mode,
       enabled: base.enabled,
       live: base.live,
+      color: base.color,
+      iconUrl: base.iconUrl,
     };
+    rememberSidecar({
+      addr: sidecarAddr,
+      path,
+      name: base.name,
+      chatTitle: placeholder.chatTitle || sidecarSuffix(sidecarAddr),
+    });
     set({
       agents: [
         placeholder,

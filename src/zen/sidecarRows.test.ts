@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  extrasFromRemembered,
   isOverlaySidecarSuffix,
   nextSidecarAddr,
   parseCompanionSessions,
@@ -151,5 +152,49 @@ describe("sidecarSuffix", () => {
     expect(sidecarSuffix("aspen/1")).toBe("1");
     expect(sidecarSuffix("sales/reviewer")).toBe("reviewer");
     expect(sidecarSuffix("aspen")).toBe("");
+  });
+});
+
+describe("extrasFromRemembered", () => {
+  const aspen = { path: "/Users/Bob/Aspen", name: "aspen", addr: "aspen" };
+
+  it("keeps an overlay sidecar after the Mac tab is gone", () => {
+    const already = new Set<string>();
+    const extra = extrasFromRemembered(
+      [{ addr: "aspen/1", path: "/Users/Bob/Aspen", name: "aspen", chatTitle: "1" }],
+      already,
+      [aspen]
+    );
+    expect(extra).toEqual([
+      { addr: "aspen/1", path: "/Users/Bob/Aspen", name: "aspen", chatTitle: "1" },
+    ]);
+  });
+
+  it("does not duplicate a sidecar the session list already has", () => {
+    const already = new Set(["aspen/1"]);
+    expect(
+      extrasFromRemembered(
+        [{ addr: "aspen/1", path: "/Users/Bob/Aspen", name: "aspen", chatTitle: "1" }],
+        already,
+        [aspen]
+      )
+    ).toEqual([]);
+  });
+
+  it("does not restore a desktop PTY suffix or a workspace with no main chat", () => {
+    expect(
+      extrasFromRemembered(
+        [{ addr: "aspen/tab-abc", path: "/Users/Bob/Aspen", name: "aspen", chatTitle: "tab" }],
+        new Set(),
+        [aspen]
+      )
+    ).toEqual([]);
+    expect(
+      extrasFromRemembered(
+        [{ addr: "gone/1", path: "/tmp/gone", name: "gone", chatTitle: "1" }],
+        new Set(),
+        [aspen]
+      )
+    ).toEqual([]);
   });
 });
