@@ -601,6 +601,34 @@ describe("ChatsList", () => {
     });
     expect(list.scrollTop).toBe(0);
     expect(screen.getByLabelText("K2 Companion, qa1a5ee")).not.toBeNull();
+    expect(screen.queryByTestId("chats-pins")).toBeNull();
+  });
+
+  it("search hides the pin tray so a single hit is not under empty padding", () => {
+    const extra = {
+      ...STUB_AGENTS[0],
+      id: "extra-1",
+      name: "Skin Test A",
+      addr: "skin-test-a/qa088",
+      chatTitle: "qa088",
+    };
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [STUB_AGENTS[0], extra],
+      lastAtByKey: {},
+      agentError: null,
+      screen: "list",
+      hiddenSidecarAddrs: [extra.addr],
+      pinnedIds: [STUB_AGENTS[0].id],
+    });
+    mount();
+    expect(screen.getByTestId("chats-pins")).not.toBeNull();
+    fireEvent.change(screen.getByPlaceholderText("Search"), {
+      target: { value: "qa088" },
+    });
+    expect(screen.queryByTestId("chats-pins")).toBeNull();
+    expect(screen.getByLabelText("Skin Test A, qa088")).not.toBeNull();
+    expect(screen.getByTestId("chats-list").style.paddingBottom).toBe("24px");
   });
 
   it("a server with no recovery entry is sign-in required, not connected", () => {

@@ -57,6 +57,7 @@ export function ChatsList() {
     ? activeServer.nickname || hostLabel(activeServer.url)
     : "No server";
 
+  const searching = q.trim().length > 0;
   const filtered = sortChatsByRecency(
     visibleOverlayAgents(agents, q, hiddenSidecarAddrs),
     lastAtByKey,
@@ -109,7 +110,7 @@ export function ChatsList() {
 
   return (
     <div
-      className="flex flex-col h-full min-h-0 relative"
+      className="flex flex-col h-full min-h-0 relative overflow-hidden"
       style={{
         background:
           "radial-gradient(120% 70% at 50% -20%, #3a3a3c 0%, #000 58%)",
@@ -227,13 +228,14 @@ export function ChatsList() {
         ref={listRef}
         className="flex-1 min-h-0 overflow-y-auto"
         style={{
-          paddingBottom: 96,
+          paddingBottom: searching ? 24 : 96,
           WebkitOverflowScrolling: ghost ? "auto" : "touch",
           overflowY: ghost ? "hidden" : "auto",
           touchAction: ghost ? "none" : undefined,
         }}
         data-testid="chats-list"
       >
+      {!searching ? (
       <div
         ref={pinsRef}
         className="grid grid-cols-3"
@@ -299,6 +301,7 @@ export function ChatsList() {
           ))
         )}
       </div>
+      ) : null}
         {source === "loading" ? (
           <p className="px-4 py-6 text-[14px]" style={{ color: "#8e8e93" }}>
             Loading
