@@ -138,6 +138,14 @@ describe("ChatsList", () => {
     expect(screen.getByTestId("chats-home").textContent).not.toMatch(/Hold a chat/);
     expect(screen.getByTestId("chats-pins").className).not.toMatch(/zen-glass/);
     expect(screen.getByPlaceholderText("Search")).not.toBeNull();
+    const home = screen.getByTestId("chats-home");
+    expect(home.style.position).toBe("fixed");
+    const column = screen.getByTestId("chats-column");
+    expect(column.style.height).toBe(`${window.innerHeight}px`);
+    expect(column.className).toMatch(/relative/);
+    expect(
+      screen.getByPlaceholderText("Search").closest("[data-testid=chats-column]")
+    ).not.toBeNull();
     expect(screen.getByPlaceholderText("Search").closest("label")?.className).toMatch(
       /zen-glass/
     );

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { useViewportHeight } from "../lib/useViewportHeight";
 import { useFeedbackStore } from "../stores/feedback";
 import { hostLabel, useServersStore, type RecoveryState } from "../stores/servers";
 import { isOverlayExtraAddr, visibleOverlayAgents } from "./overlayExtras";
@@ -25,6 +26,7 @@ const RECOVERY_DOT: Record<RecoveryState, string> = {
 /** Phone-width overlay home. Look is public/imessage-baseline.html (7724968). */
 export function ChatsList() {
   const navigate = useNavigate();
+  const containerHeight = useViewportHeight();
   const agents = useZenStore((s) => s.agents);
   const source = useZenStore((s) => s.agentSource);
   const agentError = useZenStore((s) => s.agentError);
@@ -108,10 +110,19 @@ export function ChatsList() {
 
   if (servers.length === 0) return <OverlayAddServer />;
 
+  // Same structure as Login / ChatSession / FeedbackThread: a `fixed`
+  // backdrop so an iOS keyboard pan of #root cannot drag the header off
+  // screen, plus an inner column sized to visualViewport.height so Search
+  // (absolute bottom) already sits above the keyboard.
   return (
     <div
-      className="flex flex-col h-full min-h-0 relative overflow-hidden"
+      className="fixed inset-0"
       style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
         background:
           "radial-gradient(120% 70% at 50% -20%, #3a3a3c 0%, #000 58%)",
         color: "#fff",
@@ -124,6 +135,14 @@ export function ChatsList() {
       onPointerUp={onPointerUp}
       onPointerCancel={onPointerUp}
     >
+      <div
+        className="flex flex-col relative overflow-hidden"
+        style={{
+          height: containerHeight,
+          paddingTop: "env(safe-area-inset-top)",
+        }}
+        data-testid="chats-column"
+      >
       <header
         className="grid items-center shrink-0 w-full min-w-0"
         data-no-pin="1"
@@ -443,6 +462,7 @@ export function ChatsList() {
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
+            onFocus={() => window.scrollTo(0, 0)}
             placeholder="Search"
             className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[17px]"
             style={{ color: "#fff" }}
@@ -521,6 +541,7 @@ export function ChatsList() {
           </p>
         </div>
       ) : null}
+      </div>
     </div>
   );
 }
