@@ -563,9 +563,11 @@ export const postThread = (addr: string, text: string) =>
     { method: "POST" }
   );
 
-/** Answer a prompt card. Skin: POST /cli/thread/answer — not wired in the overlay yet. */
-export const answerThread = (addr: string, id: string, value: string) =>
-  request("thread.answer", "/cli/thread/answer", { addr, id, value }, { method: "POST" });
+/** Overlay choice card. Skin: POST `/cli/thread/answer`
+ *  `{ addr, id, answer }` — `answer` is the option text. Secret cards
+ *  are never posted. */
+export const answerThread = (addr: string, id: string, answer: string) =>
+  request("thread.answer", "/cli/thread/answer", { addr, id, answer }, { method: "POST" });
 
 /** Probe whether THIS origin registered the companion k1 grid upgrade.
  *  `{gridProto:["k1"]}` + a companion token → companion grid WS.

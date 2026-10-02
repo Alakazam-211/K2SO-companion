@@ -12,6 +12,7 @@ vi.mock("../api/client", () => ({
   getFsReadFile: vi.fn(),
   getThread: vi.fn(),
   postThread: vi.fn(),
+  answerThread: vi.fn(async () => ({ ok: true, data: {} })),
   inspectProjectsSummary: vi.fn(),
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),

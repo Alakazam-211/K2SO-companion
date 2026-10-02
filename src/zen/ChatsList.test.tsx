@@ -14,6 +14,7 @@ vi.mock("../api/client", () => ({
   getFsReadFile: vi.fn(),
   getThread: vi.fn(),
   postThread: vi.fn(),
+  answerThread: vi.fn(async () => ({ ok: true, data: {} })),
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),
   uploadFsBinary: vi.fn(),

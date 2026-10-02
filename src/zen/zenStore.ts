@@ -8,6 +8,7 @@ import {
   getThread,
   getToken,
   postThread,
+  answerThread,
   setSessionLabel,
   setTabTitle,
   spawnSidecarSession,
@@ -120,12 +121,16 @@ type ZenState = {
   threadLoadingEarlier: boolean;
   sending: boolean;
   sendError: string | null;
+  answeringId: string | null;
+  answerError: string | null;
+  answerErrorId: string | null;
   hydrateAgents: (opts?: { resumeId?: string }) => Promise<void>;
   hydrateFiles: (dir: string) => Promise<void>;
   hydrateThread: (addr: string) => Promise<void>;
   hydrateGroup: (groupId: string) => Promise<void>;
   loadEarlier: () => Promise<void>;
   sendThread: (text: string) => Promise<void>;
+  answerChoice: (messageId: string, option: string) => Promise<void>;
   ingestThreadRaw: (raw: ThreadItem) => void;
   refreshOpenThread: () => Promise<void>;
   /** Last-message unix seconds, keyed `t:<addr>` / `g:<groupId>`. Null = fetched empty. */
@@ -253,6 +258,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
   threadLoadingEarlier: false,
   sending: false,
   sendError: null,
+  answeringId: null,
+  answerError: null,
+  answerErrorId: null,
   lastAtByKey: {},
   pinnedIds: readPinnedIds(),
   hiddenSidecarAddrs: readHiddenSidecarAddrs(),
@@ -860,6 +868,58 @@ export const useZenStore = create<ZenState>((set, get) => ({
       set({
         sending: false,
         sendError: e instanceof Error ? e.message : String(e),
+      });
+    }
+  },
+
+  answerChoice: async (messageId, option) => {
+    const id = messageId.trim();
+    const answer = option.trim();
+    if (!id || !answer) return;
+    if (get().agentSource === "stub" || get().threadSource === "stub") {
+      set({
+        answerError: "STUB — Cannot answer — POST /cli/thread/answer not proven",
+        answerErrorId: id,
+      });
+      return;
+    }
+    if ((get().threadGroupId || "").trim()) return;
+    const addr = get().threadAddr;
+    if (!isSendableAddr(addr)) return;
+    const msg = get().thread.find((m) => m.id === id);
+    if (!msg?.choice || msg.kind === "secret") return;
+    if (msg.choice.answer != null && String(msg.choice.answer) !== "") return;
+    if (!msg.choice.options.includes(answer)) return;
+    const gen = get().threadGen;
+    set({ answeringId: id, answerError: null, answerErrorId: null });
+    try {
+      const posted = await answerThread(addr, id, answer);
+      if (get().threadGen !== gen) return;
+      if (!posted.ok) {
+        set({
+          answeringId: null,
+          answerError: posted.error || "answer failed",
+          answerErrorId: id,
+        });
+        return;
+      }
+      const thread = get().thread.map((m) =>
+        m.id === id && m.choice
+          ? { ...m, choice: { ...m.choice, answer } }
+          : m
+      );
+      set({
+        answeringId: null,
+        answerError: null,
+        answerErrorId: null,
+        thread,
+      });
+    } catch (e) {
+      if (get().threadGen !== gen) return;
+      set({
+        answeringId: null,
+        answerError: e instanceof Error ? e.message : String(e),
+        answerErrorId: id,
       });
     }
   },
