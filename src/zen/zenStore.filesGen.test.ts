@@ -8,6 +8,7 @@ vi.mock("../api/client", () => ({
   getFsReadFile: vi.fn(),
   getThread: vi.fn(),
   postThread: vi.fn(),
+  answerThread: vi.fn(),
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),
   uploadFsBinary: vi.fn(),
@@ -37,6 +38,7 @@ import {
   getThread,
   getToken,
   postThread,
+  answerThread,
   setSessionLabel,
   setTabTitle,
   spawnSidecarSession,
@@ -1160,6 +1162,61 @@ describe("OPEN 8 project groups in hydrateAgents", () => {
     expect(useZenStore.getState().thread).toEqual([]);
     d.resolve({ ok: true, data: { ok: true, agents: [] } });
     await p;
+  });
+});
+
+describe("answerChoice", () => {
+  it("POSTs the option text and marks the card answered", async () => {
+    vi.mocked(answerThread).mockResolvedValue({ ok: true, data: {} });
+    useZenStore.setState({
+      agentSource: "live",
+      threadSource: "live",
+      threadAddr: "appa",
+      threadGroupId: null,
+      answeringId: null,
+      answerError: null,
+      thread: [
+        {
+          id: "card-1",
+          seq: 9,
+          text: "",
+          from: "appa",
+          at: 1,
+          mine: false,
+          kind: "choice",
+          choice: { prompt: "Approve?", options: ["Yes", "No"], answer: null },
+        },
+      ],
+    });
+    await useZenStore.getState().answerChoice("card-1", "Yes");
+    expect(answerThread).toHaveBeenCalledWith("appa", "card-1", "Yes");
+    const s = useZenStore.getState();
+    expect(s.thread[0]?.choice?.answer).toBe("Yes");
+    expect(s.answeringId).toBeNull();
+    expect(s.answerError).toBeNull();
+  });
+
+  it("does not POST when the card is already answered", async () => {
+    vi.mocked(answerThread).mockClear();
+    useZenStore.setState({
+      agentSource: "live",
+      threadSource: "live",
+      threadAddr: "appa",
+      thread: [
+        {
+          id: "card-1",
+          seq: 9,
+          text: "",
+          from: "appa",
+          at: 1,
+          mine: false,
+          kind: "choice",
+          choice: { prompt: "Approve?", options: ["Yes", "No"], answer: "Yes" },
+        },
+      ],
+    });
+    await useZenStore.getState().answerChoice("card-1", "No");
+    expect(answerThread).not.toHaveBeenCalled();
   });
 });
 

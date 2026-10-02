@@ -4,14 +4,14 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 
 vi.mock("../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/client")>();
-  return { ...actual, uploadFsBinary: vi.fn() };
+  return { ...actual, uploadFsBinary: vi.fn(), answerThread: vi.fn() };
 });
 
 vi.mock("./overlayEvents", () => ({
   connectOverlayEvents: vi.fn(() => ({ stop: vi.fn() })),
 }));
 
-import { uploadFsBinary } from "../api/client";
+import { answerThread, uploadFsBinary } from "../api/client";
 import { connectOverlayEvents } from "./overlayEvents";
 import { COMPOSER_MAX_PX, ThreadPane, composerHeight } from "./ThreadPane";
 import { normaliseThreadItem } from "./threadModel";
@@ -20,8 +20,15 @@ import { useZenStore } from "./zenStore";
 afterEach(() => {
   cleanup();
   vi.mocked(uploadFsBinary).mockReset();
+  vi.mocked(answerThread).mockReset();
   vi.mocked(connectOverlayEvents).mockClear();
-  useZenStore.setState({ threadConversationId: null, threadGroupId: null });
+  useZenStore.setState({
+    threadConversationId: null,
+    threadGroupId: null,
+    answeringId: null,
+    answerError: null,
+    answerErrorId: null,
+  });
 });
 
 describe("ThreadPane", () => {
@@ -209,8 +216,90 @@ describe("ThreadPane", () => {
     expect(screen.getByText("bold one")).not.toBeNull();
     expect(document.body.textContent).not.toMatch(/\*\*bold one\*\*/);
     expect(screen.getByText("Pick one")).not.toBeNull();
-    expect(screen.getByText(/left/)).not.toBeNull();
-    expect(screen.getByText(/right/)).not.toBeNull();
+    expect(screen.getByRole("button", { name: "left" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "right" })).not.toBeNull();
+    expect(document.body.textContent).not.toMatch(/Reply is not wired/);
+  });
+
+  it("tapping a choice POSTs /cli/thread/answer with the option text", async () => {
+    vi.mocked(answerThread).mockResolvedValue({ ok: true, data: {} });
+    useZenStore.setState({
+      agentSource: "live",
+      threadSource: "live",
+      threadError: null,
+      threadAddr: "appa",
+      threadGroupId: null,
+      thread: [
+        {
+          id: "ch",
+          seq: 2,
+          text: "",
+          from: "appa",
+          at: 1759198521,
+          mine: false,
+          kind: "choice",
+          choice: { prompt: "Approve this?", options: ["Yes", "No"], answer: null },
+        },
+      ],
+    });
+    render(<ThreadPane />);
+    fireEvent.click(screen.getByRole("button", { name: "Yes" }));
+    await waitFor(() => {
+      expect(answerThread).toHaveBeenCalledWith("appa", "ch", "Yes");
+    });
+    await waitFor(() => {
+      expect(screen.getByText("Answered.")).not.toBeNull();
+    });
+    expect(screen.getByRole("button", { name: "Yes" })).toHaveProperty("disabled", true);
+  });
+
+  it("does not POST a choice on a project chat", () => {
+    useZenStore.setState({
+      agentSource: "live",
+      threadSource: "live",
+      threadError: null,
+      threadAddr: null,
+      threadGroupId: "g1",
+      thread: [
+        {
+          id: "ch",
+          seq: 2,
+          text: "",
+          from: "appa",
+          at: 1,
+          mine: false,
+          kind: "choice",
+          choice: { prompt: "Pick", options: ["A"], answer: null },
+        },
+      ],
+    });
+    render(<ThreadPane />);
+    fireEvent.click(screen.getByRole("button", { name: "A" }));
+    expect(answerThread).not.toHaveBeenCalled();
+  });
+
+  it("secret cards have no answer buttons", () => {
+    useZenStore.setState({
+      agentSource: "live",
+      threadSource: "live",
+      threadError: null,
+      threadAddr: "appa",
+      thread: [
+        {
+          id: "sec",
+          seq: 3,
+          text: "Need a secret",
+          from: "appa",
+          at: 1,
+          mine: false,
+          kind: "secret",
+          choice: { prompt: "Need a secret", options: ["ok"], answer: null },
+        },
+      ],
+    });
+    render(<ThreadPane />);
+    expect(screen.queryByRole("button", { name: "ok" })).toBeNull();
+    expect(answerThread).not.toHaveBeenCalled();
   });
 
   it("renders choice option labels from wire objects, not [object Object]", () => {

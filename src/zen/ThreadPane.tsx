@@ -34,10 +34,22 @@ export function composerHeight(scrollHeight: number, maxPx = COMPOSER_MAX_PX): n
 function Bubble({
   m,
   onFileLink,
+  canAnswer,
+  answering,
+  answerError,
+  onAnswer,
 }: {
   m: ThreadMessage;
   onFileLink?: (ref: string) => void;
+  canAnswer: boolean;
+  answering: boolean;
+  answerError: string | null;
+  onAnswer: (option: string) => void;
 }) {
+  const secret = m.kind === "secret";
+  const choice = secret ? null : m.choice;
+  const answered =
+    choice != null && choice.answer != null && String(choice.answer) !== "";
   return (
     <div
       className="px-3 py-2 text-[17px] leading-snug break-words"
@@ -48,29 +60,51 @@ function Bubble({
         opacity: m.pending ? 0.7 : 1,
       }}
     >
-      {m.choice ? (
+      {choice ? (
         <div>
-          {m.choice.prompt ? (
+          {choice.prompt ? (
             <ChatMessageBody
-              text={m.choice.prompt}
+              text={choice.prompt}
               className="!p-0 text-white"
               style={{ color: "#fff" }}
               onFileLink={onFileLink}
             />
           ) : null}
-          {m.choice.options.length ? (
-            <ul className="mt-2 text-[15px]">
-              {m.choice.options.map((o) => (
-                <li key={o}>
-                  {m.choice && m.choice.answer === o ? "● " : "○ "}
-                  {o}
-                </li>
-              ))}
-            </ul>
+          {choice.options.length ? (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {choice.options.map((o) => {
+                const picked = answered && choice.answer === o;
+                const tappable = canAnswer && !answered && !answering && Boolean(m.id);
+                return (
+                  <button
+                    key={o}
+                    type="button"
+                    disabled={!tappable}
+                    aria-pressed={picked}
+                    onClick={() => onAnswer(o)}
+                    className="rounded-full px-3 py-1.5 text-[15px] leading-none border"
+                    style={{
+                      borderColor: picked ? "#fff" : "rgba(255,255,255,0.4)",
+                      background: picked ? "#fff" : "transparent",
+                      color: picked ? "#1c1c1e" : "#fff",
+                      opacity: tappable || picked ? 1 : 0.55,
+                    }}
+                  >
+                    {o}
+                  </button>
+                );
+              })}
+            </div>
           ) : null}
-          <p className="mt-1 text-[12px] opacity-80">
-            {m.choice.answer != null ? "Answered." : "Reply is not wired on this client."}
-          </p>
+          {answered ? (
+            <p className="mt-1 text-[12px] opacity-80">Answered.</p>
+          ) : answerError ? (
+            <p className="mt-1 text-[12px] opacity-80" role="alert">
+              {answerError}
+            </p>
+          ) : answering ? (
+            <p className="mt-1 text-[12px] opacity-80">Sending…</p>
+          ) : null}
         </div>
       ) : (
         <ChatMessageBody
@@ -98,6 +132,10 @@ export function ThreadPane() {
   const loadingEarlier = useZenStore((s) => s.threadLoadingEarlier);
   const loadEarlier = useZenStore((s) => s.loadEarlier);
   const sendThread = useZenStore((s) => s.sendThread);
+  const answerChoice = useZenStore((s) => s.answerChoice);
+  const answeringId = useZenStore((s) => s.answeringId);
+  const answerError = useZenStore((s) => s.answerError);
+  const answerErrorId = useZenStore((s) => s.answerErrorId);
   const threadAddr = useZenStore((s) => s.threadAddr);
   const threadGroupId = useZenStore((s) => s.threadGroupId);
   const conversationId = useZenStore((s) => s.threadConversationId);
@@ -273,7 +311,18 @@ export function ThreadPane() {
                     {m.from}
                   </span>
                 ) : null}
-                <Bubble m={m} onFileLink={openFileFromPath} />
+                <Bubble
+                  m={m}
+                  onFileLink={openFileFromPath}
+                  canAnswer={
+                    canSend &&
+                    !threadGroupId &&
+                    (source === "live" || source === "error")
+                  }
+                  answering={answeringId === m.id}
+                  answerError={answerErrorId === m.id ? answerError : null}
+                  onAnswer={(option) => void answerChoice(m.id, option)}
+                />
                 <span className="text-[11px] text-[var(--text-muted)] px-2 mt-0.5">
                   {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
                 </span>
