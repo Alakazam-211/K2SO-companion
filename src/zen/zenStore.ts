@@ -176,7 +176,8 @@ function failFiles(message: string): Pick<ZenState, "fileSource" | "files" | "fi
 
 function overlaySidecarAgent(
   side: OverlaySidecar,
-  parent?: Pick<StubAgent, "color" | "iconUrl" | "mode" | "enabled" | "live" | "projectId"> | null
+  parent?: Pick<StubAgent, "color" | "iconUrl" | "mode" | "enabled" | "live" | "projectId"> | null,
+  hostLive = true
 ): StubAgent {
   return {
     id: `${side.path}::${side.addr}`,
@@ -195,6 +196,7 @@ function overlaySidecarAgent(
     tabId: side.tabId ?? null,
     projectId: side.projectId ?? parent?.projectId ?? null,
     terminalId: side.terminalId ?? null,
+    hostLive,
   };
 }
 
@@ -473,7 +475,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
             if (haveAddr.has(side.addr)) continue;
             haveAddr.add(side.addr);
             const parent = mapped.find((m) => m.path === side.path);
-            mapped.push(overlaySidecarAgent(side, parent));
+            mapped.push(overlaySidecarAgent(side, parent, true));
           }
           mapped = mergeSidecarTitles(mapped, sides);
         } else {
@@ -490,7 +492,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         mains
       )) {
         const parent = mapped.find((m) => m.path === side.path);
-        mapped.push(overlaySidecarAgent(side, parent));
+        mapped.push(overlaySidecarAgent(side, parent, false));
       }
       writeRememberedSidecars(
         mapped
@@ -1072,12 +1074,20 @@ export const useZenStore = create<ZenState>((set, get) => ({
     });
     const again = await getAllSessions();
     const next = again.ok && Array.isArray(again.data) ? again.data : [];
+    const terminalId =
+      terminalIdForAgent({ path, addr }, next) ??
+      spawned.data?.sessionId ??
+      null;
+    set({
+      agents: get().agents.map((a) =>
+        (a.addr || "").trim() === addr
+          ? { ...a, hostLive: true, terminalId: terminalId || a.terminalId }
+          : a
+      ),
+    });
     return {
       ok: true,
-      terminalId:
-        terminalIdForAgent({ path, addr }, next) ??
-        spawned.data?.sessionId ??
-        null,
+      terminalId,
     };
   },
   openSidecar: async (baseId) => {

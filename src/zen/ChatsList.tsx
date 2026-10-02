@@ -111,7 +111,8 @@ export function ChatsList() {
     <div
       className="flex flex-col h-full min-h-0 relative"
       style={{
-        background: "#000",
+        background:
+          "radial-gradient(120% 70% at 50% -20%, #3a3a3c 0%, #000 58%)",
         color: "#fff",
         fontFamily:
           '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif',
@@ -134,12 +135,10 @@ export function ChatsList() {
       >
         <button
           type="button"
-          className="text-[17px] justify-self-start"
+          className="text-[17px] justify-self-start zen-glass zen-glass-pill"
           style={{
             minHeight: 34,
             padding: "0 14px",
-            borderRadius: 17,
-            background: "#1c1c1e",
             color: "#fff",
           }}
           onClick={() => setSettings(true)}
@@ -155,12 +154,10 @@ export function ChatsList() {
         <span className="flex items-center justify-self-end" style={{ gap: 8 }} data-testid="chats-header-right">
           <button
             type="button"
-            className="relative flex items-center justify-center shrink-0"
+            className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
             style={{
               width: 34,
               height: 34,
-              borderRadius: 17,
-              background: "#1c1c1e",
               color: "#fff",
             }}
             onClick={() => setTickets(true)}
@@ -204,12 +201,10 @@ export function ChatsList() {
           </button>
           <button
             type="button"
-            className="flex items-center justify-center shrink-0"
+            className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
             style={{
               width: 34,
               height: 34,
-              borderRadius: 17,
-              background: "#1c1c1e",
             }}
             onClick={() => setServersSheet(true)}
             aria-label={`Server ${serverLabel}`}
@@ -230,14 +225,15 @@ export function ChatsList() {
 
       <div
         ref={pinsRef}
-        className="grid grid-cols-3 shrink-0"
+        className="grid grid-cols-3 shrink-0 zen-glass zen-glass-round"
         style={{
-          padding: "4px 10px 8px",
+          padding: "8px 10px 10px",
           gap: "14px 6px",
           minHeight: 96,
-          margin: "0 8px",
-          borderRadius: 16,
-          background: hot ? "rgba(10,132,255,.12)" : "transparent",
+          margin: "0 10px 4px",
+          background: hot
+            ? "rgba(10,132,255,.18)"
+            : "rgba(255,255,255,0.08)",
           outline: hot ? "1.5px dashed rgba(10,132,255,.5)" : "1.5px dashed transparent",
         }}
         data-testid="chats-pins"
@@ -443,11 +439,9 @@ export function ChatsList() {
         }}
       >
         <label
-          className="flex-1 min-w-0 flex items-center"
+          className="flex-1 min-w-0 flex items-center zen-glass zen-glass-field"
           style={{
             gap: 8,
-            background: "#1c1c1e",
-            borderRadius: 22,
             padding: "9px 14px",
           }}
         >
@@ -466,12 +460,10 @@ export function ChatsList() {
           type="button"
           title="New message"
           aria-label="New message"
-          className="flex items-center justify-center"
+          className="flex items-center justify-center zen-glass zen-glass-round"
           style={{
             width: 44,
             height: 44,
-            borderRadius: 14,
-            background: "#1c1c1e",
             color: "#fff",
           }}
           onClick={() => setCompose(true)}
@@ -499,12 +491,10 @@ export function ChatsList() {
           >
             <button
               type="button"
-              className="text-[17px]"
+              className="text-[17px] zen-glass zen-glass-pill"
               style={{
                 minHeight: 34,
                 padding: "0 14px",
-                borderRadius: 17,
-                background: "#1c1c1e",
               }}
               onClick={() => setSettings(false)}
             >

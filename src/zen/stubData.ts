@@ -26,6 +26,8 @@ export type StubAgent = {
   projectId?: string | null;
   /** Live PTY id for GET /cli/sessions/label. */
   terminalId?: string | null;
+  /** False when the extra is remembered but the Mac tab is gone. Search still finds it. */
+  hostLive?: boolean | null;
   /** Desktop workspace colour from `/cli/projects/list`. */
   color?: string | null;
   /** Desktop workspace icon from `/cli/projects/list`. http(s) or data:image. */

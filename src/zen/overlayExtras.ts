@@ -78,6 +78,7 @@ export function visibleOverlayAgents<T extends {
   addr?: string | null;
   chatTitle?: string | null;
   kind?: string | null;
+  hostLive?: boolean | null;
 }>(agents: T[], query: string, hiddenAddrs: string[] | null | undefined = []): T[] {
   const q = query.trim().toLowerCase();
   const hidden = new Set(hiddenAddrs ?? []);
@@ -86,6 +87,7 @@ export function visibleOverlayAgents<T extends {
     const addr = (a.addr || "").trim();
     if (a.kind === "group") return true;
     if (isOverlayExtraAddr(addr) && hidden.has(addr)) return false;
+    if (isOverlayExtraAddr(addr) && a.hostLive === false) return false;
     return true;
   });
 }
