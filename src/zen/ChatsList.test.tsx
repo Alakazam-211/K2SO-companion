@@ -131,6 +131,12 @@ describe("ChatsList", () => {
     expect(screen.getByTestId("chats-home")).not.toBeNull();
     expect(screen.getByText("Chats")).not.toBeNull();
     expect(screen.getByTestId("chats-pins").textContent).toMatch(/Drop here/);
+    expect(screen.getByTestId("chats-list").contains(screen.getByTestId("chats-pins"))).toBe(
+      true
+    );
+    expect(screen.getByTestId("chats-home").textContent).not.toMatch(/Hold a pin/);
+    expect(screen.getByTestId("chats-home").textContent).not.toMatch(/Hold a chat/);
+    expect(screen.getByTestId("chats-pins").className).not.toMatch(/zen-glass/);
     expect(screen.getByPlaceholderText("Search")).not.toBeNull();
     expect(screen.getByPlaceholderText("Search").closest("label")?.className).toMatch(
       /zen-glass/
@@ -357,9 +363,6 @@ describe("ChatsList", () => {
       pinnedIds: [a.id, b.id],
     });
     mount();
-    expect(screen.getByTestId("chats-home").textContent).toMatch(
-      /Hold a pin, then drag it to reorder/
-    );
     const rect = (left: number, width: number) =>
       ({
         left,

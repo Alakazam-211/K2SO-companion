@@ -224,16 +224,26 @@ export function ChatsList() {
       </header>
 
       <div
-        ref={pinsRef}
-        className="grid grid-cols-3 shrink-0 zen-glass zen-glass-round"
+        ref={listRef}
+        className="flex-1 min-h-0 overflow-y-auto"
         style={{
-          padding: "8px 10px 10px",
+          paddingBottom: 96,
+          WebkitOverflowScrolling: ghost ? "auto" : "touch",
+          overflowY: ghost ? "hidden" : "auto",
+          touchAction: ghost ? "none" : undefined,
+        }}
+        data-testid="chats-list"
+      >
+      <div
+        ref={pinsRef}
+        className="grid grid-cols-3"
+        style={{
+          padding: "4px 10px 8px",
           gap: "14px 6px",
           minHeight: 96,
-          margin: "0 10px 4px",
-          background: hot
-            ? "rgba(10,132,255,.18)"
-            : "rgba(255,255,255,0.08)",
+          margin: "0 8px",
+          borderRadius: 16,
+          background: hot ? "rgba(10,132,255,.12)" : "transparent",
           outline: hot ? "1.5px dashed rgba(10,132,255,.5)" : "1.5px dashed transparent",
         }}
         data-testid="chats-pins"
@@ -289,26 +299,6 @@ export function ChatsList() {
           ))
         )}
       </div>
-      <p
-        className="text-center shrink-0"
-        style={{ fontSize: 11, color: "#8e8e93", padding: "0 16px 10px", lineHeight: 1.3 }}
-      >
-        {pinned.length
-          ? "Hold a pin, then drag it to reorder. Hold a chat, then drag it up here to pin. Drag a pin down to unpin."
-          : "Hold a chat, then drag it up here to pin."}
-      </p>
-
-      <div
-        ref={listRef}
-        className="flex-1 min-h-0 overflow-y-auto"
-        style={{
-          paddingBottom: 96,
-          WebkitOverflowScrolling: ghost ? "auto" : "touch",
-          overflowY: ghost ? "hidden" : "auto",
-          touchAction: ghost ? "none" : undefined,
-        }}
-        data-testid="chats-list"
-      >
         {source === "loading" ? (
           <p className="px-4 py-6 text-[14px]" style={{ color: "#8e8e93" }}>
             Loading
