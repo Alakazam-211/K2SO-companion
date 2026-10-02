@@ -377,6 +377,31 @@ describe("ThreadPane", () => {
     });
   });
 
+  it("outgoing bubbles shrink so a code block cannot clip the left edge", () => {
+    useZenStore.setState({
+      threadSource: "live",
+      threadAddr: "appa",
+      threadGroupId: null,
+      threadError: null,
+      thread: [
+        {
+          id: "m1",
+          seq: 0,
+          text: "```\n" + "x".repeat(200) + "\n```",
+          from: "baden",
+          at: 10,
+          mine: true,
+          kind: "text",
+          choice: null,
+        },
+      ],
+    });
+    render(<ThreadPane />);
+    const row = document.querySelector("[data-thread-msg]");
+    expect(row?.className).toMatch(/min-w-0/);
+    expect(row?.className).toMatch(/max-w-\[78%\]/);
+  });
+
   it("a live project chat shows Send", () => {
     useZenStore.setState({
       threadSource: "live",

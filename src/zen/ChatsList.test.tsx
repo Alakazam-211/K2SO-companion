@@ -132,6 +132,10 @@ describe("ChatsList", () => {
     expect(screen.getByText("Chats")).not.toBeNull();
     expect(screen.getByTestId("chats-pins").textContent).toMatch(/Drop here/);
     expect(screen.getByPlaceholderText("Search")).not.toBeNull();
+    expect(screen.getByPlaceholderText("Search").closest("label")?.className).toMatch(
+      /zen-glass/
+    );
+    expect(screen.getByRole("button", { name: "Settings" }).className).toMatch(/zen-glass/);
     expect(screen.getByLabelText(/STUB \[STUB\] not-a-real-agent-1/)).not.toBeNull();
     expect((screen.getByRole("button", { name: "New message" }) as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByRole("button", { name: "Tickets" })).not.toBeNull();

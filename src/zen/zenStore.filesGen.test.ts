@@ -1552,6 +1552,7 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
       addr: "appa/1",
       chatTitle: "1",
       path: "/Users/Baden/Appa",
+      hostLive: false,
     });
   });
 
@@ -1573,6 +1574,35 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
     );
     expect(result.ok).toBe(true);
     expect(result.terminalId).toBe("sid-1");
+  });
+
+  it("ensureSidecarHost marks a remembered extra live after respawn", async () => {
+    useZenStore.setState({
+      agents: [
+        {
+          id: "/Users/Baden/Appa::appa/1",
+          name: "appa",
+          initial: "A",
+          path: "/Users/Baden/Appa",
+          addr: "appa/1",
+          joinMiss: null,
+          kind: "agent",
+          chatTitle: "1",
+          hostLive: false,
+        },
+      ],
+    });
+    vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [] });
+    vi.mocked(spawnSidecarSession).mockResolvedValue({
+      ok: true,
+      data: { sessionId: "sid-1", agentName: "1" },
+    });
+    await useZenStore.getState().ensureSidecarHost({
+      path: "/Users/Baden/Appa",
+      addr: "appa/1",
+      chatTitle: "1",
+    });
+    expect(useZenStore.getState().agents[0]?.hostLive).toBe(true);
   });
 
   it("ensureSidecarHost respawns when only the workspace main chat is live", async () => {

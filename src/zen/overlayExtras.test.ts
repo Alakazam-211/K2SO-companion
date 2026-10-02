@@ -53,6 +53,27 @@ describe("visibleOverlayAgents", () => {
     ]);
   });
 
+  it("hides Mac-closed extras until you search", () => {
+    const closed = [
+      ...rows,
+      {
+        name: "Skin Test A",
+        addr: "skin-test-a/review",
+        chatTitle: "review",
+        kind: "agent",
+        hostLive: false,
+      },
+    ];
+    expect(visibleOverlayAgents(closed, "", []).map((r) => r.addr)).toEqual([
+      "skin-test-a",
+      "skin-test-a/qa088",
+      null,
+    ]);
+    expect(visibleOverlayAgents(closed, "review", []).map((r) => r.addr)).toEqual([
+      "skin-test-a/review",
+    ]);
+  });
+
   it("never hides main chat or project chat", () => {
     expect(visibleOverlayAgents(rows, "", ["skin-test-a"]).map((r) => r.kind)).toContain("group");
     expect(visibleOverlayAgents(rows, "", ["skin-test-a"]).some((r) => r.addr === "skin-test-a")).toBe(

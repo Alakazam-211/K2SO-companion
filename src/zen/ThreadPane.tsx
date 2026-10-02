@@ -52,7 +52,7 @@ function Bubble({
     choice != null && choice.answer != null && String(choice.answer) !== "";
   return (
     <div
-      className="px-3 py-2 text-[17px] leading-snug break-words"
+      className="px-3 py-2 text-[17px] leading-snug break-words min-w-0 max-w-full overflow-hidden"
       style={{
         borderRadius: 18,
         background: m.mine ? "#0a84ff" : "#3a3a3c",
@@ -303,7 +303,7 @@ export function ThreadPane() {
                 key={m.id || `seq-${m.seq ?? i}`}
                 data-thread-msg=""
                 data-seq={m.seq ?? undefined}
-                className={`flex flex-col max-w-[78%] ${m.mine ? "self-end items-end" : "self-start items-start"}`}
+                className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}`}
               >
                 {!m.mine ? (
                   <span className="text-[11px] text-[var(--text-muted)] px-3 mb-0.5">
