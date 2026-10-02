@@ -235,11 +235,15 @@ describe("Zen keeps the chats list mounted", () => {
     const terminal = screen.getByRole("button", { name: "Terminal" });
     expect(back.style.width).toBe("36px");
     expect(back.style.height).toBe("36px");
-    expect(back.style.borderRadius).toBe("50%");
+    expect(back.className).toMatch(/zen-glass/);
     expect(files.style.width).toBe(back.style.width);
     expect(files.style.height).toBe(back.style.height);
-    expect(files.style.borderRadius).toBe(back.style.borderRadius);
+    expect(files.className).toMatch(/zen-glass/);
     expect(terminal.style.width).toBe(back.style.width);
+    expect(terminal.className).toMatch(/zen-glass/);
+    const header = screen.getByTestId("chat-header");
+    expect(header.style.paddingTop).toBe("12px");
+    expect(header.style.paddingBottom).toBe("12px");
     fireEvent.click(back);
     expect(useZenStore.getState().screen).toBe("list");
     expect(useZenStore.getState().agentId).toBe("");

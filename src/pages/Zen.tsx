@@ -15,8 +15,6 @@ import { useZenStore } from "../zen/zenStore";
 const HEADER_BTN: CSSProperties = {
   width: 36,
   height: 36,
-  borderRadius: "50%",
-  background: "#1c1c1e",
   color: "#fff",
 };
 
@@ -136,10 +134,12 @@ export function Zen() {
         >
           <header
             className="grid items-center shrink-0 w-full min-w-0 px-3"
+            data-testid="chat-header"
             style={{
               gridTemplateColumns: "1fr auto 1fr",
               minHeight: 44,
-              paddingTop: 8,
+              paddingTop: 12,
+              paddingBottom: 12,
               background: "#000",
               columnGap: 8,
             }}
@@ -148,7 +148,7 @@ export function Zen() {
               type="button"
               onClick={backToChats}
               data-testid="chat-back"
-              className="flex items-center justify-center shrink-0 justify-self-start"
+              className="flex items-center justify-center shrink-0 justify-self-start zen-glass zen-glass-pill"
               style={HEADER_BTN}
               aria-label="Back to chats"
             >
@@ -224,7 +224,7 @@ export function Zen() {
               <button
                 type="button"
                 aria-label="Terminal"
-                className="flex items-center justify-center shrink-0"
+                className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
                 style={HEADER_BTN}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -253,10 +253,10 @@ export function Zen() {
               <button
                 type="button"
                 aria-label="Files"
-                className="flex items-center justify-center shrink-0"
+                className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
                 style={{
                   ...HEADER_BTN,
-                  background: filesPaneOpen ? "#3a3a3c" : "#1c1c1e",
+                  background: filesPaneOpen ? "rgba(255,255,255,0.18)" : undefined,
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
