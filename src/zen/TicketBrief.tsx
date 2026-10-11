@@ -8,6 +8,7 @@ import {
 } from "../api/ticketBrief";
 import { openExternal } from "../lib/openExternal";
 import type { BriefEntry } from "../stores/feedback";
+import { zenTextPx } from "./zenFont";
 
 // The open ticket's brief, Zen style (Layout A). A `.k2-tile` card with a
 // fixed-height preview of the brief in an inert frame (`sandbox=""`, CSP
@@ -125,8 +126,8 @@ function TextCard({ label, text, testId }: { label: string; text: string; testId
     <section className="k2-tile overflow-hidden" style={{ borderRadius: CARD_RADIUS }} data-testid={testId}>
       <CardLabel>{label}</CardLabel>
       <div
-        className="text-[15px] leading-snug whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
-        style={{ padding: "0 14px 14px", color: "var(--text)" }}
+        className="leading-snug whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
+        style={{ padding: "0 14px 14px", color: "var(--text)", fontSize: zenTextPx(15) }}
       >
         {text}
       </div>

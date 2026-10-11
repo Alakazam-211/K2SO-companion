@@ -13,8 +13,9 @@ if (/android/i.test(navigator.userAgent)) {
   document.documentElement.classList.add("platform-android");
 }
 
-// Zen UI font pref (Settings → Appearance): stamp it on <html> before
-// the first render so Meslo users never see a system-font flash.
+// Zen UI font + text size prefs (Settings → Appearance): stamp them on
+// <html> before the first render so Meslo users never see a system-font
+// flash and text never jumps size.
 initZenFont();
 
 // Test hook for scripts/repro-nav-stress.mjs (dev builds only): lets the

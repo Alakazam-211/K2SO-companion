@@ -25,7 +25,8 @@
   padding: 4px 16px 12px;
   background: transparent !important;
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  /* Settings → Text Size (--zen-text-scale on <html>). */
+  font-size: calc(12px * var(--zen-text-scale, 1));
   line-height: 1.6;
   color: var(--text-secondary);
   white-space: pre;
@@ -62,7 +63,8 @@
 .fv-markdown,
 .fv-docx {
   padding: 4px 18px 8px;
-  font-size: 15px;
+  /* Settings → Text Size (--zen-text-scale on <html>). */
+  font-size: calc(15px * var(--zen-text-scale, 1));
   line-height: 1.6;
 }
 .fv-markdown h1,
