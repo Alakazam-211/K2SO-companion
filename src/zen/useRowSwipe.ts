@@ -63,7 +63,7 @@ function prefersReducedMotion(): boolean {
  */
 export function useRowSwipe(
   onFull: (id: string) => void,
-  /** Rows with no action (the server cannot pin them) do not swipe. */
+  /** Rows with no action (groups off, sidecars, project groups) do not swipe. */
   canSwipe: (id: string) => boolean = () => true
 ) {
   const track = useRef<Track | null>(null);

@@ -1,6 +1,7 @@
-/* Swipe-to-pin glass action and the hold-drag "Drop to pin" strip.
-   Same recipe as `.zen-glass` (frosted fill, thin white rim, inset top
-   catch), tinted faintly yellow so the pin reads as the iOS pin action. */
+/* Swipe-right glass action (focus group) and the hold-drag "Drop to pin"
+   strip. Same recipe as `.zen-glass` (frosted fill, thin white rim, inset
+   top catch). `.k2-swipe-pin` is the round glass base; `.k2-swipe-group`
+   drops the yellow tint and lets the glyph take the group's colour. */
 
 .k2-swipe-pin {
   width: 54px;
@@ -34,6 +35,24 @@
 
 .k2-swipe-pin svg {
   filter: drop-shadow(0 0 4px rgba(255, 214, 10, 0.35));
+}
+
+.k2-swipe-group {
+  background:
+    radial-gradient(120% 90% at 50% 18%, rgba(255, 255, 255, 0.2) 0%, rgba(255, 255, 255, 0) 55%),
+    rgba(255, 255, 255, 0.08);
+}
+
+.k2-swipe-group[data-armed="1"] {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.4),
+    inset 0 -1px 0 rgba(0, 0, 0, 0.18),
+    0 6px 16px rgba(0, 0, 0, 0.35),
+    0 0 18px rgba(255, 255, 255, 0.28);
+}
+
+.k2-swipe-group svg {
+  filter: drop-shadow(0 0 4px rgba(255, 255, 255, 0.2));
 }
 
 .k2-swipe-pin-label {

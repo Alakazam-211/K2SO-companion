@@ -11,16 +11,24 @@ import {
   GlassSearchBar,
   SEARCH_BAR_HEIGHT,
   SEARCH_BAR_KEYBOARD_GAP,
+  SEARCH_BAR_REST_BOTTOM,
 } from "./GlassSearchBar";
 import { OverlayCompose } from "./OverlayCompose";
 import { OverlayServers } from "./OverlayServers";
 import { TicketsOverlay } from "./TicketsOverlay";
 import { lastAtKeyFor, sortChatsByRecency } from "./lastAtFetch";
-import { currentFocusGroup, filterByFocus, listTitle, pinProjectIdForRow } from "./serverPins";
+import {
+  currentFocusGroup,
+  filterByFocus,
+  listTitle,
+  pinProjectIdForRow,
+  rowFocusGroupId,
+} from "./serverPins";
 import { connectProjectEvents } from "./ticketEvents";
 import { mountainListWhen } from "./threadModel";
 import { usePinDrag } from "./usePinDrag";
 import { SWIPE_ACTION_W, swipeReveal, useRowSwipe } from "./useRowSwipe";
+import { FocusGroupPicker } from "./FocusGroupPicker";
 import "./swipePin.css";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { ZenSettings } from "./ZenSettings";
@@ -44,6 +52,8 @@ export const SERVER_LISTS_POLL_MS = 30_000;
 /** iOS system yellow, the Messages pin action. */
 const PIN_YELLOW = "#ffd60a";
 const SWIPE_HINT_ID = "chats-swipe-hint";
+/** How long "Moved to Work · Undo" stays up after a group change. */
+export const GROUP_TOAST_MS = 4000;
 /** Title cap: at 375pt the side columns keep ~100px for the pills. */
 const TITLE_MAX_W = "min(34vw, 140px)";
 /** Resting header content height below the safe area: 44 row + 12/8 pad. */
@@ -55,6 +65,27 @@ export const CHATS_HEADER_PX = 64;
  */
 export const ZEN_LIST_EDGE_INSET = 4;
 export const ZEN_LIST_EDGE_PAD = 2;
+
+/** Swipe-right action: lucide "folders" (stacked folders). */
+function GroupGlyph() {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      data-testid="group-glyph"
+    >
+      <path d="M20 17a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3.9a2 2 0 0 1-1.69-.9l-.81-1.2a2 2 0 0 0-1.67-.9H8a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2Z" />
+      <path d="M2 8v11a2 2 0 0 0 2 2h14" />
+    </svg>
+  );
+}
 
 function PinGlyph({ off }: { off: boolean }) {
   return (
@@ -104,6 +135,7 @@ export function ChatsList() {
   const serverProjects = useZenStore((s) => s.serverProjects);
   const pinError = useZenStore((s) => s.pinError);
   const focus = useZenStore((s) => s.focus);
+  const focusGroupsEnabled = useZenStore((s) => s.focusGroupsEnabled);
   const selectFocusGroup = useZenStore((s) => s.selectFocusGroup);
   const hiddenSidecarAddrs = useZenStore((s) => s.hiddenSidecarAddrs);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -134,13 +166,70 @@ export function ChatsList() {
     fn();
   };
   const [scrolled, setScrolled] = useState(false);
-  const togglePin = (id: string) => {
-    const st = useZenStore.getState();
-    if (!canPin(id)) return;
-    if (st.pinnedIds.includes(id)) void st.unpinChat(id);
-    else void st.pinChat(id);
+  // Swipe right assigns the row's workspace to a focus group. Groups off:
+  // no swipe action at all. Same rows as pins (groups are per workspace).
+  const groupsOn = focus.enabled || focusGroupsEnabled;
+  const canGroup = (id: string) => groupsOn && pinnable.has(id);
+  const [groupPick, setGroupPick] = useState<string | null>(null);
+  const [groupToast, setGroupToast] = useState<{
+    id: string;
+    prev: string | null;
+    text: string;
+  } | null>(null);
+  const openGroupPicker = (id: string) => {
+    if (canGroup(id)) setGroupPick(id);
   };
-  const swipe = useRowSwipe(togglePin, canPin);
+  const swipe = useRowSwipe(openGroupPicker, canGroup);
+  const groupName = (gid: string | null) =>
+    (gid && focus.groups.find((g) => g.id === gid)?.name) || "";
+  const showGroupToast = (id: string, prev: string | null, next: string | null) => {
+    const text = next
+      ? `Moved to ${groupName(next) || "group"}`
+      : `Removed from ${groupName(prev) || "group"}`;
+    setGroupToast({ id, prev, text });
+  };
+  /** A pick in the sheet: assign, toast with Undo; a failure drops the toast. */
+  const assignGroup = (id: string, next: string | null) => {
+    const prev = rowFocusGroupId(
+      agents.find((a) => a.id === id),
+      useZenStore.getState().serverProjects
+    );
+    setGroupPick(null);
+    swipe.close();
+    if (prev === next) return;
+    showGroupToast(id, prev, next);
+    void useZenStore
+      .getState()
+      .assignFocusGroup(id, next)
+      .then((ok) => {
+        if (!ok) setGroupToast((t) => (t && t.id === id ? null : t));
+      });
+  };
+  const createGroup = async (id: string, name: string) => {
+    const prev = rowFocusGroupId(
+      agents.find((a) => a.id === id),
+      useZenStore.getState().serverProjects
+    );
+    const ok = await useZenStore.getState().createFocusGroupFor(id, name);
+    if (!ok) return false;
+    setGroupPick(null);
+    swipe.close();
+    setGroupToast({ id, prev, text: `Moved to ${name.trim()}` });
+    return true;
+  };
+  const undoGroup = () => {
+    const t = groupToast;
+    if (!t) return;
+    setGroupToast(null);
+    void useZenStore.getState().assignFocusGroup(t.id, t.prev);
+  };
+  useEffect(() => {
+    if (!groupToast) return;
+    const timer = setTimeout(() => setGroupToast(null), GROUP_TOAST_MS);
+    return () => clearTimeout(timer);
+  }, [groupToast]);
+  // Groups turned off (or the row went away): no picker.
+  const pickAgent = groupPick && groupsOn ? agents.find((a) => a.id === groupPick) ?? null : null;
   const [groupMenu, setGroupMenu] = useState(false);
   const group = currentFocusGroup(focus);
   const title = listTitle(focus);
@@ -676,7 +765,8 @@ export function ChatsList() {
         }}
       >
       <span id={SWIPE_HINT_ID} className="sr-only">
-        Swipe right to pin or unpin. Or press and hold, then drag to the top.
+        {groupsOn ? "Swipe right to add to a focus group. " : ""}
+        Press and hold, then drag to the top to pin.
         Press and hold a pinned agent for Open and Unpin.
       </span>
       {/* Pins only when there are pins: an empty tray is dead space. */}
@@ -814,10 +904,12 @@ export function ChatsList() {
               ? activityForRow(a, activity, isOverlayExtraAddr(a.addr), chatSessions)
               : null;
           const busyColor = busy ? activityColor(busy) : "var(--success)";
-          const isPinned = pinnedIds.includes(a.id);
-          const rowCanPin = pinnable.has(a.id);
+          const rowCanGroup = canGroup(a.id);
+          const rowGroupId = rowCanGroup ? rowFocusGroupId(a, serverProjects) : null;
+          const rowGroup = rowGroupId
+            ? focus.groups.find((g) => g.id === rowGroupId) ?? null
+            : null;
           const sw = swipe.offsetFor(a.id);
-          const pinVerb = isPinned ? "Unpin" : "Pin";
           const reveal = swipeReveal(sw.x, swipe.reduced);
           return (
           <div
@@ -827,12 +919,13 @@ export function ChatsList() {
             style={{ margin: `0 ${ZEN_LIST_EDGE_INSET}px` }}
             data-swipe-row={a.id}
           >
-          {/* Leading swipe action: a round glass pin revealed as the row
-              slides right. The button is the whole revealed strip (row
-              height, so the hit target stays over 44px); the strip itself
-              is clear, only the glass circle is drawn. None on rows the
-              server cannot pin (sidecars, project groups). */}
-          {rowCanPin ? (
+          {/* Leading swipe action: a round glass Group button revealed as
+              the row slides right. The button is the whole revealed strip
+              (row height, so the hit target stays over 44px); the strip
+              itself is clear, only the glass circle is drawn. None with
+              groups off, or on rows that are not a workspace (sidecars,
+              project groups). */}
+          {rowCanGroup ? (
           <button
             type="button"
             className="absolute left-0 top-0 bottom-0 overflow-hidden border-0 p-0 bg-transparent"
@@ -842,10 +935,12 @@ export function ChatsList() {
               transition: swipe.transition(sw.dragging, ["width"]),
             }}
             onClick={() => {
-              togglePin(a.id);
               swipe.close();
+              openGroupPicker(a.id);
             }}
-            aria-label={`${pinVerb} ${a.name}`}
+            aria-label={
+              rowGroup ? `Group ${a.name}, in ${rowGroup.name}` : `Group ${a.name}`
+            }
             data-swipe-action="1"
             data-no-pin="1"
             data-testid={`swipe-action-${a.id}`}
@@ -865,9 +960,9 @@ export function ChatsList() {
               data-testid="swipe-action-reveal"
             >
               <span
-                className="k2-swipe-pin"
+                className="k2-swipe-pin k2-swipe-group"
                 style={{
-                  color: PIN_YELLOW,
+                  color: rowGroup?.color || "#fff",
                   transform: `scale(${reveal.scale})`,
                   transition: swipe.reduced
                     ? "none"
@@ -884,10 +979,16 @@ export function ChatsList() {
                   }}
                   data-testid="swipe-action-glyph"
                 >
-                  <PinGlyph off={isPinned} />
+                  <GroupGlyph />
                 </span>
               </span>
-              <span className="k2-swipe-pin-label">{pinVerb}</span>
+              <span
+                className="k2-swipe-pin-label truncate text-center"
+                style={{ maxWidth: SWIPE_ACTION_W - 8 }}
+                data-testid="swipe-action-label"
+              >
+                {rowGroup?.name || "Group"}
+              </span>
             </span>
           </button>
           ) : null}
@@ -1091,6 +1192,53 @@ export function ChatsList() {
             {ghost.title}
           </div>
         </div>
+      ) : null}
+
+      {groupToast ? (
+        <div
+          role="status"
+          className="zen-glass zen-glass-pill absolute flex items-center"
+          data-no-pin="1"
+          data-testid="group-toast"
+          style={{
+            zIndex: 6,
+            left: "50%",
+            transform: "translateX(-50%)",
+            bottom: `calc(${SEARCH_BAR_REST_BOTTOM} + ${SEARCH_BAR_HEIGHT + 10}px)`,
+            maxWidth: "calc(100vw - 32px)",
+            height: 40,
+            padding: "0 6px 0 16px",
+            gap: 8,
+            color: "#fff",
+          }}
+        >
+          <span className="min-w-0 truncate text-[15px]" data-testid="group-toast-text">
+            {groupToast.text}
+          </span>
+          <button
+            type="button"
+            className="shrink-0 bg-transparent border-0 text-[15px] font-semibold"
+            style={{ color: "#0a84ff", minHeight: 40, padding: "0 10px" }}
+            onClick={undoGroup}
+            data-testid="group-toast-undo"
+          >
+            Undo
+          </button>
+        </div>
+      ) : null}
+
+      {pickAgent ? (
+        <FocusGroupPicker
+          agentName={pickAgent.name}
+          groups={focus.groups}
+          currentId={rowFocusGroupId(pickAgent, serverProjects)}
+          onPick={(gid) => assignGroup(pickAgent.id, gid)}
+          onCreate={(name) => createGroup(pickAgent.id, name)}
+          onClose={() => {
+            setGroupPick(null);
+            swipe.close();
+          }}
+        />
       ) : null}
 
       <GlassSearchBar
