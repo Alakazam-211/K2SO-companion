@@ -1,14 +1,21 @@
 import { hostLabel, serverHostKey, type ServerEntry } from "../stores/servers";
 import { homeAddress, parseHomeAddress, type HomeRow } from "./homes";
+import { workspaceIdForRow } from "./multi/merge";
 import { pinProjectIdForRow, type ServerProject } from "./serverPins";
 import type { StubAgent } from "./stubData";
 import { posixNormalize } from "./workspacePath";
 
-// Home list + Add Agent picker (multi-server PRD §14 HM3/HM5), one server
-// for now. Rows on the ACTIVE server resolve against its Agents list; rows
-// on another saved server only name it ("On <server>").
-// TODO(multi-server S2/S3): resolve other-server rows from the per-server
-// pool (status, avatar, activity) and open them as rooms without switching.
+// Home list + Add Agent picker (multi-server PRD §14 HM3/HM5).
+//
+// Rows on the ACTIVE server resolve against its Agents list. Rows on
+// another saved server:
+//   - flag off (`zen.multiServer`): only name it ("On <server>"); a tap
+//     switches to that server, then opens (today's single-server Home);
+//   - flag on (S3b): resolve against THAT server's own lists
+//     (`multi/remoteRows`, read on its own scope): the handle wins, the
+//     stored `workspaceId` is a rename-repair hint (desktop
+//     `lib/home-address.ts`). Status, activity, picture and snippet are
+//     added by the list from the S2 pool; a tap opens a room there.
 
 /** One Home row as the list draws it. */
 export type HomeRowView =
@@ -16,8 +23,33 @@ export type HomeRowView =
   | { kind: "here"; row: HomeRow; agent: StubAgent }
   /** On the active server, but its Agents list has no such agent now. */
   | { kind: "missing"; row: HomeRow }
-  /** On another server. `server` is null when no saved server matches. */
-  | { kind: "remote"; row: HomeRow; server: ServerEntry | null; serverLabel: string };
+  /** On another server. `server` is null when no saved server matches.
+   *  `resolved` is set only with the multi-server flag on. */
+  | {
+      kind: "remote";
+      row: HomeRow;
+      server: ServerEntry | null;
+      serverLabel: string;
+      resolved?: RemoteResolution;
+    };
+
+/** A row from another server, resolved on that server's own lists (HM3). */
+export interface RemoteResolution {
+  /** That server's lists have been read at least once. */
+  loaded: boolean;
+  /** The agent there (handle wins; the stored workspace id finds a
+   *  renamed one). Null when not loaded or not on its list. */
+  agent: StubAgent | null;
+  /** Its workspace id on that server (status / activity, MA12). */
+  workspaceId: string | null;
+}
+
+/** What `resolveHomeRows` needs of one other server's lists. */
+export interface ServerLists {
+  agents: StubAgent[];
+  serverProjects: ServerProject[];
+  loadedAt: number | null;
+}
 
 /** A main chat that can be a Home row (no sidecars, groups, join misses). */
 export function isHomeCandidate(a: StubAgent): boolean {
@@ -35,10 +67,21 @@ export function serverDisplayName(s: ServerEntry): string {
   return s.nickname || hostLabel(s.url);
 }
 
-/** The saved server a host key points at (first match). One host-key
- *  rule for the whole app: `stores/servers` `serverHostKey` (MS1, MA1). */
-export function savedServerForHost(servers: ServerEntry[], host: string): ServerEntry | null {
-  return servers.find((s) => serverHostKey(s) === host) ?? null;
+/** The saved server a host key points at. One host-key rule for the
+ *  whole app: `stores/servers` `serverHostKey` (MS1, MA1). Two entries
+ *  can share a key (MA35): the one holding a login wins (MS2), else the
+ *  first. */
+export function savedServerForHost(
+  servers: ServerEntry[],
+  host: string,
+  tokens?: Record<string, string>
+): ServerEntry | null {
+  const hits = servers.filter((s) => serverHostKey(s) === host);
+  if (tokens) {
+    const signed = hits.find((s) => (tokens[s.id] ?? "").length > 0);
+    if (signed) return signed;
+  }
+  return hits[0] ?? null;
 }
 
 /** Find a row's agent on the active server: handle wins (identity); the
@@ -69,6 +112,12 @@ export function resolveHomeRows(
     agents: StubAgent[];
     projects: ServerProject[];
     servers: ServerEntry[];
+    /** Multi-server flag on (HM3/HM8): each other server's own lists, by
+     *  server id. Absent (flag off): other-server rows only name it. */
+    remote?: {
+      byServer: Record<string, ServerLists | undefined>;
+      tokens?: Record<string, string>;
+    };
   }
 ): HomeRowView[] {
   const out: HomeRowView[] = [];
@@ -80,15 +129,57 @@ export function resolveHomeRows(
       out.push(agent ? { kind: "here", row, agent } : { kind: "missing", row });
       continue;
     }
-    const server = savedServerForHost(ctx.servers, parsed.host);
-    out.push({
+    const server = savedServerForHost(ctx.servers, parsed.host, ctx.remote?.tokens);
+    const view: HomeRowView = {
       kind: "remote",
       row,
       server,
       serverLabel: server ? serverDisplayName(server) : parsed.host,
-    });
+    };
+    if (ctx.remote && server) {
+      const lists = ctx.remote.byServer[server.id];
+      const loaded = !!lists && lists.loadedAt !== null;
+      const agent = loaded ? findAgentForRow(row, lists.agents, lists.serverProjects) : null;
+      view.resolved = {
+        loaded,
+        agent,
+        workspaceId: agent ? workspaceIdForRow(agent, lists!.serverProjects) ?? row.workspaceId : row.workspaceId,
+      };
+    }
+    out.push(view);
   }
   return out;
+}
+
+/**
+ * Rename repair for one server's rows (desktop `repairFromList`): a row on
+ * `hostKey` whose handle is no longer on that server, while a workspace
+ * with its stored `workspaceId` is, moves to that workspace's handle
+ * (`handle::hostKey`) and takes its name. The handle wins: a row whose
+ * handle is still listed is never touched. Feed it a list that loaded
+ * (an empty or failed read repairs nothing).
+ */
+export function renameRepairFor(
+  hostKey: string,
+  projects: ServerProject[],
+  agents: StubAgent[] = []
+): (row: HomeRow) => HomeRow | null {
+  const host = hostKey.trim().toLowerCase();
+  const handles = new Set<string>();
+  for (const p of projects) if (p.handle) handles.add(p.handle.trim().toLowerCase());
+  for (const a of agents) {
+    const h = agentHandle(a);
+    if (h) handles.add(h);
+  }
+  return (row) => {
+    if (!host || projects.length === 0) return null;
+    const parsed = parseHomeAddress(row.address);
+    if (!parsed || parsed.host !== host || handles.has(parsed.handle) || !row.workspaceId) return null;
+    const p = projects.find((x) => x.id === row.workspaceId);
+    const handle = (p?.handle || "").trim().toLowerCase();
+    if (!p || !handle || handle === parsed.handle) return null;
+    return { address: homeAddress(handle, host), workspaceId: p.id, label: p.name || row.label };
+  };
 }
 
 /** Search over a Home row's label and handle (and its agent's name / path). */
@@ -99,8 +190,8 @@ export function homeRowMatches(v: HomeRowView, q: string): boolean {
   const hay = [
     v.row.label,
     parsed?.handle ?? "",
-    v.kind === "here" ? v.agent.name : "",
-    v.kind === "here" ? v.agent.path ?? "" : "",
+    v.kind === "here" ? v.agent.name : v.kind === "remote" ? v.resolved?.agent?.name ?? "" : "",
+    v.kind === "here" ? v.agent.path ?? "" : v.kind === "remote" ? v.resolved?.agent?.path ?? "" : "",
     v.kind === "remote" ? v.serverLabel : "",
   ];
   return hay.some((h) => h.toLowerCase().includes(needle));
