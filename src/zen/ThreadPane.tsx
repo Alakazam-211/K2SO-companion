@@ -31,6 +31,7 @@ import {
 import { ThreadWorkingStrip } from "./ThreadWorkingStrip";
 import { isSendableAddr } from "./sendGate";
 import { sourceWord, useZenStore } from "./zenStore";
+import { zenTextPx } from "./zenFont";
 
 /** iMessage grows the field then caps (~5 lines) and scrolls inside. */
 export const COMPOSER_MAX_PX = 132;
@@ -39,6 +40,9 @@ export function composerHeight(scrollHeight: number, maxPx = COMPOSER_MAX_PX): n
   if (!Number.isFinite(scrollHeight) || scrollHeight < 24) return 24;
   return Math.min(scrollHeight, maxPx);
 }
+
+/** `.chat-markdown`'s 14px, scaled by Settings → Text Size. */
+const BUBBLE_TEXT_PX = 14;
 
 function Bubble({
   m,
@@ -61,8 +65,11 @@ function Bubble({
     choice != null && choice.answer != null && String(choice.answer) !== "";
   return (
     <div
-      className="px-3 py-2 text-[17px] leading-snug break-words min-w-0 max-w-full overflow-hidden"
+      className="px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden"
+      data-testid="thread-bubble"
       style={{
+        // Settings → Text Size; the markdown body below scales the same way.
+        fontSize: zenTextPx(17),
         borderRadius: 18,
         background: m.mine ? "#0a84ff" : "#3a3a3c",
         color: "#fff",
@@ -75,7 +82,7 @@ function Bubble({
             <ChatMessageBody
               text={choice.prompt}
               className="!p-0 text-white"
-              style={{ color: "#fff" }}
+              style={{ color: "#fff", fontSize: zenTextPx(BUBBLE_TEXT_PX) }}
               onFileLink={onFileLink}
             />
           ) : null}
@@ -119,7 +126,7 @@ function Bubble({
         <ChatMessageBody
           text={m.text}
           className="!p-0 text-white"
-          style={{ color: "#fff" }}
+          style={{ color: "#fff", fontSize: zenTextPx(BUBBLE_TEXT_PX) }}
           onFileLink={onFileLink}
         />
       )}
@@ -596,8 +603,12 @@ export function ThreadPane({
                 queueFiles(files);
               }}
               placeholder="Message"
-              className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[17px] leading-[22px] text-[var(--text)] outline-none py-1 ${canSend ? "" : "px-2"}`}
-              style={{ maxHeight: COMPOSER_MAX_PX }}
+              className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--text)] outline-none py-1 ${canSend ? "" : "px-2"}`}
+              style={{
+                maxHeight: COMPOSER_MAX_PX,
+                fontSize: zenTextPx(17),
+                lineHeight: zenTextPx(22),
+              }}
               aria-label="Message"
               data-testid="composer-input"
             />

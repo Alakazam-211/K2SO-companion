@@ -2,7 +2,7 @@ import type { ReactNode } from "react";
 import { useNavigate } from "react-router-dom";
 import { ABOUT } from "../lib/about";
 import { usePushToggle } from "../lib/usePushToggle";
-import { ZEN_FONTS, useZenFontStore } from "./zenFont";
+import { ZEN_FONTS, ZEN_TEXT_SIZES, useZenFontStore } from "./zenFont";
 
 const MUTED = "#8e8e93";
 const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
@@ -16,8 +16,8 @@ export const LEAVE_ZEN_PATH = "/servers";
 
 /** Zen Settings sheet (opened by the Chats header cog). iOS grouped list
  *  of `.k2-tile` cards: Notifications (the same push toggle as the old
- *  Settings page), Appearance (Zen font), About (the same values as the
- *  old page), and Leave Zen Mode. */
+ *  Settings page), Appearance (Zen font + text size), About (the old
+ *  page's values plus Terminal: Kessel), and Leave Zen Mode. */
 export function ZenSettings({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
   return (
@@ -61,12 +61,14 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
 
         <Group label="Appearance" testId="settings-appearance">
           <FontRow />
+          <TextSizeRow />
         </Group>
 
         <Group label="About" testId="settings-about">
           <ValueRow label="App" value={ABOUT.app} />
           <ValueRow label="Version" value={ABOUT.version} divider />
           <ValueRow label="Engine" value={ABOUT.engine} divider />
+          <ValueRow label="Terminal" value={ABOUT.terminal} divider />
         </Group>
 
         <div className="k2-tile overflow-hidden" style={{ borderRadius: 14, marginTop: 28 }}>
@@ -226,6 +228,90 @@ function FontRow() {
     </div>
   );
 }
+
+/** Content text size: an iOS stepped slider (Small / Default / Large).
+ *  A native range input (0–2, step 1) over a glass track with three
+ *  ticks; the white knob is the input's own thumb (.zen-text-slider in
+ *  index.css). The track is inset by half the knob so the ticks sit
+ *  under the knob's centre at each stop. */
+function TextSizeRow() {
+  const textSize = useZenFontStore((s) => s.textSize);
+  const setTextSize = useZenFontStore((s) => s.setTextSize);
+  const index = Math.max(
+    0,
+    ZEN_TEXT_SIZES.findIndex((t) => t.value === textSize)
+  );
+  const current = ZEN_TEXT_SIZES[index];
+  return (
+    <div
+      className="flex flex-col text-[17px]"
+      style={{ padding: "11px 12px 4px 16px", borderTop: HAIRLINE }}
+      data-testid="text-size-row"
+    >
+      <div className="flex items-center justify-between" style={{ gap: 12 }}>
+        <span id="zen-text-size-label">Text Size</span>
+        <span style={{ color: MUTED }} data-testid="text-size-value">
+          {current.label}
+        </span>
+      </div>
+      <div className="flex items-center" style={{ gap: 12 }}>
+        <span aria-hidden className="shrink-0 text-[13px]" style={{ color: MUTED }}>
+          A
+        </span>
+        <div className="relative flex-1 min-w-0" style={{ height: 44 }}>
+          <div
+            aria-hidden
+            className="absolute pointer-events-none"
+            style={{ left: SLIDER_KNOB / 2, right: SLIDER_KNOB / 2, top: 0, bottom: 0 }}
+          >
+            <span
+              className="absolute zen-glass zen-glass-pill"
+              style={{ left: 0, right: 0, top: "50%", height: 6, transform: "translateY(-50%)" }}
+              data-testid="text-size-track"
+            />
+            {ZEN_TEXT_SIZES.map((t, i) => (
+              <span
+                key={t.value}
+                className="absolute"
+                data-testid="text-size-tick"
+                style={{
+                  left: `${(i / (ZEN_TEXT_SIZES.length - 1)) * 100}%`,
+                  top: "50%",
+                  width: 2,
+                  height: 12,
+                  borderRadius: 1,
+                  background: "rgba(255,255,255,.45)",
+                  transform: "translate(-50%, -50%)",
+                }}
+              />
+            ))}
+          </div>
+          <input
+            type="range"
+            min={0}
+            max={ZEN_TEXT_SIZES.length - 1}
+            step={1}
+            value={index}
+            onChange={(e) => {
+              const next = ZEN_TEXT_SIZES[Number(e.target.value)];
+              if (next) setTextSize(next.value);
+            }}
+            aria-labelledby="zen-text-size-label"
+            aria-valuetext={current.label}
+            className="zen-text-slider absolute inset-0"
+            data-testid="text-size-slider"
+          />
+        </div>
+        <span aria-hidden className="shrink-0 text-[20px]" style={{ color: MUTED }}>
+          A
+        </span>
+      </div>
+    </div>
+  );
+}
+
+/** Knob diameter; matches .zen-text-slider's thumb. */
+const SLIDER_KNOB = 28;
 
 function Switch({
   on,

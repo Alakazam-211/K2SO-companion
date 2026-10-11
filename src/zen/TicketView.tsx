@@ -21,6 +21,7 @@ import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { useFeedbackStore } from "../stores/feedback";
 import { BriefCard, BriefReader, useBriefDoc } from "./TicketBrief";
 import { composerHeight, COMPOSER_MAX_PX } from "./ThreadPane";
+import { zenTextPx } from "./zenFont";
 
 // Zen open ticket — Layout A (Rosson, 2026-10-11). Full-screen inside the
 // Chats column, below the notch, the ThreadPane look:
@@ -702,14 +703,20 @@ export function TicketView({
                         </span>
                       ) : null}
                       <div
-                        className="px-3 py-2 text-[17px] leading-snug break-words min-w-0 max-w-full overflow-hidden"
+                        className="px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden"
                         style={{
+                          // Settings → Text Size.
+                          fontSize: zenTextPx(17),
                           borderRadius: 18,
                           background: mine ? "#0a84ff" : "#3a3a3c",
                           color: "#fff",
                         }}
                       >
-                        <ChatMessageBody text={c.body} className="!p-0 text-white" style={{ color: "#fff" }} />
+                        <ChatMessageBody
+                          text={c.body}
+                          className="!p-0 text-white"
+                          style={{ color: "#fff", fontSize: zenTextPx(14) }}
+                        />
                       </div>
                       <span className="text-[11px] px-2 mt-0.5" style={{ color: "#8e8e93" }}>
                         {mine ? "You · " : ""}
@@ -758,8 +765,12 @@ export function TicketView({
                 placeholder="Pick an option to answer, or write a message to start a discussion"
                 aria-label="Message"
                 data-testid="ticket-composer-input"
-                className="flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[17px] leading-[22px] text-[var(--text)] outline-none py-1"
-                style={{ maxHeight: COMPOSER_MAX_PX }}
+                className="flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--text)] outline-none py-1"
+                style={{
+                  maxHeight: COMPOSER_MAX_PX,
+                  fontSize: zenTextPx(17),
+                  lineHeight: zenTextPx(22),
+                }}
               />
               <button
                 type="submit"

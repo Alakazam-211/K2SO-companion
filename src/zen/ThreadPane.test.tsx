@@ -227,6 +227,34 @@ describe("ThreadPane", () => {
     expect(document.body.textContent).not.toMatch(/Reply is not wired/);
   });
 
+  it("bubbles and the composer follow Settings → Text Size (--zen-text-scale)", () => {
+    useZenStore.setState({
+      threadSource: "live",
+      threadError: null,
+      thread: [
+        {
+          id: "t1",
+          seq: 1,
+          text: "hello",
+          from: "k2",
+          at: 1759198521,
+          mine: false,
+          kind: "text",
+          choice: null,
+        },
+      ],
+    });
+    render(<ThreadPane />);
+    const bubble = screen.getByTestId("thread-bubble");
+    expect(bubble.getAttribute("style")).toContain("var(--zen-text-scale");
+    expect(bubble.querySelector(".chat-markdown")?.getAttribute("style")).toContain(
+      "var(--zen-text-scale"
+    );
+    expect(screen.getByTestId("composer-input").getAttribute("style")).toContain(
+      "var(--zen-text-scale"
+    );
+  });
+
   it("tapping a choice POSTs /cli/thread/answer with the option text", async () => {
     vi.mocked(answerThread).mockResolvedValue({ ok: true, data: {} });
     useZenStore.setState({

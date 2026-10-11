@@ -12,7 +12,7 @@ vi.mock("../lib/push", () => ({
 }));
 
 vi.mock("../lib/about", () => ({
-  ABOUT: { app: "K2", version: "9.8.7", engine: "Tauri v2" },
+  ABOUT: { app: "K2", version: "9.8.7", engine: "Tauri v2", terminal: "Kessel" },
 }));
 
 import {
@@ -24,7 +24,14 @@ import {
 } from "../lib/push";
 import { useServersStore } from "../stores/servers";
 import { LEAVE_ZEN_PATH, ZenSettings } from "./ZenSettings";
-import { ZEN_FONT_ATTR, ZEN_FONT_STORAGE_KEY, useZenFontStore } from "./zenFont";
+import {
+  ZEN_FONT_ATTR,
+  ZEN_FONT_STORAGE_KEY,
+  ZEN_TEXT_SCALE_VAR,
+  ZEN_TEXT_SIZE_STORAGE_KEY,
+  initZenFont,
+  useZenFontStore,
+} from "./zenFont";
 
 const SERVER = {
   id: "s1",
@@ -61,8 +68,9 @@ beforeEach(() => {
     tokens: { s1: "t" },
   });
   localStorage.clear();
-  useZenFontStore.setState({ font: "system" });
+  useZenFontStore.setState({ font: "system", textSize: "default" });
   document.documentElement.removeAttribute(ZEN_FONT_ATTR);
+  document.documentElement.style.removeProperty(ZEN_TEXT_SCALE_VAR);
 });
 
 afterEach(cleanup);
@@ -92,6 +100,7 @@ describe("ZenSettings", () => {
     expect(about.getByText("App").nextElementSibling?.textContent).toBe("K2");
     expect(about.getByText("Version").nextElementSibling?.textContent).toBe("9.8.7");
     expect(about.getByText("Engine").nextElementSibling?.textContent).toBe("Tauri v2");
+    expect(about.getByText("Terminal").nextElementSibling?.textContent).toBe("Kessel");
     expect(screen.getByTestId("overlay-settings").textContent).not.toMatch(/K2SO/);
   });
 
@@ -187,5 +196,51 @@ describe("ZenSettings", () => {
     fireEvent.click(system);
     expect(localStorage.getItem(ZEN_FONT_STORAGE_KEY)).toBe("system");
     expect(document.documentElement.hasAttribute(ZEN_FONT_ATTR)).toBe(false);
+  });
+
+  it("Text Size slider sits under Font with 3 stops: Small / Default / Large", () => {
+    mount();
+    const appearance = screen.getByTestId("settings-appearance");
+    const fontRow = screen.getByTestId("font-segments");
+    const row = within(appearance).getByTestId("text-size-row");
+    // Below the Font control.
+    expect(fontRow.compareDocumentPosition(row) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    const slider = screen.getByRole("slider", { name: "Text Size" }) as HTMLInputElement;
+    expect(slider.type).toBe("range");
+    expect(slider.min).toBe("0");
+    expect(slider.max).toBe("2");
+    expect(slider.step).toBe("1");
+    expect(slider.value).toBe("1");
+    expect(slider.getAttribute("aria-valuetext")).toBe("Default");
+    expect(within(row).getAllByTestId("text-size-tick")).toHaveLength(3);
+    expect(within(row).getByTestId("text-size-track").className).toMatch(/zen-glass/);
+    expect(within(row).getByTestId("text-size-value").textContent).toBe("Default");
+  });
+
+  it("Text Size persists and sets --zen-text-scale to 0.9 / 1 / 1.15", () => {
+    mount();
+    const slider = screen.getByRole("slider", { name: "Text Size" });
+    const root = document.documentElement;
+    for (const [v, size, label, scale] of [
+      ["0", "small", "Small", "0.9"],
+      ["2", "large", "Large", "1.15"],
+      ["1", "default", "Default", "1"],
+    ] as const) {
+      fireEvent.change(slider, { target: { value: v } });
+      expect(localStorage.getItem(ZEN_TEXT_SIZE_STORAGE_KEY)).toBe(size);
+      expect(root.style.getPropertyValue(ZEN_TEXT_SCALE_VAR)).toBe(scale);
+      expect(slider.getAttribute("aria-valuetext")).toBe(label);
+      expect(screen.getByTestId("text-size-value").textContent).toBe(label);
+    }
+  });
+
+  it("Text Size restores on load", () => {
+    localStorage.setItem(ZEN_TEXT_SIZE_STORAGE_KEY, "large");
+    initZenFont();
+    expect(document.documentElement.style.getPropertyValue(ZEN_TEXT_SCALE_VAR)).toBe("1.15");
+    mount();
+    const slider = screen.getByRole("slider", { name: "Text Size" }) as HTMLInputElement;
+    expect(slider.value).toBe("2");
+    expect(slider.getAttribute("aria-valuetext")).toBe("Large");
   });
 });
