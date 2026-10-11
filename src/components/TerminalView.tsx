@@ -1091,6 +1091,9 @@ export function TerminalView({
         const next = clampScrollPx(scrollPxRef.current - accum, sbLen, ch);
         if (next === scrollPxRef.current) return;
         scrollPxRef.current = next;
+        // Vsync scroll pump (desktop parity): paint the canvas in this
+        // display frame; the commit below dedupes to a no-op.
+        paintWebglRef.current(next);
         setScrollPx(next);
       });
     };
@@ -1410,11 +1413,15 @@ export function TerminalView({
     lastPaintedRef.current.snapshot = null;
   }, [webglSurfaceActive, cellW, lineH, dpr]);
 
+  // Paint the REF position (the touch rAF may already be a frame
+  // ahead of this commit); `scrollPx` is in the deps as the trigger, so
+  // a touch scroll with no new frame still repaints the canvas — the
+  // desktop pane keeps it there for the same reason.
   useLayoutEffect(() => {
     if (!webglSurfaceActive) return;
     if (!liveSnap) return;
     paintWebglRef.current(scrollPxRef.current, liveSnap);
-  }, [webglSurfaceActive, liveSnap, cellW, lineH, selection]);
+  }, [webglSurfaceActive, liveSnap, scrollPx, cellW, lineH, selection]);
 
   const paintRows: { abs: number; row: RenderRun[] }[] = [];
   for (let i = 0; i < strip.rowCount; i++) {
