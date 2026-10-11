@@ -400,6 +400,50 @@ export function filterByScope<
     : mine;
 }
 
+/** Waiting tickets per scope tab, so the tabs answer "where is the
+ *  waiting work". Every count is linked `waiting` rows within that
+ *  scope: Waiting on me and Mine are both mine ∩ waiting (the same
+ *  number, by design); All is every linked waiting row, the server's
+ *  `waiting-count` semantics. Unassigned waiting rows count under All
+ *  only. Computed from the loaded list with the tabs' own "me" match. */
+export function scopeWaitingCounts<
+  T extends { status: FeedbackStatus; assignees?: string[] | null; linked?: boolean },
+>(rows: T[], me: readonly string[]): Record<TicketScope, number> {
+  const mine = filterByScope(rows, "waiting", me).length;
+  return { waiting: mine, mine, all: countWaiting(rows) };
+}
+
+/** The tab the Tickets list opens on: Waiting on me, unless nothing is
+ *  waiting on me but something is waiting elsewhere, so the header badge
+ *  never leads to an empty tab. All zero → Waiting on me ("Nothing is
+ *  waiting on you"). */
+export function defaultTicketScope(counts: Record<TicketScope, number>): TicketScope {
+  return counts.waiting === 0 && counts.all > 0 ? "all" : "waiting";
+}
+
+/** Header Tickets badge. Semantics: show Waiting on me (amber) when it is
+ *  above zero; otherwise show the All waiting count muted (grey), so the
+ *  badge still says there is work, just not yours; nothing when nothing
+ *  waits. Matches the tab counts and the default tab exactly. */
+export interface TicketsBadge {
+  count: number;
+  tone: "mine" | "others";
+}
+
+export function ticketsBadge(counts: Record<TicketScope, number>): TicketsBadge | null {
+  if (counts.waiting > 0) return { count: counts.waiting, tone: "mine" };
+  if (counts.all > 0) return { count: counts.all, tone: "others" };
+  return null;
+}
+
+/** "Tickets, 2 waiting on you, 5 waiting in all" (plain "Tickets" when
+ *  nothing waits). */
+export function ticketsAriaLabel(counts: Record<TicketScope, number>): string {
+  if (counts.all === 0 && counts.waiting === 0) return "Tickets";
+  const mine = counts.waiting > 0 ? String(counts.waiting) : "none";
+  return `Tickets, ${mine} waiting on you, ${counts.all} waiting in all`;
+}
+
 /** Up to two initials: "julie" → "J", "Rosson Long" → "RL", owner → "O". */
 export function assigneeInitials(name: string): string {
   const parts = name.trim().split(/[\s._-]+/).filter(Boolean);

@@ -1,15 +1,19 @@
 import { describe, expect, it } from "vitest";
 import {
   countWaiting,
+  defaultTicketScope,
   deliveryMissLine,
   filterByScope,
   groupByStatus,
   isTicketEventFrame,
   myAssigneeNames,
   optionsActionable,
+  scopeWaitingCounts,
   STATUS_SECTIONS,
   statusColor,
   statusLabel,
+  ticketsAriaLabel,
+  ticketsBadge,
   type FeedbackStatus,
 } from "./feedbackPure";
 
@@ -112,5 +116,50 @@ describe("scope", () => {
       "rosson",
     ]);
     expect(myAssigneeNames(null, ["u"])).toEqual(["u"]);
+  });
+});
+
+describe("scope waiting counts, header badge, default tab", () => {
+  const rows = [
+    row("mine-wait-1", "waiting", { assignees: ["Julie"] }),
+    row("mine-wait-2", "waiting", { assignees: ["owner", "julie"] }),
+    row("mine-ans", "answered", { assignees: ["julie"] }),
+    row("other-wait", "waiting", { assignees: ["bob"] }),
+    row("unassigned-wait", "waiting", { assignees: [] }),
+    row("no-assignees-wait", "waiting"),
+    row("other-ans", "answered", { assignees: ["bob"] }),
+    row("mine-unlinked", "waiting", { assignees: ["julie"], linked: false }),
+  ];
+  const me = myAssigneeNames({ owner: false, username: "julie" });
+
+  it("counts waiting per tab from a mixed list; unassigned counts under All only", () => {
+    expect(scopeWaitingCounts(rows, me)).toEqual({ waiting: 2, mine: 2, all: 5 });
+    // Someone else sees none of mine as theirs, but the same All.
+    expect(scopeWaitingCounts(rows, ["bob"])).toEqual({ waiting: 1, mine: 1, all: 5 });
+    expect(scopeWaitingCounts([], me)).toEqual({ waiting: 0, mine: 0, all: 0 });
+    // All matches the server waiting-count semantics (linked waiting).
+    expect(scopeWaitingCounts(rows, me).all).toBe(countWaiting(rows));
+  });
+
+  it("the badge shows waiting-on-me, then falls back to the muted all-count", () => {
+    expect(ticketsBadge({ waiting: 2, mine: 2, all: 5 })).toEqual({ count: 2, tone: "mine" });
+    expect(ticketsBadge({ waiting: 0, mine: 0, all: 5 })).toEqual({ count: 5, tone: "others" });
+    expect(ticketsBadge({ waiting: 0, mine: 0, all: 0 })).toBeNull();
+  });
+
+  it("the aria-label names both counts", () => {
+    expect(ticketsAriaLabel({ waiting: 2, mine: 2, all: 5 })).toBe(
+      "Tickets, 2 waiting on you, 5 waiting in all"
+    );
+    expect(ticketsAriaLabel({ waiting: 0, mine: 0, all: 5 })).toBe(
+      "Tickets, none waiting on you, 5 waiting in all"
+    );
+    expect(ticketsAriaLabel({ waiting: 0, mine: 0, all: 0 })).toBe("Tickets");
+  });
+
+  it("the default tab falls back to All only when nothing waits on me but something waits", () => {
+    expect(defaultTicketScope({ waiting: 2, mine: 2, all: 5 })).toBe("waiting");
+    expect(defaultTicketScope({ waiting: 0, mine: 0, all: 5 })).toBe("all");
+    expect(defaultTicketScope({ waiting: 0, mine: 0, all: 0 })).toBe("waiting");
   });
 });
