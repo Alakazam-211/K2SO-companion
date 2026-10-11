@@ -6,7 +6,8 @@ const SLOW_RETRY_MS = 60_000;
 
 /** K2 0.45.5 `thread-push-v1`: while a Thread is on screen the client
  *  says so, so the daemon skips pushing it. Fire-and-forget text frames,
- *  no ack; the server forgets a view after its TTL (45 s), so repeat. */
+ *  no ack; the server forgets a view after its TTL (90 s, PRD §6.4
+ *  `visible_until = now + 90 s`), so repeat. */
 export const VIEWING_REPEAT_MS = 30_000;
 
 export type OverlayLiveHandle = {
