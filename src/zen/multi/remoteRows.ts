@@ -54,6 +54,15 @@ import type { StubAgent } from "../stubData";
 export const ROWS_MAX_AGE_MS = 60_000;
 /** "Loading {server}…" shows only after a load has run this long (MS39). */
 export const LOADING_LINE_AFTER_MS = 2_000;
+/** At most this many servers read their lists at once (HM5, desktop
+ *  `LISTING_CONCURRENCY`): the pool loop and the Add Agent picker share
+ *  it, so opening the picker over many servers never fans out past 4. */
+export const MAX_SERVER_LOADS = 4;
+
+/** Why a server's lists could not be read (no rows yet), for the Add
+ *  Agent picker's section states: 401 → sign in, 403 → no access, no
+ *  HTTP answer → offline, anything else → failed. */
+export type RowsErrorKind = "offline" | "signin" | "no-access" | "failed";
 
 export interface RemoteRows {
   status: "loading" | "live" | "error";
@@ -66,6 +75,8 @@ export interface RemoteRows {
   /** 5 s snapshot (Q7): only for the filter's server, else empty. */
   activity: ActivitySnapshot;
   error: string | null;
+  /** Set with `error` (desktop `listingForError`). */
+  errorKind: RowsErrorKind | null;
   notices: string[];
   /** Set while a load is in flight. */
   loadStartedAt: number | null;
@@ -83,6 +94,7 @@ export function emptyRemoteRows(): RemoteRows {
     hiddenAddrs: [],
     activity: EMPTY_ACTIVITY,
     error: null,
+    errorKind: null,
     notices: [],
     loadStartedAt: null,
     loadedAt: null,
@@ -94,6 +106,39 @@ type RemoteRowsState = { byServer: Record<string, RemoteRows> };
 export const useRemoteRows = create<RemoteRowsState>(() => ({ byServer: {} }));
 
 const loading = new Map<string, Promise<void>>();
+let loadsRunning = 0;
+const loadWaiters: (() => void)[] = [];
+
+/** Wait for one of the `MAX_SERVER_LOADS` slots; call the result to free it. */
+async function loadSlot(): Promise<() => void> {
+  if (loadsRunning >= MAX_SERVER_LOADS) await new Promise<void>((r) => loadWaiters.push(r));
+  loadsRunning += 1;
+  let freed = false;
+  return () => {
+    if (freed) return;
+    freed = true;
+    loadsRunning -= 1;
+    loadWaiters.shift()?.();
+  };
+}
+
+/** Servers reading their lists right now (tests). */
+export function serverLoadsRunning(): number {
+  return loadsRunning;
+}
+
+/** What a failed load means (desktop `listingForError`). A 401 on any
+ *  read → sign in; 403 → no access (a `password_change_required` 403 is
+ *  a live login that needs a new password: sign in); no HTTP status on
+ *  every read → offline; else failed. */
+export function rowsErrorKind(results: { ok: boolean; status?: number; error?: string }[]): RowsErrorKind {
+  const bad = results.filter((r) => !r.ok);
+  if (bad.some((r) => r.status === 401)) return "signin";
+  if (bad.some((r) => r.status === 403 && /password_change_required/i.test(r.error || ""))) return "signin";
+  if (bad.some((r) => r.status === 403)) return "no-access";
+  if (bad.length > 0 && bad.every((r) => r.status === undefined)) return "offline";
+  return "failed";
+}
 const snapshotInflight = new Set<string>();
 /** Bumped on forget: a load that started before is dropped. */
 const gens = new Map<string, number>();
@@ -130,7 +175,9 @@ export function loadServerRows(serverId: string, now: () => number = Date.now): 
   const scope = scopeFor(serverId);
   const p = (async () => {
     patch(serverId, (prev) => ({ ...prev, loadStartedAt: now() }));
+    const release = await loadSlot();
     try {
+      if ((gens.get(serverId) ?? 0) !== gen) return;
       const [rAgents, rProjects, rGroups, rSessions] = await Promise.all([
         getAgentList(scope),
         getCliProjectsList(scope),
@@ -150,6 +197,7 @@ export function loadServerRows(serverId: string, now: () => number = Date.now): 
           ...prev,
           status: prev.loadedAt ? prev.status : "error",
           error: built.error,
+          errorKind: rowsErrorKind([rAgents, rProjects, rGroups, rSessions]),
           loadStartedAt: null,
         }));
         return;
@@ -172,6 +220,7 @@ export function loadServerRows(serverId: string, now: () => number = Date.now): 
         focus: focus ?? prev.focus,
         hiddenAddrs: readHiddenSidecarAddrs(serverId),
         error: null,
+        errorKind: null,
         notices: built.notices,
         loadStartedAt: null,
         loadedAt: now(),
@@ -182,8 +231,11 @@ export function loadServerRows(serverId: string, now: () => number = Date.now): 
         ...prev,
         status: prev.loadedAt ? prev.status : "error",
         error: errorText(e, "Could not load this server"),
+        errorKind: "failed",
         loadStartedAt: null,
       }));
+    } finally {
+      release();
     }
   })().finally(() => {
     if (loading.get(serverId) === p) loading.delete(serverId);
@@ -248,6 +300,8 @@ onServerForget((id) => forgetServerRows(id));
 /** Tests only. */
 export function __resetRemoteRowsForTests(): void {
   loading.clear();
+  loadsRunning = 0;
+  loadWaiters.length = 0;
   snapshotInflight.clear();
   gens.clear();
   useRemoteRows.setState({ byServer: {} });

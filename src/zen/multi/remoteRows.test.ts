@@ -35,8 +35,11 @@ import {
   __resetRemoteRowsForTests,
   forgetServerRows,
   loadServerRows,
+  MAX_SERVER_LOADS,
   refreshServerSnapshot,
+  rowsErrorKind,
   rowsStale,
+  serverLoadsRunning,
   selectRemoteFocusGroup,
   useRemoteRows,
   ROWS_MAX_AGE_MS,
@@ -93,6 +96,101 @@ beforeEach(() => {
     recovery: {},
   });
   okAll();
+});
+
+describe("S3b: at most 4 servers load at once (HM5)", () => {
+  it("queues the 5th and 6th server until a slot frees, each on its own scope", async () => {
+    const ids = ["s1", "s2", "s3", "s4", "s5", "s6"];
+    useServersStore.setState({
+      servers: [
+        { id: "sa", nickname: "Alpha", url: "https://a.k2.dev", username: "u", rememberPassword: false },
+        ...ids.map((id) => ({ id, nickname: id, url: `https://${id}.k2.dev`, username: "u", rememberPassword: false })),
+      ],
+      activeServerId: "sa",
+      tokens: Object.fromEntries([["sa", "ta"], ...ids.map((id) => [id, `t-${id}`])]),
+      recovery: {},
+    });
+    const gates = new Map<string, () => void>();
+    let inFlight = 0;
+    let peak = 0;
+    vi.mocked(getAgentList).mockImplementation(async (scope) => {
+      inFlight += 1;
+      peak = Math.max(peak, inFlight);
+      await new Promise<void>((r) => gates.set((scope as { id: string }).id, r));
+      inFlight -= 1;
+      return { ok: true, data: AGENTS };
+    });
+    const all = ids.map((id) => loadServerRows(id));
+    await new Promise((r) => setTimeout(r, 0));
+    expect(MAX_SERVER_LOADS).toBe(4);
+    expect(serverLoadsRunning()).toBe(4);
+    expect([...gates.keys()]).toEqual(["s1", "s2", "s3", "s4"]);
+    // Queued servers already show "Loading…" (their load has started).
+    expect(useRemoteRows.getState().byServer.s5.loadStartedAt).not.toBeNull();
+    gates.get("s2")!();
+    await new Promise((r) => setTimeout(r, 0));
+    expect([...gates.keys()]).toEqual(["s1", "s2", "s3", "s4", "s5"]);
+    expect(serverLoadsRunning()).toBe(4);
+    for (const id of ["s1", "s3", "s4", "s5"]) gates.get(id)!();
+    await new Promise((r) => setTimeout(r, 0));
+    gates.get("s6")!();
+    await Promise.all(all);
+    expect(peak).toBe(4);
+    expect(serverLoadsRunning()).toBe(0);
+    // Every server read on its own scope, never the active one.
+    expect(vi.mocked(getAgentList).mock.calls.map(([sc]) => (sc as { id: string }).id).sort()).toEqual(ids);
+    for (const id of ids) expect(useRemoteRows.getState().byServer[id].status).toBe("live");
+  });
+
+  it("a forgotten server frees its queued slot without reading", async () => {
+    const gates: (() => void)[] = [];
+    vi.mocked(getAgentList).mockImplementation(async () => {
+      await new Promise<void>((r) => gates.push(r));
+      return { ok: true, data: AGENTS };
+    });
+    useServersStore.setState({
+      servers: ["sa", "s1", "s2", "s3", "s4", "s5"].map((id) => ({
+        id,
+        nickname: id,
+        url: `https://${id}.k2.dev`,
+        username: "u",
+        rememberPassword: false,
+      })),
+      activeServerId: "sa",
+      tokens: { sa: "ta", s1: "t", s2: "t", s3: "t", s4: "t", s5: "t" },
+      recovery: {},
+    });
+    const loads = ["s1", "s2", "s3", "s4", "s5"].map((id) => loadServerRows(id));
+    await new Promise((r) => setTimeout(r, 0));
+    forgetServerRows("s5");
+    gates.forEach((g) => g());
+    await Promise.all(loads);
+    expect(vi.mocked(getAgentList)).toHaveBeenCalledTimes(4);
+    expect(serverLoadsRunning()).toBe(0);
+    expect(useRemoteRows.getState().byServer.s5).toBeUndefined();
+  });
+});
+
+describe("S3b: why a first load failed (picker section states)", () => {
+  it("maps statuses like desktop listingForError", () => {
+    expect(rowsErrorKind([{ ok: false, status: 401 }, { ok: false, status: 500 }])).toBe("signin");
+    expect(rowsErrorKind([{ ok: false, status: 403, error: "forbidden" }])).toBe("no-access");
+    expect(rowsErrorKind([{ ok: false, status: 403, error: "password_change_required" }])).toBe("signin");
+    expect(rowsErrorKind([{ ok: false, error: "Could not reach server: refused" }, { ok: false }])).toBe("offline");
+    expect(rowsErrorKind([{ ok: false, status: 502 }, { ok: false }])).toBe("failed");
+    expect(rowsErrorKind([{ ok: true }, { ok: false, status: 500 }])).toBe("failed");
+  });
+
+  it("an all-failed first load records its kind; a good load clears it", async () => {
+    for (const fn of [getAgentList, getCliProjectsList, fetchProjectGroups, getAllSessions]) {
+      vi.mocked(fn).mockResolvedValue({ ok: false, error: "Unauthorized", status: 401 } as never);
+    }
+    await loadServerRows("sb");
+    expect(useRemoteRows.getState().byServer.sb.errorKind).toBe("signin");
+    okAll();
+    await loadServerRows("sb");
+    expect(useRemoteRows.getState().byServer.sb.errorKind).toBe(null);
+  });
 });
 
 describe("loadServerRows", () => {
