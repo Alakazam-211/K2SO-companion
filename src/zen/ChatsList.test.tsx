@@ -194,8 +194,10 @@ describe("ChatsList", () => {
     });
     mount();
     const header = screen.getByRole("heading", { name: "Agents" }).closest("header")!;
+    const row = screen.getByTestId("chats-header-row");
+    expect(header.contains(row)).toBe(true);
     const serverBtn = screen.getByRole("button", { name: /Server / });
-    expect(header.firstElementChild).toBe(serverBtn);
+    expect(row.firstElementChild).toBe(serverBtn);
     expect(serverBtn.querySelector("[data-testid=server-icon]")).toBeNull();
     expect(serverBtn.querySelector("[data-testid=server-status-dot]")).not.toBeNull();
 
@@ -214,6 +216,70 @@ describe("ChatsList", () => {
     expect(cog.className).toMatch(/zen-glass-pill/);
     fireEvent.click(cog);
     expect(screen.getByTestId("overlay-settings")).not.toBeNull();
+  });
+
+  it("header floats over the list with the chat header's progressive blur", () => {
+    useZenStore.setState({
+      agentSource: "live",
+      agents: LIVE_ROWS,
+      lastAtByKey: {},
+      agentError: null,
+      screen: "list",
+      pinnedIds: [LA.id],
+    });
+    mount();
+    const header = screen.getByTestId("chats-header");
+    expect(header.className).toMatch(/absolute/);
+    expect(header.style.pointerEvents).toBe("none");
+    // Below the Settings / Tickets / Servers overlays (zIndex 6).
+    expect(Number(header.style.zIndex)).toBeLessThan(6);
+
+    const blur = screen.getByTestId("chats-header-blur");
+    expect(header.contains(blur)).toBe(true);
+    expect(blur.className).toBe("zen-header-blur");
+    expect(blur.getAttribute("aria-hidden")).not.toBeNull();
+    expect(blur.querySelectorAll("[class^='zen-header-blur-']").length).toBe(4);
+    expect(blur.querySelector(".zen-header-tint")).not.toBeNull();
+
+    // Only the controls take touches.
+    expect(screen.getByTestId("chats-header-server").style.pointerEvents).toBe("auto");
+    expect(screen.getByTestId("chats-header-right").style.pointerEvents).toBe("auto");
+
+    // The list (pins grid included) starts under the header: safe area plus
+    // the measured header height (jsdom measures 0, so the resting 64px).
+    const list = screen.getByTestId("chats-list");
+    expect(header.contains(list)).toBe(false);
+    expect(list.style.paddingTop).toMatch(/env\(safe-area-inset-top\)/);
+    expect(list.style.paddingTop).toMatch(/64px/);
+    expect(list.contains(screen.getByTestId("chats-pins"))).toBe(true);
+  });
+
+  it("list rows follow Settings → Text Size (--zen-text-scale)", () => {
+    useZenStore.setState({
+      agentSource: "live",
+      agents: LIVE_ROWS,
+      lastAtByKey: {},
+      agentError: null,
+      screen: "list",
+    });
+    mount();
+    const name = screen.getAllByTestId("row-name")[0];
+    expect(name.textContent).toBe(LA.name);
+    expect(name.getAttribute("style")).toContain("calc(16px * var(--zen-text-scale");
+    expect(name.className).toMatch(/truncate/);
+    expect(name.className).toMatch(/min-w-0/);
+    const preview = screen.getAllByTestId("row-preview")[0];
+    expect(preview.getAttribute("style")).toContain("calc(14px * var(--zen-text-scale");
+    expect(preview.className).toMatch(/truncate/);
+    const when = screen.getAllByTestId("row-when")[0];
+    expect(when.getAttribute("style")).toContain("calc(14px * var(--zen-text-scale");
+    // Header chrome stays unscaled.
+    expect(screen.getByTestId("chats-title").getAttribute("style") ?? "").not.toContain(
+      "zen-text-scale"
+    );
+    expect(screen.getByTestId("server-name").getAttribute("style") ?? "").not.toContain(
+      "zen-text-scale"
+    );
   });
 
   it("header server pill shows the nickname with the status dot before it", () => {
@@ -1259,6 +1325,8 @@ describe("ChatsList", () => {
     it("tapping the title opens a switcher; a pick changes only this view", () => {
       live({ focus: { enabled: true, currentId: "g1", groups: GROUPS } });
       mount();
+      // Takes the tap through the inert floating header.
+      expect(screen.getByTestId("chats-title-group").style.pointerEvents).toBe("auto");
       fireEvent.click(screen.getByTestId("chats-title-group"));
       const menu = screen.getByTestId("focus-menu");
       const items = menu.querySelectorAll("[role='menuitemradio']");
