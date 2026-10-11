@@ -569,8 +569,50 @@ describe("ZenTerminal", () => {
       sending: false,
       thread: [],
     });
+    useZenStore.setState({
+      agentId: STUB_AGENTS[0].id,
+      agents: [{ ...STUB_AGENTS[0], name: "Appa", addr: "appa" }],
+    });
     render(<ThreadPane />);
+    // Same placeholder rule: both read "Message Appa" (aria-label too).
+    expect(screen.getByTestId("composer-input").getAttribute("placeholder")).toBe(
+      "Message Appa"
+    );
     expect(shape("composer")).toEqual(term);
+  });
+
+  it("composer placeholder: Message <Agent> on a main terminal", () => {
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: { ...AGENT, addr: "appa" } } });
+    const input = screen.getByTestId("terminal-composer-input");
+    expect(input.getAttribute("placeholder")).toBe("Message Appa");
+    expect(input.getAttribute("aria-label")).toBe("Message Appa");
+  });
+
+  it("composer placeholder: Message <Agent>/<sidecar> on a sidecar terminal", () => {
+    renderAt({
+      pathname: zenTerminalPath("t1"),
+      state: { agent: { ...AGENT, addr: "appa/reviewer", chatTitle: "Renamed" } },
+    });
+    expect(screen.getByTestId("terminal-composer-input").getAttribute("placeholder")).toBe(
+      "Message Appa/reviewer"
+    );
+  });
+
+  it("composer placeholder: a drawer terminal (main addr) uses its title", () => {
+    renderAt({
+      pathname: zenTerminalPath("t1"),
+      state: { agent: { ...AGENT, addr: "appa", chatTitle: "codex" } },
+    });
+    expect(screen.getByTestId("terminal-composer-input").getAttribute("placeholder")).toBe(
+      "Message Appa/codex"
+    );
+  });
+
+  it("composer placeholder falls back to Message without a name", () => {
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: { ...AGENT, name: "" } } });
+    expect(screen.getByTestId("terminal-composer-input").getAttribute("placeholder")).toBe(
+      "Message"
+    );
   });
 
   it("the Zen thread composer is unaffected by the terminal's focus-to-Drive", () => {
@@ -594,7 +636,7 @@ describe("ZenTerminal", () => {
 
   it("sending goes through the terminal send path (sendMessageToSession)", async () => {
     renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
-    const input = screen.getByPlaceholderText(/Message the agent…/);
+    const input = screen.getByPlaceholderText("Message Appa");
     fireEvent.change(input, { target: { value: "line one\nline two" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() =>

@@ -21,6 +21,10 @@ export type OverlaySidecar = {
   tabId?: string;
   projectId?: string;
   terminalId?: string;
+  /** False for a Sessions drawer History row: no host PTY now. */
+  hostLive?: boolean;
+  /** Harness to respawn the host with (History rows). Absent = Claude. */
+  launch?: { command: string; args: string[] } | null;
 };
 
 export type MainForSidecar = {

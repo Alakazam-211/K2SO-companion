@@ -1,4 +1,5 @@
 import type { GlobalSession } from "../api/client";
+import { isConversationAddr } from "./sessionHistory";
 import { sidecarSuffix } from "./sidecarRows";
 import { posixNormalize } from "./workspacePath";
 
@@ -39,7 +40,10 @@ export function zenTicketPath(ticketId?: string | null): string {
 
 /** Pick the original-UI terminal for an overlay agent. Null → /sessions. */
 export function terminalIdForAgent(
-  agent: { path?: string | null; addr?: string | null } | null | undefined,
+  agent:
+    | { path?: string | null; addr?: string | null; terminalId?: string | null }
+    | null
+    | undefined,
   sessions: GlobalSession[]
 ): string | null {
   if (!agent || !sessions.length) return null;
@@ -47,6 +51,11 @@ export function terminalIdForAgent(
   if (!path) return null;
   const onPath = sessions.filter((s) => posixNormalize(s.cwd || "") === path);
   if (!onPath.length) return null;
+  // The row's own PTY, while it is still live (a plain tab opened as its Thread).
+  const own = (agent.terminalId || "").trim();
+  if (own && onPath.some((s) => s.terminalId === own)) return own;
+  // A bare conversation id (Sessions History) is not the main chat.
+  if (isConversationAddr(agent.addr)) return null;
   const suffix = sidecarSuffix(agent.addr || "");
   if (suffix) {
     const hit = onPath.find((s) => {

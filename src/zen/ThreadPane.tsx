@@ -10,7 +10,7 @@ import {
   uploadFilename,
   workspaceHandleOf,
 } from "./composerAttach";
-import { GlassComposer } from "./GlassComposer";
+import { GlassComposer, composerPlaceholder } from "./GlassComposer";
 import { StubMark } from "./StubMark";
 import { mountainTime, type ThreadMessage } from "./threadModel";
 import {
@@ -177,6 +177,11 @@ export function ThreadPane({
   const attachWorkspace = workspaceHandleOf(threadAddr);
   const agent = agents.find((a) => a.id === agentId);
   const attachDir = uploadDirOf(agent?.path);
+  const placeholder = composerPlaceholder(
+    (threadGroupId || "").trim()
+      ? { name: agent?.name, kind: "group" }
+      : { name: agent?.name, addr: threadAddr || agent?.addr }
+  );
   const canAttach = canSend && Boolean(attachWorkspace) && Boolean(attachDir);
   // The room's server: the overlay socket redials only on its own server.
   const zenServer = useZenScope().id;
@@ -489,7 +494,7 @@ export function ThreadPane({
             }
           })();
         }}
-        placeholder="Message"
+        placeholder={placeholder}
         disabled={!canSend || sending || uploading}
         canSend={canSend}
         sendReady={sendReady}
