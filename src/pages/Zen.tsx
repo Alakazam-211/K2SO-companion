@@ -293,37 +293,6 @@ export function Zen() {
               >
                 {headerTitle}
               </span>
-              {sidecarTitle ? (
-                <span className="flex items-center justify-center gap-1 min-w-0 max-w-full">
-                  <span
-                    data-testid="chat-sidecar-title"
-                    className="text-[12px] truncate"
-                    style={{ color: "#8e8e93" }}
-                  >
-                    {drawerPicked ? agent?.addr : sidecarTitle}
-                  </span>
-                  {extraChat ? (
-                    <button
-                      type="button"
-                      data-testid="chat-rename-open"
-                      className="shrink-0 flex items-center justify-center bg-transparent border-0 p-0"
-                      style={{ color: "#8e8e93", width: 18, height: 18, pointerEvents: "auto" }}
-                      aria-label={`Rename ${sidecarTitle}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setRenameValue(sidecarTitle);
-                        setRenameError(null);
-                        setRenameOpen(true);
-                      }}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <path d="M12 20h9" />
-                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                      </svg>
-                    </button>
-                  ) : null}
-                </span>
-              ) : null}
               {extraChat && !drawerPicked ? (
                 <button
                   type="button"
@@ -349,9 +318,17 @@ export function Zen() {
                 </span>
               ) : null}
             </div>
+            {/* Right column: the three buttons, then the session name
+                right-aligned under them (white, so it reads over the blur). */}
+            <div
+              data-testid="chat-header-right"
+              className="flex flex-col items-end zen-header-text"
+              style={{ marginTop: HEADER_BTN_TOP, rowGap: 6 }}
+            >
             <span
-              className="flex items-center justify-self-end"
-              style={{ gap: 8, marginTop: HEADER_BTN_TOP, pointerEvents: "auto" }}
+              data-testid="chat-header-buttons"
+              className="flex items-center"
+              style={{ gap: 8, pointerEvents: "auto" }}
             >
               <button
                 type="button"
@@ -432,6 +409,41 @@ export function Zen() {
                 </svg>
               </button>
             </span>
+              {sidecarTitle ? (
+                <span
+                  data-testid="chat-session-line"
+                  className="zen-header-session flex items-center justify-end gap-1"
+                >
+                  <span
+                    data-testid="chat-sidecar-title"
+                    className="truncate min-w-0 text-[12.5px] font-medium text-right"
+                    style={{ color: "#fff" }}
+                  >
+                    {drawerPicked ? agent?.addr : sidecarTitle}
+                  </span>
+                  {extraChat ? (
+                    <button
+                      type="button"
+                      data-testid="chat-rename-open"
+                      className="shrink-0 flex items-center justify-center bg-transparent border-0 p-0"
+                      style={{ color: "#fff", width: 18, height: 18, pointerEvents: "auto" }}
+                      aria-label={`Rename ${sidecarTitle}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRenameValue(sidecarTitle);
+                        setRenameError(null);
+                        setRenameOpen(true);
+                      }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                      </svg>
+                    </button>
+                  ) : null}
+                </span>
+              ) : null}
+            </div>
             </div>
           </header>
           <PaneErrorBoundary name="thread">

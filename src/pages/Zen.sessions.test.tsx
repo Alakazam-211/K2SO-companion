@@ -431,6 +431,10 @@ describe("Zen Sessions drawer", () => {
     expect(screen.getByTestId("chat-sidecar-title").textContent).toBe("k2/reviewer");
     expect(screen.getByTestId("chat-rename-open")).not.toBeNull();
     expect(screen.queryByTestId("chat-hide")).toBeNull();
+    // Done mode: agent/sidecar sits under the right-hand buttons, in white.
+    const right = screen.getByTestId("chat-header-right");
+    expect(within(right).getByTestId("chat-sidecar-title").textContent).toBe("k2/reviewer");
+    expect(screen.getByTestId("chat-sidecar-title").style.color).toBe("rgb(255, 255, 255)");
   });
 
   it("the terminal button then opens the sidecar's own terminal", async () => {
