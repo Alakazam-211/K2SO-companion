@@ -48,6 +48,9 @@ export interface MessageComposerProps {
   attachDisabled?: boolean;
   /** Zen only: GlassComposer test-id prefix. */
   testIdPrefix?: string;
+  /** Zen only: the textarea gained focus (e.g. the terminal page
+   *  auto-claims Drive when you tap into the field). */
+  onFocus?: () => void;
 }
 
 export function MessageComposer({
@@ -65,6 +68,7 @@ export function MessageComposer({
   onAttach,
   attachDisabled,
   testIdPrefix,
+  onFocus,
 }: MessageComposerProps) {
   if (variant === "zen") {
     const sendReady = !disabled && !busy && Boolean(value.trim());
@@ -81,6 +85,7 @@ export function MessageComposer({
         sendReady={sendReady}
         attachDisabled={!onAttach || Boolean(attachDisabled)}
         testIdPrefix={testIdPrefix}
+        onFocus={onFocus ? () => onFocus() : undefined}
         barProps={{ "data-k2-variant": "zen" }}
       >
         {headerSlot}
@@ -115,7 +120,10 @@ function ClassicComposer({
   headerSlot,
   tint,
   lift,
-}: Omit<MessageComposerProps, "variant" | "onAttach" | "attachDisabled" | "testIdPrefix">) {
+}: Omit<
+  MessageComposerProps,
+  "variant" | "onAttach" | "attachDisabled" | "testIdPrefix" | "onFocus"
+>) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-grow with the draft: 44px (one line, thumb-sized) up to 100px,

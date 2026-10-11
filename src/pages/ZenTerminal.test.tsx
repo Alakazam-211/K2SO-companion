@@ -165,6 +165,36 @@ describe("ZenTerminal", () => {
     expect(screen.getByTestId("terminal-view").getAttribute("data-drive")).toBe("false");
   });
 
+  it("focusing the composer in view mode switches to Drive (pencil), keeping focus", () => {
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+    const claim = screen.getByRole("button", { name: "Claimer — type and resize" });
+    const input = screen.getByTestId("terminal-composer-input") as HTMLTextAreaElement;
+    expect(claim.getAttribute("aria-pressed")).toBe("false");
+    expect(termProps[termProps.length - 1].drive).toBe(false);
+    act(() => input.focus());
+    expect(claim.getAttribute("aria-pressed")).toBe("true");
+    expect(termProps[termProps.length - 1].drive).toBe(true);
+    expect(screen.getByTestId("terminal-view").getAttribute("data-drive")).toBe("true");
+    // Same field, still focused — no blur, no re-mount (keyboard stays up).
+    expect(screen.getByTestId("terminal-composer-input")).toBe(input);
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("focusing the composer in Drive mode is a no-op, and never flips back to view", () => {
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+    const claim = screen.getByRole("button", { name: "Claimer — type and resize" });
+    fireEvent.click(claim);
+    expect(claim.getAttribute("aria-pressed")).toBe("true");
+    const renders = termProps.length;
+    const input = screen.getByTestId("terminal-composer-input") as HTMLTextAreaElement;
+    act(() => input.focus());
+    act(() => input.blur());
+    act(() => input.focus());
+    expect(claim.getAttribute("aria-pressed")).toBe("true");
+    expect(termProps.length).toBe(renders);
+    expect(screen.getByTestId("terminal-view").getAttribute("data-drive")).toBe("true");
+  });
+
   it("Viewer/Claimer is a segmented control: the selected thumb stays inside the pill", () => {
     renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
     const group = screen.getByRole("group", { name: "Viewer or claimer" });
@@ -369,6 +399,25 @@ describe("ZenTerminal", () => {
     });
     render(<ThreadPane />);
     expect(shape("composer")).toEqual(term);
+  });
+
+  it("the Zen thread composer is unaffected by the terminal's focus-to-Drive", () => {
+    useZenStore.setState({
+      threadSource: "live",
+      threadAddr: "appa",
+      threadGroupId: null,
+      threadError: null,
+      sendError: null,
+      sending: false,
+      thread: [],
+    });
+    render(<ThreadPane />);
+    const input = screen.getByTestId("composer-input") as HTMLTextAreaElement;
+    act(() => input.focus());
+    expect(document.activeElement).toBe(input);
+    expect(screen.queryByTestId("terminal-view")).toBeNull();
+    expect(screen.queryByRole("group", { name: "Viewer or claimer" })).toBeNull();
+    expect(termProps.length).toBe(0);
   });
 
   it("sending goes through the terminal send path (sendMessageToSession)", async () => {
