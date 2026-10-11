@@ -827,8 +827,13 @@ export const createWorkspace = (path: string) =>
 /** `GET /cli/fs/info` (Member) — `{home, separator, os}` of the host. */
 export const getFsInfo = () =>
   request<{ home?: string; separator?: string; os?: string }>("fs.info", "/cli/fs/info", {});
-/** `POST /cli/projects/update {id, name?, color?}` (Member). */
-export const updateProjectLook = (id: string, look: { name?: string; color?: string }) =>
+/** `POST /cli/projects/update {id, name?, color?, iconUrl?}` (Member).
+ *  `iconUrl`: a `data:image/*` URL sets the workspace icon, `""` clears it
+ *  (daemon `ProjectsUpdateBody`); absent leaves it alone. */
+export const updateProjectLook = (
+  id: string,
+  look: { name?: string; color?: string; iconUrl?: string }
+) =>
   request<unknown>(
     "projects.update",
     "/cli/projects/update",
