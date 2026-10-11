@@ -22,6 +22,8 @@ vi.mock("../api/client", () => ({
   setSessionLabel: vi.fn(async () => ({ ok: true, data: { success: true } })),
   setProjectPinned: vi.fn(async () => ({ ok: true, data: {} })),
   reorderProjects: vi.fn(async () => ({ ok: true, data: {} })),
+  assignFocusGroup: vi.fn(async () => ({ ok: true, data: {} })),
+  createFocusGroup: vi.fn(),
   getAppSettings: vi.fn(async () => ({ ok: true, data: {} })),
   getFocusGroupsList: vi.fn(async () => ({ ok: true, data: [] })),
 }));
@@ -39,7 +41,15 @@ vi.mock("../lib/revive", () => ({
   connectServer: vi.fn(async () => "still-valid"),
 }));
 
-import { reorderProjects, setProjectPinned } from "../api/client";
+import {
+  assignFocusGroup,
+  createFocusGroup,
+  getAppSettings,
+  getCliProjectsList,
+  getFocusGroupsList,
+  reorderProjects,
+  setProjectPinned,
+} from "../api/client";
 import { useFeedbackStore } from "../stores/feedback";
 import { hostLabel, useServersStore } from "../stores/servers";
 import { ChatsList, ZEN_LIST_EDGE_INSET, ZEN_LIST_EDGE_PAD } from "./ChatsList";
@@ -83,6 +93,7 @@ beforeEach(() => {
     hiddenSidecarAddrs: [],
     serverProjects: [],
     focus: FOCUS_OFF,
+    focusGroupsEnabled: false,
     pinError: null,
   });
   vi.mocked(setProjectPinned).mockClear();
@@ -1043,24 +1054,56 @@ describe("ChatsList", () => {
     expect(serversBar.dataset.bottom).toBe("8px");
   });
 
-  describe("swipe right to pin", () => {
+  describe("swipe right to group", () => {
     const A = LA;
     const B = LB;
     const ROW_W = 375;
+    const SERVER_GROUPS = [
+      { id: "g1", name: "Work", color: "#ff0000", tabOrder: 0, createdAt: 0 },
+      { id: "g2", name: "Home", color: null, tabOrder: 1, createdAt: 0 },
+    ];
+    const GROUPS = [
+      { id: "g1", name: "Work", color: "#ff0000" },
+      { id: "g2", name: "Home", color: null },
+    ];
+    let serverGroups: unknown[] = SERVER_GROUPS;
 
-    function setup(pinnedIds: string[] = []) {
+    afterEach(() => {
+      serverGroups = SERVER_GROUPS;
+      vi.mocked(getAppSettings).mockImplementation(async () => ({ ok: true, data: {} }));
+      vi.mocked(getFocusGroupsList).mockImplementation(async () => ({ ok: true, data: [] }));
+      vi.mocked(assignFocusGroup).mockImplementation(async () => ({ ok: true, data: {} }));
+      vi.mocked(createFocusGroup).mockReset();
+      useZenStore.setState({ focus: FOCUS_OFF, focusGroupsEnabled: false });
+    });
+
+    /** alpha is in Work; bravo and charlie are ungrouped. Viewing Work. */
+    function setup(pinnedIds: string[] = [], { groups = true }: { groups?: boolean } = {}) {
       Element.prototype.setPointerCapture = () => {};
       Element.prototype.releasePointerCapture = () => {};
       Element.prototype.hasPointerCapture = () => true;
+      localStorage.clear();
+      vi.mocked(assignFocusGroup).mockClear();
+      vi.mocked(getAppSettings).mockImplementation(async () => ({
+        ok: true,
+        data: groups ? { focusGroupsEnabled: true, activeFocusGroupId: "g1" } : {},
+      }));
+      vi.mocked(getFocusGroupsList).mockImplementation(async () => ({ ok: true, data: serverGroups }));
       const pinnedProjects = new Set<string>(pinnedIds.map((id) => (id === LA.id ? "pa" : id === LB.id ? "pb" : "pc")));
       useZenStore.setState({
         agentSource: "live",
         agents: LIVE_ROWS,
-        serverProjects: PROJECTS.map((p) => ({ ...p, pinned: pinnedProjects.has(p.id) })),
+        serverProjects: PROJECTS.map((p) => ({
+          ...p,
+          pinned: pinnedProjects.has(p.id),
+          focusGroupId: p.id === "pa" ? "g1" : null,
+        })),
         agentError: null,
         screen: "list",
         agentId: "",
         pinnedIds,
+        focus: groups ? { enabled: true, currentId: "g1", groups: GROUPS } : FOCUS_OFF,
+        focusGroupsEnabled: groups,
       });
       mount();
       sizeRows();
@@ -1077,6 +1120,11 @@ describe("ChatsList", () => {
     const row = (a: Row) => screen.getByLabelText(a.name);
     const action = (a: Row) => screen.getByTestId(`swipe-action-${a.id}`);
     const home = () => screen.getByTestId("chats-home");
+    const groupOf = (pid: string) =>
+      useZenStore.getState().serverProjects.find((p) => p.id === pid)?.focusGroupId ?? null;
+    const flush = () => act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
 
     /** Pointer down on the row, move through the points, release. */
     function drag(a: Row, points: [number, number][], up = true) {
@@ -1089,47 +1137,52 @@ describe("ChatsList", () => {
         fireEvent.pointerUp(home(), { clientX: x, clientY: y, pointerId: 7 });
       }
     }
+    /** Swipe the row open and tap its Group button. */
+    function openPicker(a: Row) {
+      drag(a, [[34, 200], [110, 200]]);
+      fireEvent.pointerDown(action(a), { clientX: 30, clientY: 200, button: 0, pointerId: 8 });
+      fireEvent.pointerUp(home(), { clientX: 30, clientY: 200, pointerId: 8 });
+      fireEvent.click(action(a));
+      return screen.getByTestId("group-picker");
+    }
 
-    it("a swipe right past the threshold reveals a round glass Pin button", () => {
+    it("a swipe right reveals a round glass Group button, not Pin", () => {
       setup();
-      drag(A, [[34, 201], [70, 202], [110, 203]]);
-      const btn = action(A);
+      drag(B, [[34, 201], [70, 202], [110, 203]]);
+      const btn = action(B);
       expect(btn.style.width).toBe("76px");
-      // The revealed strip is clear, not a yellow slab.
+      // The revealed strip is clear, not a slab.
       expect(btn.style.background).toBe("transparent");
       const glass = btn.querySelector("[data-testid='swipe-action-glass']") as HTMLElement;
       expect(glass.className).toMatch(/k2-swipe-pin/);
-      expect(glass.style.color).toBe("rgb(255, 214, 10)");
+      expect(glass.className).toMatch(/k2-swipe-group/);
+      // Ungrouped: white glyph, "Group" label.
+      expect(glass.style.color).toBe("rgb(255, 255, 255)");
       expect(glass.style.transform).toBe("scale(1)");
       expect(
         (btn.querySelector("[data-testid='swipe-action-reveal']") as HTMLElement).style.opacity
       ).toBe("1");
-      expect(btn.getAttribute("aria-label")).toBe(`Pin ${A.name}`);
-      expect(btn.textContent).toBe("Pin");
-      expect(glass.querySelector("[data-testid='pin-glyph']")).not.toBeNull();
-      expect(row(A).style.transform).toBe("translateX(76px)");
+      expect(btn.getAttribute("aria-label")).toBe(`Group ${B.name}`);
+      expect(btn.textContent).toBe("Group");
+      expect(glass.querySelector("[data-testid='group-glyph']")).not.toBeNull();
+      expect(btn.querySelector("[data-testid='pin-glyph'], [data-testid='unpin-glyph']")).toBeNull();
+      expect(row(B).style.transform).toBe("translateX(76px)");
       // The swipe's click does not open the chat.
-      fireEvent.click(row(A));
+      fireEvent.click(row(B));
       expect(useZenStore.getState().screen).toBe("list");
     });
 
-    it("tapping the Pin button calls pinChat and closes the row", () => {
+    it("a grouped agent's action shows its group's colour and name", () => {
       setup();
-      const pinChat = vi.fn();
-      const orig = useZenStore.getState().pinChat;
-      useZenStore.setState({ pinChat });
-      onTestFinished(() => useZenStore.setState({ pinChat: orig }));
-      drag(A, [[34, 200], [110, 200]]);
-      fireEvent.pointerDown(action(A), { clientX: 30, clientY: 200, button: 0, pointerId: 8 });
-      fireEvent.pointerUp(home(), { clientX: 30, clientY: 200, pointerId: 8 });
-      fireEvent.click(action(A));
-      expect(pinChat).toHaveBeenCalledWith(A.id);
-      expect(action(A).style.width).toBe("0px");
-      expect(row(A).style.transform).toBe("translateX(0px)");
-      expect(row(A).style.transition).toMatch(/transform/);
+      const btn = action(A);
+      const glass = btn.querySelector("[data-testid='swipe-action-glass']") as HTMLElement;
+      expect(glass.style.color).toBe("rgb(255, 0, 0)");
+      expect(screen.getAllByTestId("swipe-action-label")[0].className).toMatch(/truncate/);
+      expect(btn.textContent).toBe("Work");
+      expect(btn.getAttribute("aria-label")).toBe(`Group ${A.name}, in Work`);
     });
 
-    it("the glass pin scales and fades in with the drag", () => {
+    it("the glass button scales and fades in with the drag", () => {
       setup();
       const glass = () =>
         action(A).querySelector("[data-testid='swipe-action-glass']") as HTMLElement;
@@ -1150,23 +1203,139 @@ describe("ChatsList", () => {
       fireEvent.pointerUp(home(), { clientX: 80, clientY: 200, pointerId: 7 });
     });
 
-    it("a short swipe springs back", () => {
+    it("tapping Group opens the picker: groups in order, the current one checked", () => {
       setup();
-      drag(A, [[34, 200], [60, 200]]);
-      expect(action(A).style.width).toBe("0px");
+      const picker = openPicker(A);
       expect(row(A).style.transform).toBe("translateX(0px)");
-      expect(useZenStore.getState().pinnedIds).toEqual([]);
+      const sheet = picker.querySelector("[role='dialog']") as HTMLElement;
+      expect(sheet.className).toMatch(/k2-tile k2-tile-sheet/);
+      expect(screen.getByTestId("group-picker-title").textContent).toBe(`Add ${A.name} to a group`);
+      const items = [...picker.querySelectorAll("[role='menuitemradio']")];
+      expect(items.map((i) => i.textContent)).toEqual(["Work", "Home", "No group"]);
+      expect(items.map((i) => i.getAttribute("aria-checked"))).toEqual(["true", "false", "false"]);
+      expect(items[0].querySelector("[data-testid='group-pick-check']")).not.toBeNull();
+      expect(screen.getByTestId("group-pick-new").textContent).toBe("New Group…");
+      expect(assignFocusGroup).not.toHaveBeenCalled();
+      // Cancel closes without a write.
+      fireEvent.click(screen.getByTestId("group-picker-cancel"));
+      expect(screen.queryByTestId("group-picker")).toBeNull();
+      expect(assignFocusGroup).not.toHaveBeenCalled();
     });
 
-    it("a vertical drag does not open the row", () => {
+    it("an ungrouped agent's picker checks No group", () => {
       setup();
-      drag(A, [[24, 215], [28, 260], [30, 320]]);
-      expect(action(A).style.width).toBe("0px");
-      expect(row(A).style.transform).toBe("translateX(0px)");
-      expect(screen.queryByTestId("pin-ghost")).toBeNull();
+      openPicker(B);
+      expect(screen.getByTestId("group-pick-none").getAttribute("aria-checked")).toBe("true");
+      expect(screen.getByTestId("group-pick-g1").getAttribute("aria-checked")).toBe("false");
     });
 
-    it("a full swipe pins at once with the glyph popped", () => {
+    it("a pick assigns the workspace, moves it at once, and offers Undo", async () => {
+      setup();
+      vi.mocked(getCliProjectsList).mockClear();
+      vi.mocked(getFocusGroupsList).mockClear();
+      openPicker(A);
+      fireEvent.click(screen.getByTestId("group-pick-g2"));
+      expect(assignFocusGroup).toHaveBeenCalledWith("pa", "g2");
+      // Optimistic: membership changes before the server answers.
+      expect(groupOf("pa")).toBe("g2");
+      expect(screen.queryByTestId("group-picker")).toBeNull();
+      // Viewing Work: alpha (now Home, not pinned) leaves the list.
+      expect(screen.queryByLabelText(A.name)).toBeNull();
+      expect(screen.getByTestId("group-toast-text").textContent).toBe("Moved to Home");
+      await flush();
+      // Assign sends no projects_changed: projects and groups are re-read.
+      expect(getCliProjectsList).toHaveBeenCalled();
+      expect(getFocusGroupsList).toHaveBeenCalled();
+      expect(groupOf("pa")).toBe("g2");
+      expect(screen.getByTestId("group-toast")).not.toBeNull();
+    });
+
+    it("Undo re-assigns the previous group", async () => {
+      setup();
+      openPicker(A);
+      fireEvent.click(screen.getByTestId("group-pick-g2"));
+      await flush();
+      fireEvent.click(screen.getByTestId("group-toast-undo"));
+      expect(assignFocusGroup).toHaveBeenLastCalledWith("pa", "g1");
+      expect(groupOf("pa")).toBe("g1");
+      expect(screen.queryByTestId("group-toast")).toBeNull();
+      expect(screen.getByLabelText(A.name)).not.toBeNull();
+      await flush();
+    });
+
+    it("No group sends null", async () => {
+      setup();
+      openPicker(A);
+      fireEvent.click(screen.getByTestId("group-pick-none"));
+      expect(assignFocusGroup).toHaveBeenCalledWith("pa", null);
+      expect(groupOf("pa")).toBeNull();
+      // Ungrouped shows in every group: alpha stays.
+      expect(screen.getByLabelText(A.name)).not.toBeNull();
+      expect(screen.getByTestId("group-toast-text").textContent).toBe("Removed from Work");
+      await flush();
+    });
+
+    it("picking the current group is a no-op", () => {
+      setup();
+      openPicker(A);
+      fireEvent.click(screen.getByTestId("group-pick-g1"));
+      expect(assignFocusGroup).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("group-picker")).toBeNull();
+      expect(screen.queryByTestId("group-toast")).toBeNull();
+    });
+
+    it("New Group… creates the group, then assigns the agent to it", async () => {
+      setup();
+      vi.mocked(createFocusGroup).mockImplementation(async () => {
+        const g = { id: "g3", name: "Ops", color: null, tabOrder: 2, createdAt: 0 };
+        serverGroups = [...SERVER_GROUPS, g];
+        return { ok: true, data: g };
+      });
+      openPicker(B);
+      fireEvent.click(screen.getByTestId("group-pick-new"));
+      const input = screen.getByTestId("group-new-name") as HTMLInputElement;
+      expect((screen.getByTestId("group-new-add") as HTMLButtonElement).disabled).toBe(true);
+      fireEvent.change(input, { target: { value: "  Ops " } });
+      fireEvent.click(screen.getByTestId("group-new-add"));
+      await flush();
+      expect(createFocusGroup).toHaveBeenCalledWith("Ops");
+      expect(assignFocusGroup).toHaveBeenCalledWith("pb", "g3");
+      expect(vi.mocked(createFocusGroup).mock.invocationCallOrder[0]).toBeLessThan(
+        vi.mocked(assignFocusGroup).mock.invocationCallOrder[0]
+      );
+      expect(groupOf("pb")).toBe("g3");
+      expect(useZenStore.getState().focus.groups.map((g) => g.id)).toEqual(["g1", "g2", "g3"]);
+      expect(screen.queryByTestId("group-picker")).toBeNull();
+      expect(screen.getByTestId("group-toast-text").textContent).toBe("Moved to Ops");
+    });
+
+    it("a failed create keeps the sheet open with an error and assigns nothing", async () => {
+      setup();
+      vi.mocked(createFocusGroup).mockImplementation(async () => ({ ok: false, error: "Forbidden" }));
+      openPicker(B);
+      fireEvent.click(screen.getByTestId("group-pick-new"));
+      fireEvent.change(screen.getByTestId("group-new-name"), { target: { value: "Ops" } });
+      fireEvent.submit(screen.getByTestId("group-new-name").closest("form")!);
+      await flush();
+      expect(assignFocusGroup).not.toHaveBeenCalled();
+      expect(screen.getByTestId("group-picker")).not.toBeNull();
+      expect(screen.getByTestId("group-new-error").textContent).toBe("Could not create group");
+    });
+
+    it("a failed assign rolls back and shows the short error line", async () => {
+      setup();
+      vi.mocked(assignFocusGroup).mockImplementation(async () => ({ ok: false, error: "Forbidden" }));
+      openPicker(A);
+      fireEvent.click(screen.getByTestId("group-pick-g2"));
+      expect(groupOf("pa")).toBe("g2");
+      await flush();
+      expect(groupOf("pa")).toBe("g1");
+      expect(screen.getByLabelText(A.name)).not.toBeNull();
+      expect(screen.getByTestId("chats-pin-error").textContent).toBe("Forbidden");
+      expect(screen.queryByTestId("group-toast")).toBeNull();
+    });
+
+    it("a full swipe opens the picker and assigns nothing", () => {
       setup();
       drag(A, [[34, 200], [150, 200], [240, 200]], false);
       expect(action(A).style.width).toBe("220px");
@@ -1177,14 +1346,40 @@ describe("ChatsList", () => {
         (action(A).querySelector("[data-testid='swipe-action-glass']") as HTMLElement).dataset.armed
       ).toBe("1");
       fireEvent.pointerUp(home(), { clientX: 240, clientY: 200, pointerId: 7 });
-      expect(setProjectPinned).toHaveBeenCalledWith("pa", true);
-      expect(useZenStore.getState().pinnedIds).toEqual([A.id]);
-      expect(screen.getByLabelText(`Pinned ${A.name}`)).not.toBeNull();
-      // First pin: the grid appears where there was none, and the row
-      // moves into it (no duplicate in the list).
-      expect(screen.getByTestId("chats-pins")).not.toBeNull();
-      expect(screen.queryByLabelText(A.name)).toBeNull();
-      expect(screen.getByLabelText(B.name)).not.toBeNull();
+      expect(screen.getByTestId("group-picker")).not.toBeNull();
+      expect(row(A).style.transform).toBe("translateX(0px)");
+      expect(assignFocusGroup).not.toHaveBeenCalled();
+      expect(setProjectPinned).not.toHaveBeenCalled();
+      expect(useZenStore.getState().pinnedIds).toEqual([]);
+    });
+
+    it("groups off: no swipe action on any row, and the hint does not mention it", () => {
+      setup([], { groups: false });
+      for (const a of LIVE_ROWS) expect(screen.queryByTestId(`swipe-action-${a.id}`)).toBeNull();
+      drag(A, [[34, 200], [110, 200]]);
+      expect(row(A).style.transform).toBe("translateX(0px)");
+      drag(A, [[34, 200], [150, 200], [240, 200]]);
+      expect(screen.queryByTestId("group-picker")).toBeNull();
+      expect(setProjectPinned).not.toHaveBeenCalled();
+      const hint = document.getElementById(row(A).getAttribute("aria-describedby")!)!;
+      expect(hint.textContent).not.toMatch(/Swipe/);
+      expect(hint.textContent).toMatch(/press and hold/i);
+    });
+
+    it("a short swipe springs back", () => {
+      setup();
+      drag(A, [[34, 200], [60, 200]]);
+      expect(action(A).style.width).toBe("0px");
+      expect(row(A).style.transform).toBe("translateX(0px)");
+      expect(screen.queryByTestId("group-picker")).toBeNull();
+    });
+
+    it("a vertical drag does not open the row", () => {
+      setup();
+      drag(A, [[24, 215], [28, 260], [30, 320]]);
+      expect(action(A).style.width).toBe("0px");
+      expect(row(A).style.transform).toBe("translateX(0px)");
+      expect(screen.queryByTestId("pin-ghost")).toBeNull();
     });
 
     it("only one row is open at a time", () => {
@@ -1213,27 +1408,17 @@ describe("ChatsList", () => {
       expect(row(A).style.transform).toBe("translateX(0px)");
     });
 
-    it("a pinned agent is in the grid only; search finds its row and swipe offers Unpin", () => {
+    it("search: a pinned agent's row gets Group like everyone else, not Unpin", () => {
       setup([A.id]);
       expect(screen.getByLabelText(`Pinned ${A.name}`)).not.toBeNull();
       expect(screen.queryByLabelText(A.name)).toBeNull();
-      // Search hides the grid, so every hit is a row, pinned or not.
       fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: A.name } });
       expect(screen.queryByTestId("chats-pins")).toBeNull();
       sizeRows();
-      drag(A, [[34, 200], [110, 200]]);
-      expect(action(A).getAttribute("aria-label")).toBe(`Unpin ${A.name}`);
-      expect(action(A).textContent).toBe("Unpin");
-      expect(
-        action(A).querySelector("[data-testid='swipe-action-glass'] [data-testid='unpin-glyph']")
-      ).not.toBeNull();
-      fireEvent.click(action(A));
-      expect(setProjectPinned).toHaveBeenCalledWith("pa", false);
-      expect(useZenStore.getState().pinnedIds).toEqual([]);
-      // Clearing search: no pins left, so no grid, and A stays a row.
-      fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "" } });
-      expect(screen.queryByTestId("chats-pins")).toBeNull();
-      expect(screen.getByLabelText(A.name)).not.toBeNull();
+      openPicker(A);
+      expect(screen.getByTestId("group-picker-title").textContent).toBe(`Add ${A.name} to a group`);
+      expect(setProjectPinned).not.toHaveBeenCalled();
+      expect(useZenStore.getState().pinnedIds).toEqual([A.id]);
     });
 
     it("a committed swipe cancels the hold timer; hold-drag still pins", () => {
@@ -1257,12 +1442,46 @@ describe("ChatsList", () => {
       fireEvent.pointerMove(home(), { clientX: 120, clientY: 262, pointerId: 10 });
       expect(screen.getByTestId("pin-ghost")).not.toBeNull();
       expect(row(B).style.transform).toBe("translateX(0px)");
+      const drop = screen.getByTestId("chats-pin-drop");
+      drop.getBoundingClientRect = () =>
+        ({ left: 0, right: 300, top: 0, bottom: 90, width: 300, height: 90, x: 0, y: 0, toJSON() { return {}; } }) as DOMRect;
+      fireEvent.pointerUp(home(), { clientX: 40, clientY: 40, pointerId: 10 });
+      expect(setProjectPinned).toHaveBeenCalledWith("pb", true);
+      expect(screen.getByLabelText(`Pinned ${B.name}`)).not.toBeNull();
+      expect(assignFocusGroup).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("group-picker")).toBeNull();
+    });
+
+    it("groups on: the pin menu still offers Open and Unpin", () => {
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      setup([A.id]);
+      fireEvent.pointerDown(screen.getByLabelText(`Pinned ${A.name}`), {
+        clientX: 40,
+        clientY: 40,
+        button: 0,
+        pointerId: 4,
+      });
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
+      fireEvent.pointerUp(home(), { clientX: 40, clientY: 40, pointerId: 4 });
+      expect(screen.getByTestId("pin-menu-open")).not.toBeNull();
+      const unpin = screen.getByTestId("pin-menu-unpin");
+      fireEvent.pointerDown(unpin, { clientX: 0, clientY: 0, button: 0, pointerId: 5 });
+      fireEvent.pointerUp(home(), { clientX: 0, clientY: 0, pointerId: 5 });
+      fireEvent.click(unpin);
+      expect(setProjectPinned).toHaveBeenCalledWith("pa", false);
+      expect(assignFocusGroup).not.toHaveBeenCalled();
     });
 
     it("rows point at the swipe hint for assistive tech", () => {
       setup();
       const hint = document.getElementById(row(A).getAttribute("aria-describedby")!)!;
-      expect(hint.textContent).toMatch(/Swipe right to pin/);
+      expect(hint.textContent).toMatch(/Swipe right to add to a focus group/);
+      expect(hint.textContent).toMatch(/drag to the top to pin/);
     });
   });
   describe("pin grid: one place per agent, long-press menu, activity", () => {
@@ -1327,12 +1546,9 @@ describe("ChatsList", () => {
       // "a" is in alpha, bravo and charlie; the grid is hidden.
       expect(screen.queryByTestId("chats-pins")).toBeNull();
       expect(listIds()).toEqual([LB.id, LA.id, LC.id]);
-      expect(screen.getByTestId(`swipe-action-${LA.id}`).getAttribute("aria-label")).toBe(
-        `Unpin ${LA.name}`
-      );
-      expect(screen.getByTestId(`swipe-action-${LC.id}`).getAttribute("aria-label")).toBe(
-        `Pin ${LC.name}`
-      );
+      // Groups off: the swipe offers nothing (it no longer pins).
+      expect(screen.queryByTestId(`swipe-action-${LA.id}`)).toBeNull();
+      expect(screen.queryByTestId(`swipe-action-${LC.id}`)).toBeNull();
     });
 
     it("pinning moves the row into the grid", () => {
@@ -1530,11 +1746,19 @@ describe("ChatsList", () => {
         n.getAttribute("data-pin-id")
       );
 
-    it("a sidecar row has no Pin action and does not swipe", () => {
-      live();
+    it("a sidecar row has no Group action and does not swipe", () => {
+      live({ focus: { enabled: true, currentId: "g1", groups: GROUPS } });
       mount();
       expect(screen.queryByTestId(`swipe-action-${SIDE.id}`)).toBeNull();
       expect(screen.getByTestId(`swipe-action-${LA.id}`)).not.toBeNull();
+      const side = document.querySelector(`[data-swipe-row="${SIDE.id}"] [data-pin-from='list']`) as HTMLElement;
+      const home = screen.getByTestId("chats-home");
+      fireEvent.pointerDown(side, { clientX: 20, clientY: 300, button: 0, pointerId: 3 });
+      fireEvent.pointerMove(home, { clientX: 60, clientY: 300, pointerId: 3 });
+      fireEvent.pointerMove(home, { clientX: 140, clientY: 300, pointerId: 3 });
+      fireEvent.pointerUp(home, { clientX: 140, clientY: 300, pointerId: 3 });
+      expect(side.style.transform).toBe("translateX(0px)");
+      expect(screen.queryByTestId("group-picker")).toBeNull();
     });
 
     it("a sidecar row cannot be hold-dragged into the pins", () => {
