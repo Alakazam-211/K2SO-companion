@@ -8,6 +8,7 @@ import {
   LOGIN_404_K2DEV_MESSAGE,
 } from "../lib/loginUrl";
 import { loginErrorFromStatus } from "../lib/loginError";
+import { tryHostKey } from "../lib/hostKey";
 
 // Multi-server model — the companion mirror of the desktop's
 // `stores/connect-host.ts`. Each saved server is a K2 daemon reachable over
@@ -42,6 +43,11 @@ export interface ServerEntry {
   username: string;
   /** Leftover flag from when remember-me stored a password. Always false now. */
   rememberPassword: boolean;
+  /** Derived canonical host key (MS1/MS2, `lib/hostKey.ts`), recomputed on
+   *  hydrate and on every save. For dedupe, addresses and display only:
+   *  storage and caches key by `id` (MA2). Read it through
+   *  `serverHostKey()`, which also covers an entry built without it. */
+  hostKey?: string;
 }
 
 // ─── URL / id helpers (pure) ───
@@ -57,6 +63,76 @@ export function normalizeServerUrl(input: string): string {
 /** Human label for an origin: the URL without its scheme. */
 export function hostLabel(url: string): string {
   return url.replace(/^https?:\/\//i, "");
+}
+
+/** The canonical host key of a saved server (MS1). An address that does not
+ *  parse (never saved by this build) falls back to its lowercase origin, so
+ *  it still dedupes against itself. */
+export function serverHostKey(entry: Pick<ServerEntry, "url"> & { hostKey?: string }): string {
+  return entry.hostKey || tryHostKey(entry.url) || entry.url.trim().toLowerCase();
+}
+
+/** `entry` with its derived `hostKey` (re)computed from `url`. */
+export function withHostKey(entry: ServerEntry): ServerEntry {
+  const hostKey = tryHostKey(entry.url) ?? entry.url.trim().toLowerCase();
+  return entry.hostKey === hostKey ? entry : { ...entry, hostKey };
+}
+
+/** MS2: the saved server (other than `exceptId`) that already uses the
+ *  host key of `url`, or null. Two saved entries for one server are
+ *  refused on save. */
+export function duplicateServer(
+  servers: ServerEntry[],
+  url: string,
+  exceptId: string | null
+): ServerEntry | null {
+  const key = serverHostKey({ url: normalizeServerUrl(url) });
+  return servers.find((s) => s.id !== exceptId && serverHostKey(s) === key) ?? null;
+}
+
+/** The refusal copy for a duplicate saved server. */
+export function duplicateServerMessage(dup: Pick<ServerEntry, "nickname" | "url">): string {
+  return `Already saved as ${dup.nickname || hostLabel(dup.url)}.`;
+}
+
+/** MS2, read side: the saved server for a host key. Entries saved before the
+ *  duplicate rule may share a key; the one holding a token wins (desktop
+ *  `savedHostForKey`). */
+export function serverForHostKey(
+  state: Pick<ServersState, "servers" | "tokens">,
+  hostKey: string
+): ServerEntry | null {
+  const matches = state.servers.filter((s) => serverHostKey(s) === hostKey);
+  if (matches.length === 0) return null;
+  return matches.find((s) => (state.tokens[s.id] ?? "").length > 0) ?? matches[0];
+}
+
+// ─── Forget hooks (MS3 / MA2) ───
+//
+// Per-server memories elsewhere (scopes, route memories, identity, revive
+// backoff, zen caches) key by server id. When a server is removed, or its
+// address is edited to a DIFFERENT host key (it may be a different daemon),
+// every one of them must drop that id's state. servers.ts imports nothing
+// app-side, so they subscribe here instead of being imported.
+
+export type ServerForgetReason = "removed" | "rekeyed";
+type ForgetListener = (serverId: string, reason: ServerForgetReason) => void;
+const forgetListeners = new Set<ForgetListener>();
+
+/** Subscribe to "drop everything you hold for this server id". */
+export function onServerForget(fn: ForgetListener): () => void {
+  forgetListeners.add(fn);
+  return () => forgetListeners.delete(fn);
+}
+
+function fireForget(serverId: string, reason: ServerForgetReason): void {
+  for (const fn of forgetListeners) {
+    try {
+      fn(serverId, reason);
+    } catch (e) {
+      console.warn("[servers] forget listener failed", e);
+    }
+  }
 }
 
 function newId(): string {
@@ -167,7 +243,10 @@ interface ServersState {
 
   hydrate: () => Promise<void>;
   setActive: (id: string) => void;
-  upsertServer: (entry: ServerEntry) => void;
+  /** Save (insert or replace by id). Returns false, saving nothing, when
+   *  another entry already uses the new address's host key (MS2). An entry
+   *  that already shared its key before this rule keeps saving. */
+  upsertServer: (entry: ServerEntry) => boolean;
   removeServer: (id: string) => void;
   setToken: (id: string, token: string) => void;
   clearToken: (id: string) => void;
@@ -199,7 +278,7 @@ export const useServersStore = create<ServersState>((set, get) => ({
       } catch {
         /* still load the rest of the model */
       }
-      let servers = await backend.get<ServerEntry[]>("servers");
+      let servers = (await backend.get<ServerEntry[]>("servers"))?.map(withHostKey);
       let tokens = (await backend.get<Record<string, string>>("tokens")) ?? {};
       let activeServerId =
         (await backend.get<string | null>("activeServerId")) ?? null;
@@ -209,7 +288,7 @@ export const useServersStore = create<ServersState>((set, get) => ({
         // single-session world. Persisting (even an empty list) marks the
         // migration done.
         const migrated = await migrateLegacy();
-        servers = migrated.servers;
+        servers = migrated.servers.map(withHostKey);
         tokens = migrated.tokens;
         activeServerId = migrated.activeServerId;
         await backend.set("servers", servers);
@@ -243,13 +322,25 @@ export const useServersStore = create<ServersState>((set, get) => ({
     persistModel(get());
   },
 
-  upsertServer: (entry) => {
+  upsertServer: (input) => {
+    const entry = withHostKey(input);
+    const newKey = serverHostKey(entry);
     const servers = get().servers.slice();
     const idx = servers.findIndex((s) => s.id === entry.id);
+    const prevKey = idx >= 0 ? serverHostKey(servers[idx]) : null;
+    const dup = servers.find((s) => s.id !== entry.id && serverHostKey(s) === newKey);
+    if (dup && prevKey !== newKey) {
+      console.warn(`[servers] refused a duplicate saved server: ${newKey} is ${dup.nickname}`);
+      return false;
+    }
     if (idx >= 0) servers[idx] = entry;
     else servers.push(entry);
     set({ servers });
     persistModel(get());
+    // MS3 / MA2: a new host key may be a different daemon — drop what the
+    // app holds for this id (it keys by id, so nothing needs re-keying).
+    if (prevKey !== null && prevKey !== newKey) fireForget(entry.id, "rekeyed");
+    return true;
   },
 
   removeServer: (id) => {
@@ -263,6 +354,7 @@ export const useServersStore = create<ServersState>((set, get) => ({
     set({ servers, tokens, recovery, activeServerId });
     persistModel(get());
     void setRememberedPassword(id, null);
+    fireForget(id, "removed");
   },
 
   setToken: (id, token) => {
@@ -419,8 +511,17 @@ export async function loginToServer(
 
 /**
  * The add/edit-server flow: log in, then commit the server entry + token
- * (+ opted-in password) and make it the active server. Returns the saved
- * server id on success.
+ * and (by default) make it the active server. Returns the saved server id
+ * on success.
+ *
+ * Dedupe is by host key (MS2 / MA1), checked BEFORE the login so no token
+ * is minted for a save that would be refused:
+ *   - editing `id` onto another saved server's address → refused;
+ *   - adding a server already saved under the same username → that entry is
+ *     signed in again (today's re-login), not duplicated;
+ *   - adding it under another username → refused.
+ * `activate: false` (MA3) saves and signs in without switching the active
+ * server (a row's "Sign in" in the multi-server list).
  */
 export async function loginAndSaveServer(input: {
   id?: string;
@@ -429,28 +530,45 @@ export async function loginAndSaveServer(input: {
   username: string;
   password: string;
   rememberPassword: boolean;
+  /** Make it the active server after sign-in. Default true. */
+  activate?: boolean;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const url = normalizeServerUrl(input.url);
   const username = input.username.trim();
+  if (!tryHostKey(url)) return { ok: false, error: "Enter a server address like name.k2.dev" };
+
+  const before = useServersStore.getState();
+  let id = input.id;
+  const dup = duplicateServer(before.servers, url, id ?? null);
+  if (dup) {
+    const editingSharedKey =
+      id !== undefined &&
+      before.servers.some((s) => s.id === id && serverHostKey(s) === serverHostKey(dup));
+    if (!id && dup.username === username) id = dup.id;
+    else if (!editingSharedKey) return { ok: false, error: duplicateServerMessage(dup) };
+  }
+
   const result = await loginToServer({ url, username }, input.password);
   if (!result.ok) return { ok: false, error: result.error };
 
   const store = useServersStore.getState();
-  let id = input.id;
-  if (!id) {
-    id = store.servers.find((s) => s.url === url && s.username === username)?.id ?? newId();
-  }
-  store.upsertServer({
+  if (!id) id = newId();
+  const saved = store.upsertServer({
     id,
     nickname: input.nickname.trim() || hostLabel(url),
     url,
     username,
     rememberPassword: false,
   });
+  if (!saved) {
+    // Raced with another save of the same address while signing in.
+    const other = duplicateServer(useServersStore.getState().servers, url, id);
+    return { ok: false, error: other ? duplicateServerMessage(other) : "Could not save the server" };
+  }
   store.setToken(id, result.token);
   store.setRecovery(id, "connected");
   await setRememberedPassword(id, null);
-  store.setActive(id);
+  if (input.activate !== false) store.setActive(id);
   return { ok: true, id };
 }
 
