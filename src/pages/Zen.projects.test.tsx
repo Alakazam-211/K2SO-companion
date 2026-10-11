@@ -4,8 +4,9 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 // Agents header > Projects: the project chats sheet, a project chat in
-// the Zen thread view (Back → the sheet, Done → Agents), its PoC terminal
-// and its Files, and a project push tap landing through the sheet.
+// the Zen thread view (Back → the sheet, Done → Agents), its header (the
+// project's image, Files only) and its Files, and a project push tap
+// landing through the sheet.
 
 vi.mock("../components/TerminalView", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../components/TerminalView")>();
@@ -64,15 +65,16 @@ vi.mock("../api/projectGroups", () => ({
 
 import { getAgentList, getAllSessions, getCliProjectsList, getThread } from "../api/client";
 import {
+  fetchProjectGroupIcon,
   fetchProjectGroupMessages,
   fetchProjectGroupResources,
   fetchProjectGroupShow,
   fetchProjectGroups,
 } from "../api/projectGroups";
+import { useProjectGroupsStore } from "../stores/projectGroups";
 import { useServersStore } from "../stores/servers";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { resetLastAtQueue } from "../zen/lastAtFetch";
-import { ZEN_RETURN_KEY, ZEN_THREAD_KEY } from "../zen/terminalJump";
 import { useZenStore } from "../zen/zenStore";
 import { Zen } from "./Zen";
 import { ZenTerminal } from "./ZenTerminal";
@@ -145,6 +147,11 @@ beforeEach(() => {
     recovery: { s1: "connected" },
   });
   useWorkspacesStore.setState({ allSessions: [], projects: [] });
+  useProjectGroupsStore.setState({ icons: {} });
+  vi.mocked(fetchProjectGroupIcon).mockImplementation(async () => ({
+    ok: true,
+    data: { found: false, dataUrl: null },
+  }));
   useZenStore.setState({
     agents: [],
     agentId: "",
@@ -255,12 +262,12 @@ describe("Zen Projects", () => {
     expect(s.agentId).toBe("group:pg2");
     expect(screen.getByTestId("chat-header-title").textContent).toBe("Bravo");
     expect(screen.getByText("first")).not.toBeNull();
-    // Project chat header: Terminal · Files, no Sessions.
+    // Project chat header: Files only, no Terminal or Sessions.
     const buttons = screen.getByTestId("chat-header-buttons");
     expect(Array.from(buttons.children).map((b) => b.getAttribute("aria-label"))).toEqual([
-      "Terminal",
       "Files",
     ]);
+    expect(screen.queryByRole("button", { name: "Terminal" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Sessions" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Back to projects" }));
@@ -282,29 +289,49 @@ describe("Zen Projects", () => {
     expect(screen.queryByTestId("overlay-projects")).toBeNull();
   });
 
-  it("Terminal opens the PoC agent's session; Done returns to the project chat", async () => {
+  it("an agent chat keeps Terminal · Sessions · Files", async () => {
     await openAgents();
-    await openGroup("Bravo");
-    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
-    await waitFor(() =>
-      expect(screen.getByTestId("terminal-view").getAttribute("data-terminal")).toBe("t-main")
-    );
-    expect(fetchProjectGroupShow).toHaveBeenCalledWith("pg2");
-    // The PoC agent's avatar and name, not the group's.
-    expect(screen.getByTestId("zen-terminal-title").textContent).toBe("k2");
-    // Return target: router state (agentId) + sessionStorage, no stale
-    // session return that could send Done to the PoC's own chat.
-    expect(sessionStorage.getItem(ZEN_THREAD_KEY)).toBe("group:pg2");
-    expect(sessionStorage.getItem(ZEN_RETURN_KEY)).toBeNull();
+    const row = useZenStore.getState().agents.find((a) => a.kind !== "group");
+    expect(row).toBeDefined();
+    act(() => useZenStore.getState().setAgent(row!.id));
+    const buttons = await screen.findByTestId("chat-header-buttons");
+    expect(Array.from(buttons.children).map((b) => b.getAttribute("aria-label"))).toEqual([
+      "Terminal",
+      "Sessions",
+      "Files",
+    ]);
+  });
 
-    fireEvent.click(screen.getByTestId("zen-terminal-done"));
-    await waitFor(() => expect(useZenStore.getState().threadGroupId).toBe("pg2"));
+  it("the project chat header shows the project's image, as its sheet row does", async () => {
+    vi.mocked(fetchProjectGroupIcon).mockImplementation(async (group) =>
+      group === "pg1"
+        ? { ok: true, data: { found: true, dataUrl: "data:image/png;base64,QUxQSEE=" } }
+        : { ok: true, data: { found: false, dataUrl: null } }
+    );
+    await openAgents();
+    const sheet = await openSheet();
+    const alphaRow = within(sheet)
+      .getAllByTestId("project-row")
+      .find((r) => r.dataset.groupId === "pg1")!;
+    await waitFor(() =>
+      expect(alphaRow.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,QUxQSEE=")
+    );
+    fireEvent.click(within(sheet).getByText("Alpha").closest("button")!);
     await waitFor(() => expect(useZenStore.getState().threadSource).toBe("live"));
-    expect(useZenStore.getState().screen).toBe("thread");
-    expect(screen.getByTestId("chat-header-title").textContent).toBe("Bravo");
-    // Still inside Projects: Back lands on the sheet.
-    fireEvent.click(screen.getByRole("button", { name: "Back to projects" }));
-    expect(screen.getByTestId("overlay-projects")).not.toBeNull();
+    const avatar = screen.getByTestId("chat-header-avatar");
+    expect(fetchProjectGroupIcon).toHaveBeenCalledWith("pg1");
+    expect(avatar.querySelector("img")?.getAttribute("src")).toBe("data:image/png;base64,QUxQSEE=");
+    expect(within(avatar).getByTestId("workspace-avatar-glass")).not.toBeNull();
+  });
+
+  it("a project with no image falls back to its colour and initial", async () => {
+    await openAgents();
+    await openGroup("Alpha");
+    const avatar = within(screen.getByTestId("chat-header-avatar")).getByTestId("workspace-avatar");
+    expect(avatar.querySelector("img")).toBeNull();
+    expect(avatar.textContent).toBe("A");
+    // Alpha's own colour (#ff375f) from the project settings.
+    expect(avatar.style.background).toBe("rgb(255, 55, 95)");
   });
 
   it("Files lists the project's resources", async () => {

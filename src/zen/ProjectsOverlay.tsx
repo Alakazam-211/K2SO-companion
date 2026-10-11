@@ -1,8 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { fetchProjectGroups, type ProjectGroup } from "../api/projectGroups";
-import { groupAvatarColor, groupInitial, iconCacheKey } from "../lib/projectChat";
-import { useProjectGroupsStore } from "../stores/projectGroups";
 import { useServersStore } from "../stores/servers";
+import { GroupChatAvatar } from "./GroupChatAvatar";
 import { GlassSearchBar, SEARCH_BAR_HEIGHT } from "./GlassSearchBar";
 import {
   groupLastAtOf,
@@ -14,7 +13,6 @@ import {
 } from "./projectChats";
 import { subscribeAppEvents } from "./ticketEvents";
 import { mountainListWhen } from "./threadModel";
-import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 import { useZenStore } from "./zenStore";
 
@@ -37,28 +35,6 @@ import { useZenStore } from "./zenStore";
 export const PROJECTS_HEADER_PX = 64;
 
 const AVATAR_PX = 44;
-
-/** Group icon (cached per server:group in the project-groups store), on
- *  the group's colour, else its stable palette pick. */
-function GroupRowAvatar({ group }: { group: Pick<ProjectGroup, "id" | "name" | "color"> }) {
-  const serverId = useServersStore((s) => s.activeServerId);
-  const entry = useProjectGroupsStore((s) =>
-    serverId ? s.icons[iconCacheKey(serverId, group.id)] : undefined
-  );
-  const ensureIcon = useProjectGroupsStore((s) => s.ensureIcon);
-  useEffect(() => {
-    ensureIcon(group.id);
-  }, [group.id, serverId, ensureIcon]);
-  return (
-    <WorkspaceAvatar
-      initial={groupInitial(group.name)}
-      color={group.color ?? groupAvatarColor(group.id)}
-      iconUrl={entry?.found ? entry.dataUrl : null}
-      size={AVATAR_PX}
-      fontSize={18}
-    />
-  );
-}
 
 export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
   const serverId = useServersStore((s) => s.activeServerId);
@@ -218,7 +194,7 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
                 data-group-id={g.id}
                 aria-label={`${g.name}, ${memberCountText(g.memberCount)}${unread ? ", unread" : ""}`}
               >
-                <GroupRowAvatar group={g} />
+                <GroupChatAvatar groupId={g.id} name={g.name} color={g.color} size={AVATAR_PX} fontSize={18} />
                 <span className="flex-1 min-w-0 flex flex-col" style={{ gap: 2 }}>
                   <span className="w-full min-w-0 flex items-center" style={{ gap: 8 }}>
                     <span className="flex-1 min-w-0 text-[16px] font-semibold truncate">

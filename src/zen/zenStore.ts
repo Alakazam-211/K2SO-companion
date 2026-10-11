@@ -176,7 +176,9 @@ type ZenState = {
   projectsOpen: boolean;
   setProjectsOpen: (open: boolean) => void;
   /** Open a project group's chat, adding its row if the list lacks it. */
-  openGroupChat: (group: Pick<ProjectGroup, "id" | "name" | "memberCount">) => void;
+  openGroupChat: (
+    group: Pick<ProjectGroup, "id" | "name" | "memberCount"> & { color?: string | null }
+  ) => void;
   /** Newest message per group id (Projects sheet line two). Null = none. */
   groupPreviews: Record<string, GroupPreview | null>;
   /** Re-read each group's newest message (`messages?limit=1`); also
@@ -347,7 +349,9 @@ export function groupRowId(groupId: string): string {
 }
 
 /** A project group as a chat row (`kind: "group"`). */
-function groupAgentRow(g: Pick<ProjectGroup, "id" | "name" | "memberCount">): StubAgent {
+function groupAgentRow(
+  g: Pick<ProjectGroup, "id" | "name" | "memberCount"> & { color?: string | null }
+): StubAgent {
   return {
     id: groupRowId(g.id),
     name: g.name,
@@ -357,7 +361,9 @@ function groupAgentRow(g: Pick<ProjectGroup, "id" | "name" | "memberCount">): St
     kind: "group",
     groupId: g.id,
     memberCount: g.memberCount ?? 0,
-    color: null,
+    // The group's own colour (project settings); its image is fetched
+    // per group by GroupChatAvatar.
+    color: g.color ?? null,
     iconUrl: null,
   };
 }
