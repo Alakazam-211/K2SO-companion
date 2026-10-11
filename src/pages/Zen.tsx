@@ -136,7 +136,7 @@ export function Zen() {
   const headerSub = [stubBanner, err].filter(Boolean).join(" · ");
 
   return (
-    <div className="relative h-full min-h-0" style={{ background: "#000" }}>
+    <div className="relative h-full min-h-0 zen-font" style={{ background: "#000" }}>
       <div
         className="h-full min-h-0"
         data-testid="chats-layer"

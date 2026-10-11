@@ -1,19 +1,12 @@
-import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
   useServersStore,
   signOutServer,
   hostLabel,
-  getActiveServer,
   type RecoveryState,
 } from "../stores/servers";
-import {
-  pushAvailability,
-  getPushEnabled,
-  setPushEnabled,
-  ensureRegistered,
-  unregisterAll,
-} from "../lib/push";
+import { usePushToggle } from "../lib/usePushToggle";
+import { ABOUT } from "../lib/about";
 
 const STATE_LABEL: Record<RecoveryState, string> = {
   connected: "Connected",
@@ -81,9 +74,9 @@ export function Settings() {
       </Section>
 
       <Section title="About">
-        <Row label="Version" value="2.0.0" />
-        <Row label="App" value="K2" />
-        <Row label="Engine" value="Tauri v2" />
+        <Row label="Version" value={ABOUT.version} />
+        <Row label="App" value={ABOUT.app} />
+        <Row label="Engine" value={ABOUT.engine} />
       </Section>
 
       {/* Thumb-sized actions: full-width, ≥52px tall, and a WIDE gap
@@ -120,19 +113,7 @@ export function Settings() {
  *  active server; OFF unregisters this device from every saved server
  *  (registration follows the active server around). */
 function PushRow() {
-  const [available, setAvailable] = useState<boolean | null>(null);
-  const [reason, setReason] = useState<string | null>(null);
-  const [enabled, setEnabled] = useState(false);
-  const [busy, setBusy] = useState(false);
-
-  useEffect(() => {
-    void (async () => {
-      const a = await pushAvailability();
-      setAvailable(a.available);
-      setReason(a.reason ?? null);
-      if (a.available) setEnabled(await getPushEnabled());
-    })();
-  }, []);
+  const { available, reason, enabled, busy, toggle } = usePushToggle();
 
   if (available === null) {
     return <Row label="Push notifications" value="…" />;
@@ -147,24 +128,6 @@ function PushRow() {
       />
     );
   }
-
-  const toggle = async () => {
-    if (busy) return;
-    setBusy(true);
-    const next = !enabled;
-    setEnabled(next); // optimistic — the register/unregister is best-effort
-    try {
-      await setPushEnabled(next);
-      if (next) {
-        const active = getActiveServer();
-        if (active) await ensureRegistered(active);
-      } else {
-        await unregisterAll();
-      }
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <Row

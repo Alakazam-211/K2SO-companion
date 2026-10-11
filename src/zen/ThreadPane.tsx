@@ -361,7 +361,7 @@ export function ThreadPane({
   return (
     <div
       className="flex flex-col flex-1 min-h-0 min-w-0 overflow-x-hidden"
-      style={{ fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif' }}
+      style={{ fontFamily: "var(--zen-font)" }}
     >
       <div
         ref={scrollerRef}
