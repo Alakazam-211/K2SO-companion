@@ -764,3 +764,34 @@ export const setProjectPinned = (id: string, pinned: boolean) =>
 /** `POST /cli/projects/reorder {ids}` — `tab_order = index`. Send pinned ids only. */
 export const reorderProjects = (ids: string[]) =>
   request<unknown>("projects.reorder", "/cli/projects/reorder", { ids }, { method: "POST" });
+
+// ─── New workspace (Agents `+`) ───
+
+/** `POST /cli/workspace/create {path}` (Member). Makes the folder and
+ *  registers it (name = folder basename); seeds the wiki + AGENTS.md.
+ *  400 `{error}` when the folder exists or the path is registered. */
+export type CreatedWorkspace = {
+  success?: boolean;
+  projectId?: string;
+  workspaceId?: string;
+  name?: string;
+  path?: string;
+};
+export const createWorkspace = (path: string) =>
+  request<CreatedWorkspace>(
+    "workspace.create",
+    "/cli/workspace/create",
+    { path },
+    { method: "POST" }
+  );
+/** `GET /cli/fs/info` (Member) — `{home, separator, os}` of the host. */
+export const getFsInfo = () =>
+  request<{ home?: string; separator?: string; os?: string }>("fs.info", "/cli/fs/info", {});
+/** `POST /cli/projects/update {id, name?, color?}` (Member). */
+export const updateProjectLook = (id: string, look: { name?: string; color?: string }) =>
+  request<unknown>(
+    "projects.update",
+    "/cli/projects/update",
+    { id, ...look },
+    { method: "POST" }
+  );

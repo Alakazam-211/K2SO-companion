@@ -15,7 +15,10 @@ import {
   SEARCH_BAR_KEYBOARD_GAP,
   SEARCH_BAR_REST_BOTTOM,
 } from "./GlassSearchBar";
-import { OverlayCompose } from "./OverlayCompose";
+import { NewWorkspaceSheet } from "./NewWorkspaceSheet";
+import { canCreateWorkspace, createRoleNote } from "./newWorkspace";
+import { posixNormalize } from "./workspacePath";
+import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { OverlayServers } from "./OverlayServers";
 import { TicketsOverlay, useTicketWaitingCounts } from "./TicketsOverlay";
 import { ZEN_TICKET_PARAM } from "./terminalJump";
@@ -57,6 +60,8 @@ const PIN_YELLOW = "#ffd60a";
 const SWIPE_HINT_ID = "chats-swipe-hint";
 /** How long "Moved to Work · Undo" stays up after a group change. */
 export const GROUP_TOAST_MS = 4000;
+/** How long a just-created workspace row stays highlighted. */
+export const NEW_ROW_HIGHLIGHT_MS = 4000;
 /** Title cap: at 375pt the side columns keep ~100px for the pills. */
 const TITLE_MAX_W = "min(34vw, 140px)";
 /** Resting header content height below the safe area: 44 row + 12/8 pad. */
@@ -310,7 +315,18 @@ export function ChatsList() {
       { replace: true }
     );
   }, [ticketParam, setParams]);
-  const [compose, setCompose] = useState(false);
+  const [newWorkspace, setNewWorkspace] = useState(false);
+  // A created workspace that could not open straight into its chat.
+  const [newRowPath, setNewRowPath] = useState<string | null>(null);
+  const identity = useSessionIdentity();
+  const canCreate = canCreateWorkspace(identity);
+  useEffect(() => {
+    if (!newRowPath) return;
+    const row = document.querySelector<HTMLElement>('[data-new-workspace="1"]');
+    row?.scrollIntoView?.({ block: "nearest" });
+    const t = setTimeout(() => setNewRowPath(null), NEW_ROW_HIGHLIGHT_MS);
+    return () => clearTimeout(t);
+  }, [newRowPath]);
   const [serversSheet, setServersSheet] = useState(false);
   const servers = useServersStore((s) => s.servers);
   const activeServerId = useServersStore((s) => s.activeServerId);
@@ -992,6 +1008,8 @@ export function ChatsList() {
             : null;
           const sw = swipe.offsetFor(a.id);
           const reveal = swipeReveal(sw.x, swipe.reduced);
+          const fresh =
+            !!newRowPath && !!a.path && posixNormalize(a.path) === newRowPath;
           return (
           <div
             key={a.id}
@@ -999,6 +1017,8 @@ export function ChatsList() {
             // row's content is inset to the pinned avatars' width below.
             className="relative overflow-hidden"
             data-swipe-row={a.id}
+            data-new-workspace={fresh ? "1" : undefined}
+            style={fresh ? { background: "rgba(10,132,255,.22)", transition: "background 600ms" } : undefined}
           >
           {/* Leading swipe action: a round glass Group button revealed as
               the row slides right. The button is the whole revealed strip
@@ -1334,8 +1354,9 @@ export function ChatsList() {
         query={q}
         onQuery={setQ}
         placeholder="Search"
-        onPlus={() => setCompose(true)}
-        plusLabel="New message"
+        onPlus={() => setNewWorkspace(true)}
+        plusLabel="New workspace"
+        plusBlockedNote={canCreate ? null : createRoleNote()}
       />
 
       {tickets ? (
@@ -1348,7 +1369,12 @@ export function ChatsList() {
           }}
         />
       ) : null}
-      {compose ? <OverlayCompose onClose={() => setCompose(false)} /> : null}
+      {newWorkspace ? (
+        <NewWorkspaceSheet
+          onClose={() => setNewWorkspace(false)}
+          onListed={(path) => setNewRowPath(path)}
+        />
+      ) : null}
       {serversSheet ? <OverlayServers onClose={() => setServersSheet(false)} /> : null}
 
       {settings ? <ZenSettings onClose={() => setSettings(false)} /> : null}
