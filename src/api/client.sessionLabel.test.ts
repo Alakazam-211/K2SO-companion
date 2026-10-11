@@ -34,31 +34,72 @@ describe("setSessionLabel", () => {
     });
   });
 
-  it("GETs /cli/sessions/label with id and label on the query string", async () => {
-    tauriFetch.mockResolvedValue({
-      status: 200,
-      ok: true,
-      text: async () =>
-        JSON.stringify({ success: true, label: "qa731", locked: true }),
-    });
-    const r = await setSessionLabel(
-      "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee",
-      "qa731"
-    );
+  const ID = "aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee";
+  const okBody = {
+    status: 200,
+    ok: true,
+    text: async () =>
+      JSON.stringify({ success: true, label: "qa731", locked: true }),
+  };
+  const calls = () =>
+    tauriFetch.mock.calls as [string, { method?: string; body?: string }][];
+
+  it("POSTs /cli/sessions/label with {id, label} as a JSON body (K2 0.44.4+)", async () => {
+    tauriFetch.mockResolvedValue(okBody);
+    const r = await setSessionLabel(ID, "qa731");
     expect(r).toEqual({
       ok: true,
       data: { success: true, label: "qa731", locked: true },
     });
     expect(tauriFetch).toHaveBeenCalledTimes(1);
-    const [url, opts] = tauriFetch.mock.calls[0] as [
-      string,
-      { method?: string; body?: string },
-    ];
+    const [url, opts] = calls()[0];
+    expect(url).toBe("http://127.0.0.1:9/cli/sessions/label");
+    expect(opts.method).toBe("POST");
+    expect(JSON.parse(opts.body || "")).toEqual({ id: ID, label: "qa731" });
+    expect(opts.body).not.toMatch(/lock/);
+  });
+
+  it("falls back to the old GET once when the POST 405s (pre-0.44.4)", async () => {
+    tauriFetch
+      .mockResolvedValueOnce({
+        status: 405,
+        ok: false,
+        text: async () =>
+          JSON.stringify({ error: "method not allowed for this route" }),
+      })
+      .mockResolvedValueOnce(okBody);
+    const r = await setSessionLabel(ID, "qa 731");
+    expect(r.ok).toBe(true);
+    expect(tauriFetch).toHaveBeenCalledTimes(2);
+    expect(calls()[0][1].method).toBe("POST");
+    const [url, opts] = calls()[1];
     expect(url).toBe(
-      "http://127.0.0.1:9/cli/sessions/label?id=aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee&label=qa731"
+      `http://127.0.0.1:9/cli/sessions/label?id=${ID}&label=qa%20731`
     );
     expect(url).not.toMatch(/lock=/);
     expect(opts.method).toBe("GET");
     expect(opts.body).toBeUndefined();
+  });
+
+  it("does not fall back on a non-405 failure", async () => {
+    tauriFetch.mockResolvedValue({
+      status: 400,
+      ok: false,
+      text: async () => JSON.stringify({ error: "missing label param" }),
+    });
+    const r = await setSessionLabel(ID, "qa731");
+    expect(r).toMatchObject({ ok: false, status: 400 });
+    expect(tauriFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("surfaces the GET answer when both forms 405", async () => {
+    tauriFetch.mockResolvedValue({
+      status: 405,
+      ok: false,
+      text: async () => JSON.stringify({ error: "nope" }),
+    });
+    const r = await setSessionLabel(ID, "qa731");
+    expect(r).toMatchObject({ ok: false, status: 405 });
+    expect(tauriFetch).toHaveBeenCalledTimes(2);
   });
 });

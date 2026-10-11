@@ -24,7 +24,7 @@ export type StubAgent = {
   tabId?: string | null;
   /** Workspace id for POST /cli/workspace/set-tab-title. */
   projectId?: string | null;
-  /** Live PTY id for GET /cli/sessions/label. */
+  /** Live PTY id for POST /cli/sessions/label. */
   terminalId?: string | null;
   /** False when the extra is remembered but the Mac tab is gone. Search still finds it. */
   hostLive?: boolean | null;
