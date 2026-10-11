@@ -120,7 +120,7 @@ describe("ChatsList", () => {
     expect(screen.queryByTestId("chats-home")).toBeNull();
   });
 
-  it("is the overlay home: Agents title, pin slot, search, stub rows", () => {
+  it("is the overlay home: Agents title, search, stub rows; no empty pin tray", () => {
     seedServer();
     useZenStore.setState({
       agentSource: "stub",
@@ -132,13 +132,12 @@ describe("ChatsList", () => {
     expect(screen.getByTestId("chats-home")).not.toBeNull();
     expect(screen.getByRole("heading", { name: "Agents" })).not.toBeNull();
     expect(screen.queryByText("Chats")).toBeNull();
-    expect(screen.getByTestId("chats-pins").textContent).toMatch(/Drop here/);
-    expect(screen.getByTestId("chats-list").contains(screen.getByTestId("chats-pins"))).toBe(
-      true
-    );
+    // No pins: no tray, no placeholder; the list starts under the header.
+    expect(screen.queryByTestId("chats-pins")).toBeNull();
+    expect(screen.queryByTestId("chats-pin-drop")).toBeNull();
+    expect(screen.getByTestId("chats-home").textContent).not.toMatch(/Drop here/);
     expect(screen.getByTestId("chats-home").textContent).not.toMatch(/Hold a pin/);
     expect(screen.getByTestId("chats-home").textContent).not.toMatch(/Hold a chat/);
-    expect(screen.getByTestId("chats-pins").className).not.toMatch(/zen-glass/);
     expect(screen.getByPlaceholderText("Search")).not.toBeNull();
     const home = screen.getByTestId("chats-home");
     expect(home.style.position).toBe("fixed");
@@ -441,8 +440,18 @@ describe("ChatsList", () => {
       pinnedIds: [],
     });
     mount();
-    const pins = screen.getByTestId("chats-pins");
-    pins.getBoundingClientRect = () =>
+    expect(screen.queryByTestId("chats-pins")).toBeNull();
+    expect(screen.queryByTestId("chats-pin-drop")).toBeNull();
+    const row = screen.getByLabelText("STUB [STUB] not-a-real-agent-1");
+    fireEvent.pointerDown(row, { clientX: 20, clientY: 200, button: 0, pointerId: 1 });
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    // No pins yet: the hold-drag gets a temporary glass drop strip.
+    const drop = screen.getByTestId("chats-pin-drop");
+    expect(drop.className).toMatch(/k2-pin-drop/);
+    expect(drop.textContent).toMatch(/Drop to pin/);
+    drop.getBoundingClientRect = () =>
       ({
         left: 0,
         right: 300,
@@ -456,11 +465,6 @@ describe("ChatsList", () => {
           return {};
         },
       }) as DOMRect;
-    const row = screen.getByLabelText("STUB [STUB] not-a-real-agent-1");
-    fireEvent.pointerDown(row, { clientX: 20, clientY: 200, button: 0, pointerId: 1 });
-    act(() => {
-      vi.advanceTimersByTime(300);
-    });
     expect(screen.getByTestId("chats-list").style.overflowY).toBe("hidden");
     expect(screen.getByTestId("chats-list").style.touchAction).toBe("none");
     fireEvent.pointerUp(screen.getByTestId("chats-home"), {
@@ -470,6 +474,23 @@ describe("ChatsList", () => {
     });
     expect(useZenStore.getState().pinnedIds).toEqual(["stub-not-a-real-agent-1"]);
     expect(screen.getByLabelText("Pinned [STUB] not-a-real-agent-1")).not.toBeNull();
+    // The strip goes with the drag; the real grid takes over.
+    expect(screen.queryByTestId("chats-pin-drop")).toBeNull();
+    expect(screen.getByTestId("chats-pins")).not.toBeNull();
+    screen.getByTestId("chats-pins").getBoundingClientRect = () =>
+      ({
+        left: 0,
+        right: 300,
+        top: 0,
+        bottom: 90,
+        width: 300,
+        height: 90,
+        x: 0,
+        y: 0,
+        toJSON() {
+          return {};
+        },
+      }) as DOMRect;
 
     fireEvent.pointerDown(screen.getByLabelText("Pinned [STUB] not-a-real-agent-1"), {
       clientX: 40,
@@ -487,6 +508,7 @@ describe("ChatsList", () => {
     });
     expect(useZenStore.getState().pinnedIds).toEqual([]);
     expect(screen.queryByLabelText("Pinned [STUB] not-a-real-agent-1")).toBeNull();
+    expect(screen.queryByTestId("chats-pins")).toBeNull();
     vi.useRealTimers();
   });
 
@@ -927,15 +949,23 @@ describe("ChatsList", () => {
       }
     }
 
-    it("a swipe right past the threshold reveals the yellow Pin button", () => {
+    it("a swipe right past the threshold reveals a round glass Pin button", () => {
       setup();
       drag(A, [[34, 201], [70, 202], [110, 203]]);
       const btn = action(A);
       expect(btn.style.width).toBe("76px");
-      expect(btn.style.background).toBe("rgb(255, 214, 10)");
+      // The revealed strip is clear, not a yellow slab.
+      expect(btn.style.background).toBe("transparent");
+      const glass = btn.querySelector("[data-testid='swipe-action-glass']") as HTMLElement;
+      expect(glass.className).toMatch(/k2-swipe-pin/);
+      expect(glass.style.color).toBe("rgb(255, 214, 10)");
+      expect(glass.style.transform).toBe("scale(1)");
+      expect(
+        (btn.querySelector("[data-testid='swipe-action-reveal']") as HTMLElement).style.opacity
+      ).toBe("1");
       expect(btn.getAttribute("aria-label")).toBe(`Pin ${A.name}`);
       expect(btn.textContent).toBe("Pin");
-      expect(btn.querySelector("[data-testid='pin-glyph']")).not.toBeNull();
+      expect(glass.querySelector("[data-testid='pin-glyph']")).not.toBeNull();
       expect(row(A).style.transform).toBe("translateX(76px)");
       // The swipe's click does not open the chat.
       fireEvent.click(row(A));
@@ -956,6 +986,27 @@ describe("ChatsList", () => {
       expect(action(A).style.width).toBe("0px");
       expect(row(A).style.transform).toBe("translateX(0px)");
       expect(row(A).style.transition).toMatch(/transform/);
+    });
+
+    it("the glass pin scales and fades in with the drag", () => {
+      setup();
+      const glass = () =>
+        action(A).querySelector("[data-testid='swipe-action-glass']") as HTMLElement;
+      const reveal = () =>
+        action(A).querySelector("[data-testid='swipe-action-reveal']") as HTMLElement;
+      expect(reveal().style.opacity).toBe("0");
+      expect(glass().style.transform).toBe("scale(0.6)");
+      // 30px of a 60px open threshold: halfway in.
+      drag(A, [[50, 200]], false);
+      expect(action(A).style.width).toBe("30px");
+      expect(reveal().style.opacity).toBe("0.5");
+      expect(glass().style.transform).toBe("scale(0.8)");
+      expect(glass().style.transition).toBe("none");
+      fireEvent.pointerMove(home(), { clientX: 80, clientY: 200, pointerId: 7 });
+      expect(reveal().style.opacity).toBe("1");
+      expect(glass().style.transform).toBe("scale(1)");
+      expect(glass().dataset.armed).toBeUndefined();
+      fireEvent.pointerUp(home(), { clientX: 80, clientY: 200, pointerId: 7 });
     });
 
     it("a short swipe springs back", () => {
@@ -981,9 +1032,14 @@ describe("ChatsList", () => {
       expect(
         (action(A).querySelector("[data-testid='swipe-action-glyph']") as HTMLElement).style.transform
       ).toBe("scale(1.2)");
+      expect(
+        (action(A).querySelector("[data-testid='swipe-action-glass']") as HTMLElement).dataset.armed
+      ).toBe("1");
       fireEvent.pointerUp(home(), { clientX: 240, clientY: 200, pointerId: 7 });
       expect(useZenStore.getState().pinnedIds).toEqual([A.id]);
       expect(screen.getByLabelText(`Pinned ${A.name}`)).not.toBeNull();
+      // First pin: the grid appears where there was none.
+      expect(screen.getByTestId("chats-pins")).not.toBeNull();
       expect(row(A).style.transform).toBe("translateX(0px)");
     });
 
@@ -1018,7 +1074,9 @@ describe("ChatsList", () => {
       drag(A, [[34, 200], [110, 200]]);
       expect(action(A).getAttribute("aria-label")).toBe(`Unpin ${A.name}`);
       expect(action(A).textContent).toBe("Unpin");
-      expect(action(A).querySelector("[data-testid='unpin-glyph']")).not.toBeNull();
+      expect(
+        action(A).querySelector("[data-testid='swipe-action-glass'] [data-testid='unpin-glyph']")
+      ).not.toBeNull();
       fireEvent.click(action(A));
       expect(useZenStore.getState().pinnedIds).toEqual([]);
     });

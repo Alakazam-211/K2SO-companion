@@ -18,7 +18,8 @@ import { TicketsOverlay } from "./TicketsOverlay";
 import { lastAtKeyFor, sortChatsByRecency } from "./lastAtFetch";
 import { mountainListWhen } from "./threadModel";
 import { usePinDrag } from "./usePinDrag";
-import { SWIPE_ACTION_W, useRowSwipe } from "./useRowSwipe";
+import { SWIPE_ACTION_W, swipeReveal, useRowSwipe } from "./useRowSwipe";
+import "./swipePin.css";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { ZenSettings } from "./ZenSettings";
 import { useZenStore } from "./zenStore";
@@ -361,6 +362,23 @@ export function ChatsList() {
         </span>
       </header>
 
+      {/* No pins: a hold-drag still needs somewhere to land. A zero-height
+          anchor under the header, so the strip floats over the list without
+          shifting the row under the finger. */}
+      {!searching && pinned.length === 0 && hot ? (
+        <div className="relative shrink-0" style={{ height: 0, zIndex: 5 }} data-no-pin="1">
+          <div
+            ref={pinsRef}
+            className="k2-pin-drop absolute"
+            style={{ top: 4, left: 12, right: 12 }}
+            data-testid="chats-pin-drop"
+          >
+            <PinGlyph off={false} />
+            Drop to pin
+          </div>
+        </div>
+      ) : null}
+
       <div
         ref={listRef}
         className="flex-1 min-h-0 overflow-y-auto"
@@ -380,7 +398,8 @@ export function ChatsList() {
       <span id={SWIPE_HINT_ID} className="sr-only">
         Swipe right to pin or unpin. Or press and hold, then drag to the top.
       </span>
-      {!searching ? (
+      {/* Pins only when there are pins: an empty tray is dead space. */}
+      {!searching && pinned.length > 0 ? (
       <div
         ref={pinsRef}
         className="grid grid-cols-3"
@@ -395,27 +414,7 @@ export function ChatsList() {
         }}
         data-testid="chats-pins"
       >
-        {pinned.length === 0 ? (
-          <div className="text-center" style={{ opacity: 0.45 }} data-pin-id="" data-pin-from="pin" data-placeholder="1">
-            <div
-              className="mx-auto mb-2 flex items-center justify-center"
-              style={{
-                width: 74,
-                height: 74,
-                borderRadius: "50%",
-                border: "1.5px dashed #636366",
-                color: "#636366",
-                fontSize: 26,
-              }}
-            >
-              +
-            </div>
-            <div className="text-[12px]" style={{ color: "#d1d1d6" }}>
-              Drop here
-            </div>
-          </div>
-        ) : (
-          pinned.map((a) => (
+        {pinned.map((a) => (
             <button
               key={a.id}
               type="button"
@@ -443,8 +442,7 @@ export function ChatsList() {
                 {a.name}
               </div>
             </button>
-          ))
-        )}
+          ))}
       </div>
       ) : null}
         {source === "loading" ? (
@@ -487,20 +485,23 @@ export function ChatsList() {
           const isPinned = pinnedIds.includes(a.id);
           const sw = swipe.offsetFor(a.id);
           const pinVerb = isPinned ? "Unpin" : "Pin";
+          const reveal = swipeReveal(sw.x, swipe.reduced);
           return (
           <div
             key={a.id}
             className="relative overflow-hidden"
             data-swipe-row={a.id}
           >
-          {/* Leading swipe action: revealed as the row slides right. */}
+          {/* Leading swipe action: a round glass pin revealed as the row
+              slides right. The button is the whole revealed strip (row
+              height, so the hit target stays over 44px); the strip itself
+              is clear, only the glass circle is drawn. */}
           <button
             type="button"
-            className="absolute left-0 top-0 bottom-0 overflow-hidden border-0 p-0"
+            className="absolute left-0 top-0 bottom-0 overflow-hidden border-0 p-0 bg-transparent"
             style={{
               width: sw.x,
-              background: PIN_YELLOW,
-              color: "#fff",
+              background: "transparent",
               transition: swipe.transition(sw.dragging, ["width"]),
             }}
             onClick={() => {
@@ -513,21 +514,43 @@ export function ChatsList() {
             data-testid={`swipe-action-${a.id}`}
           >
             <span
-              className="absolute top-0 bottom-0 right-0 flex flex-col items-center justify-center"
-              style={{ width: SWIPE_ACTION_W, gap: 3 }}
+              className="absolute top-0 bottom-0 flex flex-col items-center justify-center"
+              style={{
+                width: SWIPE_ACTION_W,
+                // Sits at the left while revealing; on an over-swipe it
+                // rides the row's leading edge.
+                left: Math.max(0, sw.x - SWIPE_ACTION_W),
+                gap: 4,
+                opacity: reveal.opacity,
+                transition: swipe.transition(sw.dragging, ["opacity", "left"]),
+              }}
               aria-hidden
+              data-testid="swipe-action-reveal"
             >
               <span
-                className="flex"
+                className="k2-swipe-pin"
                 style={{
-                  transform: sw.full && !swipe.reduced ? "scale(1.2)" : "scale(1)",
-                  transition: swipe.reduced ? "none" : "transform 160ms cubic-bezier(.3,1.6,.5,1)",
+                  color: PIN_YELLOW,
+                  transform: `scale(${reveal.scale})`,
+                  transition: swipe.reduced
+                    ? "none"
+                    : swipe.transition(sw.dragging, ["transform"]),
                 }}
-                data-testid="swipe-action-glyph"
+                data-armed={sw.full ? "1" : undefined}
+                data-testid="swipe-action-glass"
               >
-                <PinGlyph off={isPinned} />
+                <span
+                  className="flex"
+                  style={{
+                    transform: sw.full && !swipe.reduced ? "scale(1.2)" : "scale(1)",
+                    transition: swipe.reduced ? "none" : "transform 160ms cubic-bezier(.3,1.6,.5,1)",
+                  }}
+                  data-testid="swipe-action-glyph"
+                >
+                  <PinGlyph off={isPinned} />
+                </span>
               </span>
-              <span className="text-[13px] font-medium">{pinVerb}</span>
+              <span className="k2-swipe-pin-label">{pinVerb}</span>
             </span>
           </button>
           <button
