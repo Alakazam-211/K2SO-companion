@@ -27,6 +27,16 @@ export function zenThreadPath(agentId?: string | null): string {
   return `/zen?thread=${encodeURIComponent(id)}`;
 }
 
+/** Query key that opens the Zen Tickets overlay on one ticket. */
+export const ZEN_TICKET_PARAM = "ticket";
+
+/** Push-tap deep link: `/zen?ticket=<id>` opens Tickets on that ticket. */
+export function zenTicketPath(ticketId?: string | null): string {
+  const id = (ticketId || "").trim();
+  if (!id) return "/zen";
+  return `/zen?${ZEN_TICKET_PARAM}=${encodeURIComponent(id)}`;
+}
+
 /** Pick the original-UI terminal for an overlay agent. Null → /sessions. */
 export function terminalIdForAgent(
   agent: { path?: string | null; addr?: string | null } | null | undefined,

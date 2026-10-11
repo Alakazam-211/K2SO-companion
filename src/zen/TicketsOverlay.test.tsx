@@ -525,3 +525,27 @@ describe("Open ticket — unlinked workspace", () => {
     await waitFor(() => expect(resolveFeedback).toHaveBeenCalledWith("t-wait", "resolved"));
   });
 });
+
+describe("Push deep link (?ticket=)", () => {
+  it("initialTicketId opens straight on that ticket", async () => {
+    render(<TicketsOverlay onClose={() => {}} initialTicketId="t-wait" />);
+    await waitFor(() => screen.getByTestId("ticket-view"));
+    await waitFor(() => screen.getByTestId("ticket-comments"));
+    expect(vi.mocked(fetchFeedbackShow).mock.calls[0]?.[0]).toBe("t-wait");
+    expect(useFeedbackStore.getState().openId).toBe("t-wait");
+  });
+
+  it("a cold start without the row asks for the brief", async () => {
+    setRows([]);
+    serve(ROW, BRIEF);
+    render(<TicketsOverlay onClose={() => {}} initialTicketId="t-wait" />);
+    await waitFor(() => screen.getByTestId("ticket-view"));
+    expect(vi.mocked(fetchFeedbackShow)).toHaveBeenCalledWith("t-wait", { brief: true });
+  });
+
+  it("without initialTicketId it opens on the list", async () => {
+    render(<TicketsOverlay onClose={() => {}} />);
+    await waitFor(() => screen.getByText("Which pricing tier for Acme?"));
+    expect(screen.queryByTestId("ticket-view")).toBeNull();
+  });
+});

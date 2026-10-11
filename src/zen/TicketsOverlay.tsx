@@ -74,7 +74,14 @@ function refetchLive(): void {
   void useFeedbackStore.getState().refetchOpen();
 }
 
-export function TicketsOverlay({ onClose }: { onClose: () => void }) {
+export function TicketsOverlay({
+  onClose,
+  initialTicketId,
+}: {
+  onClose: () => void;
+  /** Push-tap deep link (`/zen?ticket=<id>`): open straight on this ticket. */
+  initialTicketId?: string | null;
+}) {
   const rows = useFeedbackStore((s) => s.rows);
   const isLoading = useFeedbackStore((s) => s.isLoading);
   const error = useFeedbackStore((s) => s.error);
@@ -88,12 +95,21 @@ export function TicketsOverlay({ onClose }: { onClose: () => void }) {
     setPicked(defaultTicketScope(counts));
   }
   const scope: TicketScope = picked ?? "waiting";
-  const [openId, setOpenId] = useState<string | null>(null);
+  const [openId, setOpenId] = useState<string | null>(() => initialTicketId?.trim() || null);
   const [headerRef, headerPx] = useMeasuredHeight(TICKETS_HEADER_PX);
   const nowSec = Math.floor(Date.now() / 1000);
 
   useEffect(() => {
     useFeedbackStore.getState().ensureLive();
+    const deepId = initialTicketId?.trim();
+    if (deepId) {
+      // Cold start may not have the row yet, so its hasBrief is unknown:
+      // ask for the brief unless the row says there is none.
+      const row = useFeedbackStore.getState().rows.find((r) => r.id === deepId);
+      void useFeedbackStore
+        .getState()
+        .openThread(deepId, { withBrief: row ? row.hasBrief === true : true });
+    }
     const live = connectTicketEvents(refetchLive);
     const poll = setInterval(() => {
       if (typeof document === "undefined" || document.visibilityState !== "hidden") {
