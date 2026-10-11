@@ -684,3 +684,27 @@ export const getCompanionCapabilities = () =>
     "/companion/capabilities",
     {},
   );
+
+// ─── Server pins + focus groups (K2 `focus-groups-pinned-agents-for-the-phone` §3) ───
+// Pins are per workspace on the server (`projects.pinned` + `tab_order`);
+// both writes emit `projects_changed` on `/cli/sessions/events`. Focus
+// groups: `settings/get` carries `focusGroupsEnabled` + `activeFocusGroupId`
+// (one value per server); names come from `focus-groups/list`.
+
+/** `GET /cli/settings/get` — the daemon's global settings object. */
+export const getAppSettings = () =>
+  request<unknown>("settings.get", "/cli/settings/get", {});
+/** `GET /cli/focus-groups/list` — `FocusGroup[]` in `tabOrder`. */
+export const getFocusGroupsList = () =>
+  request<unknown>("focus_groups.list", "/cli/focus-groups/list", {});
+/** `POST /cli/projects/update {id, pinned: 1|0}` — the desktop's Pin to Top. */
+export const setProjectPinned = (id: string, pinned: boolean) =>
+  request<unknown>(
+    "projects.update",
+    "/cli/projects/update",
+    { id, pinned: pinned ? 1 : 0 },
+    { method: "POST" }
+  );
+/** `POST /cli/projects/reorder {ids}` — `tab_order = index`. Send pinned ids only. */
+export const reorderProjects = (ids: string[]) =>
+  request<unknown>("projects.reorder", "/cli/projects/reorder", { ids }, { method: "POST" });

@@ -61,7 +61,11 @@ function prefersReducedMotion(): boolean {
  * caller decides the order: swipe first, and if it claims the move, abort
  * the hold-drag.
  */
-export function useRowSwipe(onFull: (id: string) => void) {
+export function useRowSwipe(
+  onFull: (id: string) => void,
+  /** Rows with no action (the server cannot pin them) do not swipe. */
+  canSwipe: (id: string) => boolean = () => true
+) {
   const track = useRef<Track | null>(null);
   const skipClick = useRef(false);
   const [openId, setOpenId] = useState<string | null>(null);
@@ -102,7 +106,7 @@ export function useRowSwipe(onFull: (id: string) => void) {
       setOpenId(null);
       if (row) skipClick.current = true;
     }
-    if (!row || !id) return;
+    if (!row || !id || !canSwipe(id)) return;
     // A tap on the open row closes it rather than opening the chat.
     if (open === id) skipClick.current = true;
     const wrap = (row.closest("[data-swipe-row]") as HTMLElement | null) ?? row;

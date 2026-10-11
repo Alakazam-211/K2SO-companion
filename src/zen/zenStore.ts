@@ -5,10 +5,14 @@ import {
   getCliProjectsList,
   getFsReadFile,
   getActivitySnapshot,
+  getAppSettings,
+  getFocusGroupsList,
   getThread,
   getToken,
   postThread,
   answerThread,
+  reorderProjects,
+  setProjectPinned,
   setSessionLabel,
   setTabTitle,
   spawnSidecarSession,
@@ -34,7 +38,23 @@ import {
 } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
 import { beginLastAt, fetchLastAt } from "./lastAtFetch";
-import { insertPinned, pinId, readPinnedIds, unpinId, writePinnedIds } from "./pinChats";
+import { clearLegacyPinStore, insertPinned } from "./pinChats";
+import {
+  FOCUS_OFF,
+  derivePinnedIds,
+  focusGroupsOf,
+  focusSettingsOf,
+  pinProjectIdForRow,
+  pinnedProjectOrder,
+  readStoredFocusGroup,
+  resolveFocus,
+  serverProjectsOf,
+  withOrder,
+  withPinned,
+  writeStoredFocusGroup,
+  type FocusState,
+  type ServerProject,
+} from "./serverPins";
 import { isSendableAddr } from "./sendGate";
 import { terminalIdForAgent } from "./terminalJump";
 import { resolveFileRef } from "./chatLinks";
@@ -131,10 +151,26 @@ type ZenState = {
   /** Main-chat vs other PTY ids, so a main row skips its sidecars' work. */
   chatSessions: ChatSessions;
   refreshActivity: () => Promise<void>;
+  /** Workspace rows from `/cli/projects/list`: pins, order, focus group. */
+  serverProjects: ServerProject[];
+  /** Pin grid row ids, derived from `serverProjects` (never stored locally). */
   pinnedIds: string[];
-  pinChat: (id: string, beforeId?: string | null) => void;
-  movePin: (id: string, beforeId: string | null) => void;
-  unpinChat: (id: string) => void;
+  /** Last pin write that failed and was rolled back. Clears itself. */
+  pinError: string | null;
+  /** Server pin: `POST /cli/projects/update {pinned:1}` (+ reorder when
+   *  dropped at a spot in the grid). Sidecar and group rows are refused. */
+  pinChat: (id: string, beforeId?: string | null) => Promise<void>;
+  /** `POST /cli/projects/reorder` with the pinned ids only. */
+  movePin: (id: string, beforeId: string | null) => Promise<void>;
+  unpinChat: (id: string) => Promise<void>;
+  /** Re-read `/cli/projects/list` for pins and group membership. */
+  refreshPins: () => Promise<void>;
+  /** Focus groups: on/off from `settings/get`, names from `focus-groups/list`. */
+  focus: FocusState;
+  refreshFocus: () => Promise<void>;
+  /** This device's view only. Never written to the server. */
+  selectFocusGroup: (groupId: string) => void;
+  refreshServerLists: () => void;
   dismissFiles: () => void;
   /** Overlay home is the chats list. A row opens the thread. */
   screen: "list" | "thread";
@@ -266,6 +302,32 @@ function stubThread(agentId: string): ThreadMessage[] {
 let activityInFlight = false;
 let activityServer: string | null = null;
 
+// Pins: one projects/list read at a time; a write in flight (or one that
+// started after the read) wins over that read. The write refetches after.
+let pinsInFlight = false;
+let pinsAgain = false;
+let pinWrites = 0;
+let pinGen = 0;
+let pinErrorTimer: ReturnType<typeof setTimeout> | null = null;
+// Focus groups: one read at a time, and the server the groups came from.
+let focusInFlight = false;
+let focusServer: string | null = null;
+
+export const PIN_ERROR_MS = 4000;
+
+// Pins moved to the server: drop the old per-device list, do not migrate.
+clearLegacyPinStore();
+
+function activeServerId(): string | null {
+  return getActiveServer()?.id ?? null;
+}
+
+function errorText(e: unknown, fallback: string): string {
+  if (typeof e === "string" && e) return e;
+  if (e instanceof Error && e.message) return e.message;
+  return fallback;
+}
+
 export const useZenStore = create<ZenState>((set, get) => ({
   // Never start on the stub catalogue. A signed-in first paint used to
   // show STUB_AGENTS until hydrateAgents resolved. Stub is only applied
@@ -295,25 +357,134 @@ export const useZenStore = create<ZenState>((set, get) => ({
   lastAtByKey: {},
   activity: EMPTY_ACTIVITY,
   chatSessions: NO_CHAT_SESSIONS,
-  pinnedIds: readPinnedIds(),
+  serverProjects: [],
+  pinnedIds: [],
+  pinError: null,
+  focus: FOCUS_OFF,
   hiddenSidecarAddrs: readHiddenSidecarAddrs(),
-  pinChat: (id, beforeId) => {
-    const pinnedIds =
-      beforeId === undefined
-        ? pinId(get().pinnedIds, id)
-        : insertPinned(get().pinnedIds, id, beforeId);
-    writePinnedIds(pinnedIds);
-    set({ pinnedIds });
+  pinChat: async (id, beforeId) => {
+    const s = get();
+    const pid = pinProjectIdForRow(s.agents.find((a) => a.id === id), s.serverProjects);
+    if (!pid) return; // sidecar / group / unmatched row: pins are per workspace
+    let order: string[] | null = null;
+    let next = withPinned(s.serverProjects, pid, true);
+    if (beforeId !== undefined) {
+      const beforePid = beforeId
+        ? pinProjectIdForRow(s.agents.find((a) => a.id === beforeId), s.serverProjects)
+        : null;
+      order = insertPinned(pinnedProjectOrder(s.serverProjects), pid, beforePid);
+      next = withOrder(next, order);
+    }
+    await writePins(next, "Could not pin", async () => {
+      const r = await setProjectPinned(pid, true);
+      if (!r.ok) throw r.error || "Could not pin";
+      if (order) {
+        const o = await reorderProjects(order);
+        if (!o.ok) throw o.error || "Could not reorder pins";
+      }
+    });
   },
-  movePin: (id, beforeId) => {
-    const pinnedIds = insertPinned(get().pinnedIds, id, beforeId);
-    writePinnedIds(pinnedIds);
-    set({ pinnedIds });
+  movePin: async (id, beforeId) => {
+    const s = get();
+    const pid = pinProjectIdForRow(s.agents.find((a) => a.id === id), s.serverProjects);
+    if (!pid) return;
+    const beforePid = beforeId
+      ? pinProjectIdForRow(s.agents.find((a) => a.id === beforeId), s.serverProjects)
+      : null;
+    const current = pinnedProjectOrder(s.serverProjects);
+    if (!current.includes(pid)) return;
+    const order = insertPinned(current, pid, beforePid);
+    if (order.join("\n") === current.join("\n")) return;
+    await writePins(withOrder(s.serverProjects, order), "Could not reorder pins", async () => {
+      const r = await reorderProjects(order);
+      if (!r.ok) throw r.error || "Could not reorder pins";
+    });
   },
-  unpinChat: (id) => {
-    const pinnedIds = unpinId(get().pinnedIds, id);
-    writePinnedIds(pinnedIds);
-    set({ pinnedIds });
+  unpinChat: async (id) => {
+    const s = get();
+    const pid = pinProjectIdForRow(s.agents.find((a) => a.id === id), s.serverProjects);
+    if (!pid) return;
+    await writePins(withPinned(s.serverProjects, pid, false), "Could not unpin", async () => {
+      const r = await setProjectPinned(pid, false);
+      if (!r.ok) throw r.error || "Could not unpin";
+    });
+  },
+  refreshPins: async () => {
+    if (get().agentSource !== "live") return;
+    if (pinsInFlight) {
+      pinsAgain = true;
+      return;
+    }
+    const server = activeServerId();
+    const gen = pinGen;
+    pinsInFlight = true;
+    try {
+      const r = await getCliProjectsList();
+      if (activeServerId() !== server || pinWrites > 0 || pinGen !== gen) return;
+      if (!r.ok) return; // transient: keep what is on screen
+      const projects = serverProjectsOf(r.data);
+      if (!projects) return;
+      set({
+        serverProjects: projects,
+        pinnedIds: derivePinnedIds(get().agents, projects),
+      });
+    } catch {
+      /* keep what is on screen */
+    } finally {
+      pinsInFlight = false;
+      if (pinsAgain) {
+        pinsAgain = false;
+        void get().refreshPins();
+      }
+    }
+  },
+  refreshFocus: async () => {
+    if (get().agentSource !== "live" || focusInFlight) return;
+    const server = activeServerId();
+    if (server !== focusServer) {
+      focusServer = server;
+      if (get().focus !== FOCUS_OFF) set({ focus: FOCUS_OFF });
+    }
+    focusInFlight = true;
+    const apply = (focus: FocusState) => {
+      if (activeServerId() !== server) return;
+      if (focus.enabled && focus.currentId) writeStoredFocusGroup(server, focus.currentId);
+      set({ focus });
+    };
+    try {
+      const rs = await getAppSettings();
+      if (!rs.ok) {
+        // Older daemon (no route): groups off. Anything else is transient.
+        if (rs.status === 404) apply(FOCUS_OFF);
+        return;
+      }
+      const settings = focusSettingsOf(rs.data);
+      if (!settings.enabled) {
+        apply(FOCUS_OFF);
+        return;
+      }
+      const rg = await getFocusGroupsList();
+      if (!rg.ok) {
+        if (rg.status === 404) apply(FOCUS_OFF);
+        return;
+      }
+      const groups = focusGroupsOf(rg.data);
+      apply(groups ? resolveFocus(settings, groups, readStoredFocusGroup(server)) : FOCUS_OFF);
+    } catch {
+      /* keep what is on screen */
+    } finally {
+      focusInFlight = false;
+    }
+  },
+  selectFocusGroup: (groupId) => {
+    const focus = get().focus;
+    if (!focus.enabled || !focus.groups.some((g) => g.id === groupId)) return;
+    writeStoredFocusGroup(activeServerId(), groupId);
+    if (focus.currentId !== groupId) set({ focus: { ...focus, currentId: groupId } });
+  },
+  refreshServerLists: () => {
+    void get().refreshPins();
+    void get().refreshFocus();
   },
   dismissFiles: () =>
     set({
@@ -445,9 +616,11 @@ export const useZenStore = create<ZenState>((set, get) => ({
         }
       }
 
+      let serverProjects: ServerProject[] = [];
       if (!rProjects.ok) {
         notices.push(rProjects.error || "GET /cli/projects/list failed");
       } else {
+        serverProjects = serverProjectsOf(rProjects.data) ?? [];
         const parsed = parseCliProjects(rProjects.data);
         if (!parsed) {
           notices.push(
@@ -562,9 +735,12 @@ export const useZenStore = create<ZenState>((set, get) => ({
           }))
       );
       const agents: StubAgent[] = [...groups, ...mapped];
+      pinGen += 1; // this read supersedes any refresh already out
       set({
         agentSource: "live",
         agents,
+        serverProjects,
+        pinnedIds: derivePinnedIds(agents, serverProjects),
         chatSessions,
         agentError: notices.length ? notices.join(" · ") : null,
         fileSource: resumeId ? get().fileSource : "live",
@@ -576,6 +752,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         screen: resumeId ? "thread" : "list",
         agentId: resumeId || "",
       });
+      void get().refreshFocus();
       if (resumeId) {
         const hit =
           agents.find((a) => a.id === resumeId) ||
@@ -1306,7 +1483,6 @@ export const useZenStore = create<ZenState>((set, get) => ({
         ...get().hiddenSidecarAddrs.filter((x) => x !== addr),
       ],
     });
-    get().unpinChat(id);
     if (get().agentId === id) get().closeChat();
   },
   closeChat: () =>
@@ -1418,3 +1594,39 @@ export const useZenStore = create<ZenState>((set, get) => ({
 
   focusFile: (id) => set({ focusId: id }),
 }));
+
+/**
+ * Optimistic pin write: show `next` now, run `call`, and on failure put
+ * the old list back with a short error line. Always refetch after.
+ */
+async function writePins(
+  next: ServerProject[],
+  fallback: string,
+  call: () => Promise<void>
+): Promise<void> {
+  const { getState: get, setState: set } = useZenStore;
+  const before = get().serverProjects;
+  const server = activeServerId();
+  pinWrites += 1;
+  pinGen += 1;
+  set({ serverProjects: next, pinnedIds: derivePinnedIds(get().agents, next), pinError: null });
+  try {
+    await call();
+  } catch (e) {
+    if (activeServerId() === server) {
+      set({
+        serverProjects: before,
+        pinnedIds: derivePinnedIds(get().agents, before),
+        pinError: errorText(e, fallback),
+      });
+      if (pinErrorTimer) clearTimeout(pinErrorTimer);
+      pinErrorTimer = setTimeout(() => {
+        pinErrorTimer = null;
+        set({ pinError: null });
+      }, PIN_ERROR_MS);
+    }
+  } finally {
+    pinWrites -= 1;
+    if (activeServerId() === server) void get().refreshPins();
+  }
+}

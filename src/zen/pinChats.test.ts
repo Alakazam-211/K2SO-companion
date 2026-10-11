@@ -1,15 +1,29 @@
 import { describe, expect, it } from "vitest";
-import { dropIsPins, insertPinned, isListPan, pinId, unpinId } from "./pinChats";
+import * as pinChats from "./pinChats";
+
+const { LEGACY_PIN_STORAGE_KEY, clearLegacyPinStore, dropIsPins, insertPinned, isListPan } = pinChats;
 
 describe("pinChats", () => {
-  it("pins to the front and de-dupes", () => {
-    expect(pinId(["a", "b"], "c")).toEqual(["c", "a", "b"]);
-    expect(pinId(["a", "b"], "b")).toEqual(["b", "a"]);
-  });
-
-  it("unpins", () => {
-    expect(unpinId(["a", "b"], "a")).toEqual(["b"]);
-    expect(unpinId(["a"], "z")).toEqual(["a"]);
+  it("the per-device pin store is gone: no read/write, and the old key is cleared", () => {
+    const mod = pinChats as Record<string, unknown>;
+    expect(mod.readPinnedIds).toBeUndefined();
+    expect(mod.writePinnedIds).toBeUndefined();
+    expect(mod.pinId).toBeUndefined();
+    expect(mod.unpinId).toBeUndefined();
+    const store = new Map<string, string>([[LEGACY_PIN_STORAGE_KEY, '["a"]']]);
+    const ls = {
+      getItem: (k: string) => store.get(k) ?? null,
+      removeItem: (k: string) => void store.delete(k),
+    };
+    const g = globalThis as { localStorage?: unknown };
+    const prev = g.localStorage;
+    g.localStorage = ls;
+    try {
+      clearLegacyPinStore();
+      expect(store.has(LEGACY_PIN_STORAGE_KEY)).toBe(false);
+    } finally {
+      g.localStorage = prev;
+    }
   });
 
   it("drop zone is the pin grid plus a little slack", () => {
