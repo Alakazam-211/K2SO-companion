@@ -1,4 +1,5 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
+import { GlassComposer } from "../zen/GlassComposer";
 
 // The shared mobile composer — the terminal (ChatSession) input bar,
 // extracted so Projects chat and Feedback threads reuse the exact same
@@ -35,10 +36,18 @@ export interface MessageComposerProps {
   /** Rest slightly higher while the keyboard is collapsed (chat pages —
    *  keeps the input's corners clear of the home-indicator curve). */
   lift?: boolean;
-  /** `"zen"` = the Zen terminal page's light glass chrome (tile bar,
-   *  tile field, glass send key). Same controls, wording and behaviour;
-   *  the default look is untouched. */
+  /** `"zen"` = the Zen thread's glass composer (GlassComposer: one tile
+   *  field with `＋`, the textarea and a send bubble inside). Same send
+   *  gating and Return-inserts-newline behaviour; the default look is
+   *  untouched. */
   variant?: "default" | "zen";
+  /** Zen only: files picked from `＋` (or pasted). Without it `＋` is
+   *  disabled. */
+  onAttach?: (files: File[]) => void;
+  /** Zen only: hard-disable `＋` (e.g. an upload is in flight). */
+  attachDisabled?: boolean;
+  /** Zen only: GlassComposer test-id prefix. */
+  testIdPrefix?: string;
 }
 
 export function MessageComposer({
@@ -53,7 +62,60 @@ export function MessageComposer({
   tint,
   lift,
   variant = "default",
+  onAttach,
+  attachDisabled,
+  testIdPrefix,
 }: MessageComposerProps) {
+  if (variant === "zen") {
+    const sendReady = !disabled && !busy && Boolean(value.trim());
+    return (
+      <GlassComposer
+        value={value}
+        onChange={onChange}
+        onSubmit={() => {
+          if (sendReady) onSend();
+        }}
+        onAttach={onAttach}
+        placeholder={placeholder}
+        canSend
+        sendReady={sendReady}
+        attachDisabled={!onAttach || Boolean(attachDisabled)}
+        testIdPrefix={testIdPrefix}
+        barProps={{ "data-k2-variant": "zen" }}
+      >
+        {headerSlot}
+        {accessory}
+      </GlassComposer>
+    );
+  }
+  return (
+    <ClassicComposer
+      value={value}
+      onChange={onChange}
+      onSend={onSend}
+      placeholder={placeholder}
+      disabled={disabled}
+      busy={busy}
+      accessory={accessory}
+      headerSlot={headerSlot}
+      tint={tint}
+      lift={lift}
+    />
+  );
+}
+
+function ClassicComposer({
+  value,
+  onChange,
+  onSend,
+  placeholder,
+  disabled,
+  busy,
+  accessory,
+  headerSlot,
+  tint,
+  lift,
+}: Omit<MessageComposerProps, "variant" | "onAttach" | "attachDisabled" | "testIdPrefix">) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Auto-grow with the draft: 44px (one line, thumb-sized) up to 100px,
@@ -74,16 +136,10 @@ export function MessageComposer({
   };
 
   const warn = tint === "warning";
-  const zen = variant === "zen";
 
   return (
     <div
-      data-k2-variant={zen ? "zen" : undefined}
-      className={
-        zen
-          ? `px-4 pt-3 k2-tile k2-tile-sheet rounded-t-[16px] input-bar${lift ? " input-bar-lift" : ""}`
-          : `px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar${lift ? " input-bar-lift" : ""}`
-      }
+      className={`px-4 pt-3 border-t border-[var(--border)] bg-[var(--surface)] input-bar${lift ? " input-bar-lift" : ""}`}
       style={{
         flexShrink: 0,
         // Warning tint (Direct type): amber-wash the strip + its top rule
@@ -107,11 +163,7 @@ export function MessageComposer({
           // effect above) — sending is a deliberate tap on the ↑ button.
           placeholder={placeholder}
           rows={1}
-          className={
-            zen
-              ? "flex-1 k2-tile k2-tile-raised rounded-[12px] px-3 text-[var(--text)] text-[13px] focus:outline-none resize-none"
-              : "flex-1 bg-[var(--background)] border border-[var(--accent-dim)] px-3 text-[var(--text)] text-[13px] focus:outline-none resize-none"
-          }
+          className="flex-1 bg-[var(--background)] border border-[var(--accent-dim)] px-3 text-[var(--text)] text-[13px] focus:outline-none resize-none"
           style={{
             height: 44,
             lineHeight: "20px",
@@ -127,11 +179,7 @@ export function MessageComposer({
           onClick={send}
           disabled={sendDisabled}
           aria-label="Send"
-          className={
-            zen
-              ? "w-11 h-11 zen-glass zen-glass-round text-white flex items-center justify-center shrink-0 self-end disabled:opacity-40"
-              : "w-11 h-11 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 self-end disabled:opacity-40"
-          }
+          className="w-11 h-11 border border-[var(--accent-dim)] text-[var(--accent)] flex items-center justify-center shrink-0 self-end disabled:opacity-40"
         >
           ↑
         </button>

@@ -3,7 +3,7 @@ import { useParams, useNavigate, useLocation } from "react-router-dom";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { TerminalView } from "../components/TerminalView";
-import { ensurePinnedChat } from "../api/client";
+import { ensurePinnedChat, uploadFsBinary } from "../api/client";
 import { MessageComposer } from "../components/MessageComposer";
 import { AccessoryBar } from "../components/AccessoryBar";
 import { LiveInputCapture } from "../components/LiveInputCapture";
@@ -18,6 +18,14 @@ import {
   type SendMode,
 } from "../lib/sendMode";
 import { WorkspaceAvatar } from "../zen/WorkspaceAvatar";
+import {
+  MAX_UPLOAD_BYTES,
+  attachmentSendBody,
+  fileToBase64,
+  uploadDirOf,
+  uploadFilename,
+  workspaceHandleOf,
+} from "../zen/composerAttach";
 import { useZenStore } from "../zen/zenStore";
 import { threadHeaderTitle, threadSidecarTitle } from "../zen/overlayExtras";
 import {
@@ -33,8 +41,11 @@ const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
 const PILL_PX = 34;
 const PILL: CSSProperties = { width: PILL_PX, height: PILL_PX, color: "#fff" };
-const SEG_BTN: CSSProperties = { width: 30, height: PILL_PX - 2 };
-const AVATAR_PX = 40;
+const SEG_BTN: CSSProperties = { width: 28, height: PILL_PX - 2 };
+/** Compact row: avatar left of a name / "Terminal" stack. */
+const AVATAR_PX = 28;
+/** Header row height (plus the top safe area). */
+export const ZEN_TERMINAL_HEADER_PX = 46;
 
 /** Zen terminal page — a glass copy of the ChatSession shell. Same
  *  TerminalView, Watch/Drive, send modes, reload/respawn and keyboard
@@ -70,8 +81,15 @@ export function ZenTerminal() {
           iconUrl: storeAgent.iconUrl,
           chatTitle: threadSidecarTitle(storeAgent),
           projectPath: storeAgent.path ?? null,
+          addr: storeAgent.addr ?? null,
         }
       : null);
+  // `＋` uploads into the agent's own workspace (the Zen thread's flow):
+  // handle from its overlay addr, dir from its absolute path.
+  const storeById = agent ? zenAgents.find((a) => a.id === agent.agentId) : undefined;
+  const attachWorkspace = workspaceHandleOf(agent?.addr ?? storeById?.addr);
+  const attachDir = uploadDirOf(agent?.projectPath ?? storeById?.path);
+  const canAttach = Boolean(attachWorkspace) && Boolean(attachDir);
   const agentName = (agent?.name || "").trim();
   const headerName = agentName && agentName !== "—" ? agentName : "Terminal";
 
@@ -90,6 +108,7 @@ export function ZenTerminal() {
   const sendMode: SendMode = terminalId ? modeFor(directHandles, terminalId) : "safe";
   const [sendBusy, setSendBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
 
   // Watch (default) is a size policy; Drive is an explicit tap, reset
   // on session change (ChatSession rule).
@@ -136,6 +155,45 @@ export function ZenTerminal() {
       if (out.ok) setInput("");
       else setSendError(out.message);
     });
+  };
+
+  // `＋`: upload now, then put the returned path(s) in the draft so the
+  // user sends them to the agent with the normal send.
+  const handleAttach = (files: File[]) => {
+    if (!files.length || uploading) return;
+    if (!canAttach || !attachWorkspace || !attachDir) {
+      setSendError("Files need this agent's workspace.");
+      return;
+    }
+    const tooBig = files.find((f) => f.size > MAX_UPLOAD_BYTES);
+    if (tooBig) {
+      setSendError(`"${uploadFilename(tooBig)}" is too large (50 MB max)`);
+      return;
+    }
+    setSendError(null);
+    setUploading(true);
+    void (async () => {
+      const paths: string[] = [];
+      try {
+        for (const f of files) {
+          const filename = uploadFilename(f);
+          const r = await uploadFsBinary(
+            attachWorkspace,
+            attachDir,
+            filename,
+            await fileToBase64(f)
+          );
+          if (!r.ok || !r.data?.path) {
+            setSendError(r.error || `Could not upload ${filename}`);
+            break;
+          }
+          paths.push(r.data.path);
+        }
+      } finally {
+        setUploading(false);
+      }
+      if (paths.length) setInput((prev) => attachmentSendBody(prev, paths));
+    })();
   };
 
   const switchMode = (mode: SendMode) => {
@@ -207,38 +265,49 @@ export function ZenTerminal() {
             <span className="zen-header-tint" />
           </div>
           <div
-            className="relative grid items-center w-full min-w-0 px-3"
-            style={{
-              gridTemplateColumns: "1fr auto 1fr",
-              paddingTop: 6,
-              paddingBottom: 8,
-              columnGap: 6,
-              rowGap: 2,
-            }}
+            className="relative flex items-center w-full min-w-0 px-3"
+            data-testid="zen-terminal-header-row"
+            style={{ height: ZEN_TERMINAL_HEADER_PX, columnGap: 8 }}
           >
             <button
               type="button"
               onClick={backToThread}
-              data-testid="zen-terminal-back"
-              className="flex items-center justify-center shrink-0 justify-self-start zen-glass zen-glass-pill"
-              style={PILL}
-              aria-label="Back to chat"
+              data-testid="zen-terminal-done"
+              className="text-[17px] shrink-0 zen-glass zen-glass-pill"
+              style={{ height: PILL_PX, padding: "0 14px", color: "#fff" }}
             >
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
+              Done
             </button>
-            <span data-testid="zen-terminal-avatar" className="flex justify-self-center">
+            <span data-testid="zen-terminal-avatar" className="flex shrink-0">
               <WorkspaceAvatar
                 initial={agent?.initial || headerName.slice(0, 1) || "?"}
                 color={agent?.color}
                 iconUrl={agent?.iconUrl}
                 size={AVATAR_PX}
-                fontSize={15}
+                fontSize={12}
                 fallback="#2c2c2e"
               />
             </span>
-            <span className="flex items-center justify-self-end" style={{ gap: 6 }}>
+            <div
+              className="flex-1 min-w-0 flex flex-col zen-header-text"
+              data-testid="zen-terminal-titles"
+            >
+              <span
+                data-testid="zen-terminal-title"
+                className="block w-full text-[15px] font-semibold truncate leading-tight"
+                style={{ color: "#fff" }}
+              >
+                {headerName}
+              </span>
+              <span
+                data-testid="zen-terminal-subtitle"
+                className="block w-full text-[12px] truncate leading-tight"
+                style={{ color: "#8e8e93" }}
+              >
+                {subtitle}
+              </span>
+            </div>
+            <span className="flex items-center shrink-0" style={{ gap: 6 }}>
               <div
                 data-k2="watch-drive"
                 className="flex items-center zen-glass zen-glass-pill overflow-hidden"
@@ -321,25 +390,6 @@ export function ZenTerminal() {
                 </svg>
               </button>
             </span>
-            <div
-              className="min-w-0 flex flex-col items-center zen-header-text"
-              style={{ gridColumn: "1 / -1" }}
-            >
-              <span
-                data-testid="zen-terminal-title"
-                className="block w-full text-[15px] font-bold truncate text-center"
-                style={{ color: "#fff" }}
-              >
-                {headerName}
-              </span>
-              <span
-                data-testid="zen-terminal-subtitle"
-                className="block w-full text-[12px] truncate text-center"
-                style={{ color: "#8e8e93" }}
-              >
-                {subtitle}
-              </span>
-            </div>
           </div>
         </header>
 
@@ -367,7 +417,7 @@ export function ZenTerminal() {
 
         {sendMode === "direct" ? (
           <div
-            className="px-4 pt-3 k2-tile k2-tile-sheet rounded-t-[16px] input-bar input-bar-lift"
+            className="px-3 pt-2 zen-composer-bar"
             data-testid="zen-terminal-direct-bar"
             style={{ flexShrink: 0 }}
           >
@@ -387,14 +437,23 @@ export function ZenTerminal() {
         ) : (
           <MessageComposer
             variant="zen"
-            lift
+            testIdPrefix="terminal-composer"
             value={input}
             onChange={setInput}
             onSend={handleSend}
-            busy={sendBusy}
-            placeholder="Message the agent…  (↑ to send)"
+            busy={sendBusy || uploading}
+            onAttach={canAttach ? handleAttach : undefined}
+            attachDisabled={uploading || sendBusy}
+            placeholder="Message the agent…"
             accessory={
-              sendError ? (
+              uploading ? (
+                <p
+                  className="text-[11px] text-[var(--text-muted)] leading-snug mb-1.5"
+                  data-testid="terminal-composer-label"
+                >
+                  Uploading…
+                </p>
+              ) : sendError ? (
                 <div className="flex items-start gap-2 pb-2">
                   <span className="flex-1 text-[var(--warning)] text-[11px] leading-snug">
                     {sendError}
