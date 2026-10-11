@@ -18,6 +18,7 @@ import { TicketsOverlay } from "./TicketsOverlay";
 import { lastAtKeyFor, sortChatsByRecency } from "./lastAtFetch";
 import { mountainListWhen } from "./threadModel";
 import { usePinDrag } from "./usePinDrag";
+import { SWIPE_ACTION_W, useRowSwipe } from "./useRowSwipe";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { ZenSettings } from "./ZenSettings";
 import { useZenStore } from "./zenStore";
@@ -32,6 +33,42 @@ const RECOVERY_DOT: Record<RecoveryState, string> = {
 /** Phone-width overlay home. Look is public/imessage-baseline.html (7724968). */
 /** How often the Chats list re-reads agent status. */
 const ACTIVITY_POLL_MS = 5_000;
+
+/** iOS system yellow, the Messages pin action. */
+const PIN_YELLOW = "#ffd60a";
+const SWIPE_HINT_ID = "chats-swipe-hint";
+
+function PinGlyph({ off }: { off: boolean }) {
+  return (
+    <svg
+      width="22"
+      height="22"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden
+      data-testid={off ? "unpin-glyph" : "pin-glyph"}
+    >
+      {/* lucide "pin" / "pin-off". */}
+      {off ? (
+        <>
+          <path d="M12 17v5" />
+          <path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89" />
+          <path d="m2 2 20 20" />
+          <path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11" />
+        </>
+      ) : (
+        <>
+          <path d="M12 17v5" />
+          <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+        </>
+      )}
+    </svg>
+  );
+}
 
 export function ChatsList() {
   const containerHeight = useViewportHeight();
@@ -49,8 +86,14 @@ export function ChatsList() {
   const hiddenSidecarAddrs = useZenStore((s) => s.hiddenSidecarAddrs);
   const listRef = useRef<HTMLDivElement | null>(null);
   const pinsRef = useRef<HTMLDivElement | null>(null);
-  const { onPointerDown, onPointerMove, onPointerUp, ghost, hot, consumeSkipClick, onPinClick } =
-    usePinDrag(pinsRef);
+  const pinDrag = usePinDrag(pinsRef);
+  const { ghost, hot, consumeSkipClick, onPinClick } = pinDrag;
+  const togglePin = (id: string) => {
+    const st = useZenStore.getState();
+    if (st.pinnedIds.includes(id)) st.unpinChat(id);
+    else st.pinChat(id);
+  };
+  const swipe = useRowSwipe(togglePin);
   const pinned = pinnedIds
     .map((id) => agents.find((a) => a.id === id))
     .filter((a): a is (typeof agents)[number] => !!a);
@@ -156,10 +199,25 @@ export function ChatsList() {
         fontFamily: "var(--zen-font)",
       }}
       data-testid="chats-home"
-      onPointerDown={onPointerDown}
-      onPointerMove={onPointerMove}
-      onPointerUp={onPointerUp}
-      onPointerCancel={onPointerUp}
+      onPointerDown={(e) => {
+        swipe.onPointerDown(e);
+        pinDrag.onPointerDown(e);
+      }}
+      onPointerMove={(e) => {
+        if (swipe.onPointerMove(e, pinDrag.isLifted())) {
+          pinDrag.abort();
+          return;
+        }
+        pinDrag.onPointerMove(e);
+      }}
+      onPointerUp={(e) => {
+        swipe.onPointerUp();
+        pinDrag.onPointerUp(e);
+      }}
+      onPointerCancel={(e) => {
+        swipe.onPointerCancel();
+        pinDrag.onPointerUp(e);
+      }}
     >
       <div
         className="flex flex-col relative overflow-hidden"
@@ -218,7 +276,7 @@ export function ChatsList() {
           className="text-[17px] font-semibold pointer-events-none"
           style={{ letterSpacing: "-0.2px" }}
         >
-          Chats
+          Agents
         </h1>
         <span className="flex items-center justify-self-end" style={{ gap: 8 }} data-testid="chats-header-right">
           <button
@@ -317,7 +375,11 @@ export function ChatsList() {
           touchAction: ghost ? "none" : undefined,
         }}
         data-testid="chats-list"
+        onScroll={swipe.openId ? swipe.close : undefined}
       >
+      <span id={SWIPE_HINT_ID} className="sr-only">
+        Swipe right to pin or unpin. Or press and hold, then drag to the top.
+      </span>
       {!searching ? (
       <div
         ref={pinsRef}
@@ -422,20 +484,69 @@ export function ChatsList() {
               : busy?.display === "monitoring"
                 ? "var(--accent)"
                 : "var(--success)";
+          const isPinned = pinnedIds.includes(a.id);
+          const sw = swipe.offsetFor(a.id);
+          const pinVerb = isPinned ? "Unpin" : "Pin";
           return (
-          <button
+          <div
             key={a.id}
+            className="relative overflow-hidden"
+            data-swipe-row={a.id}
+          >
+          {/* Leading swipe action: revealed as the row slides right. */}
+          <button
+            type="button"
+            className="absolute left-0 top-0 bottom-0 overflow-hidden border-0 p-0"
+            style={{
+              width: sw.x,
+              background: PIN_YELLOW,
+              color: "#fff",
+              transition: swipe.transition(sw.dragging, ["width"]),
+            }}
+            onClick={() => {
+              togglePin(a.id);
+              swipe.close();
+            }}
+            aria-label={`${pinVerb} ${a.name}`}
+            data-swipe-action="1"
+            data-no-pin="1"
+            data-testid={`swipe-action-${a.id}`}
+          >
+            <span
+              className="absolute top-0 bottom-0 right-0 flex flex-col items-center justify-center"
+              style={{ width: SWIPE_ACTION_W, gap: 3 }}
+              aria-hidden
+            >
+              <span
+                className="flex"
+                style={{
+                  transform: sw.full && !swipe.reduced ? "scale(1.2)" : "scale(1)",
+                  transition: swipe.reduced ? "none" : "transform 160ms cubic-bezier(.3,1.6,.5,1)",
+                }}
+                data-testid="swipe-action-glyph"
+              >
+                <PinGlyph off={isPinned} />
+              </span>
+              <span className="text-[13px] font-medium">{pinVerb}</span>
+            </span>
+          </button>
+          <button
             type="button"
             className="w-full flex items-center text-left relative"
             style={{
               gap: 10,
               padding: "10px 14px 10px 6px",
               touchAction: ghost ? "none" : "pan-y",
+              transform: `translateX(${sw.x}px)`,
+              transition: swipe.transition(sw.dragging, ["transform"]),
             }}
             onClick={() => {
-              if (consumeSkipClick()) return;
+              const swiped = swipe.consumeSkipClick();
+              const held = consumeSkipClick();
+              if (swiped || held) return;
               setAgent(a.id);
             }}
+            aria-describedby={SWIPE_HINT_ID}
             aria-label={
               source === "stub"
                 ? `STUB ${a.name}`
@@ -512,6 +623,7 @@ export function ChatsList() {
               )}
             </span>
           </button>
+          </div>
           );
         })}
       </div>

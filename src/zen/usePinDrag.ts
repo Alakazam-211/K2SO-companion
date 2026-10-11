@@ -139,5 +139,23 @@ export function usePinDrag(pinsRef: { current: HTMLElement | null }) {
     useZenStore.getState().setAgent(id);
   };
 
-  return { onPointerDown, onPointerMove, onPointerUp, ghost, hot, consumeSkipClick, onPinClick };
+  /** True once the hold has lifted a ghost (a swipe must not start then). */
+  const isLifted = () => !!dragRef.current?.lifted;
+
+  /** Drop a not-yet-lifted hold (a row swipe took the gesture). */
+  const abort = () => {
+    if (dragRef.current && !dragRef.current.lifted) cancel();
+  };
+
+  return {
+    onPointerDown,
+    onPointerMove,
+    onPointerUp,
+    ghost,
+    hot,
+    consumeSkipClick,
+    onPinClick,
+    isLifted,
+    abort,
+  };
 }
