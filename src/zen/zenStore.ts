@@ -99,6 +99,7 @@ import {
 } from "./workspacePath";
 import { parseWorkspaceResources } from "./workspaceResources";
 import { hideSidecarAddr, isOverlayExtraAddr, readHiddenSidecarAddrs, unhideSidecarAddr } from "./overlayExtras";
+import { nextDrawerOrigin, readDrawerOrigin, writeDrawerOrigin } from "./sessionDrawer";
 
 export type DataSource = "stub" | "live" | "error" | "loading";
 
@@ -202,6 +203,18 @@ type ZenState = {
   renameSidecarTitle: (id: string, title: string) => Promise<{ ok: boolean; error?: string }>;
   hideSidecarChat: (id: string) => void;
   hiddenSidecarAddrs: string[];
+  /** Chat the Sessions drawer was first used from; Done returns there.
+   *  Null when the open chat was not picked from the drawer. */
+  drawerOrigin: string | null;
+  /** Switch the open chat to another session in this workspace (Sessions
+   *  drawer). `side` builds the row when the list does not have it yet. */
+  openWorkspaceSession: (target: {
+    addr: string;
+    path: string;
+    side?: OverlaySidecar;
+  }) => void;
+  /** Done in a drawer-picked chat: back to the chat the drawer was opened from. */
+  returnToDrawerOrigin: () => void;
   closeChat: () => void;
   toggleFiles: () => void;
   openFile: (id: string) => void;
@@ -617,6 +630,11 @@ export const useZenStore = create<ZenState>((set, get) => ({
 
   hydrateAgents: async (opts) => {
     const resumeId = (opts?.resumeId || "").trim();
+    // A cold list load is not inside a drawer-picked chat.
+    if (!resumeId && get().drawerOrigin) {
+      writeDrawerOrigin(null);
+      set({ drawerOrigin: null });
+    }
     if (!getToken()) {
       set({
         agentSource: "stub",
@@ -909,6 +927,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
 
   screen: "list",
   agentId: "",
+  drawerOrigin: readDrawerOrigin(),
   filesOpen: false,
   openFileIds: [],
   focusId: null,
@@ -1564,8 +1583,38 @@ export const useZenStore = create<ZenState>((set, get) => ({
     });
     if (get().agentId === id) get().closeChat();
   },
-  closeChat: () =>
+  openWorkspaceSession: ({ addr, path, side }) => {
+    const want = (addr || "").trim();
+    if (!want) return;
+    const agents = get().agents;
+    const samePath = (p?: string | null) => (p || "").trim() === (path || "").trim();
+    let row =
+      agents.find((a) => (a.addr || "").trim() === want && samePath(a.path)) ??
+      agents.find((a) => (a.addr || "").trim() === want);
+    if (!row && side) {
+      const parent = agents.find(
+        (a) => samePath(a.path) && !(a.addr || "").includes("/") && a.kind !== "group"
+      );
+      row = overlaySidecarAgent(side, parent, true);
+      set({ agents: [...agents, row] });
+    }
+    if (!row) return;
+    const cur = get().agentId;
+    const origin = nextDrawerOrigin(get().drawerOrigin, cur, row.id);
+    writeDrawerOrigin(origin);
+    set({ drawerOrigin: origin, filesOpen: false });
+    if (row.id !== cur) get().setAgent(row.id);
+  },
+  returnToDrawerOrigin: () => {
+    const origin = get().drawerOrigin;
+    writeDrawerOrigin(null);
+    set({ drawerOrigin: null });
+    if (origin && origin !== get().agentId) get().setAgent(origin);
+  },
+  closeChat: () => {
+    writeDrawerOrigin(null);
     set({
+      drawerOrigin: null,
       screen: "list",
       agentId: "",
       openFileIds: [],
@@ -1576,7 +1625,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadGroupId: null,
       threadConversationId: null,
       files: [],
-    }),
+    });
+  },
   toggleFiles: () => {
     const open = !get().filesOpen;
     set({ filesOpen: open });
