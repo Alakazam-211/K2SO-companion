@@ -365,6 +365,8 @@ describe("Zen keeps the chats list mounted", () => {
     // Progressive blur: four masked blur layers plus a dark tint, all inert.
     const blur = screen.getByTestId("chat-header-blur");
     expect(blur.className).toMatch(/zen-header-blur/);
+    // The early (Agents list) blur stays on the Agents header only.
+    expect(blur.className).not.toMatch(/zen-header-blur--early/);
     expect(header.contains(blur)).toBe(true);
     expect(blur.querySelectorAll("[class^='zen-header-blur-']").length).toBe(4);
     expect(blur.querySelector(".zen-header-tint")).not.toBeNull();

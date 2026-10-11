@@ -1,7 +1,8 @@
-import { useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import {
   PIN_HOLD_MS,
   PIN_LIFT_PX,
+  PIN_MENU_MS,
   dropIsPins,
   isListPan,
   pinBeforeId,
@@ -15,7 +16,14 @@ type Drag = {
   y: number;
   lifted: boolean;
   timer: ReturnType<typeof setTimeout> | null;
+  /** Where the pressed pin sits, for placing its menu. */
+  rect: PinRect | null;
 };
+
+export type PinRect = { left: number; top: number; right: number; bottom: number; width: number };
+
+/** The long-press menu on a pin avatar (Open / Unpin). */
+export type PinMenu = { id: string; rect: PinRect | null };
 
 export function usePinDrag(
   pinsRef: { current: HTMLElement | null },
@@ -37,6 +45,7 @@ export function usePinDrag(
     y: number;
   } | null>(null);
   const [hot, setHot] = useState(false);
+  const [menu, setMenu] = useState<PinMenu | null>(null);
 
   const consumeSkipClick = () => {
     if (!skipClick.current) return false;
@@ -72,7 +81,19 @@ export function usePinDrag(
     setHot(true);
   };
 
+  /** A still hold on a pin: open its menu. The release's click is eaten. */
+  const openMenu = () => {
+    const d = dragRef.current;
+    if (!d || d.lifted || d.from !== "pin") return;
+    d.timer = null;
+    skipClick.current = true;
+    setMenu({ id: d.id, rect: d.rect });
+  };
+
+  const closeMenu = useCallback(() => setMenu(null), []);
+
   const onPointerDown = (e: ReactPointerEvent<HTMLElement>) => {
+    skipClick.current = false;
     if (e.button && e.button !== 0) return;
     const target = e.target as HTMLElement;
     if (target.closest("input,textarea,[data-no-pin]")) return;
@@ -85,13 +106,23 @@ export function usePinDrag(
     if (!id) return;
     if (!pin && !canPin(id)) return;
     e.currentTarget.setPointerCapture(e.pointerId);
+    let rect: PinRect | null = null;
+    if (pin) {
+      const r = pin.getBoundingClientRect();
+      rect = { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width };
+    }
+    // A list row lifts on a short hold (the swipe and the pan need the
+    // move). A pin lifts on movement only, so a still hold is its menu.
     dragRef.current = {
       id,
       from: pin ? "pin" : "list",
       x: e.clientX,
       y: e.clientY,
       lifted: false,
-      timer: setTimeout(() => liftAt(e.clientX, e.clientY), PIN_HOLD_MS),
+      timer: pin
+        ? setTimeout(openMenu, PIN_MENU_MS)
+        : setTimeout(() => liftAt(e.clientX, e.clientY), PIN_HOLD_MS),
+      rect,
     };
   };
 
@@ -106,6 +137,8 @@ export function usePinDrag(
           cancel();
           return;
         }
+        // Hold then drag still works: moving off an open menu lifts the pin.
+        setMenu(null);
         liftAt(e.clientX, e.clientY);
       }
       return;
@@ -162,5 +195,8 @@ export function usePinDrag(
     onPinClick,
     isLifted,
     abort,
+    menu,
+    openMenuFor: (id: string, rect: PinRect | null) => setMenu({ id, rect }),
+    closeMenu,
   };
 }

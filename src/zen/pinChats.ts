@@ -1,5 +1,8 @@
 export const PIN_HOLD_MS = 280;
 export const PIN_LIFT_PX = 14;
+/** A still hold on a pin avatar this long opens its menu (Open / Unpin).
+ *  Pins lift on movement only, so the hold and the drag never race. */
+export const PIN_MENU_MS = 500;
 /** The old per-device pin list. Pins now live on the server (per
  *  workspace, `projects.pinned`); the old key is dropped, not migrated. */
 export const LEGACY_PIN_STORAGE_KEY = "k2-zen-pinned-ids";

@@ -246,3 +246,20 @@ export function activityRowText(a: RowActivity): string {
   const counts = countsText(a.counts);
   return counts ? `${word} · ${counts}` : word;
 }
+
+/** A pin's tiny status line: "Working · 20" (all counts summed), "Needs you". */
+export function activityPinText(a: RowActivity): string {
+  const word =
+    a.display === "waiting" ? "Needs you" : a.display === "monitoring" ? "Monitoring" : "Working";
+  const n = a.counts.subagents + a.counts.tools + a.counts.commands;
+  return n > 0 ? `${word} · ${n}` : word;
+}
+
+/** Status colour for a busy agent: amber needs you, accent monitoring, green working. */
+export function activityColor(a: RowActivity): string {
+  return a.display === "waiting"
+    ? "var(--warning)"
+    : a.display === "monitoring"
+      ? "var(--accent)"
+      : "var(--success)";
+}

@@ -4,7 +4,7 @@ import { useFeedbackStore } from "../stores/feedback";
 import { hostLabel, useServersStore, type RecoveryState } from "../stores/servers";
 import { isOverlayExtraAddr, visibleOverlayAgents } from "./overlayExtras";
 import { overlayRowPreview } from "./rowPreview";
-import { activityForRow, activityRowText } from "./agentActivity";
+import { activityColor, activityForRow, activityPinText, activityRowText } from "./agentActivity";
 import { StubMark } from "./StubMark";
 import { OverlayAddServer } from "./OverlayAddServer";
 import {
@@ -114,7 +114,19 @@ export function ChatsList() {
   );
   const canPin = (id: string) => pinnable.has(id);
   const pinDrag = usePinDrag(pinsRef, canPin);
-  const { ghost, hot, consumeSkipClick, onPinClick } = pinDrag;
+  const { ghost, hot, consumeSkipClick, onPinClick, menu: pinMenu, closeMenu } = pinDrag;
+  // The pin menu only acts on a fresh press: the release of the hold that
+  // opened it (or iOS's synthetic click) must not hit Open / Unpin / close.
+  const pinMenuPressed = useRef(false);
+  useEffect(() => {
+    pinMenuPressed.current = false;
+  }, [pinMenu]);
+  const pinMenuAct = (fn: () => void) => {
+    if (!pinMenuPressed.current) return;
+    pinMenuPressed.current = false;
+    fn();
+  };
+  const [scrolled, setScrolled] = useState(false);
   const togglePin = (id: string) => {
     const st = useZenStore.getState();
     if (!canPin(id)) return;
@@ -153,6 +165,12 @@ export function ChatsList() {
     lastAtByKey,
     lastAtKeyFor
   );
+  // Each agent shows once: in the pin grid, or in the list. Search hides
+  // the grid, so there every hit (pinned too) is a row.
+  const showPins = !searching && pinned.length > 0;
+  const pinnedInGrid = new Set(showPins ? pinned.map((a) => a.id) : []);
+  const rows = showPins ? filtered.filter((a) => !pinnedInGrid.has(a.id)) : filtered;
+  const menuAgent = pinMenu ? pinned.find((a) => a.id === pinMenu.id) ?? null : null;
   const serverListsAt = useRef(Date.now());
 
   // Agent status: re-read the activity snapshot while the list is up. The
@@ -201,6 +219,11 @@ export function ChatsList() {
   useEffect(() => {
     if (!group) setGroupMenu(false);
   }, [group]);
+
+  // A pin that left the grid (unpinned elsewhere, or search) drops its menu.
+  useEffect(() => {
+    if (pinMenu && (!showPins || !menuAgent)) closeMenu();
+  }, [pinMenu, showPins, menuAgent, closeMenu]);
 
   // The header floats over the list; the list's top padding tracks its
   // real height (a pin error line grows it). Hidden under an open Thread
@@ -260,7 +283,7 @@ export function ChatsList() {
     );
     root.querySelectorAll("[data-last-at-key]").forEach((el) => io.observe(el));
     return () => io.disconnect();
-  }, [filtered, source, ensureLastAt]);
+  }, [rows, source, ensureLastAt]);
 
   if (servers.length === 0) return <OverlayAddServer />;
 
@@ -322,7 +345,12 @@ export function ChatsList() {
           pointerEvents: "none",
         }}
       >
-      <div className="zen-header-blur" data-testid="chats-header-blur" aria-hidden>
+      <div
+        className="zen-header-blur zen-header-blur--early"
+        data-testid="chats-header-blur"
+        data-scrolled={scrolled ? "1" : undefined}
+        aria-hidden
+      >
         <span className="zen-header-blur-1" />
         <span className="zen-header-blur-2" />
         <span className="zen-header-blur-3" />
@@ -633,47 +661,99 @@ export function ChatsList() {
           touchAction: ghost ? "none" : undefined,
         }}
         data-testid="chats-list"
-        onScroll={swipe.openId ? swipe.close : undefined}
+        onScroll={(e) => {
+          if (swipe.openId) swipe.close();
+          // At rest the first row sits right at the header's bottom edge;
+          // the early blur strip below the header waits for a scroll.
+          setScrolled(e.currentTarget.scrollTop > 0);
+        }}
       >
       <span id={SWIPE_HINT_ID} className="sr-only">
         Swipe right to pin or unpin. Or press and hold, then drag to the top.
+        Press and hold a pinned agent for Open and Unpin.
       </span>
       {/* Pins only when there are pins: an empty tray is dead space. */}
-      {!searching && pinned.length > 0 ? (
+      {showPins ? (
       <div
         ref={pinsRef}
         className="grid grid-cols-3"
         style={{
-          padding: "4px 10px 8px",
-          gap: "14px 6px",
+          // Near the screen edges (3 columns use the width), with 10px of
+          // air under the floating header.
+          padding: "4px 2px 8px",
+          gap: "14px 4px",
           minHeight: 96,
-          margin: "0 8px",
+          margin: "10px 4px 0",
           borderRadius: 16,
           background: hot ? "rgba(10,132,255,.12)" : "transparent",
           outline: hot ? "1.5px dashed rgba(10,132,255,.5)" : "1.5px dashed transparent",
         }}
         data-testid="chats-pins"
       >
-        {pinned.map((a) => (
+        {pinned.map((a) => {
+          // Pins are main chats: their workspace activity.
+          const pinBusy =
+            source === "live" ? activityForRow(a, activity, false, chatSessions) : null;
+          const pinColor = pinBusy ? activityColor(pinBusy) : "";
+          return (
             <button
               key={a.id}
               type="button"
               className="text-center bg-transparent border-0 p-0"
-              style={{ color: "#fff", touchAction: "none" }}
+              style={{
+                color: "#fff",
+                touchAction: "none",
+                WebkitTouchCallout: "none",
+                userSelect: "none",
+              }}
               data-pin-id={a.id}
               data-pin-from="pin"
-              aria-label={`Pinned ${a.name}`}
+              aria-label={`Pinned ${a.name}` + (pinBusy ? `, ${activityRowText(pinBusy)}` : "")}
+              aria-haspopup="menu"
+              aria-expanded={pinMenu?.id === a.id}
               onClick={() => onPinClick(a.id)}
+              onContextMenu={(e) => {
+                // Desktop right-click / Android long-press: same menu.
+                e.preventDefault();
+                const r = e.currentTarget.getBoundingClientRect();
+                pinDrag.openMenuFor(a.id, {
+                  left: r.left,
+                  top: r.top,
+                  right: r.right,
+                  bottom: r.bottom,
+                  width: r.width,
+                });
+              }}
             >
               <div className="mb-2 flex justify-center" data-testid="pin-avatar">
-                <WorkspaceAvatar
-                  initial={a.initial}
-                  color={a.color}
-                  iconUrl={a.iconUrl}
-                  size={74}
-                  fontSize={26}
-                  fallback="#2c2c2e"
-                />
+                <span className="relative inline-flex">
+                  <WorkspaceAvatar
+                    initial={a.initial}
+                    color={a.color}
+                    iconUrl={a.iconUrl}
+                    size={74}
+                    fontSize={26}
+                    fallback="#2c2c2e"
+                  />
+                  {pinBusy ? (
+                    <span
+                      aria-hidden
+                      data-testid="pin-activity-dot"
+                      className={`absolute rounded-full ${pinBusy.display === "working" ? "k2-pulse" : ""}`}
+                      style={{
+                        // On the circle's edge at 4:30, sized up for 74px.
+                        right: 1,
+                        bottom: 1,
+                        width: 20,
+                        height: 20,
+                        background: pinColor,
+                        color: pinColor,
+                        border: "2.5px solid var(--root)",
+                        ["--k2-pulse-edge" as string]: "2.5px",
+                      }}
+                    />
+                  ) : null}
+                </span>
               </div>
               <div
                 className="text-[12px] truncate mx-auto"
@@ -681,8 +761,18 @@ export function ChatsList() {
               >
                 {a.name}
               </div>
+              {pinBusy ? (
+                <div
+                  className="text-[11px] truncate mx-auto"
+                  style={{ color: pinColor, maxWidth: 110, lineHeight: 1.3 }}
+                  data-testid="pin-activity"
+                >
+                  {activityPinText(pinBusy)}
+                </div>
+              ) : null}
             </button>
-          ))}
+          );
+        })}
       </div>
       ) : null}
         {source === "loading" ? (
@@ -690,12 +780,12 @@ export function ChatsList() {
             Loading
           </p>
         ) : null}
-        {source !== "loading" && agentError && filtered.length > 0 ? (
+        {source !== "loading" && agentError && (rows.length > 0 || showPins) ? (
           <p className="px-4 py-3 text-[14px]" style={{ color: "#f59e0b" }}>
             {agentError}
           </p>
         ) : null}
-        {source !== "loading" && filtered.length === 0 ? (
+        {source !== "loading" && rows.length === 0 && !showPins ? (
           <p
             className="px-4 py-6 text-[14px]"
             style={{ color: "#8e8e93" }}
@@ -704,7 +794,7 @@ export function ChatsList() {
             {agentError || "No agents on this list."}
           </p>
         ) : null}
-        {filtered.map((a) => {
+        {rows.map((a) => {
           const lastKey = source === "live" ? lastAtKeyFor(a) ?? undefined : undefined;
           const when =
             lastKey && lastAtByKey[lastKey] != null
@@ -716,12 +806,7 @@ export function ChatsList() {
             source === "live"
               ? activityForRow(a, activity, isOverlayExtraAddr(a.addr), chatSessions)
               : null;
-          const busyColor =
-            busy?.display === "waiting"
-              ? "var(--warning)"
-              : busy?.display === "monitoring"
-                ? "var(--accent)"
-                : "var(--success)";
+          const busyColor = busy ? activityColor(busy) : "var(--success)";
           const isPinned = pinnedIds.includes(a.id);
           const rowCanPin = pinnable.has(a.id);
           const sw = swipe.offsetFor(a.id);
@@ -898,6 +983,76 @@ export function ChatsList() {
           );
         })}
       </div>
+
+      {pinMenu && menuAgent ? (
+        <div
+          data-no-pin="1"
+          onPointerDownCapture={() => {
+            pinMenuPressed.current = true;
+          }}
+        >
+          <button
+            type="button"
+            aria-label="Close pin menu"
+            className="fixed inset-0 bg-transparent border-0 p-0"
+            style={{ zIndex: 29 }}
+            onClick={() => pinMenuAct(closeMenu)}
+            data-testid="pin-menu-backdrop"
+          />
+          <div
+            role="menu"
+            aria-label={`${menuAgent.name} pin`}
+            className="zen-glass fixed"
+            data-testid="pin-menu"
+            style={{
+              zIndex: 30,
+              // Under the avatar, so the holding finger is not on an item.
+              top: (pinMenu.rect?.bottom ?? 120) + 6,
+              left: `clamp(12px, ${
+                pinMenu.rect ? pinMenu.rect.left + pinMenu.rect.width / 2 : 0
+              }px - 100px, calc(100vw - 212px))`,
+              width: 200,
+              borderRadius: 16,
+              padding: 6,
+              color: "#fff",
+            }}
+          >
+            <button
+              type="button"
+              role="menuitem"
+              className="w-full flex items-center text-left bg-transparent border-0"
+              style={{ gap: 10, padding: "10px 12px", minHeight: 44, borderRadius: 10, color: "#fff" }}
+              onClick={() =>
+                pinMenuAct(() => {
+                  closeMenu();
+                  setAgent(menuAgent.id);
+                })
+              }
+              data-testid="pin-menu-open"
+            >
+              <span className="flex-1 text-[16px]">Open</span>
+            </button>
+            <button
+              type="button"
+              role="menuitem"
+              className="w-full flex items-center text-left bg-transparent border-0"
+              style={{ gap: 10, padding: "10px 12px", minHeight: 44, borderRadius: 10, color: "#fff" }}
+              onClick={() =>
+                pinMenuAct(() => {
+                  closeMenu();
+                  void useZenStore.getState().unpinChat(menuAgent.id);
+                })
+              }
+              data-testid="pin-menu-unpin"
+            >
+              <span className="flex-1 text-[16px]">Unpin</span>
+              <span aria-hidden className="flex shrink-0" style={{ color: PIN_YELLOW }}>
+                <PinGlyph off />
+              </span>
+            </button>
+          </div>
+        </div>
+      ) : null}
 
       {ghost ? (
         <div
