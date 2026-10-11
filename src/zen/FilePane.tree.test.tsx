@@ -105,6 +105,28 @@ describe("Files drawer header", () => {
     expect(await screen.findByTestId("file-tree")).not.toBeNull();
   });
 
+  it("a glass ✕ right of + folder closes the drawer; the old arrow is gone", async () => {
+    live({ openFileIds: [`${WS}/zeta.md`] });
+    render(<FilePane />);
+    await screen.findByTestId("file-tree");
+    const close = screen.getByLabelText("Close files");
+    expect(close.getAttribute("data-testid")).toBe("files-close");
+    // Far right of the header, immediately after + folder.
+    expect(close.previousElementSibling).toBe(screen.getByTestId("files-new-folder"));
+    expect(close.nextElementSibling).toBeNull();
+    expect(close.querySelector(".zen-glass")).not.toBeNull();
+    expect(close.style.width).toBe("44px");
+    expect(close.style.height).toBe("44px");
+    expect(screen.queryByLabelText("Hide files")).toBeNull();
+    expect(screen.queryByText("›")).toBeNull();
+
+    fireEvent.click(close);
+    expect(useZenStore.getState().filesOpen).toBe(false);
+    // Same as the old arrow: closing the drawer keeps open files.
+    expect(useZenStore.getState().openFileIds).toEqual([`${WS}/zeta.md`]);
+    expect(screen.queryByLabelText("Files")).toBeNull();
+  });
+
   it("the eye shows dotfiles and heavy folders, and remembers per device", async () => {
     live();
     render(<FilePane />);
