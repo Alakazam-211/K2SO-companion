@@ -15,11 +15,6 @@ interface Props {
   nowSec: number;
   onClose: () => void;
   onAssigneesChanged?: () => void;
-  /** Overlay sheet is the ticket UI — Resolve/Dismiss/Reopen live here.
-   *  Classic FeedbackThread leaves this unset; answering stays on the thread. */
-  onSetStatus?: (status: "resolved" | "dismissed" | "waiting") => void;
-  statusBusy?: boolean;
-  statusError?: string | null;
 }
 
 /** "Jul 5, 3:42 PM" (local) — the sheet pairs this with the relative age. */
@@ -50,13 +45,9 @@ export function TicketSheet({
   nowSec,
   onClose,
   onAssigneesChanged,
-  onSetStatus,
-  statusBusy,
-  statusError,
 }: Props) {
   const timeLine = (sec: number) => `${relativeAge(sec, nowSec)} ago · ${absoluteTime(sec)}`;
   const closed = item.status === "resolved" || item.status === "dismissed";
-  const openItem = item.status === "waiting" || item.status === "answered";
 
   return (
     <>
@@ -175,54 +166,6 @@ export function TicketSheet({
             </div>
           )}
         </div>
-
-        {onSetStatus ? (
-          <div
-            className="shrink-0 px-4 pt-2 flex flex-col gap-2"
-            style={{
-              paddingBottom: "calc(12px + env(safe-area-inset-bottom))",
-              borderTop: "1px solid var(--border)",
-            }}
-          >
-            {statusError ? (
-              <p className="text-[var(--error)] text-[11px]">{statusError}</p>
-            ) : null}
-            <div className="flex items-center gap-2">
-              {openItem ? (
-                <>
-                  <button
-                    type="button"
-                    data-testid="overlay-ticket-resolve"
-                    disabled={statusBusy}
-                    onClick={() => onSetStatus("resolved")}
-                    className="px-3 py-2 text-[11px] text-[var(--text-secondary)] border border-[var(--border)] disabled:opacity-50"
-                  >
-                    Resolve
-                  </button>
-                  <button
-                    type="button"
-                    data-testid="overlay-ticket-dismiss"
-                    disabled={statusBusy}
-                    onClick={() => onSetStatus("dismissed")}
-                    className="px-3 py-2 text-[11px] text-[var(--text-muted)] border border-[var(--border)] disabled:opacity-50"
-                  >
-                    Dismiss
-                  </button>
-                </>
-              ) : (
-                <button
-                  type="button"
-                  data-testid="overlay-ticket-reopen"
-                  disabled={statusBusy}
-                  onClick={() => onSetStatus("waiting")}
-                  className="px-3 py-2 text-[11px] text-[var(--text-secondary)] border border-[var(--border)] disabled:opacity-50"
-                >
-                  Reopen
-                </button>
-              )}
-            </div>
-          </div>
-        ) : null}
       </div>
     </>
   );
