@@ -12,7 +12,8 @@
 //   - a Home row from B opens a ROOM on B (active unchanged), Back → Home;
 //   - Home failure rows carry one action scoped to their server;
 //   - rename repair re-keys a row from B's fresh list;
-//   - flag off: today's Home and placeholder, nothing sent to B.
+//   - flag off: Home is A's rows only (B's hidden, kept), Add Agent has no
+//     Other servers, the pill names A, nothing sent to B.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
@@ -94,7 +95,6 @@ import { __resetDialQueueForTests } from "../api/dialQueue";
 import { __resetHttpCapForTests } from "../api/httpCap";
 import { useServersStore } from "../stores/servers";
 import { ChatsList } from "./ChatsList";
-import { OTHER_SERVERS_SOON } from "./AddAgentSheet";
 import { HOMES_STORAGE_KEY, homeAddress, parseHomesDoc, useHomesStore } from "./homes";
 import { pool } from "./multi/pool";
 import { useMultiServerPrefs } from "./multi/prefs";
@@ -245,7 +245,7 @@ beforeEach(() => {
   resetThreadPreviewQueue();
   resetRowPreviewMemo();
   for (const s of ALL) pool.forget(s.id);
-  useMultiServerPrefs.setState({ multiServer: false, serverFilter: null });
+  useMultiServerPrefs.setState({ multiServer: false });
   vi.mocked(connectServer).mockClear();
 });
 
@@ -458,34 +458,29 @@ describe("Home list across servers (HM3, flag on)", () => {
   });
 });
 
-describe("flag off (HM8): today's single-server Home, unchanged", () => {
-  it("a B row only names B; the picker keeps its placeholder; nothing is sent to B; a tap switches", async () => {
+describe("flag off (owner 2026-10): Home is the active server's rows only", () => {
+  it("B's rows are hidden but kept; Add Agent has no Other servers; the pill names A; nothing is sent to B", async () => {
     addHomeRow("docs", "bravo.k2.dev", "pd");
     seed([A, B], { a: "tok-a", b: "tok-b" });
     mount();
     goHome();
-    const row = screen.getByTestId("home-row-docs");
-    expect(row.style.opacity).toBe("0.55");
-    expect(within(row).getByTestId("row-preview").textContent).toBe("On Bravo");
-    expect(homeRow("docs::bravo.k2.dev").querySelector("[data-testid=row-failure-action]")).toBeNull();
-    openOtherServers();
-    expect(screen.getByTestId("add-agent-server-status-b").textContent).toBe(OTHER_SERVERS_SOON);
-    expect(screen.queryByTestId("add-agent-search")).toBeNull();
+    expect(screen.queryByTestId("home-row-docs")).toBeNull();
+    expect(screen.queryByText("On Bravo")).toBeNull();
+    expect(storedRows().map((r) => r.address)).toEqual(["docs::bravo.k2.dev"]);
+    expect(screen.getByTestId("server-name").textContent).toBe("Alpha");
+    fireEvent.click(screen.getByRole("button", { name: "Add agent" }));
+    expect(screen.queryByTestId("add-agent-seg-other")).toBeNull();
+    expect(screen.queryByTestId("add-agent-server-b")).toBeNull();
+    expect(screen.getByTestId("add-agent-search")).not.toBeNull();
     fireEvent.click(screen.getByTestId("add-agent-done"));
     await new Promise((r) => setTimeout(r, 30));
     expect(net.calls.filter((c) => c.host === "bravo.k2.dev")).toEqual([]);
     expect(useRemoteRows.getState().byServer).toEqual({});
     // Rename repair is a flag-on behaviour.
     expect(storedRows()[0].address).toBe("docs::bravo.k2.dev");
-
-    const hydrate = vi.fn(async (_opts?: { resumeId?: string }) => {});
-    useZenStore.setState({ hydrateAgents: hydrate });
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("home-row-docs"));
-    });
-    expect(connectServer).toHaveBeenCalledWith("b");
-    expect(useServersStore.getState().activeServerId).toBe("b");
-    expect(hydrate).toHaveBeenCalledWith({ resumeId: "docs" });
-    expect(roomServerId()).toBeNull();
+    // Flag back on: B's row is back, and the pill reads All.
+    setFlag(true);
+    await waitFor(() => expect(screen.getByTestId("home-row-docs")).not.toBeNull());
+    expect(screen.getByTestId("server-name").textContent).toBe("All");
   });
 });

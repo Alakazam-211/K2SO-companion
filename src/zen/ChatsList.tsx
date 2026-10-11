@@ -61,7 +61,6 @@ import { retryServerNow } from "./multi/poolLoop";
 import {
   LoadingLines,
   RemoteAgentRow,
-  ServerFilterMenu,
   ServerPlaceholderRow,
 } from "./multi/MergedRows";
 import type { MergedRow } from "./multi/merge";
@@ -211,13 +210,6 @@ function PinGlyph({ off }: { off: boolean }) {
 type ListItem =
   | { active: true; key: string; agent: StubAgent }
   | { active: false; key: string; row: MergedRow };
-
-const RECOVERY_WORD: Record<RecoveryState, string> = {
-  connected: "Live",
-  reconnecting: "Reconnecting…",
-  reauthenticating: "Re-authenticating…",
-  "signin-required": "Sign in",
-};
 
 export function ChatsList() {
   const containerHeight = useViewportHeight();
@@ -409,7 +401,6 @@ export function ChatsList() {
     [source, agents, serverProjects, pinnedIds, focus, hiddenSidecarAddrs]
   );
   const multi = useMultiServerList({ q, listOnScreen: zenScreen === "list", active: activeSlice });
-  const [filterMenu, setFilterMenu] = useState(false);
   const remoteIcons = useRemoteIcons((s) => s.icons);
   // The header's focus: the Agents tab's server's own groups.
   const headerFocus = multi.remoteSelectedId
@@ -435,14 +426,14 @@ export function ChatsList() {
     setTabState(next);
     setGroupMenu(false);
     setHomeMenu(false);
-    setFilterMenu(false);
     swipe.close();
     closeMenu();
   };
-  // MS35 (owner 2026-10): with the flag on, the nickname pill names the
-  // Agents tab's ONE server (its status dot too). Home spans every server
-  // (a curated list), so there it reads "All"; its menu jumps to Agents on
-  // the server picked.
+  // Owner 2026-10: the nickname pill opens the Servers sheet on both tabs
+  // (no menu). Agents shows the active server, so the pill names it with
+  // its status dot; picking in Servers switches it. With the flag on, Home
+  // spans every server and the pill reads "All"; off, Home is the active
+  // server's rows and the pill names that server, as on Agents.
   const selectedId = multi.selectedId;
   const pillLabel = onHome
     ? "All"
@@ -467,18 +458,19 @@ export function ChatsList() {
   const activeHostKey = activeServer ? serverHostKey(activeServer) : null;
   const tokens = useServersStore((s) => s.tokens);
   // Flag on (S3b, HM3): rows from other servers resolve against THAT
-  // server's own lists. Off: they only name their server (today).
-  const homeViews = useMemo(
-    () =>
-      resolveHomeRows(home.rows, {
-        activeHostKey,
-        agents,
-        projects: serverProjects,
-        servers,
-        remote: multi.on ? { byServer: multi.byServer, tokens } : undefined,
-      }),
-    [home.rows, activeHostKey, agents, serverProjects, servers, multi.on, multi.byServer, tokens]
-  );
+  // server's own lists. Off (owner 2026-10): Home is the active server's
+  // rows only; other servers' rows are hidden, never deleted, and come
+  // back when the flag is turned on again.
+  const homeViews = useMemo(() => {
+    const views = resolveHomeRows(home.rows, {
+      activeHostKey,
+      agents,
+      projects: serverProjects,
+      servers,
+      remote: multi.on ? { byServer: multi.byServer, tokens } : undefined,
+    });
+    return multi.on ? views : views.filter((v) => v.kind !== "remote");
+  }, [home.rows, activeHostKey, agents, serverProjects, servers, multi.on, multi.byServer, tokens]);
   // Rename repair (flag on; desktop `repairFromList`): a row whose handle
   // left its server while its workspace id is still there follows the
   // rename. The active server's lists only while Zen is on it (a room on
@@ -970,12 +962,10 @@ export function ChatsList() {
             color: "#fff",
             pointerEvents: "auto",
           }}
-          onClick={() => (multi.on ? setFilterMenu(true) : setServersSheet(true))}
+          onClick={() => setServersSheet(true)}
           aria-label={
             multi.on ? (onHome ? "Servers: All" : `Server ${pillLabel}`) : `Server ${serverLabel}`
           }
-          aria-haspopup={multi.on ? "menu" : undefined}
-          aria-expanded={multi.on ? filterMenu : undefined}
           title={multi.on ? pillLabel : serverLabel}
           data-testid="chats-header-server"
         >
@@ -1223,36 +1213,7 @@ export function ChatsList() {
       </div>
       </header>
 
-      {multi.on && filterMenu ? (
-        <ServerFilterMenu
-          selectedId={onHome ? null : selectedId}
-          options={servers.map((sv) => {
-            const isActive = sv.id === activeServerId;
-            const badge = multi.badgeFor(sv.id);
-            const state = recovery[sv.id] ?? "signin-required";
-            return {
-              id: sv.id,
-              label: sv.nickname || hostLabel(sv.url),
-              // The active server keeps today's recovery dot.
-              dot: isActive ? RECOVERY_DOT[state] : badge.color,
-              word: isActive ? `Default · ${RECOVERY_WORD[state]}` : badge.word,
-            };
-          })}
-          onPick={(id) => {
-            multi.setSelected(id);
-            setFilterMenu(false);
-            // Home: a server pick opens the Agents tab on that server.
-            if (onHome) setTab("agents");
-          }}
-          onManage={() => {
-            setFilterMenu(false);
-            setServersSheet(true);
-          }}
-          onClose={() => setFilterMenu(false)}
-        />
-      ) : null}
-
-            {onHome && homeMenu ? (
+      {onHome && homeMenu ? (
         <HomeMenu
           homes={homes}
           currentId={home.id}
@@ -1396,8 +1357,13 @@ export function ChatsList() {
           previewFor={previewFor}
           onRemove={(address) => useHomesStore.getState().removeRow(home.id, address)}
           onMove={(address, delta) => {
+            // Step past the shown neighbour (hidden flag-off rows keep
+            // their places in storage).
+            const at = homeViews.findIndex((v) => v.row.address === address);
+            const next = homeViews[at + delta]?.row.address;
             const from = home.rows.findIndex((r) => r.address === address);
-            if (from >= 0) useHomesStore.getState().moveRow(home.id, from, from + delta);
+            const to = home.rows.findIndex((r) => r.address === next);
+            if (at >= 0 && from >= 0 && to >= 0) useHomesStore.getState().moveRow(home.id, from, to);
           }}
           hereChip={multi.on && multi.chips ? serverLabel : null}
           remoteLook={multi.on ? homeRemoteLook : undefined}
@@ -1415,19 +1381,14 @@ export function ChatsList() {
               setServersSheet(true);
               return;
             }
-            if (multi.on) {
-              // S3b / HM3: a ROOM on the row's server, no switch. A row
-              // its server no longer lists has nothing to open.
-              const agent = v.resolved?.agent ?? null;
-              if (v.resolved?.loaded && !agent) return;
-              void openHomeRowOnServer(v.server.id, handle, {
-                localId: agent?.id ?? null,
-                seed: multi.byServer[v.server.id]?.agents,
-              });
-              return;
-            }
-            void openHomeRowOnServer(v.server.id, handle).then((ok) => {
-              if (!ok) setServersSheet(true);
+            // S3b / HM3 (other-server rows show with the flag on only):
+            // a ROOM on the row's server, no switch. A row its server no
+            // longer lists has nothing to open.
+            const agent = v.resolved?.agent ?? null;
+            if (v.resolved?.loaded && !agent) return;
+            void openHomeRowOnServer(v.server.id, handle, {
+              localId: agent?.id ?? null,
+              seed: multi.byServer[v.server.id]?.agents,
             });
           }}
         />
@@ -1914,11 +1875,7 @@ export function ChatsList() {
           agents={chatRows}
           projects={serverProjects}
           groups={groupsOn && focus.groups.length > 0 ? focus.groups : null}
-          otherServers={
-            multi.on
-              ? otherServersForPicker(servers, activeServerId, tokens, labelOf)
-              : servers.filter((s) => s.id !== activeServerId)
-          }
+          otherServers={multi.on ? otherServersForPicker(servers, activeServerId, tokens, labelOf) : []}
           renderOtherBody={
             multi.on
               ? (sv, query) => (

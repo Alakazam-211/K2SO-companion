@@ -50,7 +50,6 @@ vi.mock("../lib/useSessionIdentity", () => ({
 import { connectServer } from "../lib/revive";
 import { useServersStore } from "../stores/servers";
 import { ChatsList } from "./ChatsList";
-import { OTHER_SERVERS_SOON } from "./AddAgentSheet";
 import { HOME_EMPTY_BODY, HOME_EMPTY_TITLE } from "./HomeList";
 import { HOMES_STORAGE_KEY, LIST_TAB_KEY, homeAddress, parseHomesDoc, useHomesStore } from "./homes";
 import { FOCUS_OFF, type ServerProject } from "./serverPins";
@@ -166,7 +165,7 @@ describe("Home view (HM3/HM7)", () => {
     expect(screen.getByTestId("chats-title-home").textContent).toContain("Home");
   });
 
-  it("lists the Home's rows with the Agents row look; other-server rows are greyed with a chip", () => {
+  it("flag off: lists only the active server's rows; other servers' rows are hidden but kept", () => {
     const h = useHomesStore.getState();
     h.addRow(h.selectedId, { address: homeAddress("bravo", HOST), workspaceId: "pb", label: "bravo" });
     h.addRow(h.selectedId, { address: homeAddress("lab", "192.168.1.20:38471"), workspaceId: null, label: "Lab agent" });
@@ -178,32 +177,37 @@ describe("Home view (HM3/HM7)", () => {
     expect(within(here).getByTestId("workspace-avatar")).not.toBeNull();
     expect(within(here).queryByTestId("row-server-chip")).toBeNull();
     expect(here.style.opacity).toBe("1");
-    const remote = screen.getByTestId("home-row-lab");
-    expect(remote.style.opacity).toBe("0.55");
-    expect(within(remote).getByTestId("row-server-chip").textContent).toBe("Lab box");
-    expect(within(remote).getByTestId("row-preview").textContent).toBe("On Lab box");
+    // No greyed "On Lab box" row: hidden, never deleted.
+    expect(screen.queryByTestId("home-row-lab")).toBeNull();
+    expect(screen.queryByText("On Lab box")).toBeNull();
+    expect(storedRows().map((r) => r.label)).toEqual(["bravo", "Lab agent"]);
     // Home rows never join the pin / group gestures.
     expect(list.querySelector("[data-pin-id]")).toBeNull();
     expect(list.querySelector("[data-swipe-action]")).toBeNull();
+    // Turning the flag back on brings the row back.
+    act(() => useMultiServerPrefs.getState().setMultiServer(true));
+    expect(screen.getByTestId("home-row-lab")).not.toBeNull();
   });
 
-  it("an active-server row opens its chat; another server's switches, then opens", async () => {
+  it("flag off: the Home pill names the active server (never All) and opens the Servers sheet", () => {
+    mount();
+    goHome();
+    expect(screen.getByTestId("server-name").textContent).toBe("test");
+    const pill = screen.getByTestId("chats-header-server");
+    expect(pill.getAttribute("aria-label")).toBe("Server test");
+    fireEvent.click(pill);
+    expect(screen.getByTestId("overlay-servers")).not.toBeNull();
+    expect(screen.queryByTestId("server-filter-menu")).toBeNull();
+  });
+
+  it("an active-server row opens its chat", () => {
     const h = useHomesStore.getState();
     h.addRow(h.selectedId, { address: homeAddress("bravo", HOST), workspaceId: "pb", label: "bravo" });
-    h.addRow(h.selectedId, { address: homeAddress("lab", "192.168.1.20:38471"), workspaceId: null, label: "Lab" });
-    const hydrate = vi.fn(async () => {});
-    useZenStore.setState({ hydrateAgents: hydrate });
     mount();
     goHome();
     fireEvent.click(screen.getByTestId("home-row-bravo"));
     expect(useZenStore.getState().agentId).toBe("/b");
-    useZenStore.setState({ screen: "list", agentId: "" });
-    await act(async () => {
-      fireEvent.click(screen.getByTestId("home-row-lab"));
-    });
-    expect(connectServer).toHaveBeenCalledWith("s2");
-    expect(useServersStore.getState().activeServerId).toBe("s2");
-    expect(hydrate).toHaveBeenCalledWith({ resumeId: "lab" });
+    expect(connectServer).not.toHaveBeenCalled();
   });
 });
 
@@ -311,15 +315,20 @@ describe("+ on Home: Add Agent (HM5)", () => {
     expect(within(screen.getByTestId("add-agent-section-none")).getByTestId("add-agent-row-/b")).not.toBeNull();
   });
 
-  it("Other servers: one coming-soon section per other saved server", () => {
+  it("flag off: no This server / Other servers control and no other-server sections", () => {
     mount();
     goHome();
     fireEvent.click(screen.getByRole("button", { name: "Add agent" }));
-    fireEvent.click(screen.getByTestId("add-agent-seg-other"));
-    expect(screen.queryByTestId("add-agent-server-s1")).toBeNull();
-    const lab = screen.getByTestId("add-agent-server-s2");
-    expect(lab.textContent).toContain("Lab box");
-    expect(screen.getByTestId("add-agent-server-status-s2").textContent).toBe(OTHER_SERVERS_SOON);
+    expect(screen.queryByTestId("add-agent-seg-this")).toBeNull();
+    expect(screen.queryByTestId("add-agent-seg-other")).toBeNull();
+    expect(screen.queryByRole("group", { name: "Which servers" })).toBeNull();
+    expect(screen.queryByTestId("add-agent-other")).toBeNull();
+    expect(screen.queryByTestId("add-agent-server-s2")).toBeNull();
+    expect(screen.queryByText("Other servers")).toBeNull();
+    // Just the active server's list, with search.
+    expect(screen.getByTestId("add-agent-this")).not.toBeNull();
+    expect(screen.getByTestId("add-agent-search")).not.toBeNull();
+    expect(screen.getByTestId("add-agent-row-/a")).not.toBeNull();
   });
 });
 
@@ -358,6 +367,18 @@ describe("Remove from Home (HM6)", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("flag off: Move down steps past a hidden other-server row", () => {
+    const h = useHomesStore.getState();
+    h.addRow(h.selectedId, { address: homeAddress("lab", "192.168.1.20:38471"), workspaceId: null, label: "Lab" });
+    h.moveRow(h.selectedId, 2, 1); // alpha, Lab (hidden), bravo
+    mount();
+    goHome();
+    fireEvent.contextMenu(screen.getByTestId("home-row-alpha"));
+    fireEvent.click(screen.getByTestId("home-menu-down"));
+    expect(storedRows().map((r) => r.label)).toEqual(["Lab", "bravo", "alpha"]);
+    expect(screen.getAllByTestId("row-name").map((n) => n.textContent)).toEqual(["bravo", "alpha"]);
   });
 
   it("swipe left reveals Remove; swipe right does nothing on Home rows", () => {

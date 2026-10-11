@@ -123,7 +123,7 @@ beforeEach(() => {
   __resetKeepAliveForTests();
   pool.forget("a");
   pool.forget("b");
-  useMultiServerPrefs.setState({ multiServer: true, serverFilter: null });
+  useMultiServerPrefs.setState({ multiServer: true });
   useServersStore.setState({
     hydrated: true,
     servers: [A, B],

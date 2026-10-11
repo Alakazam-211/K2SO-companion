@@ -40,8 +40,9 @@ export function homeSwipeRelease(x: number): "open" | "close" {
  *     that server's list when known, else the handle (the room's hydrate
  *     finds it by address). A server known to be below the phone floor
  *     (MS30, Q9) opens the old way instead.
- *   - Flag off: make that server active the way the Servers sheet does,
- *     then open the agent's chat (today's single-server Home).
+ *   - No `room`: make that server active the way the Servers sheet does,
+ *     then open the agent's chat. (Flag off, Home shows the active
+ *     server's rows only, so other-server rows never reach here.)
  *
  * False when it needs a sign-in or cannot be reached.
  */
