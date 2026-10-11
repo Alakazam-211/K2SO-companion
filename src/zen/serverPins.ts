@@ -131,6 +131,15 @@ export function withOrder(projects: ServerProject[], ids: string[]): ServerProje
   return projects.map((p) => (at.has(p.id) ? { ...p, tabOrder: at.get(p.id)! } : p));
 }
 
+/** Optimistic `focus-groups/assign {projectId, focusGroupId}`. */
+export function withFocusGroup(
+  projects: ServerProject[],
+  projectId: string,
+  focusGroupId: string | null
+): ServerProject[] {
+  return projects.map((p) => (p.id === projectId ? { ...p, focusGroupId } : p));
+}
+
 // ─── Focus groups ───
 
 export type FocusGroupLite = { id: string; name: string; color: string | null };
@@ -263,4 +272,23 @@ export function filterByFocus<T extends ScopedRow>(
     const gid = focusGroupIdForRow(r, projects);
     return gid === null || gid === current.id;
   });
+}
+
+/** `focus-groups/create` reply: one `FocusGroup` (also tolerates `{group}`). */
+export function focusGroupOf(data: unknown): FocusGroupLite | null {
+  const raw =
+    data && typeof data === "object" && "group" in (data as object)
+      ? (data as { group: unknown }).group
+      : data;
+  return focusGroupsOf([raw])?.[0] ?? null;
+}
+
+/** A row's own workspace group id, for main-chat rows that can change it
+ *  (the same rows that pin). Null when ungrouped or not a workspace row. */
+export function rowFocusGroupId(
+  row: ScopedRow | null | undefined,
+  projects: ServerProject[]
+): string | null {
+  const pid = pinProjectIdForRow(row, projects);
+  return (pid && projects.find((p) => p.id === pid)?.focusGroupId) || null;
 }
