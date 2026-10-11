@@ -9,6 +9,7 @@ import {
 } from "react";
 import { filesFromClipboard } from "./composerAttach";
 import { zenTextPx } from "./zenFont";
+import { PlusGlyph } from "./PlusGlyph";
 
 /** iMessage grows the field then caps (~5 lines) and scrolls inside. */
 export const COMPOSER_MAX_PX = 132;
@@ -133,11 +134,9 @@ export function GlassComposer({
                 width: 30,
                 height: 30,
                 borderRadius: "50%",
-                fontSize: 22,
-                lineHeight: 1,
               }}
             >
-              ＋
+              <PlusGlyph />
             </button>
           ) : null}
           <textarea
