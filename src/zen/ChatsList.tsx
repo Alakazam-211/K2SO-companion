@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from "react";
-import { useNavigate } from "react-router-dom";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { useFeedbackStore } from "../stores/feedback";
 import { hostLabel, useServersStore, type RecoveryState } from "../stores/servers";
@@ -20,6 +19,7 @@ import { lastAtKeyFor, sortChatsByRecency } from "./lastAtFetch";
 import { mountainListWhen } from "./threadModel";
 import { usePinDrag } from "./usePinDrag";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
+import { ZenSettings } from "./ZenSettings";
 import { useZenStore } from "./zenStore";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
@@ -34,7 +34,6 @@ const RECOVERY_DOT: Record<RecoveryState, string> = {
 const ACTIVITY_POLL_MS = 5_000;
 
 export function ChatsList() {
-  const navigate = useNavigate();
   const containerHeight = useViewportHeight();
   const agents = useZenStore((s) => s.agents);
   const source = useZenStore((s) => s.agentSource);
@@ -154,8 +153,7 @@ export function ChatsList() {
         background:
           "radial-gradient(120% 70% at 50% -20%, #3a3a3c 0%, #000 58%)",
         color: "#fff",
-        fontFamily:
-          '-apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro Display", system-ui, sans-serif',
+        fontFamily: "var(--zen-font)",
       }}
       data-testid="chats-home"
       onPointerDown={onPointerDown}
@@ -559,58 +557,7 @@ export function ChatsList() {
       {compose ? <OverlayCompose onClose={() => setCompose(false)} /> : null}
       {serversSheet ? <OverlayServers onClose={() => setServersSheet(false)} /> : null}
 
-      {settings ? (
-        <div
-          className="absolute inset-0 flex flex-col"
-          style={{ background: "#000", zIndex: 6, paddingTop: "env(safe-area-inset-top)" }}
-          data-testid="overlay-settings"
-        >
-          <div
-            className="flex items-center justify-between relative shrink-0"
-            style={{
-              minHeight: 44,
-              padding: "12px 16px 8px",
-            }}
-          >
-            <button
-              type="button"
-              className="text-[17px] zen-glass zen-glass-pill"
-              style={{
-                minHeight: 34,
-                padding: "0 14px",
-              }}
-              onClick={() => setSettings(false)}
-            >
-              Done
-            </button>
-            <h1 className="absolute left-1/2 -translate-x-1/2 text-[17px] font-semibold pointer-events-none">
-              Settings
-            </h1>
-            <span style={{ width: 72 }} />
-          </div>
-          <button
-            type="button"
-            className="w-full flex justify-between text-[17px]"
-            style={{
-              padding: "14px 16px",
-              borderBottom: "0.5px solid rgba(255,255,255,.12)",
-            }}
-            onClick={() => {
-              setSettings(false);
-              navigate("/servers");
-            }}
-          >
-            <span>Terminal view</span>
-            <span style={{ color: "#8e8e93" }}>›</span>
-          </button>
-          <p
-            className="text-[13px]"
-            style={{ color: "#8e8e93", padding: "8px 16px 16px", lineHeight: 1.35 }}
-          >
-            Leave this overlay and open the terminal view — Servers, Sessions, Tickets.
-          </p>
-        </div>
-      ) : null}
+      {settings ? <ZenSettings onClose={() => setSettings(false)} /> : null}
       </div>
     </div>
   );

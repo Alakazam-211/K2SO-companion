@@ -512,7 +512,7 @@ export function TicketView({
         background: "#000",
         zIndex: 8,
         paddingTop: "env(safe-area-inset-top)",
-        fontFamily: '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
+        fontFamily: "var(--zen-font)",
       }}
       data-testid="ticket-view"
     >
