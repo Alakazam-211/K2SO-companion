@@ -157,6 +157,36 @@ describe("ChatsList", () => {
     expect(screen.queryByTestId("tickets-badge")).toBeNull();
   });
 
+  it("header: server button on the left, Tickets then the settings cog on the right, all 34px", () => {
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: STUB_AGENTS,
+      screen: "list",
+    });
+    mount();
+    const header = screen.getByRole("heading", { name: "Chats" }).closest("header")!;
+    const serverBtn = screen.getByRole("button", { name: /Server / });
+    expect(header.firstElementChild).toBe(serverBtn);
+    expect(serverBtn.querySelector("[data-testid=server-icon]")).not.toBeNull();
+    expect(serverBtn.querySelector("[data-testid=server-status-dot]")).not.toBeNull();
+
+    const right = screen.getByTestId("chats-header-right");
+    const cog = screen.getByRole("button", { name: "Settings" });
+    expect(right.contains(cog)).toBe(true);
+    expect(cog.textContent).toBe("");
+    expect(cog.querySelector("[data-testid=settings-icon]")).not.toBeNull();
+    const rightButtons = Array.from(right.children);
+    expect(rightButtons).toEqual([screen.getByRole("button", { name: "Tickets" }), cog]);
+
+    for (const btn of [serverBtn, cog]) {
+      expect(btn.style.width).toBe("34px");
+      expect(btn.style.height).toBe("34px");
+      expect(btn.className).toMatch(/zen-glass-pill/);
+    }
+    fireEvent.click(cog);
+    expect(screen.getByTestId("overlay-settings")).not.toBeNull();
+  });
+
   it("the ticket icon shows the waiting count and opens the existing ticket tray", () => {
     seedServer();
     useFeedbackStore.setState({ waitingCount: 3, rows: [], isLoading: false, error: null });
@@ -706,7 +736,8 @@ describe("ChatsList", () => {
     });
     mount();
     const serverBtn = screen.getByRole("button", { name: /Server / });
-    const headerDot = serverBtn.querySelector("span");
+    const headerDot = screen.getByTestId("server-status-dot");
+    expect(serverBtn.contains(headerDot)).toBe(true);
     expect(headerDot?.getAttribute("style") || headerDot?.style.background).toMatch(
       /#ef4444|rgb\(239,\s*68,\s*68\)/
     );
