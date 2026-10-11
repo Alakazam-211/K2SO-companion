@@ -32,6 +32,7 @@ import type {
   TerminalPainter,
 } from "../kessel/webgl/painterTypes";
 import { nativeScrollToPx } from "../kessel/webgl/nativeScroll";
+import { TERMINAL_FONT_FAMILY, loadTerminalFont } from "../kessel/terminalFont";
 import {
   PAINTER_THEME,
   resolvePainterSurface,
@@ -111,7 +112,8 @@ interface CompactLine {
 // line-height / WebGL atlas path.
 const FONT_SIZE = 10;
 const LINE_HEIGHT_MULT = 1.2;
-const FONT_FAMILY = "'SF Mono', 'Fira Code', 'JetBrains Mono', 'Cascadia Code', ui-monospace, monospace";
+// Desktop Kessel's default face (bundled MesloLGM Nerd Font).
+const FONT_FAMILY = TERMINAL_FONT_FAMILY;
 const DEFAULT_FG_CSS = hexToCss(DEFAULT_FG);
 const DEFAULT_BG_CSS = hexToCss(DEFAULT_BG);
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
@@ -456,6 +458,20 @@ export function TerminalView({
     setScrollPx(0);
   }, [terminalId]);
 
+  // Meslo is a lazily loaded @font-face: a probe or atlas raster before
+  // it arrives measures and caches the fallback. Bump the epoch when it
+  // lands so the probe and the atlas (setMetrics) run again.
+  const [fontEpoch, setFontEpoch] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    void loadTerminalFont(FONT_SIZE).then((loaded) => {
+      if (!cancelled && loaded) setFontEpoch((n) => n + 1);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   // Same font probe desktop uses. WebGL default uses the integer
   // device-grid path; a fatal remount re-probes the DOM metrics.
   useEffect(() => {
@@ -472,7 +488,7 @@ export function TerminalView({
     cellHRef.current = probed.height;
     setCellW(probed.width);
     setCellH(probed.height);
-  }, [painterFatal]);
+  }, [painterFatal, fontEpoch]);
 
   // Probe: k1 + companion token → companion grid. Miss → Connect /cli Watch.
   useEffect(() => {
@@ -1411,17 +1427,18 @@ export function TerminalView({
       fontSize: FONT_SIZE,
     });
     lastPaintedRef.current.snapshot = null;
-  }, [webglSurfaceActive, cellW, lineH, dpr]);
+  }, [webglSurfaceActive, cellW, lineH, dpr, fontEpoch]);
 
   // Paint the REF position (the touch rAF may already be a frame
   // ahead of this commit); `scrollPx` is in the deps as the trigger, so
   // a touch scroll with no new frame still repaints the canvas — the
-  // desktop pane keeps it there for the same reason.
+  // desktop pane keeps it there for the same reason. `fontEpoch`: the
+  // new atlas must repaint even when the cell metrics came out equal.
   useLayoutEffect(() => {
     if (!webglSurfaceActive) return;
     if (!liveSnap) return;
     paintWebglRef.current(scrollPxRef.current, liveSnap);
-  }, [webglSurfaceActive, liveSnap, scrollPx, cellW, lineH, selection]);
+  }, [webglSurfaceActive, liveSnap, scrollPx, cellW, lineH, selection, fontEpoch]);
 
   const paintRows: { abs: number; row: RenderRun[] }[] = [];
   for (let i = 0; i < strip.rowCount; i++) {

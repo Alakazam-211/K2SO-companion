@@ -129,9 +129,11 @@ html, body, #root {
 }
 
 /* Zen UI font (Settings → Appearance → Font; src/zen/zenFont.ts).
-   Meslo is fetched only when chosen. Regular + Bold only: the Nerd Font
-   files are ~2.8 MB each, so Italic is synthesized. Code blocks and the
-   terminal keep their own monospace. */
+   Regular + Bold only: the Nerd Font files are ~2.8 MB each, so Italic
+   is synthesized. The terminal also paints in this face (desktop Kessel
+   parity, src/kessel/terminalFont.ts) and loads it when a session opens;
+   otherwise it is fetched only when chosen here. Code blocks keep their
+   own monospace. */
 @font-face {
   font-family: "MesloLGM Nerd Font Mono";
   src: url("../assets/fonts/MesloLGMNerdFontMono-Regular.ttf") format("truetype");
