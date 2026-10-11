@@ -19,7 +19,9 @@ import {
   stickToNewest,
   type MessageAnchor,
 } from "./threadScroll";
-import { connectOverlayEvents } from "./overlayEvents";
+import { connectOverlayEvents, type OverlayLiveHandle } from "./overlayEvents";
+import { useServersStore } from "../stores/servers";
+import { useNotifyPrefsStore } from "../stores/notifyPrefs";
 import {
   applyActivityCatchUp,
   applyActivityFrame,
@@ -147,10 +149,13 @@ export function threadTopPadding(topInset?: number): string | undefined {
 export function ThreadPane({
   viewportHeight,
   topInset,
+  covered = false,
 }: {
   viewportHeight?: number;
   /** Height (px, below the safe area) of a header floating over the list. */
   topInset?: number;
+  /** A full-screen overlay (file viewer) hides the Thread: not "viewing". */
+  covered?: boolean;
 } = {}) {
   const thread = useZenStore((s) => s.thread);
   const source = useZenStore((s) => s.threadSource);
@@ -210,6 +215,14 @@ export function ThreadPane({
   const catchUps = useRef(createCatchUpGate());
   const addrRef = useRef(threadAddr);
   addrRef.current = threadAddr;
+  const liveRef = useRef<OverlayLiveHandle | null>(null);
+  const serverId = useServersStore((s) => s.activeServerId);
+  const viewingAllowed = useNotifyPrefsStore(
+    (s) => !!serverId && s.threadPush[serverId] === true
+  );
+  useEffect(() => {
+    if (serverId) void useNotifyPrefsStore.getState().probe(serverId);
+  }, [serverId]);
 
   useLayoutEffect(() => {
     const el = scrollerRef.current;
@@ -278,7 +291,7 @@ export function ThreadPane({
     }
     // No catch-up before the socket: onOpen fires on the first open too,
     // and the poll fallback's onNeedCatchUp covers a socket that never opens.
-    const live = connectOverlayEvents({
+    const live = (liveRef.current = connectOverlayEvents({
       conversationId,
       onItem: (raw) => {
         if (isActivityFrame(raw)) {
@@ -294,13 +307,29 @@ export function ThreadPane({
         void catchUpActivity();
       },
       onOpen: () => void catchUpActivity(),
-    });
+    }));
     return () => {
       stopped = true;
+      if (liveRef.current === live) liveRef.current = null;
       live.stop();
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [source, conversationId, threadGroupId]);
+
+  // Viewing frames (K2 0.45.5 `thread-push-v1` only): while this Thread is
+  // on screen the daemon holds its pushes. Older servers never get them.
+  useEffect(() => {
+    const apply = () =>
+      liveRef.current?.setViewing(
+        viewingAllowed && !covered && document.visibilityState === "visible"
+      );
+    apply();
+    document.addEventListener("visibilitychange", apply);
+    return () => {
+      document.removeEventListener("visibilitychange", apply);
+      liveRef.current?.setViewing(false);
+    };
+  }, [viewingAllowed, covered, source, conversationId, threadGroupId]);
 
   // Keyboard open/close: Zen sizes the column to the visual viewport, so
   // the scroller shrinks with scrollTop unchanged and the newest message

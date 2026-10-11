@@ -4,7 +4,18 @@ import { overlayEventsUrl } from "./threadLive";
 export const OVERLAY_POLL_MS = 2000;
 const SLOW_RETRY_MS = 60_000;
 
-export type OverlayLiveHandle = { stop: () => void };
+/** K2 0.45.5 `thread-push-v1`: while a Thread is on screen the client
+ *  says so, so the daemon skips pushing it. Fire-and-forget text frames,
+ *  no ack; the server forgets a view after its TTL (45 s), so repeat. */
+export const VIEWING_REPEAT_MS = 30_000;
+
+export type OverlayLiveHandle = {
+  stop: () => void;
+  /** `true` sends `{"t":"viewing","visible":true}` now (or on the next
+   *  socket open) and every 30 s; `false` sends `visible:false` once, only
+   *  after a `true` went out. Callers gate on `thread-push-v1`. */
+  setViewing: (visible: boolean) => void;
+};
 
 /** Skin live path: WS `/cli/overlay/events?conversation=`. Token query
  *  because WebSocket cannot set Authorization. After two handshake
@@ -24,6 +35,33 @@ export function connectOverlayEvents(opts: {
   let everOpened = false;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let wsTimer: ReturnType<typeof setTimeout> | null = null;
+  let viewing = false;
+  let viewTimer: ReturnType<typeof setInterval> | null = null;
+
+  /** Best-effort: a closed or opening socket just drops the frame. */
+  function sendViewing(visible: boolean): boolean {
+    const sock = ws;
+    if (!sock || sock.readyState !== 1) return false;
+    try {
+      sock.send(JSON.stringify({ t: "viewing", visible }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function stopViewTimer() {
+    if (viewTimer) clearInterval(viewTimer);
+    viewTimer = null;
+  }
+
+  function startViewing() {
+    stopViewTimer();
+    sendViewing(true);
+    viewTimer = setInterval(() => {
+      if (!stopped && viewing) sendViewing(true);
+    }, VIEWING_REPEAT_MS);
+  }
 
   function stopPoll() {
     if (pollTimer) {
@@ -86,6 +124,8 @@ export function connectOverlayEvents(opts: {
       stopPoll();
       everOpened = true;
       if (catchUp) opts.onNeedCatchUp();
+      // A (re)opened socket is a new viewer on the daemon: say so now.
+      if (viewing) startViewing();
       opts.onOpen?.();
     };
     sock.onmessage = (e) => {
@@ -118,7 +158,19 @@ export function connectOverlayEvents(opts: {
 
   open();
   return {
+    setViewing(visible) {
+      if (stopped || visible === viewing) return;
+      viewing = visible;
+      if (visible) startViewing();
+      else {
+        stopViewTimer();
+        sendViewing(false);
+      }
+    },
     stop() {
+      if (viewing) sendViewing(false);
+      viewing = false;
+      stopViewTimer();
       stopped = true;
       stopPoll();
       if (wsTimer) clearTimeout(wsTimer);

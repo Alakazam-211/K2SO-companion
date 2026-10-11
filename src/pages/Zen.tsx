@@ -513,7 +513,7 @@ export function Zen() {
             </div>
           </header>
           <PaneErrorBoundary name="thread">
-            <ThreadPane viewportHeight={containerHeight} topInset={headerPx} />
+            <ThreadPane viewportHeight={containerHeight} topInset={headerPx} covered={viewingFile} />
           </PaneErrorBoundary>
           {filesOpen && !viewingFile ? (
             <div
