@@ -429,7 +429,7 @@ describe("ChatsList", () => {
     expect(screen.getByTestId("overlay-tickets")).not.toBeNull();
   });
 
-  it("nothing waiting on me: the badge falls back to the muted All count", () => {
+  it("nothing waiting on me: the badge falls back to the All count, still amber", () => {
     seedServer();
     useFeedbackStore.setState({
       rows: [ticketRow("c", "waiting", ["bob"]), ticketRow("d", "waiting", [])],
@@ -441,7 +441,8 @@ describe("ChatsList", () => {
     const badge = screen.getByTestId("tickets-badge");
     expect(badge.textContent).toBe("2");
     expect(badge.getAttribute("data-tone")).toBe("others");
-    expect(badge.style.background).not.toMatch(/#f59e0b|rgb\(245,\s*158,\s*11\)/);
+    expect(badge.style.background).toMatch(/#f59e0b|rgb\(245,\s*158,\s*11\)/);
+    expect(badge.style.color).toMatch(/#000|rgb\(0,\s*0,\s*0\)/);
     expect(
       screen.getByRole("button", { name: "Tickets, none waiting on you, 2 waiting in all" })
     ).not.toBeNull();

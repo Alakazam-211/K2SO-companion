@@ -278,8 +278,8 @@ export function ChatsList() {
   const activeServerId = useServersStore((s) => s.activeServerId);
   const recovery = useServersStore((s) => s.recovery);
   // Tickets badge: the same counts as the Tickets tabs (rows + "me").
-  // Amber = waiting on me; grey = nothing is mine but N wait in All;
-  // hidden = nothing waits. See ticketsBadge() in feedbackPure.
+  // Waiting on me if any, else the All waiting count, else hidden; amber
+  // either way. See ticketsBadge() in feedbackPure.
   const { counts: ticketCounts } = useTicketWaitingCounts();
   const badge = ticketsBadge(ticketCounts);
   const activeServer = servers.find((s) => s.id === activeServerId) ?? null;
@@ -624,8 +624,9 @@ export function ChatsList() {
                   height: 15,
                   padding: "0 4px",
                   borderRadius: 8,
-                  background: badge.tone === "mine" ? "#f59e0b" : "#636366",
-                  color: badge.tone === "mine" ? "#000" : "#fff",
+                  // Always amber, whichever count it shows (data-tone says which).
+                  background: "#f59e0b",
+                  color: "#000",
                   fontSize: 9,
                   fontWeight: 700,
                   lineHeight: "15px",
