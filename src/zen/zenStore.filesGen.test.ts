@@ -97,8 +97,7 @@ function reset() {
     filesOpen: true,
     openFileIds: [],
     focusId: null,
-    splitId: null,
-    splitRatio: 0.5,
+    fileReturn: "chat",
     lastAtByKey: {},
     pinnedIds: [],
     threadConversationId: null,
@@ -1956,5 +1955,68 @@ describe("Workspace Resources in the Files pane", () => {
     expect(s.files).toEqual([]);
     expect(s.fileSource).toBe("live");
     expect(s.fileError).toBeNull();
+  });
+});
+
+describe("full-screen file viewer state", () => {
+  const WS = "/Users/Baden/Appa";
+
+  beforeEach(() => {
+    reset();
+    vi.mocked(getFsReadFile).mockReset();
+    vi.mocked(getFsReadFile).mockResolvedValue({
+      ok: true,
+      data: { content: "# hi\n", path: `${WS}/a.md`, name: "a.md" },
+    });
+  });
+
+  it("closing a file opened from chat returns to the chat", () => {
+    useZenStore.setState({ ...liveAt(WS, "appa"), fileSource: "live", files: [], filesOpen: false });
+    useZenStore.getState().openFileFromPath("a.md");
+    expect(useZenStore.getState().fileReturn).toBe("chat");
+    useZenStore.getState().closeFile(`${WS}/a.md`);
+    const s = useZenStore.getState();
+    expect(s.openFileIds).toEqual([]);
+    expect(s.filesOpen).toBe(false);
+  });
+
+  it("closing a file opened from the Files list returns to the list", () => {
+    useZenStore.setState({
+      ...liveAt(WS, "appa"),
+      fileSource: "live",
+      files: [{ id: `${WS}/a.md`, name: "a.md", body: "" }],
+      filesOpen: true,
+    });
+    useZenStore.getState().openFile(`${WS}/a.md`);
+    useZenStore.getState().closeFile(`${WS}/a.md`);
+    expect(useZenStore.getState().filesOpen).toBe(true);
+  });
+
+  it("open files stack: closing the top one shows the one under it", () => {
+    useZenStore.setState({ ...liveAt(WS, "appa"), fileSource: "live", files: [], filesOpen: false });
+    useZenStore.getState().openFileFromPath("a.md");
+    useZenStore.getState().openFileFromPath("b.md");
+    expect(useZenStore.getState().focusId).toBe(`${WS}/b.md`);
+    useZenStore.getState().closeFile(`${WS}/b.md`);
+    expect(useZenStore.getState().focusId).toBe(`${WS}/a.md`);
+    expect(useZenStore.getState().fileReturn).toBe("chat");
+  });
+
+  it("a PDF skips read-file; the viewer reads its bytes", () => {
+    useZenStore.setState({ ...liveAt(WS, "appa"), fileSource: "live", files: [] });
+    useZenStore.getState().openFileFromPath("docs/brief.pdf");
+    expect(getFsReadFile).not.toHaveBeenCalled();
+    const f = useZenStore.getState().files.find((x) => x.id === `${WS}/docs/brief.pdf`);
+    expect(f).toMatchObject({ loaded: true, fsPath: `${WS}/docs/brief.pdf`, readError: null });
+  });
+
+  it("a read-file failure is kept as readError, not as the body", async () => {
+    vi.mocked(getFsReadFile).mockResolvedValue({ ok: false, error: "Cannot read binary file" });
+    useZenStore.setState({ ...liveAt(WS, "appa"), fileSource: "live", files: [] });
+    useZenStore.getState().openFileFromPath("blob.txt");
+    await Promise.resolve();
+    await Promise.resolve();
+    const f = useZenStore.getState().files.find((x) => x.id === `${WS}/blob.txt`);
+    expect(f).toMatchObject({ body: "", loaded: true, readError: "Cannot read binary file" });
   });
 });
