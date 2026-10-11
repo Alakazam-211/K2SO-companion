@@ -25,6 +25,7 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { cliAuthHeaders } from "../api/cliAuth";
 import {
+  onServerForget,
   useServersStore,
   type ServerEntry,
 } from "../stores/servers";
@@ -189,6 +190,20 @@ async function doRevive(serverId: string): Promise<ReviveOutcome> {
   state.clearToken(serverId);
   return "signin-required";
 }
+
+/** MS9: revive the server a scope is pinned to — by id, never the active
+ *  server. Joins that server's single flight. A scope-holder captures the
+ *  scope once per call and replays on the SAME scope (MS7). */
+export function revive(scope: { readonly id: string }): Promise<ReviveOutcome> {
+  if (!scope.id) return Promise.resolve("not-applicable");
+  return reviveServerSession(scope.id);
+}
+
+// A removed or re-keyed server starts over: no backoff carried to what may
+// be a different daemon (MS3 / MA2).
+onServerForget((id) => {
+  failures.delete(id);
+});
 
 /** Explicit user gesture: make a server active elsewhere, then call this to
  *  (re)connect it — probes/re-logs-in as needed, bypassing the cooldown. */
