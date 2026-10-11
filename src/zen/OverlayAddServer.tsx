@@ -1,6 +1,7 @@
 import { useState, type CSSProperties, type FormEvent } from "react";
 import { hostLabel, loginAndSaveServer, useServersStore } from "../stores/servers";
 import { useZenStore } from "./zenStore";
+import { useBackHandler } from "../lib/androidBack";
 
 /** Overlay Add / Edit server. Donor is `Login.tsx` / `loginAndSaveServer`.
  *  Zero stored servers lands here. The in-overlay server list reuses it
@@ -33,6 +34,9 @@ export function OverlayAddServer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
+  // Android Back = Cancel. Without one (no server saved yet) there is
+  // nothing to go back to, so Back falls through.
+  useBackHandler(Boolean(onCancel), () => onCancel?.());
   const isValid = serverUrl.length > 0 && username.length > 0 && password.length > 0;
 
   const onSubmit = async (e: FormEvent) => {

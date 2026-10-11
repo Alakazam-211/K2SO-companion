@@ -249,7 +249,7 @@ export function DxfView({ text }: { text: string }) {
         {drawing.skippedTotal ? (
           <div
             className="pointer-events-none absolute left-3 right-3 text-[11px] text-[var(--text-muted)]"
-            style={{ bottom: "max(10px, env(safe-area-inset-bottom))" }}
+            style={{ bottom: "max(10px, var(--safe-bottom))" }}
             data-testid="dxf-skipped"
           >
             {drawing.skippedTotal} {drawing.skippedTotal === 1 ? "entity" : "entities"} not shown ({skippedLabel(drawing.skipped)})

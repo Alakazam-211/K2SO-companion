@@ -66,6 +66,7 @@ import {
 import type { MergedRow } from "./multi/merge";
 import type { RowActivity } from "./agentActivity";
 import { CheckIcon, CogIcon } from "./icons";
+import { useBackHandler } from "../lib/androidBack";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -602,6 +603,11 @@ export function ChatsList() {
   useEffect(() => {
     if (pinMenu && (!showPins || !menuAgent)) closeMenu();
   }, [pinMenu, showPins, menuAgent, closeMenu]);
+
+  // Android Back closes the two header-anchored menus drawn here, like
+  // their backdrops. Sheets and overlays register in their own components.
+  useBackHandler(Boolean(pinMenu && menuAgent), closeMenu);
+  useBackHandler(Boolean(!onHome && group && groupMenu), () => setGroupMenu(false));
 
   // The header floats over the list; the list's top padding tracks its
   // real height (a pin error line grows it). Hidden under an open Thread

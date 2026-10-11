@@ -5,6 +5,7 @@ import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { iconFromFile, workspaceLookOf, type IconTarget, type WorkspaceLook } from "./workspaceIcon";
 import { saveWorkspaceLook } from "./workspaceLookSave";
 import { useZenStore } from "./zenStore";
+import { useBackHandler } from "../lib/androidBack";
 
 const PREVIEW_PX = 96;
 
@@ -35,6 +36,10 @@ export function AgentIconSheet({
   const busy = reading || saving;
   const dirty = draft.iconUrl !== before.iconUrl || draft.color !== before.color;
   const initial = (target.name || agent.name || "?").slice(0, 1).toUpperCase();
+  // Android Back = Cancel (held while a save is in flight).
+  useBackHandler(true, () => {
+    if (!saving) onClose();
+  });
 
   const onFile = (e: ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -80,7 +85,7 @@ export function AgentIconSheet({
         style={{
           borderTopLeftRadius: 14,
           borderTopRightRadius: 14,
-          padding: "16px 16px max(12px, env(safe-area-inset-bottom))",
+          padding: "16px 16px max(12px, var(--safe-bottom))",
           maxHeight: "90%",
           gap: 14,
           color: "#fff",

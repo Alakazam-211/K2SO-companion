@@ -4,6 +4,7 @@ import { ABOUT } from "../lib/about";
 import { usePushToggle } from "../lib/usePushToggle";
 import { ZEN_FONTS, ZEN_TEXT_SIZES, useZenFontStore } from "./zenFont";
 import { useMultiServerPrefs } from "./multi/prefs";
+import { useBackHandler } from "../lib/androidBack";
 
 const MUTED = "#8e8e93";
 const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
@@ -21,6 +22,8 @@ export const LEAVE_ZEN_PATH = "/servers";
  *  page's values plus Terminal: Kessel), and Leave Zen Mode. */
 export function ZenSettings({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
+  // Android Back = Done.
+  useBackHandler(true, onClose);
   return (
     <div
       className="absolute inset-0 flex flex-col"
@@ -51,7 +54,7 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
       <div
         className="flex-1 min-h-0 overflow-y-auto"
         style={{
-          padding: "0 16px calc(24px + env(safe-area-inset-bottom))",
+          padding: "0 16px calc(24px + var(--safe-bottom))",
           WebkitOverflowScrolling: "touch",
         }}
         data-testid="settings-scroll"

@@ -16,6 +16,7 @@ import { mountainListWhen } from "./threadModel";
 import { isHorizontalSwipe, SWIPE_SLOP_PX } from "./useRowSwipe";
 import { useZenStore } from "./zenStore";
 import { useZenScope } from "./zenScope";
+import { useBackHandler } from "../lib/androidBack";
 
 /** Trailing (swipe-left) Remove action width. */
 export const HOME_REMOVE_W = 96;
@@ -140,6 +141,12 @@ export function HomeList({
     hold.current = null;
   };
   useEffect(() => clearHold, []);
+  // Android Back closes the row menu, like its backdrop. Only while it
+  // shows (its row may have left the list).
+  useBackHandler(
+    menu !== null && views.some((v) => v.row.address === menu.address),
+    () => setMenu(null)
+  );
 
   const openMenu = (address: string, el: HTMLElement) => {
     const r = el.getBoundingClientRect();

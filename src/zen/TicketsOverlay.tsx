@@ -20,6 +20,7 @@ import { useServersStore } from "../stores/servers";
 import { StatusChip, TicketView } from "./TicketView";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 import { useTicketsScope } from "./zenScope";
+import { useBackHandler } from "../lib/androidBack";
 
 // Zen Tickets: the list (glass header + Done, scope tabs, status sections
 // of `.k2-tile` cards) and the open ticket (TicketView, Layout A).
@@ -143,6 +144,10 @@ export function TicketsOverlay({
     setOpenId(null);
     useFeedbackStore.getState().closeThread();
   };
+  // Android Back = Done. Off while a ticket is open: TicketView takes
+  // Back itself (a deep link mounts both at once, and the child's
+  // handler would otherwise register first and lose).
+  useBackHandler(!openId, onClose);
 
   const emptyText =
     scope === "waiting"

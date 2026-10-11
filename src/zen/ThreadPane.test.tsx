@@ -170,14 +170,14 @@ describe("ThreadPane", () => {
     expect(screen.queryByRole("button", { name: "Send" })).toBeNull();
   });
 
-  it("live empty thread is labelled No messages, not a blank pane", () => {
+  it("live empty thread is labelled No messages yet, not a blank pane", () => {
     useZenStore.setState({
       threadSource: "live",
       threadError: null,
       thread: [],
     });
     render(<ThreadPane />);
-    expect(screen.getByTestId("thread-empty").textContent).toBe("No messages");
+    expect(screen.getByTestId("thread-empty").textContent).toBe("No messages yet");
     expect(screen.queryByText(/unknown overlay addr/)).toBeNull();
   });
 

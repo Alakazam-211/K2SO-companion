@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useSwipeBack } from "../../lib/useSwipeBack";
+import { useBackHandler } from "../../lib/androidBack";
 import { PaneErrorBoundary } from "../PaneErrorBoundary";
 import { MiddleEllipsis } from "../MiddleEllipsis";
 import { StubMark } from "../StubMark";
@@ -49,10 +50,15 @@ export function FileViewer() {
   // Left-edge swipe closes the file, like the other full-screen pages.
   // FileStage mounts this only with a file to show, so the root exists
   // when the hook binds its listeners (once).
-  const swipeRef = useSwipeBack(() => {
+  const closeFocused = () => {
     const id = useZenStore.getState().focusId;
     if (id) closeFile(id);
-  });
+  };
+  const swipeRef = useSwipeBack(closeFocused);
+  // Android Back: the ✕ (and the swipe) — this file closes. The open
+  // file switcher shuts first.
+  useBackHandler(true, closeFocused);
+  useBackHandler(menu, () => setMenu(false));
 
   // A new file opens rendered, with the switcher shut.
   useEffect(() => {

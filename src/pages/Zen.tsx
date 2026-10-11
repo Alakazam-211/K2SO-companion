@@ -11,6 +11,7 @@ import { FilePane } from "../zen/FilePane";
 import { useFileDrag } from "../zen/fileDrag";
 import { SessionsPane } from "../zen/SessionsPane";
 import { useSwipeBack } from "../lib/useSwipeBack";
+import { useBackHandler } from "../lib/androidBack";
 import { FileStage } from "../zen/FileStage";
 import { PaneErrorBoundary } from "../zen/PaneErrorBoundary";
 import {
@@ -277,6 +278,18 @@ export function Zen() {
       );
     }
   };
+
+  // Android Back on the open chat: the header's Done (drawer-picked) or
+  // Back, the same as the edge swipe. Layers over the chat (drawers,
+  // sheets, the file viewer) register on their own, later, so they win.
+  useBackHandler(wantThread, drawerPicked ? returnToDrawerOrigin : backToChats);
+
+  const closeRename = () => {
+    if (renameBusy) return;
+    setRenameOpen(false);
+    setRenameError(null);
+  };
+  useBackHandler(wantThread && renameOpen && extraChat, closeRename);
 
   // The header floats over the list; the list's top padding tracks the
   // header's real height (Hide chat, banner grow it).
@@ -558,8 +571,11 @@ export function Zen() {
                     }
                     if (!tid) tid = terminalIdForAgent(agent, sessions);
                     if (!tid) {
-                      // Classic /sessions lists the active server only.
-                      if (!roomServerId()) navigate("/sessions");
+                      // No live terminal: the Sessions drawer lists this
+                      // agent's sessions (and New session) without leaving
+                      // Zen for classic /sessions.
+                      dismissFiles();
+                      setSessionsOpen(true);
                       return;
                     }
                     openTerminal(tid, sidecarTitle);
@@ -686,10 +702,7 @@ export function Zen() {
               style={{ background: "rgba(0,0,0,.55)" }}
               onClick={(e) => {
                 e.stopPropagation();
-                if (!renameBusy) {
-                  setRenameOpen(false);
-                  setRenameError(null);
-                }
+                closeRename();
               }}
             >
               <form
@@ -697,7 +710,7 @@ export function Zen() {
                 style={{
                   borderTopLeftRadius: 14,
                   borderTopRightRadius: 14,
-                  paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
+                  paddingBottom: "calc(16px + var(--safe-bottom))",
                 }}
                 onClick={(e) => e.stopPropagation()}
                 onSubmit={(e: FormEvent) => {

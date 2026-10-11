@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { HOME_NAME_MAX, type Home } from "./homes";
 import { CheckIcon } from "./icons";
+import { useBackHandler } from "../lib/androidBack";
 
 const ITEM = {
   gap: 10,
@@ -38,6 +39,12 @@ export function HomeMenu({
   const [mode, setMode] = useState<Mode>({ kind: "list" });
   const [name, setName] = useState("");
   const lastHome = homes.length <= 1;
+  // Android Back: the name form's Cancel (back to the list), else the
+  // backdrop tap that closes the menu.
+  useBackHandler(true, () => {
+    if (mode.kind === "new" || mode.kind === "rename") setMode({ kind: "list" });
+    else onClose();
+  });
 
   const submitName = () => {
     const clean = name.trim();

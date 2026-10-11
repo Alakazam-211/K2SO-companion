@@ -41,6 +41,7 @@ import {
   type FeedbackShow,
 } from "../api/feedback";
 import { openExternal } from "../lib/openExternal";
+import { handleAndroidBack } from "../lib/androidBack";
 import { useFeedbackStore } from "../stores/feedback";
 import { useServersStore } from "../stores/servers";
 import { connectTicketEvents } from "./ticketEvents";
@@ -547,5 +548,49 @@ describe("Push deep link (?ticket=)", () => {
     render(<TicketsOverlay onClose={() => {}} />);
     await waitFor(() => screen.getByText("Which pricing tier for Acme?"));
     expect(screen.queryByTestId("ticket-view")).toBeNull();
+  });
+});
+
+describe("Android Back", () => {
+  it("closes the top layer first: menu, then the ticket, then the overlay", async () => {
+    const onClose = vi.fn();
+    render(<TicketsOverlay onClose={onClose} />);
+    await openTicket("Which pricing tier for Acme?");
+    fireEvent.click(screen.getByTestId("ticket-more"));
+    expect(screen.getByTestId("ticket-more-menu")).not.toBeNull();
+
+    act(() => {
+      expect(handleAndroidBack()).toBe(true);
+    });
+    expect(screen.queryByTestId("ticket-more-menu")).toBeNull();
+    expect(screen.getByTestId("ticket-view")).not.toBeNull();
+
+    act(() => {
+      expect(handleAndroidBack()).toBe(true);
+    });
+    expect(screen.queryByTestId("ticket-view")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+
+    act(() => {
+      expect(handleAndroidBack()).toBe(true);
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("a deep-linked ticket (mounted with the overlay) still closes before the overlay", async () => {
+    const onClose = vi.fn();
+    render(<TicketsOverlay onClose={onClose} initialTicketId="t-wait" />);
+    await waitFor(() => screen.getByTestId("ticket-view"));
+    act(() => {
+      handleAndroidBack();
+    });
+    expect(screen.queryByTestId("ticket-view")).toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("nothing is claimed once the overlay is gone", () => {
+    const { unmount } = render(<TicketsOverlay onClose={() => {}} />);
+    unmount();
+    expect(handleAndroidBack()).toBe(false);
   });
 });

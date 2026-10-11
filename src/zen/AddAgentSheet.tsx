@@ -6,6 +6,7 @@ import { rowFocusGroupId, type FocusGroupLite, type ServerProject } from "./serv
 import type { StubAgent } from "./stubData";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { CheckIcon } from "./icons";
+import { useBackHandler } from "../lib/androidBack";
 
 export type AddAgentSegment = "this" | "other";
 
@@ -164,6 +165,8 @@ export function AddAgentSheet({
   onClose: () => void;
 }) {
   const [segmentPick, setSegment] = useState<AddAgentSegment>("this");
+  // Android Back = Done.
+  useBackHandler(true, onClose);
   const segment: AddAgentSegment = renderOtherBody ? segmentPick : "this";
   const [q, setQ] = useState("");
   const candidates = useMemo(() => agents.filter(isHomeCandidate), [agents]);
@@ -202,7 +205,7 @@ export function AddAgentSheet({
         style={{
           borderTopLeftRadius: 14,
           borderTopRightRadius: 14,
-          padding: "12px 0 max(12px, env(safe-area-inset-bottom))",
+          padding: "12px 0 max(12px, var(--safe-bottom))",
           height: "85%",
           color: "#fff",
         }}
