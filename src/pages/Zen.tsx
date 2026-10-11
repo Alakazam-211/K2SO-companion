@@ -22,6 +22,7 @@ import {
 } from "../zen/terminalJump";
 import { resumeSessionThread } from "../zen/sessionReturn";
 import { ThreadPane } from "../zen/ThreadPane";
+import { ZEN_SEQ_PARAM, zenFocusSeq } from "../zen/threadFocus";
 import { STUB_BANNER } from "../zen/stubData";
 import { isOverlayExtraAddr, threadHeaderTitle, threadSidecarTitle } from "../zen/overlayExtras";
 import { useZenStore } from "../zen/zenStore";
@@ -49,6 +50,8 @@ export function Zen() {
   const threadParam = params.get("thread");
   // Terminal Done: `/zen?addr=<session addr>` (+ state.zenReturn).
   const addrParam = (params.get(ZEN_ADDR_PARAM) || "").trim();
+  // Push tap: `/zen?addr=<addr>&seq=<seq>` also scrolls to that message.
+  const seqParam = addrParam ? zenFocusSeq(params.get(ZEN_SEQ_PARAM)) : null;
   const location = useLocation();
   const screen = useZenStore((s) => s.screen);
   const agentId = useZenStore((s) => s.agentId);
@@ -126,6 +129,10 @@ export function Zen() {
   const zenReturn = readZenReturnState(location.state, addrParam);
   const zenReturnKey = zenReturn ? JSON.stringify(zenReturn) : "";
   useLayoutEffect(() => {
+    if (!addrParam || seqParam == null) return;
+    useZenStore.setState({ threadFocusSeq: seqParam });
+  }, [addrParam, seqParam]);
+  useLayoutEffect(() => {
     if (!addrParam) return;
     setIgnoreThreadQuery(false);
     void resumeSessionThread(addrParam, zenReturnKey ? JSON.parse(zenReturnKey) : null);
@@ -175,6 +182,7 @@ export function Zen() {
           const next = new URLSearchParams(prev);
           next.delete("thread");
           next.delete(ZEN_ADDR_PARAM);
+          next.delete(ZEN_SEQ_PARAM);
           return next;
         },
         { replace: true }
