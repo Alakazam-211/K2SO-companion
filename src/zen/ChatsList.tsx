@@ -59,12 +59,39 @@ const TITLE_MAX_W = "min(34vw, 140px)";
 /** Resting header content height below the safe area: 44 row + 12/8 pad. */
 export const CHATS_HEADER_PX = 64;
 /**
- * Shared side edges for the pin grid and the list under it. The outer box
- * (grid, each row, the "Drop to pin" strip) sits EDGE_INSET from the screen;
- * content (pin columns, a row's avatar and chevron) sits EDGE_PAD further in.
+ * Pin grid geometry. The grid box sits EDGE_INSET from the screen with
+ * EDGE_PAD of padding inside; three equal columns, COL_GAP apart, each with
+ * a PIN_AVATAR_PX circle centred in it.
  */
 export const ZEN_LIST_EDGE_INSET = 4;
 export const ZEN_LIST_EDGE_PAD = 2;
+export const ZEN_PIN_COL_GAP = 4;
+export const ZEN_PIN_ROW_GAP = 14;
+export const ZEN_PIN_AVATAR_PX = 74;
+const PIN_SIDE_PX = ZEN_LIST_EDGE_INSET + ZEN_LIST_EDGE_PAD;
+
+/**
+ * Distance from the list's edge to the outer edge of the first (and third)
+ * pinned avatar, for a list `containerPx` wide:
+ *   side + (cell - avatar) / 2, cell = (W - 2*side - 2*gap) / 3.
+ */
+export function zenPinnedGroupInsetPx(containerPx: number): number {
+  const cell = (containerPx - 2 * PIN_SIDE_PX - 2 * ZEN_PIN_COL_GAP) / 3;
+  return PIN_SIDE_PX + (cell - ZEN_PIN_AVATAR_PX) / 2;
+}
+
+/**
+ * The same inset as CSS, with 100% = the list's width. Rows, search hits,
+ * the "Drop to pin" strip and the empty lines all use it (pins or not), so
+ * list content spans exactly the pinned avatars' visible width.
+ */
+export const ZEN_LIST_CONTENT_INSET =
+  `calc(${PIN_SIDE_PX}px + ((100% - ${2 * PIN_SIDE_PX + 2 * ZEN_PIN_COL_GAP}px) / 3 - ${ZEN_PIN_AVATAR_PX}px) / 2)`;
+/** Side padding for the list's plain text lines (loading, error, empty). */
+const LIST_LINE_SIDES = {
+  paddingLeft: ZEN_LIST_CONTENT_INSET,
+  paddingRight: ZEN_LIST_CONTENT_INSET,
+} as const;
 
 /** Swipe-right action: lucide "folders" (stacked folders). */
 function GroupGlyph() {
@@ -732,7 +759,8 @@ export function ChatsList() {
           <div
             ref={pinsRef}
             className="k2-pin-drop absolute"
-            style={{ top: 4, left: ZEN_LIST_EDGE_INSET, right: ZEN_LIST_EDGE_INSET }}
+            // The pinned avatars' width: where the grid's avatars will land.
+            style={{ top: 4, left: ZEN_LIST_CONTENT_INSET, right: ZEN_LIST_CONTENT_INSET }}
             data-testid="chats-pin-drop"
           >
             <PinGlyph off={false} />
@@ -778,7 +806,7 @@ export function ChatsList() {
           // Near the screen edges (3 columns use the width), with 10px of
           // air under the floating header.
           padding: `4px ${ZEN_LIST_EDGE_PAD}px 8px`,
-          gap: "14px 4px",
+          gap: `${ZEN_PIN_ROW_GAP}px ${ZEN_PIN_COL_GAP}px`,
           minHeight: 96,
           margin: `10px ${ZEN_LIST_EDGE_INSET}px 0`,
           borderRadius: 16,
@@ -828,7 +856,7 @@ export function ChatsList() {
                     initial={a.initial}
                     color={a.color}
                     iconUrl={a.iconUrl}
-                    size={74}
+                    size={ZEN_PIN_AVATAR_PX}
                     fontSize={26}
                     fallback="#2c2c2e"
                   />
@@ -873,19 +901,19 @@ export function ChatsList() {
       </div>
       ) : null}
         {source === "loading" ? (
-          <p className="px-4 py-6 text-[14px]" style={{ color: "#8e8e93" }}>
+          <p className="py-6 text-[14px]" style={{ ...LIST_LINE_SIDES, color: "#8e8e93" }}>
             Loading
           </p>
         ) : null}
         {source !== "loading" && agentError && (rows.length > 0 || showPins) ? (
-          <p className="px-4 py-3 text-[14px]" style={{ color: "#f59e0b" }}>
+          <p className="py-3 text-[14px]" style={{ ...LIST_LINE_SIDES, color: "#f59e0b" }}>
             {agentError}
           </p>
         ) : null}
         {source !== "loading" && rows.length === 0 && !showPins ? (
           <p
-            className="px-4 py-6 text-[14px]"
-            style={{ color: "#8e8e93" }}
+            className="py-6 text-[14px]"
+            style={{ ...LIST_LINE_SIDES, color: "#8e8e93" }}
             data-testid="chats-empty"
           >
             {agentError || "No agents on this list."}
@@ -914,9 +942,9 @@ export function ChatsList() {
           return (
           <div
             key={a.id}
+            // Full width, so the tap / swipe target is the whole line; the
+            // row's content is inset to the pinned avatars' width below.
             className="relative overflow-hidden"
-            // Same side edges as the pin grid above.
-            style={{ margin: `0 ${ZEN_LIST_EDGE_INSET}px` }}
             data-swipe-row={a.id}
           >
           {/* Leading swipe action: a round glass Group button revealed as
@@ -924,13 +952,17 @@ export function ChatsList() {
               (row height, so the hit target stays over 44px); the strip
               itself is clear, only the glass circle is drawn. None with
               groups off, or on rows that are not a workspace (sidecars,
-              project groups). */}
+              project groups). It starts at the content inset, so the glass
+              sits right beside the slid avatar, and stays above the row's
+              left padding while revealed so the whole circle is tappable. */}
           {rowCanGroup ? (
           <button
             type="button"
-            className="absolute left-0 top-0 bottom-0 overflow-hidden border-0 p-0 bg-transparent"
+            className="absolute top-0 bottom-0 overflow-hidden border-0 p-0 bg-transparent"
             style={{
+              left: ZEN_LIST_CONTENT_INSET,
               width: sw.x,
+              zIndex: sw.x > 0 ? 1 : undefined,
               background: "transparent",
               transition: swipe.transition(sw.dragging, ["width"]),
             }}
@@ -950,7 +982,7 @@ export function ChatsList() {
               style={{
                 width: SWIPE_ACTION_W,
                 // Sits at the left while revealing; on an over-swipe it
-                // rides the row's leading edge.
+                // rides the avatar's leading edge.
                 left: Math.max(0, sw.x - SWIPE_ACTION_W),
                 gap: 4,
                 opacity: reveal.opacity,
@@ -997,8 +1029,12 @@ export function ChatsList() {
             className="w-full flex items-center text-left relative"
             style={{
               gap: 10,
-              // Avatar and chevron line up with the pin grid's content edges.
-              padding: `10px ${ZEN_LIST_EDGE_PAD}px`,
+              // Avatar's left and the when/chevron's right line up with the
+              // outer edges of the first and third pinned avatars.
+              paddingTop: 10,
+              paddingBottom: 10,
+              paddingLeft: ZEN_LIST_CONTENT_INSET,
+              paddingRight: ZEN_LIST_CONTENT_INSET,
               touchAction: ghost ? "none" : "pan-y",
               transform: `translateX(${sw.x}px)`,
               transition: swipe.transition(sw.dragging, ["transform"]),
