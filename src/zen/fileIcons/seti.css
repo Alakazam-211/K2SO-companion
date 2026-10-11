@@ -1,0 +1,10 @@
+/* Seti UI icon font (MIT, Jesse Weed; via VS Code theme-seti).
+   See src/assets/seti/NOTICE.md. `block` so a raw private-use code point
+   never flashes before the font is in. */
+@font-face {
+  font-family: "k2-seti";
+  src: url("../../assets/seti/seti.woff") format("woff");
+  font-weight: normal;
+  font-style: normal;
+  font-display: block;
+}

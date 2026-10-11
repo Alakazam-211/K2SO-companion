@@ -10,16 +10,19 @@ import { useZenStore, sourceWord } from "./zenStore";
 import { useZenScope, zenScope } from "./zenScope";
 import { usableFsPath } from "./workspacePath";
 import { MiddleEllipsis } from "./MiddleEllipsis";
-import { FileIcon, FileTree, FolderIcon, inTree, useFileTree } from "./FileTree";
+import { FileTree, inTree, useFileTree } from "./FileTree";
+import { EntryIcon, FileIcon } from "./fileIcons/EntryIcon";
 import {
   baseName,
   displayPathUnder,
   fileRefText,
   joinPath,
   parentDir,
+  readResourcesCollapsed,
   readShowHidden,
   renameSelection,
   validateEntryName,
+  writeResourcesCollapsed,
   writeShowHidden,
 } from "./fileTreeModel";
 import { useFileDrag } from "./fileDrag";
@@ -137,6 +140,7 @@ function FilePaneOpen() {
   const scope = useZenScope();
   const { root, note: rootNote } = useFilesRoot(scope);
   const [showHidden, setShowHidden] = useState(readShowHidden);
+  const [resourcesCollapsed, setResourcesCollapsed] = useState(readResourcesCollapsed);
   const tree = useFileTree(scope, root);
   const [mkdirGap, setMkdirGap] = useState(false);
   const [renameGap, setRenameGap] = useState(false);
@@ -184,6 +188,14 @@ function FilePaneOpen() {
     closeMenu();
     say((await copyText(m.path)) ? "Copied" : "Could not copy");
   };
+
+  const toggleResources = () => {
+    const next = !resourcesCollapsed;
+    setResourcesCollapsed(next);
+    writeResourcesCollapsed(next);
+  };
+  // A count only once there is a list to count (not while loading or failed).
+  const resourceCount = source === "live" || source === "stub" ? files.length : null;
 
   const toggleHidden = () => {
     const next = !showHidden;
@@ -261,72 +273,118 @@ function FilePaneOpen() {
         onPointerCancel={hold.onPointerCancel}
         onContextMenu={(e) => e.preventDefault()}
       >
-        <div
-          className={`px-3 pt-2 pb-1 text-[10px] text-[var(--text-muted)] tracking-widest ${source === "live" ? "" : "uppercase"}`}
+        <button
+          type="button"
+          onClick={toggleResources}
+          className={`w-full flex items-center gap-1.5 px-3 pt-2 pb-1.5 text-left text-[10px] text-[var(--text-muted)] tracking-widest bg-transparent border-0 ${source === "live" ? "" : "uppercase"}`}
+          aria-expanded={!resourcesCollapsed}
+          aria-controls="files-resources-body"
+          data-testid="resources-toggle"
+          data-state={resourcesCollapsed ? "collapsed" : "expanded"}
         >
-          {heading}
-        </div>
-        {files.length === 0 && source === "live" ? (
-          <div className="k2-tile rounded-[14px] mx-2 mb-2 px-3 py-3" data-testid="resources-empty">
-            <div className="text-[12px] text-[var(--text)] font-medium">
-              {RESOURCES_EMPTY_TITLE}
-            </div>
-            <div className="mt-1 text-[11px] leading-4 text-[var(--text-muted)]">
-              {RESOURCES_EMPTY_LINE}
-            </div>
-          </div>
-        ) : files.length === 0 ? (
-          <div className="px-3 py-2 text-[12px] text-[var(--text-muted)]">
-            {source === "loading" ? "loading" : asErrorText(fileError, "empty")}
-          </div>
-        ) : (
-          files.map((f) => {
-            const active = openFileIds.includes(f.id);
-            const sub = f.missing ? "Unavailable" : f.hint;
-            return (
-              <button
-                key={f.id}
-                type="button"
-                onClick={() => {
-                  if (hold.consumeSkipClick()) return;
-                  openFile(f.id);
-                }}
-                aria-disabled={f.missing || undefined}
-                data-missing={f.missing ? "1" : undefined}
-                title={f.missing ? `${f.name} is no longer on disk` : f.name}
-                data-file-path={source === "live" ? f.id : undefined}
-                data-file-name={f.name}
-                data-file-dir="0"
-                data-file-missing={f.missing ? "1" : "0"}
-                data-file-section="resources"
-                data-testid="resource-row"
-                aria-label={f.name}
-                className={`w-full flex items-center gap-1 text-left px-3 py-2 text-[12px] border-b border-[var(--border)] select-none ${
-                  f.missing
-                    ? "text-[var(--text-muted)]"
-                    : active
-                      ? "text-[var(--accent)]"
-                      : "text-[var(--text)]"
-                }`}
-                style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", touchAction: "pan-y" }}
-              >
-                {source === "stub" ? <StubMark /> : null}
-                <span className="flex flex-col min-w-0 flex-1">
-                  <MiddleEllipsis
-                    text={f.name}
+          <svg
+            width="9"
+            height="9"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="3"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+            className="shrink-0"
+            style={{ transform: resourcesCollapsed ? undefined : "rotate(90deg)", transition: "transform 120ms" }}
+          >
+            <polyline points="9 6 15 12 9 18" />
+          </svg>
+          <span className="min-w-0 truncate">{heading}</span>
+          {resourceCount !== null ? (
+            <span className="shrink-0 tracking-normal tabular-nums opacity-70" data-testid="resources-count">
+              · {resourceCount}
+            </span>
+          ) : null}
+        </button>
+        {resourcesCollapsed ? null : (
+          <div id="files-resources-body" data-testid="resources-body" className="pb-1">
+            {files.length === 0 && source === "live" ? (
+              <div className="k2-tile rounded-[14px] mx-2 mb-2 px-3 py-3" data-testid="resources-empty">
+                <div className="text-[12px] text-[var(--text)] font-medium">
+                  {RESOURCES_EMPTY_TITLE}
+                </div>
+                <div className="mt-1 text-[11px] leading-4 text-[var(--text-muted)]">
+                  {RESOURCES_EMPTY_LINE}
+                </div>
+              </div>
+            ) : files.length === 0 ? (
+              <div className="px-3 py-2 text-[12px] text-[var(--text-muted)]">
+                {source === "loading" ? "loading" : asErrorText(fileError, "empty")}
+              </div>
+            ) : (
+              files.map((f) => {
+                const active = openFileIds.includes(f.id);
+                const sub = f.missing ? "Unavailable" : f.hint;
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => {
+                      if (hold.consumeSkipClick()) return;
+                      openFile(f.id);
+                    }}
+                    aria-disabled={f.missing || undefined}
+                    data-missing={f.missing ? "1" : undefined}
                     title={f.missing ? `${f.name} is no longer on disk` : f.name}
-                    className={f.missing ? "line-through" : ""}
-                  />
-                  {sub ? (
-                    <span className="truncate text-[10px] text-[var(--text-muted)]">{sub}</span>
-                  ) : null}
-                </span>
-              </button>
-            );
-          })
+                    data-file-path={source === "live" ? f.id : undefined}
+                    data-file-name={f.name}
+                    data-file-dir="0"
+                    data-file-missing={f.missing ? "1" : "0"}
+                    data-file-section="resources"
+                    data-testid="resource-row"
+                    aria-label={f.name}
+                    className={`w-full flex items-start gap-1.5 text-left px-3 py-1.5 text-[12px] select-none ${
+                      f.missing
+                        ? "text-[var(--text-muted)]"
+                        : active
+                          ? "text-[var(--accent)]"
+                          : "text-[var(--text)]"
+                    }`}
+                    style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", touchAction: "pan-y" }}
+                  >
+                    <span
+                      className="shrink-0 flex items-center h-[18px]"
+                      style={{ opacity: f.missing ? 0.45 : undefined }}
+                    >
+                      <FileIcon name={f.name} />
+                    </span>
+                    {source === "stub" ? (
+                      <span className="shrink-0 flex items-center h-[18px]">
+                        <StubMark />
+                      </span>
+                    ) : null}
+                    <span className="flex flex-col min-w-0 flex-1 leading-[18px]">
+                      <MiddleEllipsis
+                        text={f.name}
+                        title={f.missing ? `${f.name} is no longer on disk` : f.name}
+                        className={f.missing ? "line-through" : ""}
+                      />
+                      {sub ? (
+                        <span className="truncate text-[10px] leading-[14px] text-[var(--text-muted)]">{sub}</span>
+                      ) : null}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
         )}
+        <div
+          role="separator"
+          className="mx-3 my-1 h-px"
+          style={{ background: "var(--tile-edge, var(--border))" }}
+          data-testid="resources-divider"
+        />
         {root ? (
-          <div className="pt-2 pb-6" data-testid="files-tree-section">
+          <div className="pt-1 pb-6" data-testid="files-tree-section">
             <FileTree
               tree={tree}
               showHidden={showHidden}
@@ -441,7 +499,7 @@ function FilePaneOpen() {
               aria-hidden
             >
               <span className="shrink-0 flex">
-                <FileIcon />
+                <FileIcon name={drag.name} />
               </span>
               <span className="min-w-0 overflow-hidden whitespace-nowrap">{drag.name}</span>
             </div>,
@@ -510,7 +568,9 @@ function FileRowMenu({
         }}
       >
         <div className="px-4 pt-2 pb-1 text-[11px] text-[var(--text-muted)] flex items-center gap-1.5">
-          <span className="shrink-0 flex">{menu.isDirectory ? <FolderIcon /> : <FileIcon />}</span>
+          <span className="shrink-0 flex">
+            <EntryIcon name={menu.name} isDirectory={menu.isDirectory} />
+          </span>
           <MiddleEllipsis text={menu.name} className="flex-1" />
         </div>
         <button type="button" role="menuitem" className={item} onClick={onCopy} data-testid="file-menu-copy">

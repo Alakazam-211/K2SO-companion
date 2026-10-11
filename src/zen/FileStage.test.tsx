@@ -46,6 +46,14 @@ describe("full-screen file viewer", () => {
     expect(screen.getByTestId("file-viewer-folder").textContent).toBe("docs");
   });
 
+  it("puts the file's K2 (Seti) icon left of the name", () => {
+    render(<FileStage />);
+    const icon = screen.getByTestId("file-viewer-icon");
+    expect(icon.querySelector("[data-icon]")?.getAttribute("data-icon")).toBe("_markdown");
+    const name = screen.getByTestId("file-viewer-name");
+    expect(icon.compareDocumentPosition(name) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("has a round glass close button top-right that closes the file", () => {
     render(<FileStage />);
     const close = screen.getByRole("button", { name: "Close" });

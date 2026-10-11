@@ -38,6 +38,25 @@ export function writeShowHidden(on: boolean): void {
   }
 }
 
+/** Workspace Resources open or folded, per device. Default open. */
+export const RESOURCES_COLLAPSED_KEY = "k2.zen.files.resourcesCollapsed";
+
+export function readResourcesCollapsed(): boolean {
+  try {
+    return localStorage.getItem(RESOURCES_COLLAPSED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writeResourcesCollapsed(collapsed: boolean): void {
+  try {
+    localStorage.setItem(RESOURCES_COLLAPSED_KEY, collapsed ? "1" : "0");
+  } catch {
+    /* per-device convenience only */
+  }
+}
+
 export function isHiddenName(name: string): boolean {
   return name.startsWith(".");
 }
