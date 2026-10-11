@@ -65,3 +65,78 @@ describe("GlassComposer drawer slot", () => {
     expect(screen.getByTestId("composer-bar").style.overflow).toBe("");
   });
 });
+
+describe("GlassComposer field auto-grow", () => {
+  it("holds the bar at its height while measuring the field, so the column above never grows (and clamps its scroll)", () => {
+    const seen: string[] = [];
+    const ownOffset = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    const ownScroll = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get() {
+        return this.getAttribute("data-testid") === "composer-bar" ? 70 : 0;
+      },
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        if (this.tagName !== "TEXTAREA") return 0;
+        const bar = this.closest('[data-testid="composer-bar"]') as HTMLElement | null;
+        seen.push(`${this.style.height}|${bar?.style.minHeight ?? ""}`);
+        return 88;
+      },
+    });
+    try {
+      render(
+        <GlassComposer value={"a\nb\nc\nd"} onChange={() => {}} onSubmit={() => {}} canSend sendReady />
+      );
+      expect(seen).toEqual(["auto|70px"]);
+      expect(screen.getByTestId("composer-input").style.height).toBe("88px");
+      expect(screen.getByTestId("composer-bar").style.minHeight).toBe("");
+    } finally {
+      if (ownOffset) Object.defineProperty(HTMLElement.prototype, "offsetHeight", ownOffset);
+      if (ownScroll) Object.defineProperty(HTMLElement.prototype, "scrollHeight", ownScroll);
+    }
+  });
+
+  it("reports the whole block's height on mount and on each resize", () => {
+    let px = 60;
+    let fire: () => void = () => {};
+    const ownOffset = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+      configurable: true,
+      get() {
+        return this.getAttribute("data-testid") === "composer-bar" ? px : 0;
+      },
+    });
+    const RO = globalThis.ResizeObserver;
+    globalThis.ResizeObserver = class {
+      constructor(cb: () => void) {
+        fire = cb;
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    } as unknown as typeof ResizeObserver;
+    const heights: number[] = [];
+    try {
+      render(
+        <GlassComposer
+          value=""
+          onChange={() => {}}
+          onSubmit={() => {}}
+          canSend
+          sendReady={false}
+          onBlockHeight={(h) => heights.push(h)}
+        />
+      );
+      px = 104;
+      fire();
+      fire();
+      expect(heights).toEqual([60, 104]);
+    } finally {
+      globalThis.ResizeObserver = RO;
+      if (ownOffset) Object.defineProperty(HTMLElement.prototype, "offsetHeight", ownOffset);
+    }
+  });
+});

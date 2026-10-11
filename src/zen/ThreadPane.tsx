@@ -213,6 +213,16 @@ export function drawerOverScroller(drawerSpace: number, rowsAboveField: boolean)
   return Math.max(0, drawerSpace - COMPOSER_FIELD_TOP_PX);
 }
 
+/** How far (px) the scroller's visible bottom edge stands above the pane's
+ *  bottom: the composer block (a flex sibling below it — rows above the
+ *  field, the field, the safe-area / keyboard gap) plus what the working
+ *  drawer covers above the bar. */
+export function threadBottomInset(composerPx: number, drawerCover: number): number {
+  const block = Number.isFinite(composerPx) && composerPx > 0 ? Math.ceil(composerPx) : 0;
+  const cover = Number.isFinite(drawerCover) && drawerCover > 0 ? Math.ceil(drawerCover) : 0;
+  return block + cover;
+}
+
 /** Scroller bottom padding: its own, plus what the working drawer covers. */
 export function threadBottomPadding(drawerCover: number): string | undefined {
   if (!Number.isFinite(drawerCover) || drawerCover <= 0) return undefined;
@@ -341,6 +351,11 @@ export function ThreadPane({
   // above the bar floats over the scroller, which pads its bottom by it
   // (same 200ms ease).
   const [drawerSpace, setDrawerSpace] = useState(0);
+  // The whole composer block's height (GlassComposer's ResizeObserver).
+  // It is the scroller's flex sibling: as the field grows a line, the
+  // scroller's box shrinks by that much.
+  const [composerPx, setComposerPx] = useState(0);
+  const composerPxRef = useRef<number | null>(null);
   const composerLabel =
     source === "stub"
       ? "STUB — Cannot send — POST /cli/thread/post not proven"
@@ -450,6 +465,29 @@ export function ThreadPane({
     prevFirst.current = first;
     prevLast.current = last;
   }, [thread, agentId, source]);
+
+  /** The composer block resized (typing a line, chips, the label line,
+   *  drawer room, keyboard gap): the scroller's bottom edge moved with it.
+   *  Following: the newest stays right above the field. Reading history:
+   *  the reader's viewport stays where it was (no jump). */
+  function composerResized(px: number) {
+    const prev = composerPxRef.current;
+    composerPxRef.current = px;
+    setComposerPx(px);
+    if (prev == null || prev === px) return;
+    const el = scrollerRef.current;
+    if (!el || pendingAnchor.current) return;
+    if (following.current) {
+      follow();
+      return;
+    }
+    const top = lastTop.current;
+    if (Math.abs(el.scrollTop - top) > 1) {
+      el.scrollTop = top;
+      ownTop.current = el.scrollTop;
+      lastTop.current = el.scrollTop;
+    }
+  }
 
   // A push-tap seq: hold off following while it lands. Once it has (or
   // was given up on) follow again only if the view sits at the bottom.
@@ -820,6 +858,8 @@ export function ThreadPane({
         data-testid="thread-scroller"
         data-drawer-space={drawerSpace}
         data-drawer-cover={drawerCover}
+        data-composer-height={composerPx}
+        data-bottom-inset={threadBottomInset(composerPx, drawerCover)}
         className="zen-thread-scroller flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-2.5 py-3 flex flex-col"
         style={{
           overflowAnchor: "none",
@@ -1043,6 +1083,7 @@ export function ThreadPane({
           ) : undefined
         }
         drawerRoom={rowsAboveField ? drawerSpace : 0}
+        onBlockHeight={composerResized}
       >
         {roomBanner}
         <p

@@ -48,6 +48,24 @@ export function composerHeight(scrollHeight: number, maxPx = COMPOSER_MAX_PX): n
   return Math.min(scrollHeight, maxPx);
 }
 
+/** Re-fit the auto-growing field to its text without the bar ever
+ *  collapsing. Measuring sets the textarea to `auto` (one row) and reads
+ *  its scrollHeight, which forces a layout with the bar a few lines
+ *  shorter: the column above (the Thread scroller, the terminal) grows
+ *  for that layout and the browser clamps its scrollTop — then the bar
+ *  regrows and the newest lines sit under the field with no resize left
+ *  to notice. Holding the bar at its current height while measuring
+ *  keeps the column's box still. */
+export function fitComposerField(field: HTMLTextAreaElement, bar: HTMLElement | null): number {
+  const held = bar ? bar.style.minHeight : "";
+  if (bar) bar.style.minHeight = `${bar.offsetHeight}px`;
+  field.style.height = "auto";
+  const h = composerHeight(field.scrollHeight);
+  field.style.height = `${h}px`;
+  if (bar) bar.style.minHeight = held;
+  return h;
+}
+
 /** The field's corner radius (px). The drawer's geometry derives from it. */
 export const COMPOSER_RADIUS_PX = 20;
 /** Drawer side inset: half the radius, so its sides land on the field's
@@ -100,6 +118,10 @@ export interface GlassComposerProps {
   /** Room (px) kept between `children` and the field so rows above the
    *  field are not covered by the drawer. 0 when there are none. */
   drawerRoom?: number;
+  /** The whole composer block's height (px): rows above the field,
+   *  drawer room, the field, and the bar's safe-area / keyboard gap.
+   *  Reported on mount and on every resize (ResizeObserver). */
+  onBlockHeight?: (px: number) => void;
 }
 
 /** The Zen glass composer: one full-width rounded tile field holding a
@@ -124,8 +146,10 @@ export function GlassComposer({
   barProps,
   drawer,
   drawerRoom = 0,
+  onBlockHeight,
 }: GlassComposerProps) {
   const ownRef = useRef<HTMLTextAreaElement>(null);
+  const barRef = useRef<HTMLDivElement>(null);
   const ref = textareaRef ?? ownRef;
   const fileRef = useRef<HTMLInputElement>(null);
   const id = (s: string) => `${testIdPrefix}-${s}`;
@@ -145,9 +169,28 @@ export function GlassComposer({
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${composerHeight(el.scrollHeight)}px`;
+    fitComposerField(el, barRef.current);
   }, [value, ref]);
+
+  const blockCb = useRef(onBlockHeight);
+  blockCb.current = onBlockHeight;
+  const watchBlock = Boolean(onBlockHeight);
+  useLayoutEffect(() => {
+    const bar = barRef.current;
+    if (!bar || !watchBlock) return;
+    let last = -1;
+    const report = () => {
+      const px = bar.offsetHeight;
+      if (px === last) return;
+      last = px;
+      blockCb.current?.(px);
+    };
+    report();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(report);
+    ro.observe(bar);
+    return () => ro.disconnect();
+  }, [watchBlock]);
 
   const onPasteFiles = (e: ClipboardEvent) => {
     if (!onAttach) return;
@@ -161,6 +204,7 @@ export function GlassComposer({
     // zen-composer-bar: home-indicator inset at rest, collapsed while
     // typing so it is not a gap above the keyboard (.input-bar idiom).
     <div
+      ref={barRef}
       className="shrink-0 min-w-0 w-full overflow-hidden px-3 pt-2 zen-composer-bar"
       // A drawer stands above the bar: let it show.
       style={drawer ? { overflow: "visible" } : undefined}
