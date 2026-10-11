@@ -174,6 +174,43 @@ export function withRowMoved(homes: Home[], homeId: string, from: number, to: nu
   return homes.map((h) => (h.id === homeId ? { ...h, rows } : h));
 }
 
+/** Rename repair over every Home (desktop `repairRows`): `resolve` maps a
+ *  row to its fresh `{address, workspaceId, label}`, or null to leave it.
+ *  A repaired address already on the same Home drops the stale row; two
+ *  stale rows that repair to one address keep the first. Null when
+ *  nothing changed. */
+export function withRowsRepaired(homes: Home[], resolve: (row: HomeRow) => HomeRow | null): Home[] | null {
+  let changed = false;
+  const next = homes.map((h) => {
+    let rows: HomeRow[] = [];
+    let homeChanged = false;
+    for (const r of h.rows) {
+      const fresh = resolve(r);
+      if (
+        !fresh ||
+        (fresh.address === r.address && fresh.workspaceId === r.workspaceId && fresh.label === r.label)
+      ) {
+        rows.push(r);
+        continue;
+      }
+      const address = fresh.address.trim().toLowerCase();
+      if (!parseHomeAddress(address)) {
+        rows.push(r);
+        continue;
+      }
+      homeChanged = true;
+      if (address !== r.address && h.rows.some((o) => o.address === address)) continue;
+      rows.push({ ...fresh, address });
+    }
+    if (!homeChanged) return h;
+    changed = true;
+    const seen = new Set<string>();
+    rows = rows.filter((r) => (seen.has(r.address) ? false : (seen.add(r.address), true)));
+    return { ...h, rows };
+  });
+  return changed ? next : null;
+}
+
 // ─── Store ───
 
 function newId(): string {
@@ -203,6 +240,9 @@ export interface HomesState {
   addRow: (homeId: string, row: HomeRow) => boolean;
   removeRow: (homeId: string, address: string) => void;
   moveRow: (homeId: string, from: number, to: number) => void;
+  /** Rename repair on every Home (`withRowsRepaired`). Writes only when a
+   *  row changed. */
+  repairRows: (resolve: (row: HomeRow) => HomeRow | null) => void;
   /** Re-read storage (tests; another window never writes on the phone). */
   reload: () => void;
 }
@@ -282,6 +322,10 @@ export const useHomesStore = create<HomesState>((set, get) => {
     },
     moveRow: (homeId, from, to) => {
       const next = withRowMoved(get().homes, homeId, from, to);
+      if (next) commit(next);
+    },
+    repairRows: (resolve) => {
+      const next = withRowsRepaired(get().homes, resolve);
       if (next) commit(next);
     },
     reload: () => set(initial()),

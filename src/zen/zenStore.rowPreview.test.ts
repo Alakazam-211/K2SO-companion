@@ -32,7 +32,7 @@ vi.mock("./overlayEvents", () => ({ connectOverlayEvents: vi.fn() }));
 
 import * as client from "../api/client";
 import { useServersStore } from "../stores/servers";
-import { __resetScopesForTests, scopeFor } from "../api/scope";
+import { __resetScopesForTests, noteBootStatus, scopeFor } from "../api/scope";
 import { connectOverlayEvents } from "./overlayEvents";
 import { fetchThreadLasts, resetLastAtQueue, rowLastFromLatest } from "./lastAtFetch";
 import { lastPreview, type RowLast } from "./rowPreview";
@@ -372,5 +372,46 @@ describe("RowSnippet", () => {
     expect(chip.getAttribute("style")).toMatch(/monospace/);
     expect(screen.getByTestId("row-preview-table").textContent).toBe("[table]");
     expect(container.querySelector("table, div, p, br, ul, li, h1, h2, pre")).toBeNull();
+  });
+});
+
+describe("refreshRemotePreviews (S3b: Home rows from another server)", () => {
+  beforeEach(() => {
+    useServersStore.setState({
+      servers: [
+        { id: "s1", nickname: "", url: "https://dtl.k2.dev", username: "baden", rememberPassword: false },
+        { id: "s2", nickname: "B", url: "https://bravo.k2.dev", username: "baden", rememberPassword: false },
+      ],
+      activeServerId: "s1",
+      tokens: { s1: "tok", s2: "tok-b" },
+    });
+  });
+
+  it("seeds B's snippets from this device's cache under B's host key, without a fetch", async () => {
+    writeRowPreviews("bravo.k2.dev", { docs: { text: "cached on B", kind: "text", mine: false, at: 7, seq: 1 } });
+    writeRowPreviews("dtl.k2.dev", { docs: { text: "on A", kind: "text", mine: false, at: 9, seq: 1 } });
+    resetRowPreviewMemo();
+    await useZenStore.getState().refreshRemotePreviews("s2", ["docs"], { fetch: false });
+    expect(useZenStore.getState().previewByKey["s2|t:docs"]?.text).toBe("cached on B");
+    expect(useZenStore.getState().lastAtByKey["s2|t:docs"]).toBe(7);
+    expect(useZenStore.getState().previewByKey["s1|t:docs"]).toBeUndefined();
+    expect(client.getThreadLatest).not.toHaveBeenCalled();
+  });
+
+  it("fetches on B's scope only when B lists thread-latest; never per-row GETs", async () => {
+    vi.mocked(client.getThreadLatest).mockResolvedValue({ ok: true, data: { items: [latest("docs")] } });
+    vi.mocked(client.serverHasFeature).mockResolvedValue(true);
+    await useZenStore.getState().refreshRemotePreviews("s2", ["docs"], { fetch: true });
+    expect(client.getThreadLatest).not.toHaveBeenCalled();
+    expect(client.getThread).not.toHaveBeenCalled();
+    noteBootStatus("s2", { version: "0.45.5", features: ["thread-latest"] });
+    await useZenStore.getState().refreshRemotePreviews("s2", ["docs"], { fetch: true });
+    expect(client.getThreadLatest).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(client.getThreadLatest).mock.calls[0][0]).toMatchObject({ id: "s2" });
+    expect(useZenStore.getState().previewByKey["s2|t:docs"]?.text).toBe("hello from docs");
+    expect(readRowPreviews("bravo.k2.dev").docs?.text).toBe("hello from docs");
+    // Throttled per addr.
+    await useZenStore.getState().refreshRemotePreviews("s2", ["docs"], { fetch: true });
+    expect(client.getThreadLatest).toHaveBeenCalledTimes(1);
   });
 });

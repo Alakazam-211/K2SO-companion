@@ -128,3 +128,39 @@ describe("one address rule with the merged list (multi-server MS1/MS15)", () => 
     expect(serverHostKey({ url: "https://Rosson.K2.dev" })).toBe("rosson.k2.dev");
   });
 });
+
+describe("rename repair (S3b, desktop repairRows)", () => {
+  it("re-keys a row, drops one whose new address is already on that Home, keeps the first of two", () => {
+    const h = useHomesStore.getState();
+    const id = h.selectedId;
+    h.addRow(id, row("old"));
+    h.addRow(id, row("kept"));
+    h.addRow(id, row("dup"));
+    h.addRow(id, row("twin-a"));
+    h.addRow(id, row("twin-b"));
+    useHomesStore.getState().repairRows((r) => {
+      const p = parseHomeAddress(r.address)!;
+      if (p.handle === "old") return { address: homeAddress("new", p.host), workspaceId: "w-old", label: "New" };
+      if (p.handle === "dup") return { ...r, address: homeAddress("kept", p.host) };
+      if (p.handle.startsWith("twin")) return { ...r, address: homeAddress("twin", p.host) };
+      return null;
+    });
+    const rows = stored()!.homes[0].rows;
+    expect(rows.map((r) => r.address)).toEqual([
+      "new::example.k2.dev",
+      "kept::example.k2.dev",
+      "twin::example.k2.dev",
+    ]);
+    expect(rows[0]).toEqual({ address: "new::example.k2.dev", workspaceId: "w-old", label: "New" });
+  });
+
+  it("writes nothing when no row changes", () => {
+    const h = useHomesStore.getState();
+    h.addRow(h.selectedId, row("a"));
+    const before = localStorage.getItem(HOMES_STORAGE_KEY);
+    const homes = useHomesStore.getState().homes;
+    useHomesStore.getState().repairRows((r) => ({ ...r }));
+    expect(useHomesStore.getState().homes).toBe(homes);
+    expect(localStorage.getItem(HOMES_STORAGE_KEY)).toBe(before);
+  });
+});

@@ -32,7 +32,7 @@ import {
   type ProjectGroup,
   type ProjectGroupMessage,
 } from "../api/projectGroups";
-import { ensureBootStatus, serverMemory, type ServerScope } from "../api/scope";
+import { ensureBootStatus, scopeFor, serverMemory, type ServerScope } from "../api/scope";
 import { roomServerId, setRoomServer, zenScope } from "./zenScope";
 import { onServerForget, useServersStore } from "../stores/servers";
 import { useWorkspacesStore } from "../stores/workspaces";
@@ -218,6 +218,12 @@ type ZenState = {
    *  addr at most every ~30 s unless `force`. No `addrs` = every row
    *  already shown, and only on a server with `thread-latest`. */
   refreshThreadPreviews: (opts?: { addrs?: string[]; force?: boolean }) => Promise<void>;
+  /** Home rows from ANOTHER server (S3b, HM3): seed their snippets from
+   *  this device's per-server cache (`<hostKey>|<addr>`), then — when
+   *  `fetch` and that server lists `thread-latest` — one batched
+   *  `thread/latest` on THAT server's scope (never the active one, never
+   *  N per-row GETs). Per addr at most every ~30 s. */
+  refreshRemotePreviews: (serverId: string, addrs: string[], opts?: { fetch?: boolean }) => Promise<void>;
   /** Agent status for the Chats list (`GET /cli/activity/snapshot`). */
   activity: ActivitySnapshot;
   /** Main-chat vs other PTY ids, so a main row skips its sidecars' work. */
@@ -914,6 +920,47 @@ export const useZenStore = create<ZenState>((set, get) => ({
       if (next.previewByKey !== get().previewByKey) set(next);
     } catch {
       // Keep what is on screen; the next visibility or sweep asks again.
+      for (const addr of batch) previewFetchedAt.delete(lastAtKey(scope.id, "thread", addr));
+    }
+  },
+  refreshRemotePreviews: async (serverId, addrs, opts) => {
+    let scope: ServerScope;
+    try {
+      scope = scopeFor(serverId);
+    } catch {
+      return; // removed: never another server's snippets
+    }
+    if (!scope.id) return;
+    if (!previewSeeded.has(scope.id)) {
+      previewSeeded.add(scope.id);
+      const cached = scope.hostKey ? readRowPreviews(scope.hostKey) : {};
+      if (Object.keys(cached).length) {
+        const previewByKey = { ...get().previewByKey };
+        const lastAtByKey = { ...get().lastAtByKey };
+        for (const [addr, last] of Object.entries(cached)) {
+          const key = lastAtKey(scope.id, "thread", addr);
+          if (previewByKey[key] === undefined) previewByKey[key] = last;
+          lastAtByKey[key] = lastAtByKey[key] ?? last?.at ?? null;
+        }
+        set({ previewByKey, lastAtByKey });
+      }
+    }
+    if (!opts?.fetch || !scope.supports(FEATURE_THREAD_LATEST)) return;
+    const now = Date.now();
+    const batch: string[] = [];
+    for (const addr of new Set(addrs.map((a) => a.trim()).filter(Boolean))) {
+      const key = lastAtKey(scope.id, "thread", addr);
+      const at = previewFetchedAt.get(key);
+      if (at != null && now - at < PREVIEW_REFRESH_MS) continue;
+      previewFetchedAt.set(key, now);
+      batch.push(addr);
+    }
+    if (!batch.length) return;
+    try {
+      const { lasts } = await fetchThreadLasts(scope, batch, scope.username());
+      const next = applyRowLasts(get(), scope, lasts, false);
+      if (next.previewByKey !== get().previewByKey) set(next);
+    } catch {
       for (const addr of batch) previewFetchedAt.delete(lastAtKey(scope.id, "thread", addr));
     }
   },
