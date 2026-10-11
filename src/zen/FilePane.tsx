@@ -120,7 +120,7 @@ export function FilePane() {
   return <FilePaneOpen />;
 }
 
-/** Files drawer: header (title, hidden-files eye, new folder), Workspace
+/** Files drawer: header (title, hidden-files eye, new folder, close), Workspace
  *  Resources, then the workspace folder tree. Hold a row still for its
  *  menu (Copy Path, Rename); hold and move to drag a file into the chat. */
 function FilePaneOpen() {
@@ -253,13 +253,22 @@ function FilePaneOpen() {
             </svg>
           </button>
         ) : null}
+        {/* Close: a 44x44 hit target around the same 28px glass pill. The
+         *  negative margins keep the visual spacing of the other buttons. */}
         <button
           type="button"
           onClick={toggleFiles}
-          className="text-[var(--text-muted)] text-[13px] px-1.5 shrink-0"
-          aria-label="Hide files"
+          className="flex items-center justify-center shrink-0"
+          style={{ width: 44, height: 44, marginLeft: -6, marginRight: -6, color: "#fff" }}
+          aria-label="Close files"
+          data-testid="files-close"
         >
-          ›
+          <span className="flex items-center justify-center zen-glass zen-glass-pill" style={ICON_BTN} aria-hidden>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
+              <line x1="6" y1="6" x2="18" y2="18" />
+              <line x1="18" y1="6" x2="6" y2="18" />
+            </svg>
+          </span>
         </button>
       </div>
       <div
