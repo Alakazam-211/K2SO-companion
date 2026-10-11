@@ -386,6 +386,80 @@ html, body, #root {
   }
 }
 
+/* Zen footer blur — the header stack flipped. Sits behind a bottom bar
+   (thread composer, search bars) from a fade band above the bar down to
+   the pane's bottom edge (home indicator, or the keyboard's top while
+   typing): strongest at the bottom, nothing at the top. Content scrolls
+   under it and softens before it reaches the bar. */
+.zen-footer-blur {
+  position: absolute;
+  pointer-events: none;
+  z-index: 0;
+}
+.zen-footer-blur > span {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.zen-footer-blur-1 {
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 55%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 0%, #000 55%, transparent 100%);
+}
+.zen-footer-blur-2 {
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 40%, transparent 80%);
+  mask-image: linear-gradient(to top, #000 0%, #000 40%, transparent 80%);
+}
+.zen-footer-blur-3 {
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 25%, transparent 60%);
+  mask-image: linear-gradient(to top, #000 0%, #000 25%, transparent 60%);
+}
+.zen-footer-blur-4 {
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 12%, transparent 40%);
+  mask-image: linear-gradient(to top, #000 0%, #000 12%, transparent 40%);
+}
+.zen-footer-tint {
+  background: linear-gradient(
+    to top,
+    rgba(0, 0, 0, 0.85) 0%,
+    rgba(0, 0, 0, 0.55) 45%,
+    rgba(0, 0, 0, 0) 100%
+  );
+}
+@media (prefers-reduced-transparency: reduce) {
+  .zen-footer-blur-1,
+  .zen-footer-blur-2,
+  .zen-footer-blur-3,
+  .zen-footer-blur-4 {
+    display: none;
+  }
+  .zen-footer-tint {
+    background: linear-gradient(
+      to top,
+      rgba(0, 0, 0, 0.96) 0%,
+      rgba(0, 0, 0, 0.88) 60%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  }
+}
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .zen-footer-tint {
+    background: linear-gradient(
+      to top,
+      rgba(0, 0, 0, 0.96) 0%,
+      rgba(0, 0, 0, 0.88) 60%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  }
+}
+
 /* Glass tiles — desktop Zen's tile edge (K2 `zen-glass.ts`, Garden 1).
    The glass is the EDGE, not see-through: a solid fill, a semi-clear
    rim mixed from the border and text colours, a 1px light catch on the

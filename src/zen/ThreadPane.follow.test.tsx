@@ -343,7 +343,8 @@ describe("Thread follows the newest", () => {
     render(<ThreadPane />);
     await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
     const contentBefore = screen.getByTestId("thread-content").childElementCount;
-    expect(scroller().style.paddingBottom).toBe("");
+    // Its own 12px plus the floating composer block (0 tall here).
+    expect(scroller().style.paddingBottom).toBe("12px");
 
     // Opens: a 32px tile on the field's top edge; the bar's top 14px is
     // under it, so 18px covers the scroller, on top of its own 12px.
@@ -374,7 +375,7 @@ describe("Thread follows the newest", () => {
     // Closes: the padding goes as the drawer slides down.
     height = 1800;
     act(() => socket().onItem(activityFrame(2, true) as never));
-    expect(scroller().style.paddingBottom).toBe("");
+    expect(scroller().style.paddingBottom).toBe("12px");
     expect(scroller().scrollTop).toBe(bottom());
   });
 
@@ -398,14 +399,14 @@ describe("Thread follows the newest", () => {
     expect(document.activeElement).toBe(input);
   });
 
-  it("with a row above the field the bar makes room under it and the scroller is not padded", async () => {
+  it("with a row above the field the bar makes room under it and the drawer adds no scroller padding", async () => {
     render(<ThreadPane />);
     await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
     act(() => useZenStore.setState({ sendError: "Send failed" }));
     act(() => socket().onItem(activityFrame(1, false) as never));
     expect(screen.getByTestId("composer-label").textContent).toBe("Send failed");
     expect(scroller().getAttribute("data-drawer-cover")).toBe("0");
-    expect(scroller().style.paddingBottom).toBe("");
+    expect(scroller().style.paddingBottom).toBe("12px");
     const room = screen.getByTestId("composer-drawer-room");
     expect(room.style.height).toBe("32px");
     // Label, then the room, then the field the drawer stands on.
