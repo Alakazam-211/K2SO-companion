@@ -20,6 +20,8 @@ vi.mock("../api/client", () => ({
   reorderProjects: vi.fn(),
   getAppSettings: vi.fn(),
   getFocusGroupsList: vi.fn(),
+  assignFocusGroup: vi.fn(),
+  createFocusGroup: vi.fn(),
 }));
 
 vi.mock("../api/projectGroups", () => ({
@@ -34,6 +36,8 @@ vi.mock("../stores/servers", () => ({
 
 import * as client from "../api/client";
 import {
+  assignFocusGroup,
+  createFocusGroup,
   getAgentList,
   getAppSettings,
   getCliProjectsList,
@@ -105,7 +109,11 @@ beforeEach(() => {
   vi.mocked(getAppSettings).mockResolvedValue({ ok: true, data: { focusGroupsEnabled: false } });
   vi.mocked(getFocusGroupsList).mockReset();
   vi.mocked(getFocusGroupsList).mockResolvedValue(GROUPS as never);
+  vi.mocked(assignFocusGroup).mockReset();
+  vi.mocked(assignFocusGroup).mockResolvedValue({ ok: true, data: {} });
+  vi.mocked(createFocusGroup).mockReset();
   useZenStore.setState({
+    focusGroupsEnabled: false,
     agentSource: "stub",
     agents: [],
     serverProjects: [],
@@ -312,5 +320,98 @@ describe("focus groups", () => {
     await hydrate();
     expect(useZenStore.getState().focus).toEqual(FOCUS_OFF);
     expect(getFocusGroupsList).not.toHaveBeenCalled();
+  });
+});
+
+describe("focus group membership writes", () => {
+  const groupOf = (pid: string) =>
+    useZenStore.getState().serverProjects.find((p) => p.id === pid)?.focusGroupId ?? null;
+  const groupsOn = () =>
+    vi.mocked(getAppSettings).mockResolvedValue({
+      ok: true,
+      data: { focusGroupsEnabled: true, activeFocusGroupId: "g1" },
+    });
+
+  it("enabled with no groups yet: groups count as on, the view stays unfiltered", async () => {
+    groupsOn();
+    vi.mocked(getFocusGroupsList).mockResolvedValue({ ok: true, data: [] });
+    await hydrate();
+    expect(useZenStore.getState().focusGroupsEnabled).toBe(true);
+    expect(useZenStore.getState().focus).toEqual(FOCUS_OFF);
+  });
+
+  it("assign posts the row's projectId, moves it at once, then re-reads projects and groups", async () => {
+    groupsOn();
+    await hydrate();
+    vi.mocked(getCliProjectsList).mockClear();
+    vi.mocked(getFocusGroupsList).mockClear();
+    const hold = deferred<{ ok: boolean; data: unknown }>();
+    vi.mocked(assignFocusGroup).mockReturnValue(hold.promise as never);
+    const done = useZenStore.getState().assignFocusGroup("/a", "g2");
+    expect(assignFocusGroup).toHaveBeenCalledWith("pa", "g2");
+    expect(groupOf("pa")).toBe("g2");
+    hold.resolve({ ok: true, data: {} });
+    vi.mocked(getCliProjectsList).mockResolvedValue(projects({ pa: { focusGroupId: "g2" } }) as never);
+    expect(await done).toBe(true);
+    await vi.waitFor(() => expect(getFocusGroupsList).toHaveBeenCalled());
+    expect(getCliProjectsList).toHaveBeenCalled();
+    expect(groupOf("pa")).toBe("g2");
+  });
+
+  it("null ungroups", async () => {
+    groupsOn();
+    await hydrate();
+    await useZenStore.getState().assignFocusGroup("/b", null);
+    expect(assignFocusGroup).toHaveBeenCalledWith("pb", null);
+  });
+
+  it("a failed assign rolls back with a short error", async () => {
+    groupsOn();
+    await hydrate();
+    vi.mocked(assignFocusGroup).mockResolvedValue({ ok: false, error: "Member role required" });
+    expect(await useZenStore.getState().assignFocusGroup("/b", "g2")).toBe(false);
+    expect(groupOf("pb")).toBe("g1");
+    expect(useZenStore.getState().pinError).toBe("Member role required");
+  });
+
+  it("groups off, or a row that is not a workspace: no write", async () => {
+    await hydrate();
+    expect(await useZenStore.getState().assignFocusGroup("/a", "g1")).toBe(false);
+    groupsOn();
+    await useZenStore.getState().refreshFocus();
+    useZenStore.setState({
+      agents: [
+        ...useZenStore.getState().agents,
+        { id: "/a::alpha/1", name: "alpha", initial: "A", path: "/a", addr: "alpha/1" } as never,
+      ],
+    });
+    expect(await useZenStore.getState().assignFocusGroup("/a::alpha/1", "g1")).toBe(false);
+    expect(assignFocusGroup).not.toHaveBeenCalled();
+  });
+
+  it("create then assign: the first group turns the view on", async () => {
+    groupsOn();
+    vi.mocked(getFocusGroupsList).mockResolvedValue({ ok: true, data: [] });
+    await hydrate();
+    const g = { id: "g9", name: "Ops", color: null, tabOrder: 0, createdAt: 0 };
+    vi.mocked(createFocusGroup).mockResolvedValue({ ok: true, data: g });
+    vi.mocked(getFocusGroupsList).mockResolvedValue({ ok: true, data: [g] });
+    vi.mocked(getCliProjectsList).mockResolvedValue(projects({ pa: { focusGroupId: "g9" } }) as never);
+    expect(await useZenStore.getState().createFocusGroupFor("/a", " Ops ")).toBe(true);
+    expect(createFocusGroup).toHaveBeenCalledWith("Ops");
+    expect(assignFocusGroup).toHaveBeenCalledWith("pa", "g9");
+    expect(groupOf("pa")).toBe("g9");
+    const f = useZenStore.getState().focus;
+    expect(f.enabled).toBe(true);
+    expect(f.groups.map((x) => x.id)).toEqual(["g9"]);
+  });
+
+  it("a failed create assigns nothing", async () => {
+    groupsOn();
+    await hydrate();
+    vi.mocked(createFocusGroup).mockResolvedValue({ ok: false, error: "Could not create group" });
+    expect(await useZenStore.getState().createFocusGroupFor("/a", "Ops")).toBe(false);
+    expect(assignFocusGroup).not.toHaveBeenCalled();
+    expect(useZenStore.getState().pinError).toBe("Could not create group");
   });
 });

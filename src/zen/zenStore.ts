@@ -7,6 +7,8 @@ import {
   getActivitySnapshot,
   getAppSettings,
   getFocusGroupsList,
+  assignFocusGroup as postAssignFocusGroup,
+  createFocusGroup as postCreateFocusGroup,
   getThread,
   getToken,
   postThread,
@@ -42,6 +44,7 @@ import { clearLegacyPinStore, insertPinned } from "./pinChats";
 import {
   FOCUS_OFF,
   derivePinnedIds,
+  focusGroupOf,
   focusGroupsOf,
   focusSettingsOf,
   pinProjectIdForRow,
@@ -49,9 +52,11 @@ import {
   readStoredFocusGroup,
   resolveFocus,
   serverProjectsOf,
+  withFocusGroup,
   withOrder,
   withPinned,
   writeStoredFocusGroup,
+  type FocusGroupLite,
   type FocusState,
   type ServerProject,
 } from "./serverPins";
@@ -168,8 +173,16 @@ type ZenState = {
   /** Focus groups: on/off from `settings/get`, names from `focus-groups/list`. */
   focus: FocusState;
   refreshFocus: () => Promise<void>;
+  /** `settings/get` `focusGroupsEnabled`, even with no groups yet. */
+  focusGroupsEnabled: boolean;
   /** This device's view only. Never written to the server. */
   selectFocusGroup: (groupId: string) => void;
+  /** Server-wide `focus-groups/assign` for a main-chat row's workspace
+   *  (`null` ungroups). Optimistic; rolls back with `pinError` on failure.
+   *  Resolves true when the server took it. */
+  assignFocusGroup: (id: string, groupId: string | null) => Promise<boolean>;
+  /** `focus-groups/create {name}`, then assign the row to it. */
+  createFocusGroupFor: (id: string, name: string) => Promise<boolean>;
   refreshServerLists: () => void;
   dismissFiles: () => void;
   /** Overlay home is the chats list. A row opens the thread. */
@@ -311,6 +324,9 @@ let pinGen = 0;
 let pinErrorTimer: ReturnType<typeof setTimeout> | null = null;
 // Focus groups: one read at a time, and the server the groups came from.
 let focusInFlight = false;
+let focusAgain = false;
+/** Bumped by local group writes: a read that started before one is stale. */
+let focusGen = 0;
 let focusServer: string | null = null;
 
 export const PIN_ERROR_MS = 4000;
@@ -361,6 +377,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   pinnedIds: [],
   pinError: null,
   focus: FOCUS_OFF,
+  focusGroupsEnabled: false,
   hiddenSidecarAddrs: readHiddenSidecarAddrs(),
   pinChat: async (id, beforeId) => {
     const s = get();
@@ -439,17 +456,25 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
   },
   refreshFocus: async () => {
-    if (get().agentSource !== "live" || focusInFlight) return;
+    if (get().agentSource !== "live") return;
+    if (focusInFlight) {
+      focusAgain = true;
+      return;
+    }
     const server = activeServerId();
     if (server !== focusServer) {
       focusServer = server;
-      if (get().focus !== FOCUS_OFF) set({ focus: FOCUS_OFF });
+      if (get().focus !== FOCUS_OFF || get().focusGroupsEnabled) {
+        set({ focus: FOCUS_OFF, focusGroupsEnabled: false });
+      }
     }
     focusInFlight = true;
+    const gen = focusGen;
+    let enabled = false;
     const apply = (focus: FocusState) => {
-      if (activeServerId() !== server) return;
+      if (activeServerId() !== server || focusGen !== gen) return;
       if (focus.enabled && focus.currentId) writeStoredFocusGroup(server, focus.currentId);
-      set({ focus });
+      set({ focus, focusGroupsEnabled: enabled });
     };
     try {
       const rs = await getAppSettings();
@@ -459,6 +484,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         return;
       }
       const settings = focusSettingsOf(rs.data);
+      enabled = settings.enabled;
       if (!settings.enabled) {
         apply(FOCUS_OFF);
         return;
@@ -474,6 +500,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
       /* keep what is on screen */
     } finally {
       focusInFlight = false;
+      if (focusAgain) {
+        focusAgain = false;
+        void get().refreshFocus();
+      }
     }
   },
   selectFocusGroup: (groupId) => {
@@ -481,6 +511,55 @@ export const useZenStore = create<ZenState>((set, get) => ({
     if (!focus.enabled || !focus.groups.some((g) => g.id === groupId)) return;
     writeStoredFocusGroup(activeServerId(), groupId);
     if (focus.currentId !== groupId) set({ focus: { ...focus, currentId: groupId } });
+  },
+  assignFocusGroup: async (id, groupId) => {
+    const s = get();
+    if (!s.focusGroupsEnabled && !s.focus.enabled) return false;
+    const pid = pinProjectIdForRow(s.agents.find((a) => a.id === id), s.serverProjects);
+    if (!pid) return false; // sidecar / group / unmatched row: groups are per workspace
+    focusGen += 1;
+    const ok = await writePins(
+      withFocusGroup(s.serverProjects, pid, groupId),
+      "Could not change group",
+      async () => {
+        const r = await postAssignFocusGroup(pid, groupId);
+        if (!r.ok) throw r.error || "Could not change group";
+      }
+    );
+    // Assign sends no `projects_changed`: re-read the groups too.
+    void get().refreshFocus();
+    return ok;
+  },
+  createFocusGroupFor: async (id, name) => {
+    const clean = name.trim();
+    if (!clean) return false;
+    const s = get();
+    if (!s.focusGroupsEnabled && !s.focus.enabled) return false;
+    if (!pinProjectIdForRow(s.agents.find((a) => a.id === id), s.serverProjects)) return false;
+    const server = activeServerId();
+    let group: FocusGroupLite | null = null;
+    try {
+      const r = await postCreateFocusGroup(clean);
+      if (!r.ok) throw r.error || "Could not create group";
+      group = focusGroupOf(r.data);
+      if (!group) throw "Could not create group";
+    } catch (e) {
+      if (activeServerId() === server) showPinError(errorText(e, "Could not create group"));
+      return false;
+    }
+    if (activeServerId() !== server) return false;
+    focusGen += 1;
+    const focus = get().focus;
+    set({
+      focus: focus.enabled
+        ? { ...focus, groups: [...focus.groups.filter((g) => g.id !== group.id), group] }
+        : resolveFocus(
+            { enabled: true, activeId: null },
+            [group],
+            readStoredFocusGroup(server)
+          ),
+    });
+    return get().assignFocusGroup(id, group.id);
   },
   refreshServerLists: () => {
     void get().refreshPins();
@@ -1595,15 +1674,27 @@ export const useZenStore = create<ZenState>((set, get) => ({
   focusFile: (id) => set({ focusId: id }),
 }));
 
+/** The header's short error line (pins and groups). Clears itself. */
+function showPinError(text: string): void {
+  useZenStore.setState({ pinError: text });
+  if (pinErrorTimer) clearTimeout(pinErrorTimer);
+  pinErrorTimer = setTimeout(() => {
+    pinErrorTimer = null;
+    useZenStore.setState({ pinError: null });
+  }, PIN_ERROR_MS);
+}
+
 /**
- * Optimistic pin write: show `next` now, run `call`, and on failure put
- * the old list back with a short error line. Always refetch after.
+ * Optimistic project write (pin, order, group): show `next` now, run
+ * `call`, and on failure put the old list back with a short error line.
+ * Always refetch after. True when the call went through.
  */
+
 async function writePins(
   next: ServerProject[],
   fallback: string,
   call: () => Promise<void>
-): Promise<void> {
+): Promise<boolean> {
   const { getState: get, setState: set } = useZenStore;
   const before = get().serverProjects;
   const server = activeServerId();
@@ -1612,19 +1703,16 @@ async function writePins(
   set({ serverProjects: next, pinnedIds: derivePinnedIds(get().agents, next), pinError: null });
   try {
     await call();
+    return true;
   } catch (e) {
     if (activeServerId() === server) {
       set({
         serverProjects: before,
         pinnedIds: derivePinnedIds(get().agents, before),
-        pinError: errorText(e, fallback),
       });
-      if (pinErrorTimer) clearTimeout(pinErrorTimer);
-      pinErrorTimer = setTimeout(() => {
-        pinErrorTimer = null;
-        set({ pinError: null });
-      }, PIN_ERROR_MS);
+      showPinError(errorText(e, fallback));
     }
+    return false;
   } finally {
     pinWrites -= 1;
     if (activeServerId() === server) void get().refreshPins();

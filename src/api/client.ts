@@ -697,6 +697,24 @@ export const getAppSettings = () =>
 /** `GET /cli/focus-groups/list` — `FocusGroup[]` in `tabOrder`. */
 export const getFocusGroupsList = () =>
   request<unknown>("focus_groups.list", "/cli/focus-groups/list", {});
+/** `POST /cli/focus-groups/assign {projectId, focusGroupId}` (Member) — the
+ *  updated `Project`. `null` ungroups. Server-wide, like desktop. Emits NO
+ *  `projects_changed`: the caller updates its own state and refetches. */
+export const assignFocusGroup = (projectId: string, focusGroupId: string | null) =>
+  request<unknown>(
+    "focus_groups.assign",
+    "/cli/focus-groups/assign",
+    { projectId, focusGroupId },
+    { method: "POST" }
+  );
+/** `POST /cli/focus-groups/create {name, color?}` (Member) — the new `FocusGroup`. */
+export const createFocusGroup = (name: string, color?: string | null) =>
+  request<unknown>(
+    "focus_groups.create",
+    "/cli/focus-groups/create",
+    color ? { name, color } : { name },
+    { method: "POST" }
+  );
 /** `POST /cli/projects/update {id, pinned: 1|0}` — the desktop's Pin to Top. */
 export const setProjectPinned = (id: string, pinned: boolean) =>
   request<unknown>(
