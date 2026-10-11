@@ -1409,7 +1409,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
     if (row?.addr) {
       void get().hydrateThread(row.addr);
-      if (sidecarSuffix(row.addr)) void get().ensureSidecarHost(row);
+      // A History row opened read-only (`hostLive: false`) is not woken.
+      if (sidecarSuffix(row.addr) && row.hostLive !== false) void get().ensureSidecarHost(row);
     } else {
       set({
         threadSource: "error",
@@ -1649,13 +1650,20 @@ export const useZenStore = create<ZenState>((set, get) => ({
     let row =
       agents.find((a) => (a.addr || "").trim() === want && samePath(a.path)) ??
       agents.find((a) => (a.addr || "").trim() === want);
-    if (row && side && ((side.launch && !row.launch) || (side.terminalId && !row.terminalId))) {
-      // The drawer knows the PTY / harness the list row lacks (History respawn).
+    const woken = side?.hostLive === true && row?.hostLive === false;
+    if (
+      row &&
+      side &&
+      ((side.launch && !row.launch) || (side.terminalId && !row.terminalId) || woken)
+    ) {
+      // The drawer knows the PTY / harness the list row lacks (History
+      // respawn), or a History row it opened read-only has been woken.
       const prev = row;
       const merged: StubAgent = {
         ...prev,
         launch: prev.launch ?? side.launch ?? null,
-        terminalId: prev.terminalId || side.terminalId || null,
+        terminalId: (woken && side.terminalId) || prev.terminalId || side.terminalId || null,
+        ...(woken ? { hostLive: true } : {}),
       };
       row = merged;
       set({ agents: agents.map((a) => (a === prev ? merged : a)) });
