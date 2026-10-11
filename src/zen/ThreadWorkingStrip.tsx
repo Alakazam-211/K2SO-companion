@@ -78,7 +78,7 @@ export function ThreadWorkingStrip({ turn }: { turn: ThreadTurn }) {
       <div className="flex items-center gap-2 min-w-0 text-[13px]">
         <span
           aria-hidden
-          className={`inline-block flex-none w-2 h-2 rounded-full box-border ${pulsing ? "k2-pulse" : ""}`}
+          className={`relative inline-block flex-none w-2 h-2 rounded-full box-border ${pulsing ? "k2-pulse" : ""}`}
           style={
             view.tone === "monitoring" || view.tone === "stopped" || view.tone === "unverifiable"
               ? { border: `2px solid ${color}` }
