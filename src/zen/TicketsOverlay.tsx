@@ -17,6 +17,7 @@ import { useFeedbackStore } from "../stores/feedback";
 import { useServersStore } from "../stores/servers";
 import { connectTicketEvents } from "./ticketEvents";
 import { StatusChip, TicketView } from "./TicketView";
+import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 
 // Zen Tickets: the list (glass header + Done, scope tabs, status sections
 // of `.k2-tile` cards) and the open ticket (TicketView, Layout A).
@@ -32,6 +33,9 @@ import { StatusChip, TicketView } from "./TicketView";
 // back to the foreground.
 
 export const TICKETS_POLL_MS = 15_000;
+/** Resting floating-header height below the safe area: the 64px title
+ *  row plus the 44px scope tabs. */
+export const TICKETS_HEADER_PX = 108;
 
 function refetchLive(): void {
   void useFeedbackStore.getState().refresh();
@@ -48,6 +52,7 @@ export function TicketsOverlay({ onClose }: { onClose: () => void }) {
   );
   const [scope, setScope] = useState<TicketScope>("waiting");
   const [openId, setOpenId] = useState<string | null>(null);
+  const [headerRef, headerPx] = useMeasuredHeight(TICKETS_HEADER_PX);
   const nowSec = Math.floor(Date.now() / 1000);
 
   useEffect(() => {
@@ -96,11 +101,25 @@ export function TicketsOverlay({ onClose }: { onClose: () => void }) {
   return (
     <div
       className="absolute inset-0 flex flex-col"
-      style={{ background: "#000", zIndex: 6, paddingTop: "env(safe-area-inset-top)" }}
+      style={{ background: "#000", zIndex: 6 }}
       data-testid="overlay-tickets"
     >
+      {/* Floats over the cards from y=0 with the chat / Agents header's
+          progressive blur; only Done and the tabs take touches. Below an
+          open TicketView (zIndex 8). */}
+      <header
+        className="absolute top-0 left-0 right-0 w-full min-w-0"
+        data-testid="tickets-header"
+        style={{
+          zIndex: 3,
+          paddingTop: "env(safe-area-inset-top)",
+          pointerEvents: "none",
+        }}
+      >
+      <ZenHeaderBlur testId="tickets-header-blur" />
+      <div ref={headerRef} className="relative w-full min-w-0" data-testid="tickets-header-content">
       <div
-        className="grid items-center shrink-0"
+        className="grid items-center"
         style={{
           gridTemplateColumns: "1fr auto 1fr",
           minHeight: 44,
@@ -111,20 +130,20 @@ export function TicketsOverlay({ onClose }: { onClose: () => void }) {
         <button
           type="button"
           className="text-[17px] justify-self-start zen-glass zen-glass-pill"
-          style={{ minHeight: 34, padding: "0 14px", color: "#fff" }}
+          style={{ minHeight: 34, padding: "0 14px", color: "#fff", pointerEvents: "auto" }}
           onClick={onClose}
         >
           Done
         </button>
-        <h1 className="text-[17px] font-semibold pointer-events-none">Tickets</h1>
+        <h1 className="text-[17px] font-semibold pointer-events-none zen-header-text">Tickets</h1>
         <span />
       </div>
-      <div className="shrink-0 px-3 pb-2">
+      <div className="px-3 pb-2">
         <div
           role="tablist"
           aria-label="Ticket scope"
           className="flex zen-glass zen-glass-pill"
-          style={{ padding: 3 }}
+          style={{ padding: 3, pointerEvents: "auto" }}
           data-testid="ticket-scopes"
         >
           {TICKET_SCOPES.map((s) => {
@@ -150,9 +169,19 @@ export function TicketsOverlay({ onClose }: { onClose: () => void }) {
           })}
         </div>
       </div>
+      </div>
+      </header>
       <div
         className="flex-1 min-h-0 overflow-y-auto"
-        style={{ padding: "0 12px 24px", WebkitOverflowScrolling: "touch" }}
+        style={{
+          // Starts under the floating header; cards scroll up behind it.
+          paddingTop: underHeaderPadding(headerPx),
+          paddingLeft: 12,
+          paddingRight: 12,
+          paddingBottom: 24,
+          WebkitOverflowScrolling: "touch",
+        }}
+        data-testid="tickets-scroller"
       >
         {error ? (
           <p className="py-4 text-[14px]" style={{ color: "#f59e0b" }}>

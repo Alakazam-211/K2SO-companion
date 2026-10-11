@@ -44,7 +44,8 @@ import { openExternal } from "../lib/openExternal";
 import { useFeedbackStore } from "../stores/feedback";
 import { useServersStore } from "../stores/servers";
 import { connectTicketEvents } from "./ticketEvents";
-import { TicketsOverlay } from "./TicketsOverlay";
+import { TICKETS_HEADER_PX, TicketsOverlay } from "./TicketsOverlay";
+import { TICKET_HEADER_PX } from "./TicketView";
 
 const NOW = Math.floor(Date.now() / 1000);
 
@@ -183,6 +184,77 @@ describe("Tickets list", () => {
     const labels = screen.getAllByTestId("ticket-section").map((s) => s.getAttribute("data-label"));
     expect(labels).toEqual(["Waiting", "Needs discussion", "Answered", "Planned", "Closed"]);
     expect(screen.getAllByTestId("ticket-html-mark")).toHaveLength(1);
+  });
+});
+
+/** The shared floating-header contract (chat header c39c0ac). */
+function expectBlurHeader(header: HTMLElement, blur: HTMLElement) {
+  expect(header.className).toMatch(/absolute/);
+  expect(header.style.pointerEvents).toBe("none");
+  expect(header.contains(blur)).toBe(true);
+  expect(blur.className).toBe("zen-header-blur");
+  expect(blur.style.pointerEvents).toBe("none");
+  expect(blur.getAttribute("aria-hidden")).not.toBeNull();
+  expect(blur.querySelectorAll("[class^='zen-header-blur-']").length).toBe(4);
+  expect(blur.querySelector(".zen-header-tint")).not.toBeNull();
+}
+
+describe("Floating blur headers", () => {
+  it("the list header floats over the cards; Done and the tabs still take taps", async () => {
+    const onClose = vi.fn();
+    render(<TicketsOverlay onClose={onClose} />);
+    const header = screen.getByTestId("tickets-header");
+    expectBlurHeader(header, screen.getByTestId("tickets-header-blur"));
+    expect(screen.getByTestId("overlay-tickets").style.paddingTop).toBe("");
+
+    const tabs = screen.getByTestId("ticket-scopes");
+    expect(header.contains(tabs)).toBe(true);
+    expect(tabs.style.pointerEvents).toBe("auto");
+    const done = within(header).getByRole("button", { name: "Done" });
+    expect(done.style.pointerEvents).toBe("auto");
+
+    // Cards start under the header: safe area plus the measured height
+    // (jsdom measures 0, so the resting height).
+    const scroller = screen.getByTestId("tickets-scroller");
+    expect(header.contains(scroller)).toBe(false);
+    const pad = scroller.style.paddingTop;
+    expect(pad).toMatch(/env\(safe-area-inset-top\)/);
+    expect(pad).toContain(`${TICKETS_HEADER_PX}px`);
+    await waitFor(() => screen.getByText("Which pricing tier for Acme?"));
+    expect(scroller.contains(screen.getAllByTestId("ticket-card")[0])).toBe(true);
+
+    fireEvent.click(screen.getByTestId("scope-all"));
+    expect(screen.getByTestId("scope-all").getAttribute("aria-selected")).toBe("true");
+    fireEvent.click(done);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("an open ticket's header floats over the conversation; its menus still work", async () => {
+    render(<TicketsOverlay onClose={() => {}} />);
+    await openTicket("Which pricing tier for Acme?");
+    const header = screen.getByTestId("ticket-header");
+    expectBlurHeader(header, screen.getByTestId("ticket-header-blur"));
+    expect(screen.getByTestId("ticket-view").style.paddingTop).toBe("");
+    // Under the brief reader (12) and the sheets (14).
+    expect(Number(header.style.zIndex)).toBeLessThan(12);
+
+    expect(screen.getByTestId("ticket-back").style.pointerEvents).toBe("auto");
+    expect(screen.getByTestId("ticket-more-wrap").style.pointerEvents).toBe("auto");
+    expect(screen.getByTestId("ticket-status-wrap").style.pointerEvents).toBe("auto");
+    expect(header.contains(screen.getByTestId("ticket-title"))).toBe(true);
+
+    const scroller = screen.getByTestId("ticket-scroller");
+    expect(header.contains(scroller)).toBe(false);
+    expect(scroller.style.paddingTop).toMatch(/env\(safe-area-inset-top\)/);
+    const pad = Number(scroller.style.paddingTop.match(/(\d+)px/)![1]);
+    expect(pad).toBeGreaterThanOrEqual(TICKET_HEADER_PX);
+    expect(scroller.contains(screen.getByTestId("ticket-comments"))).toBe(true);
+
+    fireEvent.click(screen.getByTestId("ticket-status"));
+    expect(screen.getByTestId("ticket-status-menu")).not.toBeNull();
+    fireEvent.click(screen.getByTestId("ticket-more"));
+    fireEvent.click(screen.getByTestId("ticket-reassign-item"));
+    expect(screen.getByTestId("ticket-reassign")).not.toBeNull();
   });
 });
 
