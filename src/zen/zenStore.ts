@@ -4,7 +4,9 @@ import {
   getAllSessions,
   getCliProjectsList,
   getFsReadFile,
+  FEATURE_THREAD_LATEST,
   getActivitySnapshot,
+  serverHasFeature,
   getAppSettings,
   getFocusGroupsList,
   assignFocusGroup as postAssignFocusGroup,
@@ -42,7 +44,9 @@ import {
   skinInitials,
 } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
-import { beginLastAt, fetchLastAt } from "./lastAtFetch";
+import { beginLastAt, fetchLastAt, fetchThreadLasts, rowLastFromMessage, sameRowLast } from "./lastAtFetch";
+import type { RowLast } from "./rowPreview";
+import { readRowPreviews, serverHostKey, writeRowPreviews } from "./rowPreviewCache";
 import { clearLegacyPinStore, insertPinned } from "./pinChats";
 import {
   FOCUS_OFF,
@@ -87,6 +91,7 @@ import { mergeThreadMessages } from "./threadLive";
 import {
   EMPTY_ACTIVITY,
   NO_CHAT_SESSIONS,
+  activityForRow,
   chatSessionsOf,
   parseActivitySnapshot,
   sameActivity,
@@ -196,6 +201,15 @@ type ZenState = {
   /** Last-message unix seconds, keyed `t:<addr>` / `g:<groupId>`. Null = fetched empty. */
   lastAtByKey: Record<string, number | null>;
   ensureLastAt: (key: string) => void;
+  /** Line-two snippet per `t:<addr>`, the same item as its `lastAtByKey`.
+   *  Undefined = not read yet; null = the Thread has no messages. Seeded
+   *  from this device's cache, so a cold launch draws at once. */
+  previewByKey: Record<string, RowLast | null>;
+  /** Re-read row snippets: one batched `thread/latest` (pure reads; no
+   *  session wakes, no seen marks, no overlay socket). Per addr at most
+   *  every ~30 s unless `force`. No `addrs` = every row already shown,
+   *  and only on a server with `thread-latest`. */
+  refreshThreadPreviews: (opts?: { addrs?: string[]; force?: boolean }) => Promise<void>;
   /** Agent status for the Chats list (`GET /cli/activity/snapshot`). */
   activity: ActivitySnapshot;
   /** Main-chat vs other PTY ids, so a main row skips its sidecars' work. */
@@ -409,6 +423,66 @@ function stubThread(agentId: string): ThreadMessage[] {
 let activityInFlight = false;
 let activityServer: string | null = null;
 
+// Row snippets: per-addr last read (throttle), the addrs waiting for the
+// next batched read, and the server the shown snippets belong to.
+export const PREVIEW_REFRESH_MS = 30_000;
+const previewFetchedAt = new Map<string, number>();
+const previewPending = new Set<string>();
+let previewFlushQueued = false;
+let previewHost: string | null = null;
+
+/** Tests only. */
+export function resetThreadPreviewQueue(): void {
+  previewFetchedAt.clear();
+  previewPending.clear();
+  previewFlushQueued = false;
+  previewHost = null;
+}
+
+type PreviewSlice = Pick<ZenState, "lastAtByKey" | "previewByKey">;
+
+/** Merge snippets. `event`: the phone holds the full message (open
+ *  Thread), so it may replace a flat preview of the same item. Unchanged
+ *  items keep the same objects (no re-render). Changed ones are cached. */
+function applyRowLasts(
+  s: PreviewSlice,
+  entries: Iterable<[string, RowLast | null]>,
+  event: boolean
+): PreviewSlice {
+  let previewByKey = s.previewByKey;
+  let lastAtByKey = s.lastAtByKey;
+  const changed: Record<string, RowLast | null> = {};
+  for (const [addr, last] of entries) {
+    const key = `t:${addr}`;
+    const cur = s.previewByKey[key];
+    const richer = event && !!cur?.flat && !!last && !last.flat;
+    if (sameRowLast(cur, last) && !richer) continue;
+    if (previewByKey === s.previewByKey) previewByKey = { ...s.previewByKey };
+    if (lastAtByKey === s.lastAtByKey) lastAtByKey = { ...s.lastAtByKey };
+    previewByKey[key] = last;
+    lastAtByKey[key] = last?.at ?? (event ? s.lastAtByKey[key] ?? null : null);
+    changed[addr] = last;
+  }
+  if (Object.keys(changed).length) {
+    writeRowPreviews(serverHostKey(getActiveServer()?.url), changed);
+  }
+  return { previewByKey, lastAtByKey };
+}
+
+/** The open Thread's newest message is that row's snippet now. */
+function threadRowPatch(
+  s: PreviewSlice,
+  addr: string,
+  m: ThreadMessage | undefined
+): PreviewSlice {
+  if (!m) {
+    const key = `t:${addr}`;
+    return { previewByKey: s.previewByKey, lastAtByKey: { ...s.lastAtByKey, [key]: s.lastAtByKey[key] ?? null } };
+  }
+  const username = getActiveServer()?.username ?? "";
+  return applyRowLasts(s, [[addr, rowLastFromMessage(m, addr, username)]], true);
+}
+
 // Pins: one projects/list read at a time; a write in flight (or one that
 // started after the read) wins over that read. The write refetches after.
 let pinsInFlight = false;
@@ -486,6 +560,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   answerError: null,
   answerErrorId: null,
   lastAtByKey: {},
+  previewByKey: {},
   activity: EMPTY_ACTIVITY,
   chatSessions: NO_CHAT_SESSIONS,
   serverProjects: [],
@@ -688,6 +763,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }),
   refreshActivity: async () => {
     if (get().agentSource !== "live" || activityInFlight) return;
+    // Row snippets ride the list's poll, throttled to ~30 s.
+    void get().refreshThreadPreviews().catch(() => {});
     const server = getActiveServer()?.id ?? null;
     // Another server's dots are not this one's.
     if (server !== activityServer) {
@@ -700,7 +777,22 @@ export const useZenStore = create<ZenState>((set, get) => ({
       if ((getActiveServer()?.id ?? null) !== server) return;
       if (r.ok) {
         const next = parseActivitySnapshot(r.data);
-        if (!sameActivity(get().activity, next)) set({ activity: next });
+        const prev = get().activity;
+        if (!sameActivity(prev, next)) {
+          set({ activity: next });
+          // A turn ended: that agent likely just wrote. Re-read its snippet.
+          const sessions = get().chatSessions;
+          const done = get()
+            .agents.filter(
+              (a) =>
+                a.kind !== "group" &&
+                a.addr &&
+                activityForRow(a, prev, false, sessions) &&
+                !activityForRow(a, next, false, sessions)
+            )
+            .map((a) => a.addr as string);
+          if (done.length) void get().refreshThreadPreviews({ addrs: done, force: true });
+        }
       } else if (r.status === 404 && get().activity !== EMPTY_ACTIVITY) {
         // Pre-0.45 server: keep the list plain.
         set({ activity: EMPTY_ACTIVITY });
@@ -712,7 +804,71 @@ export const useZenStore = create<ZenState>((set, get) => ({
       activityInFlight = false;
     }
   },
+  refreshThreadPreviews: async (opts) => {
+    if (get().agentSource !== "live") return;
+    const server = getActiveServer();
+    const host = serverHostKey(server?.url);
+    if (host !== previewHost) {
+      // First read, or another server: its cached snippets, at once.
+      const switched = previewHost != null;
+      previewHost = host;
+      previewFetchedAt.clear();
+      previewPending.clear();
+      const cached = readRowPreviews(host);
+      const previewByKey: Record<string, RowLast | null> = {};
+      const lastAtByKey = { ...get().lastAtByKey };
+      if (switched) for (const k of Object.keys(lastAtByKey)) if (k.startsWith("t:")) delete lastAtByKey[k];
+      for (const [addr, last] of Object.entries(cached)) {
+        previewByKey[`t:${addr}`] = last;
+        lastAtByKey[`t:${addr}`] = lastAtByKey[`t:${addr}`] ?? last?.at ?? null;
+      }
+      set({ previewByKey, lastAtByKey });
+    }
+    let addrs = opts?.addrs;
+    if (!addrs) {
+      // The sweep: one call for every row on screen, never N per-row GETs.
+      addrs = Object.keys(get().previewByKey)
+        .filter((k) => k.startsWith("t:"))
+        .map((k) => k.slice(2));
+      if (!addrs.length) return;
+      try {
+        if (!(await serverHasFeature(FEATURE_THREAD_LATEST))) return;
+      } catch {
+        return;
+      }
+    }
+    const now = Date.now();
+    for (const addr of addrs) {
+      if (!addr) continue;
+      const at = previewFetchedAt.get(addr);
+      if (!opts?.force && at != null && now - at < PREVIEW_REFRESH_MS) continue;
+      previewFetchedAt.set(addr, now);
+      previewPending.add(addr);
+    }
+    if (!previewPending.size || previewFlushQueued) return;
+    // Every row observed in this tick rides the same request.
+    previewFlushQueued = true;
+    await Promise.resolve();
+    previewFlushQueued = false;
+    const batch = [...previewPending];
+    previewPending.clear();
+    if (!batch.length) return;
+    try {
+      const { lasts } = await fetchThreadLasts(batch, server?.username ?? "");
+      if (serverHostKey(getActiveServer()?.url) !== host) return;
+      const next = applyRowLasts(get(), lasts, false);
+      if (next.previewByKey !== get().previewByKey) set(next);
+    } catch {
+      // Keep what is on screen; the next visibility or sweep asks again.
+      for (const addr of batch) previewFetchedAt.delete(addr);
+    }
+  },
   ensureLastAt: (key) => {
+    if (key.startsWith("t:")) {
+      const addr = key.slice(2);
+      if (addr) void get().refreshThreadPreviews({ addrs: [addr] });
+      return;
+    }
     if (!beginLastAt(key)) return;
     const kind = key.startsWith("g:") ? "group" : "thread";
     const id = key.slice(2);
@@ -1212,10 +1368,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadConversationId: (r.data.conversation_id || "").trim() || null,
         threadHasMore: !!r.data.has_more,
         threadOldestSeq: oldestSeqOf(items),
-        lastAtByKey: {
-          ...get().lastAtByKey,
-          [`t:${addr}`]: last?.at ?? get().lastAtByKey[`t:${addr}`] ?? null,
-        },
+        ...threadRowPatch(get(), addr, last),
       });
     } catch (e) {
       if (get().threadGen !== gen) return;
@@ -1383,10 +1536,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
           get().threadConversationId,
         threadHasMore: !!reread.data.has_more,
         threadOldestSeq: oldestSeqOf(items),
-        lastAtByKey: {
-          ...get().lastAtByKey,
-          [`t:${addr}`]: onWire.at ?? Date.now() / 1000,
-        },
+        // The row shows this send at once ("You: …").
+        ...threadRowPatch(get(), addr, { ...onWire, at: onWire.at ?? Date.now() / 1000 }),
       });
     } catch (e) {
       if (get().threadGen !== gen) return;
@@ -1464,12 +1615,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       thread,
       threadSource: wasError ? "live" : get().threadSource,
       threadError: wasError ? null : get().threadError,
-      lastAtByKey: addr
-        ? {
-            ...get().lastAtByKey,
-            [`t:${addr}`]: last?.at ?? get().lastAtByKey[`t:${addr}`] ?? null,
-          }
-        : get().lastAtByKey,
+      ...(addr ? threadRowPatch(get(), addr, last) : {}),
     });
   },
 
@@ -1525,10 +1671,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadError: null,
         threadConversationId: conv,
         threadOldestSeq: get().threadOldestSeq ?? oldestSeqOf(thread),
-        lastAtByKey: {
-          ...get().lastAtByKey,
-          [`t:${addr}`]: last?.at ?? get().lastAtByKey[`t:${addr}`] ?? null,
-        },
+        ...threadRowPatch(get(), addr, last),
       });
     } catch {
       /* keep what is on screen */

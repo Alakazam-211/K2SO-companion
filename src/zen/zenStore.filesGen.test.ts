@@ -55,7 +55,7 @@ import { getActiveServer } from "../stores/servers";
 import { JOIN_NO_AGENT, JOIN_NO_PROJECT } from "./agentRow";
 import { resetLastAtQueue } from "./lastAtFetch";
 import { STUB_AGENTS, STUB_FILES } from "./stubData";
-import { useZenStore } from "./zenStore";
+import { resetThreadPreviewQueue, useZenStore } from "./zenStore";
 import { NO_WORKSPACE_PATH, PATH_NOT_OWNED } from "./workspacePath";
 
 function liveAt(path: string, id = "ag") {
@@ -203,6 +203,8 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
 
   it("ensureLastAt GETs thread limit=1 once and stores created_at", async () => {
     resetLastAtQueue();
+    resetThreadPreviewQueue();
+    useZenStore.setState({ agentSource: "live", previewByKey: {} });
     vi.mocked(getThread).mockResolvedValue({
       ok: true,
       data: {
@@ -221,6 +223,8 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
     });
     expect(getThread).toHaveBeenCalledTimes(1);
     expect(getThread).toHaveBeenCalledWith("appa", 1);
+    // The same answer feeds line two (no server feature list: per-row read).
+    expect(useZenStore.getState().previewByKey["t:appa"]).toMatchObject({ text: "hi", seq: 22 });
   });
 
   it("a skills enumerator plus a non-array projects body is a shape error, not a rail", async () => {
