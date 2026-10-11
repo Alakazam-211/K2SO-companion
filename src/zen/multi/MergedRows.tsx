@@ -4,9 +4,9 @@
 // OTHER servers, the server chip, a server's placeholder row, the
 // "Loading {server}…" line and the server filter menu.
 //
-// S2 scope: opening a row from another server switches the active server,
-// then opens it (today's single-server path). Rooms on any server without
-// a switch are S3 (MS21).
+// S3 (MS21): opening a row from another server opens a ROOM on that
+// server (`zenStore.openRoom`); the active server never changes. A server
+// known to be below the phone floor (0.41.6) opens the old way instead.
 
 import { useEffect, useState, type ReactNode } from "react";
 import { activityColor, activityRowText, type RowActivity } from "../agentActivity";

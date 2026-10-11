@@ -4,13 +4,29 @@ import { sidecarSuffix, type OverlaySidecar } from "./sidecarRows";
 import { posixNormalize } from "./workspacePath";
 
 export const ZEN_THREAD_KEY = "k2-zen-thread";
+/** The server that thread is on, when it is a room on a non-active
+ *  server (MA17). Absent = the active server. */
+export const ZEN_THREAD_SERVER_KEY = "k2-zen-thread-server";
 
-export function rememberZenThread(agentId: string | null | undefined): void {
+export function rememberZenThread(
+  agentId: string | null | undefined,
+  serverId?: string | null
+): void {
   try {
     if (agentId) sessionStorage.setItem(ZEN_THREAD_KEY, agentId);
     else sessionStorage.removeItem(ZEN_THREAD_KEY);
+    if (agentId && serverId) sessionStorage.setItem(ZEN_THREAD_SERVER_KEY, serverId);
+    else sessionStorage.removeItem(ZEN_THREAD_SERVER_KEY);
   } catch {
     /* private mode */
+  }
+}
+
+export function readZenThreadServer(): string | null {
+  try {
+    return sessionStorage.getItem(ZEN_THREAD_SERVER_KEY);
+  } catch {
+    return null;
   }
 }
 
@@ -90,6 +106,9 @@ export type ZenTerminalAgent = {
   addr?: string | null;
   /** The Thread Done returns to (session addr, Done mode, drawer origin). */
   back?: ZenTerminalReturn | null;
+  /** The saved server the terminal is on when it is a room on a
+   *  non-active server (MA17); absent = the active server. */
+  serverId?: string | null;
 };
 
 export function readZenTerminalAgent(state: unknown): ZenTerminalAgent | null {
@@ -126,6 +145,8 @@ export type ZenTerminalReturn = {
   addr: string;
   drawerOrigin: string | null;
   side?: OverlaySidecar | null;
+  /** The room's server when it is not the active one (MA17). */
+  serverId?: string | null;
 };
 
 /** Survives a reload of `/zen/terminal/:id` even without history.state. */
@@ -147,7 +168,8 @@ type ReturnRow = {
 export function zenTerminalReturn(
   row: ReturnRow | null | undefined,
   terminalId: string,
-  drawerOrigin: string | null
+  drawerOrigin: string | null,
+  serverId?: string | null
 ): ZenTerminalReturn | null {
   const addr = (row?.addr || "").trim();
   if (!row || !addr || !terminalId) return null;
@@ -167,7 +189,14 @@ export function zenTerminalReturn(
           ...(row.launch ? { launch: row.launch } : {}),
         }
       : null;
-  return { terminalId, agentId: row.id, addr, drawerOrigin: origin, side };
+  return {
+    terminalId,
+    agentId: row.id,
+    addr,
+    drawerOrigin: origin,
+    side,
+    ...(serverId ? { serverId } : {}),
+  };
 }
 
 function asReturn(v: unknown): ZenTerminalReturn | null {
@@ -182,6 +211,7 @@ function asReturn(v: unknown): ZenTerminalReturn | null {
     addr: r.addr.trim(),
     drawerOrigin: typeof r.drawerOrigin === "string" && r.drawerOrigin ? r.drawerOrigin : null,
     side,
+    ...(typeof r.serverId === "string" && r.serverId ? { serverId: r.serverId } : {}),
   };
 }
 

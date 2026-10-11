@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { getThreadActivity, uploadFsBinary } from "../api/client";
 import { ChatMessageBody } from "../components/ChatMessage";
 import { asErrorText } from "../lib/apiError";
@@ -150,12 +150,19 @@ export function ThreadPane({
   viewportHeight,
   topInset,
   covered = false,
+  roomBanner = null,
+  onComposerInput,
 }: {
   viewportHeight?: number;
   /** Height (px, below the safe area) of a header floating over the list. */
   topInset?: number;
   /** A full-screen overlay (file viewer) hides the Thread: not "viewing". */
   covered?: boolean;
+  /** Multi-server room failure (MS36): shown above the composer; while
+   *  set, input is off and the last messages stay. */
+  roomBanner?: ReactNode;
+  /** A send in this room (the keep-alive's idle clock, MS24). */
+  onComposerInput?: () => void;
 } = {}) {
   const thread = useZenStore((s) => s.thread);
   const source = useZenStore((s) => s.threadSource);
@@ -180,7 +187,9 @@ export function ThreadPane({
   const sending = useZenStore((s) => s.sending);
   const sendError = useZenStore((s) => s.sendError);
   const openFileFromPath = useZenStore((s) => s.openFileFromPath);
+  const roomBlocked = Boolean(roomBanner);
   const canSend =
+    !roomBlocked &&
     (source === "live" ||
       (source === "error" && isSendableAddr(threadAddr))) &&
     (Boolean((threadGroupId || "").trim()) || isSendableAddr(threadAddr));
@@ -517,6 +526,7 @@ export function ThreadPane({
           const text = draft;
           const pending = attachments;
           if (!text.trim() && !pending.length) return;
+          onComposerInput?.();
           void (async () => {
             let body = text;
             if (pending.length) {
@@ -569,6 +579,7 @@ export function ThreadPane({
           if (el && atNewest.current) stickToNewest(el);
         }}
       >
+        {roomBanner}
         <p
           className="text-[11px] text-[var(--text-muted)] leading-snug break-words mb-1.5"
           data-testid="composer-label"
@@ -583,7 +594,7 @@ export function ThreadPane({
                   ? attachError
                   : sendError
                     ? sendError
-                    : canSend
+                    : canSend || roomBlocked
                       ? ""
                       : source === "live"
                         ? "Not chattable"

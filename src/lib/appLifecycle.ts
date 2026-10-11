@@ -63,9 +63,9 @@ export function onAppLifecycle(fn: Listener): () => void {
   };
 }
 
-/** Tests only. */
+/** Tests only: off, and re-read the visibility. Listeners stay (module
+ *  ones, like the events hubs', subscribe once at load). */
 export function __resetLifecycleForTests(): void {
   enabled = false;
   hidden = typeof document !== "undefined" && document.visibilityState === "hidden";
-  listeners.clear();
 }

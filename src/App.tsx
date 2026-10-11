@@ -4,6 +4,8 @@ import { useServersStore, getActiveServer } from "./stores/servers";
 import { useWorkspacesStore } from "./stores/workspaces";
 import { ensureRegistered, attachPushNavigation, watchPushRegistrations } from "./lib/push";
 import { scopeFor } from "./api/scope";
+import { setLifecycleEnabled } from "./lib/appLifecycle";
+import { useMultiServerPrefs } from "./zen/multi/prefs";
 import { TabBar } from "./components/TabBar";
 import { ServerFooter } from "./components/ServerFooter";
 import { Login } from "./pages/Login";
@@ -161,6 +163,10 @@ function AppLayout() {
 
 export default function App() {
   const hydrated = useServersStore((s) => s.hydrated);
+  // MS28: room sockets close in the background and reopen in the
+  // foreground only with the multi-server flag on (off = today).
+  const multiServer = useMultiServerPrefs((s) => s.multiServer);
+  useEffect(() => setLifecycleEnabled(multiServer), [multiServer]);
 
   useEffect(() => {
     // Load the persisted multi-server model (+ one-time migration of the

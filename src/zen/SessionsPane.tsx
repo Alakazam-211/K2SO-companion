@@ -7,7 +7,6 @@ import {
   getWorkspaceLiveSessions,
   spawnResumeTab,
 } from "../api/client";
-import { useWorkspacesStore } from "../stores/workspaces";
 import { activityColor, activityForRow, type RowActivity } from "./agentActivity";
 import { mainHandleOf, workspaceSessions } from "./sessionDrawer";
 import { harnessOfSession } from "./llmHarness";
@@ -51,6 +50,8 @@ import { mountainTime } from "./threadModel";
 import { posixNormalize } from "./workspacePath";
 import { useZenStore } from "./zenStore";
 import { useZenScope, zenScope } from "./zenScope";
+import { useRoomSessions } from "./room/useRoomSessions";
+import { ServerChip } from "./room/ServerChip";
 import {
   useNotifyPrefsStore,
   workspacePrefFor,
@@ -209,7 +210,10 @@ export function SessionsPane({
   onClose: () => void;
   onOpenTerminal: (terminalId: string, title: string) => void;
 }) {
-  const sessions = useWorkspacesStore((s) => s.allSessions);
+  /** The room's server: the drawer lists, spawns and wakes on it (MA18). */
+  const scope = useZenScope();
+  const roomSessions = useRoomSessions(scope);
+  const sessions = roomSessions.sessions;
   const agents = useZenStore((s) => s.agents);
   const activity = useZenStore((s) => s.activity);
   const chatSessions = useZenStore((s) => s.chatSessions);
@@ -235,12 +239,9 @@ export function SessionsPane({
   const [wakeError, setWakeError] = useState<{ addr: string; error: string } | null>(null);
   /** Bumped after a wake to re-read live tabs + History. */
   const [reload, setReload] = useState(0);
-  /** The room's server: the drawer lists and wakes on it (MA18). */
-  const scope = useZenScope();
-
   useEffect(() => {
     mounted.current = true;
-    void getActivePresets(zenScope())
+    void getActivePresets(scope)
       .then((r) => {
         if (mounted.current) setLlms(r.ok ? parseActiveLlms(r.data) : null);
       })
@@ -250,13 +251,12 @@ export function SessionsPane({
     return () => {
       mounted.current = false;
     };
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     let alive = true;
-    void useWorkspacesStore
-      .getState()
-      .fetchAllSessions()
+    void roomSessions
+      .refresh()
       .finally(() => {
         if (alive) setLoading(false);
       });
@@ -451,7 +451,7 @@ export function SessionsPane({
           return { ok: r.ok, sessionId: r.data?.sessionId ?? null, error: r.error };
         },
         ensureSidecar: (row) => useZenStore.getState().ensureSidecarHost(row),
-        refreshSessions: () => useWorkspacesStore.getState().fetchAllSessions(),
+        refreshSessions: () => roomSessions.refresh(),
       }
     ).then((r) => {
       if (!mounted.current) return;
@@ -503,8 +503,11 @@ export function SessionsPane({
       data-testid="sessions-drawer"
     >
       <div className="flex items-center px-2 h-9 border-b border-[var(--border)]">
-        <span className="flex-1 min-w-0 truncate text-[10px] text-[var(--text-muted)] tracking-widest">
-          Sessions
+        <span className="flex-1 min-w-0 flex flex-col">
+          <span className="truncate text-[10px] text-[var(--text-muted)] tracking-widest">
+            Sessions
+          </span>
+          <ServerChip serverId={scope.id} testId="sessions-server" align="left" />
         </span>
         <button
           onClick={onClose}

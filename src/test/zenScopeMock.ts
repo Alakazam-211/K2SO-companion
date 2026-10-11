@@ -20,10 +20,21 @@ export function zen(): FakeScope {
   return current;
 }
 
+let room: string | null = null;
+
 export const zenScopeModule = {
   zenServerId: () => current.id || null,
   zenScope: () => current,
   useZenScope: () => current,
   ticketsScope: () => current,
   useTicketsScope: () => current,
+  roomServerId: () => room,
+  setRoomServer: (id: string | null) => {
+    room = id;
+  },
+  useRoomServer: Object.assign(
+    (sel: (s: { serverId: string | null }) => unknown) => sel({ serverId: room }),
+    { getState: () => ({ serverId: room }), setState: () => {}, subscribe: () => () => {} }
+  ),
+  useRoomElsewhere: () => room !== null,
 };
