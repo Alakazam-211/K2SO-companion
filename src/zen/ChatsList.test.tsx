@@ -246,7 +246,7 @@ describe("ChatsList", () => {
     expect(screen.queryByTestId("tickets-badge")).toBeNull();
   });
 
-  it("header: server button on the left, Tickets then the settings cog on the right, all 34px", () => {
+  it("header: server button on the left, Projects, Tickets then the settings cog on the right, all 34px", () => {
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
@@ -267,7 +267,16 @@ describe("ChatsList", () => {
     expect(cog.textContent).toBe("");
     expect(cog.querySelector("[data-testid=settings-icon]")).not.toBeNull();
     const rightButtons = Array.from(right.children);
-    expect(rightButtons).toEqual([screen.getByRole("button", { name: "Tickets" }), cog]);
+    const projects = screen.getByRole("button", { name: "Projects" });
+    expect(rightButtons).toEqual([projects, screen.getByRole("button", { name: "Tickets" }), cog]);
+    // Desktop Garden nav rail Projects glyph (DashboardIcon), ticket stroke.
+    const icon = projects.querySelector("[data-testid=projects-icon]")!;
+    expect(icon.getAttribute("stroke-width")).toBe("1.7");
+    expect(icon.querySelectorAll("rect")).toHaveLength(4);
+    expect(projects.style.width).toBe("34px");
+    expect(projects.style.height).toBe("34px");
+    expect(projects.className).toMatch(/zen-glass-pill/);
+    expect(screen.queryByTestId("projects-badge")).toBeNull();
 
     expect(serverBtn.style.height).toBe("34px");
     expect(serverBtn.className).toMatch(/zen-glass-pill/);
@@ -520,8 +529,8 @@ describe("ChatsList", () => {
       screen: "list",
     });
     mount();
-    expect(screen.getByLabelText("appa")).not.toBeNull();
-    expect(screen.getByLabelText("Skin Test A")).not.toBeNull();
+    expect(screen.getByLabelText(`appa, ${JOIN_NO_PROJECT}`)).not.toBeNull();
+    expect(screen.getByLabelText(`Skin Test A, ${JOIN_NO_PROJECT}`)).not.toBeNull();
     expect(screen.getAllByText(JOIN_NO_PROJECT).length).toBe(2);
     expect(screen.queryByText("Thread")).toBeNull();
     expect(screen.getAllByTestId("row-when").length).toBe(2);
@@ -845,15 +854,115 @@ describe("ChatsList", () => {
         },
       ],
       lastAtByKey: { "s1|t:appa": Date.now() / 1000 },
+      previewByKey: {
+        "s1|t:appa": { at: Date.now() / 1000, seq: 4, mine: false, kind: "text", text: "Tests pass on **main**." },
+      },
+      ensureLastAt: () => {},
       agentError: null,
       screen: "list",
     });
+    onTestFinished(() =>
+      useZenStore.setState({ previewByKey: {}, ensureLastAt: useZenStore.getInitialState().ensureLastAt })
+    );
     mount();
-    expect(screen.getByLabelText("appa")).not.toBeNull();
+    expect(screen.getByLabelText("appa, Tests pass on main.")).not.toBeNull();
     expect(screen.queryByText("Thread")).toBeNull();
-    expect(screen.getByTestId("row-preview").textContent).toBe("main chat");
+    const preview = screen.getByTestId("row-preview");
+    expect(preview.textContent).toBe("Tests pass on main.");
+    expect(preview.querySelector("strong")?.textContent).toBe("main");
     expect(screen.getByTestId("row-when").textContent).toMatch(/›/);
     expect(screen.getByTestId("row-when").textContent).toMatch(/\d{1,2}:\d{2}/);
+  });
+
+  describe("line two: the main Thread's last message", () => {
+    const appa = { id: "/ws", name: "appa", initial: "A", path: "/ws", addr: "appa", kind: "agent" as const };
+    const quiet = { id: "/q", name: "quiet", initial: "Q", path: "/q", addr: "quiet", kind: "agent" as const };
+    const fresh = { id: "/n", name: "fresh", initial: "F", path: "/n", addr: "fresh", kind: "agent" as const };
+    function show(previewByKey: Record<string, unknown>, extra: Record<string, unknown> = {}) {
+      const original = useZenStore.getState().refreshActivity;
+      onTestFinished(() =>
+        useZenStore.setState({
+          previewByKey: {},
+          refreshActivity: original,
+          ensureLastAt: useZenStore.getInitialState().ensureLastAt,
+          activity: { byPath: {}, bySession: {} },
+        })
+      );
+      useZenStore.setState({
+        agentSource: "live",
+        agents: [appa, quiet, fresh],
+        agentError: null,
+        screen: "list",
+        lastAtByKey: {},
+        previewByKey: previewByKey as never,
+        ensureLastAt: () => {},
+        refreshActivity: vi.fn(async () => {}),
+        ...extra,
+      });
+      return mount();
+    }
+
+    it("own message gets You:, an agent's none, empty Thread says No messages yet, loading is blank", () => {
+      const { container } = show({
+        "s1|t:appa": { at: 10, seq: 2, mine: true, kind: "text", text: "ship it" },
+        "s1|t:quiet": null,
+      });
+      const rows = screen.getAllByTestId("row-preview");
+      expect(rows[0].textContent).toBe("You: ship it");
+      expect(screen.getByLabelText("appa, You: ship it")).not.toBeNull();
+      expect(rows[1].textContent).toBe("No messages yet");
+      expect(rows[1].querySelector('[data-testid="row-preview-empty"]')).not.toBeNull();
+      // Not fetched yet: the line keeps its height, with no text that then jumps.
+      expect(rows[2].textContent).toBe("\u00a0");
+      expect(screen.getByLabelText("fresh")).not.toBeNull();
+      expect(container.textContent?.toLowerCase()).not.toContain("main chat");
+    });
+
+    it("choice cards show the prompt; secret cards never their content", () => {
+      show({
+        "s1|t:appa": { at: 10, seq: 2, mine: false, kind: "choice", text: "Deploy *now*?" },
+        "s1|t:quiet": { at: 11, seq: 3, mine: false, kind: "secret", text: "" },
+      });
+      const rows = screen.getAllByTestId("row-preview");
+      expect(rows[0].textContent).toBe("Deploy now?");
+      expect(rows[0].querySelector("em")?.textContent).toBe("now");
+      expect(rows[1].textContent).toBe("Asked for a secret");
+    });
+
+    it("the activity line still replaces the snippet while the agent works", () => {
+      show(
+        { "s1|t:appa": { at: 10, seq: 2, mine: false, kind: "text", text: "done" } },
+        {
+          activity: {
+            byPath: { "/ws": { display: "working", counts: { subagents: 0, tools: 14, commands: 0 } } },
+            bySession: {},
+          },
+        }
+      );
+      const row = screen.getByLabelText("appa, Working · 14 tools");
+      expect(row.querySelector('[data-testid="row-activity"]')?.textContent).toBe("Working · 14 tools");
+      expect(row.querySelector('[data-testid="row-preview"]')).toBeNull();
+      expect(row.textContent).not.toContain("done");
+    });
+
+    it("the snippet sits in one truncating line", () => {
+      show({
+        "s1|t:appa": {
+          at: 10,
+          seq: 2,
+          mine: false,
+          kind: "text",
+          text: "# Plan\n\n- one\n- two\n\n| a | b |\n|---|---|\n| 1 | 2 |\n\n```ts\nconst x = 1;\n```",
+        },
+      });
+      const line = screen.getAllByTestId("row-preview")[0];
+      expect(line.className).toContain("truncate");
+      expect(line.textContent).toBe("Plan one · two [table] const x = 1;");
+      expect(line.textContent).not.toContain("\n");
+      expect(line.querySelector("strong")?.textContent).toBe("Plan");
+      expect(line.querySelector('[data-testid="row-preview-code"]')?.textContent).toBe("const x = 1;");
+      expect(line.querySelector("table")).toBeNull();
+    });
   });
 
   it("an empty last-message time is an empty slot next to the chevron", () => {
@@ -1079,7 +1188,7 @@ describe("ChatsList", () => {
     expect(screen.queryByTestId("summary-dump")).toBeNull();
   });
 
-  it("a project chat row says Project Chat", () => {
+  it("project chats are not on the Agents page: not in the list, search or pins", () => {
     useZenStore.setState({
       agentSource: "live",
       agents: [
@@ -1098,9 +1207,14 @@ describe("ChatsList", () => {
       agentError: null,
       screen: "list",
     });
+    useZenStore.setState({ pinnedIds: ["group:pg1"] });
     mount();
-    expect(screen.getByLabelText("K2 Companion")).not.toBeNull();
-    expect(screen.getByTestId("row-preview").textContent).toBe("Project Chat");
+    expect(screen.queryByLabelText("K2 Companion")).toBeNull();
+    expect(screen.queryByText("Project Chat")).toBeNull();
+    expect(screen.queryByTestId("chats-pins")).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "K2 Comp" } });
+    expect(screen.queryByLabelText("K2 Companion")).toBeNull();
+    expect(screen.queryByText("K2 Companion")).toBeNull();
   });
 
   it("the server button opens the overlay server list", () => {
@@ -1989,7 +2103,8 @@ describe("ChatsList", () => {
       mount();
       const title = screen.getByTestId("chats-title");
       expect(title.textContent).toBe("Work");
-      expect(title.style.maxWidth).toBe("min(34vw, 140px)");
+      // 375pt: 375 - 24 padding - 16 gaps - 2 × 118 (Projects, Tickets, cog) = 99px.
+      expect(title.style.maxWidth).toBe("min(calc(100vw - 276px), 140px)");
       expect(screen.getByTestId("chats-title-dot").style.background).toMatch(/rgb\(255, 0, 0\)|#ff0000/);
       expect(title.querySelector(".truncate")?.textContent).toBe("Work");
     });

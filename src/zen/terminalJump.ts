@@ -54,6 +54,16 @@ export function zenTicketPath(ticketId?: string | null): string {
   return `/zen?${ZEN_TICKET_PARAM}=${encodeURIComponent(id)}`;
 }
 
+/** Query key that opens Projects on one project chat
+ *  (`/zen?project=<groupId>`, a project push tap). */
+export const ZEN_PROJECT_PARAM = "project";
+
+export function zenProjectPath(groupId?: string | null): string {
+  const id = (groupId || "").trim();
+  if (!id) return "/zen";
+  return `/zen?${ZEN_PROJECT_PARAM}=${encodeURIComponent(id)}`;
+}
+
 /** Pick the original-UI terminal for an overlay agent. Null → /sessions. */
 export function terminalIdForAgent(
   agent:

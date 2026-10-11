@@ -1,13 +1,14 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { useFeedbackStore } from "../stores/feedback";
 import { ticketsAriaLabel, ticketsBadge } from "../api/feedbackPure";
-import { hostLabel, useServersStore, type RecoveryState } from "../stores/servers";
+import { hostLabel, serverHostKey, useServersStore, type RecoveryState } from "../stores/servers";
 import { isOverlayExtraAddr, visibleOverlayAgents } from "./overlayExtras";
-import { overlayRowPreview } from "./rowPreview";
+import { rowPreviewFor, rowPreviewText } from "./rowPreview";
+import { RowSnippet } from "./RowSnippet";
 import { activityColor, activityForRow, activityPinText, activityRowText } from "./agentActivity";
-import { StubMark } from "./StubMark";
+import { AgentRowContent } from "./AgentRowContent";
 import { OverlayAddServer } from "./OverlayAddServer";
 import {
   GlassSearchBar,
@@ -21,6 +22,8 @@ import { posixNormalize } from "./workspacePath";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { OverlayServers } from "./OverlayServers";
 import { TicketsOverlay, useTicketWaitingCounts } from "./TicketsOverlay";
+import { ProjectsOverlay } from "./ProjectsOverlay";
+import { isProjectGroupsChangedFrame, unreadGroupCount } from "./projectChats";
 import { ZEN_TICKET_PARAM } from "./terminalJump";
 import { lastAtKeyFor, sortChatsByRecency } from "./lastAtFetch";
 import {
@@ -30,17 +33,23 @@ import {
   pinProjectIdForRow,
   rowFocusGroupId,
 } from "./serverPins";
-import { connectProjectEvents } from "./ticketEvents";
+import { connectProjectEvents, subscribeAppEvents } from "./ticketEvents";
 import { useZenScope } from "./zenScope";
 import { mountainListWhen } from "./threadModel";
 import { usePinDrag } from "./usePinDrag";
 import { SWIPE_ACTION_W, swipeReveal, useRowSwipe } from "./useRowSwipe";
 import { FocusGroupPicker } from "./FocusGroupPicker";
+import { AddAgentSheet } from "./AddAgentSheet";
+import { HomeList, openHomeRowOnServer } from "./HomeList";
+import { HomeMenu } from "./HomeMenu";
+import { HomeTabToggle } from "./HomeTabToggle";
+import { readListTab, selectedHome, useHomesStore, writeListTab, type ListTab } from "./homes";
+import { homeRowMatches, resolveHomeRows } from "./homeView";
+import type { StubAgent } from "./stubData";
 import "./swipePin.css";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { ZenSettings } from "./ZenSettings";
 import { useZenStore } from "./zenStore";
-import { zenTextPx } from "./zenFont";
 import { FOCUS_OFF } from "./serverPins";
 import { snapshotCapable, useMultiServerList, type ActiveSlice } from "./multi/useMultiServerList";
 import { homeActivityWord, rowActivityOf } from "./multi/rowStatus";
@@ -50,13 +59,11 @@ import { retryServerNow } from "./multi/poolLoop";
 import {
   LoadingLines,
   RemoteAgentRow,
-  ServerChip,
   ServerFilterMenu,
   ServerPlaceholderRow,
 } from "./multi/MergedRows";
 import type { MergedRow } from "./multi/merge";
 import type { RowActivity } from "./agentActivity";
-import type { StubAgent } from "./stubData";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -80,7 +87,12 @@ export const GROUP_TOAST_MS = 4000;
 /** How long a just-created workspace row stays highlighted. */
 export const NEW_ROW_HIGHLIGHT_MS = 4000;
 /** Title cap: at 375pt the side columns keep ~100px for the pills. */
-const TITLE_MAX_W = "min(34vw, 140px)";
+/** The right column holds three 34px buttons (Projects, Tickets, cog)
+ *  with 8px gaps = 118px; the equal 1fr columns must keep that, so the
+ *  title gets what is left of the 24px padding and 16px gaps: 99px at
+ *  375pt, the old 140px cap on wider phones. */
+const HEADER_RIGHT_PX = 3 * 34 + 2 * 8;
+const TITLE_MAX_W = `min(calc(100vw - ${24 + 16 + 2 * HEADER_RIGHT_PX}px), 140px)`;
 /** Resting header content height below the safe area: 44 row + 12/8 pad. */
 export const CHATS_HEADER_PX = 64;
 /**
@@ -208,11 +220,13 @@ const RECOVERY_WORD: Record<RecoveryState, string> = {
 export function ChatsList() {
   const containerHeight = useViewportHeight();
   const agents = useZenStore((s) => s.agents);
+  const chatRows = useMemo(() => agents.filter((a) => a.kind !== "group"), [agents]);
   const source = useZenStore((s) => s.agentSource);
   const agentError = useZenStore((s) => s.agentError);
   const setAgent = useZenStore((s) => s.setAgent);
   const lastAtByKey = useZenStore((s) => s.lastAtByKey);
   const ensureLastAt = useZenStore((s) => s.ensureLastAt);
+  const previewByKey = useZenStore((s) => s.previewByKey);
   const activity = useZenStore((s) => s.activity);
   const chatSessions = useZenStore((s) => s.chatSessions);
   const zenScreen = useZenStore((s) => s.screen);
@@ -318,11 +332,15 @@ export function ChatsList() {
   const pickAgent = groupPick && groupsOn ? agents.find((a) => a.id === groupPick) ?? null : null;
   const [groupMenu, setGroupMenu] = useState(false);
   const pinned = pinnedIds
-    .map((id) => agents.find((a) => a.id === id))
+    .map((id) => chatRows.find((a) => a.id === id))
     .filter((a): a is (typeof agents)[number] => !!a);
   const [q, setQ] = useState("");
   const [settings, setSettings] = useState(false);
   const [tickets, setTickets] = useState(false);
+  // Projects sheet: in the store so a project chat opened from it (and
+  // that chat's terminal) comes back to it.
+  const projectsOpen = useZenStore((s) => s.projectsOpen);
+  const setProjectsOpen = useZenStore((s) => s.setProjectsOpen);
   // Push-tap deep link `/zen?ticket=<id>`: open Tickets on that ticket.
   // A new id remounts the overlay (key) so it re-opens on the new ticket.
   const [params, setParams] = useSearchParams();
@@ -332,6 +350,7 @@ export function ChatsList() {
     if (!ticketParam) return;
     // An open chat hides this list (and the overlay inside it).
     if (useZenStore.getState().screen === "thread") useZenStore.getState().closeChat();
+    useZenStore.getState().setProjectsOpen(false);
     setDeepTicket(ticketParam);
     setTickets(true);
     setParams(
@@ -422,9 +441,62 @@ export function ChatsList() {
       ? { active: true, key: r.key, agent: r.agent, chip: multi.chips ? r.serverLabel : null }
       : { active: false, key: r.key, row: r };
 
+  // Home | Agents (multi-server PRD §14 HM1). Agents is the default; the
+  // pick is this device's (localStorage). Home is one server for now.
+  const [tab, setTabState] = useState<ListTab>(readListTab);
+  const onHome = tab === "home";
+  const setTab = (next: ListTab) => {
+    if (next === tab) return;
+    writeListTab(next);
+    setTabState(next);
+    setGroupMenu(false);
+    setHomeMenu(false);
+    swipe.close();
+    closeMenu();
+  };
+  const homes = useHomesStore((s) => s.homes);
+  const homeSelectedId = useHomesStore((s) => s.selectedId);
+  const home = selectedHome({ homes, selectedId: homeSelectedId });
+  const [homeMenu, setHomeMenu] = useState(false);
+  const [addAgent, setAddAgent] = useState(false);
+  useEffect(() => {
+    if (onHome) useHomesStore.getState().ensureSeeded();
+  }, [onHome]);
+  const activeHostKey = activeServer ? serverHostKey(activeServer) : null;
+  const homeViews = useMemo(
+    () =>
+      resolveHomeRows(home.rows, {
+        activeHostKey,
+        agents,
+        projects: serverProjects,
+        servers,
+      }),
+    [home.rows, activeHostKey, agents, serverProjects, servers]
+  );
+
+  // Projects badge: project chats with a message newer than this device
+  // saw (shared last-seen cursors), off the list's own group last-at
+  // (`<serverId>|g:<id>`).
+  const groupIds = useMemo(
+    () => agents.filter((a) => a.kind === "group" && a.groupId).map((a) => a.groupId as string),
+    [agents]
+  );
+  useZenStore((s) => s.groupSeenRev);
+  const projectsUnread = unreadGroupCount(zen.id || null, groupIds, lastAtByKey);
+
+  /** Line two of a row (Agents and Home share it): the main Thread's
+   *  newest message, inline Markdown on one line. */
+  const rowPreviewOf = (a: StubAgent) => {
+    const key = lastAtKeyFor(zen.id, a);
+    return rowPreviewFor(a, key ? previewByKey[key] : undefined);
+  };
+  const previewFor = (a: StubAgent): ReactNode =>
+    source === "stub" ? "STUB" : <RowSnippet preview={rowPreviewOf(a)} />;
+
   const searching = q.trim().length > 0;
   // Search ignores the focus group so any agent can still be found.
-  const visible = visibleOverlayAgents(agents, q, hiddenSidecarAddrs);
+  // Project chats live behind the Projects button, never in this list.
+  const visible = visibleOverlayAgents(chatRows, q, hiddenSidecarAddrs);
   const filtered = sortChatsByRecency(
     searching ? visible : filterByFocus(visible, focus, serverProjects, pinnedIds),
     lastAtByKey,
@@ -489,9 +561,19 @@ export function ChatsList() {
     };
     document.addEventListener("visibilitychange", onVis);
     const events = connectProjectEvents(zen, () => void useZenStore.getState().refreshPins());
+    // A project chat moved: its badge (and an open project chat) catch up.
+    const groupEvents = subscribeAppEvents(zen, isProjectGroupsChangedFrame, () => {
+      const z = useZenStore.getState();
+      const ids = z.agents
+        .filter((a) => a.kind === "group" && a.groupId)
+        .map((a) => a.groupId as string);
+      if (ids.length) void z.refreshGroupPreviews(ids);
+      if (z.screen === "thread" && (z.threadGroupId || "").trim()) void z.refreshOpenThread();
+    });
     return () => {
       document.removeEventListener("visibilitychange", onVis);
       events.stop();
+      groupEvents.stop();
     };
   }, [live, zen]);
 
@@ -822,7 +904,31 @@ export function ChatsList() {
           style={{ letterSpacing: "-0.2px", maxWidth: TITLE_MAX_W }}
           data-testid="chats-title"
         >
-          {group ? (
+          {onHome ? (
+            <button
+              type="button"
+              className="flex items-center min-w-0 max-w-full bg-transparent border-0 p-0"
+              style={{
+                gap: 6,
+                color: "#fff",
+                font: "inherit",
+                letterSpacing: "inherit",
+                pointerEvents: "auto",
+              }}
+              onClick={() => setHomeMenu((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={homeMenu}
+              aria-label={`Home ${home.name}`}
+              data-testid="chats-title-home"
+            >
+              <span className="min-w-0 truncate">{home.name}</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+                className="shrink-0" style={{ opacity: 0.6 }}>
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+          ) : group ? (
             <button
               type="button"
               className="flex items-center min-w-0 max-w-full bg-transparent border-0 p-0"
@@ -863,6 +969,62 @@ export function ChatsList() {
           style={{ gap: 8, pointerEvents: "auto" }}
           data-testid="chats-header-right"
         >
+          <button
+            type="button"
+            className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
+            style={{
+              width: 34,
+              height: 34,
+              color: "#fff",
+            }}
+            onClick={() => setProjectsOpen(true)}
+            aria-label="Projects"
+            title="Projects"
+            data-testid="chats-header-projects"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+              data-testid="projects-icon"
+            >
+              {/* Desktop Zen nav rail Projects (DashboardIcon, ZenNavRailWidget.tsx). */}
+              <rect x="3" y="3" width="7" height="9" rx="1" />
+              <rect x="14" y="3" width="7" height="5" rx="1" />
+              <rect x="14" y="12" width="7" height="9" rx="1" />
+              <rect x="3" y="16" width="7" height="5" rx="1" />
+            </svg>
+            {projectsUnread > 0 ? (
+              <span
+                className="absolute"
+                data-testid="projects-badge"
+                aria-hidden
+                style={{
+                  top: -2,
+                  right: -2,
+                  minWidth: 15,
+                  height: 15,
+                  padding: "0 4px",
+                  borderRadius: 8,
+                  // iMessage unread blue; Tickets keeps amber.
+                  background: "#0a84ff",
+                  color: "#fff",
+                  fontSize: 9,
+                  fontWeight: 700,
+                  lineHeight: "15px",
+                  textAlign: "center",
+                }}
+              >
+                {projectsUnread > 99 ? "99+" : projectsUnread}
+              </span>
+            ) : null}
+          </button>
           <button
             type="button"
             className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
@@ -986,7 +1148,19 @@ export function ChatsList() {
         />
       ) : null}
 
-      {group && groupMenu ? (
+            {onHome && homeMenu ? (
+        <HomeMenu
+          homes={homes}
+          currentId={home.id}
+          onSelect={(id) => useHomesStore.getState().selectHome(id)}
+          onCreate={(name) => useHomesStore.getState().createHome(name)}
+          onRename={(name) => useHomesStore.getState().renameHome(home.id, name)}
+          onDelete={() => useHomesStore.getState().deleteHome(home.id)}
+          onClose={() => setHomeMenu(false)}
+        />
+      ) : null}
+
+      {!onHome && group && groupMenu ? (
         <>
           <button
             type="button"
@@ -1063,7 +1237,7 @@ export function ChatsList() {
           anchor at the header's bottom edge, so the strip floats over the
           list (and above the header blur) without shifting the row under
           the finger. */}
-      {!searching && pinItems.length === 0 && hot ? (
+      {!onHome && !searching && pinItems.length === 0 && hot ? (
         <div
           className="absolute left-0 right-0"
           style={{
@@ -1109,6 +1283,31 @@ export function ChatsList() {
           setScrolled(e.currentTarget.scrollTop > 0);
         }}
       >
+      {onHome ? (
+        <HomeList
+          views={homeViews.filter((v) => homeRowMatches(v, q))}
+          homeName={home.name}
+          searching={searching}
+          inset={ZEN_LIST_CONTENT_INSET}
+          previewFor={previewFor}
+          onRemove={(address) => useHomesStore.getState().removeRow(home.id, address)}
+          onMove={(address, delta) => {
+            const from = home.rows.findIndex((r) => r.address === address);
+            if (from >= 0) useHomesStore.getState().moveRow(home.id, from, from + delta);
+          }}
+          onOpenRemote={(v) => {
+            const handle = v.row.address.split("::")[0];
+            if (!v.server) {
+              setServersSheet(true);
+              return;
+            }
+            void openHomeRowOnServer(v.server.id, handle).then((ok) => {
+              if (!ok) setServersSheet(true);
+            });
+          }}
+        />
+      ) : (
+      <>
       <span id={SWIPE_HINT_ID} className="sr-only">
         {groupsOn ? "Swipe right to add to a focus group. " : ""}
         Press and hold, then drag to the top to pin.
@@ -1250,13 +1449,11 @@ export function ChatsList() {
             lastKey && lastAtByKey[lastKey] != null
               ? mountainListWhen(lastAtByKey[lastKey] as number)
               : "";
-          const preview =
-            source === "stub" ? "STUB" : overlayRowPreview(a);
+          const preview = previewFor(a);
           const busy =
             source === "live"
               ? activityForRow(a, activity, isOverlayExtraAddr(a.addr), chatSessions)
               : null;
-          const busyColor = busy ? activityColor(busy) : "var(--success)";
           const rowCanGroup = canGroup(a.id);
           const rowGroupId = rowCanGroup ? rowFocusGroupId(a, serverProjects) : null;
           const rowGroup = rowGroupId
@@ -1378,95 +1575,25 @@ export function ChatsList() {
             aria-label={
               source === "stub"
                 ? `STUB ${a.name}`
-                : (isOverlayExtraAddr(a.addr)
-                    ? `${a.name}, ${overlayRowPreview(a)}`
-                    : a.name) + (busy ? `, ${activityRowText(busy)}` : "")
+                : busy
+                  ? `${a.name}, ${activityRowText(busy)}`
+                  : [a.name, rowPreviewText(rowPreviewOf(a))].filter(Boolean).join(", ")
             }
             data-last-at-key={lastKey}
             data-pin-id={a.id}
             data-pin-from="list"
           >
-            <span className="relative shrink-0">
-              <WorkspaceAvatar
-                initial={a.initial}
-                color={a.color}
-                iconUrl={a.iconUrl}
-                size={50}
-                fontSize={18}
-              />
-              {busy ? (
-                <span
-                  aria-hidden
-                  data-testid="row-activity-dot"
-                  className={`absolute rounded-full ${busy.display === "working" ? "k2-pulse" : ""}`}
-                  style={{
-                    right: -1,
-                    bottom: -1,
-                    width: 14,
-                    height: 14,
-                    background: busyColor,
-                    color: busyColor,
-                    border: "2.5px solid var(--root)",
-                    // The pulse ring starts outside the cutout border.
-                    ["--k2-pulse-edge" as string]: "2.5px",
-                  }}
-                />
-              ) : null}
-            </span>
-            <span className="flex-1 min-w-0">
-              <span className="flex justify-between items-baseline gap-2">
-                {item.chip ? (
-                  <span className="flex items-baseline min-w-0" style={{ gap: 6 }}>
-                    <span
-                      className="min-w-0 truncate font-semibold"
-                      style={{ fontSize: zenTextPx(16), letterSpacing: "-0.2px" }}
-                      data-testid="row-name"
-                    >
-                      {a.name}
-                    </span>
-                    <ServerChip label={item.chip} />
-                  </span>
-                ) : (
-                  <span
-                    className="min-w-0 truncate font-semibold"
-                    style={{ fontSize: zenTextPx(16), letterSpacing: "-0.2px" }}
-                    data-testid="row-name"
-                  >
-                    {a.name}
-                  </span>
-                )}
-                {source === "stub" ? (
-                  <StubMark />
-                ) : (
-                  <span
-                    className="shrink-0 flex items-center gap-1"
-                    style={{ color: "#8e8e93", fontWeight: 400, fontSize: zenTextPx(14) }}
-                    data-testid="row-when"
-                  >
-                    {when}
-                    {when ? " " : ""}
-                    ›
-                  </span>
-                )}
-              </span>
-              {busy ? (
-                <span
-                  className="block truncate"
-                  style={{ color: busyColor, lineHeight: 1.3, fontSize: zenTextPx(14) }}
-                  data-testid="row-activity"
-                >
-                  {activityRowText(busy)}
-                </span>
-              ) : (
-                <span
-                  className="block truncate"
-                  style={{ color: "#8e8e93", lineHeight: 1.3, fontSize: zenTextPx(14) }}
-                  data-testid="row-preview"
-                >
-                  {preview}
-                </span>
-              )}
-            </span>
+            <AgentRowContent
+              name={a.name}
+              initial={a.initial}
+              color={a.color}
+              iconUrl={a.iconUrl}
+              busy={busy}
+              when={when}
+              preview={preview}
+              stub={source === "stub"}
+              serverChip={item.chip}
+            />
           </button>
           </div>
           );
@@ -1485,6 +1612,8 @@ export function ChatsList() {
             }}
           />
         ))}
+      </>
+      )}
       </div>
 
       {pinMenu && menuAgent ? (
@@ -1637,11 +1766,13 @@ export function ChatsList() {
         query={q}
         onQuery={setQ}
         placeholder="Search"
-        onPlus={() => setNewWorkspace(true)}
-        plusLabel="New workspace"
-        plusBlockedNote={canCreate ? null : createRoleNote()}
+        leading={<HomeTabToggle tab={tab} onTab={setTab} />}
+        onPlus={() => (onHome ? setAddAgent(true) : setNewWorkspace(true))}
+        plusLabel={onHome ? "Add agent" : "New workspace"}
+        plusBlockedNote={onHome || canCreate ? null : createRoleNote()}
       />
 
+      {projectsOpen ? <ProjectsOverlay onClose={() => setProjectsOpen(false)} /> : null}
       {tickets ? (
         <TicketsOverlay
           key={deepTicket ?? "list"}
@@ -1650,6 +1781,18 @@ export function ChatsList() {
             setTickets(false);
             setDeepTicket(null);
           }}
+        />
+      ) : null}
+      {addAgent && onHome ? (
+        <AddAgentSheet
+          home={home}
+          hostKey={activeHostKey}
+          agents={chatRows}
+          projects={serverProjects}
+          groups={groupsOn && focus.groups.length > 0 ? focus.groups : null}
+          otherServers={servers.filter((s) => s.id !== activeServerId)}
+          onAdd={(row) => useHomesStore.getState().addRow(home.id, row)}
+          onClose={() => setAddAgent(false)}
         />
       ) : null}
       {newWorkspace ? (

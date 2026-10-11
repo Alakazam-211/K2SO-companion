@@ -19,6 +19,7 @@ vi.mock("../api/client", () => ({
 }));
 
 vi.mock("../api/projectGroups", () => ({
+  fetchProjectGroupResources: vi.fn(async () => ({ ok: true, data: { docs: [] } })),
   fetchProjectGroups: vi.fn(async () => ({ ok: true, data: [] })),
   fetchProjectGroupMessages: vi.fn(async () => ({
     ok: true,
@@ -43,13 +44,14 @@ import {
 import { SIDECAR_STORAGE_KEY } from "./sidecarRows";
 import {
   fetchProjectGroupMessages,
+  fetchProjectGroupResources,
   fetchProjectGroups,
   postProjectGroupMessage,
 } from "../api/projectGroups";
 import { JOIN_NO_AGENT, JOIN_NO_PROJECT } from "./agentRow";
 import { resetLastAtQueue } from "./lastAtFetch";
 import { STUB_AGENTS, STUB_FILES } from "./stubData";
-import { useZenStore } from "./zenStore";
+import { resetThreadPreviewQueue, useZenStore } from "./zenStore";
 import { NO_WORKSPACE_PATH, PATH_NOT_OWNED } from "./workspacePath";
 import { fakeScope } from "../test/fakeScope";
 import { setZenScope, zen } from "../test/zenScopeMock";
@@ -205,6 +207,8 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
 
   it("ensureLastAt GETs thread limit=1 once and stores created_at", async () => {
     resetLastAtQueue();
+    resetThreadPreviewQueue();
+    useZenStore.setState({ agentSource: "live", previewByKey: {} });
     vi.mocked(getThread).mockResolvedValue({
       ok: true,
       data: {
@@ -225,6 +229,8 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
     expect(getThread).toHaveBeenCalledWith(expect.anything(), "appa", 1);
     // The key's server is the scope it fetched on (MA6).
     expect((vi.mocked(getThread).mock.calls[0][0] as { id: string }).id).toBe("s1");
+    // The same answer feeds line two (no server feature list: per-row read).
+    expect(useZenStore.getState().previewByKey["s1|t:appa"]).toMatchObject({ text: "hi", seq: 22 });
   });
 
   it("a skills enumerator plus a non-array projects body is a shape error, not a rail", async () => {
@@ -1070,10 +1076,11 @@ describe("OPEN 8 project groups in hydrateAgents", () => {
       sendError: null,
     });
     useZenStore.getState().setAgent("group:pg1");
-    // No workspace, so the Files pane shows the empty-resources note.
-    expect(useZenStore.getState().fileSource).toBe("live");
+    // Files: the group's own resources (none here, so the empty note).
+    await vi.waitFor(() => expect(useZenStore.getState().fileSource).toBe("live"));
     expect(useZenStore.getState().fileError).toBeNull();
     expect(useZenStore.getState().files).toEqual([]);
+    expect(fetchProjectGroupResources).toHaveBeenCalledWith(expect.anything(), "pg1");
     expect(getWorkspaceResources).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(useZenStore.getState().threadSource).toBe("live"));
     expect(fetchProjectGroupMessages).toHaveBeenCalledWith(expect.anything(), "pg1", { limit: 50 });
@@ -1932,10 +1939,56 @@ describe("Workspace Resources in the Files pane", () => {
     useZenStore.getState().setAgent("g:pg1");
     pending.resolve(dir("plan.md", `${WS}/plan.md`));
     await p;
+    await vi.waitFor(() => expect(useZenStore.getState().fileSource).toBe("live"));
     const s = useZenStore.getState();
     expect(s.files).toEqual([]);
-    expect(s.fileSource).toBe("live");
     expect(s.fileError).toBeNull();
+  });
+
+  it("a project chat's Files are the group's resources (member workspace as the hint)", async () => {
+    vi.mocked(fetchProjectGroupResources).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        docs: [
+          {
+            workspaceId: "w1",
+            workspaceName: "K2 Companion",
+            agentName: "k2c",
+            filePath: "/Users/me/k2c/docs/plan.md",
+            fileName: "plan.md",
+          },
+          { workspaceId: "w2", workspaceName: null, agentName: "site", filePath: "/srv/site/a.html", fileName: "a.html", missing: true },
+        ],
+      },
+    });
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [{ id: "group:pg1", name: "Group", initial: "G", kind: "group", groupId: "pg1" }],
+    });
+    useZenStore.getState().setAgent("group:pg1");
+    await vi.waitFor(() => expect(useZenStore.getState().files).toHaveLength(2));
+    const [plan, page] = useZenStore.getState().files;
+    expect(plan).toMatchObject({ id: "/Users/me/k2c/docs/plan.md", name: "plan.md", hint: "K2 Companion" });
+    expect(page).toMatchObject({ name: "a.html", hint: "site", missing: true });
+    expect(getWorkspaceResources).not.toHaveBeenCalled();
+    // Re-opening the pane re-reads the group's list.
+    const before = vi.mocked(fetchProjectGroupResources).mock.calls.length;
+    useZenStore.setState({ filesOpen: false });
+    useZenStore.getState().toggleFiles();
+    expect(vi.mocked(fetchProjectGroupResources).mock.calls.length).toBe(before + 1);
+    expect(fetchProjectGroupResources).toHaveBeenLastCalledWith(expect.anything(), "pg1");
+  });
+
+  it("a server without the resources route shows the empty note", async () => {
+    vi.mocked(fetchProjectGroupResources).mockResolvedValueOnce({ ok: false, error: "nope", status: 404 });
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [{ id: "group:pg1", name: "Group", initial: "G", kind: "group", groupId: "pg1" }],
+    });
+    useZenStore.getState().setAgent("group:pg1");
+    await vi.waitFor(() => expect(useZenStore.getState().fileSource).toBe("live"));
+    expect(useZenStore.getState().fileError).toBeNull();
+    expect(useZenStore.getState().files).toEqual([]);
   });
 });
 

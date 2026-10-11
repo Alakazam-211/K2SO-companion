@@ -142,18 +142,7 @@ export function buildServerRows(input: ServerRowsInput): ServerRowsResult {
   } else {
     for (const g of rGroups.data ?? []) {
       if (!g?.id || !g.name) continue;
-      groups.push({
-        id: `group:${g.id}`,
-        name: g.name,
-        initial: skinInitials(g.name),
-        addr: null,
-        joinMiss: null,
-        kind: "group",
-        groupId: g.id,
-        memberCount: g.memberCount ?? 0,
-        color: null,
-        iconUrl: null,
-      });
+      groups.push(groupAgentRow(g));
     }
   }
 
@@ -231,5 +220,28 @@ export function buildServerRows(input: ServerRowsInput): ServerRowsResult {
     chatSessions,
     remember,
     notices,
+  };
+}
+
+/** A project group as a chat row (`kind: "group"`). */
+export function groupAgentRow(g: {
+  id: string;
+  name: string;
+  memberCount?: number | null;
+  color?: string | null;
+}): StubAgent {
+  return {
+    id: `group:${g.id}`,
+    name: g.name,
+    initial: skinInitials(g.name),
+    addr: null,
+    joinMiss: null,
+    kind: "group",
+    groupId: g.id,
+    memberCount: g.memberCount ?? 0,
+    // The group's own colour (project settings); its image is fetched
+    // per group by GroupChatAvatar.
+    color: g.color ?? null,
+    iconUrl: null,
   };
 }
