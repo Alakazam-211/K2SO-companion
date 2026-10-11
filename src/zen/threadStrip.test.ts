@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { stripClock, tallyBits, threadStripView } from "./threadStrip";
+import {
+  counterSpoken,
+  counterText,
+  fitStripCounters,
+  stripClock,
+  stripClockShort,
+  stripCounters,
+  tallyBits,
+  threadDrawerLine,
+  threadStripView,
+} from "./threadStrip";
 import type { ThreadTurn } from "./threadTurn";
 
 const T0 = 1_000_000;
@@ -126,5 +136,114 @@ describe("threadStripView", () => {
     );
     expect(v?.label).toBe("No update in 34m");
     expect(v?.tone).toBe("unverifiable");
+  });
+});
+
+describe("drawer line", () => {
+  const busy = turn({
+    phase: "tool",
+    line: "Running `npm test`",
+    subagents: 2,
+    subagentsDone: 1,
+    background: 1,
+    tally: { read: 3, search: 1, cmd: 2, edit: 1 },
+  });
+
+  it("maps counts to emoji, hides zeros, in display order", () => {
+    const c = stripCounters(busy);
+    expect(c.map(counterText)).toEqual(["🤖2✓1", "⚙️1", "📄3", "🔍1", "⌨️2", "✏️1"]);
+    expect(stripCounters(turn({ tally: { read: 2, search: 0, cmd: 0, edit: 0 } })).map(counterText)).toEqual([
+      "📄2",
+    ]);
+    expect(stripCounters(turn())).toEqual([]);
+  });
+
+  it("speaks each counter in words", () => {
+    expect(stripCounters(busy).map(counterSpoken)).toEqual([
+      "2 subagents running, 1 done",
+      "1 background task",
+      "read 3 files",
+      "searched 1 time",
+      "ran 2 commands",
+      "edited 1 file",
+    ]);
+  });
+
+  it("drops ✓done, then search, read, edit, commands; subagents and background stay", () => {
+    const all = stripCounters(busy);
+    const each = () => 10; // every counter 10px wide, 6px gaps
+    const keys = (budget: number) =>
+      fitStripCounters(all, budget, each).map((c) => `${c.key}${c.done ? "+done" : ""}`);
+    expect(keys(Infinity)).toEqual(["subagents+done", "background", "read", "search", "cmd", "edit"]);
+    expect(keys(90)).toEqual(["subagents+done", "background", "read", "search", "cmd", "edit"]);
+    // One px short: ✓done goes first, then search (a flat measure, so
+    // dropping ✓done alone did not help).
+    expect(keys(89)).toEqual(["subagents", "background", "read", "cmd", "edit"]);
+    expect(keys(74)).toEqual(["subagents", "background", "read", "cmd", "edit"]);
+    expect(keys(58)).toEqual(["subagents", "background", "cmd", "edit"]);
+    expect(keys(42)).toEqual(["subagents", "background", "cmd"]);
+    expect(keys(26)).toEqual(["subagents", "background"]);
+    expect(keys(0)).toEqual(["subagents", "background"]);
+  });
+
+  it("✓done shows only when it fits", () => {
+    const all = stripCounters(turn({ subagents: 2, subagentsDone: 1 }));
+    const measure = (t: string) => t.length * 5;
+    expect(fitStripCounters(all, 100, measure).map(counterText)).toEqual(["🤖2✓1"]);
+    expect(fitStripCounters(all, 10, measure).map(counterText)).toEqual(["🤖2"]);
+  });
+
+  it("one line: step, counters and an m:ss clock", () => {
+    const l = threadDrawerLine(busy, T0 + 72_000)!;
+    expect(l.step.text).toBe("Running `npm test`");
+    expect(l.clock).toBe("1:12");
+    expect(l.ariaLabel).toBe(
+      "Agent working, 1m 12s since your message: Running npm test"
+    );
+    expect(l.detail.head).toBe("Working · 1m 12s since your message");
+    expect(l.detail.step?.elapsed).toBe("1m 12s");
+    expect(l.detail.tally).toBe("Read 3 files · searched 1 time · ran 2 commands · edited 1 file");
+    expect(l.detail.children).toBe("2 subagents running, 1 done · 1 background task");
+    expect(stripClockShort(3_723_000)).toBe("1:02:03");
+    expect(stripClockShort(8_000)).toBe("0:08");
+  });
+
+  it("the state word when there is no step; thinking times itself", () => {
+    expect(threadDrawerLine(turn(), T0 + 5_000)!.step.text).toBe("Working");
+    expect(threadDrawerLine(turn({ phase: "thinking", phaseSince: T0 + 2_000 }), T0 + 10_000)!.step.text).toBe(
+      "Thinking… 8s"
+    );
+    expect(threadDrawerLine(turn({ phase: "delivering" }), T0 + 1_000)!.step.text).toBe("Delivering…");
+    expect(
+      threadDrawerLine(turn({ state: "needs-you", phase: "waiting", waitingOn: "permission" }), T0 + 1_000)!.step
+        .text
+    ).toBe("Stuck on a permission prompt");
+  });
+
+  it("children phase: Replied, the counters and the clock", () => {
+    const l = threadDrawerLine(
+      turn({ phase: "children", subagents: 1, background: 2, tally: { read: 1, search: 0, cmd: 0, edit: 0 } }),
+      T0 + 30_000
+    )!;
+    expect(l.step.text).toBe("Replied");
+    expect(l.counters.map(counterText)).toEqual(["🤖1", "⚙️2", "📄1"]);
+    expect(l.clock).toBe("0:30");
+    expect(l.ariaLabel).toMatch(/^Agent replied; 1 subagent running/);
+    expect(l.detail.head).toBe("Replied · 30s since your message");
+  });
+
+  it("unverifiable says how long; a stop lingers as Stopped", () => {
+    const stale = threadDrawerLine(
+      turn({ state: "unverifiable", phase: "stale", phaseSince: T0 + 30 * 60_000 }),
+      T0 + 34 * 60_000
+    )!;
+    expect(stale.tone).toBe("unverifiable");
+    expect(stale.step.text).toBe("No update in 34m");
+    const stopped = threadDrawerLine(
+      turn({ state: "stopped", end: { reason: "interrupted", detail: null, at: T0 + 12_000 } }),
+      T0 + 13_000
+    )!;
+    expect(stopped.step.text).toBe("Stopped");
+    expect(stopped.clock).toBe("0:12");
   });
 });

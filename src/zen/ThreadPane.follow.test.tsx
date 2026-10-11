@@ -128,6 +128,7 @@ function userScrollTo(top: number) {
 }
 
 beforeEach(() => {
+  localStorage.clear();
   height = 1800;
   resizeCallbacks = [];
   rafQueue = [];
@@ -213,7 +214,7 @@ describe("Thread follows the newest", () => {
       socket().onItem(activityFrame(2, true) as never);
       socket().onItem(threadFrame("r1", 20, "All 42 tests pass.") as never);
     });
-    expect(screen.queryByTestId("thread-working-strip")).toBeNull();
+    expect(screen.getByTestId("thread-working-strip").getAttribute("data-leaving")).toBe("true");
     expect(screen.getByText("All 42 tests pass.")).not.toBeNull();
     expect(scroller().scrollTop).toBe(bottom());
     expect(screen.queryByTestId("thread-new-message")).toBeNull();
@@ -336,5 +337,52 @@ describe("Thread follows the newest", () => {
     );
     expect(scroller().scrollTop).toBe(300);
     expect(screen.getByTestId("thread-new-message")).not.toBeNull();
+  });
+
+  it("the drawer pads the scroller (not its content) and following stays at the bottom through open, expand and close", async () => {
+    render(<ThreadPane />);
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+    const contentBefore = screen.getByTestId("thread-content").childElementCount;
+    expect(scroller().style.paddingBottom).toBe("");
+
+    // Opens: 32px tile + 6px gap on top of the scroller's own 12px.
+    height = 1838;
+    act(() => socket().onItem(activityFrame(1, false) as never));
+    expect(screen.getByTestId("thread-content").childElementCount).toBe(contentBefore);
+    expect(scroller().getAttribute("data-drawer-space")).toBe("38");
+    expect(scroller().style.paddingBottom).toBe("50px");
+    expect(scroller().scrollTop).toBe(bottom());
+    // The padding eases over ~200ms: the rAF loop keeps sticking.
+    height = 1840;
+    flushRaf();
+    expect(scroller().scrollTop).toBe(bottom());
+
+    // Tap: the drawer grows upward and the padding tracks its height.
+    height = 1880;
+    fireEvent.click(screen.getByTestId("thread-strip-toggle"));
+    const space = Number(scroller().getAttribute("data-drawer-space"));
+    expect(space).toBeGreaterThan(38);
+    expect(scroller().style.paddingBottom).toBe(`${12 + space}px`);
+    expect(scroller().scrollTop).toBe(bottom());
+
+    // Tap again: back to one line.
+    fireEvent.click(screen.getByTestId("thread-strip-toggle"));
+    expect(scroller().style.paddingBottom).toBe("50px");
+
+    // Closes: the padding goes as the drawer slides down.
+    height = 1800;
+    act(() => socket().onItem(activityFrame(2, true) as never));
+    expect(scroller().style.paddingBottom).toBe("");
+    expect(scroller().scrollTop).toBe(bottom());
+  });
+
+  it("a reader scrolled up is not yanked when the drawer opens", async () => {
+    render(<ThreadPane />);
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+    userScrollTo(300);
+    height = 1838;
+    act(() => socket().onItem(activityFrame(1, false) as never));
+    flushRaf();
+    expect(scroller().scrollTop).toBe(300);
   });
 });

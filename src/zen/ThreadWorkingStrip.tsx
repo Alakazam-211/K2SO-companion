@@ -1,12 +1,30 @@
-import { useEffect, useState } from "react";
-import { STOPPED_LINGER_MS, threadStripView, type ThreadStripTone } from "./threadStrip";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import {
+  COUNTER_GAP_PX,
+  STOPPED_LINGER_MS,
+  STRIP_EMOJI,
+  counterSpoken,
+  counterText,
+  estimateStripTextPx,
+  fitStripCounters,
+  threadDrawerLine,
+  type ThreadDrawerLine,
+  type ThreadStripStep,
+  type ThreadStripTone,
+} from "./threadStrip";
 import type { ThreadTurn } from "./threadTurn";
+import { zenTextPx } from "./zenFont";
+import { prefersReducedMotion } from "./sendFly";
+import "./threadDrawer.css";
 
-// The Thread working strip: under the last message while the agent works
-// on your message; gone when the turn ends. Nothing in it is stored.
+// The Thread working drawer: a glass tile docked above the composer while
+// the agent works on your message, so it stays in view while you read
+// back. Collapsed it is one line (pulse · step · emoji counters · clock);
+// a tap grows it upward to the full detail in words, another tap shrinks
+// it back. The choice is remembered per device. Nothing else is stored.
 // It counts its own clock (1 Hz, from the daemon's `startedAt` /
-// `phaseSince`, corrected by `serverNow`), so the list around it does not
-// re-render every second. Words: `threadStripView`.
+// `phaseSince`, corrected by `serverNow`), so the list does not re-render
+// every second. Words: `threadDrawerLine` / `threadStripView`.
 
 const TONE: Record<ThreadStripTone, string> = {
   working: "var(--success)",
@@ -15,6 +33,35 @@ const TONE: Record<ThreadStripTone, string> = {
   stopped: "var(--text-muted)",
   unverifiable: "var(--text-muted)",
 };
+
+/** Slide / fade length (ms); the CSS uses the same. */
+export const DRAWER_MS = 200;
+/** Collapsed tile height (px), border included. */
+export const DRAWER_TILE_PX = 32;
+/** Gap (px) between the tile and the composer. */
+export const DRAWER_GAP_PX = 6;
+/** Room the step keeps before counters start dropping. */
+const STEP_MIN_PX = 72;
+const COUNTER_FONT_PX = 12;
+const EXPANDED_LINE_PX = 19;
+
+export const DRAWER_EXPANDED_KEY = "k2-zen-thread-drawer-expanded";
+
+export function readDrawerExpanded(): boolean {
+  try {
+    return localStorage.getItem(DRAWER_EXPANDED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+export function writeDrawerExpanded(on: boolean): void {
+  try {
+    localStorage.setItem(DRAWER_EXPANDED_KEY, on ? "1" : "0");
+  } catch {
+    /* private mode / quota: the choice lasts this session only */
+  }
+}
 
 /** A tool line: backtick spans become code. */
 function StepText({ text }: { text: string }) {
@@ -38,10 +85,15 @@ function StepText({ text }: { text: string }) {
   );
 }
 
-function useStripNow(turn: ThreadTurn): number {
+function StepBody({ step }: { step: ThreadStripStep }) {
+  return step.kind === "line" ? <StepText text={step.text} /> : <>{step.text}</>;
+}
+
+function useStripNow(turn: ThreadTurn | null): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     setNow(Date.now());
+    if (!turn) return;
     if (turn.end === null) {
       const id = setInterval(() => setNow(Date.now()), 1_000);
       return () => clearInterval(id);
@@ -56,100 +108,263 @@ function useStripNow(turn: ThreadTurn): number {
   return now;
 }
 
-export function ThreadWorkingStrip({ turn }: { turn: ThreadTurn }) {
+/** Counter budget (px) for a collapsed tile `width` wide showing `clock`. */
+export function counterBudget(width: number, clock: string): number {
+  if (!Number.isFinite(width) || width <= 0) return Infinity;
+  // px-3 both sides, the 8px pulse, three 8px gaps, the clock, the step's floor.
+  return width - 24 - 8 - 24 - estimateStripTextPx(clock, COUNTER_FONT_PX) - STEP_MIN_PX;
+}
+
+type Phase = "hidden" | "in" | "out";
+
+export function ThreadWorkingStrip({
+  turn,
+  onSpace,
+}: {
+  turn: ThreadTurn | null;
+  /** Room (px) the drawer takes above the composer: 0 when hidden or
+   *  leaving. The Thread pads its scroller by it. */
+  onSpace?: (px: number) => void;
+}) {
   const now = useStripNow(turn);
-  const view = threadStripView(turn, now);
-  if (!view) return null;
-  const color = TONE[view.tone];
-  const pulsing = view.tone === "working";
-  // Full width, fixed rows: the tile spans the message column and keeps
-  // its step and tally rows while the turn is live, so it neither widens
-  // with the tool line nor jumps in height as rows come and go. Text
-  // truncates; the clocks sit right with tabular digits.
-  const live = turn.end === null;
+  const line = turn ? threadDrawerLine(turn, now) : null;
+  const shown = line !== null;
+  const last = useRef<ThreadDrawerLine | null>(line);
+  if (line) last.current = line;
+
+  // hidden → in (slide up) → out (slide down) → hidden.
+  const [phase, setPhase] = useState<Phase>(shown ? "in" : "hidden");
+  if (shown && phase !== "in") setPhase("in");
+  if (!shown && phase === "in") setPhase("out");
+  useEffect(() => {
+    if (phase !== "out") return;
+    const t = setTimeout(() => setPhase("hidden"), DRAWER_MS + 60);
+    return () => clearTimeout(t);
+  }, [phase]);
+
+  const [expanded, setExpanded] = useState(readDrawerExpanded);
+  const toggle = () => {
+    setExpanded((on) => {
+      writeDrawerExpanded(!on);
+      return !on;
+    });
+  };
+
+  // Measure: the tile's width (which counters fit) and the content's
+  // height (the tile animates to it; the Thread pads by it).
+  const tileRef = useRef<HTMLButtonElement>(null);
+  const innerRef = useRef<HTMLSpanElement>(null);
+  const [width, setWidth] = useState(0);
+  const [innerH, setInnerH] = useState(0);
+  const display = line ?? (phase === "out" ? last.current : null);
+  const mounted = display !== null;
+  useLayoutEffect(() => {
+    if (!mounted) return;
+    const measure = () => {
+      setWidth(tileRef.current?.clientWidth ?? 0);
+      setInnerH(innerRef.current?.offsetHeight ?? 0);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => measure());
+    if (tileRef.current) ro.observe(tileRef.current);
+    if (innerRef.current) ro.observe(innerRef.current);
+    return () => ro.disconnect();
+  }, [mounted, expanded]);
+
+  const detailLines = display
+    ? 1 +
+      (display.detail.step ? 1 : 0) +
+      (display.detail.tally ? 1 : 0) +
+      (display.detail.children ? 1 : 0)
+    : 0;
+  const tileH =
+    innerH > 0
+      ? innerH + 2
+      : expanded
+        ? 12 + 2 + detailLines * EXPANDED_LINE_PX
+        : DRAWER_TILE_PX;
+  const space = phase === "in" ? tileH + DRAWER_GAP_PX : 0;
+  const onSpaceRef = useRef(onSpace);
+  onSpaceRef.current = onSpace;
+  useLayoutEffect(() => {
+    onSpaceRef.current?.(space);
+  }, [space]);
+  useEffect(() => () => onSpaceRef.current?.(0), []);
+
+  if (!display) return null;
+  const reduced = prefersReducedMotion();
+  const anim =
+    phase === "out"
+      ? reduced
+        ? "k2-drawer-fade-out"
+        : "k2-drawer-slide-out"
+      : reduced
+        ? "k2-drawer-fade-in"
+        : "k2-drawer-slide-in";
+  const color = TONE[display.tone];
+  const pulsing = display.tone === "working";
+  const counters = fitStripCounters(display.counters, counterBudget(width, display.clock), (t) =>
+    estimateStripTextPx(t, COUNTER_FONT_PX)
+  );
+  const dot = (
+    <span
+      aria-hidden
+      className={`relative inline-block flex-none w-2 h-2 rounded-full box-border ${pulsing ? "k2-pulse" : ""}`}
+      style={
+        display.tone === "monitoring" || display.tone === "stopped" || display.tone === "unverifiable"
+          ? { border: `2px solid ${color}` }
+          : { background: color, color }
+      }
+    />
+  );
+  const d = display.detail;
+
   return (
+    // Clip box: its bottom edge is the composer's top, so the tile slides
+    // in from behind the composer. Touches fall through to the scroller.
     <div
-      role="status"
-      aria-label={view.ariaLabel}
-      data-testid="thread-working-strip"
-      data-tone={view.tone}
-      data-phase={turn.phase}
-      className="k2-tile self-stretch w-full min-w-0 flex flex-col gap-[3px] px-3 py-2 mt-1"
-      style={{
-        borderRadius: 16,
-        borderStyle: view.tone === "unverifiable" ? "dashed" : undefined,
-      }}
+      data-testid="thread-drawer"
+      className="absolute left-0 right-0 bottom-0 px-2.5 pt-3 overflow-hidden pointer-events-none"
+      style={{ paddingBottom: DRAWER_GAP_PX }}
     >
-      <div className="flex items-center gap-2 min-w-0 text-[13px] leading-[18px] min-h-[18px]">
-        <span
-          aria-hidden
-          className={`relative inline-block flex-none w-2 h-2 rounded-full box-border ${pulsing ? "k2-pulse" : ""}`}
-          style={
-            view.tone === "monitoring" || view.tone === "stopped" || view.tone === "unverifiable"
-              ? { border: `2px solid ${color}` }
-              : { background: color, color }
-          }
-        />
-        {view.label ? (
-          <span
-            data-testid="thread-strip-state"
-            className="flex-1 min-w-0 font-semibold truncate"
-            style={{ color }}
-          >
-            {view.label}
-          </span>
-        ) : null}
-        <span
-          data-testid="thread-strip-since"
-          className="ml-auto flex-none tabular-nums text-right"
-          style={{ color: "var(--text-muted)" }}
+      <div
+        role="status"
+        data-testid="thread-working-strip"
+        data-tone={display.tone}
+        data-phase={turn?.phase}
+        data-leaving={phase === "out" ? "true" : undefined}
+        data-expanded={expanded ? "true" : "false"}
+        className={anim}
+        onAnimationEnd={(e) => {
+          if (e.target === e.currentTarget && phase === "out") setPhase("hidden");
+        }}
+      >
+        <button
+          ref={tileRef}
+          type="button"
+          data-testid="thread-strip-toggle"
+          aria-expanded={expanded}
+          aria-label={display.ariaLabel}
+          onClick={toggle}
+          className="k2-tile k2-drawer-tile relative block w-full min-w-0 overflow-hidden text-left pointer-events-auto"
+          style={{
+            height: innerH > 0 ? innerH + 2 : undefined,
+            borderRadius: 16,
+            borderStyle: display.tone === "unverifiable" ? "dashed" : undefined,
+            transition: reduced ? "none" : undefined,
+          }}
         >
-          {view.since}
-        </span>
+          <span
+            ref={innerRef}
+            className={`${innerH > 0 ? "absolute left-0 right-0 bottom-0" : ""} block min-w-0`}
+          >
+            {expanded ? (
+              <span data-testid="thread-strip-detail" className="flex flex-col gap-[1px] px-3 py-1.5 min-w-0">
+                <span className="flex items-center gap-2 min-w-0 text-[13px] leading-[18px]">
+                  {dot}
+                  <span
+                    data-testid="thread-strip-head"
+                    className="min-w-0 font-semibold break-words"
+                    style={{ color }}
+                  >
+                    {d.head}
+                  </span>
+                </span>
+                {d.step ? (
+                  <span
+                    data-testid="thread-strip-step-full"
+                    className="flex items-baseline gap-2 min-w-0 leading-[19px]"
+                    style={{ color: "var(--text)", fontSize: zenTextPx(14) }}
+                  >
+                    <span
+                      className={`flex-1 min-w-0 whitespace-normal break-words ${
+                        d.step.kind === "thinking" ? "k2-shimmer" : ""
+                      }`}
+                      style={d.step.kind === "needs" ? { color: "var(--warning)" } : undefined}
+                    >
+                      <StepBody step={d.step} />
+                    </span>
+                    {d.step.elapsed ? (
+                      <span
+                        data-testid="thread-strip-elapsed"
+                        className="flex-none tabular-nums text-[12px]"
+                        style={{ color: "var(--text-muted)" }}
+                      >
+                        {d.step.elapsed}
+                      </span>
+                    ) : null}
+                  </span>
+                ) : null}
+                {d.tally ? (
+                  <span
+                    data-testid="thread-strip-tally"
+                    className="min-w-0 break-words text-[12px] leading-[18px]"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {d.tally}
+                  </span>
+                ) : null}
+                {d.children ? (
+                  <span
+                    data-testid="thread-strip-children"
+                    className="min-w-0 break-words text-[12px] leading-[18px]"
+                    style={{ color: "var(--text-muted)" }}
+                  >
+                    {d.children}
+                  </span>
+                ) : null}
+              </span>
+            ) : (
+              <span
+                data-testid="thread-strip-line"
+                className="flex items-center gap-2 min-w-0 px-3 whitespace-nowrap"
+                style={{ height: DRAWER_TILE_PX - 2 }}
+              >
+                {dot}
+                <span
+                  data-testid="thread-strip-step-text"
+                  className={`flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-[18px] ${
+                    display.step.kind === "thinking" ? "k2-shimmer" : ""
+                  }`}
+                  style={{
+                    fontSize: zenTextPx(13),
+                    color:
+                      display.step.kind === "needs"
+                        ? "var(--warning)"
+                        : display.tone === "stopped" || display.tone === "unverifiable"
+                          ? "var(--text-muted)"
+                          : "var(--text)",
+                  }}
+                >
+                  <StepBody step={display.step} />
+                </span>
+                {counters.length ? (
+                  <span
+                    data-testid="thread-strip-counters"
+                    className="flex-none flex items-center tabular-nums text-[12px] leading-[18px]"
+                    style={{ gap: COUNTER_GAP_PX, color: "var(--text-muted)" }}
+                  >
+                    {counters.map((c) => (
+                      <span key={c.key} data-testid={`thread-strip-count-${c.key}`} data-emoji={STRIP_EMOJI[c.key]}>
+                        <span aria-hidden="true">{counterText(c)}</span>
+                        <span className="sr-only">{counterSpoken(c)}</span>
+                      </span>
+                    ))}
+                  </span>
+                ) : null}
+                <span
+                  data-testid="thread-strip-since"
+                  className="flex-none tabular-nums text-right text-[12px] leading-[18px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {display.clock}
+                </span>
+              </span>
+            )}
+          </span>
+        </button>
       </div>
-      {view.step ? (
-        <div
-          data-testid="thread-strip-step"
-          className="flex items-baseline gap-2 min-w-0 text-[14px] leading-[20px] min-h-[20px]"
-          style={{ color: "var(--text)" }}
-        >
-          {view.step.kind === "needs" ? (
-            <span aria-hidden className="flex-none" style={{ color: "var(--warning)" }}>
-              !
-            </span>
-          ) : null}
-          <span
-            data-testid="thread-strip-step-text"
-            className={`flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap ${
-              view.step.kind === "thinking" ? "k2-shimmer" : ""
-            }`}
-          >
-            {view.step.kind === "line" ? <StepText text={view.step.text} /> : view.step.text}
-          </span>
-          {view.step.elapsed ? (
-            <span
-              data-testid="thread-strip-elapsed"
-              className="ml-auto flex-none tabular-nums text-right text-[12px]"
-              style={{ color: "var(--text-muted)" }}
-            >
-              {view.step.elapsed}
-            </span>
-          ) : null}
-        </div>
-      ) : live ? (
-        <div aria-hidden data-testid="thread-strip-step-slot" className="min-h-[20px]" />
-      ) : null}
-      {view.tally.length ? (
-        <div
-          data-testid="thread-strip-tally"
-          className="min-w-0 truncate text-[12px] leading-[16px] min-h-[16px]"
-          style={{ color: "var(--text-muted)" }}
-        >
-          {view.tally.join(" · ")}
-        </div>
-      ) : live ? (
-        <div aria-hidden data-testid="thread-strip-tally-slot" className="min-h-[16px]" />
-      ) : null}
     </div>
   );
 }
