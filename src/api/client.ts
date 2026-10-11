@@ -438,19 +438,57 @@ export const spawnNewTab = (cwd: string, label = "new tab") => {
 /** Extra overlay chat: desktop sidecar is `POST /cli/sessions/v2/spawn`.
  *  `agent_name` is the overlay suffix (`1`, `2`, …). The first persist
  *  allocates `workspace/handle`. Do not invent the row client-side. */
-export const spawnSidecarSession = (cwd: string, agentName: string, label: string) =>
+export const spawnSidecarSession = (
+  cwd: string,
+  agentName: string,
+  label: string,
+  launch: { command: string; args: string[] } = {
+    command: "claude",
+    args: ["--dangerously-skip-permissions"],
+  }
+) =>
   request<{ sessionId: string; agentName: string; reused?: boolean }>(
     "sessions.v2_spawn",
     "/cli/sessions/v2/spawn",
     {
       agent_name: agentName,
       cwd,
-      command: "claude",
-      args: ["--dangerously-skip-permissions"],
+      command: launch.command,
+      args: launch.args,
       label,
     },
     { method: "POST" }
   );
+
+/** A new plain tab running `launch` (`agent_name: tab-<uuid>`). For
+ *  presets the daemon cannot host as an overlay sidecar (no `ws/N`). */
+export const spawnTabSession = (
+  cwd: string,
+  launch: { command: string; args: string[] },
+  label: string
+) =>
+  request<{ sessionId: string; agentName: string; reused?: boolean }>(
+    "sessions.v2_spawn",
+    "/cli/sessions/v2/spawn",
+    {
+      agent_name: "tab-" + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)),
+      cwd,
+      command: launch.command,
+      args: launch.args,
+      label,
+    },
+    { method: "POST" }
+  );
+
+/** One enabled agent preset (Settings → Agents on desktop). `command` is
+ *  the full launch line, e.g. `codex --yolo`; `icon` is a custom preset's
+ *  emoji (built-ins send ""). */
+export type AgentPreset = { id: string; name: string; command: string; icon?: string | null };
+
+/** GET `/cli/companion/presets` (WS `presets.list`, Member): the server's
+ *  ENABLED presets, sorted as desktop's launcher. 404 on older daemons. */
+export const getActivePresets = () =>
+  request<AgentPreset[]>("presets.list", "/cli/companion/presets", {});
 // Rename a TAB — writes the CANONICAL tab title in SQLite (the same
 // `tab_titles` row the desktop uses), `locked` so program-generated PTY
 // titles can't overwrite the user's chosen name. Both surfaces read this.

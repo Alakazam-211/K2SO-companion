@@ -1,13 +1,21 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { getActivePresets } from "../api/client";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { activityColor, activityForRow, type RowActivity } from "./agentActivity";
 import { mainHandleOf, workspaceSessions } from "./sessionDrawer";
-import type { OverlaySidecar } from "./sidecarRows";
+import { harnessOfSession } from "./llmHarness";
+import { LlmIcon } from "./LlmIcon";
+import { llmIconSvg } from "./llmIcons";
+import { canSidecar, emojiByHarness, parseActiveLlms, type ActiveLlm } from "./llmPresets";
+import { PlusGlyph } from "./PlusGlyph";
+import { matchSidecarSession, type OverlaySidecar, type SessionSidecarInput } from "./sidecarRows";
 import type { StubAgent } from "./stubData";
-import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { useZenStore } from "./zenStore";
 
 export const SESSIONS_EMPTY = "No other sessions in this workspace";
+export const NEW_SESSION_LABEL = "New session";
+/** Subtitle on a `+` choice the daemon can only run as a plain tab. */
+export const OPENS_AS_TERMINAL = "Opens as a terminal";
 
 function activityWord(a: RowActivity): string {
   return a.display === "waiting" ? "Needs you" : a.display === "monitoring" ? "Monitoring" : "Working";
@@ -71,7 +79,29 @@ export function SessionsPane({
   const activity = useZenStore((s) => s.activity);
   const chatSessions = useZenStore((s) => s.chatSessions);
   const openWorkspaceSession = useZenStore((s) => s.openWorkspaceSession);
+  const spawnLlmSession = useZenStore((s) => s.spawnLlmSession);
   const [loading, setLoading] = useState(true);
+  /** Enabled presets (`GET /cli/companion/presets`). Null hides `+`
+   *  (not loaded, 404 on an older daemon, or an unknown body). */
+  const [llms, setLlms] = useState<ActiveLlm[] | null>(null);
+  const [addOpen, setAddOpen] = useState(false);
+  const [pendingId, setPendingId] = useState<string | null>(null);
+  const [addError, setAddError] = useState<string | null>(null);
+  const mounted = useRef(true);
+
+  useEffect(() => {
+    mounted.current = true;
+    void getActivePresets()
+      .then((r) => {
+        if (mounted.current) setLlms(r.ok ? parseActiveLlms(r.data) : null);
+      })
+      .catch(() => {
+        if (mounted.current) setLlms(null);
+      });
+    return () => {
+      mounted.current = false;
+    };
+  }, []);
 
   useEffect(() => {
     let alive = true;
@@ -98,7 +128,18 @@ export function SessionsPane({
     ? workspaceSessions(sessions, { path, name, addr: handle })
     : { mainTerminalId: null, sidecars: [] as OverlaySidecar[], terminals: [] };
   const currentAddr = (agent?.addr || "").trim();
-  const avatar = mainRow ?? agent;
+  const byTerminal = new Map<string, SessionSidecarInput>();
+  for (const s of sessions) if (s.terminalId) byTerminal.set(s.terminalId, s);
+  const emojis = emojiByHarness(llms);
+  const iconFor = (terminalId: string | null | undefined, fallback?: SessionSidecarInput) => {
+    const harness = harnessOfSession(
+      (terminalId ? byTerminal.get(terminalId) : undefined) ?? fallback ?? { terminalId },
+      activity.bySession
+    );
+    // A vendored mark wins; a custom preset's emoji covers the rest.
+    const emoji = harness && !llmIconSvg(harness) ? emojis[harness] ?? null : null;
+    return <LlmIcon harness={harness} emoji={emoji} />;
+  };
   const hasOthers =
     currentAddr !== handle || listed.sidecars.length > 0 || listed.terminals.length > 0;
 
@@ -110,6 +151,28 @@ export function SessionsPane({
     onClose();
     openWorkspaceSession({ addr: side.addr, path: side.path, side });
   };
+  const pickLlm = (llm: ActiveLlm) => {
+    if (!agent || pendingId) return;
+    setPendingId(llm.id);
+    setAddError(null);
+    void spawnLlmSession(
+      agent.id,
+      llm,
+      listed.sidecars.map((c) => c.addr)
+    ).then((r) => {
+      if (!r.ok) {
+        if (mounted.current) {
+          setPendingId(null);
+          setAddError(r.error);
+        }
+        return;
+      }
+      if (mounted.current) setPendingId(null);
+      onClose();
+      if (r.kind === "terminal") onOpenTerminal(r.terminalId, r.title);
+    });
+  };
+  const canAdd = !!agent && !!path && !!handle && agent.kind !== "group" && !!llms && llms.length > 0;
 
   return (
     <aside
@@ -133,14 +196,7 @@ export function SessionsPane({
       <div className="flex-1 overflow-y-auto">
         {handle ? (
           <button type="button" className={ROW} data-testid="session-row-main" onClick={pickMain}>
-            <WorkspaceAvatar
-              initial={avatar?.initial || name.slice(0, 1) || "?"}
-              color={avatar?.color}
-              iconUrl={avatar?.iconUrl}
-              size={24}
-              fontSize={10}
-              fallback="#2c2c2e"
-            />
+            {iconFor(listed.mainTerminalId)}
             <span className="flex flex-col flex-1 min-w-0">
               <span className="truncate text-[12px] text-[var(--text)]">Main</span>
               <span className="truncate text-[10px] text-[var(--text-muted)]">{handle}</span>
@@ -163,6 +219,7 @@ export function SessionsPane({
             data-testid="session-row-sidecar"
             onClick={() => pickSide(side)}
           >
+            {iconFor(side.terminalId, matchSidecarSession(side.addr, side.path, sessions))}
             <span className="flex flex-col flex-1 min-w-0">
               <span className="truncate text-[12px] text-[var(--text)]">{side.addr}</span>
               {side.chatTitle && side.chatTitle !== side.addr.split("/").slice(1).join("/") ? (
@@ -192,10 +249,7 @@ export function SessionsPane({
                   onOpenTerminal(t.terminalId, t.title);
                 }}
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden className="shrink-0 text-[var(--text-muted)]">
-                  <polyline points="4 17 10 11 4 5" />
-                  <line x1="12" y1="19" x2="20" y2="19" />
-                </svg>
+                {iconFor(t.terminalId)}
                 <span className="flex flex-col flex-1 min-w-0">
                   <span className="truncate text-[12px] text-[var(--text)]">{t.title}</span>
                   <Status a={activityForRow({ terminalId: t.terminalId }, activity, true)} />
@@ -207,6 +261,73 @@ export function SessionsPane({
         {!hasOthers ? (
           <div className="px-3 py-2 text-[12px] text-[var(--text-muted)]" data-testid="sessions-empty">
             {loading && sessions.length === 0 ? "loading" : SESSIONS_EMPTY}
+          </div>
+        ) : null}
+        {canAdd ? (
+          <div className="p-2" data-testid="sessions-new">
+            <button
+              type="button"
+              className="w-full flex items-center gap-2 text-left zen-glass zen-glass-round"
+              style={{ minHeight: 40, padding: "0 12px", color: "var(--text)" }}
+              aria-expanded={addOpen}
+              data-testid="sessions-new-toggle"
+              disabled={!!pendingId}
+              onClick={() => {
+                setAddError(null);
+                setAddOpen((v) => !v);
+              }}
+            >
+              <PlusGlyph />
+              <span className="text-[13px]">{NEW_SESSION_LABEL}</span>
+            </button>
+            {addOpen ? (
+              <div
+                role="menu"
+                aria-label="Active LLMs"
+                className="mt-2 overflow-hidden zen-glass zen-glass-round"
+                data-testid="sessions-llm-list"
+              >
+                {llms!.map((llm) => {
+                  const busy = pendingId === llm.id;
+                  const terminalOnly = !canSidecar(llm.harness);
+                  return (
+                    <button
+                      key={llm.id}
+                      type="button"
+                      role="menuitem"
+                      className="w-full flex items-center gap-2 text-left px-3 py-2 bg-transparent border-b border-[rgba(255,255,255,0.08)] last:border-b-0"
+                      style={{ opacity: pendingId && !busy ? 0.4 : 1 }}
+                      disabled={!!pendingId}
+                      data-testid="sessions-llm"
+                      data-llm-id={llm.id}
+                      onClick={() => pickLlm(llm)}
+                    >
+                      <LlmIcon harness={llm.harness ?? llm.name} emoji={llm.emoji} />
+                      <span className="flex flex-col flex-1 min-w-0">
+                        <span className="truncate text-[12px] text-[var(--text)]">
+                          {busy ? `Starting ${llm.name}…` : llm.name}
+                        </span>
+                        {terminalOnly ? (
+                          <span className="truncate text-[10px] text-[var(--text-muted)]">
+                            {OPENS_AS_TERMINAL}
+                          </span>
+                        ) : null}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
+            {addError ? (
+              <p
+                className="mt-2 px-1 text-[11px]"
+                style={{ color: "#ef4444" }}
+                role="alert"
+                data-testid="sessions-new-error"
+              >
+                {addError}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>
