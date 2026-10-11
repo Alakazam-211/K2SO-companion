@@ -25,8 +25,10 @@ import {
 } from "../api/client";
 import {
   fetchProjectGroupMessages,
+  fetchProjectGroupResources,
   fetchProjectGroups,
   postProjectGroupMessage,
+  type ProjectGroup,
   type ProjectGroupMessage,
 } from "../api/projectGroups";
 import { getActiveServer } from "../stores/servers";
@@ -98,10 +100,11 @@ import {
   ownedWorkspacePath,
   usableFsPath,
 } from "./workspacePath";
-import { parseWorkspaceResources } from "./workspaceResources";
+import { parseGroupResources, parseWorkspaceResources } from "./workspaceResources";
 import { hideSidecarAddr, isOverlayExtraAddr, readHiddenSidecarAddrs, unhideSidecarAddr } from "./overlayExtras";
 import { nextDrawerOrigin, readDrawerOrigin, writeDrawerOrigin } from "./sessionDrawer";
 import { canSidecar, type ActiveLlm } from "./llmPresets";
+import { markGroupSeenAt, type GroupPreview } from "./projectChats";
 
 /** `openSidecar` options. `launch` picks the harness (default Claude);
  *  `existingAddrs` adds server addrs the agents list may not hold (hidden
@@ -164,6 +167,25 @@ type ZenState = {
   hydrateFiles: (dir: string, opts?: { refresh?: boolean }) => Promise<void>;
   hydrateThread: (addr: string) => Promise<void>;
   hydrateGroup: (groupId: string) => Promise<void>;
+  /** Files pane for a project chat: the group's own Workspace Resources
+   *  (`GET /cli/project-group/resources`, the union over its members). */
+  hydrateGroupFiles: (groupId: string, opts?: { refresh?: boolean }) => Promise<void>;
+  /** The Agents header's Projects sheet is up. Kept here (not in the
+   *  list's local state) so a project chat opened from it, and that
+   *  chat's terminal, return to the sheet. */
+  projectsOpen: boolean;
+  setProjectsOpen: (open: boolean) => void;
+  /** Open a project group's chat, adding its row if the list lacks it. */
+  openGroupChat: (group: Pick<ProjectGroup, "id" | "name" | "memberCount">) => void;
+  /** Newest message per group id (Projects sheet line two). Null = none. */
+  groupPreviews: Record<string, GroupPreview | null>;
+  /** Re-read each group's newest message (`messages?limit=1`); also
+   *  refreshes its `g:<id>` last-at, which drives order and unread. */
+  refreshGroupPreviews: (groupIds: string[]) => Promise<void>;
+  /** Bumped when a project chat is marked seen (the badge re-reads). */
+  groupSeenRev: number;
+  /** The open project chat is on screen: its messages up to `lastAt` are seen. */
+  markGroupSeen: (groupId: string, lastAt?: number | null) => void;
   loadEarlier: () => Promise<void>;
   sendThread: (text: string) => Promise<void>;
   answerChoice: (messageId: string, option: string) => Promise<void>;
@@ -319,6 +341,27 @@ function overlaySidecarAgent(
   };
 }
 
+/** Agents-list row id for a project group. */
+export function groupRowId(groupId: string): string {
+  return `group:${groupId}`;
+}
+
+/** A project group as a chat row (`kind: "group"`). */
+function groupAgentRow(g: Pick<ProjectGroup, "id" | "name" | "memberCount">): StubAgent {
+  return {
+    id: groupRowId(g.id),
+    name: g.name,
+    initial: skinInitials(g.name),
+    addr: null,
+    joinMiss: null,
+    kind: "group",
+    groupId: g.id,
+    memberCount: g.memberCount ?? 0,
+    color: null,
+    iconUrl: null,
+  };
+}
+
 function groupMessagesToThread(
   messages: ProjectGroupMessage[],
   username: string
@@ -381,6 +424,26 @@ clearLegacyPinStore();
 
 function activeServerId(): string | null {
   return getActiveServer()?.id ?? null;
+}
+
+/** Projects sheet open, kept for a reload of a project chat's terminal. */
+const PROJECTS_OPEN_KEY = "k2-zen-projects-open";
+
+function readProjectsOpen(): boolean {
+  try {
+    return sessionStorage.getItem(PROJECTS_OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeProjectsOpen(open: boolean): void {
+  try {
+    if (open) sessionStorage.setItem(PROJECTS_OPEN_KEY, "1");
+    else sessionStorage.removeItem(PROJECTS_OPEN_KEY);
+  } catch {
+    /* private mode */
+  }
 }
 
 function errorText(e: unknown, fallback: string): string {
@@ -770,18 +833,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       } else {
         for (const g of rGroups.data ?? []) {
           if (!g?.id || !g.name) continue;
-          groups.push({
-            id: `group:${g.id}`,
-            name: g.name,
-            initial: skinInitials(g.name),
-            addr: null,
-            joinMiss: null,
-            kind: "group",
-            groupId: g.id,
-            memberCount: g.memberCount ?? 0,
-            color: null,
-            iconUrl: null,
-          });
+          groups.push(groupAgentRow(g));
         }
       }
 
@@ -966,6 +1018,93 @@ export const useZenStore = create<ZenState>((set, get) => ({
   focusId: null,
   fileReturn: "chat",
 
+  projectsOpen: readProjectsOpen(),
+  setProjectsOpen: (open) => {
+    writeProjectsOpen(open);
+    if (get().projectsOpen !== open) set({ projectsOpen: open });
+  },
+  groupPreviews: {},
+  refreshGroupPreviews: async (groupIds) => {
+    const server = activeServerId();
+    const ids = [...new Set(groupIds.map((x) => x.trim()).filter(Boolean))];
+    const got = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const r = await fetchProjectGroupMessages(id, { limit: 1 });
+          if (!r.ok) return null;
+          const m = r.data?.messages?.[r.data.messages.length - 1];
+          const p: GroupPreview | null =
+            m && Number.isFinite(m.createdAt)
+              ? { at: m.createdAt, author: m.author || "", body: m.body || "" }
+              : null;
+          return [id, p] as const;
+        } catch {
+          return null;
+        }
+      })
+    );
+    if (activeServerId() !== server) return;
+    const previews = { ...get().groupPreviews };
+    const lastAtByKey = { ...get().lastAtByKey };
+    for (const hit of got) {
+      if (!hit) continue;
+      const [id, p] = hit;
+      previews[id] = p;
+      lastAtByKey[`g:${id}`] = p?.at ?? null;
+    }
+    set({ groupPreviews: previews, lastAtByKey });
+    // A chat open right now stays seen.
+    const open = (get().threadGroupId || "").trim();
+    if (open && get().screen === "thread" && ids.includes(open)) {
+      get().markGroupSeen(open, previews[open]?.at ?? null);
+    }
+  },
+  groupSeenRev: 0,
+  markGroupSeen: (groupId, lastAt) => {
+    markGroupSeenAt(activeServerId(), groupId, lastAt);
+    set({ groupSeenRev: get().groupSeenRev + 1 });
+  },
+  openGroupChat: (group) => {
+    const id = groupRowId(group.id);
+    if (!get().agents.some((a) => a.id === id)) {
+      set({ agents: [groupAgentRow(group), ...get().agents] });
+    }
+    get().setAgent(id);
+  },
+
+  hydrateGroupFiles: async (groupId, opts) => {
+    const gen = get().filesGen + 1;
+    if (opts?.refresh && get().fileSource === "live") {
+      set({ filesGen: gen });
+    } else {
+      set({ filesGen: gen, files: keepOpenFiles(get()), fileError: null, fileSource: "loading" });
+    }
+    const apply = (patch: () => Partial<ZenState>) => {
+      if (get().filesGen !== gen) return;
+      set(patch());
+    };
+    try {
+      const r = await fetchProjectGroupResources(groupId);
+      // No resources route on this server: nothing pinned to show.
+      if (r.status === 404) {
+        apply(() => noResources(keepOpenFiles(get())));
+        return;
+      }
+      if (!r.ok || r.data === undefined) {
+        apply(() =>
+          failFiles(r.error || "Could not load Workspace Resources", keepOpenFiles(get()))
+        );
+        return;
+      }
+      const rows = parseGroupResources(r.data);
+      apply(() => noResources(mergeResources(rows ?? [], get())));
+    } catch (e) {
+      apply(() =>
+        failFiles(e instanceof Error ? e.message : String(e), keepOpenFiles(get()))
+      );
+    }
+  },
+
   hydrateGroup: async (groupId) => {
     const gen = get().threadGen + 1;
     set({
@@ -992,13 +1131,16 @@ export const useZenStore = create<ZenState>((set, get) => ({
         return;
       }
       const items = groupMessagesToThread(r.data?.messages ?? [], username);
+      const lastAt = items[items.length - 1]?.at ?? null;
       set({
         threadSource: "live",
         thread: items,
         threadError: null,
         threadHasMore: !!r.data?.truncated,
         threadOldestSeq: items.length ? 0 : null,
+        lastAtByKey: { ...get().lastAtByKey, [`g:${groupId}`]: lastAt },
       });
+      get().markGroupSeen(groupId, lastAt);
     } catch (e) {
       if (get().threadGen !== gen) return;
       set({
@@ -1159,6 +1301,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
             [`g:${groupId}`]: row.createdAt,
           },
         });
+        get().markGroupSeen(groupId, row.createdAt);
       } catch (e) {
         if (get().threadGen !== gen) return;
         set({
@@ -1350,6 +1493,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
             [`g:${groupId}`]: last?.at ?? get().lastAtByKey[`g:${groupId}`] ?? null,
           },
         });
+        get().markGroupSeen(groupId, last?.at ?? null);
       } catch {
         /* keep what is on screen */
       }
@@ -1396,9 +1540,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
     });
     const row = get().agents.find((a) => a.id === id);
     if (row?.kind === "group" && row.groupId) {
-      // A project chat has no workspace, so no resources: show the note.
-      // Bump filesGen so an older agent's GET cannot land here.
-      set({ filesGen: get().filesGen + 1, ...noResources() });
+      // A project chat's Files are the group's own resources (its
+      // members' Workspace Resources). Stub mode has none: the note.
+      if (get().agentSource === "live") void get().hydrateGroupFiles(row.groupId);
+      else set({ filesGen: get().filesGen + 1, ...noResources() });
       void get().hydrateGroup(row.groupId);
       return;
     }
@@ -1716,7 +1861,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
     // sessions/events, so re-read the list every time the pane opens.
     if (!open || get().agentSource !== "live") return;
     const row = get().agents.find((a) => a.id === get().agentId);
-    if (row?.kind === "group") return;
+    if (row?.kind === "group") {
+      if (row.groupId) void get().hydrateGroupFiles(row.groupId, { refresh: true });
+      return;
+    }
     const owned = typeof row?.path === "string" ? row.path.trim() : "";
     if (owned) void get().hydrateFiles(owned, { refresh: true });
   },

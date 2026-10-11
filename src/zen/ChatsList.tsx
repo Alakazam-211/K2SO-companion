@@ -21,6 +21,8 @@ import { posixNormalize } from "./workspacePath";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { OverlayServers } from "./OverlayServers";
 import { TicketsOverlay, useTicketWaitingCounts } from "./TicketsOverlay";
+import { ProjectsOverlay } from "./ProjectsOverlay";
+import { isProjectGroupsChangedFrame, unreadGroupCount } from "./projectChats";
 import { ZEN_TICKET_PARAM } from "./terminalJump";
 import { lastAtKeyFor, sortChatsByRecency } from "./lastAtFetch";
 import {
@@ -30,7 +32,7 @@ import {
   pinProjectIdForRow,
   rowFocusGroupId,
 } from "./serverPins";
-import { connectProjectEvents } from "./ticketEvents";
+import { connectProjectEvents, subscribeAppEvents } from "./ticketEvents";
 import { mountainListWhen } from "./threadModel";
 import { usePinDrag } from "./usePinDrag";
 import { SWIPE_ACTION_W, swipeReveal, useRowSwipe } from "./useRowSwipe";
@@ -63,7 +65,12 @@ export const GROUP_TOAST_MS = 4000;
 /** How long a just-created workspace row stays highlighted. */
 export const NEW_ROW_HIGHLIGHT_MS = 4000;
 /** Title cap: at 375pt the side columns keep ~100px for the pills. */
-const TITLE_MAX_W = "min(34vw, 140px)";
+/** The right column holds three 34px buttons (Projects, Tickets, cog)
+ *  with 8px gaps = 118px; the equal 1fr columns must keep that, so the
+ *  title gets what is left of the 24px padding and 16px gaps: 99px at
+ *  375pt, the old 140px cap on wider phones. */
+const HEADER_RIGHT_PX = 3 * 34 + 2 * 8;
+const TITLE_MAX_W = `min(calc(100vw - ${24 + 16 + 2 * HEADER_RIGHT_PX}px), 140px)`;
 /** Resting header content height below the safe area: 44 row + 12/8 pad. */
 export const CHATS_HEADER_PX = 64;
 /**
@@ -178,6 +185,7 @@ function PinGlyph({ off }: { off: boolean }) {
 export function ChatsList() {
   const containerHeight = useViewportHeight();
   const agents = useZenStore((s) => s.agents);
+  const chatRows = useMemo(() => agents.filter((a) => a.kind !== "group"), [agents]);
   const source = useZenStore((s) => s.agentSource);
   const agentError = useZenStore((s) => s.agentError);
   const setAgent = useZenStore((s) => s.setAgent);
@@ -290,11 +298,15 @@ export function ChatsList() {
   const group = currentFocusGroup(focus);
   const title = listTitle(focus);
   const pinned = pinnedIds
-    .map((id) => agents.find((a) => a.id === id))
+    .map((id) => chatRows.find((a) => a.id === id))
     .filter((a): a is (typeof agents)[number] => !!a);
   const [q, setQ] = useState("");
   const [settings, setSettings] = useState(false);
   const [tickets, setTickets] = useState(false);
+  // Projects sheet: in the store so a project chat opened from it (and
+  // that chat's terminal) comes back to it.
+  const projectsOpen = useZenStore((s) => s.projectsOpen);
+  const setProjectsOpen = useZenStore((s) => s.setProjectsOpen);
   // Push-tap deep link `/zen?ticket=<id>`: open Tickets on that ticket.
   // A new id remounts the overlay (key) so it re-opens on the new ticket.
   const [params, setParams] = useSearchParams();
@@ -304,6 +316,7 @@ export function ChatsList() {
     if (!ticketParam) return;
     // An open chat hides this list (and the overlay inside it).
     if (useZenStore.getState().screen === "thread") useZenStore.getState().closeChat();
+    useZenStore.getState().setProjectsOpen(false);
     setDeepTicket(ticketParam);
     setTickets(true);
     setParams(
@@ -344,9 +357,19 @@ export function ChatsList() {
     ? activeServer.nickname || hostLabel(activeServer.url)
     : "Servers";
 
+  // Projects badge: project chats with a message newer than this device
+  // saw (shared last-seen cursors), off the list's own `g:<id>` last-at.
+  const groupIds = useMemo(
+    () => agents.filter((a) => a.kind === "group" && a.groupId).map((a) => a.groupId as string),
+    [agents]
+  );
+  useZenStore((s) => s.groupSeenRev);
+  const projectsUnread = unreadGroupCount(activeServerId, groupIds, lastAtByKey);
+
   const searching = q.trim().length > 0;
   // Search ignores the focus group so any agent can still be found.
-  const visible = visibleOverlayAgents(agents, q, hiddenSidecarAddrs);
+  // Project chats live behind the Projects button, never in this list.
+  const visible = visibleOverlayAgents(chatRows, q, hiddenSidecarAddrs);
   const filtered = sortChatsByRecency(
     searching ? visible : filterByFocus(visible, focus, serverProjects, pinnedIds),
     lastAtByKey,
@@ -397,9 +420,19 @@ export function ChatsList() {
     };
     document.addEventListener("visibilitychange", onVis);
     const events = connectProjectEvents(() => void useZenStore.getState().refreshPins());
+    // A project chat moved: its badge (and an open project chat) catch up.
+    const groupEvents = subscribeAppEvents(isProjectGroupsChangedFrame, () => {
+      const z = useZenStore.getState();
+      const ids = z.agents
+        .filter((a) => a.kind === "group" && a.groupId)
+        .map((a) => a.groupId as string);
+      if (ids.length) void z.refreshGroupPreviews(ids);
+      if (z.screen === "thread" && (z.threadGroupId || "").trim()) void z.refreshOpenThread();
+    });
     return () => {
       document.removeEventListener("visibilitychange", onVis);
       events.stop();
+      groupEvents.stop();
     };
   }, [live, activeServerId]);
 
@@ -639,6 +672,62 @@ export function ChatsList() {
           style={{ gap: 8, pointerEvents: "auto" }}
           data-testid="chats-header-right"
         >
+          <button
+            type="button"
+            className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
+            style={{
+              width: 34,
+              height: 34,
+              color: "#fff",
+            }}
+            onClick={() => setProjectsOpen(true)}
+            aria-label="Projects"
+            title="Projects"
+            data-testid="chats-header-projects"
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+              data-testid="projects-icon"
+            >
+              {/* Desktop Zen nav rail Projects (DashboardIcon, ZenNavRailWidget.tsx). */}
+              <rect x="3" y="3" width="7" height="9" rx="1" />
+              <rect x="14" y="3" width="7" height="5" rx="1" />
+              <rect x="14" y="12" width="7" height="9" rx="1" />
+              <rect x="3" y="16" width="7" height="5" rx="1" />
+            </svg>
+            {projectsUnread > 0 ? (
+              <span
+                className="absolute"
+                data-testid="projects-badge"
+                aria-hidden
+                style={{
+                  top: -2,
+                  right: -2,
+                  minWidth: 15,
+                  height: 15,
+                  padding: "0 4px",
+                  borderRadius: 8,
+                  // iMessage unread blue; Tickets keeps amber.
+                  background: "#0a84ff",
+                  color: "#fff",
+                  fontSize: 9,
+                  fontWeight: 700,
+                  lineHeight: "15px",
+                  textAlign: "center",
+                }}
+              >
+                {projectsUnread > 99 ? "99+" : projectsUnread}
+              </span>
+            ) : null}
+          </button>
           <button
             type="button"
             className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
@@ -1359,6 +1448,7 @@ export function ChatsList() {
         plusBlockedNote={canCreate ? null : createRoleNote()}
       />
 
+      {projectsOpen ? <ProjectsOverlay onClose={() => setProjectsOpen(false)} /> : null}
       {tickets ? (
         <TicketsOverlay
           key={deepTicket ?? "list"}

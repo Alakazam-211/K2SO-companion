@@ -181,7 +181,9 @@ async function pgRequest<T>(
         if (outcome === "revived") out = await attempt();
       }
     }
-    if (!out.ok) return { ok: false, error: errorFromBody(out.status, out.text) };
+    if (!out.ok) {
+      return { ok: false, error: errorFromBody(out.status, out.text), status: out.status };
+    }
     return { ok: true, data: JSON.parse(out.text) as T };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
@@ -278,6 +280,21 @@ export async function fetchProjectGroupHtmlDocs(
   );
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true, data: r.data?.docs ?? [] };
+}
+
+/** GET /cli/project-group/resources?group= — the group's Workspace
+ *  Resources: the union of its MEMBER workspaces' pinned files
+ *  (`{ok, groupId, docs:[{workspaceId, workspaceName, agentName,
+ *  filePath, fileName, missing?}]}`). A server without that route (404)
+ *  falls back once to `html-docs`, its older alias with the same shape. */
+export async function fetchProjectGroupResources(
+  group: string
+): Promise<ApiResponse<{ docs?: unknown }>> {
+  const r = await pgRequest<{ docs?: unknown }>("/cli/project-group/resources", {
+    params: { group },
+  });
+  if (r.ok || r.status !== 404) return r;
+  return pgRequest<{ docs?: unknown }>("/cli/project-group/html-docs", { params: { group } });
 }
 
 /** GET /cli/fs/read-file?path=<absolute path> → {content, path, name}.

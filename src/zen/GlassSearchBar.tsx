@@ -30,8 +30,9 @@ export function GlassSearchBar({
   onQuery: (value: string) => void;
   placeholder?: string;
   searchLabel?: string;
-  onPlus: () => void;
-  plusLabel: string;
+  /** Omit (with `plusLabel`) for a search-only bar (Projects sheet). */
+  onPlus?: () => void;
+  plusLabel?: string;
   testId?: string;
   inputTestId?: string;
   plusTestId?: string;
@@ -104,6 +105,7 @@ export function GlassSearchBar({
           {plusBlockedNote}
         </div>
       ) : null}
+      {onPlus ? (
       <button
         type="button"
         title={blocked ? plusBlockedNote ?? plusLabel : plusLabel}
@@ -126,6 +128,7 @@ export function GlassSearchBar({
       >
         <PlusGlyph />
       </button>
+      ) : null}
     </div>
   );
 }

@@ -248,7 +248,7 @@ describe("ChatsList", () => {
     expect(screen.queryByTestId("tickets-badge")).toBeNull();
   });
 
-  it("header: server button on the left, Tickets then the settings cog on the right, all 34px", () => {
+  it("header: server button on the left, Projects, Tickets then the settings cog on the right, all 34px", () => {
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
@@ -269,7 +269,16 @@ describe("ChatsList", () => {
     expect(cog.textContent).toBe("");
     expect(cog.querySelector("[data-testid=settings-icon]")).not.toBeNull();
     const rightButtons = Array.from(right.children);
-    expect(rightButtons).toEqual([screen.getByRole("button", { name: "Tickets" }), cog]);
+    const projects = screen.getByRole("button", { name: "Projects" });
+    expect(rightButtons).toEqual([projects, screen.getByRole("button", { name: "Tickets" }), cog]);
+    // Desktop Garden nav rail Projects glyph (DashboardIcon), ticket stroke.
+    const icon = projects.querySelector("[data-testid=projects-icon]")!;
+    expect(icon.getAttribute("stroke-width")).toBe("1.7");
+    expect(icon.querySelectorAll("rect")).toHaveLength(4);
+    expect(projects.style.width).toBe("34px");
+    expect(projects.style.height).toBe("34px");
+    expect(projects.className).toMatch(/zen-glass-pill/);
+    expect(screen.queryByTestId("projects-badge")).toBeNull();
 
     expect(serverBtn.style.height).toBe("34px");
     expect(serverBtn.className).toMatch(/zen-glass-pill/);
@@ -1081,7 +1090,7 @@ describe("ChatsList", () => {
     expect(screen.queryByTestId("summary-dump")).toBeNull();
   });
 
-  it("a project chat row says Project Chat", () => {
+  it("project chats are not on the Agents page: not in the list, search or pins", () => {
     useZenStore.setState({
       agentSource: "live",
       agents: [
@@ -1100,9 +1109,14 @@ describe("ChatsList", () => {
       agentError: null,
       screen: "list",
     });
+    useZenStore.setState({ pinnedIds: ["group:pg1"] });
     mount();
-    expect(screen.getByLabelText("K2 Companion")).not.toBeNull();
-    expect(screen.getByTestId("row-preview").textContent).toBe("Project Chat");
+    expect(screen.queryByLabelText("K2 Companion")).toBeNull();
+    expect(screen.queryByText("Project Chat")).toBeNull();
+    expect(screen.queryByTestId("chats-pins")).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "K2 Comp" } });
+    expect(screen.queryByLabelText("K2 Companion")).toBeNull();
+    expect(screen.queryByText("K2 Companion")).toBeNull();
   });
 
   it("the server button opens the overlay server list", () => {
@@ -1991,7 +2005,8 @@ describe("ChatsList", () => {
       mount();
       const title = screen.getByTestId("chats-title");
       expect(title.textContent).toBe("Work");
-      expect(title.style.maxWidth).toBe("min(34vw, 140px)");
+      // 375pt: 375 - 24 padding - 16 gaps - 2 × 118 (Projects, Tickets, cog) = 99px.
+      expect(title.style.maxWidth).toBe("min(calc(100vw - 276px), 140px)");
       expect(screen.getByTestId("chats-title-dot").style.background).toMatch(/rgb\(255, 0, 0\)|#ff0000/);
       expect(title.querySelector(".truncate")?.textContent).toBe("Work");
     });
