@@ -38,6 +38,7 @@ vi.mock("../lib/revive", () => ({
 import { useFeedbackStore } from "../stores/feedback";
 import { hostLabel, useServersStore } from "../stores/servers";
 import { ChatsList } from "./ChatsList";
+import { SEARCH_BAR_REST_BOTTOM } from "./GlassSearchBar";
 import { JOIN_NO_PROJECT } from "./agentRow";
 import { STUB_AGENTS } from "./stubData";
 import { OWNER_LIST_HOLD, useZenStore } from "./zenStore";
@@ -768,7 +769,8 @@ describe("ChatsList", () => {
     });
     expect(screen.queryByTestId("chats-pins")).toBeNull();
     expect(screen.getByLabelText("Skin Test A, qa088")).not.toBeNull();
-    expect(screen.getByTestId("chats-list").style.paddingBottom).toBe("24px");
+    // Clears the keyboard-up search bar: 44 bar + 8 gap + 8 air.
+    expect(screen.getByTestId("chats-list").style.paddingBottom).toBe("60px");
   });
 
   it("a server with no recovery entry is sign-in required, not connected", () => {
@@ -856,5 +858,31 @@ describe("ChatsList", () => {
     expect(screen.getByTestId("overlay-servers")).not.toBeNull();
     expect(screen.getByRole("heading", { name: "Servers" })).not.toBeNull();
     expect(screen.getByRole("button", { name: "test" })).not.toBeNull();
+  });
+
+  it("Chats and Servers search share the bar: 8px over the keyboard, safe area at rest", () => {
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: STUB_AGENTS,
+      screen: "list",
+    });
+    window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
+    mount();
+    const chatsInput = screen.getByPlaceholderText("Search");
+    const chatsBar = chatsInput.closest("[data-no-pin]") as HTMLElement;
+    expect(chatsBar.dataset.bottom).toBe(SEARCH_BAR_REST_BOTTOM);
+    fireEvent.focus(chatsInput);
+    expect(chatsBar.style.bottom).toBe("8px");
+    expect(chatsBar.dataset.bottom).toBe("8px");
+    fireEvent.blur(chatsInput);
+
+    fireEvent.click(screen.getByRole("button", { name: /Server / }));
+    const serversBar = screen.getByTestId("overlay-servers-bar");
+    const serversInput = screen.getByTestId("overlay-servers-search");
+    expect(serversBar.className).toBe(chatsBar.className);
+    expect(serversBar.dataset.bottom).toBe(SEARCH_BAR_REST_BOTTOM);
+    fireEvent.focus(serversInput);
+    expect(serversBar.style.bottom).toBe("8px");
+    expect(serversBar.dataset.bottom).toBe("8px");
   });
 });
