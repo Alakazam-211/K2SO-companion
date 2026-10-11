@@ -23,7 +23,9 @@ import { connectOverlayEvents } from "./overlayEvents";
 import {
   applyActivityCatchUp,
   applyActivityFrame,
+  createCatchUpGate,
   isActivityFrame,
+  isThreadFrame,
   type ThreadTurn,
 } from "./threadTurn";
 import { ThreadWorkingStrip } from "./ThreadWorkingStrip";
@@ -168,10 +170,11 @@ export function ThreadPane() {
   const pendingAnchor = useRef<MessageAnchor | null>(null);
   const prevAgent = useRef<string>("");
   const prevFirst = useRef<number | null>(null);
-  // The working strip's turn. `turnFrames` counts activity frames so a
-  // catch-up answer that raced a frame is dropped (the frame is newer).
+  // The working strip's turn. The gate drops a catch-up answer that raced
+  // an activity frame (the frame is newer) or a later catch-up (a late
+  // `{turn:null}` must not clear a live strip).
   const [turn, setTurn] = useState<ThreadTurn | null>(null);
-  const turnFrames = useRef(0);
+  const catchUps = useRef(createCatchUpGate());
   const addrRef = useRef(threadAddr);
   addrRef.current = threadAddr;
 
@@ -213,10 +216,10 @@ export function ThreadPane() {
     const catchUpActivity = async () => {
       const addr = addrRef.current;
       if (!addr || threadGroupId) return;
-      const mark = turnFrames.current;
+      const current = catchUps.current.begin();
       try {
         const r = await getThreadActivity(addr);
-        if (stopped || addrRef.current !== addr || turnFrames.current !== mark) return;
+        if (stopped || addrRef.current !== addr || !current()) return;
         if (!r.ok) return;
         const at = Date.now();
         setTurn((t) => applyActivityCatchUp(t, r.data, at));
@@ -237,17 +240,18 @@ export function ThreadPane() {
         document.removeEventListener("visibilitychange", onVis);
       };
     }
-    void catchUpActivity();
+    // No catch-up before the socket: onOpen fires on the first open too,
+    // and the poll fallback's onNeedCatchUp covers a socket that never opens.
     const live = connectOverlayEvents({
       conversationId,
       onItem: (raw) => {
         if (isActivityFrame(raw)) {
-          turnFrames.current += 1;
+          catchUps.current.frame();
           const at = Date.now();
           setTurn((t) => applyActivityFrame(t, raw, at));
           return;
         }
-        useZenStore.getState().ingestThreadRaw(raw);
+        if (isThreadFrame(raw)) useZenStore.getState().ingestThreadRaw(raw);
       },
       onNeedCatchUp: () => {
         void useZenStore.getState().refreshOpenThread();

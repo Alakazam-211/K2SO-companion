@@ -644,7 +644,7 @@ describe("ThreadPane", () => {
       thread: [],
     });
     render(<ThreadPane />);
-    await waitFor(() => expect(getThreadActivity).toHaveBeenCalledWith("k2so-companion"));
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
     const opts = vi.mocked(connectOverlayEvents).mock.calls[0][0];
     const now = Date.now();
     act(() => {
@@ -710,7 +710,9 @@ describe("ThreadPane", () => {
       thread: [],
     });
     render(<ThreadPane />);
-    await waitFor(() => expect(getThreadActivity).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+    // No catch-up before the socket: onOpen fires on the first open too.
+    expect(getThreadActivity).not.toHaveBeenCalled();
     const now = Date.now();
     vi.mocked(getThreadActivity).mockResolvedValueOnce({
       ok: true,
@@ -734,6 +736,80 @@ describe("ThreadPane", () => {
     expect(screen.getByTestId("thread-strip-step-text").textContent).toBe(
       "Stuck on a permission prompt"
     );
+  });
+
+  it("keeps a late {turn:null} catch-up from clearing a newer live turn", async () => {
+    vi.mocked(connectOverlayEvents).mockReturnValue({ stop: vi.fn() });
+    vi.mocked(getThreadActivity).mockClear();
+    useZenStore.setState({
+      threadSource: "live",
+      threadAddr: "appa",
+      threadGroupId: null,
+      threadConversationId: "conv-3",
+      threadError: null,
+      thread: [],
+    });
+    render(<ThreadPane />);
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+    const now = Date.now();
+    let resolveOld: (v: unknown) => void = () => {};
+    vi.mocked(getThreadActivity)
+      .mockImplementationOnce(() => new Promise((r) => (resolveOld = r)) as never)
+      .mockResolvedValueOnce({
+        ok: true,
+        data: {
+          turn: {
+            turnId: "t-5",
+            state: "working",
+            phase: "working",
+            phaseSince: now - 1_000,
+            startedAt: now - 9_000,
+            end: null,
+            serverNow: now,
+            rev: 1,
+          },
+        },
+      } as never);
+    const opts = vi.mocked(connectOverlayEvents).mock.calls[0][0];
+    act(() => opts.onOpen?.());
+    act(() => opts.onNeedCatchUp());
+    await waitFor(() => expect(screen.getByTestId("thread-working-strip")).not.toBeNull());
+    await act(async () => resolveOld({ ok: true, data: { turn: null } }));
+    expect(screen.getByTestId("thread-working-strip")).not.toBeNull();
+  });
+
+  it("keeps chatter and other non-thread frames out of the message list", async () => {
+    vi.mocked(connectOverlayEvents).mockReturnValue({ stop: vi.fn() });
+    useZenStore.setState({
+      agentSource: "live",
+      threadSource: "live",
+      threadAddr: "appa",
+      threadGroupId: null,
+      threadConversationId: "conv-4",
+      threadError: null,
+      thread: [],
+    });
+    render(<ThreadPane />);
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+    const opts = vi.mocked(connectOverlayEvents).mock.calls[0][0];
+    const doc = (id: string, body: string) => ({
+      id,
+      kind: "text",
+      from: "appa",
+      to: "owner",
+      created_at: 1_760_190_000,
+      body,
+      via: "thread",
+    });
+    act(() => {
+      opts.onItem({ collection: "chatter", seq: 7, id: "c-1", doc: doc("c-1", "chatter") } as never);
+      opts.onItem({ collection: "chatterlog", seq: 8, id: "c-2", doc: doc("c-2", "log") } as never);
+    });
+    expect(useZenStore.getState().thread).toEqual([]);
+    act(() => {
+      opts.onItem({ collection: "thread", seq: 9, id: "m-1", doc: doc("m-1", "hello") } as never);
+    });
+    expect(useZenStore.getState().thread.map((m) => m.id)).toEqual(["m-1"]);
   });
 
   it("does not open the overlay events socket without a conversation id", () => {
