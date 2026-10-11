@@ -61,12 +61,11 @@ export function TicketsOverlay({ onClose }: { onClose: () => void }) {
       >
         <button
           type="button"
-          className="text-[17px]"
+          className="text-[17px] k2-tile"
           style={{
             minHeight: 34,
             padding: "0 14px",
             borderRadius: 17,
-            background: "#1c1c1e",
           }}
           onClick={onClose}
         >
@@ -140,11 +139,10 @@ function TicketSection({
           <button
             key={row.id}
             type="button"
-            className="w-full text-left"
+            className="w-full text-left k2-tile"
             style={{
               padding: 16,
-              background: "#1c1c1e",
-              border: "1px solid rgba(255,255,255,.12)",
+              borderRadius: 14,
             }}
             onClick={() => onOpen(row.id)}
           >

@@ -54,9 +54,7 @@ export function OverlayAddServer({
     minHeight: 40,
     padding: "0 14px",
     borderRadius: 10,
-    background: "#1c1c1e",
     color: "#fff",
-    border: "1px solid #3a3a3c",
     fontSize: 16,
   };
 
@@ -76,12 +74,11 @@ export function OverlayAddServer({
         {onCancel ? (
           <button
             type="button"
-            className="text-[17px]"
+            className="text-[17px] k2-tile"
             style={{
               minHeight: 34,
               padding: "0 14px",
               borderRadius: 17,
-              background: "#1c1c1e",
             }}
             onClick={onCancel}
           >
@@ -113,6 +110,7 @@ export function OverlayAddServer({
             placeholder="your-name.k2.dev"
             autoCapitalize="off"
             autoCorrect="off"
+            className="k2-tile"
             style={field}
           />
         </label>
@@ -126,6 +124,7 @@ export function OverlayAddServer({
             placeholder="Username"
             autoCapitalize="off"
             autoCorrect="off"
+            className="k2-tile"
             style={field}
           />
         </label>
@@ -143,6 +142,7 @@ export function OverlayAddServer({
               autoCorrect="off"
               autoComplete="off"
               spellCheck={false}
+              className="k2-tile"
               style={{ ...field, paddingRight: 44 }}
             />
             <button
@@ -164,6 +164,7 @@ export function OverlayAddServer({
             value={nickname}
             onChange={(e) => setNickname(e.target.value)}
             placeholder="e.g. Home Mac"
+            className="k2-tile"
             style={field}
           />
         </label>

@@ -81,12 +81,11 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
       >
         <button
           type="button"
-          className="text-[17px]"
+          className="text-[17px] k2-tile"
           style={{
             minHeight: 34,
             padding: "0 14px",
             borderRadius: 17,
-            background: "#1c1c1e",
           }}
           onClick={onClose}
         >
@@ -97,12 +96,11 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
         </h1>
         <button
           type="button"
-          className="text-[17px]"
+          className="text-[17px] k2-tile"
           style={{
             minHeight: 34,
             padding: "0 14px",
             borderRadius: 17,
-            background: "#1c1c1e",
           }}
           onClick={() => setAdding(true)}
         >
@@ -179,12 +177,11 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                 </button>
                 <button
                   type="button"
-                  className="shrink-0 text-[17px]"
+                  className="shrink-0 text-[17px] k2-tile"
                   style={{
                     minHeight: 34,
                     padding: "0 12px",
                     borderRadius: 17,
-                    background: "#1c1c1e",
                     color: "#8e8e93",
                   }}
                   aria-label={`Edit ${label}`}
