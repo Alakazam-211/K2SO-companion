@@ -1,5 +1,7 @@
 import { revive } from "../lib/revive";
+import { onAppLifecycle } from "../lib/appLifecycle";
 import type { ServerScope } from "./scope";
+import { queueDial, type DialTicket } from "./dialQueue";
 import { reconnectDelayMs } from "../lib/reconnect";
 import { decodeGridFrame } from "./gridWire";
 import {
@@ -121,6 +123,14 @@ export class GridSocket {
   /** Reentrancy guard: revive+reopen may be triggered by the backoff
    *  timer AND foreground recovery — never run both at once. */
   private reviving = false;
+  /** The last close code. Only 4003 (revoked) runs a whoami revive before
+   *  the reopen (MA14): a plain drop never costs a whoami. */
+  private lastCloseCode: number | null = null;
+  /** A dial waiting in the queue (MS26). */
+  private dial: DialTicket | null = null;
+  /** Closed for the app's background (MS28, flag on). */
+  private paused = false;
+  private stopLifecycle: (() => void) | null = null;
   /** Active-viewer claim (this device's dims) to (re)send on every
    *  connect; null = not claimed. */
   private claimDims: { cols: number; rows: number } | null = null;
@@ -181,8 +191,42 @@ export class GridSocket {
       document.addEventListener("visibilitychange", this.onVisibility);
       window.addEventListener("focus", this.onForeground);
     }
+    // MS28 (multi-server flag on): the background closes the socket; the
+    // foreground recovery above reopens it through the dial queue.
+    this.stopLifecycle?.();
+    this.stopLifecycle = onAppLifecycle((phase) => {
+      if (phase === "background") this.pauseForBackground();
+      else if (this.paused) {
+        this.paused = false;
+        this.onForeground();
+      }
+    });
     this.startStallWatch();
     this.open();
+  }
+
+  private pauseForBackground(): void {
+    if (!this.shouldReconnect) return;
+    this.paused = true;
+    this.dial?.cancel();
+    this.dial = null;
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
+    }
+    const old = this.ws;
+    this.ws = null;
+    if (old) {
+      old.onmessage = null;
+      old.onclose = null;
+      old.onerror = null;
+      old.onopen = null;
+      try {
+        old.close();
+      } catch {
+        /* already dead */
+      }
+    }
   }
 
   private onVisibility = (): void => {
@@ -255,13 +299,31 @@ export class GridSocket {
     return buildGridWsUrl(base, this.sessionId, token, "cli");
   }
 
+  /** Dial through the queue (MS26: 2 per server, 4 overall, 4 s, burst
+   *  backoff). With a free slot this dials synchronously, as before. */
   private open(): void {
+    if (this.paused || this.dial) return;
+    let started = false;
+    const ticket = queueDial(
+      this.scope,
+      () => {
+        started = true;
+        this.dial = null;
+        if (this.paused || !this.shouldReconnect) return null;
+        return this.dialNow();
+      },
+      { failOnTimeout: true }
+    );
+    if (!started) this.dial = ticket;
+  }
+
+  private dialNow(): WebSocket | "failed" | null {
     const url = this.buildUrl();
     if (!url) {
       // No active server — nothing to stream from; don't spin a reconnect
       // loop against nowhere.
       this.shouldReconnect = false;
-      return;
+      return null;
     }
     // Supersede any previous socket SILENTLY: strip its handlers first
     // so its close can't schedule a duplicate reconnect against the
@@ -283,8 +345,9 @@ export class GridSocket {
       this.ws = new WebSocket(url);
     } catch {
       this.scheduleReconnect();
-      return;
+      return "failed";
     }
+    const dialled = this.ws;
     // k1 snapshot/delta frames arrive as WS binary; without this they'd
     // surface as Blobs and need an async read before decode.
     this.ws.binaryType = "arraybuffer";
@@ -335,7 +398,8 @@ export class GridSocket {
         console.warn("[gridSocket] frame handler error:", err);
       }
     };
-    this.ws.onclose = () => {
+    this.ws.onclose = (e?: CloseEvent) => {
+      this.lastCloseCode = typeof e?.code === "number" ? e.code : null;
       if (this.shouldReconnect) this.scheduleReconnect();
     };
     this.ws.onerror = () => {
@@ -370,6 +434,7 @@ export class GridSocket {
         console.warn("[gridSocket] socket_open handler error:", err);
       }
     };
+    return dialled;
   }
 
   private noteInboundFrame(): void {
@@ -463,7 +528,7 @@ export class GridSocket {
   }
 
   private scheduleReconnect(): void {
-    if (this.reconnectTimer) return;
+    if (this.reconnectTimer || this.paused) return;
     const delay = reconnectDelayMs(this.reconnectAttempt);
     this.reconnectAttempt++;
     this.reconnectTimer = setTimeout(() => {
@@ -472,19 +537,23 @@ export class GridSocket {
     }, delay);
   }
 
-  /** Consult the revive path BEFORE re-opening: a WS close after a daemon
-   *  restart is a STALE-TOKEN kick indistinguishable from a network drop,
-   *  and reconnect-forever on a dead token was the exact stranding bug.
-   *  Revive whoami-probes (cheap when the token is fine → 'still-valid'),
-   *  silently re-logs-in when it's dead and a password is remembered, and
-   *  returns 'signin-required' when only the user can fix it — at which
-   *  point this loop STOPS (the footer/Servers page surface the state). */
+  /** Reopen after a drop. The daemon closes a stale or revoked token's
+   *  grid with 4003 (MA14): only then does this whoami-probe first
+   *  (cheap when the token is fine → 'still-valid'); 'signin-required'
+   *  STOPS the loop (the footer / Servers sheet / room banner surface it),
+   *  and the token is kept — a background socket never deletes one
+   *  (MA22). Any other close just reopens, so N servers never cost N
+   *  whoami calls per drop. */
   private async reviveThenReopen(): Promise<void> {
     if (this.reviving) return;
     this.reviving = true;
     try {
-      if (this.scope.id) {
-        const outcome = await revive(this.scope);
+      // MA14: only a 4003 (revoked) asks whoami first; a plain drop just
+      // reopens. A background socket never deletes the token (MA22).
+      const revoked = this.lastCloseCode === 4003;
+      this.lastCloseCode = null;
+      if (revoked && this.scope.id) {
+        const outcome = await revive(this.scope, { background: true });
         if (!this.shouldReconnect) return;
         if (outcome === "signin-required" || outcome === "not-applicable") {
           this.shouldReconnect = false;
@@ -654,6 +723,11 @@ export class GridSocket {
 
   close(): void {
     this.shouldReconnect = false;
+    this.paused = false;
+    this.dial?.cancel();
+    this.dial = null;
+    this.stopLifecycle?.();
+    this.stopLifecycle = null;
     this.stopStallWatch();
     if (typeof document !== "undefined") {
       document.removeEventListener("visibilitychange", this.onVisibility);

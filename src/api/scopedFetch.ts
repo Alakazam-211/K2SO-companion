@@ -14,6 +14,7 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { cliAuthHeaders } from "./cliAuth";
 import { isPossibleAuthFailure, revive } from "../lib/revive";
 import type { ServerScope } from "./scope";
+import { withHttpSlot } from "./httpCap";
 
 export interface RawResponse {
   status: number;
@@ -61,20 +62,28 @@ export async function scopedFetch(
   const url = buildScopedUrl(base, path, opts.query);
   const timeoutMs = opts.timeoutMs ?? 15000;
 
-  const attempt = async (): Promise<RawResponse> => {
-    const token = opts.auth === false ? "" : scope.token();
-    const res = await Promise.race([
-      tauriFetch(url, {
-        method: opts.method || "GET",
-        headers: cliAuthHeaders(token),
-        body: opts.body || undefined,
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Request timed out")), timeoutMs)
-      ),
-    ]);
-    return { status: res.status, ok: res.ok, text: await res.text() };
-  };
+  // MS26: at most 4 requests in flight per server; the timeout starts
+  // once this request holds a slot.
+  const attempt = (): Promise<RawResponse> =>
+    withHttpSlot(scope.id, async () => {
+      const token = opts.auth === false ? "" : scope.token();
+      let timer: ReturnType<typeof setTimeout> | null = null;
+      try {
+        const res = await Promise.race([
+          tauriFetch(url, {
+            method: opts.method || "GET",
+            headers: cliAuthHeaders(token),
+            body: opts.body || undefined,
+          }),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new Error("Request timed out")), timeoutMs);
+          }),
+        ]);
+        return { status: res.status, ok: res.ok, text: await res.text() };
+      } finally {
+        if (timer) clearTimeout(timer);
+      }
+    });
 
   let out = await attempt();
   if (opts.revive !== false && isPossibleAuthFailure(out.status, out.text)) {

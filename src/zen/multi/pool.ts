@@ -32,7 +32,8 @@ import {
   type ServerScope,
 } from "../../api/scope";
 import { scopedFetch, type RawResponse } from "../../api/scopedFetch";
-import { isPossibleAuthFailure } from "../../lib/revive";
+import { isPossibleAuthFailure, noteServerAccepted } from "../../lib/revive";
+import { onServerSignal } from "../../api/serverSignals";
 import { onServerForget } from "../../stores/servers";
 import type { ActivityDisplay } from "../agentActivity";
 
@@ -226,6 +227,8 @@ export type PoolEvent =
   | { type: "whoami"; read: LoginRead; serverLabel: string }
   | { type: "summary"; read: LoginRead; whoamiAlive: boolean }
   | { type: "kicked"; serverLabel: string }
+  /** A socket's whoami said the login is dead (MA14/MA22). */
+  | { type: "signin"; serverLabel: string }
   | { type: "scheduled"; nextAt: number | null };
 
 export function reducePool(prev: PoolEntry, ev: PoolEvent): PoolEntry {
@@ -294,6 +297,9 @@ export function reducePool(prev: PoolEntry, ev: PoolEvent): PoolEntry {
         authNote: `Removed from ${ev.serverLabel}. Sign in again.`,
         ...noPresence(),
       };
+    case "signin":
+      if (prev.auth === "kicked") return prev; // kicked is the stronger word
+      return { ...prev, auth: "signin-required", authNote: null, ...noPresence() };
     case "scheduled":
       return { ...prev, nextAt: ev.nextAt };
   }
@@ -318,6 +324,8 @@ export interface PoolDeps {
   get: (scope: ServerScope, path: string, timeoutMs: number) => Promise<RawResponse>;
   /** Record what `/boot-status` said in the per-server feature memory. */
   noteBoot: (serverId: string, body: unknown) => void;
+  /** MS29: the server was reached and its login accepted. */
+  onAccepted?: (serverId: string) => void;
   now: () => number;
 }
 
@@ -331,8 +339,10 @@ export interface Pool {
   check(serverId: string, opts?: { bootOnly?: boolean }): Promise<PoolEntry | undefined>;
   /** Record when the loop checks next (the "retrying in N s" copy). */
   schedule(serverId: string, nextAt: number | null): void;
-  /** A socket for this server closed 4001 (S3 wires the sockets). */
+  /** A sessions/events socket for this server closed 4001 (MA14). */
   noteKicked(serverId: string): void;
+  /** A socket's whoami check said this server's login is dead. */
+  noteSigninRequired(serverId: string): void;
   /** The server was removed or re-keyed: drop its entry. */
   forget(serverId: string): void;
   onRestart(fn: RestartListener): () => void;
@@ -406,7 +416,25 @@ export function createPool(deps: PoolDeps): Pool {
       return entry;
     }
     const summary = await loginGet(scope, "/cli/presence/summary");
-    return apply(id, hostKey, { type: "summary", read: summary, whoamiAlive: who.kind === "ok" });
+    entry = apply(id, hostKey, { type: "summary", read: summary, whoamiAlive: who.kind === "ok" });
+    if (entry.auth === "ok") deps.onAccepted?.(id);
+    return entry;
+  };
+
+  const noteAuth = (id: string, type: "kicked" | "signin") => {
+    let label: string;
+    let hostKey: string;
+    try {
+      const scope = deps.scopeOf(id);
+      scope.httpBase(); // a removed server has nothing to note
+      label = scope.label;
+      hostKey = scope.hostKey;
+    } catch {
+      return;
+    }
+    forgotten.delete(id);
+    const e = store.getState().entries[id] ?? blankEntry(id, hostKey);
+    write(id, reducePool(e, { type, serverLabel: label }));
   };
 
   const forget = (id: string) => {
@@ -439,15 +467,10 @@ export function createPool(deps: PoolDeps): Pool {
       if (e) write(id, reducePool(e, { type: "scheduled", nextAt }));
     },
     noteKicked(id) {
-      const e = store.getState().entries[id];
-      if (!e) return;
-      let label = id;
-      try {
-        label = deps.scopeOf(id).label;
-      } catch {
-        /* removed */
-      }
-      write(id, reducePool(e, { type: "kicked", serverLabel: label }));
+      noteAuth(id, "kicked");
+    },
+    noteSigninRequired(id) {
+      noteAuth(id, "signin");
     },
     forget,
     onRestart(fn) {
@@ -465,10 +488,17 @@ export const pool: Pool = createPool({
   bootStatus: (scope) => readBootStatus(scope),
   get: (scope, path, timeoutMs) => scopedFetch(scope, path, { timeoutMs, revive: false }),
   noteBoot: (id, body) => void noteBootStatus(id, body),
+  onAccepted: (id) => noteServerAccepted(id),
   now: () => Date.now(),
 });
 
 onServerForget((id) => pool.forget(id));
+
+// MA14: what the sockets learn reaches the pool (rows + room banner).
+onServerSignal((id, signal) => {
+  if (signal === "kicked") pool.noteKicked(id);
+  else if (signal === "signin") pool.noteSigninRequired(id);
+});
 
 /** React view of the pool's entries. */
 export function usePoolEntries(): Record<string, PoolEntry> {
