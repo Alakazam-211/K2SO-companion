@@ -178,15 +178,47 @@ export function ChatsList() {
       >
         <button
           type="button"
-          className="text-[17px] justify-self-start zen-glass zen-glass-pill"
+          className="relative flex items-center justify-center shrink-0 justify-self-start zen-glass zen-glass-pill"
           style={{
-            minHeight: 34,
-            padding: "0 14px",
+            width: 34,
+            height: 34,
             color: "#fff",
           }}
-          onClick={() => setSettings(true)}
+          onClick={() => setServersSheet(true)}
+          aria-label={`Server ${serverLabel}`}
+          title={serverLabel}
+          data-testid="chats-header-server"
         >
-          Settings
+          <svg
+            width="18"
+            height="18"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="1.7"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden
+            data-testid="server-icon"
+          >
+            {/* Two stacked server units. */}
+            <rect x="3" y="3.5" width="18" height="7" rx="2" />
+            <rect x="3" y="13.5" width="18" height="7" rx="2" />
+            <path d="M7 7h.01M7 17h.01M11 7h6M11 17h6" />
+          </svg>
+          <span
+            className="absolute"
+            data-testid="server-status-dot"
+            style={{
+              right: 0,
+              bottom: 0,
+              width: 9,
+              height: 9,
+              borderRadius: "50%",
+              background: activeServer ? RECOVERY_DOT[recoveryState] : "#8e8e93",
+              boxShadow: "0 0 0 2px #1c1c1e",
+            }}
+          />
         </button>
         <h1
           className="text-[17px] font-semibold pointer-events-none"
@@ -251,20 +283,28 @@ export function ChatsList() {
             style={{
               width: 34,
               height: 34,
+              color: "#fff",
             }}
-            onClick={() => setServersSheet(true)}
-            aria-label={`Server ${serverLabel}`}
-            title={serverLabel}
+            onClick={() => setSettings(true)}
+            aria-label="Settings"
+            title="Settings"
           >
-            <span
-              className="shrink-0"
-              style={{
-                width: 8,
-                height: 8,
-                borderRadius: "50%",
-                background: activeServer ? RECOVERY_DOT[recoveryState] : "#8e8e93",
-              }}
-            />
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="1.7"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              aria-hidden
+              data-testid="settings-icon"
+            >
+              {/* Cog (lucide "settings"). */}
+              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
+              <circle cx="12" cy="12" r="3" />
+            </svg>
           </button>
         </span>
       </header>
