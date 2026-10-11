@@ -550,28 +550,27 @@ describe("Zen keeps the chats list mounted", () => {
         threadSource: "live",
       });
     });
-    expect(screen.getByTestId("chat-header-title").textContent).toBe("Skin Test A");
-    expect(screen.getByTestId("chat-sidecar-title").textContent).toBe("Example Sidecar");
+    // A separate session swaps the agent name for <Agent>/<sidecar> (the
+    // composer placeholder's addr suffix), with the pencil beside it.
+    expect(screen.getByTestId("chat-header-title").textContent).toBe("Skin Test A/qa088");
     expect(screen.getByTestId("chat-rename-open")).not.toBeNull();
     expect(screen.getByTestId("chat-hide")).not.toBeNull();
-    // The session name sits under the three right-hand buttons, right
-    // aligned and white; the centre column holds only avatar + name.
+    const row = screen.getByTestId("chat-header-title-row");
+    expect(row.contains(screen.getByTestId("chat-rename-open"))).toBe(true);
+    // The text truncates; the pencil never shrinks.
+    expect(screen.getByTestId("chat-header-title").className).toContain("truncate");
+    expect(screen.getByTestId("chat-header-title").className).toContain("min-w-0");
+    expect(screen.getByTestId("chat-rename-open").className).toContain("shrink-0");
+    // No session line under the right-hand buttons any more.
     const right = screen.getByTestId("chat-header-right");
-    const line = screen.getByTestId("chat-session-line");
-    expect(right.contains(line)).toBe(true);
-    expect(right.contains(screen.getByTestId("chat-rename-open"))).toBe(true);
+    expect(right.children.length).toBe(1);
     expect(right.firstElementChild).toBe(screen.getByTestId("chat-header-buttons"));
-    expect(
-      screen.getByTestId("chat-header-buttons").compareDocumentPosition(line) &
-        Node.DOCUMENT_POSITION_FOLLOWING
-    ).toBeTruthy();
-    expect(right.className).toContain("items-end");
-    expect(line.className).toContain("justify-end");
-    expect(
-      screen.getByTestId("chat-header-title").parentElement?.contains(line)
-    ).toBe(false);
-    expect(screen.getByTestId("chat-sidecar-title").style.color).toBe("rgb(255, 255, 255)");
+    expect(screen.queryByTestId("chat-session-line")).toBeNull();
+    expect(screen.queryByTestId("chat-sidecar-title")).toBeNull();
     expect(screen.getByTestId("chat-rename-open").style.color).toBe("rgb(255, 255, 255)");
+    expect(screen.getByTestId("chat-rename-open").getAttribute("aria-label")).toBe(
+      "Rename Example Sidecar"
+    );
     fireEvent.click(screen.getByTestId("chat-rename-open"));
     expect(screen.getByTestId("chat-rename-input")).not.toBeNull();
     fireEvent.change(screen.getByTestId("chat-rename-input"), {
@@ -685,8 +684,9 @@ describe("Zen keeps the chats list mounted", () => {
       });
     });
     expect(screen.getByTestId("chat-header-title").textContent).toBe("Skin Test A");
-    expect(screen.queryByTestId("chat-sidecar-title")).toBeNull();
     expect(screen.queryByTestId("chat-rename-open")).toBeNull();
+    expect(screen.queryByTestId("chat-session-line")).toBeNull();
+    expect(screen.queryByTestId("chat-sidecar-title")).toBeNull();
     expect(screen.queryByTestId("chat-hide")).toBeNull();
   });
 });

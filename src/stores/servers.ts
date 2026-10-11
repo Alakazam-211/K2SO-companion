@@ -229,6 +229,29 @@ export async function setRememberedPassword(
   }
 }
 
+// ─── Leave hooks (push unregister before a token is dropped) ───
+
+type LeaveHook = (server: ServerEntry, token: string) => void;
+const leaveHooks = new Set<LeaveHook>();
+
+/** Run `fn(server, token)` just before a signed-in server is removed or
+ *  signed out of, while its token is still known. Returns the remover. */
+export function onServerLeave(fn: LeaveHook): () => void {
+  leaveHooks.add(fn);
+  return () => leaveHooks.delete(fn);
+}
+
+function announceLeave(server: ServerEntry | undefined, token: string | undefined): void {
+  if (!server || !token) return;
+  for (const fn of leaveHooks) {
+    try {
+      fn(server, token);
+    } catch {
+      /* a hook never blocks the removal */
+    }
+  }
+}
+
 // ─── Store ───
 
 interface ServersState {
@@ -344,6 +367,7 @@ export const useServersStore = create<ServersState>((set, get) => ({
   },
 
   removeServer: (id) => {
+    announceLeave(get().servers.find((s) => s.id === id), get().tokens[id]);
     const servers = get().servers.filter((s) => s.id !== id);
     const tokens = { ...get().tokens };
     delete tokens[id];
@@ -577,6 +601,7 @@ export async function loginAndSaveServer(input: {
  *  in, making sign-out a no-op). Other servers are untouched. */
 export function signOutServer(id: string): void {
   const store = useServersStore.getState();
+  announceLeave(store.servers.find((s) => s.id === id), store.tokens[id]);
   store.clearToken(id);
   store.setRecovery(id, "signin-required");
   void setRememberedPassword(id, null);

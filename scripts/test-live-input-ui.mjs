@@ -90,6 +90,10 @@ try {
   const { MemoryRouter, Routes, Route } = await import("react-router-dom");
 
   const TID = "t4-term-1";
+  // Send modes and roles are keyed per server (multi-server MA6):
+  // `<serverId>|<terminalId>`. No server is saved here, so ChatSession's
+  // scope is the no-server scope (id "").
+  const MODE_KEY = `|${TID}`;
   const page = () =>
     renderToStaticMarkup(
       h(
@@ -114,7 +118,7 @@ try {
 
   // ── Direct ──
   console.log("\n[direct] composer unmounts; live strip renders");
-  setSendMode(TID, "direct");
+  setSendMode(MODE_KEY, "direct");
   html = page();
   assert(!html.includes("<textarea"), "composer is GONE (unmounted, not hidden)");
   assert(html.includes('data-k2="live-capture"'), "hidden capture input present");
@@ -143,8 +147,8 @@ try {
 
   // ── Viewer / Watch: composer stays (Safe send → terminal.write) ──
   console.log("\n[viewer] Watch keeps Safe send");
-  setSendMode(TID, "safe"); // Direct section above left TID in Direct, which unmounts the composer by design
-  setSessionRole(TID, "viewer");
+  setSendMode(MODE_KEY, "safe"); // Direct section above left TID in Direct, which unmounts the composer by design
+  setSessionRole(MODE_KEY, "viewer");
   html = page();
   assert(!html.includes("View-only"), "Watch does not hide the composer");
   assert(html.includes("<textarea"), "Safe send composer stays for viewers");

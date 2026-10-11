@@ -9,6 +9,8 @@ import { useZenStore } from "./zenStore";
 import { useMultiServerPrefs } from "./multi/prefs";
 import { usePoolEntries } from "./multi/pool";
 import { serverBadge } from "./multi/rowStatus";
+import { serverBellStatus, useNotifyPrefsStore } from "../stores/notifyPrefs";
+import { BellIcon, useNotifyPrefsLive } from "./NotifyBell";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -68,6 +70,55 @@ function CheckMark() {
   );
 }
 
+/** Thread push status under a server's name. Renders nothing until that
+ *  server is known to have `thread-push-v1` and its prefs are read. */
+function ServerNotifyStatus({ serverId }: { serverId: string }) {
+  const on = useNotifyPrefsStore((s) => s.threadPush[serverId] === true);
+  const prefs = useNotifyPrefsStore((s) => s.prefs[serverId]);
+  const error = useNotifyPrefsStore((s) => s.errors[serverId] ?? null);
+  if (!on || !prefs) return null;
+  return (
+    <span
+      className="block text-[12px] truncate"
+      style={{ color: "#8e8e93", lineHeight: 1.3 }}
+      data-testid="server-notify-status"
+    >
+      {error ? `Could not save: ${error}` : serverBellStatus(prefs)}
+    </span>
+  );
+}
+
+/** Bell toggling Thread pushes from ONE server (`server.enabled`), using
+ *  that server's own token and URL. Hidden without `thread-push-v1`. */
+function ServerBell({ serverId, label }: { serverId: string; label: string }) {
+  const on = useNotifyPrefsStore((s) => s.threadPush[serverId] === true);
+  const prefs = useNotifyPrefsStore((s) => s.prefs[serverId]);
+  if (!on || !prefs) return null;
+  const enabled = prefs.server.enabled;
+  return (
+    <button
+      type="button"
+      className="shrink-0 flex items-center justify-center k2-tile"
+      style={{
+        width: 34,
+        height: 34,
+        borderRadius: 17,
+        color: enabled ? "#fff" : "#8e8e93",
+        pointerEvents: "auto",
+      }}
+      aria-label={`${enabled ? "Turn off" : "Turn on"} notifications from ${label}`}
+      aria-pressed={enabled}
+      data-testid="server-bell"
+      onClick={(e) => {
+        e.stopPropagation();
+        void useNotifyPrefsStore.getState().setServerEnabled(serverId, !enabled);
+      }}
+    >
+      <BellIcon on={enabled} />
+    </button>
+  );
+}
+
 /** In-overlay server list. Tap switches the active server. Sign-in
  *  required opens OverlayAddServer. Never navigates to `/servers`.
  *  The active server is pinned in its own card under the title, inside
@@ -115,6 +166,9 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
     hostLabel(server.url),
     server.username,
   ]);
+  // Thread push prefs (K2 0.45.5): probe + fetch every signed-in server
+  // while the sheet is open; the active one also follows its events.
+  useNotifyPrefsLive(servers.map((s) => s.id));
   const pinnedState: RecoveryState = pinned
     ? recovery[pinned.id] ?? "signin-required"
     : "signin-required";
@@ -340,8 +394,10 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                 >
                   {pinned.username} @ {hostLabel(pinned.url)}
                 </span>
+                <ServerNotifyStatus serverId={pinned.id} />
               </span>
             </button>
+            <ServerBell serverId={pinned.id} label={labelOf(pinned)} />
             <button
               type="button"
               className="shrink-0 text-[17px] k2-tile"
@@ -453,8 +509,10 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                     >
                       {isConnecting ? "connecting…" : badge ? badge.word : STATE_LABEL[state]}
                     </span>
+                    <ServerNotifyStatus serverId={server.id} />
                   </span>
                 </button>
+                <ServerBell serverId={server.id} label={label} />
                 <button
                   type="button"
                   className="shrink-0 text-[17px] k2-tile"

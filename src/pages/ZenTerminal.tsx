@@ -30,9 +30,11 @@ import {
 import { useZenStore } from "../zen/zenStore";
 import { threadHeaderTitle, threadSidecarTitle } from "../zen/overlayExtras";
 import {
+  readZenReturn,
   readZenTerminalAgent,
   readZenThread,
   terminalIdForAgent,
+  zenAddrPath,
   zenTerminalPath,
   zenThreadPath,
   type ZenTerminalAgent,
@@ -262,6 +264,14 @@ export function ZenTerminal() {
   };
 
   const backToThread = () => {
+    // The session's own Thread (Done mode, drawer origin), even after a
+    // reload dropped history.state; `?thread=` would re-read the agent
+    // list and lose a drawer-built row ("Not chattable").
+    const back = agent?.back ?? readZenReturn(terminalId);
+    if (back) {
+      navigate(zenAddrPath(back.addr), { state: { zenReturn: back } });
+      return;
+    }
     const id = agent?.agentId || readZenThread();
     navigate(zenThreadPath(id));
   };

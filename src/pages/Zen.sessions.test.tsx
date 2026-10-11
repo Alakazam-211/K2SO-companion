@@ -571,14 +571,19 @@ describe("Zen Sessions drawer", () => {
     expect(screen.queryByTestId("sessions-drawer")).toBeNull();
     expect(screen.getByTestId("chat-done").textContent).toBe("Done");
     expect(screen.queryByTestId("chat-back")).toBeNull();
-    expect(screen.getByTestId("chat-header-title").textContent).toBe("K2");
-    expect(screen.getByTestId("chat-sidecar-title").textContent).toBe("k2/reviewer");
-    expect(screen.getByTestId("chat-rename-open")).not.toBeNull();
+    // Done mode: the centre title is <Agent>/<sidecar>, pencil beside it.
+    expect(screen.getByTestId("chat-header-title").textContent).toBe("K2/reviewer");
+    const row = screen.getByTestId("chat-header-title-row");
+    expect(row.contains(screen.getByTestId("chat-rename-open"))).toBe(true);
     expect(screen.queryByTestId("chat-hide")).toBeNull();
-    // Done mode: agent/sidecar sits under the right-hand buttons, in white.
+    // Nothing under the right-hand buttons.
     const right = screen.getByTestId("chat-header-right");
-    expect(within(right).getByTestId("chat-sidecar-title").textContent).toBe("k2/reviewer");
-    expect(screen.getByTestId("chat-sidecar-title").style.color).toBe("rgb(255, 255, 255)");
+    expect(right.children.length).toBe(1);
+    expect(screen.queryByTestId("chat-session-line")).toBeNull();
+    expect(screen.queryByTestId("chat-sidecar-title")).toBeNull();
+    // The pencil still opens the rename sheet.
+    fireEvent.click(screen.getByTestId("chat-rename-open"));
+    expect(screen.getByTestId("chat-rename-input")).not.toBeNull();
   });
 
   it("the terminal button then opens the sidecar's own terminal", async () => {
@@ -627,7 +632,7 @@ describe("Zen Sessions drawer", () => {
     await pick("k2/1");
     expect(useZenStore.getState().threadAddr).toBe("k2/1");
     expect(useZenStore.getState().drawerOrigin).toBe(MAIN.id);
-    expect(screen.getByTestId("chat-sidecar-title").textContent).toBe("k2/1");
+    expect(screen.getByTestId("chat-header-title").textContent).toBe("K2/1");
     fireEvent.click(screen.getByTestId("chat-done"));
     expect(useZenStore.getState().agentId).toBe(MAIN.id);
     expect(useZenStore.getState().threadAddr).toBe("k2");
@@ -635,7 +640,9 @@ describe("Zen Sessions drawer", () => {
     expect(sessionStorage.getItem(DRAWER_ORIGIN_KEY)).toBeNull();
     expect(screen.queryByTestId("chat-done")).toBeNull();
     expect(screen.getByTestId("chat-back")).not.toBeNull();
-    expect(screen.queryByTestId("chat-sidecar-title")).toBeNull();
+    // Back on the main chat: just <Agent>, no pencil.
+    expect(screen.getByTestId("chat-header-title").textContent).toBe("K2");
+    expect(screen.queryByTestId("chat-rename-open")).toBeNull();
   });
 
   it("picking Main from a picked sidecar also ends drawer mode", async () => {
@@ -764,7 +771,7 @@ describe("Zen Sessions drawer", () => {
     expect(sessionStorage.getItem(DRAWER_ORIGIN_KEY)).toBe(MAIN.id);
     expect(screen.queryByTestId("sessions-drawer")).toBeNull();
     expect(screen.getByTestId("chat-done").textContent).toBe("Done");
-    expect(screen.getByTestId("chat-sidecar-title").textContent).toBe("k2/2");
+    expect(screen.getByTestId("chat-header-title").textContent).toBe("K2/2");
     fireEvent.click(screen.getByTestId("chat-done"));
     expect(useZenStore.getState().threadAddr).toBe("k2");
   });

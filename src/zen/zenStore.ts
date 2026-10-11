@@ -148,6 +148,9 @@ type ZenState = {
   threadHasMore: boolean;
   threadOldestSeq: number | null;
   threadLoadingEarlier: boolean;
+  /** Push tap `/zen?addr=&seq=`: the message to scroll to and highlight
+   *  once the Thread has it (ThreadPane consumes and clears it). */
+  threadFocusSeq: number | null;
   sending: boolean;
   sendError: string | null;
   answeringId: string | null;
@@ -397,6 +400,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   threadHasMore: false,
   threadOldestSeq: null,
   threadLoadingEarlier: false,
+  threadFocusSeq: null,
   sending: false,
   sendError: null,
   answeringId: null,
@@ -1588,6 +1592,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadAddr: null,
       threadGroupId: null,
       threadConversationId: null,
+      threadFocusSeq: null,
       files: [],
     });
   },

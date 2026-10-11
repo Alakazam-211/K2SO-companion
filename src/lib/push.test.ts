@@ -22,7 +22,14 @@ vi.mock("../stores/servers", () => ({
   useServersStore: { getState: () => ({ servers: [], tokens: {}, activeServerId: null }) },
   getActiveServer: vi.fn(() => null),
   onServerForget: vi.fn(() => () => {}),
+  onServerLeave: vi.fn(),
 }));
+vi.mock("../api/client", () => ({
+  FEATURE_THREAD_PUSH: "thread-push-v1",
+  getBootStatus: vi.fn(async () => null),
+  serverHasFeature: vi.fn(async () => false),
+}));
+vi.mock("./revive", () => ({ connectServer: vi.fn() }));
 
 import { attachPushNavigation, isZenUi, tapPath } from "./push";
 
