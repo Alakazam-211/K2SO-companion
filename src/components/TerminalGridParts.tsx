@@ -10,6 +10,9 @@
 //                    badge, "Viewing at C×R" pill, view-only pill).
 //                    T0 "Claim session" is not v1 — Drive is the size
 //                    control.
+//   ScrollIndicator — desktop Kessel's right-edge overlay scrollbar,
+//                    as a passive iOS-style indicator (no drag: the
+//                    pane's touch layer owns every gesture).
 //   SelectionOverlay / CopyAffordance / ToastPill /
 //   ClipboardFallbackPill — the T6 touch-selection + clipboard UX
 //                    (highlight rects, the post-release Copy button,
@@ -99,6 +102,57 @@ export function TerminalCursor({
       data-k2-cursor-shape="block"
       style={{ ...base, width: cellW, height: lineHeight, opacity: 0.55 }}
     />
+  );
+}
+
+// ── Scroll indicator: desktop's overlay scrollbar thumb ──
+
+/** Desktop Kessel's overlay-scrollbar fade timings. */
+export const SCROLL_INDICATOR_HIDE_MS = 1000;
+export const SCROLL_INDICATOR_FADE_MS = 250;
+
+export interface ScrollIndicatorProps {
+  /** `computeScrollbarThumb` output; null renders nothing (nothing to
+   *  scroll — a fresh shell or an alt-screen TUI). */
+  thumb: { topFrac: number; heightFrac: number } | null;
+  /** True while the scroll position is changing (and ~1s after). */
+  active: boolean;
+}
+
+/** Desktop's right-edge thumb: same inset, same fill (`--scroll-thumb`
+ *  is desktop's rgba(255,255,255,0.25)), same 1s hide and 250ms fade.
+ *  Pointer-transparent and 4px wide — on the phone it only shows
+ *  where you are; desktop's 8px track exists for mouse dragging. */
+export function ScrollIndicator({ thumb, active }: ScrollIndicatorProps) {
+  if (!thumb) return null;
+  return (
+    <div
+      data-k2="scroll-indicator"
+      aria-hidden="true"
+      style={{
+        position: "absolute",
+        top: 4,
+        bottom: 4,
+        right: 2,
+        width: 4,
+        zIndex: 20,
+        pointerEvents: "none",
+        opacity: active ? 1 : 0,
+        transition: `opacity ${SCROLL_INDICATOR_FADE_MS}ms ease`,
+      }}
+    >
+      <div
+        style={{
+          position: "absolute",
+          left: 0,
+          right: 0,
+          top: `${thumb.topFrac * 100}%`,
+          height: `${thumb.heightFrac * 100}%`,
+          borderRadius: 2,
+          backgroundColor: "var(--scroll-thumb)",
+        }}
+      />
+    </div>
   );
 }
 
