@@ -3,6 +3,7 @@ import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { WorkspaceAvatar } from "../zen/WorkspaceAvatar";
+import { GroupChatAvatar } from "../zen/GroupChatAvatar";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { ChatsList } from "../zen/ChatsList";
 import { FilePane } from "../zen/FilePane";
@@ -32,7 +33,6 @@ import {
   threadSidecarTitle,
 } from "../zen/overlayExtras";
 import { groupRowId, useZenStore } from "../zen/zenStore";
-import { resolveGroupPoc } from "../zen/groupPoc";
 import { AgentIconSheet } from "../zen/AgentIconSheet";
 import { canChangeIcon, iconTargetFor } from "../zen/workspaceIcon";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
@@ -78,8 +78,8 @@ export function Zen() {
   const drawerOrigin = useZenStore((s) => s.drawerOrigin);
   const returnToDrawerOrigin = useZenStore((s) => s.returnToDrawerOrigin);
   const agent = agents.find((a) => a.id === agentId);
-  /** A project chat (project group): Terminal opens its PoC agent's PTY,
-   *  Files lists the group's resources, no Sessions drawer. */
+  /** A project chat (project group): only Files (the group's resources),
+   *  no Terminal or Sessions. */
   const groupChat = agent?.kind === "group" && Boolean(agent.groupId);
   const projectsOpen = useZenStore((s) => s.projectsOpen);
   /** Opened from the Projects sheet: Back (and the edge swipe) return there. */
@@ -113,16 +113,8 @@ export function Zen() {
     setIconOpen(false);
   }, [agentId]);
 
-  const openTerminal = (
-    tid: string,
-    chatTitle: string | null,
-    /** Whose terminal it is, when not the open chat's own (a project
-     *  chat's PoC agent). Done still returns to the open chat. */
-    who?: Pick<ZenTerminalAgent, "name" | "initial" | "color" | "iconUrl" | "projectPath" | "addr">
-  ) => {
+  const openTerminal = (tid: string, chatTitle: string | null) => {
     // Done on the terminal returns to this exact Thread (Done mode, origin).
-    // A project chat has no addr, so no return context: Done goes back by
-    // its row id (`/zen?thread=group:<id>`, router state + sessionStorage).
     const back = zenTerminalReturn(agent, tid, drawerOrigin);
     rememberZenReturn(back);
     const ctx: ZenTerminalAgent | null = agentId
@@ -135,7 +127,6 @@ export function Zen() {
           chatTitle,
           projectPath: agent?.path ?? null,
           addr: agent?.addr ?? null,
-          ...(who ?? {}),
           back,
         }
       : null;
@@ -143,35 +134,6 @@ export function Zen() {
       state: ctx ? { agent: ctx } : undefined,
     });
   };
-  /** Project chat Terminal: the PoC agent's main session, found the way
-   *  the chat Terminal finds one (ensure-host, then the live session on
-   *  its workspace path), else the Sessions list. */
-  const openPocTerminal = async (groupId: string) => {
-    const z = useZenStore.getState();
-    const poc = await resolveGroupPoc(groupId, z.agents);
-    if (!poc) {
-      navigate("/sessions");
-      return;
-    }
-    const target = poc.row ?? { path: poc.path, addr: null, terminalId: null };
-    let tid: string | null = null;
-    if (poc.row) tid = (await z.ensureSidecarHost(poc.row)).terminalId ?? null;
-    await useWorkspacesStore.getState().fetchAllSessions();
-    if (!tid) tid = terminalIdForAgent(target, useWorkspacesStore.getState().allSessions);
-    if (!tid) {
-      navigate("/sessions");
-      return;
-    }
-    openTerminal(tid, null, {
-      name: poc.name,
-      initial: poc.row?.initial ?? (poc.name.slice(0, 1).toUpperCase() || null),
-      color: poc.row?.color ?? null,
-      iconUrl: poc.row?.iconUrl ?? null,
-      projectPath: poc.path,
-      addr: poc.row?.addr ?? null,
-    });
-  };
-
   // ?thread= paints the thread on first frame (no chats-list flash). After
   // Back, ignore that query until it is stripped, or closeChat leaves an em dash.
   const [ignoreThreadQuery, setIgnoreThreadQuery] = useState(false);
@@ -422,14 +384,26 @@ export function Zen() {
                 </button>
               ) : (
                 <span data-testid="chat-header-avatar" className="flex mb-1">
-                  <WorkspaceAvatar
-                    initial={agent?.initial || headerTitle.slice(0, 1) || "?"}
-                    color={agent?.color}
-                    iconUrl={agent?.iconUrl}
-                    size={HEADER_AVATAR_PX}
-                    fontSize={16}
-                    fallback="#2c2c2e"
-                  />
+                  {groupChat && agent?.groupId ? (
+                    // The project's own image from its settings, else its
+                    // colour + initial (the Projects sheet row's avatar).
+                    <GroupChatAvatar
+                      groupId={agent.groupId}
+                      name={agent.name || headerTitle}
+                      color={agent.color}
+                      size={HEADER_AVATAR_PX}
+                      fontSize={16}
+                    />
+                  ) : (
+                    <WorkspaceAvatar
+                      initial={agent?.initial || headerTitle.slice(0, 1) || "?"}
+                      color={agent?.color}
+                      iconUrl={agent?.iconUrl}
+                      size={HEADER_AVATAR_PX}
+                      fontSize={16}
+                      fallback="#2c2c2e"
+                    />
+                  )}
                 </span>
               )}
               {/* Main chat: `<Agent>`. A separate session swaps in
@@ -505,6 +479,9 @@ export function Zen() {
               className="flex items-center"
               style={{ gap: 8, pointerEvents: "auto" }}
             >
+              {/* A project chat has only Files: no Terminal, no Sessions. */}
+              {groupChat ? null : (
+              <>
               <button
                 type="button"
                 aria-label="Terminal"
@@ -513,10 +490,6 @@ export function Zen() {
                 onClick={(e) => {
                   e.stopPropagation();
                   rememberZenThread(agentId);
-                  if (groupChat && agent?.groupId) {
-                    void openPocTerminal(agent.groupId);
-                    return;
-                  }
                   const go = async () => {
                     let tid: string | null = null;
                     if (agent) {
@@ -542,7 +515,6 @@ export function Zen() {
                   <line x1="12" y1="19" x2="20" y2="19" />
                 </svg>
               </button>
-              {groupChat ? null : (
               <button
                 type="button"
                 aria-label="Sessions"
@@ -568,6 +540,7 @@ export function Zen() {
                   <line x1="3" y1="18" x2="3.01" y2="18" />
                 </svg>
               </button>
+              </>
               )}
               <button
                 type="button"
