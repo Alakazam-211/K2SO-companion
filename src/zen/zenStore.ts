@@ -38,6 +38,7 @@ import { insertPinned, pinId, readPinnedIds, unpinId, writePinnedIds } from "./p
 import { isSendableAddr } from "./sendGate";
 import { terminalIdForAgent } from "./terminalJump";
 import { resolveFileRef } from "./chatLinks";
+import { getFileCategory, isBinaryPreviewCategory } from "./files/fileCategory";
 import {
   extrasFromRemembered,
   mergeSidecarTitles,
@@ -141,10 +142,8 @@ type ZenState = {
   filesOpen: boolean;
   openFileIds: string[];
   focusId: string | null;
-  /** Other pane when two files are side by side. Null = single pane. */
-  splitId: string | null;
-  /** 0..1 width of the left split pane. */
-  splitRatio: number;
+  /** Where the viewer returns on its last close: the Files list or the chat. */
+  fileReturn: "files" | "chat";
   setAgent: (id: string) => void;
   /** Spawn the sidecar PTY if the Mac tab is gone. Overlay chat stays. */
   ensureSidecarHost: (
@@ -161,7 +160,6 @@ type ZenState = {
   openFileFromPath: (ref: string) => void;
   closeFile: (id: string) => void;
   focusFile: (id: string) => void;
-  setSplitRatio: (n: number) => void;
 };
 
 function failFiles(
@@ -184,15 +182,18 @@ function keepOpenFiles(s: Pick<ZenState, "files" | "openFileIds">): StubFile[] {
     .map((f) => ({ ...f, linked: true }));
 }
 
-/** New resource rows plus open tabs. Reuse a body already read. */
+/** New resource rows plus open tabs. Reuse a read already done. */
 function mergeResources(
   rows: StubFile[],
   s: Pick<ZenState, "files" | "openFileIds">
 ): StubFile[] {
   const prev = new Map(s.files.map((f) => [f.id, f]));
   const listed = rows.map((r) => {
-    const body = prev.get(r.id)?.body;
-    return body ? { ...r, body } : r;
+    const p = prev.get(r.id);
+    if (p?.loaded) {
+      return { ...r, body: p.body, loaded: true, fsPath: p.fsPath, readError: p.readError };
+    }
+    return p?.body ? { ...r, body: p.body } : r;
   });
   const ids = new Set(listed.map((f) => f.id));
   return [...listed, ...keepOpenFiles(s).filter((f) => !ids.has(f.id))];
@@ -318,7 +319,6 @@ export const useZenStore = create<ZenState>((set, get) => ({
     set({
       openFileIds: [],
       focusId: null,
-      splitId: null,
       filesOpen: false,
     }),
   refreshActivity: async () => {
@@ -399,7 +399,6 @@ export const useZenStore = create<ZenState>((set, get) => ({
       agentId: resumeId || "",
       openFileIds: resumeId ? get().openFileIds : [],
       focusId: resumeId ? get().focusId : null,
-      splitId: resumeId ? get().splitId : null,
       threadSource: "loading",
       threadError: null,
       thread: [],
@@ -657,8 +656,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   filesOpen: false,
   openFileIds: [],
   focusId: null,
-  splitId: null,
-  splitRatio: 0.5,
+  fileReturn: "chat",
 
   hydrateGroup: async (groupId) => {
     const gen = get().threadGen + 1;
@@ -1085,7 +1083,6 @@ export const useZenStore = create<ZenState>((set, get) => ({
       agentId: id,
       openFileIds: [],
       focusId: null,
-      splitId: null,
       sending: false,
       sendError: null,
     });
@@ -1318,7 +1315,6 @@ export const useZenStore = create<ZenState>((set, get) => ({
       agentId: "",
       openFileIds: [],
       focusId: null,
-      splitId: null,
       thread: [],
       threadError: null,
       threadAddr: null,
@@ -1346,7 +1342,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   openFileFromPath: (ref) => {
     const raw = (ref || "").trim();
     if (!raw) return;
-    const { files, openFileIds, focusId, fileSource, agentId, agents } = get();
+    const { files, openFileIds, fileSource, agentId, agents } = get();
     const row = agents.find((a) => a.id === agentId);
     const owned = typeof row?.path === "string" ? row.path.trim() : "";
     const workspace = usableFsPath(owned);
@@ -1365,57 +1361,60 @@ export const useZenStore = create<ZenState>((set, get) => ({
       file = { id, name, body: "", linked: true };
       set({ files: [...get().files, file] });
     }
-    if (openFileIds.includes(id)) {
-      set({ focusId: id, filesOpen: true });
-    } else if (openFileIds.length === 0) {
-      set({ openFileIds: [id], focusId: id, splitId: null, filesOpen: true });
-    } else if (openFileIds.length === 1) {
-      set({
-        openFileIds: [...openFileIds, id],
-        splitId: focusId,
-        focusId: id,
-        filesOpen: true,
-      });
-    } else {
-      set({ openFileIds: [...openFileIds, id], focusId: id, filesOpen: true });
+    // The viewer is full screen, one file at a time. Open files stack:
+    // the newest is on top and closing it shows the one under it.
+    if (openFileIds.length === 0) {
+      set({ fileReturn: get().filesOpen ? "files" : "chat" });
     }
-    if (fileSource !== "stub" && !file.body) {
-      const ws = ownedWorkspacePath(owned, owned);
-      const filePath = usableFsPath(id);
-      if (!filePath) return;
-      // The daemon's own resource list vouches for a pinned file, even one
-      // outside the workspace folder. Anything else must sit under it.
-      const pinned = !file.linked && fileSource === "live";
-      if (!pinned && (!ws || !isUnderWorkspace(filePath, ws))) return;
-      // Not filesGen: a resources re-read on pane open must not drop the
-      // body of a tab it kept. A different chat is a different agentId.
-      void getFsReadFile(filePath).then((r) => {
-        if (get().agentId !== agentId) return;
-        if (!get().files.some((f) => f.id === id)) return;
-        const body =
-          r.ok && r.data
-            ? r.data.content
-            : `read-file failed: ${r.error || "unknown"}`;
-        set({
-          files: get().files.map((f) => (f.id === id ? { ...f, body } : f)),
-        });
-      });
+    set({
+      openFileIds: [...openFileIds.filter((x) => x !== id), id],
+      focusId: id,
+      filesOpen: true,
+    });
+    // A failed read retries on the next open; a good one is kept.
+    if (fileSource === "stub" || file.body || (file.loaded && !file.readError)) return;
+    const ws = ownedWorkspacePath(owned, owned);
+    const filePath = usableFsPath(id);
+    // The daemon's own resource list vouches for a pinned file, even one
+    // outside the workspace folder. Anything else must sit under it.
+    const pinned = !file.linked && fileSource === "live";
+    const patch = (p: Partial<StubFile>) =>
+      set({ files: get().files.map((f) => (f.id === id ? { ...f, ...p } : f)) });
+    if (!filePath || (!pinned && (!ws || !isUnderWorkspace(filePath, ws)))) {
+      patch({ loaded: true, fsPath: null, readError: "This file is outside the workspace." });
+      return;
     }
+    // Images, PDFs, media and archives load their own bytes in the viewer.
+    if (isBinaryPreviewCategory(getFileCategory(filePath))) {
+      patch({ loaded: true, fsPath: filePath, readError: null });
+      return;
+    }
+    // Not filesGen: a resources re-read on pane open must not drop the
+    // body of a tab it kept. A different chat is a different agentId.
+    void getFsReadFile(filePath).then((r) => {
+      if (get().agentId !== agentId) return;
+      if (!get().files.some((f) => f.id === id)) return;
+      if (r.ok && r.data) {
+        patch({ body: r.data.content, loaded: true, fsPath: filePath, readError: null });
+      } else {
+        patch({ loaded: true, fsPath: filePath, readError: r.error || "read-file failed" });
+      }
+    });
   },
 
   closeFile: (id) => {
-    const { openFileIds, focusId, splitId } = get();
+    const { openFileIds, focusId, fileReturn } = get();
     const next = openFileIds.filter((x) => x !== id);
     if (next.length === 0) {
-      set({ openFileIds: next, focusId: null, splitId: null });
+      // Last file closed: back to where the viewer was opened from.
+      set({ openFileIds: next, focusId: null, filesOpen: fileReturn === "files" });
       return;
     }
-    const nextFocus = focusId === id ? next[next.length - 1] : focusId;
-    let nextSplit = splitId === id ? null : splitId;
-    if (next.length < 2) nextSplit = null;
-    set({ openFileIds: next, focusId: nextFocus, splitId: nextSplit });
+    set({
+      openFileIds: next,
+      focusId: focusId === id ? next[next.length - 1] : focusId,
+    });
   },
 
   focusFile: (id) => set({ focusId: id }),
-  setSplitRatio: (n) => set({ splitRatio: Math.min(0.8, Math.max(0.2, n)) }),
 }));
