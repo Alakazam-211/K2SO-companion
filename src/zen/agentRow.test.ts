@@ -296,7 +296,7 @@ describe("joinAgentsWithProjects", () => {
       ["appa", "appa", null, null],
       ["appa", "appa/1", "1", null],
     ]);
-    expect(joined[1].id).toBe("/Users/Baden/Appa::appa/1");
+    expect(joined[1].id).toBe("/Users/Baden/Appa#appa/1");
   });
 
   it("two non-slash handles on one path are still JOIN_DUP_PATH", () => {

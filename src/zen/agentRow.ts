@@ -212,6 +212,12 @@ function sidecarTitle(handle: string, projectName: string, fleetName: string): s
   return suffix || handle;
 }
 
+/** A sidecar row's local id: `<path>#<handle>`. Never `::` — that is the
+ *  address separator (`handle::hostKey`, multi-server MA8). */
+export function sidecarRowId(path: string, handle: string): string {
+  return `${path}#${handle}`;
+}
+
 function sidecarFromProject(
   a: FleetNamePath,
   path: string,
@@ -219,7 +225,7 @@ function sidecarFromProject(
 ): JoinedOverlayRow {
   const handle = (project.handle ?? "").trim();
   return fromAgent(a, {
-    id: `${path}::${handle}`,
+    id: sidecarRowId(path, handle),
     path,
     addr: handle,
     joinMiss: null,

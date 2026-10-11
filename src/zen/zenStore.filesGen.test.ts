@@ -1456,7 +1456,7 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
     const side = s.agents.find((a) => a.addr === "appa/2");
     expect(side).toMatchObject({ name: "appa", addr: "appa/2", chatTitle: "2" });
     expect(s.agents.some((a) => a.name === "appa / 1" || a.name === "appa / 2")).toBe(false);
-    expect(s.agentId).toBe(`${"/ws"}::appa/2`);
+    expect(s.agentId).toBe("/ws#appa/2");
     expect(s.screen).toBe("thread");
   });
 

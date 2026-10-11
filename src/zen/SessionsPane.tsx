@@ -273,10 +273,10 @@ export function SessionsPane({
   );
   const remembered = useMemo(() => {
     const norm = posixNormalize(path);
-    return readRememberedSidecars().filter(
+    return readRememberedSidecars(scope.id, { adoptLegacy: true }).filter(
       (r) => norm && posixNormalize(r.path) === norm && mainHandleOf(r.addr) === handle
     );
-  }, [path, handle]);
+  }, [scope, path, handle]);
   const candidates = chats ? historyCandidates(chats, activeConversations) : [];
   const page = candidates.slice(0, historyLimit);
   const lookupKey = [handle, ...remembered.map((r) => r.addr), ...page.map((c) => c.id)].join(",");
