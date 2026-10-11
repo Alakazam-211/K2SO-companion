@@ -8,6 +8,7 @@ import { overlayRowPreview } from "./rowPreview";
 import { activityForRow, activityRowText } from "./agentActivity";
 import { StubMark } from "./StubMark";
 import { OverlayAddServer } from "./OverlayAddServer";
+import { GlassSearchBar } from "./GlassSearchBar";
 import { OverlayCompose } from "./OverlayCompose";
 import { OverlayServers } from "./OverlayServers";
 import { TicketsOverlay } from "./TicketsOverlay";
@@ -547,49 +548,13 @@ export function ChatsList() {
         </div>
       ) : null}
 
-      <div
-        className="absolute left-3 right-3 flex items-center"
-        data-no-pin="1"
-        style={{
-          bottom: "max(14px, env(safe-area-inset-bottom))",
-          gap: 10,
-          zIndex: 4,
-        }}
-      >
-        <label
-          className="flex-1 min-w-0 flex items-center zen-glass zen-glass-field"
-          style={{
-            gap: 8,
-            padding: "9px 14px",
-          }}
-        >
-          <span className="sr-only">Search</span>
-          <input
-            type="search"
-            value={q}
-            onChange={(e) => setQ(e.target.value)}
-            onFocus={() => window.scrollTo(0, 0)}
-            placeholder="Search"
-            className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[17px]"
-            style={{ color: "#fff" }}
-            aria-label="Search"
-          />
-        </label>
-        <button
-          type="button"
-          title="New message"
-          aria-label="New message"
-          className="flex items-center justify-center zen-glass zen-glass-round"
-          style={{
-            width: 44,
-            height: 44,
-            color: "#fff",
-          }}
-          onClick={() => setCompose(true)}
-        >
-          +
-        </button>
-      </div>
+      <GlassSearchBar
+        query={q}
+        onQuery={setQ}
+        placeholder="Search"
+        onPlus={() => setCompose(true)}
+        plusLabel="New message"
+      />
 
       {tickets ? <TicketsOverlay onClose={() => setTickets(false)} /> : null}
       {compose ? <OverlayCompose onClose={() => setCompose(false)} /> : null}

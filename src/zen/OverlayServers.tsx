@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { connectServer } from "../lib/revive";
 import { hostLabel, useServersStore, type RecoveryState, type ServerEntry } from "../stores/servers";
+import { GlassSearchBar } from "./GlassSearchBar";
 import { OverlayAddServer } from "./OverlayAddServer";
+import { filterServers, sortServersActiveFirst } from "./serverList";
 import { useZenStore } from "./zenStore";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
@@ -18,8 +20,14 @@ const STATE_LABEL: Record<RecoveryState, string> = {
   "signin-required": "sign-in required",
 };
 
+const labelOf = (server: ServerEntry) => server.nickname || hostLabel(server.url);
+
 /** In-overlay server list. Tap switches the active server. Sign-in
- *  required opens OverlayAddServer. Never navigates to `/servers`. */
+ *  required opens OverlayAddServer. Never navigates to `/servers`.
+ *  Active server first, the rest alphabetical; the bottom glass bar
+ *  (shared with Chats) searches and `+` adds. Rendered inside the Chats
+ *  column, which is sized to the visual viewport, so `inset-0` keeps the
+ *  bar above the iOS keyboard. */
 export function OverlayServers({ onClose }: { onClose: () => void }) {
   const servers = useServersStore((s) => s.servers);
   const activeServerId = useServersStore((s) => s.activeServerId);
@@ -27,6 +35,12 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  const visible = filterServers(
+    sortServersActiveFirst(servers, activeServerId, labelOf),
+    query,
+    (server) => [server.nickname, hostLabel(server.url), server.username]
+  );
 
   const pick = async (server: ServerEntry) => {
     if (connectingId) return;
@@ -94,34 +108,30 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
         <h1 className="absolute left-1/2 -translate-x-1/2 text-[17px] font-semibold pointer-events-none">
           Servers
         </h1>
-        <button
-          type="button"
-          className="text-[17px] k2-tile"
-          style={{
-            minHeight: 34,
-            padding: "0 14px",
-            borderRadius: 17,
-          }}
-          onClick={() => setAdding(true)}
-        >
-          Add
-        </button>
       </div>
       <div
         className="flex-1 min-h-0 overflow-y-auto"
-        style={{ padding: "0 8px 24px", WebkitOverflowScrolling: "touch" }}
+        style={{ padding: "0 8px 96px", WebkitOverflowScrolling: "touch" }}
         data-testid="overlay-servers-list"
       >
         {servers.length === 0 ? (
           <p className="px-4 py-6 text-[14px]" style={{ color: "#8e8e93" }}>
             No servers yet.
           </p>
+        ) : visible.length === 0 ? (
+          <p
+            className="px-4 py-6 text-[14px]"
+            style={{ color: "#8e8e93" }}
+            data-testid="overlay-servers-empty"
+          >
+            No servers match
+          </p>
         ) : (
-          servers.map((server) => {
+          visible.map((server) => {
             const state = recovery[server.id] ?? "signin-required";
             const isActive = server.id === activeServerId;
             const isConnecting = connectingId === server.id;
-            const label = server.nickname || hostLabel(server.url);
+            const label = labelOf(server);
             return (
               <div
                 key={server.id}
@@ -194,6 +204,17 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
           })
         )}
       </div>
+      <GlassSearchBar
+        query={query}
+        onQuery={setQuery}
+        placeholder="Search servers"
+        searchLabel="Search servers"
+        onPlus={() => setAdding(true)}
+        plusLabel="Add server"
+        testId="overlay-servers-bar"
+        inputTestId="overlay-servers-search"
+        plusTestId="overlay-servers-add"
+      />
     </div>
   );
 }
