@@ -50,17 +50,47 @@ function hasColors(g: BufferGeometry): boolean {
   return Boolean(g.getAttribute("color"));
 }
 
-/** Mesh (or, for a faceless PLY, a point cloud) with our grey. */
-function meshFromGeometry(g: BufferGeometry, points = false): Object3D {
+/** Point size for a cloud: a small fraction of its bounding radius, in
+ *  world units, so a 10 mm scan and a 100 m survey both read as dots at
+ *  the fitted camera distance (about 2–3 px) and grow as you zoom in. */
+export function pointSizeFor(g: BufferGeometry): number {
+  g.computeBoundingSphere();
+  const r = g.boundingSphere?.radius ?? 0;
+  return Number.isFinite(r) && r > 0 ? r / 120 : 0.01;
+}
+
+/** A faceless geometry (PLY point cloud) as THREE.Points, vertex colours
+ *  if the file has them, else our grey. */
+export function pointsFromGeometry(g: BufferGeometry): Points {
   const colors = hasColors(g);
-  if (points) {
-    return new Points(
-      g,
-      new PointsMaterial({ size: 2, sizeAttenuation: false, vertexColors: colors, color: colors ? 0xffffff : MODEL_GREY })
-    );
-  }
+  return new Points(
+    g,
+    new PointsMaterial({
+      size: pointSizeFor(g),
+      sizeAttenuation: true,
+      vertexColors: colors,
+      color: colors ? 0xffffff : MODEL_GREY,
+    })
+  );
+}
+
+/** Mesh (or, for a faceless PLY, a point cloud) with our grey. */
+export function meshFromGeometry(g: BufferGeometry, points = false): Object3D {
+  if (points) return pointsFromGeometry(g);
   if (!g.getAttribute("normal")) g.computeVertexNormals();
-  return new Mesh(g, greyMaterial(colors));
+  return new Mesh(g, greyMaterial(hasColors(g)));
+}
+
+/** Loaders throw whatever they hit on a tiny, truncated or corrupt file
+ *  (STLLoader: a bare DataView RangeError). Name the format instead. */
+async function readAs<T>(label: string, parse: () => T | Promise<T>): Promise<T> {
+  try {
+    return await parse();
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : String(err);
+    const reason = raw.length > 120 ? `${raw.slice(0, 117)}…` : raw;
+    throw new Error(`This ${label} could not be read${reason ? ` (${reason})` : ""}.`);
+  }
 }
 
 /** A plain white Phong with no map: the loader's "no material" default. */
@@ -132,13 +162,16 @@ export async function parseModel(bytes: Uint8Array, ext: string): Promise<Parsed
 
   if (e === ".stl") {
     const { STLLoader } = await import("three/addons/loaders/STLLoader.js");
-    const g = new STLLoader().parse(buf);
-    if (!g.getAttribute("position")?.count) throw new Error("No triangles in this STL.");
+    const g = await readAs("STL", () => new STLLoader().parse(buf));
+    if (!g.getAttribute("position")?.count) {
+      g.dispose();
+      throw new Error("No triangles in this STL.");
+    }
     root = meshFromGeometry(g);
     zUp = true;
   } else if (e === ".obj") {
     const { OBJLoader } = await import("three/addons/loaders/OBJLoader.js");
-    root = new OBJLoader().parse(new TextDecoder().decode(bytes));
+    root = await readAs("OBJ", () => new OBJLoader().parse(new TextDecoder().decode(bytes)));
     greyDefaults(root, true);
     root.traverse((o) => {
       if (o instanceof Points) o.material = new PointsMaterial({ size: 2, sizeAttenuation: false, color: MODEL_GREY });
@@ -146,37 +179,53 @@ export async function parseModel(bytes: Uint8Array, ext: string): Promise<Parsed
     });
   } else if (e === ".3mf") {
     const { ThreeMFLoader } = await import("three/addons/loaders/3MFLoader.js");
-    root = new ThreeMFLoader().parse(buf);
+    root = await readAs("3MF", () => new ThreeMFLoader().parse(buf));
     greyDefaults(root, false);
     zUp = true;
   } else if (e === ".ply") {
     const { PLYLoader } = await import("three/addons/loaders/PLYLoader.js");
-    const g = new PLYLoader().parse(buf);
+    const g = await readAs("PLY", () => new PLYLoader().parse(buf));
     // PLYLoader indexes faces; no index means a point cloud.
     root = meshFromGeometry(g, !g.index);
   } else if (e === ".glb" || e === ".gltf") {
     const { GLTFLoader } = await import("three/addons/loaders/GLTFLoader.js");
+    const label = e === ".gltf" ? "glTF" : "GLB";
     let data: ArrayBuffer | string = buf;
+    let json: unknown;
     if (e === ".gltf") {
       data = new TextDecoder().decode(bytes);
-      checkGltfJson(JSON.parse(data));
+      const text = data;
+      json = await readAs(label, () => JSON.parse(text));
     } else {
-      const json = glbJson(buf);
-      if (json) checkGltfJson(json as Parameters<typeof checkGltfJson>[0]);
+      json = await readAs(label, () => glbJson(buf));
     }
-    const gltf = await new GLTFLoader().parseAsync(data, "");
+    // Outside readAs: these refusals are already plain sentences.
+    if (json) checkGltfJson(json as Parameters<typeof checkGltfJson>[0]);
+    const gltf = await readAs(label, () => new GLTFLoader().parseAsync(data, ""));
     root = gltf.scene;
   } else {
     throw new Error(`No 3D loader for ${ext || "this file"}.`);
   }
 
-  const stats = modelStats(root);
+  let stats: ModelStats;
+  try {
+    stats = modelStats(root);
+  } catch (err) {
+    disposeObject(root);
+    throw err;
+  }
   if (stats.triangles === 0 && stats.meshes === 0) {
+    // Points and lines count too, including a root that is itself the
+    // object (a faceless PLY's point cloud).
     let any = false;
     root.traverse((o) => {
-      if (o !== root && (o as { geometry?: unknown }).geometry) any = true;
+      const g = (o as { geometry?: BufferGeometry }).geometry;
+      if ((g?.getAttribute("position")?.count ?? 0) > 0) any = true;
     });
-    if (!any) throw new Error("No geometry in this file.");
+    if (!any) {
+      disposeObject(root);
+      throw new Error("No geometry in this file.");
+    }
   }
   if (zUp) {
     const wrap = new Group();

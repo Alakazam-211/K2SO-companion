@@ -142,4 +142,16 @@ describe("3D viewer", () => {
     render(<FileBody file={bin("/ws/empty.stl")} source={false} stub={false} />);
     expect((await screen.findByTestId("model-error")).textContent).toContain("No triangles in this STL.");
   });
+
+  it("a truncated STL shows the can't-preview note, never a raw throw", async () => {
+    // What the real parseModel rejects with for a 20-byte STL (modelParse.test.ts).
+    scene.parseModel.mockRejectedValueOnce(
+      new Error("This STL could not be read (Offset is outside the bounds of the DataView).")
+    );
+    render(<FileBody file={bin("/ws/truncated.stl")} source={false} stub={false} />);
+    const note = await screen.findByTestId("model-error");
+    expect(note.textContent).toContain("Could not open the model");
+    expect(note.textContent).toContain("This STL could not be read");
+    expect(scene.createViewer).not.toHaveBeenCalled();
+  });
 });
