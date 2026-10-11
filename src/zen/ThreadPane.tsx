@@ -31,6 +31,7 @@ import {
 import { ThreadWorkingStrip } from "./ThreadWorkingStrip";
 import { isSendableAddr } from "./sendGate";
 import { sourceWord, useZenStore } from "./zenStore";
+import { SESSION_UNAVAILABLE } from "./sessionReturn";
 import { zenTextPx } from "./zenFont";
 
 export { COMPOSER_MAX_PX, composerHeight } from "./GlassComposer";
@@ -154,6 +155,10 @@ export function ThreadPane({
   const source = useZenStore((s) => s.threadSource);
   const error = useZenStore((s) => s.threadError);
   const agentId = useZenStore((s) => s.agentId);
+  // Done mode (drawer-picked session): a Thread that won't open offers the main chat.
+  const drawerOrigin = useZenStore((s) => s.drawerOrigin);
+  const returnToDrawerOrigin = useZenStore((s) => s.returnToDrawerOrigin);
+  const doneMode = Boolean(drawerOrigin) && drawerOrigin !== agentId;
   const hasMore = useZenStore((s) => s.threadHasMore);
   const loadingEarlier = useZenStore((s) => s.threadLoadingEarlier);
   const loadEarlier = useZenStore((s) => s.loadEarlier);
@@ -381,7 +386,26 @@ export function ThreadPane({
           </span>
         ) : (
           <>
-            {source === "error" && error ? (
+            {source === "error" && error && (doneMode || error === SESSION_UNAVAILABLE) ? (
+              <div
+                className="flex flex-col items-start gap-2 px-2"
+                data-testid="thread-unavailable"
+              >
+                <span className="text-[13px] text-[var(--text-muted)] leading-snug">
+                  {SESSION_UNAVAILABLE}
+                </span>
+                {doneMode ? (
+                  <button
+                    type="button"
+                    className="text-[13px] zen-glass zen-glass-pill"
+                    style={{ minHeight: 32, padding: "0 12px", color: "#fff" }}
+                    onClick={() => returnToDrawerOrigin()}
+                  >
+                    Open main chat
+                  </button>
+                ) : null}
+              </div>
+            ) : source === "error" && error ? (
               <span className="text-[11px] text-[var(--warning)] px-2">
                 {asErrorText(error)}
               </span>

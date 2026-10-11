@@ -1,6 +1,6 @@
 import type { GlobalSession } from "../api/client";
 import { isConversationAddr } from "./sessionHistory";
-import { sidecarSuffix } from "./sidecarRows";
+import { sidecarSuffix, type OverlaySidecar } from "./sidecarRows";
 import { posixNormalize } from "./workspacePath";
 
 export const ZEN_THREAD_KEY = "k2-zen-thread";
@@ -88,6 +88,8 @@ export type ZenTerminalAgent = {
   projectPath?: string | null;
   /** Overlay addr (`appa` / `appa/1`) — the workspace handle for `＋` uploads. */
   addr?: string | null;
+  /** The Thread Done returns to (session addr, Done mode, drawer origin). */
+  back?: ZenTerminalReturn | null;
 };
 
 export function readZenTerminalAgent(state: unknown): ZenTerminalAgent | null {
@@ -97,5 +99,115 @@ export function readZenTerminalAgent(state: unknown): ZenTerminalAgent | null {
   const agentId = (a as { agentId?: unknown }).agentId;
   const name = (a as { name?: unknown }).name;
   if (typeof agentId !== "string" || !agentId.trim()) return null;
-  return { ...(a as ZenTerminalAgent), name: typeof name === "string" ? name : "" };
+  return {
+    ...(a as ZenTerminalAgent),
+    name: typeof name === "string" ? name : "",
+    back: asReturn((a as { back?: unknown }).back),
+  };
+}
+
+/** Query key that reopens one session's Thread by overlay addr
+ *  (`/zen?addr=k2/reviewer`). Terminal Done uses it; so do push taps. */
+export const ZEN_ADDR_PARAM = "addr";
+
+export function zenAddrPath(addr?: string | null): string {
+  const a = (addr || "").trim();
+  if (!a) return "/zen";
+  return `/zen?${ZEN_ADDR_PARAM}=${encodeURIComponent(a)}`;
+}
+
+/** Where the terminal page's Done goes back to: the session's Thread
+ *  (row + addr), the Sessions drawer origin (Done mode), and enough of the
+ *  row to rebuild it when a re-read of the agent list no longer has it
+ *  (`ws/N` tabs, conversation ids, History rows). */
+export type ZenTerminalReturn = {
+  terminalId: string;
+  agentId: string;
+  addr: string;
+  drawerOrigin: string | null;
+  side?: OverlaySidecar | null;
+};
+
+/** Survives a reload of `/zen/terminal/:id` even without history.state. */
+export const ZEN_RETURN_KEY = "k2-zen-terminal-return";
+
+type ReturnRow = {
+  id: string;
+  name?: string | null;
+  addr?: string | null;
+  path?: string | null;
+  chatTitle?: string | null;
+  tabId?: string | null;
+  projectId?: string | null;
+  terminalId?: string | null;
+  hostLive?: boolean | null;
+  launch?: { command: string; args: string[] } | null;
+};
+
+export function zenTerminalReturn(
+  row: ReturnRow | null | undefined,
+  terminalId: string,
+  drawerOrigin: string | null
+): ZenTerminalReturn | null {
+  const addr = (row?.addr || "").trim();
+  if (!row || !addr || !terminalId) return null;
+  const path = (row.path || "").trim();
+  const origin = drawerOrigin && drawerOrigin !== row.id ? drawerOrigin : null;
+  const side: OverlaySidecar | null =
+    path && (addr.includes("/") || isConversationAddr(addr))
+      ? {
+          addr,
+          path,
+          name: row.name || "",
+          chatTitle: row.chatTitle || sidecarSuffix(addr) || addr,
+          ...(row.tabId ? { tabId: row.tabId } : {}),
+          ...(row.projectId ? { projectId: row.projectId } : {}),
+          ...(row.terminalId ? { terminalId: row.terminalId } : {}),
+          ...(row.hostLive != null ? { hostLive: row.hostLive } : {}),
+          ...(row.launch ? { launch: row.launch } : {}),
+        }
+      : null;
+  return { terminalId, agentId: row.id, addr, drawerOrigin: origin, side };
+}
+
+function asReturn(v: unknown): ZenTerminalReturn | null {
+  if (!v || typeof v !== "object") return null;
+  const r = v as Partial<ZenTerminalReturn>;
+  if (typeof r.addr !== "string" || !r.addr.trim()) return null;
+  if (typeof r.agentId !== "string" || typeof r.terminalId !== "string") return null;
+  const side = r.side && typeof r.side === "object" && typeof r.side.addr === "string" ? r.side : null;
+  return {
+    terminalId: r.terminalId,
+    agentId: r.agentId,
+    addr: r.addr.trim(),
+    drawerOrigin: typeof r.drawerOrigin === "string" && r.drawerOrigin ? r.drawerOrigin : null,
+    side,
+  };
+}
+
+export function rememberZenReturn(ret: ZenTerminalReturn | null): void {
+  try {
+    if (ret) sessionStorage.setItem(ZEN_RETURN_KEY, JSON.stringify(ret));
+    else sessionStorage.removeItem(ZEN_RETURN_KEY);
+  } catch {
+    /* private mode */
+  }
+}
+
+/** The stored return for this terminal, if it is the one last opened. */
+export function readZenReturn(terminalId: string | null | undefined): ZenTerminalReturn | null {
+  try {
+    const raw = sessionStorage.getItem(ZEN_RETURN_KEY);
+    const ret = raw ? asReturn(JSON.parse(raw)) : null;
+    return ret && terminalId && ret.terminalId === terminalId ? ret : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Router state `{ zenReturn }` handed to `/zen?addr=` by terminal Done. */
+export function readZenReturnState(state: unknown, addr: string): ZenTerminalReturn | null {
+  if (!state || typeof state !== "object") return null;
+  const ret = asReturn((state as { zenReturn?: unknown }).zenReturn);
+  return ret && ret.addr === addr.trim() ? ret : null;
 }
