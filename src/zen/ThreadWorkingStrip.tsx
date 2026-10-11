@@ -62,6 +62,11 @@ export function ThreadWorkingStrip({ turn }: { turn: ThreadTurn }) {
   if (!view) return null;
   const color = TONE[view.tone];
   const pulsing = view.tone === "working";
+  // Full width, fixed rows: the tile spans the message column and keeps
+  // its step and tally rows while the turn is live, so it neither widens
+  // with the tool line nor jumps in height as rows come and go. Text
+  // truncates; the clocks sit right with tabular digits.
+  const live = turn.end === null;
   return (
     <div
       role="status"
@@ -69,13 +74,13 @@ export function ThreadWorkingStrip({ turn }: { turn: ThreadTurn }) {
       data-testid="thread-working-strip"
       data-tone={view.tone}
       data-phase={turn.phase}
-      className="k2-tile self-start max-w-[86%] min-w-0 flex flex-col gap-[3px] px-3 py-2 mt-1"
+      className="k2-tile self-stretch w-full min-w-0 flex flex-col gap-[3px] px-3 py-2 mt-1"
       style={{
         borderRadius: 16,
         borderStyle: view.tone === "unverifiable" ? "dashed" : undefined,
       }}
     >
-      <div className="flex items-center gap-2 min-w-0 text-[13px]">
+      <div className="flex items-center gap-2 min-w-0 text-[13px] leading-[18px] min-h-[18px]">
         <span
           aria-hidden
           className={`relative inline-block flex-none w-2 h-2 rounded-full box-border ${pulsing ? "k2-pulse" : ""}`}
@@ -88,7 +93,7 @@ export function ThreadWorkingStrip({ turn }: { turn: ThreadTurn }) {
         {view.label ? (
           <span
             data-testid="thread-strip-state"
-            className="font-semibold truncate"
+            className="flex-1 min-w-0 font-semibold truncate"
             style={{ color }}
           >
             {view.label}
@@ -96,16 +101,16 @@ export function ThreadWorkingStrip({ turn }: { turn: ThreadTurn }) {
         ) : null}
         <span
           data-testid="thread-strip-since"
-          className="flex-none tabular-nums"
+          className="ml-auto flex-none tabular-nums text-right"
           style={{ color: "var(--text-muted)" }}
         >
-          {view.label ? `· ${view.since}` : view.since}
+          {view.since}
         </span>
       </div>
       {view.step ? (
         <div
           data-testid="thread-strip-step"
-          className="flex items-baseline gap-2 min-w-0 text-[14px]"
+          className="flex items-baseline gap-2 min-w-0 text-[14px] leading-[20px] min-h-[20px]"
           style={{ color: "var(--text)" }}
         >
           {view.step.kind === "needs" ? (
@@ -115,7 +120,7 @@ export function ThreadWorkingStrip({ turn }: { turn: ThreadTurn }) {
           ) : null}
           <span
             data-testid="thread-strip-step-text"
-            className={`min-w-0 overflow-hidden text-ellipsis whitespace-nowrap ${
+            className={`flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap ${
               view.step.kind === "thinking" ? "k2-shimmer" : ""
             }`}
           >
@@ -123,22 +128,27 @@ export function ThreadWorkingStrip({ turn }: { turn: ThreadTurn }) {
           </span>
           {view.step.elapsed ? (
             <span
-              className="ml-auto flex-none tabular-nums text-[12px]"
+              data-testid="thread-strip-elapsed"
+              className="ml-auto flex-none tabular-nums text-right text-[12px]"
               style={{ color: "var(--text-muted)" }}
             >
               {view.step.elapsed}
             </span>
           ) : null}
         </div>
+      ) : live ? (
+        <div aria-hidden data-testid="thread-strip-step-slot" className="min-h-[20px]" />
       ) : null}
       {view.tally.length ? (
         <div
           data-testid="thread-strip-tally"
-          className="text-[12px]"
+          className="min-w-0 truncate text-[12px] leading-[16px] min-h-[16px]"
           style={{ color: "var(--text-muted)" }}
         >
           {view.tally.join(" · ")}
         </div>
+      ) : live ? (
+        <div aria-hidden data-testid="thread-strip-tally-slot" className="min-h-[16px]" />
       ) : null}
     </div>
   );
