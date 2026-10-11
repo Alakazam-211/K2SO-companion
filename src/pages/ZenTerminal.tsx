@@ -151,6 +151,15 @@ export function ZenTerminal() {
     return () => clearTimeout(t);
   }, [containerHeight]);
 
+  // Tapping into "Message the agent…" while watching claims Drive —
+  // the same setDrive(true) as the pencil segment, so TerminalView's
+  // claim/resize is identical. One-way: never flips back to Watch.
+  // Only state changes; the composer stays mounted and focused, so the
+  // iOS keyboard still opens and the column re-sizes as usual.
+  const claimOnComposerFocus = () => {
+    if (!drive) setDrive(true);
+  };
+
   const handleSend = () => {
     const text = input.trim();
     if (!text || !terminalId || sendBusy) return;
@@ -459,6 +468,7 @@ export function ZenTerminal() {
             onAttach={canAttach ? handleAttach : undefined}
             attachDisabled={uploading || sendBusy}
             placeholder="Message the agent…"
+            onFocus={claimOnComposerFocus}
             accessory={
               uploading ? (
                 <p
