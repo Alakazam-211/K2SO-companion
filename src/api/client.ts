@@ -699,6 +699,27 @@ export const getThread = (addr: string, limit = 50, beforeSeq?: number) =>
     ...(beforeSeq != null ? { before_seq: beforeSeq } : {}),
   });
 
+/** K2 0.44: `GET /cli/thread/latest` is live (list previews). */
+export const FEATURE_THREAD_LATEST = "thread-latest";
+/** Daemon cap on addrs per `thread/latest` call. */
+export const THREAD_LATEST_MAX_ADDRS = 50;
+
+/** One `thread/latest` answer per addr. Empty Thread: `at`/`preview` null.
+ *  A per-addr failure is `{addr, error}`, never a failed batch. `preview`
+ *  is whitespace-collapsed, cut at 140 chars; a choice card reads
+ *  "Asked: <prompt>", a secret card "Asked for a secret". */
+export type ThreadLatestItem = {
+  addr: string;
+  conversationId?: string;
+  seq?: number | null;
+  at?: number | null;
+  from?: string | null;
+  via?: string | null;
+  kind?: string | null;
+  preview?: string | null;
+  error?: { code?: string; hint?: string };
+};
+
 /** Owner send. Same route as skin. `via: "compose"` is the owner door
  *  (loopback skin-test-a seq 32: from=owner via=compose). Omit it and
  *  the daemon records from=<addr> via=thread. Skin tokens 403 this field. */

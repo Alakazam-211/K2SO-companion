@@ -5,7 +5,8 @@ import { useFeedbackStore } from "../stores/feedback";
 import { ticketsAriaLabel, ticketsBadge } from "../api/feedbackPure";
 import { hostLabel, useServersStore, type RecoveryState } from "../stores/servers";
 import { isOverlayExtraAddr, visibleOverlayAgents } from "./overlayExtras";
-import { overlayRowPreview } from "./rowPreview";
+import { rowPreviewFor, rowPreviewText } from "./rowPreview";
+import { RowSnippet } from "./RowSnippet";
 import { activityColor, activityForRow, activityPinText, activityRowText } from "./agentActivity";
 import { AgentRowContent } from "./AgentRowContent";
 import { OverlayAddServer } from "./OverlayAddServer";
@@ -198,6 +199,7 @@ export function ChatsList() {
   const setAgent = useZenStore((s) => s.setAgent);
   const lastAtByKey = useZenStore((s) => s.lastAtByKey);
   const ensureLastAt = useZenStore((s) => s.ensureLastAt);
+  const previewByKey = useZenStore((s) => s.previewByKey);
   const activity = useZenStore((s) => s.activity);
   const chatSessions = useZenStore((s) => s.chatSessions);
   const zenScreen = useZenStore((s) => s.screen);
@@ -406,9 +408,14 @@ export function ChatsList() {
   useZenStore((s) => s.groupSeenRev);
   const projectsUnread = unreadGroupCount(activeServerId, groupIds, lastAtByKey);
 
-  /** Line two of a row (Agents and Home share it). */
+  /** Line two of a row (Agents and Home share it): the main Thread's
+   *  newest message, inline Markdown on one line. */
+  const rowPreviewOf = (a: StubAgent) => {
+    const key = lastAtKeyFor(a);
+    return rowPreviewFor(a, key ? previewByKey[key] : undefined);
+  };
   const previewFor = (a: StubAgent): ReactNode =>
-    source === "stub" ? "STUB" : overlayRowPreview(a);
+    source === "stub" ? "STUB" : <RowSnippet preview={rowPreviewOf(a)} />;
 
   const searching = q.trim().length > 0;
   // Search ignores the focus group so any agent can still be found.
@@ -1314,9 +1321,9 @@ export function ChatsList() {
             aria-label={
               source === "stub"
                 ? `STUB ${a.name}`
-                : (isOverlayExtraAddr(a.addr)
-                    ? `${a.name}, ${overlayRowPreview(a)}`
-                    : a.name) + (busy ? `, ${activityRowText(busy)}` : "")
+                : busy
+                  ? `${a.name}, ${activityRowText(busy)}`
+                  : [a.name, rowPreviewText(rowPreviewOf(a))].filter(Boolean).join(", ")
             }
             data-last-at-key={lastKey}
             data-pin-id={a.id}
