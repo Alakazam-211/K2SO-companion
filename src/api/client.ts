@@ -563,6 +563,21 @@ export const postThread = (addr: string, text: string) =>
     { method: "POST" }
   );
 
+/** Working-strip catch-up (K2 0.45.0+): the live Thread turn, or
+ *  `{turn: null}`. Call on every overlay socket (re)open; activity frames
+ *  are never replayed. App passes get 403. */
+export const getThreadActivity = (addr: string) =>
+  request<{ turn?: unknown }>("thread.activity", "/cli/thread/activity", { addr });
+
+/** Agent activity (K2 0.45.0+): one row per live session plus a rollup
+ *  per workspace. `counts` arrived in 0.45.2 (missing = zeros). */
+export const getActivitySnapshot = () =>
+  request<{ rows?: unknown[]; workspaces?: unknown[]; serverNow?: number }>(
+    "activity.snapshot",
+    "/cli/activity/snapshot",
+    {}
+  );
+
 /** Overlay choice card. Skin: POST `/cli/thread/answer`
  *  `{ addr, id, answer }` — `answer` is the option text. Secret cards
  *  are never posted. */

@@ -5,6 +5,7 @@ import { useFeedbackStore } from "../stores/feedback";
 import { hostLabel, useServersStore, type RecoveryState } from "../stores/servers";
 import { isOverlayExtraAddr, visibleOverlayAgents } from "./overlayExtras";
 import { overlayRowPreview } from "./rowPreview";
+import { activityForRow, activityRowText } from "./agentActivity";
 import { StubMark } from "./StubMark";
 import { OverlayAddServer } from "./OverlayAddServer";
 import { OverlayCompose } from "./OverlayCompose";
@@ -24,6 +25,9 @@ const RECOVERY_DOT: Record<RecoveryState, string> = {
 };
 
 /** Phone-width overlay home. Look is public/imessage-baseline.html (7724968). */
+/** How often the Chats list re-reads agent status. */
+const ACTIVITY_POLL_MS = 5_000;
+
 export function ChatsList() {
   const navigate = useNavigate();
   const containerHeight = useViewportHeight();
@@ -33,6 +37,8 @@ export function ChatsList() {
   const setAgent = useZenStore((s) => s.setAgent);
   const lastAtByKey = useZenStore((s) => s.lastAtByKey);
   const ensureLastAt = useZenStore((s) => s.ensureLastAt);
+  const activity = useZenStore((s) => s.activity);
+  const refreshActivity = useZenStore((s) => s.refreshActivity);
   const pinnedIds = useZenStore((s) => s.pinnedIds);
   const hiddenSidecarAddrs = useZenStore((s) => s.hiddenSidecarAddrs);
   const listRef = useRef<HTMLDivElement | null>(null);
@@ -65,6 +71,20 @@ export function ChatsList() {
     lastAtByKey,
     lastAtKeyFor
   );
+
+  // Agent status: re-read the activity snapshot while the list is up.
+  useEffect(() => {
+    if (source !== "live") return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const tick = () => {
+      if (document.visibilityState !== "hidden") void refreshActivity();
+      timer = setTimeout(tick, ACTIVITY_POLL_MS);
+    };
+    tick();
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [source, refreshActivity]);
 
   useEffect(() => {
     const root = listRef.current;
@@ -348,6 +368,14 @@ export function ChatsList() {
               : "";
           const preview =
             source === "stub" ? "STUB" : overlayRowPreview(a);
+          const busy =
+            source === "live" ? activityForRow(a, activity, isOverlayExtraAddr(a.addr)) : null;
+          const busyColor =
+            busy?.display === "waiting"
+              ? "var(--warning)"
+              : busy?.display === "monitoring"
+                ? "var(--accent)"
+                : "var(--success)";
           return (
           <button
             key={a.id}
@@ -365,21 +393,39 @@ export function ChatsList() {
             aria-label={
               source === "stub"
                 ? `STUB ${a.name}`
-                : isOverlayExtraAddr(a.addr)
-                  ? `${a.name}, ${overlayRowPreview(a)}`
-                  : a.name
+                : (isOverlayExtraAddr(a.addr)
+                    ? `${a.name}, ${overlayRowPreview(a)}`
+                    : a.name) + (busy ? `, ${activityRowText(busy)}` : "")
             }
             data-last-at-key={lastKey}
             data-pin-id={a.id}
             data-pin-from="list"
           >
-            <WorkspaceAvatar
-              initial={a.initial}
-              color={a.color}
-              iconUrl={a.iconUrl}
-              size={50}
-              fontSize={18}
-            />
+            <span className="relative shrink-0">
+              <WorkspaceAvatar
+                initial={a.initial}
+                color={a.color}
+                iconUrl={a.iconUrl}
+                size={50}
+                fontSize={18}
+              />
+              {busy ? (
+                <span
+                  aria-hidden
+                  data-testid="row-activity-dot"
+                  className={`absolute rounded-full ${busy.display === "working" ? "k2-pulse" : ""}`}
+                  style={{
+                    right: -1,
+                    bottom: -1,
+                    width: 14,
+                    height: 14,
+                    background: busyColor,
+                    color: busyColor,
+                    border: "2.5px solid var(--root)",
+                  }}
+                />
+              ) : null}
+            </span>
             <span className="flex-1 min-w-0">
               <span className="flex justify-between items-baseline gap-2">
                 <span className="truncate text-[16px] font-semibold" style={{ letterSpacing: "-0.2px" }}>
@@ -399,13 +445,23 @@ export function ChatsList() {
                   </span>
                 )}
               </span>
-              <span
-                className="block text-[14px] truncate"
-                style={{ color: "#8e8e93", lineHeight: 1.3 }}
-                data-testid="row-preview"
-              >
-                {preview}
-              </span>
+              {busy ? (
+                <span
+                  className="block text-[14px] truncate"
+                  style={{ color: busyColor, lineHeight: 1.3 }}
+                  data-testid="row-activity"
+                >
+                  {activityRowText(busy)}
+                </span>
+              ) : (
+                <span
+                  className="block text-[14px] truncate"
+                  style={{ color: "#8e8e93", lineHeight: 1.3 }}
+                  data-testid="row-preview"
+                >
+                  {preview}
+                </span>
+              )}
             </span>
           </button>
           );

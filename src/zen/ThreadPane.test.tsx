@@ -4,14 +4,20 @@ import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/re
 
 vi.mock("../api/client", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../api/client")>();
-  return { ...actual, uploadFsBinary: vi.fn(), answerThread: vi.fn() };
+  return {
+    ...actual,
+    uploadFsBinary: vi.fn(),
+    answerThread: vi.fn(),
+    getThreadActivity: vi.fn(async () => ({ ok: true, data: { turn: null } })),
+  };
 });
 
 vi.mock("./overlayEvents", () => ({
   connectOverlayEvents: vi.fn(() => ({ stop: vi.fn() })),
 }));
 
-import { answerThread, uploadFsBinary } from "../api/client";
+import { act } from "@testing-library/react";
+import { answerThread, getThreadActivity, uploadFsBinary } from "../api/client";
 import { connectOverlayEvents } from "./overlayEvents";
 import { COMPOSER_MAX_PX, ThreadPane, composerHeight } from "./ThreadPane";
 import { normaliseThreadItem } from "./threadModel";
@@ -625,6 +631,109 @@ describe("ThreadPane", () => {
     );
     unmount();
     expect(stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the working strip from an activity frame, never as a message", async () => {
+    vi.mocked(connectOverlayEvents).mockReturnValue({ stop: vi.fn() });
+    useZenStore.setState({
+      threadSource: "live",
+      threadAddr: "k2so-companion",
+      threadGroupId: null,
+      threadConversationId: "conv-live",
+      threadError: null,
+      thread: [],
+    });
+    render(<ThreadPane />);
+    await waitFor(() => expect(getThreadActivity).toHaveBeenCalledWith("k2so-companion"));
+    const opts = vi.mocked(connectOverlayEvents).mock.calls[0][0];
+    const now = Date.now();
+    act(() => {
+      opts.onItem({
+        collection: "activity",
+        seq: 0,
+        id: "t-1",
+        activity: {
+          turnId: "t-1",
+          state: "working",
+          phase: "tool",
+          phaseSince: now - 3_000,
+          line: "Running `npm test`",
+          startedAt: now - 12_000,
+          subagents: 1,
+          subagentsDone: 0,
+          background: 0,
+          tally: { read: 2, search: 0, cmd: 1, edit: 0 },
+          waitingOn: null,
+          end: null,
+          serverNow: now,
+          rev: 3,
+        },
+      } as never);
+    });
+    const strip = screen.getByTestId("thread-working-strip");
+    expect(strip.getAttribute("data-tone")).toBe("working");
+    expect(screen.getByTestId("thread-strip-step-text").textContent).toBe("Running npm test");
+    expect(screen.getByTestId("thread-strip-tally").textContent).toBe(
+      "Read 2 files · ran 1 command · 1 subagent running"
+    );
+    expect(useZenStore.getState().thread).toEqual([]);
+    act(() => {
+      opts.onItem({
+        collection: "activity",
+        seq: 0,
+        id: "t-1",
+        activity: {
+          turnId: "t-1",
+          state: "idle",
+          phase: "working",
+          phaseSince: now,
+          startedAt: now - 12_000,
+          tally: {},
+          end: { reason: "reply", detail: null, at: now },
+          serverNow: now,
+          rev: 4,
+        },
+      } as never);
+    });
+    expect(screen.queryByTestId("thread-working-strip")).toBeNull();
+  });
+
+  it("re-reads the live turn on every socket open", async () => {
+    vi.mocked(connectOverlayEvents).mockReturnValue({ stop: vi.fn() });
+    vi.mocked(getThreadActivity).mockClear();
+    useZenStore.setState({
+      threadSource: "live",
+      threadAddr: "appa",
+      threadGroupId: null,
+      threadConversationId: "conv-2",
+      threadError: null,
+      thread: [],
+    });
+    render(<ThreadPane />);
+    await waitFor(() => expect(getThreadActivity).toHaveBeenCalledTimes(1));
+    const now = Date.now();
+    vi.mocked(getThreadActivity).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        turn: {
+          turnId: "t-9",
+          state: "needs-you",
+          phase: "waiting",
+          phaseSince: now - 5_000,
+          startedAt: now - 60_000,
+          waitingOn: "permission",
+          end: null,
+          serverNow: now,
+          rev: 2,
+        },
+      },
+    } as never);
+    act(() => vi.mocked(connectOverlayEvents).mock.calls[0][0].onOpen?.());
+    await waitFor(() => expect(screen.getByTestId("thread-working-strip")).not.toBeNull());
+    expect(screen.getByTestId("thread-strip-state").textContent).toBe("Needs you");
+    expect(screen.getByTestId("thread-strip-step-text").textContent).toBe(
+      "Stuck on a permission prompt"
+    );
   });
 
   it("does not open the overlay events socket without a conversation id", () => {

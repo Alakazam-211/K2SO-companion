@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, onTestFinished, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
@@ -290,8 +290,43 @@ describe("ChatsList", () => {
     });
     mount();
     const row = screen.getByLabelText("appa");
-    const avatar = row.querySelector("span");
+    const avatar = row.querySelector("span > span");
     expect(avatar?.getAttribute("style") || "").toMatch(/rgb\(34, 197, 94\)|#22c55e/);
+  });
+
+  it("pulses a busy agent and shows its counts in place of the preview", () => {
+    const original = useZenStore.getState().refreshActivity;
+    onTestFinished(() =>
+      useZenStore.setState({ refreshActivity: original, activity: { byPath: {}, bySession: {} } })
+    );
+    const refreshActivity = vi.fn(async () => {});
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [
+        { id: "/ws", name: "appa", initial: "A", path: "/ws", addr: "appa" },
+        { id: "/quiet", name: "quiet", initial: "Q", path: "/quiet", addr: "quiet" },
+      ],
+      agentError: null,
+      screen: "list",
+      refreshActivity,
+      activity: {
+        byPath: {
+          "/ws": { display: "working", counts: { subagents: 1, tools: 14, commands: 5 } },
+          "/quiet": { display: "idle", counts: { subagents: 0, tools: 0, commands: 0 } },
+        },
+        bySession: {},
+      },
+    });
+    mount();
+    expect(refreshActivity).toHaveBeenCalled();
+    const row = screen.getByLabelText("appa, Working · 1 subagent · 14 tools · 5 commands");
+    expect(row.querySelector('[data-testid="row-activity-dot"]')?.className).toContain("k2-pulse");
+    expect(row.querySelector('[data-testid="row-activity"]')?.textContent).toBe(
+      "Working · 1 subagent · 14 tools · 5 commands"
+    );
+    const quiet = screen.getByLabelText("quiet");
+    expect(quiet.querySelector('[data-testid="row-activity-dot"]')).toBeNull();
+    expect(quiet.querySelector('[data-testid="row-preview"]')).not.toBeNull();
   });
 
   it("hold-drag a chat onto the pin grid pins it, drag a pin down unpins", () => {

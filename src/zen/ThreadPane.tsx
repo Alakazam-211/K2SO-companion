@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
-import { uploadFsBinary } from "../api/client";
+import { getThreadActivity, uploadFsBinary } from "../api/client";
 import { ChatMessageBody } from "../components/ChatMessage";
 import { asErrorText } from "../lib/apiError";
 import {
@@ -20,6 +20,13 @@ import {
   type MessageAnchor,
 } from "./threadScroll";
 import { connectOverlayEvents } from "./overlayEvents";
+import {
+  applyActivityCatchUp,
+  applyActivityFrame,
+  isActivityFrame,
+  type ThreadTurn,
+} from "./threadTurn";
+import { ThreadWorkingStrip } from "./ThreadWorkingStrip";
 import { isSendableAddr } from "./sendGate";
 import { sourceWord, useZenStore } from "./zenStore";
 
@@ -161,6 +168,12 @@ export function ThreadPane() {
   const pendingAnchor = useRef<MessageAnchor | null>(null);
   const prevAgent = useRef<string>("");
   const prevFirst = useRef<number | null>(null);
+  // The working strip's turn. `turnFrames` counts activity frames so a
+  // catch-up answer that raced a frame is dropped (the frame is newer).
+  const [turn, setTurn] = useState<ThreadTurn | null>(null);
+  const turnFrames = useRef(0);
+  const addrRef = useRef(threadAddr);
+  addrRef.current = threadAddr;
 
   useLayoutEffect(() => {
     const el = scrollerRef.current;
@@ -189,26 +202,74 @@ export function ThreadPane() {
   }, [agentId]);
 
   useEffect(() => {
+    setTurn(null);
+  }, [agentId, conversationId, threadGroupId]);
+
+  useEffect(() => {
     if (source !== "live" && source !== "error") return;
+    let stopped = false;
+    // `GET /cli/thread/activity`: the live turn, or null. Pre-0.45 servers
+    // 404 and the strip just never shows.
+    const catchUpActivity = async () => {
+      const addr = addrRef.current;
+      if (!addr || threadGroupId) return;
+      const mark = turnFrames.current;
+      try {
+        const r = await getThreadActivity(addr);
+        if (stopped || addrRef.current !== addr || turnFrames.current !== mark) return;
+        if (!r.ok) return;
+        const at = Date.now();
+        setTurn((t) => applyActivityCatchUp(t, r.data, at));
+      } catch {
+        /* keep the strip as it is */
+      }
+    };
     const onVis = () => {
       if (document.visibilityState === "visible") {
         void useZenStore.getState().refreshOpenThread();
+        void catchUpActivity();
       }
     };
     document.addEventListener("visibilitychange", onVis);
     if (!conversationId || threadGroupId) {
-      return () => document.removeEventListener("visibilitychange", onVis);
+      return () => {
+        stopped = true;
+        document.removeEventListener("visibilitychange", onVis);
+      };
     }
+    void catchUpActivity();
     const live = connectOverlayEvents({
       conversationId,
-      onItem: (raw) => useZenStore.getState().ingestThreadRaw(raw),
-      onNeedCatchUp: () => void useZenStore.getState().refreshOpenThread(),
+      onItem: (raw) => {
+        if (isActivityFrame(raw)) {
+          turnFrames.current += 1;
+          const at = Date.now();
+          setTurn((t) => applyActivityFrame(t, raw, at));
+          return;
+        }
+        useZenStore.getState().ingestThreadRaw(raw);
+      },
+      onNeedCatchUp: () => {
+        void useZenStore.getState().refreshOpenThread();
+        void catchUpActivity();
+      },
+      onOpen: () => void catchUpActivity(),
     });
     return () => {
+      stopped = true;
       live.stop();
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [source, conversationId, threadGroupId]);
+
+  // The strip appearing or changing shape keeps the newest in view when
+  // the reader was already at the bottom.
+  const turnShape = turn ? `${turn.turnId}:${turn.phase}:${turn.end ? 1 : 0}` : "";
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    if (!el || !turnShape) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) stickToNewest(el);
+  }, [turnShape]);
 
   useLayoutEffect(() => {
     const el = composerRef.current;
@@ -328,6 +389,7 @@ export function ThreadPane() {
                 </span>
               </div>
             ))}
+            {turn && !threadGroupId ? <ThreadWorkingStrip turn={turn} /> : null}
           </>
         )}
       </div>
@@ -450,12 +512,11 @@ export function ThreadPane() {
               aria-label="Add file"
               disabled={!canAttach || sending || uploading}
               onClick={() => fileRef.current?.click()}
-              className="shrink-0 flex items-center justify-center disabled:opacity-40"
+              className="shrink-0 flex items-center justify-center disabled:opacity-40 k2-tile"
               style={{
                 width: 34,
                 height: 34,
                 borderRadius: "50%",
-                background: "#1c1c1e",
                 color: "#d1d1d6",
                 fontSize: 22,
                 lineHeight: 1,
@@ -464,7 +525,7 @@ export function ThreadPane() {
               ＋
             </button>
           ) : null}
-          <div className="flex-1 min-w-0 overflow-hidden flex items-end rounded-[20px] px-3 py-2 bg-[var(--card)]">
+          <div className="flex-1 min-w-0 overflow-hidden flex items-end rounded-[20px] px-3 py-2 k2-tile">
             <textarea
               ref={composerRef}
               disabled={!canSend || sending || uploading}
