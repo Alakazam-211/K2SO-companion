@@ -1,0 +1,29 @@
+/* Glass edge on agent avatars — the same rim + sheen as `.k2-tile`
+   (desktop Zen's tile edge), drawn as an overlay so it sits on top of
+   image icons too (a plain border would be covered by the <img>). */
+.k2-avatar {
+  /* Very subtle lift; the tile's 30px shadow is far too big here. */
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.18);
+}
+.k2-avatar-glass {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  pointer-events: none;
+  border: 1px solid var(--tile-edge);
+  box-shadow: var(--tile-sheen);
+}
+/* Small avatars (terminal header, 28px): same 1px rim, softer sheen. */
+.k2-avatar-sm .k2-avatar-glass {
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+@supports (color: color-mix(in srgb, red, blue)) {
+  .k2-avatar-sm .k2-avatar-glass {
+    box-shadow: inset 0 1px 0 color-mix(in srgb, white 12%, transparent);
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .k2-avatar-glass {
+    border-color: var(--card-border);
+  }
+}
