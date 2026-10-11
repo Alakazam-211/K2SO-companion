@@ -10,6 +10,7 @@ import { TicketSheet } from "../components/TicketSheet";
 import {
   commentFeedback,
   deliveredLine,
+  isClosedStatus,
   optionsActionable,
   relativeAge,
   resolveFeedback,
@@ -28,11 +29,12 @@ import { useSessionIdentity } from "../lib/useSessionIdentity";
 // sheet (TicketSheet — chevron affordance on the right); the composer is
 // blurred first so the sheet never fights the keyboard.
 //
-// Every reply is a plain comment — the daemon
-// injects human comments into the asking session, and the FIRST human
-// comment on a waiting question/approval IS the answer (no separate
-// Answer button); the response's answered/delivered fields drive the
-// receipt line. Resolve / Dismiss / Reopen ride the resolve route. The
+// Answering (daemon 0.43.2+): an option button sends the comment with
+// `optionPick:true`, which marks the ticket answered; typed text is a
+// plain comment, which moves it to needs_discussion. Both are injected
+// into the asking session; the response's answered/delivered fields drive
+// the receipt line. Options stay tappable until the ticket is resolved or
+// dismissed. Resolve / Dismiss / Reopen ride the resolve route. The
 // TabBar + server footer hide here like /chat/:id (their route guards).
 //
 // Live: the feedback store's /events subscription refetches this thread
@@ -54,6 +56,8 @@ export function FeedbackThread() {
   const navigate = useNavigate();
   const activeServerId = useServersStore((s) => s.activeServerId);
   const item = useFeedbackStore((s) => s.openItem);
+  /** The list row knows `linked` (show doesn't); missing = linked. */
+  const linked = useFeedbackStore((s) => s.rows.find((r) => r.id === id)?.linked !== false);
   const openError = useFeedbackStore((s) => s.openError);
   const identity = useSessionIdentity();
 
@@ -115,12 +119,12 @@ export function FeedbackThread() {
     [busy]
   );
 
-  const sendComment = (text: string): void => {
+  const sendComment = (text: string, optionPick = false): void => {
     const body = text.trim();
     if (!body || !item) return;
     void submit(async () => {
-      const res = await commentFeedback(item.id, body);
-      setReply("");
+      const res = await commentFeedback(item.id, body, { optionPick });
+      if (!optionPick) setReply("");
       setReceipt({
         answered: res.answered === true,
         line: deliveredLine(item.agentName, res.delivered, res.deliveryReason),
@@ -135,7 +139,7 @@ export function FeedbackThread() {
   };
 
   const nowSec = Date.now() / 1000;
-  const openItem = item && (item.status === "waiting" || item.status === "answered");
+  const openItem = item && !isClosedStatus(item.status);
 
   return (
     // Backdrop covers the whole viewport (incl. the strip below a
@@ -241,18 +245,18 @@ export function FeedbackThread() {
               }}
             />
 
-            {/* Structured options — one-tap replies while waiting; the
-                accepted choice stays highlighted after. */}
+            {/* Structured options — one-tap answers (optionPick) until the
+                ticket is closed; the accepted choice stays highlighted. */}
             {item.options && item.options.length > 0 && (
               <div className="mb-3 flex flex-wrap gap-2">
                 {item.options.map((opt) => {
                   const accepted = item.answer === opt;
-                  const tappable = optionsActionable(item) && !busy;
+                  const tappable = optionsActionable({ ...item, linked }) && !busy;
                   return (
                     <button
                       key={opt}
                       disabled={!tappable}
-                      onClick={() => sendComment(opt)}
+                      onClick={() => sendComment(opt, true)}
                       className={`px-3 py-2 text-[11px] border transition-colors ${
                         accepted
                           ? "border-[var(--accent)] text-[var(--accent)] bg-[var(--accent-dim)]/20"
@@ -290,9 +294,8 @@ export function FeedbackThread() {
 
           {/* Composer — the shared terminal-style composer (thumb-sized
               ↑ sends). Receipts + Resolve/Dismiss/Reopen ride the
-              accessory rows above the input; every send is still a plain
-              comment (the first human comment on a waiting ask IS the
-              answer — sendComment is unchanged). */}
+              accessory rows above the input; a typed send is a plain
+              comment (→ needs_discussion), never an optionPick. */}
           <MessageComposer
             lift
             value={reply}

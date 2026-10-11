@@ -34,7 +34,7 @@ assert(feedbackEventTargets("agent:lifecycle") === null && feedbackEventTargets(
 assert(relativeAge(0, 30) === "now" && relativeAge(0, 300) === "5m" && relativeAge(0, 7200) === "2h" && relativeAge(0, 200000) === "2d", "relativeAge buckets");
 assert(deliveredLine("appa", true, null) === "sent to appa's session", "delivered line");
 assert(deliveredLine("appa", false, "session_gone").includes("session gone"), "failure line carries reason");
-assert(optionsActionable({ status: "waiting", options: ["y"] }) === true && optionsActionable({ status: "answered", options: ["y"] }) === false, "optionsActionable");
+assert(optionsActionable({ status: "waiting", options: ["y"] }) === true && optionsActionable({ status: "answered", options: ["y"] }) === true && optionsActionable({ status: "resolved", options: ["y"] }) === false && optionsActionable({ status: "waiting", options: ["y"], linked: false }) === false, "optionsActionable (live until closed; never unlinked)");
 
 // ── filterBySearch (tokenized, title/body/workspace/agent/kind/status/id) ──
 const searchRows = [

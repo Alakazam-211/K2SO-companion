@@ -4,13 +4,33 @@
 // feedback.ts, which re-exports everything here.
 
 export type FeedbackKind = "question" | "approval" | "fyi";
-export type FeedbackStatus = "waiting" | "answered" | "resolved" | "dismissed";
+/** Every status the daemon stores (0.40.95+). The open list is waiting,
+ *  answered and needs_discussion; `planned` is closed-ish. A newer daemon
+ *  may add more, so every switch below has a default arm. */
+export type FeedbackStatus =
+  | "waiting"
+  | "needs_discussion"
+  | "answered"
+  | "planned"
+  | "resolved"
+  | "dismissed";
+
+/** Statuses a person can set from the status menu (`resolve {id,status}`).
+ *  `answered` also carries the agreed outcome (`resolve answered+answer`). */
+export const SETTABLE_STATUSES: readonly FeedbackStatus[] = [
+  "waiting",
+  "needs_discussion",
+  "answered",
+  "planned",
+  "resolved",
+  "dismissed",
+];
 
 export interface FeedbackItem {
   id: string;
   projectId: string;
   sessionId: string | null;
-  sessionKind: "canonical" | "sandbox" | null;
+  sessionKind: string | null;
   agentName: string;
   kind: FeedbackKind;
   title: string;
@@ -25,6 +45,12 @@ export interface FeedbackItem {
   commentCount: number;
   /** Username snapshots for push targeting + the people filter. */
   assignees?: string[] | null;
+  /** 0.43.2+: the ticket has a stored HTML brief. Missing = false. */
+  hasBrief?: boolean;
+  briefBytes?: number | null;
+  /** `list-all` only: false when the workspace was removed (read-only,
+   *  Resolve/Dismiss only). Missing = linked. */
+  linked?: boolean;
 }
 
 /** A list row tagged with the workspace it was fetched for (the list
@@ -41,17 +67,31 @@ export interface FeedbackComment {
   at: number;
 }
 
+/** `show?brief=1` → `brief`. Cleaned HTML, immutable once filed, so it is
+ *  fetched once per ticket and cached by `sha256`. */
+export interface FeedbackBrief {
+  html: string;
+  text: string;
+  bytes: number;
+  sha256: string;
+  sanitizer: string;
+  createdAt: number;
+}
+
 /** The `show` wire shape: the item flat + workspace/projectPath + thread. */
 export interface FeedbackShow extends FeedbackItem {
   workspace: string | null;
   projectPath: string | null;
   comments: FeedbackComment[];
+  canonicalSessionId?: string | null;
+  /** Only with `brief=1`; null when the ticket has none. */
+  brief?: FeedbackBrief | null;
 }
 
 /** `POST /cli/feedback/comment` response for a HUMAN (author-less)
- *  comment. `answered` = this comment auto-answered a waiting
- *  question/approval; delivered/deliveryReason report the best-effort
- *  injection into the asking session. */
+ *  comment. `answered` = an option pick (`optionPick:true`) answered the
+ *  ticket; free text leaves it `needs_discussion`. delivered/deliveryReason
+ *  report the best-effort injection into the asking session. */
 export interface CommentResponse {
   ok: boolean;
   id: string;
@@ -76,25 +116,100 @@ export function sortNewestFirst<T extends { createdAt: number }>(rows: T[]): T[]
   return [...rows].sort((a, b) => b.createdAt - a.createdAt);
 }
 
-/** Page sectioning: Waiting is the prominent section; Answered and
- *  Closed (resolved/dismissed) stay accessible below — the desktop's
- *  groupByStatus, section-header form (simpler than filter chips). */
+/** Page sectioning, desktop order: Waiting, Needs discussion, Answered,
+ *  Planned, Unlinked workspace, then Closed (resolved/dismissed). An open
+ *  ticket whose workspace is gone (`linked:false`) goes in `unlinked`, never
+ *  `waiting`, so the waiting section still matches the badge. An unknown
+ *  status lands in `closed` rather than vanishing. */
 export interface GroupedFeedback<T> {
   waiting: T[];
+  needs_discussion: T[];
   answered: T[];
+  planned: T[];
+  unlinked: T[];
   closed: T[];
 }
 
-export function groupByStatus<T extends { status: FeedbackStatus }>(
+/** True for a row whose workspace was removed (only `list-all` sets it). */
+export function isUnlinked(row: { linked?: boolean }): boolean {
+  return row.linked === false;
+}
+
+/** resolved / dismissed: options disabled, chip muted. */
+export function isClosedStatus(status: string): boolean {
+  return status === "resolved" || status === "dismissed";
+}
+
+export function groupByStatus<T extends { status: FeedbackStatus; linked?: boolean }>(
   rows: T[]
 ): GroupedFeedback<T> {
-  const grouped: GroupedFeedback<T> = { waiting: [], answered: [], closed: [] };
+  const grouped: GroupedFeedback<T> = {
+    waiting: [],
+    needs_discussion: [],
+    answered: [],
+    planned: [],
+    unlinked: [],
+    closed: [],
+  };
   for (const row of rows) {
-    if (row.status === "waiting") grouped.waiting.push(row);
+    if (isUnlinked(row) && !isClosedStatus(row.status)) grouped.unlinked.push(row);
+    else if (row.status === "waiting") grouped.waiting.push(row);
+    else if (row.status === "needs_discussion") grouped.needs_discussion.push(row);
     else if (row.status === "answered") grouped.answered.push(row);
+    else if (row.status === "planned") grouped.planned.push(row);
     else grouped.closed.push(row);
   }
   return grouped;
+}
+
+/** Section labels in render order (the Zen list and the classic page). */
+export const STATUS_SECTIONS: ReadonlyArray<{
+  key: keyof GroupedFeedback<unknown>;
+  label: string;
+}> = [
+  { key: "waiting", label: "Waiting" },
+  { key: "needs_discussion", label: "Needs discussion" },
+  { key: "answered", label: "Answered" },
+  { key: "planned", label: "Planned" },
+  { key: "unlinked", label: "Unlinked workspace" },
+  { key: "closed", label: "Closed" },
+];
+
+/** Human label for a status chip. Unknown values pass through. */
+export function statusLabel(status: string): string {
+  switch (status) {
+    case "waiting":
+      return "Waiting";
+    case "needs_discussion":
+      return "Needs discussion";
+    case "answered":
+      return "Answered";
+    case "planned":
+      return "Planned";
+    case "resolved":
+      return "Resolved";
+    case "dismissed":
+      return "Dismissed";
+    default:
+      return String(status || "unknown").replace(/_/g, " ");
+  }
+}
+
+/** Chip colour: waiting amber, needs_discussion orange, answered green,
+ *  planned accent, resolved/dismissed (and anything unknown) muted. */
+export function statusColor(status: string): string {
+  switch (status) {
+    case "waiting":
+      return "var(--warning)";
+    case "needs_discussion":
+      return "#fb923c";
+    case "answered":
+      return "var(--success)";
+    case "planned":
+      return "var(--accent)";
+    default:
+      return "var(--text-muted)";
+  }
 }
 
 /** Tokenized live search (the desktop feedback-api `filterBySearch`
@@ -216,17 +331,106 @@ export function filterByStatuses<T extends { status: FeedbackStatus }>(
   return rows.filter((r) => set.has(r.status));
 }
 
-/** TabBar badge count = items still waiting on the human. */
-export function countWaiting<T extends { status: FeedbackStatus }>(rows: T[]): number {
-  return rows.reduce((n, r) => n + (r.status === "waiting" ? 1 : 0), 0);
+/** TabBar badge count = linked items still waiting on the human (the
+ *  daemon's waiting-count skips unlinked tickets too, 0.43.0+). */
+export function countWaiting<T extends { status: FeedbackStatus; linked?: boolean }>(
+  rows: T[]
+): number {
+  return rows.reduce((n, r) => n + (r.status === "waiting" && !isUnlinked(r) ? 1 : 0), 0);
 }
 
-/** One-tap option buttons are live only while the ask still waits. */
+/** Option buttons stay live until the ticket is closed: a pick on an
+ *  answered or needs_discussion ticket still (re)answers it (0.43.2). */
 export function optionsActionable(item: {
   status: FeedbackStatus;
   options: string[] | null;
+  linked?: boolean;
 }): boolean {
-  return item.status === "waiting" && (item.options?.length ?? 0) > 0;
+  return (
+    !isClosedStatus(item.status) &&
+    !isUnlinked(item) &&
+    (item.options?.length ?? 0) > 0
+  );
+}
+
+// ─── Scope tabs (desktop TicketBoard: Waiting on me / Mine / All) ───
+
+export type TicketScope = "waiting" | "mine" | "all";
+
+export const TICKET_SCOPES: ReadonlyArray<{ value: TicketScope; label: string }> = [
+  { value: "waiting", label: "Waiting on me" },
+  { value: "mine", label: "Mine" },
+  { value: "all", label: "All" },
+];
+
+/** Lower-cased assignee names that mean "me". The owner is the wire
+ *  literal `owner` plus any display name; a Connect user is their
+ *  username. `extra` is the active server's saved username (the fallback
+ *  when whoami fails). */
+export function myAssigneeNames(
+  identity: { owner?: boolean; username?: string | null } | null,
+  extra: string[] = []
+): string[] {
+  const names: string[] = [];
+  if (identity?.owner) names.push("owner");
+  if (identity?.username) names.push(identity.username);
+  for (const e of extra) names.push(e);
+  return [
+    ...new Set(names.map((n) => (n ?? "").trim().toLowerCase()).filter(Boolean)),
+  ];
+}
+
+export function isAssignedToMe(
+  row: { assignees?: string[] | null },
+  me: readonly string[]
+): boolean {
+  if (me.length === 0) return false;
+  return (row.assignees ?? []).some((a) => me.includes(a.trim().toLowerCase()));
+}
+
+/** Mine = assigned to me; Waiting on me = mine AND waiting (unlinked rows
+ *  never count as waiting); All = everything. */
+export function filterByScope<
+  T extends { status: FeedbackStatus; assignees?: string[] | null; linked?: boolean },
+>(rows: T[], scope: TicketScope, me: readonly string[]): T[] {
+  if (scope === "all") return rows;
+  const mine = rows.filter((r) => isAssignedToMe(r, me));
+  return scope === "waiting"
+    ? mine.filter((r) => r.status === "waiting" && !isUnlinked(r))
+    : mine;
+}
+
+/** Up to two initials: "julie" → "J", "Rosson Long" → "RL", owner → "O". */
+export function assigneeInitials(name: string): string {
+  const parts = name.trim().split(/[\s._-]+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase();
+  return (parts[0].charAt(0) + parts[1].charAt(0)).toUpperCase();
+}
+
+/** Whitespace-collapsed one-liner (card summary, option labels). */
+export function collapseWs(s: string | null | undefined): string {
+  return (s ?? "").replace(/\s+/g, " ").trim();
+}
+
+/** `/cli/sessions/events` frames that mean "a ticket changed": the
+ *  desktop board's `feedback_changed` and the per-mutation
+ *  `ticket_changed` (0.43.3+). Frames carry ids only — refetch `show`. */
+export function isTicketEventFrame(frame: unknown): boolean {
+  if (!frame || typeof frame !== "object") return false;
+  const kind = (frame as { kind?: unknown }).kind;
+  return kind === "feedback_changed" || kind === "ticket_changed";
+}
+
+/** The delivery receipt after a human comment: null when the agent got
+ *  it, else the desktop's "Saved. The agent did not receive it (…)". */
+export function deliveryMissLine(res: {
+  delivered?: boolean;
+  deliveryReason?: string | null;
+}): string | null {
+  if (res.delivered !== false) return null;
+  const reason = (res.deliveryReason ?? "unreachable").replace(/_/g, " ");
+  return `Saved. The agent did not receive it (${reason}).`;
 }
 
 /** Which surfaces a `/events` frame refreshes. `created` lands new list

@@ -8,6 +8,7 @@ import {
   fetchFeedbackShow,
   countWaiting,
   feedbackEventTargets,
+  type FeedbackBrief,
   type FeedbackListRow,
   type FeedbackShow,
 } from "../api/feedback";
@@ -27,6 +28,18 @@ import {
 // rapid events fire ONE list refetch and ONE open-thread refetch; only
 // `openItem` is replaced by the refetch — the composer's draft lives in
 // page state, so mid-typed text survives (draft-protected).
+//
+// Briefs: `show?brief=1` carries up to 1 MiB of HTML + inline images and
+// never changes after filing, so it is fetched ONCE per ticket (on open,
+// when the row says `hasBrief`) and kept in memory keyed by ticket id →
+// sha256. Every refetch after that is a plain `show`.
+
+/** The brief for one ticket: in flight, loaded (null = the ticket has
+ *  none), or failed (the view falls back to `body`). */
+export type BriefEntry =
+  | { state: "loading" }
+  | { state: "ready"; brief: FeedbackBrief | null }
+  | { state: "error"; error: string };
 
 interface FeedbackState {
   /** All rows for the ACTIVE server (every status; sectioned in the page). */
@@ -42,13 +55,19 @@ interface FeedbackState {
   openId: string | null;
   openItem: FeedbackShow | null;
   openError: string | null;
+  /** Ticket id → its brief (see BriefEntry). In memory for the session. */
+  briefs: Record<string, BriefEntry>;
 
   /** Idempotent per-server kick: first load + events WS for the active
    *  server. Called from the TabBar badge and the pages on server switch. */
   ensureLive: () => void;
   refresh: () => Promise<void>;
-  openThread: (id: string) => Promise<void>;
+  /** `withBrief`: the row says `hasBrief`, so the first `show` asks for
+   *  `brief=1` too (skipped when the brief is already cached). */
+  openThread: (id: string, opts?: { withBrief?: boolean }) => Promise<void>;
   refetchOpen: () => Promise<void>;
+  /** Fetch `show?brief=1` once for `id` (no-op when cached or in flight). */
+  loadBrief: (id: string) => Promise<void>;
   closeThread: () => void;
 }
 
@@ -61,6 +80,7 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
   openId: null,
   openItem: null,
   openError: null,
+  briefs: {},
 
   ensureLive: () => {
     const serverId = useServersStore.getState().activeServerId;
@@ -113,15 +133,30 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
     }
   },
 
-  openThread: async (id) => {
+  openThread: async (id, opts = {}) => {
+    const wantBrief = opts.withBrief === true && briefMissing(get().briefs[id]);
     set({ openId: id, openItem: null, openError: null });
+    if (wantBrief) setBrief(id, { state: "loading" });
     try {
-      const item = await fetchFeedbackShow(id);
+      const shown = await fetchFeedbackShow(id, { brief: wantBrief });
+      if (wantBrief) setBrief(id, { state: "ready", brief: shown.brief ?? null });
       if (get().openId !== id) return; // navigated away mid-fetch
-      set({ openItem: item, openError: null });
+      set({ openItem: withoutBrief(shown), openError: null });
     } catch (err) {
+      if (wantBrief) setBrief(id, { state: "error", error: errText(err) });
       if (get().openId !== id) return;
-      set({ openError: err instanceof Error ? err.message : String(err) });
+      set({ openError: errText(err) });
+    }
+  },
+
+  loadBrief: async (id) => {
+    if (!briefMissing(get().briefs[id])) return;
+    setBrief(id, { state: "loading" });
+    try {
+      const shown = await fetchFeedbackShow(id, { brief: true });
+      setBrief(id, { state: "ready", brief: shown.brief ?? null });
+    } catch (err) {
+      setBrief(id, { state: "error", error: errText(err) });
     }
   },
 
@@ -131,7 +166,7 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
     try {
       const item = await fetchFeedbackShow(id);
       if (get().openId !== id) return;
-      set({ openItem: item, openError: null });
+      set({ openItem: withoutBrief(item), openError: null });
     } catch {
       /* keep the last good thread — the next event/mutation retries */
     }
@@ -139,6 +174,38 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
 
   closeThread: () => set({ openId: null, openItem: null, openError: null }),
 }));
+
+// ─── Brief cache ───
+
+/** sha256 → brief. Briefs are immutable, so two loads of the same sha
+ *  share one object (and the view's srcdoc memo keys on the sha). */
+const briefBySha = new Map<string, FeedbackBrief>();
+
+/** Not cached and not in flight. A failed load retries on the next open. */
+function briefMissing(entry: BriefEntry | undefined): boolean {
+  return !entry || entry.state === "error";
+}
+
+function setBrief(id: string, entry: BriefEntry): void {
+  let next = entry;
+  if (entry.state === "ready" && entry.brief?.sha256) {
+    const cached = briefBySha.get(entry.brief.sha256);
+    if (cached) next = { state: "ready", brief: cached };
+    else briefBySha.set(entry.brief.sha256, entry.brief);
+  }
+  useFeedbackStore.setState((s) => ({ briefs: { ...s.briefs, [id]: next } }));
+}
+
+/** The open item never holds the brief HTML (it lives in `briefs`). */
+function withoutBrief(item: FeedbackShow): FeedbackShow {
+  if (!("brief" in item)) return item;
+  const { brief: _brief, ...rest } = item;
+  return rest;
+}
+
+function errText(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
 
 // ─── Coalesced refetch timers (trailing 300ms; bursts → one fetch) ───
 

@@ -10,6 +10,9 @@ import {
   groupByStatus,
   relativeAge,
   sortRows,
+  statusColor,
+  statusLabel,
+  STATUS_SECTIONS,
   type FeedbackKind,
   type FeedbackListRow,
   type FeedbackSortKey,
@@ -19,7 +22,8 @@ import { FeedbackThread } from "./FeedbackThread";
 
 // Feedback C3 — the `/feedback` tab: every workspace's feedback items for
 // the ACTIVE server, Waiting first (the items blocking an agent), then
-// Answered, then Closed (resolved/dismissed). Tapping a card opens the
+// Needs discussion, Answered, Planned, Unlinked workspace, then Closed
+// (resolved/dismissed) — feedbackPure STATUS_SECTIONS. Tapping a card opens the
 // thread sub-route (`/feedback/:id` — nested below), which hides the tab
 // chrome like /chat/:id does. Live updates + the TabBar waiting badge ride
 // the feedback store's own `/events` subscription.
@@ -50,15 +54,14 @@ export function KindTag({ kind }: { kind: FeedbackKind }) {
 }
 
 export function StatusTag({ status }: { status: FeedbackStatus }) {
-  const color =
-    status === "waiting"
-      ? "text-[var(--warning)] border-[var(--warning)]/40"
-      : status === "answered"
-        ? "text-[var(--success)] border-[var(--success)]/40"
-        : "text-[var(--text-muted)] border-[var(--border-hover)]";
+  // Unknown statuses fall through to muted (statusColor's default arm).
+  const color = statusColor(status);
   return (
-    <span className={`px-2 py-1 text-[10px] uppercase tracking-wide border ${color}`}>
-      {status}
+    <span
+      className="px-2 py-1 text-[10px] uppercase tracking-wide border whitespace-nowrap"
+      style={{ color, borderColor: color }}
+    >
+      {statusLabel(status)}
     </span>
   );
 }
@@ -154,7 +157,9 @@ const SORT_OPTIONS: Array<{ key: FeedbackSortKey; label: string }> = [
 
 const STATUS_OPTIONS: Array<{ key: FeedbackStatus; label: string }> = [
   { key: "waiting", label: "Waiting" },
+  { key: "needs_discussion", label: "Needs discussion" },
   { key: "answered", label: "Answered" },
+  { key: "planned", label: "Planned" },
   { key: "resolved", label: "Resolved" },
   { key: "dismissed", label: "Dismissed" },
 ];
@@ -531,21 +536,14 @@ function FeedbackList() {
           </div>
         ) : (
           <>
-            <Section
-              label="Waiting on you"
-              rows={sortRows(grouped.waiting, sortKey)}
-              nowSec={nowSec}
-            />
-            <Section
-              label="Answered"
-              rows={sortRows(grouped.answered, sortKey)}
-              nowSec={nowSec}
-            />
-            <Section
-              label="Closed"
-              rows={sortRows(grouped.closed, sortKey)}
-              nowSec={nowSec}
-            />
+            {STATUS_SECTIONS.map((sec) => (
+              <Section
+                key={sec.key}
+                label={sec.key === "waiting" ? "Waiting on you" : sec.label}
+                rows={sortRows(grouped[sec.key], sortKey)}
+                nowSec={nowSec}
+              />
+            ))}
           </>
         )}
       </div>

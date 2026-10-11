@@ -10,17 +10,18 @@ import {
   type FeedbackListRow,
   type FeedbackProjectRef,
   type FeedbackShow,
+  type FeedbackStatus,
 } from "./feedbackPure";
 
 // Feedback C3 — companion client for the daemon's `/cli/feedback/*` routes
 // (feedback_routes.rs) + the pure list/thread helpers the page renders from.
 //
 // Wire shapes mirror k2-core's `FeedbackItem`/`FeedbackComment` (camelCase
-// serde). The list route is PER-WORKSPACE (`?project=<path>` is required —
-// `all=1` only widens the STATUS filter to include resolved/dismissed for
-// that ONE project, it is NOT server-wide), so `fetchAllFeedback` fans out
-// one GET per registered workspace and tags each row with its host —
-// exactly the desktop's fan-out (feedback-api.ts).
+// serde). `fetchAllFeedback` asks `list-all?all=1` (0.43.0+, one GET, with
+// unlinked rows); an older daemon gets the per-workspace `list?project=`
+// fan-out, tagging each row with its host — the desktop's two paths
+// (feedback-api.ts). Routes, statuses and answering rules: the K2 tickets
+// reference for the phone (2026-10-11).
 //
 // client.ts doesn't export its request wrapper (and C2/C3 must not edit
 // it), so this module carries its own minimal fetch with the SAME
@@ -72,8 +73,15 @@ async function feedbackFetch<T>(
   if (!out.ok) {
     let msg = `HTTP ${out.status}`;
     try {
-      const j = JSON.parse(out.text) as { error?: string };
-      if (j?.error) msg = j.error;
+      // 403 is a flat `{error:"…"}`; validation / not_found are nested
+      // `{error:{code,hint}}` (tickets reference §1).
+      const j = JSON.parse(out.text) as {
+        error?: string | { code?: string; hint?: string };
+      };
+      if (typeof j?.error === "string" && j.error) msg = j.error;
+      else if (j?.error && typeof j.error === "object") {
+        msg = j.error.hint || j.error.code || msg;
+      }
     } catch {
       /* non-JSON error body */
     }
@@ -84,13 +92,52 @@ async function feedbackFetch<T>(
 
 // ─── Endpoints ───
 
+/** Every ticket on the active server. A 0.43.0+ daemon answers in ONE
+ *  GET (`list-all?all=1`), including tickets from removed workspaces
+ *  (`linked:false`). An older daemon 404s there, so fall back to the
+ *  per-workspace fan-out, where every row is linked. */
+export async function fetchAllFeedback(
+  projects: FeedbackProjectRef[]
+): Promise<FeedbackListRow[]> {
+  try {
+    return await fetchHostFeedback();
+  } catch (err) {
+    console.warn("[feedback] list-all unavailable, fanning out", err);
+    return fetchFeedbackFanOut(projects);
+  }
+}
+
+/** `list-all` wire row: the item plus where it lives. */
+interface HostFeedbackWireRow extends FeedbackItem {
+  projectPath: string | null;
+  projectName: string | null;
+  linked: boolean;
+}
+
+async function fetchHostFeedback(): Promise<FeedbackListRow[]> {
+  const res = await feedbackFetch<{ ok: boolean; items?: HostFeedbackWireRow[] }>(
+    "/cli/feedback/list-all",
+    { params: { all: "1" } }
+  );
+  if (!Array.isArray(res.items)) throw new Error("feedback/list-all: no items");
+  return sortNewestFirst(
+    res.items.map((item) => ({
+      ...item,
+      assignees: item.assignees ?? [],
+      projectPath: item.linked ? (item.projectPath ?? "") : "",
+      projectName: item.linked ? (item.projectName ?? "") : "",
+      linked: item.linked !== false,
+    }))
+  );
+}
+
 /** GET /cli/feedback/list?project=<path>&all=1 for every registered
  *  workspace, tag rows with their host project, merge newest-first.
  *  Per-workspace failures are logged and skipped (one unregistered/
  *  unreachable workspace must not blank the whole page); a fully-failed
  *  fan-out throws so the page shows a real error instead of a fake
- *  empty. (Desktop fetchAllFeedback semantics.) */
-export async function fetchAllFeedback(
+ *  empty. (Desktop fetchFeedbackFanOut semantics.) */
+async function fetchFeedbackFanOut(
   projects: FeedbackProjectRef[]
 ): Promise<FeedbackListRow[]> {
   if (projects.length === 0) return [];
@@ -123,34 +170,66 @@ export async function fetchAllFeedback(
   return sortNewestFirst(results.flat());
 }
 
-/** GET /cli/feedback/show?id=<id> — one item + its full thread. */
-export function fetchFeedbackShow(id: string): Promise<FeedbackShow> {
-  return feedbackFetch<FeedbackShow>("/cli/feedback/show", { params: { id } });
+/** GET /cli/feedback/show?id=<id> — one item + its full thread. Plain
+ *  `show` never carries the brief; `{brief:true}` adds `brief=1` (up to
+ *  1 MiB of inline images), which callers do ONCE per ticket — the
+ *  brief is immutable, so event refetches stay plain. */
+export function fetchFeedbackShow(
+  id: string,
+  opts: { brief?: boolean } = {}
+): Promise<FeedbackShow> {
+  const params: Record<string, string> = { id };
+  if (opts.brief) params.brief = "1";
+  return feedbackFetch<FeedbackShow>("/cli/feedback/show", { params });
 }
 
-/** POST /cli/feedback/comment — it's just a comment thread. The
- *  companion posts author-less (= `owner`, a HUMAN comment): the daemon
- *  injects it into the asking session, and the FIRST human comment on a
- *  waiting question/approval doubles as the answer behind the scenes
- *  (status → answered, `ask --wait` unblocks). fyi never auto-answers.
+/** POST /cli/feedback/comment — a HUMAN comment (never send `author`:
+ *  any author other than `owner` is stored as an agent comment that
+ *  doesn't inject, wake or change status). Since 0.43.2:
+ *    - an option tap sends `optionPick:true` → status `answered`, the
+ *      pick becomes `answer`, and the agent hears it;
+ *    - free text (no flag) → status `needs_discussion` (any kind, fyi
+ *      included), and the agent hears it.
  *  Returns the delivery receipt for the composer's status line. */
-export function commentFeedback(id: string, body: string): Promise<CommentResponse> {
+export function commentFeedback(
+  id: string,
+  body: string,
+  opts: { optionPick?: boolean } = {}
+): Promise<CommentResponse> {
+  const payload: { id: string; body: string; optionPick?: true } = { id, body };
+  if (opts.optionPick === true) payload.optionPick = true;
   return feedbackFetch<CommentResponse>("/cli/feedback/comment", {
     method: "POST",
-    body: { id, body },
+    body: payload,
   });
 }
 
-/** GET /cli/users — Connect usernames for the assignee picker.
- *  Viewers may 403; caller should fall back to `["owner"]`. */
+/** Who can be assigned. 0.45.4+ `GET /cli/tickets/settings` → `people`
+ *  is Member-readable; else `GET /cli/users` (Admin floor, Members 403);
+ *  else just `owner`. Always includes `owner` first. */
 export async function fetchTicketUsers(): Promise<string[]> {
+  const withOwner = (names: string[]) => [
+    "owner",
+    ...names.filter((n) => n && n !== "owner"),
+  ];
+  try {
+    const res = await feedbackFetch<{
+      people?: Array<{ value?: string; disabled?: boolean }>;
+    }>("/cli/tickets/settings");
+    if (Array.isArray(res.people)) {
+      return withOwner(
+        res.people
+          .filter((p) => !p.disabled)
+          .map((p) => (p.value ?? "").trim())
+      );
+    }
+  } catch {
+    /* pre-0.45.4 daemon: fall through to /cli/users */
+  }
   const res = await feedbackFetch<{ users?: Array<{ username?: string }> }>(
     "/cli/users",
   );
-  const names = (res.users ?? [])
-    .map((u) => (u.username ?? "").trim())
-    .filter(Boolean);
-  return ["owner", ...names.filter((n) => n !== "owner")];
+  return withOwner((res.users ?? []).map((u) => (u.username ?? "").trim()));
 }
 
 /** POST /cli/feedback/assign — replace the assignee set. */
@@ -164,16 +243,19 @@ export function assignFeedback(
   });
 }
 
-/** POST /cli/feedback/resolve — `resolved`, `dismissed`, or `waiting`
- *  (reopen). `answered` is NOT manually settable — only reachable
- *  through an actual reply. */
+/** POST /cli/feedback/resolve — set any status (`waiting` reopens).
+ *  `answered` carries the agreed outcome as `answer`; it is recorded but
+ *  NOT injected into the agent (an option pick is how to tell the agent). */
 export function resolveFeedback(
   id: string,
-  status: "resolved" | "dismissed" | "waiting"
+  status: FeedbackStatus,
+  answer?: string
 ): Promise<void> {
+  const body: { id: string; status: FeedbackStatus; answer?: string } = { id, status };
+  if (status === "answered" && answer !== undefined) body.answer = answer;
   return feedbackFetch<{ ok: boolean }>("/cli/feedback/resolve", {
     method: "POST",
-    body: { id, status },
+    body,
   }).then(() => undefined);
 }
 
