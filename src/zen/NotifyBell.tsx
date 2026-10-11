@@ -3,6 +3,7 @@ import { useServersStore } from "../stores/servers";
 import { useNotifyPrefsStore } from "../stores/notifyPrefs";
 import { connectNotifyPrefsEvents } from "./ticketEvents";
 import { scopeFor } from "../api/scope";
+import { useRoomServer } from "./zenScope";
 
 /** Bell glyph: filled when on, outlined with a slash when off. */
 export function BellIcon({ on, size = 18 }: { on: boolean; size?: number }) {
@@ -27,11 +28,13 @@ export function BellIcon({ on, size = 18 }: { on: boolean; size?: number }) {
 }
 
 /** Load Thread push prefs for these servers while mounted (feature probe
- *  first; a server without `thread-push-v1` is never asked), and refetch
- *  the ACTIVE server's on `notify_prefs_changed`. The app-level events
- *  socket is shared per server and only the active server holds one. */
+ *  first; a server without `thread-push-v1` is never asked), and refetch on
+ *  `notify_prefs_changed` from the server's app-event hub — the active
+ *  server's, and an open room's on another server (one carrier per
+ *  server, MS25). */
 export function useNotifyPrefsLive(serverIds: string[]): void {
   const activeServerId = useServersStore((s) => s.activeServerId);
+  const roomId = useRoomServer((s) => s.serverId);
   const tokens = useServersStore((s) => s.tokens);
   const key = serverIds.filter((id) => tokens[id]).join(",");
   useEffect(() => {
@@ -41,6 +44,7 @@ export function useNotifyPrefsLive(serverIds: string[]): void {
   const activeOn = useNotifyPrefsStore(
     (s) => !!activeServerId && s.threadPush[activeServerId] === true
   );
+  const roomOn = useNotifyPrefsStore((s) => !!roomId && s.threadPush[roomId] === true);
   useEffect(() => {
     if (!activeServerId || !activeOn) return;
     const h = connectNotifyPrefsEvents(scopeFor(activeServerId), () => {
@@ -48,4 +52,11 @@ export function useNotifyPrefsLive(serverIds: string[]): void {
     });
     return () => h.stop();
   }, [activeServerId, activeOn]);
+  useEffect(() => {
+    if (!roomId || !roomOn) return;
+    const h = connectNotifyPrefsEvents(scopeFor(roomId), () => {
+      void useNotifyPrefsStore.getState().refresh(roomId);
+    });
+    return () => h.stop();
+  }, [roomId, roomOn]);
 }

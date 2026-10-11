@@ -624,9 +624,9 @@ export function ChatsList() {
     );
   };
 
-  /** A pin from another server: not draggable in S2 (pin writes on a
-   *  non-active server come with rooms, S3); a tap opens it the S2 way,
-   *  or runs its server's one fix. */
+  /** A pin from another server: read-only, not draggable (pin writes on
+   *  a non-active server are not built yet, MA50); a tap opens a room on
+   *  its server, or runs its server's one fix. */
   const renderRemotePin = (r: MergedRow) => {
     const { failure, busy } = remoteView(r);
     const color = busy ? activityColor(busy) : "";

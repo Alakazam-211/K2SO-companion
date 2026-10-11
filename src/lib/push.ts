@@ -3,7 +3,10 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { load } from "@tauri-apps/plugin-store";
 import { cliAuthHeaders } from "../api/cliAuth";
 import { FEATURE_THREAD_PUSH, getBootStatus, serverHasFeature } from "../api/client";
-import { scopeFor, type ServerScope } from "../api/scope";
+import { scopeFor, versionAtLeast, type ServerScope } from "../api/scope";
+import { useMultiServerPrefs } from "../zen/multi/prefs";
+import { PHONE_FLOOR } from "../zen/multi/rowStatus";
+import { withServerParam } from "../zen/room/serverRef";
 import { scopedFetch } from "../api/scopedFetch";
 import {
   onServerLeave,
@@ -483,18 +486,45 @@ async function switchToServer(serverId: string): Promise<boolean> {
   return true;
 }
 
-/** Route one tap. Thread taps resolve their server first (switching to
- *  it when it is not the active one) and are dropped when no saved
- *  server matches. Other kinds keep the current server. */
+/** A known version below the phone floor cannot hold a room (MS30). */
+function belowFloor(serverId: string): boolean {
+  const v = scopeFor(serverId).version();
+  return !!v && !versionAtLeast(v, PHONE_FLOOR);
+}
+
+/** Route one tap.
+ *
+ *  Thread taps resolve their server first and are dropped when no saved
+ *  server matches. With the multi-server flag on (MA23, MS21) a tap from
+ *  another server opens a ROOM there — `/zen?addr=&seq=&server=` — and the
+ *  active server never changes (a server below the phone floor still
+ *  switches, the old way). Flag off: switch, then open (as before).
+ *
+ *  Ticket taps: Tickets live on the DEFAULT server (NG6, MA34). Flag off,
+ *  they open on the current server (as before). Flag on, a ticket whose
+ *  `subdomain` names another saved server makes that server the default
+ *  first (the user's tap is the explicit choice); no match keeps the
+ *  default. Project taps keep the current server. */
 export async function routeTap(
   tap: TapPayload | null | undefined,
   navigate: (path: string) => void,
   opts: { zen?: boolean } = {}
 ): Promise<void> {
   if (!tap) return;
-  if (str(tap.kind) !== "thread") {
+  const kind = str(tap.kind);
+  if (kind !== "thread") {
     const path = tapPath(tap, opts);
-    if (path) navigate(path);
+    if (!path) return;
+    if (TICKET_KINDS.has(kind) && useMultiServerPrefs.getState().multiServer && str(tap.subdomain)) {
+      try {
+        const server = await resolveTapServer(tap);
+        const active = useServersStore.getState().activeServerId;
+        if (server && server.id !== active && !(await switchToServer(server.id))) return;
+      } catch (e) {
+        console.warn("[push] ticket tap server check failed:", e);
+      }
+    }
+    navigate(path);
     return;
   }
   const path = threadTapPath(tap);
@@ -502,6 +532,11 @@ export async function routeTap(
   try {
     const server = await resolveTapServer(tap);
     if (!server) return;
+    const active = useServersStore.getState().activeServerId;
+    if (server.id !== active && useMultiServerPrefs.getState().multiServer && !belowFloor(server.id)) {
+      navigate(withServerParam(path, server.id));
+      return;
+    }
     if (!(await switchToServer(server.id))) return;
     navigate(path);
   } catch (e) {

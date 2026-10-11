@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const listeners: Record<string, (tap: unknown) => void> = {};
 const invoke = vi.fn(async (cmd: string): Promise<unknown> => {
@@ -36,6 +36,8 @@ vi.mock("../api/client", () => ({
 }));
 
 import { getBootStatus, serverHasFeature } from "../api/client";
+import { noteBootStatus, __resetScopesForTests } from "../api/scope";
+import { useMultiServerPrefs } from "../zen/multi/prefs";
 import { connectServer } from "./revive";
 import { signOutServer, useServersStore, type ServerEntry } from "../stores/servers";
 import {
@@ -267,6 +269,40 @@ describe("routeTap", () => {
     await routeTap({ kind: "ticket", feedbackId: "f1", subdomain: "work" }, navigate, { zen: true });
     expect(navigate).toHaveBeenCalledWith("/zen?ticket=f1");
     expect(connectServer).not.toHaveBeenCalled();
+  });
+});
+
+describe("routeTap with rooms (flag on, MA23)", () => {
+  beforeEach(() => {
+    __resetScopesForTests();
+    useMultiServerPrefs.setState({ multiServer: true });
+  });
+  afterEach(() => useMultiServerPrefs.setState({ multiServer: false }));
+
+  it("a thread tap from another server opens a room there: no switch, no connect", async () => {
+    const navigate = vi.fn();
+    await routeTap(THREAD, navigate);
+    expect(navigate).toHaveBeenCalledWith("/zen?addr=k2%2Freviewer&seq=418&server=work.k2.dev");
+    expect(connectServer).not.toHaveBeenCalled();
+    expect(useServersStore.getState().activeServerId).toBe("s1");
+  });
+
+  it("a server known to be below the floor (0.41.6) still switches, the old way", async () => {
+    noteBootStatus("s2", { version: "0.41.5" });
+    vi.mocked(connectServer).mockResolvedValue("still-valid");
+    const navigate = vi.fn();
+    await routeTap(THREAD, navigate);
+    expect(connectServer).toHaveBeenCalledWith("s2");
+    expect(useServersStore.getState().activeServerId).toBe("s2");
+    expect(navigate).toHaveBeenCalledWith("/zen?addr=k2%2Freviewer&seq=418");
+  });
+
+  it("a ticket tap from another server makes it the default first (Tickets stay on the default)", async () => {
+    vi.mocked(connectServer).mockResolvedValue("still-valid");
+    const navigate = vi.fn();
+    await routeTap({ kind: "ticket", feedbackId: "f1", subdomain: "work" }, navigate, { zen: true });
+    expect(useServersStore.getState().activeServerId).toBe("s2");
+    expect(navigate).toHaveBeenCalledWith("/zen?ticket=f1");
   });
 });
 

@@ -104,8 +104,12 @@ export interface MultiServerList {
   badgeFor: (serverId: string) => { color: string; word: string };
   signInFor: string | null;
   setSignInFor: (id: string | null) => void;
-  /** S2 fallback: switch the active server the old way, then open. */
+  /** MS21: open a row from any server in a ROOM on that server; the
+   *  active server never changes. Below the phone floor (MS30, Q9) it
+   *  opens the old way instead (switch the active server). */
   openOnServer: (serverId: string, localId: string | null) => Promise<void>;
+  /** "Open the old way": switch the active server, then open there. */
+  switchOpen: (serverId: string, localId: string | null) => Promise<void>;
   /** A failure row's one action, scoped to its server. */
   act: (serverId: string, action: FailureAction) => void;
 }
@@ -314,9 +318,9 @@ export function useMultiServerList(opts: {
     [on, servers, filter, activeServerId, byServer]
   );
 
-  const openOnServer = useCallback(async (serverId: string, localId: string | null) => {
-    // S2 (MS21 is S3): a row on another server opens the old way — switch
-    // the active server, then open the row there.
+  const switchOpen = useCallback(async (serverId: string, localId: string | null) => {
+    // The old way (MS30 below the floor, or the user's own "Open"):
+    // switch the active server, then open the row there.
     const outcome = await connectServer(serverId);
     if (outcome === "still-valid" || outcome === "revived") {
       useServersStore.getState().setActive(serverId);
@@ -326,13 +330,28 @@ export function useMultiServerList(opts: {
     if (outcome === "signin-required") setSignInFor(serverId);
   }, []);
 
+  const openOnServer = useCallback(
+    async (serverId: string, localId: string | null) => {
+      if (roomBelowFloor(serverId)) {
+        await switchOpen(serverId, localId);
+        return;
+      }
+      // MS21: a room on that server; the active server stays as it is.
+      await useZenStore.getState().openRoom(serverId, {
+        id: localId,
+        seed: useRemoteRows.getState().byServer[serverId]?.agents,
+      });
+    },
+    [switchOpen]
+  );
+
   const act = useCallback(
     (serverId: string, action: FailureAction) => {
       if (action === "retry") retryServerNow(serverId);
       else if (action === "sign-in") setSignInFor(serverId);
-      else void openOnServer(serverId, null);
+      else void switchOpen(serverId, null);
     },
-    [openOnServer]
+    [switchOpen]
   );
 
   return {
@@ -355,8 +374,16 @@ export function useMultiServerList(opts: {
     signInFor,
     setSignInFor,
     openOnServer,
+    switchOpen,
     act,
   };
+}
+
+/** MS30 as amended by MA25 / §13 Q9: a KNOWN version below 0.41.6 cannot
+ *  hold a Thread room. Unknown (never checked) opens, and checks later. */
+export function roomBelowFloor(serverId: string): boolean {
+  const v = pool.entry(serverId)?.boot?.version ?? scopeFor(serverId).version();
+  return !!v && !versionAtLeast(v, PHONE_FLOOR);
 }
 
 /** Is this server's scope able to serve a 5 s snapshot? */

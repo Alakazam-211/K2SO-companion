@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useSyncExternalStore, type CSSProperties } from "react";
-import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useParams, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { TerminalView } from "../components/TerminalView";
@@ -33,14 +33,19 @@ import {
   readZenReturn,
   readZenTerminalAgent,
   readZenThread,
+  readZenThreadServer,
   terminalIdForAgent,
   zenAddrPath,
   zenTerminalPath,
   zenThreadPath,
   type ZenTerminalAgent,
 } from "../zen/terminalJump";
-import { scopedKey } from "../api/scope";
+import { scopeFor, scopedKey } from "../api/scope";
 import { zenScope } from "../zen/zenScope";
+import { useRoomSessions } from "../zen/room/useRoomSessions";
+import { useMultiServerPrefs } from "../zen/multi/prefs";
+import { ServerChip } from "../zen/room/ServerChip";
+import { ZEN_SERVER_PARAM, resolveServerRef, withServerParam } from "../zen/room/serverRef";
 
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
@@ -66,8 +71,20 @@ export function ZenTerminal() {
   const { terminalId } = useParams<{ terminalId: string }>();
   const navigate = useNavigate();
   const location = useLocation();
+  const [search] = useSearchParams();
+  // The server this terminal lives on, fixed for the page (MS6/MS7, MA17):
+  // `?server=` (a room on another server, flag on), else Zen's room
+  // server, which with no room open is the active one. Old links without
+  // `server=` mean the active server.
+  const multiOn = useMultiServerPrefs((s) => s.multiServer);
+  const [termScope] = useState(() => {
+    const ref = multiOn ? (search.get(ZEN_SERVER_PARAM) || "").trim() : "";
+    const id = ref ? resolveServerRef(ref) : null;
+    return id ? scopeFor(id) : zenScope();
+  });
+  // Another server's sessions come from THAT server (MA18).
+  const { sessions: allSessions, onActive } = useRoomSessions(termScope);
   const projects = useWorkspacesStore((s) => s.projects);
-  const allSessions = useWorkspacesStore((s) => s.allSessions);
   const session = allSessions.find((sess) => sess.terminalId === terminalId);
 
   // Who this terminal belongs to: router state (survives reload via
@@ -108,9 +125,6 @@ export function ZenTerminal() {
   const workspacePath =
     (session && projects.find((p) => p.id === session.workspaceId)?.path) ||
     projectPath;
-  // The server this terminal lives on, fixed for the page (MS6/MS7): Zen's
-  // room server (today the active one). S3 reads it from the route.
-  const [termScope] = useState(zenScope);
   const [input, setInput] = useState("");
   const containerHeight = useViewportHeight();
 
@@ -247,9 +261,9 @@ export function ZenTerminal() {
       // THIS page (keep the agent context in state).
       if (session?.isMainChat && workspacePath) {
         const r = await ensurePinnedChat(termScope, workspacePath, { forceRespawn: true });
-        await useWorkspacesStore.getState().fetchAllSessions();
+        if (onActive) await useWorkspacesStore.getState().fetchAllSessions();
         if (r.ok && r.data?.sessionId && r.data.sessionId !== terminalId) {
-          navigate(zenTerminalPath(r.data.sessionId), {
+          navigate(withServerParam(zenTerminalPath(r.data.sessionId), onActive ? null : termScope.id), {
             replace: true,
             state: agent ? { agent } : location.state,
           });
@@ -267,13 +281,18 @@ export function ZenTerminal() {
     // The session's own Thread (Done mode, drawer origin), even after a
     // reload dropped history.state; `?thread=` would re-read the agent
     // list and lose a drawer-built row ("Not chattable").
+    // Back to THIS terminal's server (MA17): a room elsewhere carries it.
+    const room = onActive ? null : termScope.id;
     const back = agent?.back ?? readZenReturn(terminalId);
     if (back) {
-      navigate(zenAddrPath(back.addr), { state: { zenReturn: back } });
+      navigate(withServerParam(zenAddrPath(back.addr), back.serverId ?? room), {
+        state: { zenReturn: back },
+      });
       return;
     }
     const id = agent?.agentId || readZenThread();
-    navigate(zenThreadPath(id));
+    const threadServer = agent?.agentId ? room : readZenThreadServer() ?? room;
+    navigate(withServerParam(zenThreadPath(id), id ? threadServer : null));
   };
 
   if (!terminalId) return null;
@@ -351,6 +370,7 @@ export function ZenTerminal() {
               >
                 {subtitle}
               </span>
+              <ServerChip serverId={termScope.id} testId="zen-terminal-server" align="left" />
             </div>
             <span className="flex items-center shrink-0" style={{ gap: 6 }}>
               <div

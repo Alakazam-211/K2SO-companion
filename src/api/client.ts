@@ -332,6 +332,14 @@ export const getAgentList = (scope: ServerScope) =>
  *  `path`, never on `name`. */
 export const getCliProjectsList = (scope: ServerScope) =>
   request<unknown>(scope, "/cli/projects/list", {});
+/** `POST /cli/projects/activate {projectId}` (Member): "someone is using
+ *  this workspace" — the room keep-alive (multi-server MS24, MA16). The
+ *  daemon touches the need clock, lifts a pending dismiss and broadcasts
+ *  `active_changed` on EVERY call, with no rate limit, and answers
+ *  `{ok:true}` even for an unknown id: callers validate the id against
+ *  `projects/list` and go through `zen/room/keepAlive.ts` (10 min dedupe). */
+export const activateProject = (scope: ServerScope, projectId: string) =>
+  request<unknown>(scope, "/cli/projects/activate", { projectId }, { method: "POST" });
 /** Skin rooms. Live 200: `{agents:[{displayName,handle,projectId}]}`. Grant-scoped. */
 export const getSkinAgents = (scope: ServerScope) =>
   request<unknown>(scope, "/cli/skin/agents", {});

@@ -29,8 +29,8 @@ import {
   type ProjectGroupMessage,
 } from "../api/projectGroups";
 import { ensureBootStatus, serverMemory, type ServerScope } from "../api/scope";
-import { zenScope } from "./zenScope";
-import { onServerForget } from "../stores/servers";
+import { roomServerId, setRoomServer, zenScope } from "./zenScope";
+import { onServerForget, useServersStore } from "../stores/servers";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { sidecarRowId } from "./agentRow";
 import { buildServerRows, overlaySidecarAgent } from "./serverRows";
@@ -235,6 +235,19 @@ type ZenState = {
   /** Chat the Sessions drawer was first used from; Done returns there.
    *  Null when the open chat was not picked from the drawer. */
   drawerOrigin: string | null;
+  /** Multi-server rooms (MS21–MS23): open a row on `serverId` WITHOUT
+   *  changing the active server. Zen's scope moves to that server (hot cap
+   *  1: the previous room's sockets close and re-dial there); the active
+   *  server's list is kept and comes back on Back. `seed` paints the row
+   *  at once (the merged list's cached rows for that server). */
+  openRoom: (
+    serverId: string,
+    target: { id?: string | null; seed?: StubAgent[] }
+  ) => Promise<void>;
+  /** Move Zen onto `serverId` (sync, nothing loaded): a room on another
+   *  server, or — null / the active id — back to the active server's
+   *  list (restored as it was). Deep links call this before they load. */
+  enterRoomServer: (serverId: string | null, seed?: StubAgent[]) => void;
   /** Switch the open chat to another session in this workspace (Sessions
    *  drawer). `side` builds the row when the list does not have it yet. */
   openWorkspaceSession: (target: {
@@ -349,6 +362,49 @@ let focusServer: string | null = null;
 
 export const PIN_ERROR_MS = 4000;
 
+// Rooms (MS21): while a room is open on another server, the store holds
+// THAT server's rows (the room's header, drawer and terminal read them).
+// The active server's list is parked here and put back on Back, so the
+// list never flashes another server's rows or reloads from scratch.
+type ListSlice = Pick<
+  ZenState,
+  | "agentSource"
+  | "agents"
+  | "agentError"
+  | "serverProjects"
+  | "pinnedIds"
+  | "chatSessions"
+  | "activity"
+  | "focus"
+  | "focusGroupsEnabled"
+  | "hiddenSidecarAddrs"
+  | "fileSource"
+  | "fileError"
+>;
+let listSlice: { serverId: string; state: ListSlice } | null = null;
+
+function captureList(s: ZenState): ListSlice {
+  return {
+    agentSource: s.agentSource,
+    agents: s.agents,
+    agentError: s.agentError,
+    serverProjects: s.serverProjects,
+    pinnedIds: s.pinnedIds,
+    chatSessions: s.chatSessions,
+    activity: s.activity,
+    focus: s.focus,
+    focusGroupsEnabled: s.focusGroupsEnabled,
+    hiddenSidecarAddrs: s.hiddenSidecarAddrs,
+    fileSource: s.fileSource,
+    fileError: s.fileError,
+  };
+}
+
+function activeId(): string | null {
+  const st = useServersStore.getState();
+  return st.servers.some((x) => x.id === st.activeServerId) ? st.activeServerId : null;
+}
+
 // Pins moved to the server: drop the old per-device list, do not migrate.
 clearLegacyPinStore();
 
@@ -365,6 +421,18 @@ onServerForget((id) => {
   forgetHiddenSidecarAddrs(id);
   if (activityServer === id) activityServer = null;
   if (focusServer === id) focusServer = null;
+  // A room on a removed / re-keyed server closes; it never falls back to
+  // another server's data (MS7).
+  if (roomServerId() === id) useZenStore.getState().closeChat();
+  if (listSlice?.serverId === id) listSlice = null;
+});
+
+// The active server changed under an open room: the parked list is stale,
+// and a room on the new active server is simply Zen on it.
+useServersStore.subscribe((st, prev) => {
+  if (st.activeServerId === prev.activeServerId) return;
+  listSlice = null;
+  if (roomServerId() && roomServerId() === st.activeServerId) setRoomServer(null);
 });
 
 /** The id of the server Zen is on now ("" when none). Late answers compare
@@ -666,7 +734,29 @@ export const useZenStore = create<ZenState>((set, get) => ({
       set({ drawerOrigin: null });
     }
     const scope = zenScope();
-    if (!scope.token()) {
+    let token = "";
+    try {
+      token = scope.token();
+    } catch {
+      token = ""; // removed: the forget handler closes the room
+    }
+    if (!token && roomServerId() === scope.id && scope.id) {
+      // A room on another server with no login: never the stub catalogue.
+      // The room banner says "Sign in to {server}" with that server's
+      // sign-in (MS34, MS36); the thread stays empty.
+      set({
+        screen: resumeId ? "thread" : "list",
+        agentId: resumeId || "",
+        agentSource: "error",
+        agentError: null,
+        threadSource: "error",
+        threadError: `Sign in to ${scope.label}`,
+        thread: [],
+        threadGroupId: null,
+      });
+      return;
+    }
+    if (!token) {
       set({
         agentSource: "stub",
         fileSource: "stub",
@@ -715,6 +805,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
         fetchProjectGroups(scope),
         getAllSessions(scope),
       ]);
+      // Zen moved to another server (a room opened or closed) meanwhile:
+      // this answer is not for what is on screen.
+      if (zenId() !== scope.id) return;
       const built = buildServerRows({
         rAgents,
         rProjects,
@@ -765,6 +858,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         get().setAgent(hit?.id || resumeId);
       }
     } catch (e) {
+      if (zenId() !== scope.id) return;
       const msg = e instanceof Error ? e.message : String(e);
       set({
         agentSource: "error",
@@ -1446,7 +1540,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
     if (!spawned.ok || !terminalId) {
       return { ok: false, error: spawned.error || `Could not start ${llm.name}` };
     }
-    void useWorkspacesStore.getState().fetchAllSessions();
+    // The workspaces store is the active server's; a room elsewhere re-reads
+    // its own list in the drawer.
+    if (!roomServerId()) void useWorkspacesStore.getState().fetchAllSessions();
     return { ok: true, kind: "terminal", terminalId, title: llm.name };
   },
   renameSidecarTitle: async (id, title) => {
@@ -1466,7 +1562,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
         addr,
         path: row.path || "",
         sessions,
-        projects: useWorkspacesStore.getState().projects,
+        // The workspaces store holds the ACTIVE server's projects only.
+        projects: roomServerId() ? [] : useWorkspacesStore.getState().projects,
         storedTabId: row.tabId,
         storedProjectId: row.projectId,
         storedTerminalId: row.terminalId,
@@ -1595,6 +1692,74 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadFocusSeq: null,
       files: [],
     });
+    // Back from a room on another server: the active server's list again.
+    if (roomServerId()) get().enterRoomServer(null);
+  },
+  enterRoomServer: (serverId, seed) => {
+    const active = activeId();
+    const target = serverId && serverId !== active ? serverId : null;
+    const current = roomServerId();
+    if (target === current) return;
+    if (target) {
+      // Park the active server's list once (a room → room move keeps it).
+      if (!current && active) listSlice = { serverId: active, state: captureList(get()) };
+      setRoomServer(target);
+      activityServer = target;
+      focusServer = target;
+      set({
+        agentSource: seed && seed.length ? "live" : "loading",
+        agents: seed ?? [],
+        agentError: null,
+        serverProjects: [],
+        pinnedIds: [],
+        chatSessions: NO_CHAT_SESSIONS,
+        activity: EMPTY_ACTIVITY,
+        focus: FOCUS_OFF,
+        focusGroupsEnabled: false,
+        hiddenSidecarAddrs: readHiddenSidecarAddrs(target),
+        files: [],
+        fileSource: "loading",
+        fileError: null,
+        openFileIds: [],
+        focusId: null,
+        filesOpen: false,
+        sending: false,
+        sendError: null,
+        thread: [],
+        threadAddr: null,
+        threadGroupId: null,
+        threadConversationId: null,
+        threadSource: "loading",
+        threadError: null,
+      });
+      return;
+    }
+    setRoomServer(null);
+    const parked = listSlice;
+    listSlice = null;
+    activityServer = active;
+    focusServer = active;
+    if (parked && parked.serverId === active) {
+      set(parked.state);
+      // Fresh dots, pins and groups for the list, in the background.
+      void get().refreshActivity();
+      get().refreshServerLists();
+      return;
+    }
+    set({ agents: [], agentSource: "loading", activity: EMPTY_ACTIVITY, serverProjects: [], pinnedIds: [] });
+    if (get().screen === "list") void get().hydrateAgents();
+  },
+  openRoom: async (serverId, target) => {
+    const id = (target.id || "").trim();
+    if (serverId === activeId()) {
+      get().enterRoomServer(null);
+      if (id) get().setAgent(id);
+      return;
+    }
+    get().enterRoomServer(serverId, target.seed);
+    if (roomServerId() !== serverId) return;
+    set({ screen: "thread", agentId: id });
+    await get().hydrateAgents(id ? { resumeId: id } : undefined);
   },
   toggleFiles: () => {
     const open = !get().filesOpen;

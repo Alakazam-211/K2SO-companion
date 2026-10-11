@@ -6,7 +6,8 @@
 //     "All servers" title, the pill is a server filter;
 //   - failure rows are greyed with one action each, scoped to their server;
 //     Sign in opens that server's sheet without switching;
-//   - S2 fallback: opening a row from another server switches, then opens.
+//   - S3: opening a row from another server opens a ROOM there (the active
+//     server never changes); below the floor it switches the old way.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -104,7 +105,9 @@ vi.mock("../lib/revive", () => ({
 }));
 
 import { connectServer } from "../lib/revive";
-import { getCliProjectsList } from "../api/client";
+import { getAgentList, getCliProjectsList } from "../api/client";
+import { roomServerId } from "./zenScope";
+import { roomBelowFloor } from "./multi/useMultiServerList";
 import { __resetScopesForTests } from "../api/scope";
 import { useServersStore } from "../stores/servers";
 import { ChatsList } from "./ChatsList";
@@ -298,18 +301,62 @@ describe("flag on: one merged list over two servers", () => {
     );
   });
 
-  it("S2 fallback: opening a row from another server switches, then opens it", async () => {
+  it("S3 (MS21): opening a row from server B opens a room on B; the active server never changes", async () => {
     seed();
     setFlag(true);
+    mount();
+    await waitFor(() => expect(screen.getAllByTestId("remote-row")).toHaveLength(2));
+    vi.mocked(getAgentList).mockClear();
+    const docs = screen.getAllByTestId("remote-row").find((r) => r.textContent?.includes("docs"))!;
+    fireEvent.click(within(docs).getByRole("button"));
+    await waitFor(() => expect(useZenStore.getState().agentId).toBe("/srv/docs"));
+    await waitFor(() => expect(useZenStore.getState().agentSource).toBe("live"));
+    expect(useServersStore.getState().activeServerId).toBe("s1");
+    expect(roomServerId()).toBe("s2");
+    expect(connectServer).not.toHaveBeenCalled();
+    // The room's rows are read on B's scope only.
+    expect(vi.mocked(getAgentList).mock.calls.map(([sc]) => (sc as { id: string }).id)).toEqual(["s2"]);
+    expect(useZenStore.getState().screen).toBe("thread");
+    expect(useZenStore.getState().threadAddr).toBe("docs");
+    // Back: the active server's list comes back as it was, still s1.
+    act(() => useZenStore.getState().closeChat());
+    expect(roomServerId()).toBeNull();
+    expect(useZenStore.getState().agents.map((a) => a.id)).toEqual(["/a", "/b"]);
+    expect(useServersStore.getState().activeServerId).toBe("s1");
+  });
+
+  it("MS30 / Q9 floor: a server known to be below 0.41.6 opens the old way (switch)", async () => {
+    net.boot["bravo.k2.dev"] = { ...READY, version: "0.41.5" };
+    seed();
+    setFlag(true);
+    // B's rows are cached from before it was found too old.
+    useRemoteRows.setState({
+      byServer: {
+        s2: {
+          ...(await import("./multi/remoteRows")).emptyRemoteRows(),
+          status: "live",
+          agents: [{ id: "/srv/docs", name: "docs", initial: "D", path: "/srv/docs", addr: "docs", kind: "agent" }],
+          loadedAt: Date.now(),
+        },
+      },
+    });
     const hydrate = vi.fn(async (_opts?: { resumeId?: string }) => {});
     useZenStore.setState({ hydrateAgents: hydrate });
     mount();
-    await waitFor(() => expect(screen.getAllByTestId("remote-row")).toHaveLength(2));
-    const docs = screen.getAllByTestId("remote-row").find((r) => r.textContent?.includes("docs"))!;
-    fireEvent.click(within(docs).getByRole("button"));
+    await waitFor(() => expect(pool.entry("s2")?.boot?.version).toBe("0.41.5"));
+    const row = await waitFor(() => {
+      const r = screen.getAllByTestId("remote-row").find((x) => x.textContent?.includes("docs"));
+      expect(r).toBeTruthy();
+      return r!;
+    });
+    expect(row.textContent).toContain("Bravo needs an update");
+    expect(roomBelowFloor("s2")).toBe(true);
+    // Its one action is "Open": the old way, never a room.
+    fireEvent.click(within(row).getByRole("button", { name: /Open the old way/ }));
     await waitFor(() => expect(useServersStore.getState().activeServerId).toBe("s2"));
+    expect(roomServerId()).toBeNull();
     expect(connectServer).toHaveBeenCalledWith("s2");
-    expect(hydrate).toHaveBeenCalledWith({ resumeId: "/srv/docs" });
+    expect(hydrate).toHaveBeenCalled();
   });
 });
 

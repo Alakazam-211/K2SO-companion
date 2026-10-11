@@ -4,6 +4,7 @@ import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { WorkspaceAvatar } from "../zen/WorkspaceAvatar";
 import { useWorkspacesStore } from "../stores/workspaces";
+import { getAllSessions, type GlobalSession } from "../api/client";
 import { ChatsList } from "../zen/ChatsList";
 import { FilePane } from "../zen/FilePane";
 import { SessionsPane } from "../zen/SessionsPane";
@@ -34,7 +35,14 @@ import { useZenStore } from "../zen/zenStore";
 import { AgentIconSheet } from "../zen/AgentIconSheet";
 import { canChangeIcon, iconTargetFor } from "../zen/workspaceIcon";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
-import { useZenScope } from "../zen/zenScope";
+import { roomServerId, useZenScope } from "../zen/zenScope";
+import { useMultiServerPrefs } from "../zen/multi/prefs";
+import { noteRoomInput, useRoomLife } from "../zen/room/useRoomLife";
+import { RoomBanner } from "../zen/room/RoomBanner";
+import { ServerChip } from "../zen/room/ServerChip";
+import { ZEN_SERVER_PARAM, resolveServerRef, withServerParam } from "../zen/room/serverRef";
+import { OverlayAddServer } from "../zen/OverlayAddServer";
+import { pool } from "../zen/multi/pool";
 
 const HEADER_BTN: CSSProperties = {
   width: 36,
@@ -59,6 +67,14 @@ export function Zen() {
   // Push tap: `/zen?addr=<addr>&seq=<seq>` also scrolls to that message.
   const seqParam = addrParam ? zenFocusSeq(params.get(ZEN_SEQ_PARAM)) : null;
   const location = useLocation();
+  // Multi-server rooms (MA17): `?server=` names the thread's server. Only
+  // with the flag on; without it (or with the flag off) the active server.
+  const multiOn = useMultiServerPrefs((s) => s.multiServer);
+  const serverRef = multiOn ? (params.get(ZEN_SERVER_PARAM) || "").trim() : "";
+  const paramServer = serverRef ? resolveServerRef(serverRef) : null;
+  /** A `server=` that names no saved server: drop the link, never open it
+   *  on another server (MS7). */
+  const deadServerLink = Boolean(serverRef) && !paramServer;
   const screen = useZenStore((s) => s.screen);
   const agentId = useZenStore((s) => s.agentId);
   const agents = useZenStore((s) => s.agents);
@@ -91,7 +107,8 @@ export function Zen() {
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
   const serverProjects = useZenStore((s) => s.serverProjects);
-  const identity = useSessionIdentity(useZenScope());
+  const zen = useZenScope();
+  const identity = useSessionIdentity(zen);
   const [iconOpen, setIconOpen] = useState(false);
   // Header avatar → Change icon: the workspace's (a sidecar edits its parent's).
   const iconTarget = canChangeIcon(identity) ? iconTargetFor(agent, serverProjects) : null;
@@ -105,8 +122,10 @@ export function Zen() {
   }, [agentId]);
 
   const openTerminal = (tid: string, chatTitle: string | null) => {
-    // Done on the terminal returns to this exact Thread (Done mode, origin).
-    const back = zenTerminalReturn(agent, tid, drawerOrigin);
+    // Done on the terminal returns to this exact Thread (Done mode, origin),
+    // on this room's server (MA17).
+    const roomServer = roomServerId();
+    const back = zenTerminalReturn(agent, tid, drawerOrigin, roomServer);
     rememberZenReturn(back);
     const ctx: ZenTerminalAgent | null = agentId
       ? {
@@ -119,9 +138,10 @@ export function Zen() {
           projectPath: agent?.path ?? null,
           addr: agent?.addr ?? null,
           back,
+          ...(roomServer ? { serverId: roomServer } : {}),
         }
       : null;
-    navigate(zenTerminalPath(tid), {
+    navigate(withServerParam(zenTerminalPath(tid), roomServer), {
       state: ctx ? { agent: ctx } : undefined,
     });
   };
@@ -131,7 +151,10 @@ export function Zen() {
   const skipHydrateOnClear = useRef(false);
   const wantThread =
     screen === "thread" ||
-    (Boolean((threadParam || "").trim() || addrParam) && !ignoreThreadQuery);
+    (Boolean((threadParam || "").trim() || addrParam) && !ignoreThreadQuery && !deadServerLink);
+  // The open room's life: keep-alive, foreground resync, failure banner
+  // (multi-server MS24/MS28/MS36). Inert with the flag off.
+  const room = useRoomLife({ open: wantThread, agent });
 
   // `?addr=` reopens that session's Thread before paint. The cold
   // hydrate below must not run over it (it ends Done mode).
@@ -142,16 +165,19 @@ export function Zen() {
     useZenStore.setState({ threadFocusSeq: seqParam });
   }, [addrParam, seqParam]);
   useLayoutEffect(() => {
-    if (!addrParam) return;
+    if (!addrParam || deadServerLink) return;
     setIgnoreThreadQuery(false);
+    // The link's server (none = the active one), before anything loads.
+    useZenStore.getState().enterRoomServer(paramServer);
     void resumeSessionThread(addrParam, zenReturnKey ? JSON.parse(zenReturnKey) : null);
-  }, [addrParam, zenReturnKey]);
+  }, [addrParam, zenReturnKey, paramServer, deadServerLink]);
 
   // Chat return (`?thread=`) must first-paint LOADING, never leftover bubbles.
   // hydrateAgents is useEffect (after paint); this runs before paint.
   useLayoutEffect(() => {
     const id = (threadParam || "").trim();
-    if (!id || ignoreThreadQuery) return;
+    if (!id || ignoreThreadQuery || deadServerLink) return;
+    useZenStore.getState().enterRoomServer(paramServer);
     useZenStore.setState({
       screen: "thread",
       agentId: id,
@@ -162,10 +188,21 @@ export function Zen() {
       sendError: null,
       threadGroupId: null,
     });
-  }, [threadParam, ignoreThreadQuery]);
+  }, [threadParam, ignoreThreadQuery, paramServer, deadServerLink]);
 
   useEffect(() => {
     const id = (threadParam || "").trim();
+    if (deadServerLink) {
+      setParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          for (const k of ["thread", ZEN_ADDR_PARAM, ZEN_SEQ_PARAM, ZEN_SERVER_PARAM]) next.delete(k);
+          return next;
+        },
+        { replace: true }
+      );
+      return;
+    }
     if (id) {
       setIgnoreThreadQuery(false);
       void hydrateAgents({ resumeId: id });
@@ -177,14 +214,14 @@ export function Zen() {
       return;
     }
     void hydrateAgents();
-  }, [hydrateAgents, threadParam, addrParam]);
+  }, [hydrateAgents, threadParam, addrParam, deadServerLink, setParams]);
 
   const backToChats = () => {
     // closeChat is zustand-sync and would re-render with the query still
     // holding the thread column (empty name, em dash). Dismiss first.
     flushSync(() => setIgnoreThreadQuery(true));
     closeChat();
-    if ((threadParam || "").trim() || addrParam) {
+    if ((threadParam || "").trim() || addrParam || serverRef) {
       skipHydrateOnClear.current = true;
       setParams(
         (prev) => {
@@ -192,6 +229,7 @@ export function Zen() {
           next.delete("thread");
           next.delete(ZEN_ADDR_PARAM);
           next.delete(ZEN_SEQ_PARAM);
+          next.delete(ZEN_SERVER_PARAM);
           return next;
         },
         { replace: true }
@@ -397,6 +435,7 @@ export function Zen() {
                   </button>
                 ) : null}
               </span>
+              <ServerChip serverId={zen.id} testId="chat-header-server" />
               {extraChat && !drawerPicked ? (
                 <button
                   type="button"
@@ -441,7 +480,7 @@ export function Zen() {
                 style={HEADER_BTN}
                 onClick={(e) => {
                   e.stopPropagation();
-                  rememberZenThread(agentId);
+                  rememberZenThread(agentId, roomServerId());
                   const go = async () => {
                     let tid: string | null = null;
                     if (agent) {
@@ -450,11 +489,20 @@ export function Zen() {
                         .ensureSidecarHost(agent);
                       tid = host.terminalId ?? null;
                     }
-                    await useWorkspacesStore.getState().fetchAllSessions();
-                    const sessions = useWorkspacesStore.getState().allSessions;
+                    // The room's own server's sessions (MS23): a room on
+                    // another server never looks in the active one's list.
+                    let sessions: GlobalSession[];
+                    if (roomServerId()) {
+                      const r = await getAllSessions(zen);
+                      sessions = r.ok && Array.isArray(r.data) ? r.data : [];
+                    } else {
+                      await useWorkspacesStore.getState().fetchAllSessions();
+                      sessions = useWorkspacesStore.getState().allSessions;
+                    }
                     if (!tid) tid = terminalIdForAgent(agent, sessions);
                     if (!tid) {
-                      navigate("/sessions");
+                      // Classic /sessions lists the active server only.
+                      if (!roomServerId()) navigate("/sessions");
                       return;
                     }
                     openTerminal(tid, sidecarTitle);
@@ -517,7 +565,15 @@ export function Zen() {
             </div>
           </header>
           <PaneErrorBoundary name="thread">
-            <ThreadPane viewportHeight={containerHeight} topInset={headerPx} covered={viewingFile} />
+            <ThreadPane
+              viewportHeight={containerHeight}
+              topInset={headerPx}
+              covered={viewingFile}
+              roomBanner={
+                room.failure ? <RoomBanner failure={room.failure} onAction={room.act} /> : null
+              }
+              onComposerInput={noteRoomInput}
+            />
           </PaneErrorBoundary>
           {filesOpen && !viewingFile ? (
             <div
@@ -543,7 +599,7 @@ export function Zen() {
                   agent={agent}
                   onClose={() => setSessionsOpen(false)}
                   onOpenTerminal={(tid, title) => {
-                    rememberZenThread(agentId);
+                    rememberZenThread(agentId, roomServerId());
                     openTerminal(tid, title);
                   }}
                 />
@@ -650,6 +706,28 @@ export function Zen() {
           ) : null}
         </div>
         </ThreadHome>
+      ) : null}
+      {wantThread && room.signInOpen ? (
+        // MS34 / MA3: sign in to THE ROOM's server only, never switching.
+        <div
+          className="fixed inset-0 flex flex-col"
+          style={{ background: "#000", zIndex: 60, paddingTop: "env(safe-area-inset-top)" }}
+          data-testid="room-sign-in"
+        >
+          <OverlayAddServer
+            key={room.scope.id}
+            editingId={room.scope.id}
+            activate={false}
+            onCancel={() => room.setSignInOpen(false)}
+            onSaved={() => room.setSignInOpen(false)}
+            onSignedIn={(id) => {
+              room.setSignInOpen(false);
+              void pool.check(id);
+              const z = useZenStore.getState();
+              if (z.agentId) void z.hydrateAgents({ resumeId: z.agentId });
+            }}
+          />
+        </div>
       ) : null}
     </div>
   );
