@@ -110,8 +110,8 @@ export function Settings() {
  *  APNs entitlement / no google-services.json): shows a disabled "Not
  *  available in this build" row instead of the switch. When available,
  *  toggling ON runs the permission→token→register-device flow for the
- *  active server; OFF unregisters this device from every saved server
- *  (registration follows the active server around). */
+ *  signed-in servers; OFF unregisters this device from every saved server
+ *  (`registerAllSignedIn` / `unregisterAll`). */
 function PushRow() {
   const { available, reason, enabled, busy, toggle } = usePushToggle();
 

@@ -32,7 +32,7 @@ import {
 } from "../stores/servers";
 import { isConnectionLevelError } from "../lib/netRetry";
 
-/** Every key the daemon reports in `/boot-status` `features` (K2 0.45.3,
+/** Every key the daemon reports in `/boot-status` `features` (K2 0.45.5,
  *  `boot_status.rs` `features()`). Phone consumers today:
  *    - `daemon-activity` — `GET /cli/activity/snapshot` + `thread/activity`
  *      (client.ts activity routes; absent → never asked);
@@ -54,6 +54,9 @@ export const DAEMON_FEATURES = [
   "home-avatars-v1",
   "daemon-activity",
   "thread-address-stable",
+  // K2 0.45.5: Thread push prefs routes + payload (`notify/prefs`,
+  // viewing frames). Read by push registration and the bells.
+  "thread-push-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];

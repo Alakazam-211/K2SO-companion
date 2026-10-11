@@ -51,6 +51,12 @@ import { mountainTime } from "./threadModel";
 import { posixNormalize } from "./workspacePath";
 import { useZenStore } from "./zenStore";
 import { useZenScope, zenScope } from "./zenScope";
+import {
+  useNotifyPrefsStore,
+  workspacePrefFor,
+  workspaceSourceText,
+} from "../stores/notifyPrefs";
+import { BellIcon, useNotifyPrefsLive } from "./NotifyBell";
 
 export const SESSIONS_EMPTY = "No other sessions in this workspace";
 export const NEW_SESSION_LABEL = "New session";
@@ -116,6 +122,73 @@ function When({ at }: { at: number | null }) {
     <span className="truncate text-[10px] text-[var(--text-muted)]" data-testid="session-when">
       {when}
     </span>
+  );
+}
+
+/** "Notifications for <workspace>" at the top of the Sessions drawer
+ *  (K2 0.45.5, `thread-push-v1`). One switch per workspace: sidecars ride
+ *  their workspace's setting. Hidden until the active server has the
+ *  feature and its prefs list this workspace. */
+function WorkspaceNotify({
+  handle,
+  projectId,
+  fallbackName,
+}: {
+  handle: string;
+  projectId: string | null;
+  fallbackName: string;
+}) {
+  // The bell is about the room's server (MS23), not the active one.
+  const serverId = useZenScope().id || null;
+  useNotifyPrefsLive(serverId ? [serverId] : []);
+  const on = useNotifyPrefsStore((s) => !!serverId && s.threadPush[serverId] === true);
+  const prefs = useNotifyPrefsStore((s) => (serverId ? s.prefs[serverId] : undefined));
+  const error = useNotifyPrefsStore((s) => (serverId ? s.errors[serverId] ?? null : null));
+  const ws = on ? workspacePrefFor(prefs, { handle, projectId }) : null;
+  if (!serverId || !prefs || !ws) return null;
+  const enabled = ws.threadPush;
+  const name = ws.name || fallbackName || handle;
+  const set = (v: boolean | null) =>
+    void useNotifyPrefsStore.getState().setWorkspacePush(serverId, ws.projectId, v);
+  return (
+    <div
+      className="px-3 py-2 border-b border-[var(--border)]"
+      data-testid="workspace-notify"
+    >
+      <div className="flex items-center gap-2">
+        <span className="flex-1 min-w-0 truncate text-[12px] text-[var(--text)]">
+          Notifications for {name}
+        </span>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label={`Notifications for ${name}`}
+          data-testid="workspace-bell"
+          className="shrink-0 flex items-center justify-center bg-transparent border-0"
+          style={{ width: 28, height: 28, color: enabled ? "var(--text)" : "var(--text-muted)" }}
+          onClick={() => set(!enabled)}
+        >
+          <BellIcon on={enabled} size={16} />
+        </button>
+      </div>
+      <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
+        <span className="truncate" data-testid="workspace-notify-source">
+          {error ? `Could not save: ${error}` : workspaceSourceText(ws, prefs.principal)}
+        </span>
+        {ws.source === "user" ? (
+          <button
+            type="button"
+            data-testid="workspace-notify-reset"
+            className="shrink-0 bg-transparent border-0 p-0 text-[10px]"
+            style={{ color: "var(--accent)" }}
+            onClick={() => set(null)}
+          >
+            Reset
+          </button>
+        ) : null}
+      </div>
+    </div>
   );
 }
 
@@ -237,6 +310,13 @@ export function SessionsPane({
       (a) => (a.path || "").trim() === path && (a.addr || "").trim() === handle && a.kind !== "group"
     ) ?? null;
   const name = mainRow?.name || agent?.name || handle;
+  const serverProjects = useZenStore((s) => s.serverProjects);
+  const normPath = posixNormalize(path);
+  const workspaceProjectId =
+    mainRow?.projectId ||
+    agent?.projectId ||
+    serverProjects.find((p) => !!normPath && p.path === normPath)?.id ||
+    null;
   const listed = path && handle
     ? workspaceSessions(sessions, { path, name, addr: handle })
     : { mainTerminalId: null, sidecars: [] as OverlaySidecar[], terminals: [] };
@@ -434,6 +514,13 @@ export function SessionsPane({
           ›
         </button>
       </div>
+      {handle && agent?.kind !== "group" ? (
+        <WorkspaceNotify
+          handle={handle}
+          projectId={workspaceProjectId}
+          fallbackName={name}
+        />
+      ) : null}
       <div className="flex-1 overflow-y-auto">
         <div className={HEADING} data-testid="sessions-active">
           {ACTIVE_HEADING}

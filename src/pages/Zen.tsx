@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { WorkspaceAvatar } from "../zen/WorkspaceAvatar";
 import { useWorkspacesStore } from "../stores/workspaces";
@@ -11,14 +11,25 @@ import { useSwipeBack } from "../lib/useSwipeBack";
 import { FileStage } from "../zen/FileStage";
 import { PaneErrorBoundary } from "../zen/PaneErrorBoundary";
 import {
+  ZEN_ADDR_PARAM,
+  readZenReturnState,
+  rememberZenReturn,
   rememberZenThread,
   terminalIdForAgent,
   zenTerminalPath,
+  zenTerminalReturn,
   type ZenTerminalAgent,
 } from "../zen/terminalJump";
+import { resumeSessionThread } from "../zen/sessionReturn";
 import { ThreadPane } from "../zen/ThreadPane";
+import { ZEN_SEQ_PARAM, zenFocusSeq } from "../zen/threadFocus";
 import { STUB_BANNER } from "../zen/stubData";
-import { isOverlayExtraAddr, threadHeaderTitle, threadSidecarTitle } from "../zen/overlayExtras";
+import {
+  isOverlayExtraAddr,
+  threadHeaderTitle,
+  threadSessionHeaderTitle,
+  threadSidecarTitle,
+} from "../zen/overlayExtras";
 import { useZenStore } from "../zen/zenStore";
 import { AgentIconSheet } from "../zen/AgentIconSheet";
 import { canChangeIcon, iconTargetFor } from "../zen/workspaceIcon";
@@ -43,6 +54,11 @@ export function Zen() {
   const containerHeight = useViewportHeight();
   const [params, setParams] = useSearchParams();
   const threadParam = params.get("thread");
+  // Terminal Done: `/zen?addr=<session addr>` (+ state.zenReturn).
+  const addrParam = (params.get(ZEN_ADDR_PARAM) || "").trim();
+  // Push tap: `/zen?addr=<addr>&seq=<seq>` also scrolls to that message.
+  const seqParam = addrParam ? zenFocusSeq(params.get(ZEN_SEQ_PARAM)) : null;
+  const location = useLocation();
   const screen = useZenStore((s) => s.screen);
   const agentId = useZenStore((s) => s.agentId);
   const agents = useZenStore((s) => s.agents);
@@ -65,6 +81,9 @@ export function Zen() {
   const extraChat = isOverlayExtraAddr(agent?.addr);
   const headerTitle = threadHeaderTitle(agent);
   const sidecarTitle = threadSidecarTitle(agent);
+  /** Centre title: `<Agent>`, or `<Agent>/<sidecar>` on a separate session. */
+  const centreTitle =
+    extraChat || drawerPicked ? threadSessionHeaderTitle(agent, drawerPicked) : headerTitle;
   const headerRef = useRef<HTMLDivElement>(null);
   const [headerPx, setHeaderPx] = useState(CHAT_HEADER_PX);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -86,6 +105,9 @@ export function Zen() {
   }, [agentId]);
 
   const openTerminal = (tid: string, chatTitle: string | null) => {
+    // Done on the terminal returns to this exact Thread (Done mode, origin).
+    const back = zenTerminalReturn(agent, tid, drawerOrigin);
+    rememberZenReturn(back);
     const ctx: ZenTerminalAgent | null = agentId
       ? {
           agentId,
@@ -96,6 +118,7 @@ export function Zen() {
           chatTitle,
           projectPath: agent?.path ?? null,
           addr: agent?.addr ?? null,
+          back,
         }
       : null;
     navigate(zenTerminalPath(tid), {
@@ -108,7 +131,21 @@ export function Zen() {
   const skipHydrateOnClear = useRef(false);
   const wantThread =
     screen === "thread" ||
-    (Boolean((threadParam || "").trim()) && !ignoreThreadQuery);
+    (Boolean((threadParam || "").trim() || addrParam) && !ignoreThreadQuery);
+
+  // `?addr=` reopens that session's Thread before paint. The cold
+  // hydrate below must not run over it (it ends Done mode).
+  const zenReturn = readZenReturnState(location.state, addrParam);
+  const zenReturnKey = zenReturn ? JSON.stringify(zenReturn) : "";
+  useLayoutEffect(() => {
+    if (!addrParam || seqParam == null) return;
+    useZenStore.setState({ threadFocusSeq: seqParam });
+  }, [addrParam, seqParam]);
+  useLayoutEffect(() => {
+    if (!addrParam) return;
+    setIgnoreThreadQuery(false);
+    void resumeSessionThread(addrParam, zenReturnKey ? JSON.parse(zenReturnKey) : null);
+  }, [addrParam, zenReturnKey]);
 
   // Chat return (`?thread=`) must first-paint LOADING, never leftover bubbles.
   // hydrateAgents is useEffect (after paint); this runs before paint.
@@ -134,24 +171,27 @@ export function Zen() {
       void hydrateAgents({ resumeId: id });
       return;
     }
+    if (addrParam) return;
     if (skipHydrateOnClear.current) {
       skipHydrateOnClear.current = false;
       return;
     }
     void hydrateAgents();
-  }, [hydrateAgents, threadParam]);
+  }, [hydrateAgents, threadParam, addrParam]);
 
   const backToChats = () => {
     // closeChat is zustand-sync and would re-render with the query still
     // holding the thread column (empty name, em dash). Dismiss first.
     flushSync(() => setIgnoreThreadQuery(true));
     closeChat();
-    if ((threadParam || "").trim()) {
+    if ((threadParam || "").trim() || addrParam) {
       skipHydrateOnClear.current = true;
       setParams(
         (prev) => {
           const next = new URLSearchParams(prev);
           next.delete("thread");
+          next.delete(ZEN_ADDR_PARAM);
+          next.delete(ZEN_SEQ_PARAM);
           return next;
         },
         { replace: true }
@@ -160,7 +200,7 @@ export function Zen() {
   };
 
   // The header floats over the list; the list's top padding tracks the
-  // header's real height (sidecar line, Hide chat, banner grow it).
+  // header's real height (Hide chat, banner grow it).
   useLayoutEffect(() => {
     const el = headerRef.current;
     if (!el) return;
@@ -321,12 +361,41 @@ export function Zen() {
                   />
                 </span>
               )}
+              {/* Main chat: `<Agent>`. A separate session swaps in
+                  `<Agent>/<sidecar>` plus the rename pencil; the text
+                  truncates, the pencil never does. */}
               <span
-                data-testid="chat-header-title"
-                className="block w-full text-[15px] font-bold truncate text-center"
-                style={{ color: "#fff" }}
+                data-testid="chat-header-title-row"
+                className="flex items-center justify-center w-full min-w-0"
+                style={{ columnGap: 4 }}
               >
-                {headerTitle}
+                <span
+                  data-testid="chat-header-title"
+                  className="block min-w-0 text-[15px] font-bold truncate text-center"
+                  style={{ color: "#fff" }}
+                >
+                  {centreTitle}
+                </span>
+                {extraChat && sidecarTitle ? (
+                  <button
+                    type="button"
+                    data-testid="chat-rename-open"
+                    className="shrink-0 flex items-center justify-center bg-transparent border-0 p-0"
+                    style={{ color: "#fff", width: 18, height: 18, pointerEvents: "auto" }}
+                    aria-label={`Rename ${sidecarTitle}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRenameValue(sidecarTitle);
+                      setRenameError(null);
+                      setRenameOpen(true);
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                    </svg>
+                  </button>
+                ) : null}
               </span>
               {extraChat && !drawerPicked ? (
                 <button
@@ -353,8 +422,8 @@ export function Zen() {
                 </span>
               ) : null}
             </div>
-            {/* Right column: the three buttons, then the session name
-                right-aligned under them (white, so it reads over the blur). */}
+            {/* Right column: the three buttons. The session name lives in
+                the centre title now. */}
             <div
               data-testid="chat-header-right"
               className="flex flex-col items-end zen-header-text"
@@ -444,45 +513,11 @@ export function Zen() {
                 </svg>
               </button>
             </span>
-              {sidecarTitle ? (
-                <span
-                  data-testid="chat-session-line"
-                  className="zen-header-session flex items-center justify-end gap-1"
-                >
-                  <span
-                    data-testid="chat-sidecar-title"
-                    className="truncate min-w-0 text-[12.5px] font-medium text-right"
-                    style={{ color: "#fff" }}
-                  >
-                    {drawerPicked ? agent?.addr : sidecarTitle}
-                  </span>
-                  {extraChat ? (
-                    <button
-                      type="button"
-                      data-testid="chat-rename-open"
-                      className="shrink-0 flex items-center justify-center bg-transparent border-0 p-0"
-                      style={{ color: "#fff", width: 18, height: 18, pointerEvents: "auto" }}
-                      aria-label={`Rename ${sidecarTitle}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setRenameValue(sidecarTitle);
-                        setRenameError(null);
-                        setRenameOpen(true);
-                      }}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <path d="M12 20h9" />
-                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                      </svg>
-                    </button>
-                  ) : null}
-                </span>
-              ) : null}
             </div>
             </div>
           </header>
           <PaneErrorBoundary name="thread">
-            <ThreadPane viewportHeight={containerHeight} topInset={headerPx} />
+            <ThreadPane viewportHeight={containerHeight} topInset={headerPx} covered={viewingFile} />
           </PaneErrorBoundary>
           {filesOpen && !viewingFile ? (
             <div

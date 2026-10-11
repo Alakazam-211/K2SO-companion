@@ -29,6 +29,7 @@ describe("Android TAP_KEYS", () => {
       "agentName",
       "msgKind",
       "count",
+      "principal",
     ]) {
       expect(keys).toContain(k);
     }

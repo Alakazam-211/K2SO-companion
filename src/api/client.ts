@@ -1,6 +1,15 @@
 import { apiErrorText } from "../lib/apiError";
 import { NOT_CONNECTED, scopedFetch } from "./scopedFetch";
-import { bootInfoFor, serverMemory, versionAtLeast, type ServerScope } from "./scope";
+import {
+  bootInfoFor,
+  ensureBootStatus,
+  noteBootStatus,
+  readBootStatus,
+  serverMemory,
+  versionAtLeast,
+  type BootInfo,
+  type ServerScope,
+} from "./scope";
 import type { CompanionCapabilities } from "../kessel/capabilities";
 
 export type { CompanionCapabilities };
@@ -828,4 +837,153 @@ export const getProjectIcon = (scope: ServerScope, path: string, projectId: stri
   request<{ found?: unknown; dataUrl?: unknown }>(scope, "/cli/projects/get-icon", {
     path,
     project_id: projectId,
+  });
+
+// ─── Boot status + feature keys (`GET /boot-status`, unauthenticated) ───
+//
+// One memory per server id: `api/scope.ts` (`noteBootStatus`,
+// `bootInfoFor`, `ensureBootStatus`). These helpers are the Thread-push
+// view of it (`{instanceId, features[], version}`).
+
+export interface BootStatus {
+  /** Per-PROCESS daemon id: a restart mints a new one. */
+  instanceId: string | null;
+  /** Feature keys the version string cannot tell apart. Older daemons
+   *  omit the list; every key then reads as unsupported. */
+  features: string[];
+  version: string | null;
+}
+
+/** K2 0.45.5: Thread push prefs routes, trigger and payload are live. */
+export const FEATURE_THREAD_PUSH = "thread-push-v1";
+const BOOT_STATUS_TTL_MS = 60_000;
+
+export function parseBootStatus(raw: unknown): BootStatus | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const features = Array.isArray(o.features)
+    ? o.features.filter((f): f is string => typeof f === "string")
+    : [];
+  return {
+    instanceId: typeof o.instanceId === "string" && o.instanceId ? o.instanceId : null,
+    features,
+    version: typeof o.version === "string" ? o.version : null,
+  };
+}
+
+function bootStatusOf(info: BootInfo | null): BootStatus | null {
+  if (!info) return null;
+  return {
+    instanceId: info.instanceId,
+    features: info.features ? [...info.features] : [],
+    version: info.version,
+  };
+}
+
+/** `GET /boot-status` for one server. Answers from the scope's memory when
+ *  it is under a minute old; `fresh` always reads the wire (a push tap
+ *  compares `instanceId`, which changes on every daemon restart) and is
+ *  null when that read fails — never a stale answer. Never throws. */
+export async function getBootStatus(
+  scope: ServerScope,
+  opts: { fresh?: boolean } = {}
+): Promise<BootStatus | null> {
+  if (!scope.id) return null;
+  try {
+    if (opts.fresh) {
+      const body = await readBootStatus(scope);
+      if (body === null) return null;
+      return bootStatusOf(noteBootStatus(scope.id, body));
+    }
+    return bootStatusOf(await ensureBootStatus(scope, BOOT_STATUS_TTL_MS));
+  } catch {
+    return null;
+  }
+}
+
+/** True when that server's `/boot-status` lists `key`. False when the
+ *  server is unreachable or predates the feature list. */
+export async function serverHasFeature(scope: ServerScope, key: string): Promise<boolean> {
+  const b = await getBootStatus(scope);
+  return !!b && b.features.includes(key);
+}
+
+// ─── Thread push prefs (K2 0.45.5, `thread-push-v1`) ───
+
+export type NotifyPush = "ready" | "dormant" | "airgap";
+export type NotifySource = "user" | "default" | "fallback";
+
+export interface NotifyWorkspacePref {
+  projectId: string;
+  name: string;
+  handle: string | null;
+  threadPush: boolean;
+  source: NotifySource;
+  updatedBy?: string;
+  updatedAt?: number;
+}
+
+export interface NotifyPrefs {
+  principal: string;
+  server: { enabled: boolean; source: NotifySource };
+  default: boolean;
+  devices: number;
+  push: NotifyPush;
+  workspaces: NotifyWorkspacePref[];
+}
+
+export type NotifyPrefsWrite = {
+  server?: { enabled: boolean };
+  workspace?: { projectId: string; threadPush: boolean | null };
+};
+
+function asSource(v: unknown): NotifySource {
+  return v === "user" || v === "default" || v === "fallback" ? v : "fallback";
+}
+
+/** Defensive parse of the GET/POST `/cli/notify/prefs` body. Null when
+ *  the shape is unrecognised (no `server.enabled` boolean). */
+export function parseNotifyPrefs(raw: unknown): NotifyPrefs | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const server = o.server as Record<string, unknown> | undefined;
+  if (!server || typeof server.enabled !== "boolean") return null;
+  const push: NotifyPush =
+    o.push === "dormant" || o.push === "airgap" || o.push === "ready" ? o.push : "ready";
+  const workspaces: NotifyWorkspacePref[] = [];
+  for (const w of Array.isArray(o.workspaces) ? o.workspaces : []) {
+    if (!w || typeof w !== "object") continue;
+    const r = w as Record<string, unknown>;
+    if (typeof r.projectId !== "string" || !r.projectId) continue;
+    workspaces.push({
+      projectId: r.projectId,
+      name: typeof r.name === "string" ? r.name : "",
+      handle: typeof r.handle === "string" && r.handle ? r.handle : null,
+      threadPush: r.threadPush !== false,
+      source: asSource(r.source),
+      ...(typeof r.updatedBy === "string" && r.updatedBy ? { updatedBy: r.updatedBy } : {}),
+      ...(typeof r.updatedAt === "number" ? { updatedAt: r.updatedAt } : {}),
+    });
+  }
+  return {
+    principal: typeof o.principal === "string" ? o.principal : "",
+    server: { enabled: server.enabled, source: asSource(server.source) },
+    default: o.default !== false,
+    devices: typeof o.devices === "number" ? o.devices : 0,
+    push,
+    workspaces,
+  };
+}
+
+/** `GET /cli/notify/prefs` (Member): the caller's own prefs on `scope`. */
+export const getNotifyPrefs = (scope: ServerScope) =>
+  httpRequest<unknown>(scope, "/cli/notify/prefs");
+
+/** `POST /cli/notify/prefs`: `{server:{enabled}}` and/or
+ *  `{workspace:{projectId, threadPush}}` (`null` = back to the default).
+ *  Answers with the same body as the GET. */
+export const setNotifyPrefs = (scope: ServerScope, body: NotifyPrefsWrite) =>
+  httpRequest<unknown>(scope, "/cli/notify/prefs", {
+    method: "POST",
+    body: JSON.stringify(body),
   });

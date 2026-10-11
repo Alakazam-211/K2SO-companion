@@ -19,7 +19,8 @@ import {
   stickToNewest,
   type MessageAnchor,
 } from "./threadScroll";
-import { connectOverlayEvents } from "./overlayEvents";
+import { connectOverlayEvents, type OverlayLiveHandle } from "./overlayEvents";
+import { useNotifyPrefsStore } from "../stores/notifyPrefs";
 import {
   applyActivityCatchUp,
   applyActivityFrame,
@@ -31,8 +32,10 @@ import {
 import { ThreadWorkingStrip } from "./ThreadWorkingStrip";
 import { isSendableAddr } from "./sendGate";
 import { sourceWord, useZenStore } from "./zenStore";
+import { SESSION_UNAVAILABLE } from "./sessionReturn";
 import { zenTextPx } from "./zenFont";
 import { useZenScope, zenScope } from "./zenScope";
+import { useThreadFocusSeq } from "./threadFocus";
 
 export { COMPOSER_MAX_PX, composerHeight } from "./GlassComposer";
 
@@ -146,15 +149,22 @@ export function threadTopPadding(topInset?: number): string | undefined {
 export function ThreadPane({
   viewportHeight,
   topInset,
+  covered = false,
 }: {
   viewportHeight?: number;
   /** Height (px, below the safe area) of a header floating over the list. */
   topInset?: number;
+  /** A full-screen overlay (file viewer) hides the Thread: not "viewing". */
+  covered?: boolean;
 } = {}) {
   const thread = useZenStore((s) => s.thread);
   const source = useZenStore((s) => s.threadSource);
   const error = useZenStore((s) => s.threadError);
   const agentId = useZenStore((s) => s.agentId);
+  // Done mode (drawer-picked session): a Thread that won't open offers the main chat.
+  const drawerOrigin = useZenStore((s) => s.drawerOrigin);
+  const returnToDrawerOrigin = useZenStore((s) => s.returnToDrawerOrigin);
+  const doneMode = Boolean(drawerOrigin) && drawerOrigin !== agentId;
   const hasMore = useZenStore((s) => s.threadHasMore);
   const loadingEarlier = useZenStore((s) => s.threadLoadingEarlier);
   const loadEarlier = useZenStore((s) => s.loadEarlier);
@@ -207,6 +217,15 @@ export function ThreadPane({
   const catchUps = useRef(createCatchUpGate());
   const addrRef = useRef(threadAddr);
   addrRef.current = threadAddr;
+  const liveRef = useRef<OverlayLiveHandle | null>(null);
+  // Viewing frames go to the ROOM's server (the overlay socket's own).
+  const serverId = zenServer || null;
+  const viewingAllowed = useNotifyPrefsStore(
+    (s) => !!serverId && s.threadPush[serverId] === true
+  );
+  useEffect(() => {
+    if (serverId) void useNotifyPrefsStore.getState().probe(serverId);
+  }, [serverId]);
 
   useLayoutEffect(() => {
     const el = scrollerRef.current;
@@ -227,6 +246,9 @@ export function ThreadPane({
     prevAgent.current = agentId;
     prevFirst.current = first;
   }, [thread, agentId, source]);
+
+  // Push tap `?seq=`: land on that message (after the stick above).
+  const highlightSeq = useThreadFocusSeq(scrollerRef);
 
   useLayoutEffect(() => {
     setDraft("");
@@ -274,7 +296,7 @@ export function ThreadPane({
     }
     // No catch-up before the socket: onOpen fires on the first open too,
     // and the poll fallback's onNeedCatchUp covers a socket that never opens.
-    const live = connectOverlayEvents({
+    const live = (liveRef.current = connectOverlayEvents({
       scope,
       conversationId,
       onItem: (raw) => {
@@ -291,13 +313,29 @@ export function ThreadPane({
         void catchUpActivity();
       },
       onOpen: () => void catchUpActivity(),
-    });
+    }));
     return () => {
       stopped = true;
+      if (liveRef.current === live) liveRef.current = null;
       live.stop();
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [source, conversationId, threadGroupId, zenServer]);
+
+  // Viewing frames (K2 0.45.5 `thread-push-v1` only): while this Thread is
+  // on screen the daemon holds its pushes. Older servers never get them.
+  useEffect(() => {
+    const apply = () =>
+      liveRef.current?.setViewing(
+        viewingAllowed && !covered && document.visibilityState === "visible"
+      );
+    apply();
+    document.addEventListener("visibilitychange", apply);
+    return () => {
+      document.removeEventListener("visibilitychange", apply);
+      liveRef.current?.setViewing(false);
+    };
+  }, [viewingAllowed, covered, source, conversationId, threadGroupId, zenServer]);
 
   // Keyboard open/close: Zen sizes the column to the visual viewport, so
   // the scroller shrinks with scrollTop unchanged and the newest message
@@ -387,7 +425,26 @@ export function ThreadPane({
           </span>
         ) : (
           <>
-            {source === "error" && error ? (
+            {source === "error" && error && (doneMode || error === SESSION_UNAVAILABLE) ? (
+              <div
+                className="flex flex-col items-start gap-2 px-2"
+                data-testid="thread-unavailable"
+              >
+                <span className="text-[13px] text-[var(--text-muted)] leading-snug">
+                  {SESSION_UNAVAILABLE}
+                </span>
+                {doneMode ? (
+                  <button
+                    type="button"
+                    className="text-[13px] zen-glass zen-glass-pill"
+                    style={{ minHeight: 32, padding: "0 12px", color: "#fff" }}
+                    onClick={() => returnToDrawerOrigin()}
+                  >
+                    Open main chat
+                  </button>
+                ) : null}
+              </div>
+            ) : source === "error" && error ? (
               <span className="text-[11px] text-[var(--warning)] px-2">
                 {asErrorText(error)}
               </span>
@@ -416,7 +473,13 @@ export function ThreadPane({
                 key={m.id || `seq-${m.seq ?? i}`}
                 data-thread-msg=""
                 data-seq={m.seq ?? undefined}
+                data-highlight={highlightSeq != null && m.seq === highlightSeq ? "true" : undefined}
                 className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}`}
+                style={
+                  highlightSeq != null && m.seq === highlightSeq
+                    ? { borderRadius: 20, boxShadow: "0 0 0 2px rgba(10,132,255,.85)", transition: "box-shadow .4s" }
+                    : undefined
+                }
               >
                 {!m.mine ? (
                   <span className="text-[11px] text-[var(--text-muted)] px-3 mb-0.5">

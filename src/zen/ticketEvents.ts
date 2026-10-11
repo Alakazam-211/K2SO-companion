@@ -223,3 +223,20 @@ export function isProjectsChangedFrame(frame: unknown): boolean {
 export function connectProjectEvents(scope: ServerScope, onChange: () => void): TicketEventsHandle {
   return subscribeAppEvents(scope, isProjectsChangedFrame, onChange);
 }
+
+/** `{"kind":"notify_prefs_changed"}` (K2 0.45.5, `thread-push-v1`): someone
+ *  changed push prefs. No payload; refetch your own `GET /cli/notify/prefs`. */
+export function isNotifyPrefsChangedFrame(frame: unknown): boolean {
+  return (
+    !!frame &&
+    typeof frame === "object" &&
+    (frame as { kind?: unknown }).kind === "notify_prefs_changed"
+  );
+}
+
+export function connectNotifyPrefsEvents(
+  scope: ServerScope,
+  onChange: () => void
+): TicketEventsHandle {
+  return subscribeAppEvents(scope, isNotifyPrefsChangedFrame, onChange);
+}

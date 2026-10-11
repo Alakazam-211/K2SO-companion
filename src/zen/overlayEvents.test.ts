@@ -5,12 +5,16 @@ import { fakeScope } from "../test/fakeScope";
 // MA21: the socket is opened on a scope.
 const SCOPE = fakeScope({ id: "s1", base: "https://host.k2.dev", token: "tok" });
 
-import { connectOverlayEvents, OVERLAY_POLL_MS } from "./overlayEvents";
+import { connectOverlayEvents, OVERLAY_POLL_MS, VIEWING_REPEAT_MS } from "./overlayEvents";
 
 class MockWS {
   static last: MockWS | null = null;
   static instances: MockWS[] = [];
   readyState = 0;
+  sent: string[] = [];
+  send(data: string) {
+    this.sent.push(data);
+  }
   onopen: (() => void) | null = null;
   onmessage: ((e: { data: unknown }) => void) | null = null;
   onclose: (() => void) | null = null;
@@ -86,5 +90,57 @@ describe("connectOverlayEvents", () => {
     vi.advanceTimersByTime(OVERLAY_POLL_MS);
     expect(onNeedCatchUp).toHaveBeenCalled();
     h.stop();
+  });
+
+  describe("viewing frames", () => {
+    const frames = (ws: MockWS) => ws.sent.map((f) => JSON.parse(f));
+    const handle = () =>
+      connectOverlayEvents({ scope: SCOPE, conversationId: "c1", onItem: vi.fn(), onNeedCatchUp: vi.fn() });
+
+    it("true at once when the socket is open, then every 30 s; false on hide", () => {
+      const h = handle();
+      const ws = MockWS.last!;
+      ws.openNow();
+      h.setViewing(true);
+      expect(frames(ws)).toEqual([{ t: "viewing", visible: true }]);
+      vi.advanceTimersByTime(VIEWING_REPEAT_MS);
+      expect(frames(ws)).toHaveLength(2);
+      vi.advanceTimersByTime(VIEWING_REPEAT_MS);
+      expect(frames(ws)).toHaveLength(3);
+      h.setViewing(false);
+      expect(frames(ws)[frames(ws).length - 1]).toEqual({ t: "viewing", visible: false });
+      vi.advanceTimersByTime(VIEWING_REPEAT_MS * 3);
+      expect(frames(ws)).toHaveLength(4);
+      h.stop();
+    });
+
+    it("a view asked before the socket opens goes out on open (and on re-open)", () => {
+      const h = handle();
+      const ws = MockWS.last!;
+      h.setViewing(true);
+      expect(ws.sent).toEqual([]);
+      ws.openNow();
+      expect(frames(ws)).toEqual([{ t: "viewing", visible: true }]);
+      h.stop();
+    });
+
+    it("stop (unmount) sends false while viewing", () => {
+      const h = handle();
+      const ws = MockWS.last!;
+      ws.openNow();
+      h.setViewing(true);
+      h.stop();
+      expect(frames(ws)[frames(ws).length - 1]).toEqual({ t: "viewing", visible: false });
+    });
+
+    it("never sends anything when it was never viewing", () => {
+      const h = handle();
+      const ws = MockWS.last!;
+      ws.openNow();
+      h.setViewing(false);
+      vi.advanceTimersByTime(VIEWING_REPEAT_MS * 2);
+      h.stop();
+      expect(ws.sent).toEqual([]);
+    });
   });
 });
