@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { PlusGlyph } from "./PlusGlyph";
 
 /** Gap between the bar and the iOS keyboard while typing — the same 8px
  *  the thread composer keeps (`.zen-composer-bar:focus-within`). */
@@ -9,7 +10,8 @@ export const SEARCH_BAR_REST_BOTTOM = "max(14px, env(safe-area-inset-bottom))";
 export const SEARCH_BAR_HEIGHT = 44;
 
 /** Bottom glass bar shared by Chats and the Servers sheet: a search field
- *  plus a round `+` button. Absolutely positioned at the bottom of its
+ *  plus a circular `+` button (the composer's attach `PlusGlyph`).
+ *  Absolutely positioned at the bottom of its
  *  nearest positioned ancestor — size that ancestor to the visual viewport
  *  (`useViewportHeight`) so the bar clears the iOS keyboard. */
 export function GlassSearchBar({
@@ -84,12 +86,14 @@ export function GlassSearchBar({
         style={{
           width: SEARCH_BAR_HEIGHT,
           height: SEARCH_BAR_HEIGHT,
-          color: "#fff",
+          // Perfect circle (overrides `.zen-glass-round`'s 16px corners).
+          borderRadius: "50%",
+          flexShrink: 0,
         }}
         onClick={onPlus}
         data-testid={plusTestId}
       >
-        +
+        <PlusGlyph />
       </button>
     </div>
   );
