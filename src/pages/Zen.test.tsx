@@ -241,9 +241,9 @@ describe("Zen keeps the chats list mounted", () => {
     expect(files.className).toMatch(/zen-glass/);
     expect(terminal.style.width).toBe(back.style.width);
     expect(terminal.className).toMatch(/zen-glass/);
-    const header = screen.getByTestId("chat-header");
-    expect(header.style.paddingTop).toBe("12px");
-    expect(header.style.paddingBottom).toBe("12px");
+    const headerContent = screen.getByTestId("chat-header-content");
+    expect(headerContent.style.paddingTop).toBe("6px");
+    expect(headerContent.style.paddingBottom).toBe("12px");
     fireEvent.click(back);
     expect(useZenStore.getState().screen).toBe("list");
     expect(useZenStore.getState().agentId).toBe("");
@@ -326,6 +326,85 @@ describe("Zen keeps the chats list mounted", () => {
     expect(screen.getByTestId("thread-column")).not.toBeNull();
     expect(screen.getByTestId("thread-loading").textContent).toMatch(/LOADING thread/);
     expect(screen.queryByText("STALE BUBBLE")).toBeNull();
+  });
+
+  it("floats an iMessage header with the agent's avatar over a blurred, scrollable list", async () => {
+    vi.mocked(getToken).mockReturnValue("");
+    const withIcon = { ...STUB_AGENTS[0], color: "#123456", iconUrl: "https://example.k2.dev/icon.png" };
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: [withIcon, ...STUB_AGENTS.slice(1)],
+      screen: "list",
+      agentError: null,
+    });
+    render(
+      <MemoryRouter initialEntries={[`/zen?thread=${withIcon.id}`]}>
+        <Zen />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(useZenStore.getState().screen).toBe("thread"));
+    // Stub hydration replaces the rows; put the iconed row back.
+    act(() => {
+      useZenStore.setState({ agents: [withIcon, ...STUB_AGENTS.slice(1)], agentId: withIcon.id });
+    });
+    const header = screen.getByTestId("chat-header");
+    // Floats from y=0 over the list; the column no longer pads the safe area.
+    expect(header.className).toMatch(/absolute/);
+    expect(header.style.pointerEvents).toBe("none");
+    expect(screen.getByTestId("thread-column").style.paddingTop).toBe("");
+
+    // Desktop workspace icon above the name.
+    const avatar = screen.getByTestId("chat-header-avatar");
+    const img = avatar.querySelector("img");
+    expect(img?.getAttribute("src")).toBe(withIcon.iconUrl);
+    expect(
+      avatar.compareDocumentPosition(screen.getByTestId("chat-header-title")) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+
+    // Progressive blur: four masked blur layers plus a dark tint, all inert.
+    const blur = screen.getByTestId("chat-header-blur");
+    expect(blur.className).toMatch(/zen-header-blur/);
+    expect(header.contains(blur)).toBe(true);
+    expect(blur.querySelectorAll("[class^='zen-header-blur-']").length).toBe(4);
+    expect(blur.querySelector(".zen-header-tint")).not.toBeNull();
+    // Controls still take touches through the inert header box.
+    expect(screen.getByTestId("chat-back").style.pointerEvents).toBe("auto");
+    expect(
+      (screen.getByRole("button", { name: "Files" }).parentElement as HTMLElement).style
+        .pointerEvents
+    ).toBe("auto");
+
+    // First message starts below the header at rest.
+    const pad = screen.getByTestId("thread-scroller").style.paddingTop;
+    expect(pad).toMatch(/env\(safe-area-inset-top\)/);
+    expect(pad).toMatch(/92px/);
+  });
+
+  it("falls back to the agent's coloured initial when there is no icon", async () => {
+    vi.mocked(getToken).mockReturnValue("");
+    const plain = { ...STUB_AGENTS[0], initial: "Q", color: "#654321", iconUrl: null };
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: [plain],
+      screen: "list",
+      agentError: null,
+    });
+    render(
+      <MemoryRouter initialEntries={[`/zen?thread=${plain.id}`]}>
+        <Zen />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(useZenStore.getState().screen).toBe("thread"));
+    act(() => {
+      useZenStore.setState({ agents: [plain], agentId: plain.id });
+    });
+    const avatar = screen.getByTestId("chat-header-avatar");
+    expect(avatar.querySelector("img")).toBeNull();
+    expect(avatar.textContent).toBe("Q");
+    const disc = avatar.firstElementChild as HTMLElement;
+    expect(disc.style.width).toBe("42px");
+    expect(disc.style.background).toMatch(/rgb\(101, 67, 33\)|#654321/);
   });
 
   it("sizes the thread column to the visible height above the iOS keyboard", async () => {

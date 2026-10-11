@@ -176,6 +176,88 @@ html, body, #root {
   border-radius: 22px;
 }
 
+/* Zen chat header — iMessage progressive blur. The header floats over
+   the thread from y=0; blur and darkness are strongest under the status
+   bar and fade to nothing at the header's bottom edge. Stacked layers,
+   each masked to its own top band, so the blur ramps instead of stepping.
+   Four blur layers only: each is a live backdrop over a scrolling list.
+   No theme switching on the phone, so desktop's stale-layer bug does not
+   apply. Touches pass through to the list. */
+.zen-header-blur {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+}
+.zen-header-blur > span {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.zen-header-blur-1 {
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
+}
+.zen-header-blur-2 {
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 40%, transparent 80%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 40%, transparent 80%);
+}
+.zen-header-blur-3 {
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 25%, transparent 60%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 25%, transparent 60%);
+}
+.zen-header-blur-4 {
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 12%, transparent 40%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 12%, transparent 40%);
+}
+.zen-header-tint {
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.85) 0%,
+    rgba(0, 0, 0, 0.55) 45%,
+    rgba(0, 0, 0, 0) 100%
+  );
+}
+/* Name and sidecar line stay legible where the tint has thinned out. */
+.zen-header-text {
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+/* No backdrop blur: a heavier solid ramp so text never sits on bubbles. */
+@media (prefers-reduced-transparency: reduce) {
+  .zen-header-blur-1,
+  .zen-header-blur-2,
+  .zen-header-blur-3,
+  .zen-header-blur-4 {
+    display: none;
+  }
+  .zen-header-tint {
+    background: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.96) 0%,
+      rgba(0, 0, 0, 0.88) 60%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  }
+}
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .zen-header-tint {
+    background: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.96) 0%,
+      rgba(0, 0, 0, 0.88) 60%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  }
+}
+
 /* Glass tiles — desktop Zen's tile edge (K2 `zen-glass.ts`, Garden 1).
    The glass is the EDGE, not see-through: a solid fill, a semi-clear
    rim mixed from the border and text colours, a 1px light catch on the
