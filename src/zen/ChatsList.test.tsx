@@ -1767,9 +1767,9 @@ describe("ChatsList", () => {
         expect(zenPinnedGroupInsetPx(w)).toBeCloseTo(expected, 6);
         expect(evalInsetPx(ZEN_LIST_CONTENT_INSET, w)).toBeCloseTo(expected, 6);
       }
-      // 375pt: ~19px each side; 430pt: ~28px.
-      expect(zenPinnedGroupInsetPx(375)).toBeCloseTo(19.17, 2);
-      expect(zenPinnedGroupInsetPx(430)).toBeCloseTo(28.33, 2);
+      // 375pt: ~17px each side; 430pt: ~26px.
+      expect(zenPinnedGroupInsetPx(375)).toBeCloseTo(17.17, 2);
+      expect(zenPinnedGroupInsetPx(430)).toBeCloseTo(26.33, 2);
       // Avatars stay well clear of the screen edge.
       expect(zenPinnedGroupInsetPx(375)).toBeGreaterThanOrEqual(6);
     });
@@ -1778,8 +1778,8 @@ describe("ChatsList", () => {
       const side = ZEN_LIST_EDGE_INSET + ZEN_LIST_EDGE_PAD;
       const cell = (375 - 2 * side - 2 * ZEN_PIN_COL_GAP) / 3;
       // Name / activity lines truncate inside the cell (110px cap at wider
-      // widths); at 375pt the cell is ~100px and wider than the avatar.
-      expect(cell).toBeGreaterThanOrEqual(100);
+      // widths); at 375pt the cell is ~96px and wider than the avatar.
+      expect(cell).toBeGreaterThanOrEqual(96);
       expect(cell).toBeGreaterThan(ZEN_PIN_AVATAR_PX);
       // Cells stay clear of each other: names never touch across the gap.
       expect(ZEN_PIN_COL_GAP).toBeGreaterThanOrEqual(16);

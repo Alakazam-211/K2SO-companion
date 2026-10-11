@@ -65,13 +65,13 @@ export const CHATS_HEADER_PX = 64;
  * a PIN_AVATAR_PX circle centred in it. The outer avatars' edge sits at
  * (2/3)side + W/6 - gap/3 - avatar/2, so a wider COL_GAP pushes the first
  * and last avatars (and the list inset that follows them) toward the
- * edges while the grid box keeps its 4px drop-outline margin. 31 puts the
- * avatars ~19px in at 375pt and ~28px at 430pt. Cells are then ~100px at
+ * edges while the grid box keeps its 4px drop-outline margin. 37 puts the
+ * avatars ~17px in at 375pt and ~26px at 430pt. Cells are then ~96px at
  * 375pt, so pinned names truncate at the cell there (110px cap above that).
  */
 export const ZEN_LIST_EDGE_INSET = 4;
 export const ZEN_LIST_EDGE_PAD = 2;
-export const ZEN_PIN_COL_GAP = 31;
+export const ZEN_PIN_COL_GAP = 37;
 export const ZEN_PIN_ROW_GAP = 14;
 export const ZEN_PIN_AVATAR_PX = 74;
 const PIN_SIDE_PX = ZEN_LIST_EDGE_INSET + ZEN_LIST_EDGE_PAD;
