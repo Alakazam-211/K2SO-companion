@@ -144,11 +144,28 @@ describe("ThreadWorkingStrip drawer", () => {
     expect(screen.getByTestId("thread-strip-step-text").textContent).toBe("No update in 34m");
   });
 
+  it("is a drawer tile: top corners rounded, bottom square with no bottom rim, no gap below", () => {
+    render(<ThreadWorkingStrip turn={busy()} />);
+    const tile = toggle();
+    expect(tile.className).toContain("k2-tile");
+    expect(tile.className).toContain("k2-tile-sheet");
+    expect(tile.style.borderRadius).toBe(
+      "var(--k2-drawer-radius, 15px) var(--k2-drawer-radius, 15px) 0 0"
+    );
+    // Its bottom tucks behind the field by the slot's tuck; nothing spaces it off.
+    expect(tile.style.paddingBottom).toBe("var(--k2-drawer-tuck, 0px)");
+    for (const el of [strip(), tile]) {
+      expect(el.className).not.toMatch(/(^|\s)(mb|pb|my|py)-/);
+      expect(el.style.marginBottom).toBe("");
+    }
+    expect(strip().style.paddingBottom).toBe("");
+  });
+
   it("slides up when a turn starts and down when it ends, then unmounts", () => {
     const space = vi.fn();
     const { rerender } = render(<ThreadWorkingStrip turn={busy()} onSpace={space} />);
     expect(strip().className).toBe("k2-drawer-slide-in");
-    expect(space).toHaveBeenLastCalledWith(38);
+    expect(space).toHaveBeenLastCalledWith(32);
     rerender(<ThreadWorkingStrip turn={null} onSpace={space} />);
     expect(strip().className).toBe("k2-drawer-slide-out");
     expect(strip().getAttribute("data-leaving")).toBe("true");
@@ -186,7 +203,7 @@ describe("ThreadWorkingStrip drawer", () => {
     expect(localStorage.getItem(DRAWER_EXPANDED_KEY)).toBe("1");
     // The room it takes grows with it.
     const expandedSpace = space.mock.calls[space.mock.calls.length - 1]?.[0] as number;
-    expect(expandedSpace).toBeGreaterThan(38);
+    expect(expandedSpace).toBeGreaterThan(32);
     unmount();
 
     // A new turn opens the way it was left.

@@ -345,15 +345,17 @@ describe("Thread follows the newest", () => {
     const contentBefore = screen.getByTestId("thread-content").childElementCount;
     expect(scroller().style.paddingBottom).toBe("");
 
-    // Opens: 32px tile + 6px gap on top of the scroller's own 12px.
-    height = 1838;
+    // Opens: a 32px tile on the field's top edge; the bar's top 14px is
+    // under it, so 18px covers the scroller, on top of its own 12px.
+    height = 1818;
     act(() => socket().onItem(activityFrame(1, false) as never));
     expect(screen.getByTestId("thread-content").childElementCount).toBe(contentBefore);
-    expect(scroller().getAttribute("data-drawer-space")).toBe("38");
-    expect(scroller().style.paddingBottom).toBe("50px");
+    expect(scroller().getAttribute("data-drawer-space")).toBe("32");
+    expect(scroller().getAttribute("data-drawer-cover")).toBe("18");
+    expect(scroller().style.paddingBottom).toBe("30px");
     expect(scroller().scrollTop).toBe(bottom());
     // The padding eases over ~200ms: the rAF loop keeps sticking.
-    height = 1840;
+    height = 1820;
     flushRaf();
     expect(scroller().scrollTop).toBe(bottom());
 
@@ -361,19 +363,54 @@ describe("Thread follows the newest", () => {
     height = 1880;
     fireEvent.click(screen.getByTestId("thread-strip-toggle"));
     const space = Number(scroller().getAttribute("data-drawer-space"));
-    expect(space).toBeGreaterThan(38);
-    expect(scroller().style.paddingBottom).toBe(`${12 + space}px`);
+    expect(space).toBeGreaterThan(32);
+    expect(scroller().style.paddingBottom).toBe(`${12 + space - 14}px`);
     expect(scroller().scrollTop).toBe(bottom());
 
     // Tap again: back to one line.
     fireEvent.click(screen.getByTestId("thread-strip-toggle"));
-    expect(scroller().style.paddingBottom).toBe("50px");
+    expect(scroller().style.paddingBottom).toBe("30px");
 
     // Closes: the padding goes as the drawer slides down.
     height = 1800;
     act(() => socket().onItem(activityFrame(2, true) as never));
     expect(scroller().style.paddingBottom).toBe("");
     expect(scroller().scrollTop).toBe(bottom());
+  });
+
+  it("tapping the drawer with the composer focused toggles it and keeps focus (the keyboard stays up)", async () => {
+    render(<ThreadPane />);
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+    act(() => socket().onItem(activityFrame(1, false) as never));
+    const input = screen.getByTestId("composer-input") as HTMLTextAreaElement;
+    input.focus();
+    expect(document.activeElement).toBe(input);
+    const tile = screen.getByTestId("thread-strip-toggle");
+    // pointerdown / mousedown are cancelled so the button never takes focus.
+    expect(fireEvent.pointerDown(tile)).toBe(false);
+    expect(fireEvent.mouseDown(tile)).toBe(false);
+    fireEvent.click(tile);
+    expect(tile.getAttribute("aria-expanded")).toBe("true");
+    expect(document.activeElement).toBe(input);
+    expect(fireEvent.pointerDown(tile)).toBe(false);
+    fireEvent.click(tile);
+    expect(tile.getAttribute("aria-expanded")).toBe("false");
+    expect(document.activeElement).toBe(input);
+  });
+
+  it("with a row above the field the bar makes room under it and the scroller is not padded", async () => {
+    render(<ThreadPane />);
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+    act(() => useZenStore.setState({ sendError: "Send failed" }));
+    act(() => socket().onItem(activityFrame(1, false) as never));
+    expect(screen.getByTestId("composer-label").textContent).toBe("Send failed");
+    expect(scroller().getAttribute("data-drawer-cover")).toBe("0");
+    expect(scroller().style.paddingBottom).toBe("");
+    const room = screen.getByTestId("composer-drawer-room");
+    expect(room.style.height).toBe("32px");
+    // Label, then the room, then the field the drawer stands on.
+    expect(screen.getByTestId("composer-label").nextElementSibling).toBe(room);
+    expect(room.nextElementSibling).toBe(screen.getByTestId("composer-form"));
   });
 
   it("a reader scrolled up is not yanked when the drawer opens", async () => {

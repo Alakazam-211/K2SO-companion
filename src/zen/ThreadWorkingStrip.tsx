@@ -17,7 +17,8 @@ import { zenTextPx } from "./zenFont";
 import { prefersReducedMotion } from "./sendFly";
 import "./threadDrawer.css";
 
-// The Thread working drawer: a glass tile docked above the composer while
+// The Thread working drawer: a glass tile pulled out of the composer's top
+// edge (GlassComposer's `drawer` slot owns where it sits) while
 // the agent works on your message, so it stays in view while you read
 // back. Collapsed it is one line (pulse · step · emoji counters · clock);
 // a tap grows it upward to the full detail in words, another tap shrinks
@@ -36,10 +37,11 @@ const TONE: Record<ThreadStripTone, string> = {
 
 /** Slide / fade length (ms); the CSS uses the same. */
 export const DRAWER_MS = 200;
-/** Collapsed tile height (px), border included. */
+/** Collapsed tile height (px) above the field, top rim included. */
 export const DRAWER_TILE_PX = 32;
-/** Gap (px) between the tile and the composer. */
-export const DRAWER_GAP_PX = 6;
+/** The slot's vars (GlassComposer); the fallbacks keep it whole alone. */
+const TUCK = "var(--k2-drawer-tuck, 0px)";
+const RADIUS = "var(--k2-drawer-radius, 15px)";
 /** Room the step keeps before counters start dropping. */
 const STEP_MIN_PX = 72;
 const COUNTER_FONT_PX = 12;
@@ -122,8 +124,8 @@ export function ThreadWorkingStrip({
   onSpace,
 }: {
   turn: ThreadTurn | null;
-  /** Room (px) the drawer takes above the composer: 0 when hidden or
-   *  leaving. The Thread pads its scroller by it. */
+  /** Height (px) the drawer stands above the composer field: 0 when
+   *  hidden or leaving. The Thread pads its scroller by what it covers. */
   onSpace?: (px: number) => void;
 }) {
   const now = useStripNow(turn);
@@ -178,13 +180,15 @@ export function ThreadWorkingStrip({
       (display.detail.tally ? 1 : 0) +
       (display.detail.children ? 1 : 0)
     : 0;
+  // Visible height: content plus the top rim (no bottom rim: the field's
+  // top edge is the seam). The tucked part behind the field is extra.
   const tileH =
     innerH > 0
-      ? innerH + 2
+      ? innerH + 1
       : expanded
-        ? 12 + 2 + detailLines * EXPANDED_LINE_PX
+        ? 12 + 1 + detailLines * EXPANDED_LINE_PX
         : DRAWER_TILE_PX;
-  const space = phase === "in" ? tileH + DRAWER_GAP_PX : 0;
+  const space = phase === "in" ? tileH : 0;
   const onSpaceRef = useRef(onSpace);
   onSpaceRef.current = onSpace;
   useLayoutEffect(() => {
@@ -221,150 +225,151 @@ export function ThreadWorkingStrip({
   const d = display.detail;
 
   return (
-    // Clip box: its bottom edge is the composer's top, so the tile slides
-    // in from behind the composer. Touches fall through to the scroller.
+    // Rendered into GlassComposer's drawer slot: its clip box ends under
+    // the field's top edge, so the tile slides out of (and back into) the
+    // field. Only the tile takes touches.
     <div
-      data-testid="thread-drawer"
-      className="absolute left-0 right-0 bottom-0 px-2.5 pt-3 overflow-hidden pointer-events-none"
-      style={{ paddingBottom: DRAWER_GAP_PX }}
+      role="status"
+      data-testid="thread-working-strip"
+      data-tone={display.tone}
+      data-phase={turn?.phase}
+      data-leaving={phase === "out" ? "true" : undefined}
+      data-expanded={expanded ? "true" : "false"}
+      className={anim}
+      onAnimationEnd={(e) => {
+        if (e.target === e.currentTarget && phase === "out") setPhase("hidden");
+      }}
     >
-      <div
-        role="status"
-        data-testid="thread-working-strip"
-        data-tone={display.tone}
-        data-phase={turn?.phase}
-        data-leaving={phase === "out" ? "true" : undefined}
-        data-expanded={expanded ? "true" : "false"}
-        className={anim}
-        onAnimationEnd={(e) => {
-          if (e.target === e.currentTarget && phase === "out") setPhase("hidden");
+      <button
+        ref={tileRef}
+        type="button"
+        data-testid="thread-strip-toggle"
+        aria-expanded={expanded}
+        aria-label={display.ariaLabel}
+        // Keep focus in the composer so a tap does not drop the iOS
+        // keyboard (the send bubble's trick). Enter/Space still click.
+        onPointerDown={(e) => e.preventDefault()}
+        onMouseDown={(e) => e.preventDefault()}
+        onClick={toggle}
+        className="k2-tile k2-tile-sheet k2-drawer-tile relative block w-full min-w-0 overflow-hidden text-left pointer-events-auto"
+        style={{
+          height: innerH > 0 ? `calc(${innerH + 1}px + ${TUCK})` : undefined,
+          paddingBottom: TUCK,
+          borderRadius: `${RADIUS} ${RADIUS} 0 0`,
+          borderStyle: display.tone === "unverifiable" ? "dashed" : undefined,
+          transition: reduced ? "none" : undefined,
         }}
       >
-        <button
-          ref={tileRef}
-          type="button"
-          data-testid="thread-strip-toggle"
-          aria-expanded={expanded}
-          aria-label={display.ariaLabel}
-          onClick={toggle}
-          className="k2-tile k2-drawer-tile relative block w-full min-w-0 overflow-hidden text-left pointer-events-auto"
-          style={{
-            height: innerH > 0 ? innerH + 2 : undefined,
-            borderRadius: 16,
-            borderStyle: display.tone === "unverifiable" ? "dashed" : undefined,
-            transition: reduced ? "none" : undefined,
-          }}
+        <span
+          ref={innerRef}
+          className={`${innerH > 0 ? "absolute left-0 right-0" : ""} block min-w-0`}
+          style={innerH > 0 ? { bottom: TUCK } : undefined}
         >
-          <span
-            ref={innerRef}
-            className={`${innerH > 0 ? "absolute left-0 right-0 bottom-0" : ""} block min-w-0`}
-          >
-            {expanded ? (
-              <span data-testid="thread-strip-detail" className="flex flex-col gap-[1px] px-3 py-1.5 min-w-0">
-                <span className="flex items-center gap-2 min-w-0 text-[13px] leading-[18px]">
-                  {dot}
-                  <span
-                    data-testid="thread-strip-head"
-                    className="min-w-0 font-semibold break-words"
-                    style={{ color }}
-                  >
-                    {d.head}
-                  </span>
-                </span>
-                {d.step ? (
-                  <span
-                    data-testid="thread-strip-step-full"
-                    className="flex items-baseline gap-2 min-w-0 leading-[19px]"
-                    style={{ color: "var(--text)", fontSize: zenTextPx(14) }}
-                  >
-                    <span
-                      className={`flex-1 min-w-0 whitespace-normal break-words ${
-                        d.step.kind === "thinking" ? "k2-shimmer" : ""
-                      }`}
-                      style={d.step.kind === "needs" ? { color: "var(--warning)" } : undefined}
-                    >
-                      <StepBody step={d.step} />
-                    </span>
-                    {d.step.elapsed ? (
-                      <span
-                        data-testid="thread-strip-elapsed"
-                        className="flex-none tabular-nums text-[12px]"
-                        style={{ color: "var(--text-muted)" }}
-                      >
-                        {d.step.elapsed}
-                      </span>
-                    ) : null}
-                  </span>
-                ) : null}
-                {d.tally ? (
-                  <span
-                    data-testid="thread-strip-tally"
-                    className="min-w-0 break-words text-[12px] leading-[18px]"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    {d.tally}
-                  </span>
-                ) : null}
-                {d.children ? (
-                  <span
-                    data-testid="thread-strip-children"
-                    className="min-w-0 break-words text-[12px] leading-[18px]"
-                    style={{ color: "var(--text-muted)" }}
-                  >
-                    {d.children}
-                  </span>
-                ) : null}
-              </span>
-            ) : (
-              <span
-                data-testid="thread-strip-line"
-                className="flex items-center gap-2 min-w-0 px-3 whitespace-nowrap"
-                style={{ height: DRAWER_TILE_PX - 2 }}
-              >
+          {expanded ? (
+            <span data-testid="thread-strip-detail" className="flex flex-col gap-[1px] px-3 py-1.5 min-w-0">
+              <span className="flex items-center gap-2 min-w-0 text-[13px] leading-[18px]">
                 {dot}
                 <span
-                  data-testid="thread-strip-step-text"
-                  className={`flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-[18px] ${
-                    display.step.kind === "thinking" ? "k2-shimmer" : ""
-                  }`}
-                  style={{
-                    fontSize: zenTextPx(13),
-                    color:
-                      display.step.kind === "needs"
-                        ? "var(--warning)"
-                        : display.tone === "stopped" || display.tone === "unverifiable"
-                          ? "var(--text-muted)"
-                          : "var(--text)",
-                  }}
+                  data-testid="thread-strip-head"
+                  className="min-w-0 font-semibold break-words"
+                  style={{ color }}
                 >
-                  <StepBody step={display.step} />
-                </span>
-                {counters.length ? (
-                  <span
-                    data-testid="thread-strip-counters"
-                    className="flex-none flex items-center tabular-nums text-[12px] leading-[18px]"
-                    style={{ gap: COUNTER_GAP_PX, color: "var(--text-muted)" }}
-                  >
-                    {counters.map((c) => (
-                      <span key={c.key} data-testid={`thread-strip-count-${c.key}`} data-emoji={STRIP_EMOJI[c.key]}>
-                        <span aria-hidden="true">{counterText(c)}</span>
-                        <span className="sr-only">{counterSpoken(c)}</span>
-                      </span>
-                    ))}
-                  </span>
-                ) : null}
-                <span
-                  data-testid="thread-strip-since"
-                  className="flex-none tabular-nums text-right text-[12px] leading-[18px]"
-                  style={{ color: "var(--text-muted)" }}
-                >
-                  {display.clock}
+                  {d.head}
                 </span>
               </span>
-            )}
-          </span>
-        </button>
-      </div>
+              {d.step ? (
+                <span
+                  data-testid="thread-strip-step-full"
+                  className="flex items-baseline gap-2 min-w-0 leading-[19px]"
+                  style={{ color: "var(--text)", fontSize: zenTextPx(14) }}
+                >
+                  <span
+                    className={`flex-1 min-w-0 whitespace-normal break-words ${
+                      d.step.kind === "thinking" ? "k2-shimmer" : ""
+                    }`}
+                    style={d.step.kind === "needs" ? { color: "var(--warning)" } : undefined}
+                  >
+                    <StepBody step={d.step} />
+                  </span>
+                  {d.step.elapsed ? (
+                    <span
+                      data-testid="thread-strip-elapsed"
+                      className="flex-none tabular-nums text-[12px]"
+                      style={{ color: "var(--text-muted)" }}
+                    >
+                      {d.step.elapsed}
+                    </span>
+                  ) : null}
+                </span>
+              ) : null}
+              {d.tally ? (
+                <span
+                  data-testid="thread-strip-tally"
+                  className="min-w-0 break-words text-[12px] leading-[18px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {d.tally}
+                </span>
+              ) : null}
+              {d.children ? (
+                <span
+                  data-testid="thread-strip-children"
+                  className="min-w-0 break-words text-[12px] leading-[18px]"
+                  style={{ color: "var(--text-muted)" }}
+                >
+                  {d.children}
+                </span>
+              ) : null}
+            </span>
+          ) : (
+            <span
+              data-testid="thread-strip-line"
+              className="flex items-center gap-2 min-w-0 px-3 whitespace-nowrap"
+              style={{ height: DRAWER_TILE_PX - 1 }}
+            >
+              {dot}
+              <span
+                data-testid="thread-strip-step-text"
+                className={`flex-1 min-w-0 overflow-hidden text-ellipsis whitespace-nowrap leading-[18px] ${
+                  display.step.kind === "thinking" ? "k2-shimmer" : ""
+                }`}
+                style={{
+                  fontSize: zenTextPx(13),
+                  color:
+                    display.step.kind === "needs"
+                      ? "var(--warning)"
+                      : display.tone === "stopped" || display.tone === "unverifiable"
+                        ? "var(--text-muted)"
+                        : "var(--text)",
+                }}
+              >
+                <StepBody step={display.step} />
+              </span>
+              {counters.length ? (
+                <span
+                  data-testid="thread-strip-counters"
+                  className="flex-none flex items-center tabular-nums text-[12px] leading-[18px]"
+                  style={{ gap: COUNTER_GAP_PX, color: "var(--text-muted)" }}
+                >
+                  {counters.map((c) => (
+                    <span key={c.key} data-testid={`thread-strip-count-${c.key}`} data-emoji={STRIP_EMOJI[c.key]}>
+                      <span aria-hidden="true">{counterText(c)}</span>
+                      <span className="sr-only">{counterSpoken(c)}</span>
+                    </span>
+                  ))}
+                </span>
+              ) : null}
+              <span
+                data-testid="thread-strip-since"
+                className="flex-none tabular-nums text-right text-[12px] leading-[18px]"
+                style={{ color: "var(--text-muted)" }}
+              >
+                {display.clock}
+              </span>
+            </span>
+          )}
+        </span>
+      </button>
     </div>
   );
 }
