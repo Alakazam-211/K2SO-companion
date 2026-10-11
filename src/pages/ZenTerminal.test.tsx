@@ -1,27 +1,100 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useEffect, type MutableRefObject } from "react";
+import { useEffect, useRef, type MutableRefObject } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 // TerminalView opens sockets — stand in with a prop recorder whose
-// reload seam is a spy.
+// reload seam is a spy. Its touch layer is simulated with the real
+// gesture classifier (sgrMouse) and the real tapRequestsDrive gate, the
+// same calls TerminalView's onTouchEnd makes.
 const reloadSpy = vi.fn();
-const termProps: Array<{ terminalId: string; projectPath: string; drive?: boolean }> = [];
-vi.mock("../components/TerminalView", () => ({
-  TerminalView: (p: {
-    terminalId: string;
-    projectPath: string;
-    drive?: boolean;
-    onReloadRef?: MutableRefObject<(() => void) | null>;
-  }) => {
-    termProps.push({ terminalId: p.terminalId, projectPath: p.projectPath, drive: p.drive });
-    useEffect(() => {
-      if (p.onReloadRef) p.onReloadRef.current = reloadSpy;
-    });
-    return <div data-testid="terminal-view" data-drive={String(Boolean(p.drive))} />;
-  },
-}));
+const termProps: Array<{
+  terminalId: string;
+  projectPath: string;
+  drive?: boolean;
+  hasTapWhileViewing: boolean;
+}> = [];
+vi.mock("../components/TerminalView", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../components/TerminalView")>();
+  const { movedBeyond, classifyRelease, LONG_PRESS_MS } = await import("../lib/sgrMouse");
+  type Gest = { x: number; y: number; t: number; moved: boolean; longPress: boolean };
+  return {
+    ...actual,
+    TerminalView: (p: {
+      terminalId: string;
+      projectPath: string;
+      drive?: boolean;
+      onReloadRef?: MutableRefObject<(() => void) | null>;
+      onTapWhileViewing?: () => void;
+    }) => {
+      termProps.push({
+        terminalId: p.terminalId,
+        projectPath: p.projectPath,
+        drive: p.drive,
+        hasTapWhileViewing: typeof p.onTapWhileViewing === "function",
+      });
+      useEffect(() => {
+        if (p.onReloadRef) p.onReloadRef.current = reloadSpy;
+      });
+      const gest = useRef<Gest | null>(null);
+      const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+      const selectionUp = useRef(false);
+      const stopTimer = () => {
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = null;
+      };
+      return (
+        <div
+          data-testid="terminal-view"
+          data-drive={String(Boolean(p.drive))}
+          onTouchStart={(e) => {
+            const t = e.touches[0];
+            gest.current = { x: t.clientX, y: t.clientY, t: Date.now(), moved: false, longPress: false };
+            timer.current = setTimeout(() => {
+              const g = gest.current;
+              if (!g || g.moved) return;
+              g.longPress = true;
+              selectionUp.current = true;
+            }, LONG_PRESS_MS);
+          }}
+          onTouchMove={(e) => {
+            const g = gest.current;
+            const t = e.touches[0];
+            if (g && !g.moved && movedBeyond(g, t.clientX, t.clientY)) {
+              g.moved = true;
+              stopTimer();
+            }
+          }}
+          onTouchEnd={() => {
+            stopTimer();
+            const g = gest.current;
+            gest.current = null;
+            if (!g) return;
+            const kind = classifyRelease({
+              moved: g.moved,
+              longPressFired: g.longPress,
+              durationMs: Date.now() - g.t,
+            });
+            if (kind === "tap" && selectionUp.current) {
+              selectionUp.current = false; // tap clears the selection
+              return;
+            }
+            if (
+              actual.tapRequestsDrive({
+                kind,
+                selectionUp: selectionUp.current,
+                drive: Boolean(p.drive),
+              })
+            ) {
+              p.onTapWhileViewing?.();
+            }
+          }}
+        />
+      );
+    },
+  };
+});
 
 vi.mock("../api/sendMessage", () => ({
   sendMessageToSession: vi.fn(async () => ({ ok: true })),
@@ -150,7 +223,7 @@ describe("ZenTerminal", () => {
     // No thread door in this header — Done is the only way out.
     expect(screen.queryByRole("button", { name: "Chat" })).toBeNull();
 
-    expect(termProps[termProps.length - 1]).toEqual({ terminalId: "t1", projectPath: "/ws/appa", drive: false });
+    expect(termProps[termProps.length - 1]).toEqual({ terminalId: "t1", projectPath: "/ws/appa", drive: false, hasTapWhileViewing: true });
   });
 
   it("Viewer/Claimer switches drive on the same TerminalView", () => {
@@ -193,6 +266,96 @@ describe("ZenTerminal", () => {
     expect(claim.getAttribute("aria-pressed")).toBe("true");
     expect(termProps.length).toBe(renders);
     expect(screen.getByTestId("terminal-view").getAttribute("data-drive")).toBe("true");
+  });
+
+  describe("tapping the terminal in view mode claims Drive", () => {
+    const touch = (x: number, y: number) => ({ touches: [{ clientX: x, clientY: y }] });
+    const tap = (el: HTMLElement) => {
+      fireEvent.touchStart(el, touch(100, 100));
+      fireEvent.touchEnd(el, { touches: [] });
+      fireEvent.click(el); // the synthetic click iOS sends after a tap
+    };
+    const setup = () => {
+      renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+      return {
+        claim: screen.getByRole("button", { name: "Claimer — type and resize" }),
+        watch: screen.getByRole("button", { name: "Viewer — watch only" }),
+        term: () => screen.getByTestId("terminal-view"),
+      };
+    };
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it("a tap switches to Drive (pencil pressed), same as the pencil", () => {
+      const { claim, watch, term } = setup();
+      expect(claim.getAttribute("aria-pressed")).toBe("false");
+      tap(term());
+      expect(claim.getAttribute("aria-pressed")).toBe("true");
+      expect(watch.getAttribute("aria-pressed")).toBe("false");
+      expect(term().getAttribute("data-drive")).toBe("true");
+      expect(termProps[termProps.length - 1].drive).toBe(true);
+    });
+
+    it("direct send: the tap focuses the live input in the same gesture", () => {
+      const { claim, term } = setup();
+      fireEvent.click(screen.getByRole("button", { name: "Switch to direct typing" }));
+      const capture = screen
+        .getByTestId("zen-terminal-direct-bar")
+        .querySelector("input") as HTMLInputElement;
+      expect(document.activeElement).not.toBe(capture);
+      // touchend alone (no synthetic click) — focus is synchronous there.
+      fireEvent.touchStart(term(), touch(100, 100));
+      fireEvent.touchEnd(term(), { touches: [] });
+      expect(claim.getAttribute("aria-pressed")).toBe("true");
+      expect(document.activeElement).toBe(capture);
+      fireEvent.click(screen.getByRole("button", { name: "Switch to safe send" }));
+    });
+
+    it("a scroll drag does not switch", () => {
+      const { claim, term } = setup();
+      fireEvent.touchStart(term(), touch(100, 100));
+      fireEvent.touchMove(term(), touch(100, 130));
+      fireEvent.touchMove(term(), touch(100, 200));
+      fireEvent.touchEnd(term(), { touches: [] });
+      expect(claim.getAttribute("aria-pressed")).toBe("false");
+      expect(term().getAttribute("data-drive")).toBe("false");
+    });
+
+    it("a small wobble within the tap slop still counts as a tap", () => {
+      const { claim, term } = setup();
+      fireEvent.touchStart(term(), touch(100, 100));
+      fireEvent.touchMove(term(), touch(104, 105));
+      fireEvent.touchEnd(term(), { touches: [] });
+      expect(claim.getAttribute("aria-pressed")).toBe("true");
+    });
+
+    it("a long-press selection does not switch, nor does the tap that clears it", () => {
+      vi.useFakeTimers();
+      const { claim, term } = setup();
+      fireEvent.touchStart(term(), touch(100, 100));
+      act(() => {
+        vi.advanceTimersByTime(600);
+      });
+      fireEvent.touchMove(term(), touch(160, 100)); // drag the selection
+      fireEvent.touchEnd(term(), { touches: [] });
+      expect(claim.getAttribute("aria-pressed")).toBe("false");
+      tap(term()); // tap-elsewhere clears the selection, nothing else
+      expect(claim.getAttribute("aria-pressed")).toBe("false");
+      tap(term()); // the next plain tap claims
+      expect(claim.getAttribute("aria-pressed")).toBe("true");
+    });
+
+    it("in Drive a tap is a no-op, and it never flips back to view", () => {
+      const { claim, term } = setup();
+      fireEvent.click(claim);
+      const renders = termProps.length;
+      tap(term());
+      tap(term());
+      expect(claim.getAttribute("aria-pressed")).toBe("true");
+      expect(termProps.length).toBe(renders);
+      expect(term().getAttribute("data-drive")).toBe("true");
+    });
   });
 
   it("Viewer/Claimer is a segmented control: the selected thumb stays inside the pill", () => {
@@ -482,6 +645,13 @@ describe("old /chat/:id page is unchanged", () => {
   it("keeps its classic chrome and back to /sessions", () => {
     renderAt("/chat/t1");
     expect(screen.queryByTestId("zen-terminal")).toBeNull();
+    // No tap-to-claim on the classic page: the prop is never passed.
+    expect(termProps.length).toBeGreaterThan(0);
+    expect(termProps.every((p) => !p.hasTapWhileViewing)).toBe(true);
+    const term = screen.getByTestId("terminal-view");
+    fireEvent.touchStart(term, { touches: [{ clientX: 50, clientY: 50 }] });
+    fireEvent.touchEnd(term, { touches: [] });
+    expect(term.getAttribute("data-drive")).toBe("false");
     const field = screen.getByPlaceholderText(/Message the agent…/);
     expect(field.closest("[data-k2-variant='zen']")).toBeNull();
     expect(field.className).toMatch(/border-\[var\(--accent-dim\)\]/);

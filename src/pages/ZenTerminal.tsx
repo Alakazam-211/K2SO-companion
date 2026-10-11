@@ -160,6 +160,17 @@ export function ZenTerminal() {
     if (!drive) setDrive(true);
   };
 
+  // Tapping the terminal itself while watching claims Drive the same
+  // way (TerminalView only fires this for a plain tap — never a scroll
+  // drag or long-press selection). Focus is called synchronously in
+  // the same touchend so iOS raises the keyboard on this tap; in safe
+  // send there is no direct input, so it only claims (as in Drive).
+  const claimOnTerminalTap = () => {
+    if (drive) return;
+    setDrive(true);
+    if (sendMode === "direct") captureFocusRef.current?.();
+  };
+
   const handleSend = () => {
     const text = input.trim();
     if (!text || !terminalId || sendBusy) return;
@@ -435,6 +446,7 @@ export function ZenTerminal() {
             onInputRef={sendInputRef}
             onReloadRef={reloadRef}
             drive={drive}
+            onTapWhileViewing={claimOnTerminalTap}
           />
         </div>
 

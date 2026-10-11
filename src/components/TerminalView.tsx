@@ -69,6 +69,7 @@ import {
   movedBeyond,
   classifyRelease,
   LONG_PRESS_MS,
+  type GestureKind,
 } from "../lib/sgrMouse";
 import {
   shouldApplyOsc52,
@@ -209,6 +210,22 @@ interface Props {
   onReloadRef?: { current: (() => void) | null };
   /** Explicit Drive (header tap). Default Watch — never auto-claimed. */
   drive?: boolean;
+  /** Optional: a plain tap on the grid while watching (not Drive) — the
+   *  same tap classification as everywhere else, so drags (scroll) and
+   *  long-press selection never fire it. Called synchronously inside
+   *  the touchend, so the parent may focus an input in the gesture.
+   *  The classic page does not pass it. */
+  onTapWhileViewing?: () => void;
+}
+
+/** Does this released touch ask the parent to claim Drive? Only a
+ *  plain tap, while watching, that is not clearing a selection. */
+export function tapRequestsDrive(opts: {
+  kind: GestureKind;
+  selectionUp: boolean;
+  drive: boolean;
+}): boolean {
+  return opts.kind === "tap" && !opts.selectionUp && !opts.drive;
 }
 
 export function TerminalView({
@@ -217,7 +234,10 @@ export function TerminalView({
   onInputRef,
   onReloadRef,
   drive = false,
+  onTapWhileViewing,
 }: Props) {
+  const onTapWhileViewingRef = useRef(onTapWhileViewing);
+  onTapWhileViewingRef.current = onTapWhileViewing;
   const linesRef = useRef<Map<number, CompactLine>>(new Map());
   const [grid, setGrid] = useState<{
     rows: number;
@@ -1278,6 +1298,17 @@ export function TerminalView({
         clearSelection();
         if (e.cancelable) e.preventDefault();
         return;
+      }
+      // Watching: a plain tap asks the parent to claim Drive (Zen
+      // terminal). Synchronous — still inside the user gesture.
+      if (
+        tapRequestsDrive({
+          kind,
+          selectionUp: selectionRef.current !== null,
+          drive: driveRef.current,
+        })
+      ) {
+        onTapWhileViewingRef.current?.();
       }
       // Tap-mouse (SGR button 0) is a later cut. sendInput only
       // accepts CSI 64/65.
