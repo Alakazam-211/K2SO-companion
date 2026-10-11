@@ -60,6 +60,9 @@ export interface TapPayload {
   agentName?: string;
   msgKind?: string;
   count?: string;
+  /** The recipient's person key (TP28): `"owner"` or a Connect username.
+   *  Picks between saved accounts on the same host (`matchTapServer`). */
+  principal?: string;
 }
 
 // ─── Availability (session-cached probe) ───
@@ -321,23 +324,56 @@ function hostOf(url: string): string {
   }
 }
 
+/** What a server's `/cli/auth/whoami` says about the saved account. */
+export interface TapIdentity {
+  username?: string | null;
+  owner?: boolean;
+  /** "owner" | "admin" | "member" (absent on older daemons). */
+  role?: string | null;
+}
+
+function isOwnerIdentity(id: TapIdentity | null | undefined): boolean {
+  return id?.owner === true || str(id?.role).toLowerCase() === "owner";
+}
+
+/** Is saved account `x` the push's recipient `principal`? `"owner"`
+ *  matches the account whose whoami says owner (an Owner-role Connect
+ *  user included). Any other key matches the saved `username` or the
+ *  whoami username. */
+function isPrincipal(
+  principal: string,
+  x: ServerEntry,
+  identity: TapIdentity | null | undefined
+): boolean {
+  const key = principal.toLowerCase();
+  if (key === "owner" && isOwnerIdentity(identity)) return true;
+  return (
+    str(x.username).toLowerCase() === key ||
+    str(identity?.username).toLowerCase() === key
+  );
+}
+
 /**
- * Which saved server a push came from (K2 contract after the relay
- * security review):
+ * Which saved server a push came from (K2 contract, TP28/TP29):
  *   1. `subdomain` — stamped by the relay from the label it authenticated,
  *      so trusted. Saved servers whose URL host is `<subdomain>.k2.dev`.
  *   2. `instanceId` — chosen by the daemon, so only a tiebreaker when
  *      more than one saved server matched step 1.
+ *   3. `principal` — the recipient's person key (`"owner"` or a Connect
+ *      username; K2 sends one dispatch per recipient). Picks the account
+ *      when two saved servers share a host and instance, e.g. an owner
+ *      login and a member login on `rosson.k2.dev`.
  *   No `subdomain` match → null (ignore the tap). Never `projectId`.
- * Still tied after step 2: the active server, then a signed-in one.
+ *   Still ambiguous after step 3: the active server if it is one of the
+ *   candidates, otherwise null (ignore).
  */
 export function matchTapServer(
   tap: TapPayload,
   servers: ServerEntry[],
   ctx: {
     instanceIds?: Record<string, string | null | undefined>;
+    identities?: Record<string, TapIdentity | null | undefined>;
     activeServerId?: string | null;
-    tokens?: Record<string, string>;
   } = {}
 ): ServerEntry | null {
   const sub = str(tap.subdomain).toLowerCase();
@@ -345,21 +381,43 @@ export function matchTapServer(
   const host = `${sub}.k2.dev`;
   const hits = servers.filter((x) => hostOf(x.url) === host);
   if (hits.length <= 1) return hits[0] ?? null;
-  const inst = str(tap.instanceId);
   let pool = hits;
+  const inst = str(tap.instanceId);
   if (inst) {
-    const byInst = hits.filter((x) => ctx.instanceIds?.[x.id] === inst);
+    const byInst = pool.filter((x) => ctx.instanceIds?.[x.id] === inst);
     if (byInst.length) pool = byInst;
   }
-  return (
-    pool.find((x) => x.id === ctx.activeServerId) ??
-    pool.find((x) => ctx.tokens?.[x.id]) ??
-    pool[0]
-  );
+  if (pool.length === 1) return pool[0];
+  const principal = str(tap.principal);
+  if (principal) {
+    const byPrincipal = pool.filter((x) => isPrincipal(principal, x, ctx.identities?.[x.id]));
+    if (byPrincipal.length === 1) return byPrincipal[0];
+    if (byPrincipal.length) pool = byPrincipal;
+  }
+  return pool.find((x) => x.id === ctx.activeServerId) ?? null;
 }
 
-/** `matchTapServer` with live data: `instanceId` is read fresh from each
- *  tied server's `/boot-status` (it changes on every daemon restart). */
+const TAP_PROBE_MS = 4000;
+
+/** One saved server's whoami, or null (signed out, timeout, error). */
+async function tapWhoami(server: ServerEntry, token: string | undefined): Promise<TapIdentity | null> {
+  if (!token) return null;
+  try {
+    const res = await Promise.race([
+      tauriFetch(`${server.url}/cli/auth/whoami`, { headers: cliAuthHeaders(token) }),
+      new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), TAP_PROBE_MS)),
+    ]);
+    if (!res.ok) return null;
+    const j = (await res.json()) as TapIdentity;
+    return { username: j.username ?? null, owner: j.owner === true, role: j.role ?? null };
+  } catch {
+    return null;
+  }
+}
+
+/** `matchTapServer` with live data for servers tied on host: `instanceId`
+ *  read fresh from each one's `/boot-status` (it changes on every daemon
+ *  restart), and whoami (role) when the push names a `principal`. */
 export async function resolveTapServer(tap: TapPayload): Promise<ServerEntry | null> {
   const s = useServersStore.getState();
   const sub = str(tap.subdomain).toLowerCase();
@@ -367,18 +425,25 @@ export async function resolveTapServer(tap: TapPayload): Promise<ServerEntry | n
     ? s.servers.filter((x) => hostOf(x.url) === `${sub}.k2.dev`)
     : [];
   const instanceIds: Record<string, string | null> = {};
-  if (tied.length > 1 && str(tap.instanceId)) {
+  const identities: Record<string, TapIdentity | null> = {};
+  if (tied.length > 1) {
+    const wantInst = !!str(tap.instanceId);
+    const wantWho = !!str(tap.principal);
     await Promise.all(
       tied.map(async (x) => {
-        const b = await getBootStatus(x.id, { fresh: true, timeoutMs: 4000 });
+        const [b, who] = await Promise.all([
+          wantInst ? getBootStatus(x.id, { fresh: true, timeoutMs: TAP_PROBE_MS }) : null,
+          wantWho ? tapWhoami(x, s.tokens[x.id]) : null,
+        ]);
         instanceIds[x.id] = b?.instanceId ?? null;
+        identities[x.id] = who;
       })
     );
   }
   return matchTapServer(tap, s.servers, {
     instanceIds,
+    identities,
     activeServerId: s.activeServerId,
-    tokens: s.tokens,
   });
 }
 

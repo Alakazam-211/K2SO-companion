@@ -58,6 +58,9 @@ const HOME = srv("s1", "https://rosson.k2.dev");
 const WORK = srv("s2", "https://work.k2.dev");
 const WORK2 = srv("s3", "https://work.k2.dev", "gina");
 const LAN = srv("s4", "http://192.168.1.5:7777");
+// Two accounts on one host and one daemon: the owner and a member.
+const R_OWNER = srv("o1", "https://rosson.k2.dev", "rosson");
+const R_MEMBER = srv("m1", "https://rosson.k2.dev", "baden");
 
 const THREAD = {
   kind: "thread",
@@ -113,6 +116,54 @@ describe("thread tap server match", () => {
     ).toBe("s3");
   });
 
+  it("principal picks the account when host and instance tie", () => {
+    const ids = { o1: "inst-r", m1: "inst-r" };
+    const tap = { ...THREAD, subdomain: "rosson", instanceId: "inst-r" };
+    const ctx = { instanceIds: ids, activeServerId: "o1" };
+    expect(matchTapServer({ ...tap, principal: "baden" }, [R_OWNER, R_MEMBER], ctx)?.id).toBe("m1");
+    expect(matchTapServer({ ...tap, principal: "BADEN" }, [R_OWNER, R_MEMBER], ctx)?.id).toBe("m1");
+    expect(
+      matchTapServer({ ...tap, principal: "rosson" }, [R_OWNER, R_MEMBER], { ...ctx, activeServerId: "m1" })?.id
+    ).toBe("o1");
+  });
+
+  it("an `owner` principal maps to the account whose whoami says owner", () => {
+    const tap = { ...THREAD, subdomain: "rosson", instanceId: "", principal: "owner" };
+    const identities = {
+      o1: { username: "rosson", owner: false, role: "owner" },
+      m1: { username: "baden", owner: false, role: "member" },
+    };
+    expect(matchTapServer(tap, [R_OWNER, R_MEMBER], { identities, activeServerId: "m1" })?.id).toBe("o1");
+    // The `owner` bit counts too.
+    expect(
+      matchTapServer(tap, [R_OWNER, R_MEMBER], {
+        identities: { o1: { username: "rosson", owner: true }, m1: { username: "baden" } },
+        activeServerId: "m1",
+      })?.id
+    ).toBe("o1");
+    // A member whoami never claims `owner`.
+    expect(
+      matchTapServer(tap, [R_OWNER, R_MEMBER], {
+        identities: { m1: { username: "baden", role: "member" } },
+        activeServerId: "m1",
+      })?.id
+    ).toBe("m1"); // unresolved → active fallback, not a principal match
+  });
+
+  it("still ambiguous: the active one if it is a candidate, else ignored", () => {
+    const tap = { ...THREAD, subdomain: "rosson", instanceId: "", principal: "owner" };
+    // whoami unknown for both: `owner` cannot pick.
+    expect(matchTapServer(tap, [R_OWNER, R_MEMBER], { activeServerId: "m1" })?.id).toBe("m1");
+    expect(matchTapServer(tap, [R_OWNER, R_MEMBER], { activeServerId: "s2" })).toBeNull();
+    // No principal at all (older server) and nothing active among them.
+    expect(matchTapServer({ ...tap, principal: "" }, [R_OWNER, R_MEMBER], { activeServerId: null })).toBeNull();
+    // The principal narrows to two; the active one must be among those two.
+    const dup = srv("m2", "https://rosson.k2.dev", "baden");
+    const p = { ...tap, principal: "baden" };
+    expect(matchTapServer(p, [R_OWNER, R_MEMBER, dup], { activeServerId: "m2" })?.id).toBe("m2");
+    expect(matchTapServer(p, [R_OWNER, R_MEMBER, dup], { activeServerId: "o1" })).toBeNull();
+  });
+
   it("an instanceId-only match (no subdomain match) is ignored", () => {
     const ids = { s1: "inst-w", s4: "inst-w" };
     expect(matchTapServer({ ...THREAD, subdomain: "" }, [HOME, LAN], { instanceIds: ids })).toBeNull();
@@ -159,6 +210,30 @@ describe("routeTap", () => {
     await routeTap(THREAD, vi.fn());
     expect(getBootStatus).toHaveBeenCalledWith("s2", expect.objectContaining({ fresh: true }));
     expect(useServersStore.getState().activeServerId).toBe("s3");
+  });
+
+  it("an `owner` principal reads whoami for each tied account", async () => {
+    useServersStore.setState({
+      servers: [R_OWNER, R_MEMBER],
+      activeServerId: "m1",
+      tokens: { o1: "to", m1: "tm" },
+    });
+    tauriFetch.mockImplementation(async (_url: string, o: { headers: unknown }) => {
+      const owner = JSON.stringify(o.headers).includes("Bearer to\"");
+      return {
+        ok: true,
+        status: 200,
+        json: async () =>
+          owner ? { username: "rosson", owner: false, role: "owner" } : { username: "baden", role: "member" },
+      };
+    });
+    vi.mocked(connectServer).mockResolvedValue("still-valid");
+    const navigate = vi.fn();
+    await routeTap({ ...THREAD, subdomain: "rosson", instanceId: "", principal: "owner" }, navigate);
+    expect(tauriFetch).toHaveBeenCalledWith("https://rosson.k2.dev/cli/auth/whoami", expect.anything());
+    expect(getBootStatus).not.toHaveBeenCalled();
+    expect(useServersStore.getState().activeServerId).toBe("o1");
+    expect(navigate).toHaveBeenCalledWith("/zen?addr=k2%2Freviewer&seq=418");
   });
 
   it("no subdomain match: ignored, no switch, no navigation", async () => {
