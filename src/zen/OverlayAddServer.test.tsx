@@ -22,6 +22,30 @@ describe("OverlayAddServer", () => {
     expect(password.getAttribute("spellcheck")).toBe("false");
   });
 
+  it("password toggle uses an eye icon, not Show/Hide text", () => {
+    render(<OverlayAddServer />);
+    const password = screen.getByPlaceholderText("Password") as HTMLInputElement;
+    const toggle = screen.getByRole("button", { name: "Show password" });
+    expect(toggle.textContent?.trim()).toBe("");
+    expect(screen.queryByText(/^(Show|Hide)$/)).toBeNull();
+    expect(password.type).toBe("password");
+    expect(toggle.getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getByTestId("password-eye-open")).not.toBeNull();
+    expect(screen.queryByTestId("password-eye-off")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(password.type).toBe("text");
+    expect(toggle.getAttribute("aria-label")).toBe("Hide password");
+    expect(toggle.getAttribute("aria-pressed")).toBe("true");
+    expect(toggle.textContent?.trim()).toBe("");
+    expect(screen.getByTestId("password-eye-off")).not.toBeNull();
+    expect(screen.queryByTestId("password-eye-open")).toBeNull();
+
+    fireEvent.click(toggle);
+    expect(password.type).toBe("password");
+    expect(toggle.getAttribute("aria-label")).toBe("Show password");
+  });
+
   it("Cancel is present when the in-overlay list can go back", () => {
     render(<OverlayAddServer onCancel={() => {}} />);
     expect(screen.getByRole("button", { name: "Cancel" })).not.toBeNull();
