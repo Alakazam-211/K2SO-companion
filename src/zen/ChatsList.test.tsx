@@ -60,6 +60,8 @@ import {
   ZEN_LIST_EDGE_PAD,
   ZEN_PIN_AVATAR_PX,
   ZEN_PIN_COL_GAP,
+  ZEN_PIN_GRID_BOTTOM_PX,
+  zenPinGridColumns,
   zenPinnedGroupInsetPx,
 } from "./ChatsList";
 
@@ -1755,7 +1757,51 @@ describe("ChatsList", () => {
       setup([LA.id]);
       const grid = screen.getByTestId("chats-pins");
       expect(grid.style.margin).toBe("10px 4px 0px");
-      expect(grid.style.padding).toBe("4px 2px 8px");
+      // 14px under the grid (was 8): +6px before the first list row.
+      expect(grid.style.padding).toBe(`4px 2px ${ZEN_PIN_GRID_BOTTOM_PX}px`);
+      expect(ZEN_PIN_GRID_BOTTOM_PX).toBe(14);
+    });
+
+    it("the first list row's top gap is unchanged with no pins", () => {
+      setup([]);
+      expect(screen.queryByTestId("chats-pins")).toBeNull();
+      const list = screen.getByTestId("chats-list");
+      expect(list.style.paddingTop).toMatch(/64px/);
+      const first = list.querySelector<HTMLElement>("[data-swipe-row]")!;
+      expect(first.style.marginTop).toBe("");
+    });
+
+    it("one pin sits centred in a 3-column-width cell", () => {
+      setup([LA.id]);
+      const grid = screen.getByTestId("chats-pins");
+      expect(grid.style.justifyContent).toBe("center");
+      expect(zenPinGridColumns(1)).toBe(`repeat(1, calc((100% - ${2 * ZEN_PIN_COL_GAP}px) / 3))`);
+      expect(grid.style.gridTemplateColumns).toBe(zenPinGridColumns(1));
+    });
+
+    it("two pins sit centred as a pair, same cell width and gap", () => {
+      setup([LA.id, LB.id]);
+      const grid = screen.getByTestId("chats-pins");
+      expect(grid.style.justifyContent).toBe("center");
+      expect(grid.style.gridTemplateColumns).toBe(zenPinGridColumns(2));
+      expect(zenPinGridColumns(2)).toBe(`repeat(2, calc((100% - ${2 * ZEN_PIN_COL_GAP}px) / 3))`);
+      expect(grid.style.gap).toBe(`14px ${ZEN_PIN_COL_GAP}px`);
+      // The pair is two of the three 1fr cells: W - 2 gaps over 3.
+      for (const w of [375, 390, 430]) {
+        const content = w - 2 * (ZEN_LIST_EDGE_INSET + ZEN_LIST_EDGE_PAD);
+        const cell = evalInsetPx(`calc((100% - ${2 * ZEN_PIN_COL_GAP}px) / 3)`, content);
+        expect(cell).toBeCloseTo((content - 2 * ZEN_PIN_COL_GAP) / 3, 6);
+      }
+    });
+
+    it("four pins: rows of three, the second row left-justified", () => {
+      const LD = { id: "/d", name: "delta", initial: "D", path: "/d", addr: "delta", kind: "agent" as const };
+      setup([LA.id, LB.id, LC.id, LD.id], { agents: [...LIVE_ROWS, LD] });
+      const grid = screen.getByTestId("chats-pins");
+      expect(grid.style.gridTemplateColumns).toBe("repeat(3, minmax(0, 1fr))");
+      expect(grid.style.justifyContent).toBe("");
+      expect(grid.querySelectorAll("[data-pin-from='pin']").length).toBe(4);
+      expect(zenPinGridColumns(3)).toBe("repeat(3, minmax(0, 1fr))");
     });
 
     it("the list content inset is the pinned avatars' outer edge", () => {
