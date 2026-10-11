@@ -9,7 +9,7 @@ import {
   type ServerEntry,
 } from "../stores/servers";
 import { connectServer } from "./revive";
-import { zenTicketPath } from "../zen/terminalJump";
+import { zenProjectPath, zenTicketPath } from "../zen/terminalJump";
 
 // Push glue — Companion C6 (prd-companion-v2 §4). Talks to the local
 // `tauri-plugin-k2-push` plugin and the daemon's `/cli/push/*` routes.
@@ -301,7 +301,10 @@ export function tapPath(
     return opts.zen === false ? `/feedback/${encodeURIComponent(id)}` : zenTicketPath(id);
   }
   const groupId = str(tap.groupId);
-  if (kind === "project" && groupId) return `/projects/${groupId}`;
+  // Zen: Projects, then that project chat on top. Classic: its page.
+  if (kind === "project" && groupId) {
+    return opts.zen === false ? `/projects/${groupId}` : zenProjectPath(groupId);
+  }
   return null;
 }
 

@@ -52,3 +52,24 @@ export function parseWorkspaceResources(
   }
   return rows;
 }
+
+/** `GET /cli/project-group/resources` → Files rows. Same `docs` rows as a
+ *  workspace's, but they span the group's member workspaces, so the muted
+ *  line names the member workspace (else the file's folder). */
+export function parseGroupResources(data: unknown): StubFile[] | null {
+  const rows = parseWorkspaceResources(data, "");
+  if (!rows) return null;
+  const docs = (data as { docs: unknown[] }).docs;
+  const owner = new Map<string, string>();
+  for (const raw of docs) {
+    if (!raw || typeof raw !== "object") continue;
+    const d = raw as Record<string, unknown>;
+    const id = usableFsPath(d.filePath);
+    const ws =
+      (typeof d.workspaceName === "string" && d.workspaceName.trim()) ||
+      (typeof d.agentName === "string" && d.agentName.trim()) ||
+      "";
+    if (id && ws && !owner.has(id)) owner.set(id, ws);
+  }
+  return rows.map((r) => ({ ...r, hint: owner.get(r.id) ?? r.hint }));
+}

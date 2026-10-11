@@ -12,6 +12,7 @@ import { FileStage } from "../zen/FileStage";
 import { PaneErrorBoundary } from "../zen/PaneErrorBoundary";
 import {
   ZEN_ADDR_PARAM,
+  ZEN_PROJECT_PARAM,
   readZenReturnState,
   rememberZenReturn,
   rememberZenThread,
@@ -30,7 +31,8 @@ import {
   threadSessionHeaderTitle,
   threadSidecarTitle,
 } from "../zen/overlayExtras";
-import { useZenStore } from "../zen/zenStore";
+import { groupRowId, useZenStore } from "../zen/zenStore";
+import { resolveGroupPoc } from "../zen/groupPoc";
 import { AgentIconSheet } from "../zen/AgentIconSheet";
 import { canChangeIcon, iconTargetFor } from "../zen/workspaceIcon";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
@@ -53,6 +55,8 @@ export function Zen() {
   const containerHeight = useViewportHeight();
   const [params, setParams] = useSearchParams();
   const threadParam = params.get("thread");
+  // Push tap on a project chat: `/zen?project=<groupId>`.
+  const projectParam = (params.get(ZEN_PROJECT_PARAM) || "").trim();
   // Terminal Done: `/zen?addr=<session addr>` (+ state.zenReturn).
   const addrParam = (params.get(ZEN_ADDR_PARAM) || "").trim();
   // Push tap: `/zen?addr=<addr>&seq=<seq>` also scrolls to that message.
@@ -74,6 +78,12 @@ export function Zen() {
   const drawerOrigin = useZenStore((s) => s.drawerOrigin);
   const returnToDrawerOrigin = useZenStore((s) => s.returnToDrawerOrigin);
   const agent = agents.find((a) => a.id === agentId);
+  /** A project chat (project group): Terminal opens its PoC agent's PTY,
+   *  Files lists the group's resources, no Sessions drawer. */
+  const groupChat = agent?.kind === "group" && Boolean(agent.groupId);
+  const projectsOpen = useZenStore((s) => s.projectsOpen);
+  /** Opened from the Projects sheet: Back (and the edge swipe) return there. */
+  const fromProjects = groupChat && projectsOpen;
   /** Opened from the Sessions drawer: Done (not Back) returns to the origin. */
   const drawerPicked = Boolean(drawerOrigin) && drawerOrigin !== agentId;
   const [sessionsOpen, setSessionsOpen] = useState(false);
@@ -103,8 +113,16 @@ export function Zen() {
     setIconOpen(false);
   }, [agentId]);
 
-  const openTerminal = (tid: string, chatTitle: string | null) => {
+  const openTerminal = (
+    tid: string,
+    chatTitle: string | null,
+    /** Whose terminal it is, when not the open chat's own (a project
+     *  chat's PoC agent). Done still returns to the open chat. */
+    who?: Pick<ZenTerminalAgent, "name" | "initial" | "color" | "iconUrl" | "projectPath" | "addr">
+  ) => {
     // Done on the terminal returns to this exact Thread (Done mode, origin).
+    // A project chat has no addr, so no return context: Done goes back by
+    // its row id (`/zen?thread=group:<id>`, router state + sessionStorage).
     const back = zenTerminalReturn(agent, tid, drawerOrigin);
     rememberZenReturn(back);
     const ctx: ZenTerminalAgent | null = agentId
@@ -117,6 +135,7 @@ export function Zen() {
           chatTitle,
           projectPath: agent?.path ?? null,
           addr: agent?.addr ?? null,
+          ...(who ?? {}),
           back,
         }
       : null;
@@ -124,6 +143,35 @@ export function Zen() {
       state: ctx ? { agent: ctx } : undefined,
     });
   };
+  /** Project chat Terminal: the PoC agent's main session, found the way
+   *  the chat Terminal finds one (ensure-host, then the live session on
+   *  its workspace path), else the Sessions list. */
+  const openPocTerminal = async (groupId: string) => {
+    const z = useZenStore.getState();
+    const poc = await resolveGroupPoc(groupId, z.agents);
+    if (!poc) {
+      navigate("/sessions");
+      return;
+    }
+    const target = poc.row ?? { path: poc.path, addr: null, terminalId: null };
+    let tid: string | null = null;
+    if (poc.row) tid = (await z.ensureSidecarHost(poc.row)).terminalId ?? null;
+    await useWorkspacesStore.getState().fetchAllSessions();
+    if (!tid) tid = terminalIdForAgent(target, useWorkspacesStore.getState().allSessions);
+    if (!tid) {
+      navigate("/sessions");
+      return;
+    }
+    openTerminal(tid, null, {
+      name: poc.name,
+      initial: poc.row?.initial ?? (poc.name.slice(0, 1).toUpperCase() || null),
+      color: poc.row?.color ?? null,
+      iconUrl: poc.row?.iconUrl ?? null,
+      projectPath: poc.path,
+      addr: poc.row?.addr ?? null,
+    });
+  };
+
   // ?thread= paints the thread on first frame (no chats-list flash). After
   // Back, ignore that query until it is stripped, or closeChat leaves an em dash.
   const [ignoreThreadQuery, setIgnoreThreadQuery] = useState(false);
@@ -142,9 +190,31 @@ export function Zen() {
   }, [addrParam, seqParam]);
   useLayoutEffect(() => {
     if (!addrParam) return;
+    // A session's Thread (push tap, terminal Done): not inside Projects.
+    useZenStore.getState().setProjectsOpen(false);
     setIgnoreThreadQuery(false);
     void resumeSessionThread(addrParam, zenReturnKey ? JSON.parse(zenReturnKey) : null);
   }, [addrParam, zenReturnKey]);
+
+  // `?project=<groupId>`: open Projects, then that project chat on top
+  // (Back lands on the sheet). Rewritten to the `?thread=group:<id>`
+  // resume so the group row comes from the same list read.
+  // (navigate from an effect: the router ignores one during mount layout.)
+  useEffect(() => {
+    if (!projectParam) return;
+    useZenStore.getState().setProjectsOpen(true);
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete(ZEN_PROJECT_PARAM);
+        next.delete(ZEN_ADDR_PARAM);
+        next.delete(ZEN_SEQ_PARAM);
+        next.set("thread", groupRowId(projectParam));
+        return next;
+      },
+      { replace: true }
+    );
+  }, [projectParam, setParams]);
 
   // Chat return (`?thread=`) must first-paint LOADING, never leftover bubbles.
   // hydrateAgents is useEffect (after paint); this runs before paint.
@@ -171,12 +241,14 @@ export function Zen() {
       return;
     }
     if (addrParam) return;
+    // Rewritten to `?thread=group:<id>` this frame; that resume hydrates.
+    if (projectParam) return;
     if (skipHydrateOnClear.current) {
       skipHydrateOnClear.current = false;
       return;
     }
     void hydrateAgents();
-  }, [hydrateAgents, threadParam, addrParam]);
+  }, [hydrateAgents, threadParam, addrParam, projectParam]);
 
   const backToChats = () => {
     // closeChat is zustand-sync and would re-render with the query still
@@ -244,8 +316,8 @@ export function Zen() {
         // a column sized to visualViewport.height so the composer at its
         // bottom sits directly above the keyboard.
         <ThreadHome
-          onSwipeBack={returnToDrawerOrigin}
-          swipeEnabled={drawerPicked && !filesPaneOpen && !sessionsOpen}
+          onSwipeBack={drawerPicked ? returnToDrawerOrigin : backToChats}
+          swipeEnabled={(drawerPicked || fromProjects) && !filesPaneOpen && !sessionsOpen}
         >
         <div
           className="relative flex flex-col min-h-0 overflow-x-hidden"
@@ -317,7 +389,7 @@ export function Zen() {
               data-testid="chat-back"
               className="flex items-center justify-center shrink-0 justify-self-start zen-glass zen-glass-pill"
               style={{ ...HEADER_BTN, marginTop: HEADER_BTN_TOP, pointerEvents: "auto" }}
-              aria-label="Back to chats"
+              aria-label={fromProjects ? "Back to projects" : "Back to chats"}
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <polyline points="15 18 9 12 15 6" />
@@ -441,6 +513,10 @@ export function Zen() {
                 onClick={(e) => {
                   e.stopPropagation();
                   rememberZenThread(agentId);
+                  if (groupChat && agent?.groupId) {
+                    void openPocTerminal(agent.groupId);
+                    return;
+                  }
                   const go = async () => {
                     let tid: string | null = null;
                     if (agent) {
@@ -466,6 +542,7 @@ export function Zen() {
                   <line x1="12" y1="19" x2="20" y2="19" />
                 </svg>
               </button>
+              {groupChat ? null : (
               <button
                 type="button"
                 aria-label="Sessions"
@@ -491,6 +568,7 @@ export function Zen() {
                   <line x1="3" y1="18" x2="3.01" y2="18" />
                 </svg>
               </button>
+              )}
               <button
                 type="button"
                 aria-label="Files"
@@ -530,7 +608,7 @@ export function Zen() {
               </PaneErrorBoundary>
             </div>
           ) : null}
-          {sessionsOpen ? (
+          {sessionsOpen && !groupChat ? (
             <div
               className="absolute bottom-0 right-0 border-l border-[var(--border)] bg-[var(--background)] flex flex-col"
               data-testid="sessions-pane"
