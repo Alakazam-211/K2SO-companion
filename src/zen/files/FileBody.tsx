@@ -1,7 +1,8 @@
 // Viewer dispatch (desktop `FileViewerPane` content switch). Lazy-loaded
 // by FileViewer, so none of this is in the start-up chunk; the heavy
-// libraries (shiki, pdf.js, mammoth, mermaid) are dynamic imports again
-// inside their viewers and load only for the file type that needs them.
+// libraries (shiki, pdf.js, mammoth, mermaid, dxf-parser, three.js) are
+// dynamic imports again inside their viewers and load only for the file
+// type that needs them.
 
 import type { ReactNode } from "react";
 import type { StubFile } from "../stubData";
@@ -10,6 +11,7 @@ import { CodeView } from "./CodeView";
 import { CsvView } from "./CsvView";
 import { DiagramView } from "./DiagramView";
 import { DocxView } from "./DocxView";
+import { DxfView } from "./DxfView";
 import { getFileCategory, isBinaryPreviewCategory } from "./fileCategory";
 import { detectLanguage } from "./highlight";
 import { HtmlView } from "./HtmlView";
@@ -65,6 +67,15 @@ export default function FileBody({
   }
 
   if (file.readError) {
+    if (category === "cad2d" && /binary/i.test(file.readError)) {
+      return (
+        <BinaryEmptyState
+          filePath={file.id}
+          message="Binary DXF is not supported."
+          detail="Save it as ASCII DXF to preview it here."
+        />
+      );
+    }
     if (/binary/i.test(file.readError)) {
       return <BinaryEmptyState filePath={file.id} detail={file.name} />;
     }
@@ -92,6 +103,8 @@ export default function FileBody({
   if (category === "markdown") return <Scroll>{note}<MarkdownView content={text} onFileLink={onFileLink} /></Scroll>;
   if (category === "csv") return <CsvView content={text} filePath={file.id} />;
   if (category === "html") return <HtmlView html={text} title={file.name} />;
+  // The whole body, uncut: a DXF is drawn, never shown as text.
+  if (category === "cad2d") return <DxfView text={full} />;
   if (category === "mermaid") return <Scroll><DiagramView content={text} filePath={file.id} mode="mermaid" /></Scroll>;
   return <Scroll>{note}<DiagramView content={text} filePath={file.id} mode="source" /></Scroll>;
 }

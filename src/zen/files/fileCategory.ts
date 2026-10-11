@@ -14,6 +14,8 @@ export type FileCategory =
   | "zip"
   | "mermaid"
   | "diagram"
+  | "cad2d"
+  | "model3d"
   | "binary"
   | "json"
   | "text";
@@ -43,6 +45,11 @@ export const ZIP_EXTS = [".zip"];
 export const MERMAID_EXTS = [".mermaid", ".mmd"];
 /** Diagram sources with no client renderer (desktop parity). */
 export const DIAGRAM_EXTS = [".drawio", ".dio", ".puml", ".plantuml", ".dot", ".gv"];
+/** 2D CAD drawings: parsed and drawn as SVG (ASCII DXF only). */
+export const CAD2D_EXTS = [".dxf"];
+/** 3D meshes: three.js in a WebGL canvas. `.gltf` previews only when
+ *  its buffers are embedded (data: URIs); `.glb` is self-contained. */
+export const MODEL3D_EXTS = [".stl", ".obj", ".3mf", ".ply", ".glb", ".gltf"];
 /** Phone-only split of desktop "text": pretty-printed before highlighting. */
 export const JSON_EXTS = [".json"];
 export const BINARY_EXTS = [
@@ -56,7 +63,6 @@ export const BINARY_EXTS = [
   ".o",
   ".a",
   ".lib",
-  ".obj",
   ".woff",
   ".woff2",
   ".ttf",
@@ -87,6 +93,8 @@ export function getFileCategory(filePath: string): FileCategory {
   if (ZIP_EXTS.includes(ext)) return "zip";
   if (MERMAID_EXTS.includes(ext)) return "mermaid";
   if (DIAGRAM_EXTS.includes(ext)) return "diagram";
+  if (CAD2D_EXTS.includes(ext)) return "cad2d";
+  if (MODEL3D_EXTS.includes(ext)) return "model3d";
   if (BINARY_EXTS.includes(ext)) return "binary";
   if (JSON_EXTS.includes(ext)) return "json";
   return "text";
@@ -101,6 +109,7 @@ export function isBinaryPreviewCategory(category: FileCategory): boolean {
     category === "audio" ||
     category === "video" ||
     category === "zip" ||
+    category === "model3d" ||
     category === "binary"
   );
 }
@@ -112,7 +121,8 @@ export function supportsSourceToggle(category: FileCategory): boolean {
     category === "markdown" ||
     category === "html" ||
     category === "csv" ||
-    category === "mermaid"
+    category === "mermaid" ||
+    category === "cad2d"
   );
 }
 
