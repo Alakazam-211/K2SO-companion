@@ -395,7 +395,7 @@ export function ChatsList() {
     ? activeServer.nickname || hostLabel(activeServer.url)
     : "Servers";
 
-  // Multi-server S2 (flag `zen.multiServer`, default off): rows from every
+  // Multi-server S2 (flag `zen.multiServer`, default on): rows from every
   // saved server. Off, `multi.on` is false and nothing below changes.
   const activeSlice = useMemo<ActiveSlice>(
     () => ({

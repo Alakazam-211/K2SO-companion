@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useMultiServerPrefs } from "./multi/prefs";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
@@ -60,6 +61,8 @@ import { FOCUS_OFF } from "./serverPins";
 import { useZenStore } from "./zenStore";
 
 beforeEach(() => {
+  // Flag-off parity: `zen.multiServer` now defaults on; pin it off.
+  useMultiServerPrefs.setState({ multiServer: false });
   useServersStore.setState({
     servers: [{ id: "s1", nickname: "test", url: "https://example.k2.dev", username: "u", rememberPassword: false }],
     activeServerId: "s1",

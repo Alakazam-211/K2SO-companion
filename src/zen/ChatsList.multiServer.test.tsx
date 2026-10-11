@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 // Multi-server S2 in the Agents list (MS15–MS20, MS35, MS38–MS40):
-//   - flag off (default): the list is exactly today's — active server only,
+//   - flag off (explicit "0"; the default is now on): the list is exactly
+//     today's — active server only,
 //     no chips, no pool traffic, the pill opens the Servers sheet;
 //   - flag on: two mocked servers merge into one list with server chips,
 //     "All servers" title, the pill is a server filter;
@@ -179,10 +180,11 @@ afterEach(() => {
 
 const rowNames = () => screen.queryAllByTestId("row-name").map((n) => n.textContent);
 
-describe("flag off (default): today's list, unchanged", () => {
-  it("is off by default and never touches other servers", async () => {
+describe("flag off (explicit): today's list, unchanged", () => {
+  it("an explicit off never touches other servers", async () => {
+    setFlag(false);
     expect(useMultiServerPrefs.getState().multiServer).toBe(false);
-    expect(localStorage.getItem(MULTI_SERVER_KEY)).toBe(null);
+    expect(localStorage.getItem(MULTI_SERVER_KEY)).toBe("0");
     seed();
     mount();
     expect(rowNames()).toEqual(["alpha", "bravo-ws"]);

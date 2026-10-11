@@ -1,8 +1,10 @@
 // Device settings for the multi-server list (MS35, MS40).
 //
 //   - `zen.multiServer` — "Show agents from all servers" (Zen Settings →
-//     Experimental). Default OFF: the Agents list shows the active server
-//     only, exactly as before S2.
+//     Experimental). Stored as "1" (on) / "0" (off). Default ON when nothing
+//     is stored (owner override of PRD MS40's default-off, for now); an
+//     explicit "0" keeps it off. Off, the Agents list shows the active
+//     server only, exactly as before S2.
 //   - `zen.serverFilter` — the nickname pill's pick: "all" (the default
 //     when the flag is on) or one saved server's id.
 //
@@ -15,11 +17,12 @@ import type { ServerFilter } from "./merge";
 export const MULTI_SERVER_KEY = "zen.multiServer";
 export const SERVER_FILTER_KEY = "zen.serverFilter";
 
+/** Missing (never set) reads as ON; only an explicit "0" is off. */
 export function readMultiServer(): boolean {
   try {
-    return localStorage.getItem(MULTI_SERVER_KEY) === "1";
+    return localStorage.getItem(MULTI_SERVER_KEY) !== "0";
   } catch {
-    return false;
+    return true;
   }
 }
 
@@ -43,8 +46,7 @@ export const useMultiServerPrefs = create<MultiServerPrefs>((set) => ({
   serverFilter: readFilter(),
   setMultiServer: (on) => {
     try {
-      if (on) localStorage.setItem(MULTI_SERVER_KEY, "1");
-      else localStorage.removeItem(MULTI_SERVER_KEY);
+      localStorage.setItem(MULTI_SERVER_KEY, on ? "1" : "0");
     } catch {
       /* the choice lasts this session */
     }

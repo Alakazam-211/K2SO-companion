@@ -24,7 +24,7 @@ import {
 } from "../lib/push";
 import { useServersStore } from "../stores/servers";
 import { LEAVE_ZEN_PATH, ZenSettings } from "./ZenSettings";
-import { MULTI_SERVER_KEY, useMultiServerPrefs } from "./multi/prefs";
+import { MULTI_SERVER_KEY, readMultiServer, useMultiServerPrefs } from "./multi/prefs";
 import {
   ZEN_FONT_ATTR,
   ZEN_FONT_STORAGE_KEY,
@@ -77,19 +77,31 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ZenSettings", () => {
-  it("Experimental: 'Show agents from all servers' is off by default and persists (MS40)", () => {
-    useMultiServerPrefs.setState({ multiServer: false });
+  it("Experimental: 'Show agents from all servers' is on by default (nothing stored)", () => {
+    expect(localStorage.getItem(MULTI_SERVER_KEY)).toBe(null);
+    expect(readMultiServer()).toBe(true);
+    useMultiServerPrefs.setState({ multiServer: readMultiServer() });
     mount();
     const group = within(screen.getByTestId("settings-experimental"));
     expect(group.getByText("Experimental")).not.toBeNull();
     const sw = screen.getByRole("switch", { name: "Show agents from all servers" });
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("Experimental: an explicit off persists as \"0\" and reads back off; on persists as \"1\"", () => {
+    useMultiServerPrefs.setState({ multiServer: readMultiServer() });
+    mount();
+    const sw = screen.getByRole("switch", { name: "Show agents from all servers" });
+    fireEvent.click(sw);
     expect(sw.getAttribute("aria-checked")).toBe("false");
+    expect(localStorage.getItem(MULTI_SERVER_KEY)).toBe("0");
+    expect(useMultiServerPrefs.getState().multiServer).toBe(false);
+    // A relaunch reads the stored "0": still off, not the default.
+    expect(readMultiServer()).toBe(false);
     fireEvent.click(sw);
     expect(sw.getAttribute("aria-checked")).toBe("true");
     expect(localStorage.getItem(MULTI_SERVER_KEY)).toBe("1");
-    fireEvent.click(sw);
-    expect(localStorage.getItem(MULTI_SERVER_KEY)).toBe(null);
-    expect(useMultiServerPrefs.getState().multiServer).toBe(false);
+    expect(readMultiServer()).toBe(true);
   });
 
   it("renders Notifications, Appearance, About and Leave Zen Mode in glass cards", async () => {
