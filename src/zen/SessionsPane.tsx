@@ -59,6 +59,7 @@ import {
 } from "../stores/notifyPrefs";
 import { BellIcon, useNotifyPrefsLive } from "./NotifyBell";
 import { GlassCloseButton } from "./GlassCloseButton";
+import { useBackHandler } from "../lib/androidBack";
 
 export const SESSIONS_EMPTY = "No other sessions in this workspace";
 export const NEW_SESSION_LABEL = "New session";
@@ -213,6 +214,8 @@ export function SessionsPane({
 }) {
   /** The room's server: the drawer lists, spawns and wakes on it (MA18). */
   const scope = useZenScope();
+  // Android Back hides the drawer, like its glass X.
+  useBackHandler(true, onClose);
   const roomSessions = useRoomSessions(scope);
   const sessions = roomSessions.sessions;
   const agents = useZenStore((s) => s.agents);
@@ -503,9 +506,10 @@ export function SessionsPane({
       aria-label="Sessions"
       data-testid="sessions-drawer"
     >
-      <div className="flex items-center gap-1.5 pl-2 pr-1.5 h-11 border-b border-[var(--border)]">
+      <div className="flex items-center gap-1.5 pl-3 pr-1.5 h-11 border-b border-[var(--border)]">
         <span className="flex-1 min-w-0 flex flex-col">
-          <span className="truncate text-[10px] text-[var(--text-muted)] tracking-widest">
+          {/* Same title style as the Files drawer header. */}
+          <span className="truncate text-[15px] font-semibold text-[var(--text)]">
             Sessions
           </span>
           <ServerChip serverId={scope.id} testId="sessions-server" align="left" />

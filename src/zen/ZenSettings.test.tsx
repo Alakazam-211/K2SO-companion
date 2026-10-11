@@ -22,6 +22,7 @@ import {
   setPushEnabled,
   unregisterAll,
 } from "../lib/push";
+import { handleAndroidBack } from "../lib/androidBack";
 import { useServersStore } from "../stores/servers";
 import { LEAVE_ZEN_PATH, ZenSettings } from "./ZenSettings";
 import { MULTI_SERVER_KEY, readMultiServer, useMultiServerPrefs } from "./multi/prefs";
@@ -270,5 +271,17 @@ describe("ZenSettings", () => {
     const slider = screen.getByRole("slider", { name: "Text Size" }) as HTMLInputElement;
     expect(slider.value).toBe("2");
     expect(slider.getAttribute("aria-valuetext")).toBe("Large");
+  });
+});
+
+describe("ZenSettings — Android Back", () => {
+  it("Back is Done while open; nothing is claimed once it closes", () => {
+    const onClose = mount();
+    act(() => {
+      expect(handleAndroidBack()).toBe(true);
+    });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    cleanup();
+    expect(handleAndroidBack()).toBe(false);
   });
 });

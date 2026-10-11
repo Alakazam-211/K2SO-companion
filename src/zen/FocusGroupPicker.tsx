@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { FocusGroupLite } from "./serverPins";
 import { CheckIcon } from "./icons";
+import { useBackHandler } from "../lib/androidBack";
 
 /**
  * Swipe-right "Group" sheet on the Agents list: put one workspace in a
@@ -29,6 +30,8 @@ export function FocusGroupPicker({
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Android Back = Cancel.
+  useBackHandler(true, onClose);
 
   const submit = () => {
     const clean = name.trim();
@@ -95,7 +98,7 @@ export function FocusGroupPicker({
         style={{
           borderTopLeftRadius: 14,
           borderTopRightRadius: 14,
-          padding: "16px 0 max(12px, env(safe-area-inset-bottom))",
+          padding: "16px 0 max(12px, var(--safe-bottom))",
           maxHeight: "80%",
           color: "#fff",
         }}

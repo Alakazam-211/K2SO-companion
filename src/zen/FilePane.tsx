@@ -28,6 +28,7 @@ import {
 import { useFileDrag } from "./fileDrag";
 import { useFileHold, type FileMenu } from "./useFileHold";
 import { GlassCloseButton } from "./GlassCloseButton";
+import { useBackHandler } from "../lib/androidBack";
 
 /** Drawer width. The tree needs more room than the old resource list. */
 export const FILE_PANE_PX = 224;
@@ -141,6 +142,8 @@ function FilePaneOpen() {
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sheet, setSheet] = useState<NameSheet | null>(null);
   const drag = useFileDrag((s) => s.drag);
+  // Android Back closes the drawer, like its glass X.
+  useBackHandler(true, toggleFiles);
 
   // A project chat has several members' agents reading: the absolute
   // path, not one relative to the PoC's folder.
@@ -529,6 +532,7 @@ function FileRowMenu({
   const top = menu.rect ? (below ? menu.rect.bottom + 4 : menu.rect.top - 4) : vh / 2;
   const right = menu.rect && typeof window !== "undefined" ? Math.max(8, window.innerWidth - menu.rect.right + 8) : 8;
   const item = "w-full text-left px-4 py-2.5 text-[15px] text-white bg-transparent border-0";
+  useBackHandler(true, onClose);
   return (
     <div
       className="fixed inset-0 z-[70]"
@@ -598,6 +602,10 @@ function NameSheetView({
   const [siblings, setSiblings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [serverError, setServerError] = useState<string | null>(null);
+  // Android Back = Cancel (held while the write is in flight).
+  useBackHandler(true, () => {
+    if (!busy) onClose();
+  });
   const [touched, setTouched] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
@@ -659,7 +667,7 @@ function NameSheetView({
         style={{
           borderTopLeftRadius: 14,
           borderTopRightRadius: 14,
-          paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
+          paddingBottom: "calc(16px + var(--safe-bottom))",
         }}
         onSubmit={submit}
       >

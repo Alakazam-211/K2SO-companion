@@ -15,6 +15,7 @@ import { subscribeAppEvents } from "./ticketEvents";
 import { mountainListWhen } from "./threadModel";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 import { useZenStore } from "./zenStore";
+import { useBackHandler } from "../lib/androidBack";
 
 // Zen Projects: the Agents header's Projects button opens this sheet of
 // project chats (one per project group: a named set of workspaces with
@@ -49,6 +50,9 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [headerRef, headerPx] = useMeasuredHeight(PROJECTS_HEADER_PX);
+  // Android Back = Done. A project chat opened from here registers on
+  // top, so its Back lands back on this sheet first.
+  useBackHandler(true, onClose);
 
   // Until the list lands, the Agents read's group rows stand in.
   const fallback = useMemo<ProjectGroup[]>(
@@ -157,7 +161,7 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
           paddingLeft: 12,
           paddingRight: 12,
           // Clear the floating search bar.
-          paddingBottom: `calc(${SEARCH_BAR_HEIGHT + 28}px + env(safe-area-inset-bottom))`,
+          paddingBottom: `calc(${SEARCH_BAR_HEIGHT + 28}px + var(--safe-bottom))`,
           WebkitOverflowScrolling: "touch",
         }}
         data-testid="projects-scroller"

@@ -9,6 +9,7 @@ import {
 import { openExternal } from "../lib/openExternal";
 import type { BriefEntry } from "../stores/feedback";
 import { zenTextPx } from "./zenFont";
+import { useBackHandler } from "../lib/androidBack";
 
 // The open ticket's brief, Zen style (Layout A). A `.k2-tile` card with a
 // fixed-height preview of the brief in an inert frame (`sandbox=""`, CSP
@@ -235,6 +236,7 @@ export function BriefReader({
   onClose: () => void;
   footer?: ReactNode;
 }) {
+  useBackHandler(true, onClose);
   return (
     <div
       className="absolute inset-0 flex flex-col"
@@ -264,13 +266,13 @@ export function BriefReader({
       {footer ? (
         <div
           className="shrink-0 px-3 pt-2"
-          style={{ paddingBottom: "max(10px, env(safe-area-inset-bottom))" }}
+          style={{ paddingBottom: "max(10px, var(--safe-bottom))" }}
           data-testid="brief-reader-footer"
         >
           {footer}
         </div>
       ) : (
-        <div className="shrink-0" style={{ height: "max(10px, env(safe-area-inset-bottom))" }} />
+        <div className="shrink-0" style={{ height: "max(10px, var(--safe-bottom))" }} />
       )}
     </div>
   );

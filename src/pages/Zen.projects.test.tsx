@@ -72,6 +72,7 @@ import {
   fetchProjectGroupShow,
   fetchProjectGroups,
 } from "../api/projectGroups";
+import { handleAndroidBack } from "../lib/androidBack";
 import { useProjectGroupsStore } from "../stores/projectGroups";
 import { useServersStore } from "../stores/servers";
 import { useWorkspacesStore } from "../stores/workspaces";
@@ -361,5 +362,21 @@ describe("Zen Projects", () => {
     expect(await screen.findByTestId("overlay-projects")).not.toBeNull();
     fireEvent.click(screen.getByTestId("projects-done"));
     expect(screen.getByRole("heading", { name: "Agents" })).not.toBeNull();
+  });
+
+  it("Android Back from a pushed project chat lands on Projects, then Agents, then falls through", async () => {
+    render(routes("/zen?project=pg1"));
+    await waitFor(() => expect(useZenStore.getState().threadSource).toBe("live"));
+    act(() => {
+      expect(handleAndroidBack()).toBe(true);
+    });
+    expect(useZenStore.getState().screen).toBe("list");
+    expect(await screen.findByTestId("overlay-projects")).not.toBeNull();
+    act(() => {
+      expect(handleAndroidBack()).toBe(true);
+    });
+    expect(screen.queryByTestId("overlay-projects")).toBeNull();
+    expect(useZenStore.getState().projectsOpen).toBe(false);
+    expect(handleAndroidBack()).toBe(false);
   });
 });

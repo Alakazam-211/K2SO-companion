@@ -932,7 +932,7 @@ export function ThreadPane({
                   className="text-[11px] text-[var(--text-muted)] px-2"
                   data-testid="thread-empty"
                 >
-                  No messages
+                  No messages yet
                 </span>
               ) : null}
               {hasMore && source === "live" ? (

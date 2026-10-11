@@ -24,6 +24,7 @@ import { composerHeight, COMPOSER_MAX_PX } from "./ThreadPane";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 import { zenTextPx } from "./zenFont";
 import { ticketsScope, useTicketsScope } from "./zenScope";
+import { useBackHandler } from "../lib/androidBack";
 
 // Zen open ticket — Layout A (Rosson, 2026-10-11). Full-screen inside the
 // Chats column, below the notch, the ThreadPane look:
@@ -77,6 +78,7 @@ function Sheet({
   children: ReactNode;
   testId: string;
 }) {
+  useBackHandler(true, onClose);
   return (
     <div className="absolute inset-0 flex flex-col justify-end" style={{ zIndex: 14 }} data-testid={testId}>
       <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.55)" }} onClick={onClose} />
@@ -85,7 +87,7 @@ function Sheet({
         style={{
           borderRadius: "16px 16px 0 0",
           maxHeight: "80%",
-          paddingBottom: "max(12px, env(safe-area-inset-bottom))",
+          paddingBottom: "max(12px, var(--safe-bottom))",
         }}
       >
         <div className="flex items-center shrink-0" style={{ padding: "14px 16px 8px" }}>
@@ -269,6 +271,7 @@ function Menu({
   testId: string;
 }) {
   const ref = useRef<HTMLDivElement>(null);
+  useBackHandler(true, onClose);
   useEffect(() => {
     const onDown = (e: PointerEvent) => {
       if (ref.current && !ref.current.contains(e.target as Node)) onClose();
@@ -415,6 +418,9 @@ export function TicketView({
   // At rest the brief card sits just under the header and stays sharp;
   // the heavy blur's strip below the header waits for a scroll.
   const [scrolled, setScrolled] = useState(false);
+  // Android Back = the header's back chevron. Menus, sheets and the
+  // brief reader open later and register on top.
+  useBackHandler(true, onBack);
 
   const brief = entry?.state === "ready" ? entry.brief : null;
   const doc = useBriefDoc(brief);
@@ -848,7 +854,7 @@ export function TicketView({
         <div
           className="shrink-0 px-3 pt-3"
           style={{
-            paddingBottom: "max(10px, env(safe-area-inset-bottom))",
+            paddingBottom: "max(10px, var(--safe-bottom))",
             borderTop: "0.5px solid rgba(255,255,255,0.12)",
           }}
           data-testid="ticket-unlinked-footer"

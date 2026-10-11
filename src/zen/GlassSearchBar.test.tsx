@@ -39,7 +39,7 @@ describe("GlassSearchBar keyboard gap", () => {
 
   it("keyboard closed: rests above the home indicator (safe-area offset)", () => {
     const { bar } = mount();
-    expect(SEARCH_BAR_REST_BOTTOM).toContain("env(safe-area-inset-bottom)");
+    expect(SEARCH_BAR_REST_BOTTOM).toContain("var(--safe-bottom)");
     expect(bar.dataset.bottom).toBe(SEARCH_BAR_REST_BOTTOM);
     expect(bar.dataset.typing).toBeUndefined();
   });

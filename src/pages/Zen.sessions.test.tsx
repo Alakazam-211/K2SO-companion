@@ -48,6 +48,7 @@ import {
   spawnSidecarSession,
   spawnTabSession,
 } from "../api/client";
+import { handleAndroidBack } from "../lib/androidBack";
 import { SIDECAR_STORAGE_KEY } from "../zen/sidecarRows";
 import { mountainTime } from "../zen/threadModel";
 import { useServersStore } from "../stores/servers";
@@ -809,5 +810,50 @@ describe("Zen Sessions drawer", () => {
     );
     expect(spawnTabSession).toHaveBeenCalledWith(expect.anything(), "/ws", { command: "aider", args: [] }, "Aider");
     expect(spawnSidecarSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("Zen — Android Back", () => {
+  const back = () => {
+    let claimed = false;
+    act(() => {
+      claimed = handleAndroidBack();
+    });
+    return claimed;
+  };
+
+  it("closes the Sessions drawer, then the chat; at the list it falls through", async () => {
+    await openMain();
+    await openDrawer();
+    expect(back()).toBe(true);
+    expect(screen.queryByTestId("sessions-drawer")).toBeNull();
+    expect(useZenStore.getState().screen).toBe("thread");
+
+    expect(back()).toBe(true);
+    expect(useZenStore.getState().screen).toBe("list");
+    expect(screen.queryByTestId("thread-home")).toBeNull();
+
+    // The Zen home with nothing open: Android may exit / background.
+    expect(back()).toBe(false);
+  });
+
+  it("closes the Files drawer like its X", async () => {
+    await openMain();
+    fireEvent.click(screen.getByRole("button", { name: "Files" }));
+    expect(screen.getByTestId("file-pane")).not.toBeNull();
+    expect(back()).toBe(true);
+    expect(useZenStore.getState().filesOpen).toBe(false);
+    expect(useZenStore.getState().screen).toBe("thread");
+  });
+
+  it("a drawer-picked chat goes back like Done, to the origin chat", async () => {
+    await openMain();
+    await pick("k2/reviewer");
+    expect(screen.getByTestId("chat-done")).not.toBeNull();
+    expect(back()).toBe(true);
+    expect(useZenStore.getState().agentId).toBe(MAIN.id);
+    expect(useZenStore.getState().drawerOrigin).toBeNull();
+    expect(useZenStore.getState().screen).toBe("thread");
+    expect(screen.getByTestId("chat-back")).not.toBeNull();
   });
 });

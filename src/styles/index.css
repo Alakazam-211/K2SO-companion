@@ -123,9 +123,14 @@ html, body, #root {
   /* Base (iOS) bottom lift — a touch of extra clearance above the home
      indicator on every bottom surface; Android overrides higher below. */
   --android-nav-lift: 8px;
+  /* Zen's bottom inset. iOS: the real env() value. Android: overwritten
+     inline by main.tsx with the native nav-bar height; 48px (3-button
+     nav) covers the gap if the bridge hasn't answered yet. */
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
 }
 .platform-android {
   --android-nav-lift: 28px;
+  --safe-bottom: 48px;
 }
 
 /* Zen UI font (Settings → Appearance → Font; src/zen/zenFont.ts).
@@ -240,10 +245,16 @@ html, body, #root {
 }
 /* Zen thread composer: same rule, its own resting inset. */
 .zen-composer-bar {
-  padding-bottom: max(8px, env(safe-area-inset-bottom));
+  padding-bottom: max(8px, var(--safe-bottom));
 }
 .zen-composer-bar:focus-within {
   padding-bottom: 8px;
+}
+/* Android: --safe-bottom is 0 while the on-screen keyboard is up, so
+   this stays 8px there but still clears the nav bar when focus comes
+   without one (floating or hardware keyboard). */
+.platform-android .zen-composer-bar:focus-within {
+  padding-bottom: max(8px, var(--safe-bottom));
 }
 
 /* Overlay Chats chrome — iOS liquid glass on dark. */

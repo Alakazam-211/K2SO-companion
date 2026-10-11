@@ -121,7 +121,7 @@ export function ModelView({ path, name }: { path: string | null; name: string })
         {phase.k === "ready" ? (
           <div
             className="pointer-events-none absolute left-3 right-3 text-center text-[11px] text-[var(--text-muted)]"
-            style={{ bottom: "max(10px, env(safe-area-inset-bottom))" }}
+            style={{ bottom: "max(10px, var(--safe-bottom))" }}
           >
             Drag to orbit · pinch to zoom · two fingers to pan · double-tap to reset
           </div>

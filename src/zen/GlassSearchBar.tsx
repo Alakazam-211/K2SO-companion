@@ -6,7 +6,7 @@ import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
  *  the thread composer keeps (`.zen-composer-bar:focus-within`). */
 export const SEARCH_BAR_KEYBOARD_GAP = 8;
 /** Resting offset: clear the home indicator (as `.zen-composer-bar`). */
-export const SEARCH_BAR_REST_BOTTOM = "max(14px, env(safe-area-inset-bottom))";
+export const SEARCH_BAR_REST_BOTTOM = "max(14px, var(--safe-bottom))";
 /** Bar row height (the round `+`). */
 export const SEARCH_BAR_HEIGHT = 44;
 

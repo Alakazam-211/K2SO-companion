@@ -47,6 +47,7 @@ import { useMultiServerPrefs } from "../zen/multi/prefs";
 import { ServerChip } from "../zen/room/ServerChip";
 import { ZEN_SERVER_PARAM, resolveServerRef, withServerParam } from "../zen/room/serverRef";
 import { PencilIcon } from "../zen/icons";
+import { useBackHandler } from "../lib/androidBack";
 
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
@@ -305,6 +306,9 @@ export function ZenTerminal() {
     const threadServer = agent?.agentId ? room : readZenThreadServer() ?? room;
     navigate(withServerParam(zenThreadPath(id), id ? threadServer : null));
   };
+
+  // Android Back = Done: back to this session's Thread.
+  useBackHandler(Boolean(terminalId), backToThread);
 
   if (!terminalId) return null;
 

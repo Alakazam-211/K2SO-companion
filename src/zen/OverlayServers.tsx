@@ -11,6 +11,7 @@ import { usePoolEntries } from "./multi/pool";
 import { serverBadge } from "./multi/rowStatus";
 import { serverBellStatus, useNotifyPrefsStore } from "../stores/notifyPrefs";
 import { BellIcon, useNotifyPrefsLive } from "./NotifyBell";
+import { useBackHandler } from "../lib/androidBack";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -150,6 +151,9 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
   const flipFrom = useRef<{ id: string; rect: DOMRect | null } | null>(null);
   const busy = useRef(false);
   const mounted = useRef(true);
+  // Android Back = Done. The add / edit form's Cancel is its own layer
+  // (OverlayAddServer), registered on top while it shows.
+  useBackHandler(true, onClose);
   const [headerRef, headerPx] = useMeasuredHeight(
     SERVERS_HEADER_PX + (activeServerId ? SERVERS_PINNED_PX : 0)
   );

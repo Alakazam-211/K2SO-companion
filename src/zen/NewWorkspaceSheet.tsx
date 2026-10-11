@@ -17,6 +17,7 @@ import {
 import { posixNormalize } from "./workspacePath";
 import { useZenStore } from "./zenStore";
 import { zenScope } from "./zenScope";
+import { useBackHandler } from "../lib/androidBack";
 
 type Stage = "idle" | "creating" | "starting" | "opening";
 
@@ -79,6 +80,10 @@ export function NewWorkspaceSheet({
   const path = workspacePathFor(parentValue, slug);
   const problem = newWorkspaceProblem(name, parentValue, existingPaths);
   const busy = stage !== "idle";
+  // Android Back = Cancel (held while the workspace is being made).
+  useBackHandler(true, () => {
+    if (!busy) onClose();
+  });
 
   const submit = async () => {
     setTouched(true);
@@ -155,7 +160,7 @@ export function NewWorkspaceSheet({
         style={{
           borderTopLeftRadius: 14,
           borderTopRightRadius: 14,
-          padding: "16px 16px max(12px, env(safe-area-inset-bottom))",
+          padding: "16px 16px max(12px, var(--safe-bottom))",
           maxHeight: "90%",
           gap: 14,
           color: "#fff",
