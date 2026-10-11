@@ -819,3 +819,13 @@ export const getChatCustomNames = (scope: ServerScope) =>
  *  Thread message per addr, or `{addr, error}` when K2 has no Thread for it. */
 export const getThreadLatest = (scope: ServerScope, addrs: string[]) =>
   request<unknown>(scope, "/cli/thread/latest", { addrs: addrs.join(",") });
+
+/** `GET /cli/projects/get-icon?path=&project_id=` (Member): a workspace's
+ *  picture as `{found, dataUrl}`. It WRITES the daemon's icon cache, so the
+ *  phone asks only for a row with no `iconUrl`, at most once a day per
+ *  server and project (multi-server MA24). */
+export const getProjectIcon = (scope: ServerScope, path: string, projectId: string) =>
+  request<{ found?: unknown; dataUrl?: unknown }>(scope, "/cli/projects/get-icon", {
+    path,
+    project_id: projectId,
+  });
