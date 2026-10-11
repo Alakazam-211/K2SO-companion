@@ -136,6 +136,7 @@ import { STUB_AGENTS } from "../zen/stubData";
 import { rememberZenThread, zenTerminalPath, type ZenTerminalAgent } from "../zen/terminalJump";
 import { useZenStore } from "../zen/zenStore";
 import { ThreadPane } from "../zen/ThreadPane";
+import { COMPOSER_RADIUS_PX } from "../zen/GlassComposer";
 import { ChatSession } from "./ChatSession";
 import { Zen } from "./Zen";
 import { ZenTerminal } from "./ZenTerminal";
@@ -524,7 +525,7 @@ describe("ZenTerminal", () => {
     const send = screen.getByTestId("terminal-composer-send");
     expect(Array.from(field.children)).toEqual([attach, input, send]);
     expect(field.className).toMatch(/k2-tile/);
-    expect(field.className).toMatch(/rounded-\[20px\]/);
+    expect(field.style.borderRadius).toBe(`${COMPOSER_RADIUS_PX}px`);
     expect(attach.textContent).toBe("＋");
     expect(send.getAttribute("type")).toBe("submit");
     expect(send).toHaveProperty("disabled", true);

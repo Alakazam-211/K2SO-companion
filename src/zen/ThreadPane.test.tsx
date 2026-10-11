@@ -877,7 +877,14 @@ describe("ThreadPane", () => {
     expect(strip.getAttribute("data-tone")).toBe("working");
     // Docked above the composer, not a row in the message list.
     expect(screen.getByTestId("thread-scroller").contains(strip)).toBe(false);
-    expect(screen.getByTestId("thread-drawer-dock").contains(strip)).toBe(true);
+    // Passed through the composer's drawer slot: inside the composer's
+    // wrapper, directly before the field.
+    const slot = screen.getByTestId("composer-drawer");
+    const field = screen.getByTestId("composer-field");
+    expect(slot.contains(strip)).toBe(true);
+    expect(slot.nextElementSibling).toBe(field);
+    expect(slot.parentElement).toBe(screen.getByTestId("composer-dock"));
+    expect(screen.getByTestId("composer-bar").contains(strip)).toBe(true);
     expect(screen.getByTestId("thread-strip-step-text").textContent).toBe("Running npm test");
     expect(screen.getByTestId("thread-strip-count-subagents").textContent).toContain("🤖1");
     expect(screen.getByTestId("thread-strip-count-read").textContent).toContain("📄2");

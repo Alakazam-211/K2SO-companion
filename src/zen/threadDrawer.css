@@ -1,7 +1,8 @@
-/* The Thread working drawer: a glass tile docked above the composer. It
-   slides up from behind the composer when a turn starts and back down when
-   it ends (a short spring); under reduced motion it fades. A tap grows it
-   upward to the full detail (height transition) and back. */
+/* The Thread working drawer: a glass tile pulled out of the composer
+   field's top edge. It slides up out of the field when a turn starts and
+   back down into it when it ends (a short spring); under reduced motion
+   it fades. A tap grows it upward to the full detail (height transition)
+   and back; the bottom stays tucked behind the field. */
 @keyframes k2-drawer-slide-in {
   from {
     transform: translateY(calc(100% + 12px));

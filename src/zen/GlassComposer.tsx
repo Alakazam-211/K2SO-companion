@@ -2,6 +2,7 @@ import {
   useEffect,
   useLayoutEffect,
   useRef,
+  type CSSProperties,
   type ClipboardEvent,
   type FocusEventHandler,
   type FormEvent,
@@ -47,6 +48,24 @@ export function composerHeight(scrollHeight: number, maxPx = COMPOSER_MAX_PX): n
   return Math.min(scrollHeight, maxPx);
 }
 
+/** The field's corner radius (px). The drawer's geometry derives from it. */
+export const COMPOSER_RADIUS_PX = 20;
+/** Drawer side inset: half the radius, so its sides land on the field's
+ *  top edge about halfway round the corner curve. */
+export const COMPOSER_DRAWER_INSET_PX = COMPOSER_RADIUS_PX * 0.5;
+/** The drawer's own top-corner radius. */
+export const COMPOSER_DRAWER_RADIUS_PX = COMPOSER_RADIUS_PX * 0.75;
+/** How far the drawer tucks behind the field's top edge: deep enough that
+ *  its square bottom corners reach under the curve at the inset (the
+ *  curve drops r − √(r² − inset²) there), plus 1px of seam. */
+export const COMPOSER_DRAWER_TUCK_PX =
+  Math.ceil(
+    COMPOSER_RADIUS_PX -
+      Math.sqrt(COMPOSER_RADIUS_PX ** 2 - (COMPOSER_RADIUS_PX - COMPOSER_DRAWER_INSET_PX) ** 2)
+  ) + 1;
+/** Headroom above the drawer inside its clip box (the slide's overshoot). */
+const DRAWER_HEADROOM_PX = 12;
+
 export interface GlassComposerProps {
   value: string;
   onChange: (value: string) => void;
@@ -73,6 +92,14 @@ export interface GlassComposerProps {
   testIdPrefix?: string;
   /** Extra attrs on the bar (e.g. `data-k2-variant`). */
   barProps?: Record<string, string | undefined>;
+  /** A drawer docked on the field's top edge: flush, inset by half the
+   *  radius each side, tucked behind the field so it slides out of it. It
+   *  floats above the bar (the caller pads whatever it covers). Its tile
+   *  reads `--k2-drawer-radius` / `--k2-drawer-tuck` from the slot. */
+  drawer?: ReactNode;
+  /** Room (px) kept between `children` and the field so rows above the
+   *  field are not covered by the drawer. 0 when there are none. */
+  drawerRoom?: number;
 }
 
 /** The Zen glass composer: one full-width rounded tile field holding a
@@ -95,6 +122,8 @@ export function GlassComposer({
   ariaLabel,
   testIdPrefix = "composer",
   barProps,
+  drawer,
+  drawerRoom = 0,
 }: GlassComposerProps) {
   const ownRef = useRef<HTMLTextAreaElement>(null);
   const ref = textareaRef ?? ownRef;
@@ -133,10 +162,15 @@ export function GlassComposer({
     // typing so it is not a gap above the keyboard (.input-bar idiom).
     <div
       className="shrink-0 min-w-0 w-full overflow-hidden px-3 pt-2 zen-composer-bar"
+      // A drawer stands above the bar: let it show.
+      style={drawer ? { overflow: "visible" } : undefined}
       data-testid={id("bar")}
       {...barProps}
     >
       {children}
+      {drawer && drawerRoom > 0 ? (
+        <div aria-hidden="true" data-testid={id("drawer-room")} style={{ height: Math.ceil(drawerRoom) }} />
+      ) : null}
       <form
         className="flex items-end min-w-0"
         data-testid={id("form")}
@@ -158,97 +192,123 @@ export function GlassComposer({
             e.target.value = "";
           }}
         />
-        <div
-          className="flex-1 min-w-0 overflow-hidden flex items-end gap-1 rounded-[20px] pl-1 pr-1 py-1 k2-tile"
-          data-testid={id("field")}
-          data-k2-drop="composer"
-          data-drop-target={dragging ? (dropHot ? "hot" : "armed") : undefined}
-          style={
-            dragging
-              ? {
-                  boxShadow: dropHot
-                    ? "0 0 0 2px #0a84ff, 0 0 18px rgba(10,132,255,0.45)"
-                    : "0 0 0 1px rgba(10,132,255,0.55)",
-                  transition: "box-shadow 120ms ease",
-                }
-              : undefined
-          }
-        >
-          {canSend ? (
-            <button
-              type="button"
-              data-testid={id("attach")}
-              aria-label="Add file"
-              disabled={Boolean(attachDisabled)}
-              onClick={() => fileRef.current?.click()}
-              className="shrink-0 flex items-center justify-center bg-transparent border-0 text-[var(--text-muted)] disabled:opacity-40"
-              style={{
-                width: 30,
-                height: 30,
-                borderRadius: "50%",
-              }}
+        <div className="relative flex-1 min-w-0" data-testid={id("dock")}>
+          {drawer ? (
+            // Clip box: its bottom edge sits `tuck` px under the field's
+            // top, so the drawer slides out from behind the field (which
+            // stacks above it) and its seam is the field's top rim.
+            <div
+              data-testid={id("drawer")}
+              className="absolute overflow-hidden pointer-events-none"
+              style={
+                {
+                  left: COMPOSER_DRAWER_INSET_PX,
+                  right: COMPOSER_DRAWER_INSET_PX,
+                  bottom: `calc(100% - ${COMPOSER_DRAWER_TUCK_PX}px)`,
+                  paddingTop: DRAWER_HEADROOM_PX,
+                  zIndex: 0,
+                  "--k2-drawer-radius": `${COMPOSER_DRAWER_RADIUS_PX}px`,
+                  "--k2-drawer-tuck": `${COMPOSER_DRAWER_TUCK_PX}px`,
+                } as CSSProperties
+              }
             >
-              <PlusGlyph />
-            </button>
+              {drawer}
+            </div>
           ) : null}
-          <textarea
-            ref={ref}
-            disabled={disabled}
-            value={value}
-            rows={1}
-            onChange={(e) => onChange(e.target.value)}
-            onFocus={onFocus}
-            onPaste={onPasteFiles}
-            placeholder={placeholder}
-            className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--text)] outline-none py-1 placeholder:whitespace-nowrap placeholder:overflow-hidden placeholder:text-ellipsis ${canSend ? "" : "px-2"}`}
+          <div
+            className="relative w-full min-w-0 overflow-hidden flex items-end gap-1 pl-1 pr-1 py-1 k2-tile"
+            data-testid={id("field")}
+            data-k2-drop="composer"
+            data-drop-target={dragging ? (dropHot ? "hot" : "armed") : undefined}
             style={{
-              maxHeight: COMPOSER_MAX_PX,
-              fontSize: zenTextPx(17),
-              lineHeight: zenTextPx(22),
+              borderRadius: COMPOSER_RADIUS_PX,
+              zIndex: 1,
+              ...(dragging
+                ? {
+                    boxShadow: dropHot
+                      ? "0 0 0 2px #0a84ff, 0 0 18px rgba(10,132,255,0.45)"
+                      : "0 0 0 1px rgba(10,132,255,0.55)",
+                    transition: "box-shadow 120ms ease",
+                  }
+                : {}),
             }}
-            aria-label={ariaLabel ?? placeholder}
-            data-testid={id("input")}
-          />
-          {canSend ? (
-            <button
-              type="submit"
-              aria-label="Send"
-              data-testid={id("send")}
-              disabled={!sendReady}
-              // Keep focus in the textarea so the iOS keyboard stays up
-              // (AccessoryBar pattern). Not on attach — it opens a picker.
-              onPointerDown={(e) => e.preventDefault()}
-              onMouseDown={(e) => e.preventDefault()}
-              className={`shrink-0 flex items-center justify-center k2-tile ${
-                sendReady
-                  ? "text-white"
-                  : "k2-tile-raised text-[var(--text-muted)] opacity-60"
-              }`}
-              style={{
-                width: 30,
-                height: 30,
-                borderRadius: "50%",
-                ...(sendReady
-                  ? { background: "#0a84ff", borderColor: "#0a84ff" }
-                  : {}),
-              }}
-            >
-              <svg
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2.75"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden="true"
+          >
+            {canSend ? (
+              <button
+                type="button"
+                data-testid={id("attach")}
+                aria-label="Add file"
+                disabled={Boolean(attachDisabled)}
+                onClick={() => fileRef.current?.click()}
+                className="shrink-0 flex items-center justify-center bg-transparent border-0 text-[var(--text-muted)] disabled:opacity-40"
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: "50%",
+                }}
               >
-                <path d="M12 19V5" />
-                <path d="M5 12l7-7 7 7" />
-              </svg>
-            </button>
-          ) : null}
+                <PlusGlyph />
+              </button>
+            ) : null}
+            <textarea
+              ref={ref}
+              disabled={disabled}
+              value={value}
+              rows={1}
+              onChange={(e) => onChange(e.target.value)}
+              onFocus={onFocus}
+              onPaste={onPasteFiles}
+              placeholder={placeholder}
+              className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--text)] outline-none py-1 placeholder:whitespace-nowrap placeholder:overflow-hidden placeholder:text-ellipsis ${canSend ? "" : "px-2"}`}
+              style={{
+                maxHeight: COMPOSER_MAX_PX,
+                fontSize: zenTextPx(17),
+                lineHeight: zenTextPx(22),
+              }}
+              aria-label={ariaLabel ?? placeholder}
+              data-testid={id("input")}
+            />
+            {canSend ? (
+              <button
+                type="submit"
+                aria-label="Send"
+                data-testid={id("send")}
+                disabled={!sendReady}
+                // Keep focus in the textarea so the iOS keyboard stays up
+                // (AccessoryBar pattern). Not on attach — it opens a picker.
+                onPointerDown={(e) => e.preventDefault()}
+                onMouseDown={(e) => e.preventDefault()}
+                className={`shrink-0 flex items-center justify-center k2-tile ${
+                  sendReady
+                    ? "text-white"
+                    : "k2-tile-raised text-[var(--text-muted)] opacity-60"
+                }`}
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: "50%",
+                  ...(sendReady
+                    ? { background: "#0a84ff", borderColor: "#0a84ff" }
+                    : {}),
+                }}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 19V5" />
+                  <path d="M5 12l7-7 7 7" />
+                </svg>
+              </button>
+            ) : null}
+          </div>
         </div>
       </form>
     </div>

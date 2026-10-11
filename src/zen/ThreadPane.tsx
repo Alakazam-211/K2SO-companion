@@ -196,10 +196,23 @@ export function threadTopPadding(topInset?: number): string | undefined {
 /** The scroller's own bottom padding (`py-3`). */
 const THREAD_BOTTOM_PAD = 12;
 
-/** Scroller bottom padding: its own, plus the working drawer's room. */
-export function threadBottomPadding(drawerSpace: number): string | undefined {
-  if (!Number.isFinite(drawerSpace) || drawerSpace <= 0) return undefined;
-  return `${THREAD_BOTTOM_PAD + Math.ceil(drawerSpace)}px`;
+/** The composer field's top inside its bar: the bar's `pt-2` plus the
+ *  (empty) label row's `mb-1.5`. The drawer covers that much of the bar. */
+export const COMPOSER_FIELD_TOP_PX = 8 + 6;
+
+/** How far the working drawer (standing `drawerSpace` px on the field's
+ *  top edge) reaches above the composer bar, into the scroller. With rows
+ *  above the field (banner, label, chips) the bar keeps room for it
+ *  instead, so it covers nothing. */
+export function drawerOverScroller(drawerSpace: number, rowsAboveField: boolean): number {
+  if (rowsAboveField || !Number.isFinite(drawerSpace)) return 0;
+  return Math.max(0, drawerSpace - COMPOSER_FIELD_TOP_PX);
+}
+
+/** Scroller bottom padding: its own, plus what the working drawer covers. */
+export function threadBottomPadding(drawerCover: number): string | undefined {
+  if (!Number.isFinite(drawerCover) || drawerCover <= 0) return undefined;
+  return `${THREAD_BOTTOM_PAD + Math.ceil(drawerCover)}px`;
 }
 
 export function ThreadPane({
@@ -301,9 +314,26 @@ export function ThreadPane({
   const lastTop = useRef(0);
   const followRaf = useRef(0);
   const drawerRaf = useRef(0);
-  // Room (px) the working drawer takes above the composer. It floats over
-  // the scroller, so the scroller pads its bottom by it (same 200ms ease).
+  // Height (px) the working drawer stands on the composer field. The part
+  // above the bar floats over the scroller, which pads its bottom by it
+  // (same 200ms ease).
   const [drawerSpace, setDrawerSpace] = useState(0);
+  const composerLabel =
+    source === "stub"
+      ? "STUB — Cannot send — POST /cli/thread/post not proven"
+      : attachError
+        ? attachError
+        : sendError
+          ? sendError
+          : canSend || roomBlocked
+            ? ""
+            : source === "live"
+              ? "Not chattable"
+              : "";
+  // Rows between the bar's top and the field: the bar makes room for the
+  // drawer under them rather than let it cover them.
+  const rowsAboveField = roomBlocked || composerLabel !== "" || attachments.length > 0;
+  const drawerCover = drawerOverScroller(drawerSpace, rowsAboveField);
   const focusSeq = useZenStore((s) => s.threadFocusSeq);
   // The working strip's turn. The gate drops a catch-up answer that raced
   // an activity frame (the frame is newer) or a later catch-up (a late
@@ -548,7 +578,7 @@ export function ThreadPane({
   // moves by that much. Stick through the padding's ease.
   useLayoutEffect(() => {
     followFor(DRAWER_MS + 80);
-  }, [drawerSpace]);
+  }, [drawerSpace, drawerCover]);
 
   function queueFiles(files: File[]) {
     if (!files.length) return;
@@ -766,11 +796,12 @@ export function ThreadPane({
         ref={scrollerRef}
         data-testid="thread-scroller"
         data-drawer-space={drawerSpace}
+        data-drawer-cover={drawerCover}
         className="zen-thread-scroller flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-2.5 py-3 flex flex-col"
         style={{
           overflowAnchor: "none",
           paddingTop: threadTopPadding(topInset),
-          paddingBottom: threadBottomPadding(drawerSpace),
+          paddingBottom: threadBottomPadding(drawerCover),
         }}
         onScroll={(e) => {
           const el = e.currentTarget;
@@ -948,7 +979,7 @@ export function ThreadPane({
         <div
           aria-live="polite"
           className="absolute left-0 right-0 flex justify-center pointer-events-none"
-          style={{ bottom: 8 + drawerSpace }}
+          style={{ bottom: 8 + drawerCover }}
         >
           {newBelow ? (
             <button
@@ -962,17 +993,6 @@ export function ThreadPane({
             </button>
           ) : null}
         </div>
-      </div>
-      {/* Zero-height row: the working drawer docks on the composer's top
-          edge and floats over the scroller's padded bottom. */}
-      <div className="relative h-0 shrink-0" data-testid="thread-drawer-dock">
-        {!threadGroupId ? (
-          <ThreadWorkingStrip
-            key={`${agentId}|${conversationId ?? ""}`}
-            turn={turn}
-            onSpace={setDrawerSpace}
-          />
-        ) : null}
       </div>
       <GlassComposer
         value={draft}
@@ -989,23 +1009,24 @@ export function ThreadPane({
           window.scrollTo(0, 0);
           follow();
         }}
+        drawer={
+          // The working drawer, pulled out of the field's top edge.
+          !threadGroupId ? (
+            <ThreadWorkingStrip
+              key={`${agentId}|${conversationId ?? ""}`}
+              turn={turn}
+              onSpace={setDrawerSpace}
+            />
+          ) : undefined
+        }
+        drawerRoom={rowsAboveField ? drawerSpace : 0}
       >
         {roomBanner}
         <p
           className="text-[11px] text-[var(--text-muted)] leading-snug break-words mb-1.5"
           data-testid="composer-label"
         >
-          {source === "stub"
-            ? "STUB — Cannot send — POST /cli/thread/post not proven"
-            : attachError
-              ? attachError
-              : sendError
-                ? sendError
-                : canSend || roomBlocked
-                  ? ""
-                  : source === "live"
-                    ? "Not chattable"
-                    : ""}
+          {composerLabel}
         </p>
         {attachments.length ? (
           <div
