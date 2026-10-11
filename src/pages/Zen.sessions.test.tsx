@@ -18,6 +18,8 @@ vi.mock("../api/client", () => ({
   inspectProjectsSummary: vi.fn(),
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),
+  spawnTabSession: vi.fn(),
+  getActivePresets: vi.fn(async () => ({ ok: true, data: [] })),
   uploadFsBinary: vi.fn(),
   setTabTitle: vi.fn(async () => ({ ok: true, data: { success: true } })),
   setSessionLabel: vi.fn(async () => ({ ok: true, data: { success: true } })),
@@ -32,7 +34,13 @@ vi.mock("../api/projectGroups", () => ({
   postProjectGroupMessage: vi.fn(),
 }));
 
-import { getAllSessions, getToken } from "../api/client";
+import {
+  getActivePresets,
+  getAllSessions,
+  getToken,
+  spawnSidecarSession,
+  spawnTabSession,
+} from "../api/client";
 import { useServersStore } from "../stores/servers";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { DRAWER_ORIGIN_KEY } from "../zen/sessionDrawer";
@@ -41,11 +49,18 @@ import { Zen } from "./Zen";
 
 const base = { workspaceName: "K2", workspaceId: "k2", workspaceColor: "#000" };
 const SESSIONS = [
-  { ...base, cwd: "/ws", agentName: "k2", terminalId: "t-main", label: "main", isMainChat: true },
-  { ...base, cwd: "/ws", agentName: "reviewer", terminalId: "t-rev", label: "Code review" },
-  { ...base, cwd: "/ws", agentName: "1", terminalId: "t-1", label: "" },
-  { ...base, cwd: "/other", agentName: "x", terminalId: "t-x", label: "elsewhere" },
-  { ...base, cwd: "/ws", agentName: "tab-6b1c", terminalId: "t-zsh", label: "zsh" },
+  { ...base, cwd: "/ws", agentName: "k2", terminalId: "t-main", label: "main", isMainChat: true, command: "claude" },
+  { ...base, cwd: "/ws", agentName: "reviewer", terminalId: "t-rev", label: "Code review", command: "grok" },
+  { ...base, cwd: "/ws", agentName: "1", terminalId: "t-1", label: "", command: "/usr/local/bin/codex" },
+  { ...base, cwd: "/other", agentName: "x", terminalId: "t-x", label: "elsewhere", command: "claude" },
+  { ...base, cwd: "/ws", agentName: "tab-6b1c", terminalId: "t-zsh", label: "zsh", command: null },
+];
+
+/** GET /cli/companion/presets: enabled presets only (the daemon filters). */
+const PRESETS = [
+  { id: "p-claude", name: "Claude", command: "claude --dangerously-skip-permissions", icon: "" },
+  { id: "p-codex", name: "Codex", command: "codex --yolo", icon: "" },
+  { id: "p-aider", name: "Aider", command: "aider", icon: "" },
 ];
 
 const MAIN = {
@@ -119,6 +134,9 @@ afterEach(() => {
   sessionStorage.clear();
   vi.mocked(getToken).mockReturnValue("");
   vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [] } as never);
+  vi.mocked(getActivePresets).mockResolvedValue({ ok: true, data: [] } as never);
+  vi.mocked(spawnSidecarSession).mockReset();
+  vi.mocked(spawnTabSession).mockReset();
 });
 
 describe("Zen Sessions drawer", () => {
@@ -251,5 +269,142 @@ describe("Zen Sessions drawer", () => {
     expect(await screen.findByTestId("sessions-drawer")).not.toBeNull();
     fireEvent.click(screen.getByTestId("thread-column"));
     expect(screen.queryByTestId("sessions-drawer")).toBeNull();
+  });
+
+  it("each row leads with its LLM's icon; a plain shell keeps >_", async () => {
+    await openMain();
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    const drawer = await screen.findByTestId("sessions-drawer");
+    await within(drawer).findByText("k2/reviewer");
+    const icons = (id: string) =>
+      within(drawer)
+        .getAllByTestId(id)
+        .map((row) => within(row).getByTestId("llm-icon").getAttribute("data-llm"));
+    expect(icons("session-row-main")).toEqual(["claude"]);
+    expect(icons("session-row-sidecar")).toEqual(["grok", "codex"]);
+    expect(icons("session-row-terminal")).toEqual(["shell"]);
+    expect(within(drawer).getByTestId("session-row-main").querySelector("svg")).not.toBeNull();
+    // Activity dot and the current-session check stay.
+    expect(within(within(drawer).getByTestId("session-row-main")).getByTestId("session-current")).not.toBeNull();
+  });
+
+  it("+ is hidden when the server has no active LLMs", async () => {
+    vi.mocked(getActivePresets).mockResolvedValue({ ok: true, data: [] } as never);
+    await openMain();
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    const drawer = await screen.findByTestId("sessions-drawer");
+    await within(drawer).findByText("k2/reviewer");
+    await waitFor(() => expect(getActivePresets).toHaveBeenCalled());
+    expect(within(drawer).queryByTestId("sessions-new")).toBeNull();
+  });
+
+  it("+ is hidden when the presets route 404s (older server)", async () => {
+    vi.mocked(getActivePresets).mockResolvedValue({
+      ok: false,
+      status: 404,
+      error: "route not found",
+    } as never);
+    await openMain();
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    const drawer = await screen.findByTestId("sessions-drawer");
+    await within(drawer).findByText("k2/reviewer");
+    await waitFor(() => expect(getActivePresets).toHaveBeenCalled());
+    expect(within(drawer).queryByTestId("sessions-new")).toBeNull();
+  });
+
+  it("+ lists only the server's active LLMs, with icons", async () => {
+    vi.mocked(getActivePresets).mockResolvedValue({
+      ok: true,
+      data: [...PRESETS, { id: "p-off", name: "Off", command: "gemini", icon: "", enabled: 0 }],
+    } as never);
+    await openMain();
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    const drawer = await screen.findByTestId("sessions-drawer");
+    const toggle = await within(drawer).findByTestId("sessions-new-toggle");
+    expect(toggle.textContent).toContain("New session");
+    expect(within(toggle).getByTestId("plus-glyph")).not.toBeNull();
+    expect(toggle.className).toMatch(/zen-glass/);
+    fireEvent.click(toggle);
+    const items = within(drawer).getAllByTestId("sessions-llm");
+    expect(items.map((b) => b.getAttribute("data-llm-id"))).toEqual(["p-claude", "p-codex", "p-aider"]);
+    expect(items.map((b) => within(b).getByTestId("llm-icon").getAttribute("data-llm"))).toEqual([
+      "claude",
+      "codex",
+      "aider",
+    ]);
+    // Aider is not a sidecar harness: the daemon runs it as a plain tab.
+    expect(items[2].textContent).toContain("Opens as a terminal");
+    expect(items[0].textContent).not.toContain("Opens as a terminal");
+  });
+
+  it("picking an LLM spawns the next sidecar with that harness and lands in it in Done mode", async () => {
+    vi.mocked(getActivePresets).mockResolvedValue({ ok: true, data: PRESETS } as never);
+    let release: () => void = () => {};
+    vi.mocked(spawnSidecarSession).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          release = () => resolve({ ok: true, data: { sessionId: "t-2", agentName: "2" } } as never);
+        })
+    );
+    await openMain();
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    const drawer = await screen.findByTestId("sessions-drawer");
+    fireEvent.click(await within(drawer).findByTestId("sessions-new-toggle"));
+    const codex = within(drawer)
+      .getAllByTestId("sessions-llm")
+      .find((b) => b.getAttribute("data-llm-id") === "p-codex")!;
+    fireEvent.click(codex);
+    expect(codex.textContent).toContain("Starting Codex");
+    expect(within(drawer).getAllByTestId("sessions-llm").every((b) => (b as HTMLButtonElement).disabled)).toBe(true);
+    expect(spawnSidecarSession).toHaveBeenCalledWith("/ws", "2", "2", {
+      command: "codex",
+      args: ["--yolo"],
+    });
+    await act(async () => {
+      release();
+    });
+    await waitFor(() => expect(useZenStore.getState().threadAddr).toBe("k2/2"));
+    expect(useZenStore.getState().drawerOrigin).toBe(MAIN.id);
+    expect(sessionStorage.getItem(DRAWER_ORIGIN_KEY)).toBe(MAIN.id);
+    expect(screen.queryByTestId("sessions-drawer")).toBeNull();
+    expect(screen.getByTestId("chat-done").textContent).toBe("Done");
+    expect(screen.getByTestId("chat-sidecar-title").textContent).toBe("k2/2");
+    fireEvent.click(screen.getByTestId("chat-done"));
+    expect(useZenStore.getState().threadAddr).toBe("k2");
+  });
+
+  it("a spawn error shows inline and keeps the drawer open", async () => {
+    vi.mocked(getActivePresets).mockResolvedValue({ ok: true, data: PRESETS } as never);
+    vi.mocked(spawnSidecarSession).mockResolvedValue({ ok: false, error: "bare_tab_cap" } as never);
+    await openMain();
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    const drawer = await screen.findByTestId("sessions-drawer");
+    fireEvent.click(await within(drawer).findByTestId("sessions-new-toggle"));
+    fireEvent.click(within(drawer).getAllByTestId("sessions-llm")[0]);
+    expect((await within(drawer).findByTestId("sessions-new-error")).textContent).toBe("bare_tab_cap");
+    expect(useZenStore.getState().threadAddr).toBe("k2");
+    expect(within(drawer).getAllByTestId("sessions-llm").some((b) => (b as HTMLButtonElement).disabled)).toBe(false);
+  });
+
+  it("a non-sidecar LLM spawns a plain tab in the workspace and opens its terminal", async () => {
+    vi.mocked(getActivePresets).mockResolvedValue({ ok: true, data: PRESETS } as never);
+    vi.mocked(spawnTabSession).mockResolvedValue({
+      ok: true,
+      data: { sessionId: "t-aider", agentName: "tab-x" },
+    } as never);
+    await openMain();
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    const drawer = await screen.findByTestId("sessions-drawer");
+    fireEvent.click(await within(drawer).findByTestId("sessions-new-toggle"));
+    fireEvent.click(
+      within(drawer)
+        .getAllByTestId("sessions-llm")
+        .find((b) => b.getAttribute("data-llm-id") === "p-aider")!
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("term-loc").textContent).toBe("/zen/terminal/t-aider")
+    );
+    expect(spawnTabSession).toHaveBeenCalledWith("/ws", { command: "aider", args: [] }, "Aider");
+    expect(spawnSidecarSession).not.toHaveBeenCalled();
   });
 });

@@ -18,6 +18,7 @@ import {
   setSessionLabel,
   setTabTitle,
   spawnSidecarSession,
+  spawnTabSession,
   getWorkspaceResources,
   type GlobalSession,
   type ThreadItem,
@@ -100,6 +101,22 @@ import {
 import { parseWorkspaceResources } from "./workspaceResources";
 import { hideSidecarAddr, isOverlayExtraAddr, readHiddenSidecarAddrs, unhideSidecarAddr } from "./overlayExtras";
 import { nextDrawerOrigin, readDrawerOrigin, writeDrawerOrigin } from "./sessionDrawer";
+import { canSidecar, type ActiveLlm } from "./llmPresets";
+
+/** `openSidecar` options. `launch` picks the harness (default Claude);
+ *  `existingAddrs` adds server addrs the agents list may not hold (hidden
+ *  sidecars, drawer rows) so `nextSidecarAddr` never reuses one;
+ *  `fromDrawer` keeps the Sessions drawer's Done origin. */
+export type OpenSidecarOpts = {
+  launch?: { command: string; args: string[] };
+  existingAddrs?: string[];
+  fromDrawer?: boolean;
+};
+
+export type LlmSpawnResult =
+  | { ok: true; kind: "chat"; addr: string }
+  | { ok: true; kind: "terminal"; terminalId: string; title: string }
+  | { ok: false; error: string };
 
 export type DataSource = "stub" | "live" | "error" | "loading";
 
@@ -199,7 +216,18 @@ type ZenState = {
   ensureSidecarHost: (
     row: Pick<StubAgent, "path" | "addr" | "chatTitle">
   ) => Promise<{ ok: boolean; terminalId?: string | null; error?: string }>;
-  openSidecar: (baseId: string) => Promise<{ ok: boolean; error?: string }>;
+  openSidecar: (
+    baseId: string,
+    opts?: OpenSidecarOpts
+  ) => Promise<{ ok: boolean; error?: string; addr?: string }>;
+  /** Sessions drawer `+`: start `llm` in the open chat's workspace. A
+   *  sidecar-capable harness becomes the next `agent/N` chat (Done mode);
+   *  any other preset runs as a plain tab the caller opens as a terminal. */
+  spawnLlmSession: (
+    baseId: string,
+    llm: ActiveLlm,
+    existingAddrs?: string[]
+  ) => Promise<LlmSpawnResult>;
   renameSidecarTitle: (id: string, title: string) => Promise<{ ok: boolean; error?: string }>;
   hideSidecarChat: (id: string) => void;
   hiddenSidecarAddrs: string[];
@@ -1434,7 +1462,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       terminalId,
     };
   },
-  openSidecar: async (baseId) => {
+  openSidecar: async (baseId, opts) => {
     const base = get().agents.find((a) => a.id === baseId);
     const addr = (base?.addr || "").trim();
     const path = (base?.path || "").trim();
@@ -1444,15 +1472,16 @@ export const useZenStore = create<ZenState>((set, get) => ({
     if (!path) {
       return { ok: false, error: "No workspace path to start a separate chat" };
     }
-    const next = nextSidecarAddr(
-      addr,
-      get()
+    const next = nextSidecarAddr(addr, [
+      ...get()
         .agents.map((a) => (a.addr || "").trim())
-        .filter(Boolean)
-    );
+        .filter(Boolean),
+      ...get().hiddenSidecarAddrs,
+      ...(opts?.existingAddrs ?? []),
+    ]);
     if (!next) return { ok: false, error: "Could not pick a sidecar address" };
     const suffix = sidecarSuffix(next);
-    const spawned = await spawnSidecarSession(path, suffix, suffix);
+    const spawned = await spawnSidecarSession(path, suffix, suffix, opts?.launch);
     if (!spawned.ok) {
       return {
         ok: false,
@@ -1492,13 +1521,37 @@ export const useZenStore = create<ZenState>((set, get) => ({
         ),
       ],
     });
+    if (opts?.fromDrawer) {
+      const origin = nextDrawerOrigin(get().drawerOrigin, get().agentId, placeholder.id);
+      writeDrawerOrigin(origin);
+      set({ drawerOrigin: origin, filesOpen: false });
+    }
     get().setAgent(placeholder.id);
     await get().hydrateAgents({ resumeId: placeholder.id });
     const row =
       get().agents.find((a) => a.addr === sidecarAddr) ??
       get().agents.find((a) => a.id === placeholder.id);
     if (row && row.id !== get().agentId) get().setAgent(row.id);
-    return { ok: true };
+    return { ok: true, addr: sidecarAddr };
+  },
+  spawnLlmSession: async (baseId, llm, existingAddrs = []) => {
+    const launch = { command: llm.command, args: llm.args };
+    if (canSidecar(llm.harness)) {
+      const r = await get().openSidecar(baseId, { launch, existingAddrs, fromDrawer: true });
+      return r.ok
+        ? { ok: true, kind: "chat", addr: r.addr || "" }
+        : { ok: false, error: r.error || `Could not start ${llm.name}` };
+    }
+    const base = get().agents.find((a) => a.id === baseId);
+    const path = (base?.path || "").trim();
+    if (!path) return { ok: false, error: "No workspace path to start a session" };
+    const spawned = await spawnTabSession(path, launch, llm.name);
+    const terminalId = (spawned.data?.sessionId || "").trim();
+    if (!spawned.ok || !terminalId) {
+      return { ok: false, error: spawned.error || `Could not start ${llm.name}` };
+    }
+    void useWorkspacesStore.getState().fetchAllSessions();
+    return { ok: true, kind: "terminal", terminalId, title: llm.name };
   },
   renameSidecarTitle: async (id, title) => {
     const name = (title || "").trim();
