@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useViewportHeight } from "../lib/useViewportHeight";
+import { useViewport } from "../lib/useViewportHeight";
 import { useFeedbackStore } from "../stores/feedback";
 import { ticketsAriaLabel, ticketsBadge } from "../api/feedbackPure";
 import { hostLabel, serverHostKey, useServersStore, type RecoveryState } from "../stores/servers";
@@ -212,7 +212,7 @@ type ListItem =
   | { active: false; key: string; row: MergedRow };
 
 export function ChatsList() {
-  const containerHeight = useViewportHeight();
+  const { height: containerHeight, offsetTop: viewportTop } = useViewport();
   const agents = useZenStore((s) => s.agents);
   const chatRows = useMemo(() => agents.filter((a) => a.kind !== "group"), [agents]);
   const source = useZenStore((s) => s.agentSource);
@@ -879,7 +879,8 @@ export function ChatsList() {
       className="fixed inset-0"
       style={{
         position: "fixed",
-        top: 0,
+        // An iOS pan the scroll reset could not undo (useViewport).
+        top: viewportTop,
         left: 0,
         right: 0,
         bottom: 0,

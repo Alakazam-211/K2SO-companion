@@ -132,6 +132,129 @@ mod ios_keyboard {
         }
     }
 
+    // ── Resume / keyboard re-sync (IMG_0844) ─────────────────────────
+    //
+    // Coming back from the background with the composer focused, iOS
+    // re-shows the keyboard and WebKit pans the web content up to reveal
+    // the input: the scroll view's contentOffset moves even with
+    // scrolling disabled, and no focusin fires (focus never left), so the
+    // fixed column slid under the status bar. UIKit notifications tell
+    // the page to re-measure (`window.__k2ViewportPing`, injected below);
+    // when no keyboard can be up (hidden / app just became active) the
+    // pan is reset here too. With the keyboard up the web hook
+    // (useViewportHeight) decides, since a screen without it may rely on
+    // WebKit's reveal scroll.
+
+    use std::sync::atomic::{AtomicPtr, Ordering};
+
+    static WEBVIEW: AtomicPtr<std::ffi::c_void> = AtomicPtr::new(std::ptr::null_mut());
+    const OBSERVER_CLASS_NAME: &std::ffi::CStr = c"K2ViewportObserver";
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGPoint {
+        x: f64,
+        y: f64,
+    }
+
+    unsafe impl objc2::Encode for CGPoint {
+        const ENCODING: objc2::Encoding =
+            objc2::Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
+    }
+
+    #[link(name = "UIKit", kind = "framework")]
+    extern "C" {
+        static UIKeyboardDidShowNotification: *const AnyObject;
+        static UIKeyboardDidHideNotification: *const AnyObject;
+        static UIApplicationDidBecomeActiveNotification: *const AnyObject;
+    }
+
+    /// Scroll the WKWebView's (disabled) scroll view back to the origin.
+    fn reset_content_offset(wk: *mut AnyObject) {
+        unsafe {
+            let scroll_view: *mut AnyObject = msg_send![wk, scrollView];
+            if scroll_view.is_null() {
+                return;
+            }
+            // Keep insets from being re-derived from the keyboard/safe area.
+            let _: () = msg_send![scroll_view, setContentInsetAdjustmentBehavior: 2i64]; // .never
+            let current: CGPoint = msg_send![scroll_view, contentOffset];
+            if current.x != 0.0 || current.y != 0.0 {
+                let zero = CGPoint { x: 0.0, y: 0.0 };
+                let _: () = msg_send![scroll_view, setContentOffset: zero, animated: false];
+            }
+        }
+    }
+
+    /// Ask the page to re-measure (k2-viewport-resize + k2-viewport-resync).
+    fn ping_page(wk: *mut AnyObject) {
+        unsafe {
+            let js = c"window.__k2ViewportPing && window.__k2ViewportPing();";
+            let s: *mut AnyObject = msg_send![class!(NSString), stringWithUTF8String: js.as_ptr()];
+            if s.is_null() {
+                return;
+            }
+            let _: () = msg_send![wk, evaluateJavaScript: s, completionHandler: std::ptr::null::<AnyObject>()];
+        }
+    }
+
+    fn live_webview() -> Option<*mut AnyObject> {
+        let wk = WEBVIEW.load(Ordering::Acquire);
+        if wk.is_null() {
+            None
+        } else {
+            Some(wk.cast())
+        }
+    }
+
+    extern "C-unwind" fn on_keyboard_did_show(_this: &AnyObject, _cmd: Sel, _note: *mut AnyObject) {
+        if let Some(wk) = live_webview() {
+            ping_page(wk);
+        }
+    }
+
+    extern "C-unwind" fn on_reset(_this: &AnyObject, _cmd: Sel, _note: *mut AnyObject) {
+        if let Some(wk) = live_webview() {
+            reset_content_offset(wk);
+            ping_page(wk);
+        }
+    }
+
+    /// Registers the keyboard / app-active observers once per process.
+    fn install_observers(webview_ptr: *mut std::ffi::c_void) {
+        WEBVIEW.store(webview_ptr, Ordering::Release);
+        if AnyClass::get(OBSERVER_CLASS_NAME).is_some() {
+            return; // already observing; the pointer above is refreshed
+        }
+        let Some(mut builder) = ClassBuilder::new(OBSERVER_CLASS_NAME, class!(NSObject)) else {
+            return;
+        };
+        unsafe {
+            builder.add_method(
+                sel!(k2KeyboardDidShow:),
+                on_keyboard_did_show as extern "C-unwind" fn(_, _, _),
+            );
+            builder.add_method(sel!(k2ResetViewport:), on_reset as extern "C-unwind" fn(_, _, _));
+        }
+        let cls = builder.register();
+        unsafe {
+            // Lives for the process (never released): the center keeps a
+            // weak reference.
+            let observer: *mut AnyObject = msg_send![cls, new];
+            if observer.is_null() {
+                return;
+            }
+            let center: *mut AnyObject = msg_send![class!(NSNotificationCenter), defaultCenter];
+            if center.is_null() {
+                return;
+            }
+            let none = std::ptr::null::<AnyObject>();
+            let _: () = msg_send![center, addObserver: observer, selector: sel!(k2KeyboardDidShow:), name: UIKeyboardDidShowNotification, object: none];
+            let _: () = msg_send![center, addObserver: observer, selector: sel!(k2ResetViewport:), name: UIKeyboardDidHideNotification, object: none];
+            let _: () = msg_send![center, addObserver: observer, selector: sel!(k2ResetViewport:), name: UIApplicationDidBecomeActiveNotification, object: none];
+        }
+    }
+
     /// Disables WKWebView's native scroll view so web content handles all scrolling.
     pub fn setup(webview_ptr: *mut std::ffi::c_void) {
         unsafe {
@@ -147,6 +270,9 @@ mod ios_keyboard {
 
             // Kill the keyboard accessory bar for all web inputs.
             strip_accessory_bar(webview_ptr);
+
+            // Re-pin the page on keyboard show/hide and app resume.
+            install_observers(webview_ptr);
 
             // Inject JS that listens for keyboard height changes via visualViewport
             // This is more reliable than native notifications since we disabled the scroll view
@@ -165,6 +291,16 @@ mod ios_keyboard {
                             window.dispatchEvent(new CustomEvent('k2-viewport-resize', { detail: { height: h } }));
                         }
                     }
+
+                    // Native ping (keyboard did show/hide, app did become
+                    // active): always re-send the height, then ask the page
+                    // to re-measure + reset any pan (useViewportHeight).
+                    window.__k2ViewportPing = function() {
+                        var vv = window.visualViewport;
+                        lastHeight = vv ? vv.height : window.innerHeight;
+                        window.dispatchEvent(new CustomEvent('k2-viewport-resize', { detail: { height: lastHeight } }));
+                        window.dispatchEvent(new Event('k2-viewport-resync'));
+                    };
 
                     if (window.visualViewport) {
                         window.visualViewport.addEventListener('resize', checkHeight);

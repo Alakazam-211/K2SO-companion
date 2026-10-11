@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { useViewportHeight } from "../lib/useViewportHeight";
+import { useViewport } from "../lib/useViewportHeight";
 import { WorkspaceAvatar } from "../zen/WorkspaceAvatar";
 import { GroupChatAvatar } from "../zen/GroupChatAvatar";
 import { useWorkspacesStore } from "../stores/workspaces";
@@ -62,7 +62,9 @@ const HEADER_BTN_TOP = (HEADER_AVATAR_PX - 36) / 2;
 
 export function Zen() {
   const navigate = useNavigate();
-  const containerHeight = useViewportHeight();
+  // offsetTop: an iOS pan the scroll reset could not undo (resume with
+  // the composer focused, IMG_0844) — the fixed home follows it down.
+  const { height: containerHeight, offsetTop: viewportTop } = useViewport();
   const [params, setParams] = useSearchParams();
   const threadParam = params.get("thread");
   // Push tap on a project chat: `/zen?project=<groupId>`.
@@ -323,6 +325,7 @@ export function Zen() {
         <ThreadHome
           onSwipeBack={drawerPicked ? returnToDrawerOrigin : backToChats}
           swipeEnabled={(drawerPicked || fromProjects) && !filesPaneOpen && !sessionsOpen}
+          top={viewportTop}
         >
         <div
           className="relative flex flex-col min-h-0 overflow-x-hidden"
@@ -802,10 +805,13 @@ function ThreadHome({
   children,
   onSwipeBack,
   swipeEnabled,
+  top = 0,
 }: {
   children: ReactNode;
   onSwipeBack: () => void;
   swipeEnabled: boolean;
+  /** visualViewport.offsetTop left after the scroll reset (0 normally). */
+  top?: number;
 }) {
   const swipeRef = useSwipeBack(onSwipeBack, { enabled: swipeEnabled });
   return (
@@ -815,7 +821,7 @@ function ThreadHome({
       data-testid="thread-home"
       style={{
         position: "fixed",
-        top: 0,
+        top,
         left: 0,
         right: 0,
         bottom: 0,

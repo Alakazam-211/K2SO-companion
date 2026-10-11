@@ -66,6 +66,56 @@ Even with native scroll disabled, when the keyboard opens:
 - `position: sticky` sticks relative to the scroll container's full content height
 - The visible area is smaller but the content area hasn't changed
 
+## Resume With the Keyboard Up (IMG_0844)
+
+Symptom: rarely, after re-opening the app onto the Zen thread, the whole
+page sits shifted up. The header is gone, the last bubble is under the
+status bar, and a black gap separates the composer from the keyboard.
+
+Cause: the composer was still focused when the app went to the
+background. On resume iOS re-shows the keyboard, and WebKit pans the web
+content up to "reveal" the input. The scroll view's `contentOffset`
+moves even with `scrollEnabled = false`, so `visualViewport.offsetTop`
+ends up at roughly the keyboard height. The fixed, top:0 column is
+positioned against the layout viewport, so it slides up by that amount.
+Nothing re-pinned it, because:
+- no `focusin` fires (focus never left the input);
+- the pan is a `visualViewport` **scroll**, not a `resize`;
+- nothing listened for `visibilitychange`, `pageshow` or window `focus`.
+
+The column height was still right (the visible height), which is why
+the gap equals the pan.
+
+Fix, at two layers:
+- **Web (`src/lib/useViewportHeight.ts`).** One shared store with
+  `useViewport()` returning `{ height, offsetTop }`, and
+  `useViewportHeight()` returning the height. It re-measures, coalesced
+  to one animation frame, on:
+  - `visualViewport` `resize` **and** `scroll`;
+  - window `resize`, `focus` and `pageshow`;
+  - `visibilitychange` back to visible (plus re-measures at 100, 300 and
+    600 ms while the keyboard animates in);
+  - `focusin` / `focusout`;
+  - the native `k2-viewport-resize` / `k2-viewport-resync` events.
+
+  Each measure runs `scrollTo(0,0)`, zeroes `document.scrollingElement`,
+  and re-reads the keyboard-closed height
+  (`max(innerHeight, documentElement.clientHeight)`) instead of trusting
+  a mount-time capture. Any `offsetTop` that iOS will not give back is
+  returned, and the fixed homes (`ThreadHome` in `Zen.tsx`, the
+  `ChatsList` backdrop) set `top` to it so they track the visible area.
+- **Native (`src-tauri/src/lib.rs`).** A `K2ViewportObserver` listens
+  for `UIKeyboardDidShow`, `UIKeyboardDidHide` and
+  `UIApplicationDidBecomeActive`.
+  - On hide and on become-active, it forces `scrollView.contentOffset`
+    back to zero and re-asserts `contentInsetAdjustmentBehavior = .never`.
+  - On all three, it calls the injected `window.__k2ViewportPing()`,
+    which re-sends `k2-viewport-resize` with the current height and fires
+    `k2-viewport-resync`.
+  - With the keyboard **up**, native only pings. The web hook resets the
+    pan, because screens without the hook may rely on WebKit's reveal
+    scroll.
+
 ## Key References
 
 - Tauri Discussion #9368: https://github.com/tauri-apps/tauri/discussions/9368
@@ -75,7 +125,8 @@ Even with native scroll disabled, when the keyboard opens:
 
 ## Architecture
 
-- `src-tauri/src/lib.rs` — native scroll disable via objc2
+- `src-tauri/src/lib.rs` — native scroll disable via objc2; keyboard / app-active observers (resume re-sync)
+- `src/lib/useViewportHeight.ts` — shared viewport store (`useViewport` / `useViewportHeight`)
 - `src/main.tsx` — keyboard event listener
 - `index.html` — viewport meta tag with `interactive-widget=resizes-content` (no effect in WKWebView but harmless)
 - `src/styles/index.css` — `.input-bar` class with safe area handling
