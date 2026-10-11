@@ -314,6 +314,13 @@ type ZenState = {
   closeChat: () => void;
   toggleFiles: () => void;
   openFile: (id: string) => void;
+  /** A project chat's folder for the Files tree and its links: the PoC
+   *  member's workspace path (FilePane reads it from `project-group/show`).
+   *  Cleared on every chat change. */
+  groupRoot: string | null;
+  setGroupRoot: (root: string | null) => void;
+  /** A rename moved `from` to `to`: open tabs and listed files follow. */
+  retargetFiles: (from: string, to: string) => void;
   /** Open a path mentioned in chat the same way as a file-tree tap. */
   openFileFromPath: (ref: string) => void;
   closeFile: (id: string) => void;
@@ -1195,6 +1202,26 @@ export const useZenStore = create<ZenState>((set, get) => ({
   openFileIds: [],
   focusId: null,
   fileReturn: "chat",
+  groupRoot: null,
+  setGroupRoot: (root) => {
+    if (get().groupRoot !== root) set({ groupRoot: root });
+  },
+  retargetFiles: (from, to) => {
+    const move = (id: string) =>
+      id === from ? to : id.startsWith(`${from}/`) ? `${to}${id.slice(from.length)}` : id;
+    const { files, openFileIds, focusId } = get();
+    if (!files.some((f) => move(f.id) !== f.id) && !openFileIds.some((x) => move(x) !== x)) return;
+    set({
+      files: files.map((f) => {
+        const id = move(f.id);
+        if (id === f.id) return f;
+        const name = id.split("/").filter(Boolean).pop() || id;
+        return { ...f, id, name, fsPath: f.fsPath ? move(f.fsPath) : f.fsPath };
+      }),
+      openFileIds: openFileIds.map(move),
+      focusId: focusId ? move(focusId) : focusId,
+    });
+  },
 
   projectsOpen: readProjectsOpen(),
   setProjectsOpen: (open) => {
@@ -1705,6 +1732,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
     set({
       screen: "thread",
       agentId: id,
+      groupRoot: null,
       openFileIds: [],
       focusId: null,
       sending: false,
@@ -2029,6 +2057,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadConversationId: null,
       threadFocusSeq: null,
       files: [],
+      groupRoot: null,
     });
     // Back from a room on another server: the active server's list again.
     if (roomServerId()) get().enterRoomServer(null);
@@ -2058,6 +2087,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         files: [],
         fileSource: "loading",
         fileError: null,
+        groupRoot: null,
         openFileIds: [],
         focusId: null,
         filesOpen: false,
@@ -2096,7 +2126,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
     get().enterRoomServer(serverId, target.seed);
     if (roomServerId() !== serverId) return;
-    set({ screen: "thread", agentId: id });
+    set({ screen: "thread", agentId: id, groupRoot: null });
     await get().hydrateAgents(id ? { resumeId: id } : undefined);
   },
   toggleFiles: () => {
@@ -2122,9 +2152,15 @@ export const useZenStore = create<ZenState>((set, get) => ({
   openFileFromPath: (ref) => {
     const raw = (ref || "").trim();
     if (!raw) return;
-    const { files, openFileIds, fileSource, agentId, agents } = get();
+    const { files, openFileIds, fileSource, agentId, agents, groupRoot } = get();
     const row = agents.find((a) => a.id === agentId);
-    const owned = typeof row?.path === "string" ? row.path.trim() : "";
+    // A project chat has no path of its own: its PoC's workspace.
+    const owned =
+      typeof row?.path === "string" && row.path.trim()
+        ? row.path.trim()
+        : row?.kind === "group"
+          ? (groupRoot ?? "")
+          : "";
     const workspace = usableFsPath(owned);
     const listed =
       files.find((f) => f.id === raw) ||

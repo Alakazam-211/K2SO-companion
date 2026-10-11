@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useState } from "react";
 import { useSwipeBack } from "../../lib/useSwipeBack";
 import { PaneErrorBoundary } from "../PaneErrorBoundary";
+import { MiddleEllipsis } from "../MiddleEllipsis";
 import { StubMark } from "../StubMark";
 import { useZenStore } from "../zenStore";
 import { ViewerNote } from "./BinaryEmptyState";
@@ -91,9 +92,10 @@ export function FileViewer() {
           aria-expanded={others ? menu : undefined}
           data-testid="file-viewer-title"
         >
-          <span className="flex max-w-full items-center gap-1 text-[16px] font-semibold text-[var(--text)]">
+          <span className="flex w-full min-w-0 items-center gap-1 text-[16px] font-semibold text-[var(--text)]">
             {stub ? <StubMark /> : null}
-            <span className="truncate" data-testid="file-viewer-name">{file.name}</span>
+            {/* Cut in the middle, keeping the last 6 characters. */}
+            <MiddleEllipsis text={file.name} testId="file-viewer-name" className="flex-1" />
             {others ? (
               <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0 text-[var(--text-muted)]" aria-hidden>
                 <polyline points="6 9 12 15 18 9" />
