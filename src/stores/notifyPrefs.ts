@@ -25,7 +25,9 @@ interface NotifyPrefsState {
   prefs: Record<string, NotifyPrefs>;
   /** Server id → the last write's error, cleared by the next success. */
   errors: Record<string, string | null>;
-  /** Probe the feature (cached boot-status), then fetch prefs when on. */
+  /** Probe the feature only (cached boot-status). True when on. */
+  probe: (serverId: string) => Promise<boolean>;
+  /** Probe the feature, then fetch prefs when on. */
   load: (serverId: string) => Promise<void>;
   /** Refetch prefs for a server already known to have the feature. */
   refresh: (serverId: string) => Promise<void>;
@@ -118,7 +120,7 @@ export const useNotifyPrefsStore = create<NotifyPrefsState>((set, get) => {
     prefs: {},
     errors: {},
 
-    load: async (serverId) => {
+    probe: async (serverId) => {
       let on = false;
       try {
         on = await serverHasFeature(FEATURE_THREAD_PUSH, serverId);
@@ -128,7 +130,11 @@ export const useNotifyPrefsStore = create<NotifyPrefsState>((set, get) => {
       if (get().threadPush[serverId] !== on) {
         set({ threadPush: { ...get().threadPush, [serverId]: on } });
       }
-      if (on) await get().refresh(serverId);
+      return on;
+    },
+
+    load: async (serverId) => {
+      if (await get().probe(serverId)) await get().refresh(serverId);
     },
 
     refresh: async (serverId) => {

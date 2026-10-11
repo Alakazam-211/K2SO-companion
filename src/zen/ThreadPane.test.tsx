@@ -13,7 +13,7 @@ vi.mock("../api/client", async (importOriginal) => {
 });
 
 vi.mock("./overlayEvents", () => ({
-  connectOverlayEvents: vi.fn(() => ({ stop: vi.fn() })),
+  connectOverlayEvents: vi.fn(() => ({ stop: vi.fn(), setViewing: vi.fn() })),
 }));
 
 import { act } from "@testing-library/react";
@@ -817,7 +817,7 @@ describe("ThreadPane", () => {
 
   it("opens the overlay events socket for a live conversation", () => {
     const stop = vi.fn();
-    vi.mocked(connectOverlayEvents).mockReturnValue({ stop });
+    vi.mocked(connectOverlayEvents).mockReturnValue({ stop, setViewing: vi.fn() });
     useZenStore.setState({
       threadSource: "live",
       threadAddr: "k2so-companion",
@@ -836,7 +836,7 @@ describe("ThreadPane", () => {
   });
 
   it("shows the working strip from an activity frame, never as a message", async () => {
-    vi.mocked(connectOverlayEvents).mockReturnValue({ stop: vi.fn() });
+    vi.mocked(connectOverlayEvents).mockReturnValue({ stop: vi.fn(), setViewing: vi.fn() });
     useZenStore.setState({
       threadSource: "live",
       threadAddr: "k2so-companion",
@@ -901,7 +901,7 @@ describe("ThreadPane", () => {
   });
 
   it("re-reads the live turn on every socket open", async () => {
-    vi.mocked(connectOverlayEvents).mockReturnValue({ stop: vi.fn() });
+    vi.mocked(connectOverlayEvents).mockReturnValue({ stop: vi.fn(), setViewing: vi.fn() });
     vi.mocked(getThreadActivity).mockClear();
     useZenStore.setState({
       threadSource: "live",
@@ -941,7 +941,7 @@ describe("ThreadPane", () => {
   });
 
   it("keeps a late {turn:null} catch-up from clearing a newer live turn", async () => {
-    vi.mocked(connectOverlayEvents).mockReturnValue({ stop: vi.fn() });
+    vi.mocked(connectOverlayEvents).mockReturnValue({ stop: vi.fn(), setViewing: vi.fn() });
     vi.mocked(getThreadActivity).mockClear();
     useZenStore.setState({
       threadSource: "live",
@@ -981,7 +981,7 @@ describe("ThreadPane", () => {
   });
 
   it("keeps chatter and other non-thread frames out of the message list", async () => {
-    vi.mocked(connectOverlayEvents).mockReturnValue({ stop: vi.fn() });
+    vi.mocked(connectOverlayEvents).mockReturnValue({ stop: vi.fn(), setViewing: vi.fn() });
     useZenStore.setState({
       agentSource: "live",
       threadSource: "live",
