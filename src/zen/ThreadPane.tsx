@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { getThreadActivity, uploadFsBinary } from "../api/client";
 import { ChatMessageBody } from "../components/ChatMessage";
 import { asErrorText } from "../lib/apiError";
@@ -6,11 +6,11 @@ import {
   MAX_UPLOAD_BYTES,
   attachmentSendBody,
   fileToBase64,
-  filesFromClipboard,
   uploadDirOf,
   uploadFilename,
   workspaceHandleOf,
 } from "./composerAttach";
+import { GlassComposer } from "./GlassComposer";
 import { StubMark } from "./StubMark";
 import { mountainTime, type ThreadMessage } from "./threadModel";
 import {
@@ -33,13 +33,7 @@ import { isSendableAddr } from "./sendGate";
 import { sourceWord, useZenStore } from "./zenStore";
 import { zenTextPx } from "./zenFont";
 
-/** iMessage grows the field then caps (~5 lines) and scrolls inside. */
-export const COMPOSER_MAX_PX = 132;
-
-export function composerHeight(scrollHeight: number, maxPx = COMPOSER_MAX_PX): number {
-  if (!Number.isFinite(scrollHeight) || scrollHeight < 24) return 24;
-  return Math.min(scrollHeight, maxPx);
-}
+export { COMPOSER_MAX_PX, composerHeight } from "./GlassComposer";
 
 /** `.chat-markdown`'s 14px, scaled by Settings → Text Size. */
 const BUBBLE_TEXT_PX = 14;
@@ -190,7 +184,6 @@ export function ThreadPane({
   const sendReady =
     Boolean(draft.trim() || attachments.length) && !sending && !uploading;
   const composerRef = useRef<HTMLTextAreaElement>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const pendingAnchor = useRef<MessageAnchor | null>(null);
   const prevAgent = useRef<string>("");
@@ -321,13 +314,6 @@ export function ThreadPane({
     if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) stickToNewest(el);
   }, [turnShape]);
 
-  useLayoutEffect(() => {
-    const el = composerRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${composerHeight(el.scrollHeight)}px`;
-  }, [draft]);
-
   function queueFiles(files: File[]) {
     if (!files.length) return;
     if (!canAttach) {
@@ -448,11 +434,65 @@ export function ThreadPane({
           </>
         )}
       </div>
-      {/* zen-composer-bar: home-indicator inset at rest, collapsed while
-          typing so it is not a gap above the keyboard (.input-bar idiom). */}
-      <div
-        className="shrink-0 min-w-0 w-full overflow-hidden px-3 pt-2 zen-composer-bar"
-        data-testid="composer-bar"
+      <GlassComposer
+        value={draft}
+        onChange={setDraft}
+        onAttach={queueFiles}
+        onSubmit={() => {
+          if (!canSend || sending || uploading) return;
+          const text = draft;
+          const pending = attachments;
+          if (!text.trim() && !pending.length) return;
+          void (async () => {
+            let body = text;
+            if (pending.length) {
+              if (!canAttach || !attachWorkspace || !attachDir) {
+                setAttachError("Files are per workspace, not per project chat.");
+                return;
+              }
+              setUploading(true);
+              setAttachError(null);
+              const paths: string[] = [];
+              try {
+                for (const f of pending) {
+                  const filename = uploadFilename(f);
+                  const b64 = await fileToBase64(f);
+                  const r = await uploadFsBinary(
+                    attachWorkspace,
+                    attachDir,
+                    filename,
+                    b64
+                  );
+                  if (!r.ok || !r.data?.path) {
+                    setAttachError(r.error || `Could not upload ${filename}`);
+                    return;
+                  }
+                  paths.push(r.data.path);
+                }
+              } finally {
+                setUploading(false);
+              }
+              body = attachmentSendBody(text, paths);
+            }
+            await sendThread(body);
+            if (!useZenStore.getState().sendError) {
+              setDraft("");
+              setAttachments([]);
+              setAttachError(null);
+            }
+          })();
+        }}
+        placeholder="Message"
+        disabled={!canSend || sending || uploading}
+        canSend={canSend}
+        sendReady={sendReady}
+        attachDisabled={!canAttach || sending || uploading}
+        textareaRef={composerRef}
+        onFocus={() => {
+          window.scrollTo(0, 0);
+          const el = scrollerRef.current;
+          if (el && atNewest.current) stickToNewest(el);
+        }}
       >
         <p
           className="text-[11px] text-[var(--text-muted)] leading-snug break-words mb-1.5"
@@ -495,166 +535,7 @@ export function ThreadPane({
             ))}
           </div>
         ) : null}
-        <form
-          className="flex items-end min-w-0"
-          data-testid="composer-form"
-          onPaste={(e) => {
-            const files = filesFromClipboard(e.clipboardData);
-            if (!files.length) return;
-            e.preventDefault();
-            queueFiles(files);
-          }}
-          onSubmit={(e: FormEvent) => {
-            e.preventDefault();
-            if (!canSend || sending || uploading) return;
-            const text = draft;
-            const pending = attachments;
-            if (!text.trim() && !pending.length) return;
-            void (async () => {
-              let body = text;
-              if (pending.length) {
-                if (!canAttach || !attachWorkspace || !attachDir) {
-                  setAttachError("Files are per workspace, not per project chat.");
-                  return;
-                }
-                setUploading(true);
-                setAttachError(null);
-                const paths: string[] = [];
-                try {
-                  for (const f of pending) {
-                    const filename = uploadFilename(f);
-                    const b64 = await fileToBase64(f);
-                    const r = await uploadFsBinary(
-                      attachWorkspace,
-                      attachDir,
-                      filename,
-                      b64
-                    );
-                    if (!r.ok || !r.data?.path) {
-                      setAttachError(r.error || `Could not upload ${filename}`);
-                      return;
-                    }
-                    paths.push(r.data.path);
-                  }
-                } finally {
-                  setUploading(false);
-                }
-                body = attachmentSendBody(text, paths);
-              }
-              await sendThread(body);
-              if (!useZenStore.getState().sendError) {
-                setDraft("");
-                setAttachments([]);
-                setAttachError(null);
-              }
-            })();
-          }}
-        >
-          <input
-            ref={fileRef}
-            type="file"
-            multiple
-            className="hidden"
-            data-testid="composer-file-input"
-            onChange={(e) => {
-              const list = e.target.files;
-              queueFiles(list ? Array.from(list) : []);
-              e.target.value = "";
-            }}
-          />
-          <div
-            className="flex-1 min-w-0 overflow-hidden flex items-end gap-1 rounded-[20px] pl-1 pr-1 py-1 k2-tile"
-            data-testid="composer-field"
-          >
-            {canSend ? (
-              <button
-                type="button"
-                data-testid="composer-attach"
-                aria-label="Add file"
-                disabled={!canAttach || sending || uploading}
-                onClick={() => fileRef.current?.click()}
-                className="shrink-0 flex items-center justify-center bg-transparent border-0 text-[var(--text-muted)] disabled:opacity-40"
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: "50%",
-                  fontSize: 22,
-                  lineHeight: 1,
-                }}
-              >
-                ＋
-              </button>
-            ) : null}
-            <textarea
-              ref={composerRef}
-              disabled={!canSend || sending || uploading}
-              value={draft}
-              rows={1}
-              onChange={(e) => setDraft(e.target.value)}
-              onFocus={() => {
-                window.scrollTo(0, 0);
-                const el = scrollerRef.current;
-                if (el && atNewest.current) stickToNewest(el);
-              }}
-              onPaste={(e) => {
-                const files = filesFromClipboard(e.clipboardData);
-                if (!files.length) return;
-                e.preventDefault();
-                queueFiles(files);
-              }}
-              placeholder="Message"
-              className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--text)] outline-none py-1 ${canSend ? "" : "px-2"}`}
-              style={{
-                maxHeight: COMPOSER_MAX_PX,
-                fontSize: zenTextPx(17),
-                lineHeight: zenTextPx(22),
-              }}
-              aria-label="Message"
-              data-testid="composer-input"
-            />
-            {canSend ? (
-              <button
-                type="submit"
-                aria-label="Send"
-                data-testid="composer-send"
-                disabled={!sendReady}
-                // Keep focus in the textarea so the iOS keyboard stays up
-                // (AccessoryBar pattern). Not on attach — it opens a picker.
-                onPointerDown={(e) => e.preventDefault()}
-                onMouseDown={(e) => e.preventDefault()}
-                className={`shrink-0 flex items-center justify-center k2-tile ${
-                  sendReady
-                    ? "text-white"
-                    : "k2-tile-raised text-[var(--text-muted)] opacity-60"
-                }`}
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: "50%",
-                  ...(sendReady
-                    ? { background: "#0a84ff", borderColor: "#0a84ff" }
-                    : {}),
-                }}
-              >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.75"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M12 19V5" />
-                  <path d="M5 12l7-7 7 7" />
-                </svg>
-              </button>
-            ) : null}
-          </div>
-        </form>
-      </div>
+      </GlassComposer>
     </div>
   );
 }
