@@ -104,7 +104,8 @@ describe("FilePane lists Workspace Resources", () => {
     render(<FilePane />);
     const row = screen.getByText("gone.md").closest("button")!;
     expect(screen.getByText("Unavailable")).not.toBeNull();
-    expect(row.disabled).toBe(true);
+    // aria-disabled, not disabled: the hold menu (Copy Path) still works.
+    expect(row.getAttribute("aria-disabled")).toBe("true");
     fireEvent.click(row);
     useZenStore.getState().openFile(`${WS}/gone.md`);
     expect(useZenStore.getState().openFileIds).toEqual([]);

@@ -1,4 +1,5 @@
 import {
+  useEffect,
   useLayoutEffect,
   useRef,
   type ClipboardEvent,
@@ -8,6 +9,8 @@ import {
   type RefObject,
 } from "react";
 import { filesFromClipboard } from "./composerAttach";
+import { appendRef } from "./fileTreeModel";
+import { useFileDrag } from "./fileDrag";
 import { zenTextPx } from "./zenFont";
 import { PlusGlyph } from "./PlusGlyph";
 import { sidecarSuffix } from "./sidecarRows";
@@ -97,6 +100,18 @@ export function GlassComposer({
   const ref = textareaRef ?? ownRef;
   const fileRef = useRef<HTMLInputElement>(null);
   const id = (s: string) => `${testIdPrefix}-${s}`;
+  // Files drawer drag: the field is the drop target. A drop (or a
+  // direct insert) queues a file reference; this composer appends it.
+  const dragging = useFileDrag((s) => s.drag !== null);
+  const dropHot = useFileDrag((s) => s.overComposer);
+  const pendingInsert = useFileDrag((s) => s.pendingInsert);
+  const latest = useRef({ value, onChange });
+  latest.current = { value, onChange };
+  useEffect(() => {
+    if (!pendingInsert) return;
+    useFileDrag.getState().takeInsert(pendingInsert.seq);
+    latest.current.onChange(appendRef(latest.current.value, pendingInsert.text));
+  }, [pendingInsert]);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -146,6 +161,18 @@ export function GlassComposer({
         <div
           className="flex-1 min-w-0 overflow-hidden flex items-end gap-1 rounded-[20px] pl-1 pr-1 py-1 k2-tile"
           data-testid={id("field")}
+          data-k2-drop="composer"
+          data-drop-target={dragging ? (dropHot ? "hot" : "armed") : undefined}
+          style={
+            dragging
+              ? {
+                  boxShadow: dropHot
+                    ? "0 0 0 2px #0a84ff, 0 0 18px rgba(10,132,255,0.45)"
+                    : "0 0 0 1px rgba(10,132,255,0.55)",
+                  transition: "box-shadow 120ms ease",
+                }
+              : undefined
+          }
         >
           {canSend ? (
             <button

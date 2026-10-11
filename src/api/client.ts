@@ -604,6 +604,43 @@ export const getWorkspaceResources = (workspace: string) =>
     { workspace }
   );
 
+/** `GET /cli/fs/read-dir?path=&show_hidden=` → one level, folders first.
+ *  Owner token: `path` is absolute. Callers keep it under the agent's
+ *  own workspace (the daemon does not jail an owner token). */
+export interface FsDirEntry {
+  name: string;
+  path: string;
+  isDirectory: boolean;
+  size?: number;
+  modifiedAt?: number;
+}
+
+export const getFsReadDir = (path: string, showHidden = false) =>
+  request<FsDirEntry[]>("fs.read_dir", "/cli/fs/read-dir", {
+    path,
+    ...(showHidden ? { show_hidden: "1" } : {}),
+  });
+
+/** `POST /cli/fs/create {path, is_directory: true}` (Member). Refuses
+ *  "Already exists". */
+export const createFsFolder = (path: string) =>
+  request<{ success?: boolean }>(
+    "fs.create",
+    "/cli/fs/create",
+    { path, is_directory: true },
+    { method: "POST" }
+  );
+
+/** `POST /cli/fs/rename {old_path, new_name}` (Member) → `{path}`, the
+ *  new absolute path. Same folder; `new_name` has no slash. */
+export const renameFsEntry = (oldPath: string, newName: string) =>
+  request<{ path?: string }>(
+    "fs.rename",
+    "/cli/fs/rename",
+    { old_path: oldPath, new_name: newName },
+    { method: "POST" }
+  );
+
 export const getFsReadFile = (path: string) =>
   request<FsFileContent>("fs.read_file", "/cli/fs/read-file", { path });
 
