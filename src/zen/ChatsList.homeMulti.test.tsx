@@ -347,6 +347,13 @@ describe("Home list across servers (HM3, flag on)", () => {
     const row = homeRow("docs::bravo.k2.dev");
     await waitFor(() => expect(within(row).getByTestId("row-activity").textContent).toBe("Working"));
     expect(within(row).getByTestId("row-server-chip").textContent).toBe("Bravo");
+    // Owner 2026-10: the chip sits right after the name, in the name group,
+    // never beside the time.
+    const chip = within(row).getByTestId("row-server-chip");
+    const name = within(row).getByTestId("row-name");
+    expect(name.nextElementSibling).toBe(chip);
+    expect(chip.parentElement).toBe(within(row).getByTestId("row-name-group"));
+    expect(within(row).getByTestId("row-when").contains(chip)).toBe(false);
     expect(row.getAttribute("data-greyed")).toBeNull();
     // The active server's row carries its own chip with several servers.
     expect(within(homeRow("alpha::alpha.k2.dev")).getByTestId("row-server-chip").textContent).toBe("Alpha");
