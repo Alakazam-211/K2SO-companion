@@ -120,7 +120,7 @@ describe("ChatsList", () => {
     expect(screen.queryByTestId("chats-home")).toBeNull();
   });
 
-  it("is the overlay home: Chats title, pin slot, search, stub rows", () => {
+  it("is the overlay home: Agents title, pin slot, search, stub rows", () => {
     seedServer();
     useZenStore.setState({
       agentSource: "stub",
@@ -130,7 +130,8 @@ describe("ChatsList", () => {
     });
     mount();
     expect(screen.getByTestId("chats-home")).not.toBeNull();
-    expect(screen.getByText("Chats")).not.toBeNull();
+    expect(screen.getByRole("heading", { name: "Agents" })).not.toBeNull();
+    expect(screen.queryByText("Chats")).toBeNull();
     expect(screen.getByTestId("chats-pins").textContent).toMatch(/Drop here/);
     expect(screen.getByTestId("chats-list").contains(screen.getByTestId("chats-pins"))).toBe(
       true
@@ -165,7 +166,7 @@ describe("ChatsList", () => {
       screen: "list",
     });
     mount();
-    const header = screen.getByRole("heading", { name: "Chats" }).closest("header")!;
+    const header = screen.getByRole("heading", { name: "Agents" }).closest("header")!;
     const serverBtn = screen.getByRole("button", { name: /Server / });
     expect(header.firstElementChild).toBe(serverBtn);
     expect(serverBtn.querySelector("[data-testid=server-icon]")).toBeNull();
@@ -884,5 +885,171 @@ describe("ChatsList", () => {
     fireEvent.focus(serversInput);
     expect(serversBar.style.bottom).toBe("8px");
     expect(serversBar.dataset.bottom).toBe("8px");
+  });
+
+  describe("swipe right to pin", () => {
+    const A = STUB_AGENTS[0];
+    const B = STUB_AGENTS[1];
+    const ROW_W = 375;
+
+    function setup(pinnedIds: string[] = []) {
+      Element.prototype.setPointerCapture = () => {};
+      Element.prototype.releasePointerCapture = () => {};
+      Element.prototype.hasPointerCapture = () => true;
+      useZenStore.setState({
+        agentSource: "stub",
+        agents: STUB_AGENTS,
+        agentError: null,
+        screen: "list",
+        agentId: "",
+        pinnedIds,
+      });
+      mount();
+      for (const a of STUB_AGENTS) {
+        const wrap = document.querySelector(`[data-swipe-row="${a.id}"]`) as HTMLElement;
+        wrap.getBoundingClientRect = () =>
+          ({ left: 0, right: ROW_W, top: 0, bottom: 70, width: ROW_W, height: 70, x: 0, y: 0, toJSON() { return {}; } }) as DOMRect;
+      }
+    }
+    const row = (a: (typeof STUB_AGENTS)[number]) => screen.getByLabelText(`STUB ${a.name}`);
+    const action = (a: (typeof STUB_AGENTS)[number]) => screen.getByTestId(`swipe-action-${a.id}`);
+    const home = () => screen.getByTestId("chats-home");
+
+    /** Pointer down on the row, move through the points, release. */
+    function drag(a: (typeof STUB_AGENTS)[number], points: [number, number][], up = true) {
+      fireEvent.pointerDown(row(a), { clientX: 20, clientY: 200, button: 0, pointerId: 7 });
+      for (const [x, y] of points) {
+        fireEvent.pointerMove(home(), { clientX: x, clientY: y, pointerId: 7 });
+      }
+      if (up) {
+        const [x, y] = points[points.length - 1] ?? [20, 200];
+        fireEvent.pointerUp(home(), { clientX: x, clientY: y, pointerId: 7 });
+      }
+    }
+
+    it("a swipe right past the threshold reveals the yellow Pin button", () => {
+      setup();
+      drag(A, [[34, 201], [70, 202], [110, 203]]);
+      const btn = action(A);
+      expect(btn.style.width).toBe("76px");
+      expect(btn.style.background).toBe("rgb(255, 214, 10)");
+      expect(btn.getAttribute("aria-label")).toBe(`Pin ${A.name}`);
+      expect(btn.textContent).toBe("Pin");
+      expect(btn.querySelector("[data-testid='pin-glyph']")).not.toBeNull();
+      expect(row(A).style.transform).toBe("translateX(76px)");
+      // The swipe's click does not open the chat.
+      fireEvent.click(row(A));
+      expect(useZenStore.getState().screen).toBe("list");
+    });
+
+    it("tapping the Pin button calls pinChat and closes the row", () => {
+      setup();
+      const pinChat = vi.fn();
+      const orig = useZenStore.getState().pinChat;
+      useZenStore.setState({ pinChat });
+      onTestFinished(() => useZenStore.setState({ pinChat: orig }));
+      drag(A, [[34, 200], [110, 200]]);
+      fireEvent.pointerDown(action(A), { clientX: 30, clientY: 200, button: 0, pointerId: 8 });
+      fireEvent.pointerUp(home(), { clientX: 30, clientY: 200, pointerId: 8 });
+      fireEvent.click(action(A));
+      expect(pinChat).toHaveBeenCalledWith(A.id);
+      expect(action(A).style.width).toBe("0px");
+      expect(row(A).style.transform).toBe("translateX(0px)");
+      expect(row(A).style.transition).toMatch(/transform/);
+    });
+
+    it("a short swipe springs back", () => {
+      setup();
+      drag(A, [[34, 200], [60, 200]]);
+      expect(action(A).style.width).toBe("0px");
+      expect(row(A).style.transform).toBe("translateX(0px)");
+      expect(useZenStore.getState().pinnedIds).toEqual([]);
+    });
+
+    it("a vertical drag does not open the row", () => {
+      setup();
+      drag(A, [[24, 215], [28, 260], [30, 320]]);
+      expect(action(A).style.width).toBe("0px");
+      expect(row(A).style.transform).toBe("translateX(0px)");
+      expect(screen.queryByTestId("pin-ghost")).toBeNull();
+    });
+
+    it("a full swipe pins at once with the glyph popped", () => {
+      setup();
+      drag(A, [[34, 200], [150, 200], [240, 200]], false);
+      expect(action(A).style.width).toBe("220px");
+      expect(
+        (action(A).querySelector("[data-testid='swipe-action-glyph']") as HTMLElement).style.transform
+      ).toBe("scale(1.2)");
+      fireEvent.pointerUp(home(), { clientX: 240, clientY: 200, pointerId: 7 });
+      expect(useZenStore.getState().pinnedIds).toEqual([A.id]);
+      expect(screen.getByLabelText(`Pinned ${A.name}`)).not.toBeNull();
+      expect(row(A).style.transform).toBe("translateX(0px)");
+    });
+
+    it("only one row is open at a time", () => {
+      setup();
+      drag(A, [[34, 200], [110, 200]]);
+      expect(row(A).style.transform).toBe("translateX(76px)");
+      drag(B, [[34, 200], [110, 200]]);
+      expect(row(B).style.transform).toBe("translateX(76px)");
+      expect(row(A).style.transform).toBe("translateX(0px)");
+    });
+
+    it("a tap elsewhere closes the open row without opening a chat", () => {
+      setup();
+      drag(A, [[34, 200], [110, 200]]);
+      fireEvent.pointerDown(row(B), { clientX: 20, clientY: 260, button: 0, pointerId: 9 });
+      fireEvent.pointerUp(home(), { clientX: 20, clientY: 260, pointerId: 9 });
+      fireEvent.click(row(B));
+      expect(row(A).style.transform).toBe("translateX(0px)");
+      expect(useZenStore.getState().screen).toBe("list");
+    });
+
+    it("scrolling the list closes the open row", () => {
+      setup();
+      drag(A, [[34, 200], [110, 200]]);
+      fireEvent.scroll(screen.getByTestId("chats-list"));
+      expect(row(A).style.transform).toBe("translateX(0px)");
+    });
+
+    it("a pinned agent's row offers Unpin with a slashed pin", () => {
+      setup([A.id]);
+      drag(A, [[34, 200], [110, 200]]);
+      expect(action(A).getAttribute("aria-label")).toBe(`Unpin ${A.name}`);
+      expect(action(A).textContent).toBe("Unpin");
+      expect(action(A).querySelector("[data-testid='unpin-glyph']")).not.toBeNull();
+      fireEvent.click(action(A));
+      expect(useZenStore.getState().pinnedIds).toEqual([]);
+    });
+
+    it("a committed swipe cancels the hold timer; hold-drag still pins", () => {
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      setup();
+      drag(A, [[34, 200]], false);
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(screen.queryByTestId("pin-ghost")).toBeNull();
+      fireEvent.pointerUp(home(), { clientX: 34, clientY: 200, pointerId: 7 });
+
+      // Hold first: the swipe no longer starts and the ghost drags as before.
+      fireEvent.pointerDown(row(B), { clientX: 20, clientY: 260, button: 0, pointerId: 10 });
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      fireEvent.pointerMove(home(), { clientX: 120, clientY: 262, pointerId: 10 });
+      expect(screen.getByTestId("pin-ghost")).not.toBeNull();
+      expect(row(B).style.transform).toBe("translateX(0px)");
+    });
+
+    it("rows point at the swipe hint for assistive tech", () => {
+      setup();
+      const hint = document.getElementById(row(A).getAttribute("aria-describedby")!)!;
+      expect(hint.textContent).toMatch(/Swipe right to pin/);
+    });
   });
 });
