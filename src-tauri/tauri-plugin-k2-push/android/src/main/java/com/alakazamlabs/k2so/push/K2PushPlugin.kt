@@ -35,8 +35,14 @@ import org.json.JSONObject
 
 private const val PUSH_PERMISSION_ALIAS = "postNotifications"
 
-/** Deep-link data keys the relay's content-free payload may carry. */
-private val TAP_KEYS = listOf("kind", "feedbackId", "ticketId", "id", "groupId", "subdomain")
+/** Deep-link data keys the relay's content-free payload may carry.
+ *  Ticket/project: kind, feedbackId|ticketId|id, groupId, subdomain.
+ *  Thread (K2 0.45.5 `thread-push-v1`): instanceId, addr, conversationId,
+ *  seq, projectId, agentName, msgKind, count. All values are strings. */
+private val TAP_KEYS = listOf(
+  "kind", "feedbackId", "ticketId", "id", "groupId", "subdomain",
+  "instanceId", "addr", "conversationId", "seq", "projectId", "agentName", "msgKind", "count"
+)
 
 @TauriPlugin(
   permissions = [
