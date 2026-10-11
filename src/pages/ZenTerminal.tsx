@@ -41,7 +41,13 @@ const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
 const PILL_PX = 34;
 const PILL: CSSProperties = { width: PILL_PX, height: PILL_PX, color: "#fff" };
-const SEG_BTN: CSSProperties = { width: 28, height: PILL_PX - 2 };
+/* Viewer/Claimer segmented control (iOS-style). The selected thumb sits
+   fully inside the glass pill: inset by SEG_PAD, radius = outer − pad. */
+const SEG_H = 32;
+const SEG_PAD = 3;
+const SEG_W = 28;
+const SEG_THUMB_R = SEG_H / 2 - SEG_PAD;
+const SEG_BTN: CSSProperties = { width: SEG_W, height: "100%" };
 /** Compact row: avatar left of a name / "Terminal" stack. */
 const AVATAR_PX = 28;
 /** Header row height (plus the top safe area). */
@@ -310,11 +316,25 @@ export function ZenTerminal() {
             <span className="flex items-center shrink-0" style={{ gap: 6 }}>
               <div
                 data-k2="watch-drive"
-                className="flex items-center zen-glass zen-glass-pill overflow-hidden"
-                style={{ height: PILL_PX, padding: 1 }}
+                className="zen-seg flex items-center shrink-0 zen-glass zen-glass-pill overflow-hidden"
+                style={{ position: "relative", height: SEG_H, padding: SEG_PAD, overflow: "hidden" }}
                 role="group"
                 aria-label="Viewer or claimer"
               >
+                <span
+                  data-k2="watch-drive-thumb"
+                  className="zen-seg-thumb"
+                  aria-hidden
+                  style={{
+                    position: "absolute",
+                    top: SEG_PAD,
+                    bottom: SEG_PAD,
+                    left: SEG_PAD,
+                    width: `calc(50% - ${SEG_PAD}px)`,
+                    borderRadius: SEG_THUMB_R,
+                    transform: drive ? "translateX(100%)" : "translateX(0%)",
+                  }}
+                />
                 <button
                   data-k2="watch-btn"
                   type="button"
@@ -322,14 +342,11 @@ export function ZenTerminal() {
                   aria-label="Viewer — watch only"
                   title="Viewer — watch only"
                   onClick={() => setDrive(false)}
-                  className="flex items-center justify-center rounded-full"
-                  style={{
-                    ...SEG_BTN,
-                    color: !drive ? "#000" : "#fff",
-                    background: !drive ? "rgba(255,255,255,0.9)" : "transparent",
-                  }}
+                  className="zen-seg-btn flex items-center justify-center"
+                  data-selected={!drive || undefined}
+                  style={SEG_BTN}
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
                     <circle cx="12" cy="12" r="3" />
                   </svg>
@@ -341,14 +358,11 @@ export function ZenTerminal() {
                   aria-label="Claimer — type and resize"
                   title="Claimer — type and resize"
                   onClick={() => setDrive(true)}
-                  className="flex items-center justify-center rounded-full"
-                  style={{
-                    ...SEG_BTN,
-                    color: drive ? "#000" : "#fff",
-                    background: drive ? "rgba(255,255,255,0.9)" : "transparent",
-                  }}
+                  className="zen-seg-btn flex items-center justify-center"
+                  data-selected={drive || undefined}
+                  style={SEG_BTN}
                 >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                     <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
                   </svg>
                 </button>

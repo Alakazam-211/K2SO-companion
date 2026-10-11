@@ -165,6 +165,50 @@ describe("ZenTerminal", () => {
     expect(screen.getByTestId("terminal-view").getAttribute("data-drive")).toBe("false");
   });
 
+  it("Viewer/Claimer is a segmented control: the selected thumb stays inside the pill", () => {
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+    const group = screen.getByRole("group", { name: "Viewer or claimer" });
+    // Container clips and pads; fixed iOS segmented height.
+    expect(group.className).toMatch(/zen-glass-pill/);
+    expect(group.style.overflow).toBe("hidden");
+    expect(group.style.position).toBe("relative");
+    const pad = parseFloat(group.style.padding);
+    expect(pad).toBeGreaterThanOrEqual(2);
+    expect(pad).toBeLessThanOrEqual(3);
+    const h = parseFloat(group.style.height);
+    expect(h).toBeGreaterThanOrEqual(30);
+    expect(h).toBeLessThanOrEqual(32);
+
+    // Thumb is inset by the padding, radius = outer radius − padding.
+    const thumb = group.querySelector("[data-k2='watch-drive-thumb']") as HTMLElement;
+    expect(thumb).not.toBeNull();
+    expect(thumb.getAttribute("aria-hidden")).toBe("true");
+    expect(thumb.style.position).toBe("absolute");
+    expect(thumb.style.top).toBe(`${pad}px`);
+    expect(thumb.style.bottom).toBe(`${pad}px`);
+    expect(thumb.style.left).toBe(`${pad}px`);
+    expect(thumb.style.width).toBe(`calc(50% - ${pad}px)`);
+    expect(thumb.style.borderRadius).toBe(`${h / 2 - pad}px`);
+
+    // Buttons carry no fill of their own — only the inset thumb highlights.
+    const watch = screen.getByRole("button", { name: "Viewer — watch only" });
+    const claim = screen.getByRole("button", { name: "Claimer — type and resize" });
+    expect(watch.style.background).toBe("");
+    expect(claim.style.background).toBe("");
+    expect(watch.style.width).toBe(claim.style.width);
+
+    // Toggling slides the thumb and moves the selection.
+    expect(thumb.style.transform).toBe("translateX(0%)");
+    expect(watch.hasAttribute("data-selected")).toBe(true);
+    expect(claim.hasAttribute("data-selected")).toBe(false);
+    fireEvent.click(claim);
+    expect(thumb.style.transform).toBe("translateX(100%)");
+    expect(claim.hasAttribute("data-selected")).toBe(true);
+    expect(watch.hasAttribute("data-selected")).toBe(false);
+    fireEvent.click(watch);
+    expect(thumb.style.transform).toBe("translateX(0%)");
+  });
+
   it("compact header: one row, Done → small avatar → name over Terminal → controls", () => {
     renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
     const row = screen.getByTestId("zen-terminal-header-row");
