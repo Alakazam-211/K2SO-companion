@@ -50,6 +50,7 @@ import {
   reorderProjects,
   setProjectPinned,
 } from "../api/client";
+import type { FeedbackListRow } from "../api/feedbackPure";
 import { useFeedbackStore } from "../stores/feedback";
 import { hostLabel, useServersStore } from "../stores/servers";
 import {
@@ -130,6 +131,28 @@ function seedServer() {
     tokens: { s1: "t" },
     recovery: { s1: "connected" },
   });
+}
+
+function ticketRow(id: string, status: string, assignees: string[]) {
+  return {
+    id,
+    projectId: "p1",
+    sessionId: null,
+    sessionKind: null,
+    agentName: null,
+    kind: "question",
+    title: id,
+    body: "",
+    options: null,
+    priority: 2,
+    status,
+    answer: null,
+    createdAt: 0,
+    updatedAt: 0,
+    answeredAt: null,
+    commentCount: 0,
+    assignees,
+  } as unknown as FeedbackListRow;
 }
 
 function mount() {
@@ -376,18 +399,52 @@ describe("ChatsList", () => {
     );
   });
 
-  it("the ticket icon shows the waiting count and opens the existing ticket tray", () => {
+  it("the ticket icon shows waiting-on-me in amber and opens the ticket tray", () => {
     seedServer();
-    useFeedbackStore.setState({ waitingCount: 3, rows: [], isLoading: false, error: null });
+    // Server user "u": two waiting on me, one waiting on bob, one unassigned.
+    useFeedbackStore.setState({
+      rows: [
+        ticketRow("a", "waiting", ["u"]),
+        ticketRow("b", "waiting", ["U"]),
+        ticketRow("c", "waiting", ["bob"]),
+        ticketRow("d", "waiting", []),
+        ticketRow("e", "answered", ["u"]),
+      ],
+      isLoading: false,
+      error: null,
+    });
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
       screen: "list",
     });
     mount();
-    expect(screen.getByTestId("tickets-badge").textContent).toBe("3");
-    fireEvent.click(screen.getByRole("button", { name: /Tickets, 3 waiting/ }));
+    const badge = screen.getByTestId("tickets-badge");
+    expect(badge.textContent).toBe("2");
+    expect(badge.getAttribute("data-tone")).toBe("mine");
+    expect(badge.style.background).toMatch(/#f59e0b|rgb\(245,\s*158,\s*11\)/);
+    fireEvent.click(
+      screen.getByRole("button", { name: "Tickets, 2 waiting on you, 4 waiting in all" })
+    );
     expect(screen.getByTestId("overlay-tickets")).not.toBeNull();
+  });
+
+  it("nothing waiting on me: the badge falls back to the muted All count", () => {
+    seedServer();
+    useFeedbackStore.setState({
+      rows: [ticketRow("c", "waiting", ["bob"]), ticketRow("d", "waiting", [])],
+      isLoading: false,
+      error: null,
+    });
+    useZenStore.setState({ agentSource: "stub", agents: STUB_AGENTS, screen: "list" });
+    mount();
+    const badge = screen.getByTestId("tickets-badge");
+    expect(badge.textContent).toBe("2");
+    expect(badge.getAttribute("data-tone")).toBe("others");
+    expect(badge.style.background).not.toMatch(/#f59e0b|rgb\(245,\s*158,\s*11\)/);
+    expect(
+      screen.getByRole("button", { name: "Tickets, none waiting on you, 2 waiting in all" })
+    ).not.toBeNull();
   });
 
   it("opening a row switches the store to the thread screen", () => {

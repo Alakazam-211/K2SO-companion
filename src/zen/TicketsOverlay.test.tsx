@@ -162,12 +162,81 @@ describe("Tickets list", () => {
     expect(screen.getByText("Someone else's")).not.toBeNull();
   });
 
-  it("an empty Waiting on me says nothing is waiting on you", async () => {
-    setRows([{ ...ROW, assignees: ["bob"] }]);
+  it("an empty Waiting on me says nothing is waiting on you when nothing waits anywhere", async () => {
+    setRows([{ ...ROW, assignees: ["bob"], status: "answered" }]);
     render(<TicketsOverlay onClose={() => {}} />);
     await waitFor(() => {
       expect(screen.getByTestId("tickets-empty").textContent).toBe("Nothing is waiting on you");
     });
+    expect(screen.getByTestId("scope-waiting").getAttribute("aria-selected")).toBe("true");
+    expect(screen.queryByTestId("scope-count-waiting")).toBeNull();
+    expect(screen.queryByTestId("scope-count-all")).toBeNull();
+  });
+
+  it("each tab shows its waiting count from a mixed list", async () => {
+    setRows([
+      ROW, // mine, waiting
+      { ...ROW, id: "t-mine-2", title: "Mine too", assignees: ["owner", "U"] },
+      { ...ROW, id: "t-other", title: "Bob's", assignees: ["bob"] },
+      { ...ROW, id: "t-unassigned", title: "Nobody's", assignees: [] },
+      { ...ROW, id: "t-ans", title: "Mine but answered", status: "answered" },
+      { ...ROW, id: "t-unlinked", title: "Unlinked", linked: false },
+    ]);
+    render(<TicketsOverlay onClose={() => {}} />);
+    await waitFor(() => screen.getByText("Mine too"));
+    expect(screen.getByTestId("scope-count-waiting").textContent).toBe("2");
+    expect(screen.getByTestId("scope-count-mine").textContent).toBe("2");
+    expect(screen.getByTestId("scope-count-all").textContent).toBe("4");
+    expect(screen.getByRole("tab", { name: "Waiting on me, 2 waiting" })).not.toBeNull();
+    expect(screen.getByRole("tab", { name: "All, 4 waiting" })).not.toBeNull();
+    // Waiting on me has work, so it stays the default.
+    expect(screen.getByTestId("scope-waiting").getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("opens on All when nothing waits on me but something waits elsewhere", async () => {
+    setRows([
+      { ...ROW, id: "t-other", title: "Bob's", assignees: ["bob"] },
+      { ...ROW, id: "t-unassigned", title: "Nobody's", assignees: [] },
+      { ...ROW, id: "t-ans", title: "Mine but answered", status: "answered" },
+    ]);
+    render(<TicketsOverlay onClose={() => {}} />);
+    await waitFor(() => {
+      expect(screen.getByTestId("scope-all").getAttribute("aria-selected")).toBe("true");
+    });
+    expect(screen.getByText("Bob's")).not.toBeNull();
+    expect(screen.queryByTestId("tickets-empty")).toBeNull();
+    expect(screen.queryByTestId("scope-count-waiting")).toBeNull();
+    expect(screen.getByTestId("scope-count-all").textContent).toBe("2");
+    // A tap still wins over the smart default.
+    fireEvent.click(screen.getByTestId("scope-waiting"));
+    expect(screen.getByTestId("tickets-empty").textContent).toBe("Nothing is waiting on you");
+  });
+
+  it("the tab counts follow a refresh", async () => {
+    setRows([ROW]);
+    render(<TicketsOverlay onClose={() => {}} />);
+    await waitFor(() => screen.getByText("Which pricing tier for Acme?"));
+    expect(screen.getByTestId("scope-count-waiting").textContent).toBe("1");
+    expect(screen.getByTestId("scope-count-all").textContent).toBe("1");
+
+    vi.mocked(fetchAllFeedback).mockResolvedValue([
+      ROW,
+      { ...ROW, id: "t-new", title: "New one for me" },
+      { ...ROW, id: "t-bob", title: "New one for Bob", assignees: ["bob"] },
+    ]);
+    await act(async () => {
+      await useFeedbackStore.getState().refresh();
+    });
+    expect(screen.getByTestId("scope-count-waiting").textContent).toBe("2");
+    expect(screen.getByTestId("scope-count-mine").textContent).toBe("2");
+    expect(screen.getByTestId("scope-count-all").textContent).toBe("3");
+
+    vi.mocked(fetchAllFeedback).mockResolvedValue([{ ...ROW, status: "answered" }]);
+    await act(async () => {
+      await useFeedbackStore.getState().refresh();
+    });
+    expect(screen.queryByTestId("scope-count-waiting")).toBeNull();
+    expect(screen.queryByTestId("scope-count-all")).toBeNull();
   });
 
   it("sections run Waiting, Needs discussion, Answered, Planned, Closed and mark HTML briefs", async () => {

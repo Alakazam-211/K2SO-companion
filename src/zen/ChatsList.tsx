@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { useFeedbackStore } from "../stores/feedback";
+import { ticketsAriaLabel, ticketsBadge } from "../api/feedbackPure";
 import { hostLabel, useServersStore, type RecoveryState } from "../stores/servers";
 import { isOverlayExtraAddr, visibleOverlayAgents } from "./overlayExtras";
 import { overlayRowPreview } from "./rowPreview";
@@ -15,7 +16,7 @@ import {
 } from "./GlassSearchBar";
 import { OverlayCompose } from "./OverlayCompose";
 import { OverlayServers } from "./OverlayServers";
-import { TicketsOverlay } from "./TicketsOverlay";
+import { TicketsOverlay, useTicketWaitingCounts } from "./TicketsOverlay";
 import { lastAtKeyFor, sortChatsByRecency } from "./lastAtFetch";
 import {
   currentFocusGroup,
@@ -275,7 +276,11 @@ export function ChatsList() {
   const servers = useServersStore((s) => s.servers);
   const activeServerId = useServersStore((s) => s.activeServerId);
   const recovery = useServersStore((s) => s.recovery);
-  const waitingCount = useFeedbackStore((s) => s.waitingCount);
+  // Tickets badge: the same counts as the Tickets tabs (rows + "me").
+  // Amber = waiting on me; grey = nothing is mine but N wait in All;
+  // hidden = nothing waits. See ticketsBadge() in feedbackPure.
+  const { counts: ticketCounts } = useTicketWaitingCounts();
+  const badge = ticketsBadge(ticketCounts);
   const activeServer = servers.find((s) => s.id === activeServerId) ?? null;
   const recoveryState: RecoveryState = activeServer
     ? recovery[activeServer.id] ?? "signin-required"
@@ -588,7 +593,7 @@ export function ChatsList() {
               color: "#fff",
             }}
             onClick={() => setTickets(true)}
-            aria-label={waitingCount ? `Tickets, ${waitingCount} waiting` : "Tickets"}
+            aria-label={ticketsAriaLabel(ticketCounts)}
           >
             <svg
               width="18"
@@ -606,10 +611,11 @@ export function ChatsList() {
               <path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4Z" />
               <path d="M14 6v2M14 11v2M14 16v2" />
             </svg>
-            {waitingCount > 0 ? (
+            {badge ? (
               <span
                 className="absolute"
                 data-testid="tickets-badge"
+                data-tone={badge.tone}
                 style={{
                   top: -2,
                   right: -2,
@@ -617,15 +623,15 @@ export function ChatsList() {
                   height: 15,
                   padding: "0 4px",
                   borderRadius: 8,
-                  background: "#f59e0b",
-                  color: "#000",
+                  background: badge.tone === "mine" ? "#f59e0b" : "#636366",
+                  color: badge.tone === "mine" ? "#000" : "#fff",
                   fontSize: 9,
                   fontWeight: 700,
                   lineHeight: "15px",
                   textAlign: "center",
                 }}
               >
-                {waitingCount > 99 ? "99+" : waitingCount}
+                {badge.count > 99 ? "99+" : badge.count}
               </span>
             ) : null}
           </button>

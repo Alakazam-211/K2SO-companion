@@ -1,12 +1,14 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import {
   assigneeInitials,
   collapseWs,
+  defaultTicketScope,
   filterByScope,
   groupByStatus,
   isUnlinked,
   myAssigneeNames,
   relativeAge,
+  scopeWaitingCounts,
   STATUS_SECTIONS,
   TICKET_SCOPES,
   type FeedbackListRow,
@@ -27,6 +29,12 @@ import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeade
 // `owner`, a Connect user → their username) plus the active server's
 // saved username, matched case-insensitively.
 //
+// Each tab carries a pill with its WAITING count (scopeWaitingCounts):
+// the header badge says work is waiting, and the pills say where. The list
+// opens on All instead of Waiting on me when nothing waits on me but
+// something waits elsewhere (defaultTicketScope), decided once per open,
+// after rows and whoami land, and never overriding a tap.
+//
 // Live: while this overlay is open the list and the open ticket refetch
 // (plain `show`, never the brief) on `/cli/sessions/events` ticket frames
 // (debounced 300 ms, ticketEvents.ts), every 15 s, and when the app comes
@@ -37,6 +45,30 @@ export const TICKETS_POLL_MS = 15_000;
  *  row plus the 44px scope tabs. */
 export const TICKETS_HEADER_PX = 108;
 
+/** "Me" for ticket matching (whoami + the active server's username) and
+ *  the waiting count per scope tab, live off the store's rows. Shared by
+ *  this list and the Agents header badge (ChatsList) so they never
+ *  disagree. `ready` = whoami has resolved (or fallen back). */
+export function useTicketWaitingCounts(): {
+  me: string[];
+  counts: Record<TicketScope, number>;
+  ready: boolean;
+} {
+  const rows = useFeedbackStore((s) => s.rows);
+  const identity = useSessionIdentity();
+  const serverUser = useServersStore(
+    (s) => s.servers.find((x) => x.id === s.activeServerId)?.username ?? ""
+  );
+  const owner = identity?.owner === true;
+  const username = identity?.username ?? null;
+  const me = useMemo(
+    () => myAssigneeNames({ owner, username }, serverUser ? [serverUser] : []),
+    [owner, username, serverUser]
+  );
+  const counts = useMemo(() => scopeWaitingCounts(rows, me), [rows, me]);
+  return { me, counts, ready: identity !== null };
+}
+
 function refetchLive(): void {
   void useFeedbackStore.getState().refresh();
   void useFeedbackStore.getState().refetchOpen();
@@ -46,11 +78,16 @@ export function TicketsOverlay({ onClose }: { onClose: () => void }) {
   const rows = useFeedbackStore((s) => s.rows);
   const isLoading = useFeedbackStore((s) => s.isLoading);
   const error = useFeedbackStore((s) => s.error);
-  const identity = useSessionIdentity();
-  const serverUser = useServersStore(
-    (s) => s.servers.find((x) => x.id === s.activeServerId)?.username ?? ""
+  const { me, counts, ready } = useTicketWaitingCounts();
+  // null until the smart default is decided (rows + whoami in hand) or
+  // the user taps a tab; renders as Waiting on me meanwhile.
+  const [picked, setPicked] = useState<TicketScope | null>(() =>
+    ready && rows.length > 0 ? defaultTicketScope(counts) : null
   );
-  const [scope, setScope] = useState<TicketScope>("waiting");
+  if (picked === null && ready && rows.length > 0) {
+    setPicked(defaultTicketScope(counts));
+  }
+  const scope: TicketScope = picked ?? "waiting";
   const [openId, setOpenId] = useState<string | null>(null);
   const [headerRef, headerPx] = useMeasuredHeight(TICKETS_HEADER_PX);
   const nowSec = Math.floor(Date.now() / 1000);
@@ -76,7 +113,6 @@ export function TicketsOverlay({ onClose }: { onClose: () => void }) {
     };
   }, []);
 
-  const me = myAssigneeNames(identity, serverUser ? [serverUser] : []);
   const visible = filterByScope(rows, scope, me);
   const grouped = groupByStatus(visible);
   const openRow = openId ? rows.find((r) => r.id === openId) : undefined;
@@ -148,6 +184,7 @@ export function TicketsOverlay({ onClose }: { onClose: () => void }) {
         >
           {TICKET_SCOPES.map((s) => {
             const on = s.value === scope;
+            const n = counts[s.value];
             return (
               <button
                 key={s.value}
@@ -155,15 +192,38 @@ export function TicketsOverlay({ onClose }: { onClose: () => void }) {
                 role="tab"
                 aria-selected={on}
                 data-testid={`scope-${s.value}`}
-                onClick={() => setScope(s.value)}
-                className="flex-1 text-[14px] font-medium border-0 rounded-full"
+                aria-label={n > 0 ? `${s.label}, ${n} waiting` : s.label}
+                onClick={() => setPicked(s.value)}
+                className="flex-auto min-w-0 inline-flex items-center justify-center gap-[5px] whitespace-nowrap text-[14px] font-medium border-0 rounded-full"
                 style={{
                   height: 30,
+                  padding: "0 8px",
                   color: on ? "#fff" : "#a1a1aa",
                   background: on ? "rgba(255,255,255,0.18)" : "transparent",
                 }}
               >
-                {s.label}
+                <span className="truncate">{s.label}</span>
+                {n > 0 ? (
+                  <span
+                    aria-hidden
+                    data-testid={`scope-count-${s.value}`}
+                    className="shrink-0 tabular-nums"
+                    style={{
+                      minWidth: 18,
+                      height: 18,
+                      padding: "0 5px",
+                      borderRadius: 9,
+                      background: "#f59e0b",
+                      color: "#000",
+                      fontSize: 11,
+                      fontWeight: 700,
+                      lineHeight: "18px",
+                      textAlign: "center",
+                    }}
+                  >
+                    {n > 99 ? "99+" : n}
+                  </span>
+                ) : null}
               </button>
             );
           })}
