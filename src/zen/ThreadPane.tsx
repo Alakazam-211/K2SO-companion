@@ -12,6 +12,7 @@ import {
 } from "./composerAttach";
 import { loadGroupPoc, type GroupPoc } from "./groupPoc";
 import { GlassComposer, composerPlaceholder } from "./GlassComposer";
+import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
 import { StubMark } from "./StubMark";
 import { mountainTime, type ThreadMessage } from "./threadModel";
 import {
@@ -213,8 +214,8 @@ export function drawerOverScroller(drawerSpace: number, rowsAboveField: boolean)
   return Math.max(0, drawerSpace - COMPOSER_FIELD_TOP_PX);
 }
 
-/** How far (px) the scroller's visible bottom edge stands above the pane's
- *  bottom: the composer block (a flex sibling below it — rows above the
+/** How far (px) the newest message rests above the pane's bottom: the
+ *  composer block floating over the scroller's bottom (rows above the
  *  field, the field, the safe-area / keyboard gap) plus what the working
  *  drawer covers above the bar. */
 export function threadBottomInset(composerPx: number, drawerCover: number): number {
@@ -223,10 +224,11 @@ export function threadBottomInset(composerPx: number, drawerCover: number): numb
   return block + cover;
 }
 
-/** Scroller bottom padding: its own, plus what the working drawer covers. */
-export function threadBottomPadding(drawerCover: number): string | undefined {
-  if (!Number.isFinite(drawerCover) || drawerCover <= 0) return undefined;
-  return `${THREAD_BOTTOM_PAD + Math.ceil(drawerCover)}px`;
+/** Scroller bottom padding: its own, plus the floating composer block and
+ *  what the working drawer covers. Messages scroll on under the composer's
+ *  blur; at rest the newest sits right above the field. */
+export function threadBottomPadding(composerPx: number, drawerCover: number): string {
+  return `${THREAD_BOTTOM_PAD + threadBottomInset(composerPx, drawerCover)}px`;
 }
 
 export function ThreadPane({
@@ -352,8 +354,8 @@ export function ThreadPane({
   // (same 200ms ease).
   const [drawerSpace, setDrawerSpace] = useState(0);
   // The whole composer block's height (GlassComposer's ResizeObserver).
-  // It is the scroller's flex sibling: as the field grows a line, the
-  // scroller's box shrinks by that much.
+  // It floats over the scroller's bottom: as the field grows a line, the
+  // scroller's bottom padding grows by that much.
   const [composerPx, setComposerPx] = useState(0);
   const composerPxRef = useRef<number | null>(null);
   const composerLabel =
@@ -467,7 +469,7 @@ export function ThreadPane({
   }, [thread, agentId, source]);
 
   /** The composer block resized (typing a line, chips, the label line,
-   *  drawer room, keyboard gap): the scroller's bottom edge moved with it.
+   *  drawer room, keyboard gap): the scroller's bottom padding moves with it.
    *  Following: the newest stays right above the field. Reading history:
    *  the reader's viewport stays where it was (no jump). */
   function composerResized(px: number) {
@@ -633,6 +635,11 @@ export function ThreadPane({
   useLayoutEffect(() => {
     follow();
   }, [outgoingKey]);
+
+  // The new composer padding is in the DOM now: stick to it before paint.
+  useLayoutEffect(() => {
+    follow();
+  }, [composerPx]);
 
   // The working drawer opening, growing (tap), shrinking or closing
   // changes the scroller's bottom padding, not its content: the tail
@@ -864,7 +871,7 @@ export function ThreadPane({
         style={{
           overflowAnchor: "none",
           paddingTop: threadTopPadding(topInset),
-          paddingBottom: threadBottomPadding(drawerCover),
+          paddingBottom: threadBottomPadding(composerPx, drawerCover),
         }}
         onScroll={(e) => {
           const el = e.currentTarget;
@@ -1036,85 +1043,102 @@ export function ThreadPane({
           )}
         </div>
       </div>
-      {/* Zero-height row: the pill floats just above the composer (and
-          above the working drawer while it shows). */}
-      <div className="relative h-0 shrink-0">
-        <div
-          aria-live="polite"
-          className="absolute left-0 right-0 flex justify-center pointer-events-none"
-          style={{ bottom: 8 + drawerCover }}
-        >
-          {newBelow ? (
-            <button
-              type="button"
-              data-testid="thread-new-message"
-              className="pointer-events-auto zen-glass zen-glass-pill text-[13px]"
-              style={{ minHeight: 32, padding: "0 14px", color: "#fff" }}
-              onClick={onNewBelow}
+      {/* The composer floats over the scroller's bottom, on the header's
+          blur stack flipped: messages pass under it and soften instead of
+          stopping at its top edge. The pane is sized to the visual
+          viewport, so bottom 0 is the keyboard's top while typing. */}
+      <div
+        className="absolute left-0 right-0 bottom-0"
+        style={{ zIndex: 2 }}
+        data-testid="thread-composer-dock"
+      >
+        <ZenFooterBlur
+          testId="thread-footer-blur"
+          style={{ left: 0, right: 0, bottom: 0, top: -(FOOTER_BLUR_FADE_PX + drawerCover) }}
+        />
+        {/* Zero-height row: the pill floats just above the composer (and
+            above the working drawer while it shows). */}
+        <div className="relative h-0 shrink-0" style={{ zIndex: 1 }}>
+          <div
+            aria-live="polite"
+            className="absolute left-0 right-0 flex justify-center pointer-events-none"
+            style={{ bottom: 8 + drawerCover }}
+          >
+            {newBelow ? (
+              <button
+                type="button"
+                data-testid="thread-new-message"
+                className="pointer-events-auto zen-glass zen-glass-pill text-[13px]"
+                style={{ minHeight: 32, padding: "0 14px", color: "#fff" }}
+                onClick={onNewBelow}
+              >
+                New message <span aria-hidden="true">↓</span>
+              </button>
+            ) : null}
+          </div>
+        </div>
+        {/* Above the blur (positioned, z 0): its own stacking layer. */}
+        <div className="relative" style={{ zIndex: 1 }}>
+          <GlassComposer
+            value={draft}
+            onChange={setDraft}
+            onAttach={queueFiles}
+            onSubmit={onSend}
+            placeholder={placeholder}
+            disabled={!canSend}
+            canSend={canSend}
+            sendReady={sendReady}
+            attachDisabled={!canAttach}
+            textareaRef={composerRef}
+            onFocus={() => {
+              window.scrollTo(0, 0);
+              follow();
+            }}
+            drawer={
+              // The working drawer, pulled out of the field's top edge.
+              !threadGroupId ? (
+                <ThreadWorkingStrip
+                  key={`${agentId}|${conversationId ?? ""}`}
+                  turn={turn}
+                  onSpace={setDrawerSpace}
+                />
+              ) : undefined
+            }
+            drawerRoom={rowsAboveField ? drawerSpace : 0}
+            onBlockHeight={composerResized}
+          >
+            {roomBanner}
+            <p
+              className="text-[11px] text-[var(--text-muted)] leading-snug break-words mb-1.5"
+              data-testid="composer-label"
             >
-              New message <span aria-hidden="true">↓</span>
-            </button>
-          ) : null}
+              {composerLabel}
+            </p>
+            {attachments.length ? (
+              <div
+                ref={chipsRef}
+                className="flex flex-wrap gap-1.5 mb-1.5"
+                data-testid="attach-chips"
+              >
+                {attachments.map((f, i) => (
+                  <button
+                    key={`${f.name}-${i}`}
+                    type="button"
+                    data-testid="attach-chip"
+                    className="text-[12px] px-2 py-1 rounded-full bg-[var(--card)] text-[var(--text)]"
+                    onClick={() =>
+                      setAttachments((prev) => prev.filter((_, j) => j !== i))
+                    }
+                    aria-label={`Remove ${uploadFilename(f)}`}
+                  >
+                    {uploadFilename(f)} ×
+                  </button>
+                ))}
+              </div>
+            ) : null}
+          </GlassComposer>
         </div>
       </div>
-      <GlassComposer
-        value={draft}
-        onChange={setDraft}
-        onAttach={queueFiles}
-        onSubmit={onSend}
-        placeholder={placeholder}
-        disabled={!canSend}
-        canSend={canSend}
-        sendReady={sendReady}
-        attachDisabled={!canAttach}
-        textareaRef={composerRef}
-        onFocus={() => {
-          window.scrollTo(0, 0);
-          follow();
-        }}
-        drawer={
-          // The working drawer, pulled out of the field's top edge.
-          !threadGroupId ? (
-            <ThreadWorkingStrip
-              key={`${agentId}|${conversationId ?? ""}`}
-              turn={turn}
-              onSpace={setDrawerSpace}
-            />
-          ) : undefined
-        }
-        drawerRoom={rowsAboveField ? drawerSpace : 0}
-        onBlockHeight={composerResized}
-      >
-        {roomBanner}
-        <p
-          className="text-[11px] text-[var(--text-muted)] leading-snug break-words mb-1.5"
-          data-testid="composer-label"
-        >
-          {composerLabel}
-        </p>
-        {attachments.length ? (
-          <div
-            ref={chipsRef}
-            className="flex flex-wrap gap-1.5 mb-1.5"
-            data-testid="attach-chips"
-          >
-            {attachments.map((f, i) => (
-              <button
-                key={`${f.name}-${i}`}
-                type="button"
-                data-testid="attach-chip"
-                className="text-[12px] px-2 py-1 rounded-full bg-[var(--card)] text-[var(--text)]"
-                onClick={() =>
-                  setAttachments((prev) => prev.filter((_, j) => j !== i))
-                }
-                aria-label={`Remove ${uploadFilename(f)}`}
-              >
-                {uploadFilename(f)} ×
-              </button>
-            ))}
-          </div>
-        ) : null}
-      </GlassComposer>
     </div>
   );
 }

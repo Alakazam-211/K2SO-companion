@@ -1,9 +1,10 @@
-import { useCallback, useState } from "react";
+import { useCallback, useState, type CSSProperties } from "react";
 
 // Shared pieces of the Zen floating header (chat header c39c0ac, Agents
 // 0a78ef6): the progressive-blur stack (`.zen-header-blur` in index.css)
 // and the measured header height the scroller pads by. Used by the
-// Servers and Tickets sheets.
+// Servers and Tickets sheets. `ZenFooterBlur` is the same stack flipped,
+// behind the bottom bars (thread composer, search bars).
 
 /** Four masked backdrop-blur layers plus the dark tint. Fills its
  *  (absolute, top:0) header from y=0 and never takes touches.
@@ -29,6 +30,37 @@ export function ZenHeaderBlur({
       <span className="zen-header-blur-3" />
       <span className="zen-header-blur-4" />
       <span className="zen-header-tint" />
+    </div>
+  );
+}
+
+/** How far (px) the footer blur reaches above its bar: content softens
+ *  across this band before it meets the bar's top edge. */
+export const FOOTER_BLUR_FADE_PX = 24;
+
+/** The header stack flipped (`.zen-footer-blur` in index.css): strongest
+ *  at the bottom edge, gone at the top. The caller places the box (full
+ *  width, from `FOOTER_BLUR_FADE_PX` above its bar to the pane bottom);
+ *  it never takes touches. */
+export function ZenFooterBlur({
+  testId,
+  style,
+}: {
+  testId?: string;
+  style?: CSSProperties;
+}) {
+  return (
+    <div
+      className="zen-footer-blur"
+      data-testid={testId}
+      aria-hidden
+      style={{ pointerEvents: "none", ...style }}
+    >
+      <span className="zen-footer-blur-1" />
+      <span className="zen-footer-blur-2" />
+      <span className="zen-footer-blur-3" />
+      <span className="zen-footer-blur-4" />
+      <span className="zen-footer-tint" />
     </div>
   );
 }

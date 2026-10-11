@@ -1,5 +1,6 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { PlusGlyph } from "./PlusGlyph";
+import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
 
 /** Gap between the bar and the iOS keyboard while typing — the same 8px
  *  the thread composer keeps (`.zen-composer-bar:focus-within`). */
@@ -10,7 +11,9 @@ export const SEARCH_BAR_REST_BOTTOM = "max(14px, env(safe-area-inset-bottom))";
 export const SEARCH_BAR_HEIGHT = 44;
 
 /** Bottom glass bar shared by Chats and the Servers sheet: a search field
- *  plus a circular `+` button (the composer's attach `PlusGlyph`).
+ *  plus a circular `+` button (the composer's attach `PlusGlyph`), on the
+ *  header's blur stack flipped (`ZenFooterBlur`, full width, from just
+ *  above the bar to the bottom edge) so rows soften as they pass under.
  *  Absolutely positioned at the bottom of its
  *  nearest positioned ancestor — size that ancestor to the visual viewport
  *  (`useViewportHeight`) so the bar clears the iOS keyboard. */
@@ -57,6 +60,19 @@ export function GlassSearchBar({
   }, [noteUp]);
   const blocked = !!plusBlockedNote;
   return (
+    <>
+    <ZenFooterBlur
+      testId={testId ? `${testId}-blur` : "search-bar-blur"}
+      style={{
+        left: 0,
+        right: 0,
+        bottom: 0,
+        // Follows the bar: the resting inset, or the 8px gap while typing.
+        height: `calc(${bottom} + ${SEARCH_BAR_HEIGHT + FOOTER_BLUR_FADE_PX}px)`,
+        // Same layer as the bar, drawn first: the bar stays on top.
+        zIndex: 4,
+      }}
+    />
     <div
       className="absolute left-3 right-3 flex items-center"
       data-no-pin="1"
@@ -135,5 +151,6 @@ export function GlassSearchBar({
       </button>
       ) : null}
     </div>
+    </>
   );
 }

@@ -67,6 +67,28 @@ describe("GlassSearchBar keyboard gap", () => {
   });
 });
 
+describe("GlassSearchBar footer blur", () => {
+  it("sits full width behind the bar, from just above it to the bottom edge", () => {
+    const { bar } = mount();
+    const blur = screen.getByTestId("bar-blur");
+    expect(blur.className).toBe("zen-footer-blur");
+    expect(blur.getAttribute("aria-hidden")).toBe("true");
+    expect(blur.style.pointerEvents).toBe("none");
+    expect([blur.style.left, blur.style.right, blur.style.bottom]).toEqual(["0px", "0px", "0px"]);
+    // Drawn first on the bar's layer: the bar stays on top.
+    expect(blur.nextElementSibling).toBe(bar);
+    expect(blur.style.zIndex).toBe(bar.style.zIndex);
+  });
+
+  it("follows the bar down to the 8px keyboard gap while typing", () => {
+    const { input } = mount();
+    fireEvent.focus(input);
+    const blur = screen.getByTestId("bar-blur");
+    // jsdom folds the calc: 8px gap + bar + 24px fade band.
+    expect(blur.style.height).toBe(`calc(${8 + SEARCH_BAR_HEIGHT + 24}px)`);
+  });
+});
+
 describe("GlassSearchBar + button", () => {
   it("is a perfect circle at the bar height, keeping the glass style", () => {
     const { plus } = mount();

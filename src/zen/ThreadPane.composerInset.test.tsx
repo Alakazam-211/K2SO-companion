@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 // The composer block grows (typing lines, attachment chips, the label
-// line) as a flex sibling below the scroller: the scroller's box shrinks
-// by the same amount. Following, the newest stays right above the field;
-// reading history, the reader's scrollTop holds.
+// line) floating over the scroller's bottom: the scroller's bottom padding
+// grows by the same amount. Following, the newest stays right above the
+// field; reading history, the reader's scrollTop holds.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 
@@ -33,8 +33,9 @@ import { useZenStore } from "./zenStore";
 import { fakeScope } from "../test/fakeScope";
 import { setZenScope } from "../test/zenScopeMock";
 
-// ── Flex column: the pane is PANE tall; the composer bar is `barPx`, the
-// scroller gets the rest. Content is `height`; scrollTop clamps.
+// ── The scroller fills the PANE; the composer bar (`barPx`) floats over
+// its bottom and pads it by that much. Content is `height`; scrollTop
+// clamps.
 const PANE = 800;
 const LINE = 22;
 const ONE_LINE_BAR = 60;
@@ -42,7 +43,8 @@ let barPx = ONE_LINE_BAR;
 let height = 1800;
 const tid = (el: Element) => el.getAttribute?.("data-testid");
 const isScroller = (el: Element) => tid(el) === "thread-scroller";
-const client = () => PANE - barPx;
+const client = () => PANE;
+const scrollHeight = () => height + barPx;
 const tops = new WeakMap<Element, number>();
 
 let resizeCallbacks: Array<() => void> = [];
@@ -62,7 +64,7 @@ const msg = (id: string, seq: number, text: string): ThreadMessage => ({
 });
 
 const scroller = () => screen.getByTestId("thread-scroller");
-const bottom = () => height - client();
+const bottom = () => scrollHeight() - client();
 const inset = () => Number(scroller().getAttribute("data-bottom-inset"));
 
 /** The composer bar's layout changed to `px` tall (the browser's resize). */
@@ -91,7 +93,7 @@ beforeEach(() => {
   Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
     configurable: true,
     get() {
-      return isScroller(this) ? height : 0;
+      return isScroller(this) ? scrollHeight() : 0;
     },
   });
   Object.defineProperty(HTMLElement.prototype, "clientHeight", {
@@ -112,7 +114,7 @@ beforeEach(() => {
       return tops.get(this) ?? 0;
     },
     set(v: number) {
-      const max = isScroller(this) ? Math.max(0, height - client()) : 0;
+      const max = isScroller(this) ? Math.max(0, scrollHeight() - client()) : 0;
       tops.set(this, Math.min(Math.max(0, v), max));
     },
   });
@@ -173,6 +175,24 @@ describe("threadBottomInset", () => {
 });
 
 describe("Thread scroller vs a growing composer", () => {
+  it("the composer floats over the scroller on the footer blur; the scroller pads by its height", async () => {
+    await open();
+    const dock = screen.getByTestId("thread-composer-dock");
+    expect(dock.className).toContain("absolute");
+    expect(dock.className).toContain("bottom-0");
+    expect(dock.contains(screen.getByTestId("composer-bar"))).toBe(true);
+    const blur = screen.getByTestId("thread-footer-blur");
+    expect(blur.className).toBe("zen-footer-blur");
+    expect(blur.parentElement).toBe(dock);
+    // Reaches the fade band above the bar.
+    expect(blur.style.top).toBe("-24px");
+    expect(scroller().style.paddingBottom).toBe(`${12 + ONE_LINE_BAR}px`);
+
+    type(3);
+    composerTo(ONE_LINE_BAR + 2 * LINE);
+    expect(scroller().style.paddingBottom).toBe(`${12 + ONE_LINE_BAR + 2 * LINE}px`);
+  });
+
   it("growing the field from 1 to 5 lines raises the scroller's bottom inset by the same amount", async () => {
     await open();
     expect(scroller().getAttribute("data-composer-height")).toBe(String(ONE_LINE_BAR));
