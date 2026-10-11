@@ -76,3 +76,30 @@ describe("getFileCategory (desktop fileCategory.ts port)", () => {
     expect(isTsvPath("/a/b.csv")).toBe(false);
   });
 });
+
+describe("CAD categories", () => {
+  it.each([
+    ["/ws/k2-bracket.dxf", "cad2d"],
+    ["/ws/PLAN.DXF", "cad2d"],
+    ["/ws/k2-bracket.stl", "model3d"],
+    ["/ws/k2-cube.obj", "model3d"],
+    ["/ws/k2-bracket.3mf", "model3d"],
+    ["/ws/scan.ply", "model3d"],
+    ["/ws/scene.glb", "model3d"],
+    ["/ws/scene.gltf", "model3d"],
+  ])("%s → %s", (path, cat) => {
+    expect(getFileCategory(path)).toBe(cat);
+  });
+
+  it(".obj is a 3D model now, not a binary blob", () => {
+    expect(getFileCategory("/ws/build/main.obj")).not.toBe("binary");
+    expect(getFileCategory("/ws/build/main.o")).toBe("binary");
+  });
+
+  it("3D models load bytes; DXF is read as text and offers Source", () => {
+    expect(isBinaryPreviewCategory("model3d")).toBe(true);
+    expect(isBinaryPreviewCategory("cad2d")).toBe(false);
+    expect(supportsSourceToggle("cad2d")).toBe(true);
+    expect(supportsSourceToggle("model3d")).toBe(false);
+  });
+});

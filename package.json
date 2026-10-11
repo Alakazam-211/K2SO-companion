@@ -27,6 +27,7 @@
     "@tauri-apps/api": "~2.11.0",
     "@tauri-apps/plugin-http": "^2.5.8",
     "@tauri-apps/plugin-store": "^2",
+    "dxf-parser": "^1.1.2",
     "mammoth": "^1.12.0",
     "mermaid": "^11.16.0",
     "pdfjs-dist": "^5.5.207",
@@ -36,6 +37,7 @@
     "react-router-dom": "^7.1.0",
     "remark-gfm": "^4.0.1",
     "shiki": "^4.0.2",
+    "three": "^0.186.1",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
@@ -45,6 +47,7 @@
     "@testing-library/react": "^16.3.2",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
+    "@types/three": "^0.186.0",
     "@vitejs/plugin-react": "^4.6.0",
     "jsdom": "^29.1.1",
     "tailwindcss": "^4.0.0",
