@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useMultiServerPrefs } from "../zen/multi/prefs";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
@@ -155,6 +156,8 @@ async function expectSessionThread(addr: string, header?: string) {
 }
 
 beforeEach(() => {
+  // Flag-off parity: `zen.multiServer` now defaults on; pin it off.
+  useMultiServerPrefs.setState({ multiServer: false });
   staleAddrs = new Set();
   useServersStore.setState({
     servers: [

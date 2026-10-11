@@ -196,7 +196,8 @@ function PushRow() {
 }
 
 /** Multi-server S2 (MS40): the device setting `zen.multiServer`, default
- *  off. Off, the Agents list shows the active server only, as before. */
+ *  ON for now when never set (an explicit off is kept). Off, the Agents
+ *  list shows the active server only, as before. */
 function MultiServerRow() {
   const on = useMultiServerPrefs((s) => s.multiServer);
   const setOn = useMultiServerPrefs((s) => s.setMultiServer);

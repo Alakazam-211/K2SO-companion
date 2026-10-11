@@ -1,5 +1,5 @@
 // Everything the Agents list needs to show rows from every saved server
-// (multi-server S2). Off (`zen.multiServer` unset) it does nothing: no pool
+// (multi-server S2). Off (`zen.multiServer` = "0") it does nothing: no pool
 // loop, no remote reads, and ChatsList renders exactly as before.
 //
 // On:

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useMultiServerPrefs } from "../zen/multi/prefs";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
@@ -91,6 +92,8 @@ class FakeImage {
 }
 
 beforeEach(() => {
+  // Flag-off parity: `zen.multiServer` now defaults on; pin it off.
+  useMultiServerPrefs.setState({ multiServer: false });
   who.identity = { username: "u", owner: false, role: "member" };
   vi.mocked(updateProjectLook).mockReset();
   vi.mocked(getCliProjectsList).mockReset();

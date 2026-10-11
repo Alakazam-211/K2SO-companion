@@ -89,6 +89,8 @@ const flush = async () => {
 };
 
 beforeEach(() => {
+  // Flag-off parity: `zen.multiServer` now defaults on; pin it off.
+  useMultiServerPrefs.setState({ multiServer: false });
   tauriFetch.mockReset();
   tauriFetch.mockResolvedValue({ ok: true, status: 200, text: async () => "{}" });
   vi.mocked(connectServer).mockReset();

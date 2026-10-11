@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { useMultiServerPrefs } from "../zen/multi/prefs";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
@@ -91,6 +92,8 @@ const highlighted = () =>
   Array.from(document.querySelectorAll("[data-highlight='true']")).map((el) => el.getAttribute("data-seq"));
 
 beforeEach(() => {
+  // Flag-off parity: `zen.multiServer` now defaults on; pin it off.
+  useMultiServerPrefs.setState({ multiServer: false });
   endless = false;
   useServersStore.setState({
     servers: [{ id: "s1", nickname: "t", url: "https://example.k2.dev", username: "u", rememberPassword: false }],
