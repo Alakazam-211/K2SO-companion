@@ -625,18 +625,20 @@ describe("ZenTerminal", () => {
     expect(screen.getByTestId("terminal-composer-attach")).toHaveProperty("disabled", true);
   });
 
-  it("direct mode: accessory keys sit bare, no glass or tile encasing", () => {
+  it("direct mode: accessory keys are glass pills, no casing around the row", () => {
     renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
     fireEvent.click(screen.getByRole("button", { name: "Switch to direct typing" }));
     const bar = screen.getByRole("toolbar", { name: "Terminal keys" });
     const wrap = screen.getByTestId("zen-terminal-direct-bar");
-    for (const el of [wrap, bar, ...Array.from(bar.querySelectorAll("button"))]) {
-      expect(el.className).not.toMatch(/k2-tile|zen-glass/);
+    for (const el of [wrap, bar, bar.parentElement as HTMLElement]) {
+      expect(el.className).not.toMatch(/k2-tile|zen-glass|border|shadow/);
     }
-    const key = bar.querySelector("button") as HTMLElement;
-    expect(key.className).toMatch(/bg-transparent/);
-    expect(key.style.minWidth).toBe("44px");
-    expect(key.style.height).toBe("44px");
+    for (const key of Array.from(bar.querySelectorAll("button"))) {
+      expect(key.className).toMatch(/zen-glass zen-glass-pill/);
+      expect(key.style.height).toBe("32px");
+    }
+    expect(screen.getByRole("button", { name: "Return" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Hide keyboard" })).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Switch to safe send" }));
   });
 });
