@@ -36,7 +36,7 @@ vi.mock("../lib/revive", () => ({
 }));
 
 import { useFeedbackStore } from "../stores/feedback";
-import { useServersStore } from "../stores/servers";
+import { hostLabel, useServersStore } from "../stores/servers";
 import { ChatsList } from "./ChatsList";
 import { JOIN_NO_PROJECT } from "./agentRow";
 import { STUB_AGENTS } from "./stubData";
@@ -167,7 +167,7 @@ describe("ChatsList", () => {
     const header = screen.getByRole("heading", { name: "Chats" }).closest("header")!;
     const serverBtn = screen.getByRole("button", { name: /Server / });
     expect(header.firstElementChild).toBe(serverBtn);
-    expect(serverBtn.querySelector("[data-testid=server-icon]")).not.toBeNull();
+    expect(serverBtn.querySelector("[data-testid=server-icon]")).toBeNull();
     expect(serverBtn.querySelector("[data-testid=server-status-dot]")).not.toBeNull();
 
     const right = screen.getByTestId("chats-header-right");
@@ -178,13 +178,63 @@ describe("ChatsList", () => {
     const rightButtons = Array.from(right.children);
     expect(rightButtons).toEqual([screen.getByRole("button", { name: "Tickets" }), cog]);
 
-    for (const btn of [serverBtn, cog]) {
-      expect(btn.style.width).toBe("34px");
-      expect(btn.style.height).toBe("34px");
-      expect(btn.className).toMatch(/zen-glass-pill/);
-    }
+    expect(serverBtn.style.height).toBe("34px");
+    expect(serverBtn.className).toMatch(/zen-glass-pill/);
+    expect(cog.style.width).toBe("34px");
+    expect(cog.style.height).toBe("34px");
+    expect(cog.className).toMatch(/zen-glass-pill/);
     fireEvent.click(cog);
     expect(screen.getByTestId("overlay-settings")).not.toBeNull();
+  });
+
+  it("header server pill shows the nickname with the status dot before it", () => {
+    useZenStore.setState({ agentSource: "stub", agents: STUB_AGENTS, screen: "list" });
+    mount();
+    const serverBtn = screen.getByRole("button", { name: "Server test" });
+    expect(serverBtn.getAttribute("title")).toBe("test");
+    expect(serverBtn.getAttribute("data-testid")).toBe("chats-header-server");
+    const name = screen.getByTestId("server-name");
+    expect(serverBtn.contains(name)).toBe(true);
+    expect(name.textContent).toBe("test");
+    const dot = screen.getByTestId("server-status-dot");
+    expect(serverBtn.firstElementChild).toBe(dot);
+    expect(dot.style.width).toBe("8px");
+    expect(dot.getAttribute("style")).toMatch(/#22c55e|rgb\(34,\s*197,\s*94\)/);
+  });
+
+  it("a long nickname is truncated inside a width-capped pill", () => {
+    const nickname = "my-very-long-production-server-nickname";
+    useServersStore.setState({ servers: [{ ...SEEDED_SERVER, nickname }] });
+    useZenStore.setState({ agentSource: "stub", agents: STUB_AGENTS, screen: "list" });
+    mount();
+    const serverBtn = screen.getByRole("button", { name: `Server ${nickname}` });
+    expect(serverBtn.style.maxWidth).toBe("124px");
+    expect(serverBtn.className).toMatch(/min-w-0/);
+    const name = screen.getByTestId("server-name");
+    expect(name.textContent).toBe(nickname);
+    expect(name.className).toMatch(/\btruncate\b/);
+  });
+
+  it("no nickname falls back to the host label", () => {
+    useServersStore.setState({ servers: [{ ...SEEDED_SERVER, nickname: "" }] });
+    useZenStore.setState({ agentSource: "stub", agents: STUB_AGENTS, screen: "list" });
+    mount();
+    const host = hostLabel(SEEDED_SERVER.url);
+    expect(host).not.toBe("");
+    expect(screen.getByRole("button", { name: `Server ${host}` })).not.toBeNull();
+    expect(screen.getByTestId("server-name").textContent).toBe(host);
+  });
+
+  it("no active server shows Servers with a grey dot", () => {
+    useServersStore.setState({ activeServerId: null });
+    useZenStore.setState({ agentSource: "stub", agents: STUB_AGENTS, screen: "list" });
+    mount();
+    const serverBtn = screen.getByRole("button", { name: "Server Servers" });
+    expect(screen.getByTestId("server-name").textContent).toBe("Servers");
+    expect(serverBtn.getAttribute("title")).toBe("Servers");
+    expect(screen.getByTestId("server-status-dot").getAttribute("style")).toMatch(
+      /#8e8e93|rgb\(142,\s*142,\s*147\)/
+    );
   });
 
   it("the ticket icon shows the waiting count and opens the existing ticket tray", () => {
