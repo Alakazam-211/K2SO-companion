@@ -8,7 +8,11 @@ import { overlayRowPreview } from "./rowPreview";
 import { activityForRow, activityRowText } from "./agentActivity";
 import { StubMark } from "./StubMark";
 import { OverlayAddServer } from "./OverlayAddServer";
-import { GlassSearchBar } from "./GlassSearchBar";
+import {
+  GlassSearchBar,
+  SEARCH_BAR_HEIGHT,
+  SEARCH_BAR_KEYBOARD_GAP,
+} from "./GlassSearchBar";
 import { OverlayCompose } from "./OverlayCompose";
 import { OverlayServers } from "./OverlayServers";
 import { TicketsOverlay } from "./TicketsOverlay";
@@ -305,7 +309,11 @@ export function ChatsList() {
         ref={listRef}
         className="flex-1 min-h-0 overflow-y-auto"
         style={{
-          paddingBottom: searching ? 24 : 96,
+          // Searching: no pin tray, so only clear the keyboard-up bar
+          // (bar + its 8px gap + 8px air) — not the resting 96.
+          paddingBottom: searching
+            ? SEARCH_BAR_HEIGHT + SEARCH_BAR_KEYBOARD_GAP * 2
+            : 96,
           WebkitOverflowScrolling: ghost ? "auto" : "touch",
           overflowY: ghost ? "hidden" : "auto",
           touchAction: ghost ? "none" : undefined,
