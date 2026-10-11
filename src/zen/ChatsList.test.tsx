@@ -1709,9 +1709,18 @@ describe("ChatsList", () => {
         expect(zenPinnedGroupInsetPx(w)).toBeCloseTo(expected, 6);
         expect(evalInsetPx(ZEN_LIST_CONTENT_INSET, w)).toBeCloseTo(expected, 6);
       }
-      // 375pt: ~28px each side; 430pt: ~37px.
-      expect(zenPinnedGroupInsetPx(375)).toBeCloseTo(28.17, 2);
-      expect(zenPinnedGroupInsetPx(430)).toBeCloseTo(37.33, 2);
+      // 375pt: ~24px each side; 430pt: ~33px.
+      expect(zenPinnedGroupInsetPx(375)).toBeCloseTo(24.17, 2);
+      expect(zenPinnedGroupInsetPx(430)).toBeCloseTo(33.33, 2);
+      // Avatars stay well clear of the screen edge.
+      expect(zenPinnedGroupInsetPx(375)).toBeGreaterThanOrEqual(6);
+    });
+
+    it("pinned names still fit their cell at 375pt", () => {
+      const side = ZEN_LIST_EDGE_INSET + ZEN_LIST_EDGE_PAD;
+      const cell = (375 - 2 * side - 2 * ZEN_PIN_COL_GAP) / 3;
+      // Name / activity lines cap at 110px and truncate inside the cell.
+      expect(cell).toBeGreaterThanOrEqual(110);
     });
 
     it("the grid uses the shared pin geometry", () => {
