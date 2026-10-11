@@ -7,6 +7,7 @@ import {
   type ServerEntry,
 } from "../stores/servers";
 import { connectServer } from "../lib/revive";
+import { PencilIcon } from "../zen/icons";
 
 // The Servers page — the app's HOME. Lists every saved server with its
 // live recovery state; tapping a row makes it the ACTIVE server (and
@@ -159,9 +160,7 @@ export function Servers() {
                   aria-label="Edit server"
                   className="w-9 h-9 flex items-center justify-center text-[var(--text-muted)] hover:text-[var(--text)] shrink-0 transition-colors"
                 >
-                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
-                  </svg>
+                  <PencilIcon size={14} strokeWidth={2} />
                 </button>
               </div>
             );

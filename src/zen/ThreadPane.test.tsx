@@ -886,9 +886,14 @@ describe("ThreadPane", () => {
     expect(slot.parentElement).toBe(screen.getByTestId("composer-dock"));
     expect(screen.getByTestId("composer-bar").contains(strip)).toBe(true);
     expect(screen.getByTestId("thread-strip-step-text").textContent).toBe("Running npm test");
-    expect(screen.getByTestId("thread-strip-count-subagents").textContent).toContain("🤖1");
-    expect(screen.getByTestId("thread-strip-count-read").textContent).toContain("📄2");
-    expect(screen.getByTestId("thread-strip-count-cmd").textContent).toContain("⌨️1");
+    const icon = (key: string) =>
+      screen.getByTestId(`thread-strip-count-${key}`).querySelector("svg")?.getAttribute("data-k2-icon");
+    expect(icon("subagents")).toBe("agent");
+    expect(screen.getByTestId("thread-strip-running").textContent).toMatch(/1$/);
+    expect(icon("read")).toBe("file");
+    expect(screen.getByTestId("thread-strip-count-read").textContent).toContain("2");
+    expect(icon("cmd")).toBe("terminal");
+    expect(screen.getByTestId("thread-strip-count-cmd").textContent).toContain("1");
     expect(useZenStore.getState().thread).toEqual([]);
     act(() => {
       opts.onItem({

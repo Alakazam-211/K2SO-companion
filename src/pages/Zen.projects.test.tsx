@@ -303,6 +303,11 @@ describe("Zen Projects", () => {
       "Sessions",
       "Files",
     ]);
+    // The shared icons (`zen/icons`): the drawer's commands and files-read counters reuse them.
+    const icon = (name: string) =>
+      screen.getByRole("button", { name }).querySelector("svg")?.getAttribute("data-k2-icon");
+    expect(icon("Terminal")).toBe("terminal");
+    expect(icon("Files")).toBe("file");
   });
 
   it("the project chat header shows the project's image, as its sheet row does", async () => {

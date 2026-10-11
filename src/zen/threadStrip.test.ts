@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   counterSpoken,
-  counterText,
+  counterWidthPx,
   fitStripCounters,
   stripClock,
   stripClockShort,
@@ -139,6 +139,10 @@ describe("threadStripView", () => {
   });
 });
 
+/** "subagents2+1", "read3": a counter's key, number and done count. */
+const label = (c: { key: string; count: number; done: number }) =>
+  `${c.key}${c.count}${c.done ? `+${c.done}` : ""}`;
+
 describe("drawer line", () => {
   const busy = turn({
     phase: "tool",
@@ -149,13 +153,21 @@ describe("drawer line", () => {
     tally: { read: 3, search: 1, cmd: 2, edit: 1 },
   });
 
-  it("maps counts to emoji, hides zeros, in display order", () => {
+  it("maps counts to counters, hides zeros, in display order", () => {
     const c = stripCounters(busy);
-    expect(c.map(counterText)).toEqual(["🤖2✓1", "⚙️1", "📄3", "🔍1", "⌨️2", "✏️1"]);
-    expect(stripCounters(turn({ tally: { read: 2, search: 0, cmd: 0, edit: 0 } })).map(counterText)).toEqual([
-      "📄2",
+    expect(c.map(label)).toEqual(["subagents2+1", "background1", "read3", "search1", "cmd2", "edit1"]);
+    expect(stripCounters(turn({ tally: { read: 2, search: 0, cmd: 0, edit: 0 } })).map(label)).toEqual([
+      "read2",
     ]);
     expect(stripCounters(turn())).toEqual([]);
+  });
+
+  it("subagents: a running group and a done group, each only above zero", () => {
+    expect(stripCounters(turn({ subagents: 1 })).map(label)).toEqual(["subagents1"]);
+    expect(stripCounters(turn({ subagents: 0, subagentsDone: 3 })).map(label)).toEqual(["subagents0+3"]);
+    expect(stripCounters(turn({ subagents: 1, subagentsDone: 2 })).map(label)).toEqual(["subagents1+2"]);
+    const l = threadDrawerLine(turn({ subagents: 1, subagentsDone: 2 }), T0 + 1_000)!;
+    expect(l.detail.children).toBe("1 subagent running, 2 done");
   });
 
   it("speaks each counter in words", () => {
@@ -167,17 +179,18 @@ describe("drawer line", () => {
       "ran 2 commands",
       "edited 1 file",
     ]);
+    expect(counterSpoken({ key: "subagents", count: 0, done: 2 })).toBe("2 subagents done");
   });
 
-  it("drops ✓done, then search, read, edit, commands; subagents and background stay", () => {
+  it("drops the done group, then search, read, edit, commands; subagents and background stay", () => {
     const all = stripCounters(busy);
     const each = () => 10; // every counter 10px wide, 6px gaps
     const keys = (budget: number) =>
       fitStripCounters(all, budget, each).map((c) => `${c.key}${c.done ? "+done" : ""}`);
     expect(keys(Infinity)).toEqual(["subagents+done", "background", "read", "search", "cmd", "edit"]);
     expect(keys(90)).toEqual(["subagents+done", "background", "read", "search", "cmd", "edit"]);
-    // One px short: ✓done goes first, then search (a flat measure, so
-    // dropping ✓done alone did not help).
+    // One px short: the done group goes first, then search (a flat
+    // measure, so dropping done alone did not help).
     expect(keys(89)).toEqual(["subagents", "background", "read", "cmd", "edit"]);
     expect(keys(74)).toEqual(["subagents", "background", "read", "cmd", "edit"]);
     expect(keys(58)).toEqual(["subagents", "background", "cmd", "edit"]);
@@ -186,11 +199,20 @@ describe("drawer line", () => {
     expect(keys(0)).toEqual(["subagents", "background"]);
   });
 
-  it("✓done shows only when it fits", () => {
+  it("the done group shows only when it fits; with nothing running it is the counter and stays", () => {
     const all = stripCounters(turn({ subagents: 2, subagentsDone: 1 }));
-    const measure = (t: string) => t.length * 5;
-    expect(fitStripCounters(all, 100, measure).map(counterText)).toEqual(["🤖2✓1"]);
-    expect(fitStripCounters(all, 10, measure).map(counterText)).toEqual(["🤖2"]);
+    expect(fitStripCounters(all, 100).map(label)).toEqual(["subagents2+1"]);
+    expect(fitStripCounters(all, 10).map(label)).toEqual(["subagents2"]);
+    const doneOnly = stripCounters(turn({ subagents: 0, subagentsDone: 4 }));
+    expect(fitStripCounters(doneOnly, 0).map(label)).toEqual(["subagents0+4"]);
+  });
+
+  it("a counter is as wide as its icon, a gap and its number; subagents add spinner and check", () => {
+    const n = (count: number, done = 0) => counterWidthPx({ key: "subagents", count, done });
+    expect(counterWidthPx({ key: "read", count: 3, done: 0 })).toBe(13 + 2 + 8);
+    expect(n(1)).toBe(13 + 2 + 10 + 8);
+    expect(n(1, 2)).toBe(n(1) + 7 + 11 + 2 + 8);
+    expect(n(0, 2)).toBe(13 + 2 + 11 + 2 + 8);
   });
 
   it("one line: step, counters and an m:ss clock", () => {
@@ -226,7 +248,7 @@ describe("drawer line", () => {
       T0 + 30_000
     )!;
     expect(l.step.text).toBe("Replied");
-    expect(l.counters.map(counterText)).toEqual(["🤖1", "⚙️2", "📄1"]);
+    expect(l.counters.map(label)).toEqual(["subagents1", "background2", "read1"]);
     expect(l.clock).toBe("0:30");
     expect(l.ariaLabel).toMatch(/^Agent replied; 1 subagent running/);
     expect(l.detail.head).toBe("Replied · 30s since your message");

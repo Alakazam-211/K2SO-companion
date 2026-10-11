@@ -127,6 +127,9 @@ describe("Home | Agents toggle (HM1)", () => {
     expect(screen.getByTestId("list-tab-thumb").style.transform).toBe("translateX(100%)");
     expect(screen.getByTestId("home-icon").getAttribute("stroke-width")).toBe("1.7");
     expect(screen.getByTestId("agent-icon").getAttribute("stroke-width")).toBe("1.7");
+    // One definition per icon: the toggle draws the shared ones (`./icons`).
+    expect(screen.getByTestId("home-icon").getAttribute("data-k2-icon")).toBe("home");
+    expect(screen.getByTestId("agent-icon").getAttribute("data-k2-icon")).toBe("agent");
     expect(screen.getByTestId("chats-title").textContent).toBe("Agents");
   });
 

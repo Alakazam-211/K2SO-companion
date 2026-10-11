@@ -36,6 +36,7 @@ import { useServersStore } from "../stores/servers";
 import { groupHtmlDocsByWorkspace } from "../lib/projectChat";
 import { useSwipeBack } from "../lib/useSwipeBack";
 import { activeScope } from "../api/scope";
+import { FileIcon } from "../zen/icons";
 
 /** Appended to every fetched doc so the document scrolls INSIDE the
  *  viewport-sized iframe with native momentum. Appended last so it
@@ -243,10 +244,7 @@ export function ProjectHtmlDocs() {
                           onClick={() => openDocument(doc)}
                           className="flex items-center gap-3 px-4 py-4 bg-[var(--surface)] border border-[var(--border)] hover:border-[var(--border-hover)] transition-colors text-left w-full theme-radius"
                         >
-                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" className="shrink-0">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                            <polyline points="14 2 14 8 20 8" />
-                          </svg>
+                          <FileIcon size={16} strokeWidth={1.5} stroke="var(--accent)" className="shrink-0" />
                           <div className="flex-1 min-w-0">
                             <div className="text-[var(--text)] text-[12px] font-semibold truncate">
                               {doc.fileName}

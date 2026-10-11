@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { HOME_NAME_MAX, type Home } from "./homes";
+import { CheckIcon } from "./icons";
 
 const ITEM = {
   gap: 10,
@@ -144,10 +145,7 @@ export function HomeMenu({
                   </span>
                   <span aria-hidden className="shrink-0" style={{ width: 16, color: "#0a84ff" }}>
                     {on ? (
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" data-testid="home-check">
-                        <path d="M20 6 9 17l-5-5" />
-                      </svg>
+                      <CheckIcon size={16} strokeWidth={2.6} testId="home-check" />
                     ) : null}
                   </span>
                 </button>

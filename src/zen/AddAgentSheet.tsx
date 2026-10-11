@@ -5,6 +5,7 @@ import { candidateMatches, homeRowFor, isHomeCandidate, serverDisplayName } from
 import { rowFocusGroupId, type FocusGroupLite, type ServerProject } from "./serverPins";
 import type { StubAgent } from "./stubData";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
+import { CheckIcon } from "./icons";
 
 export type AddAgentSegment = "this" | "other";
 
@@ -36,10 +37,7 @@ export function groupCandidates(
 
 function Check() {
   return (
-    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-      strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden data-testid="add-agent-check">
-      <path d="M20 6 9 17l-5-5" />
-    </svg>
+    <CheckIcon size={18} strokeWidth={2.6} testId="add-agent-check" />
   );
 }
 

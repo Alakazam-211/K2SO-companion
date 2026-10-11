@@ -195,31 +195,26 @@ export function threadStripView(turn: ThreadTurn, now: number): ThreadStripView 
 
 // ── The drawer's one line ───────────────────────────────────────────────
 // Collapsed, the drawer above the composer is one line: pulse · step ·
-// emoji counters · clock. The emoji are decoration for sighted readers;
+// icon counters · clock. The icons are decoration for sighted readers;
 // the drawer's aria-label stays the full sentence above, and each counter
-// carries a visually hidden word equivalent.
+// carries a visually hidden word equivalent. Subagents read
+// `[agent] ⠋1  ✓2`: the agent icon, a spinner and the running count, then
+// a check and the done count, each group only when it is above zero.
 
 export type StripCounterKey = "subagents" | "background" | "read" | "search" | "cmd" | "edit";
 
 /** Display order, left to right. */
-export const STRIP_EMOJI: Record<StripCounterKey, string> = {
-  subagents: "🤖",
-  background: "⚙️",
-  read: "📄",
-  search: "🔍",
-  cmd: "⌨️",
-  edit: "✏️",
-};
 const COUNTER_ORDER: StripCounterKey[] = ["subagents", "background", "read", "search", "cmd", "edit"];
 
-/** Dropped first to last when the line is too narrow (after the ✓done
- *  suffix). Subagents running and background tasks always show. */
+/** Dropped first to last when the line is too narrow (after the
+ *  subagents' done group). Subagents and background tasks always show. */
 export const COUNTER_DROP_ORDER: StripCounterKey[] = ["search", "read", "edit", "cmd"];
 
 export type StripCounter = {
   key: StripCounterKey;
+  /** Subagents: the running ones. */
   count: number;
-  /** Subagents only: finished ones, shown as "✓1" when it fits. */
+  /** Subagents only: finished ones (the check group). */
   done: number;
 };
 
@@ -242,12 +237,6 @@ export function stripCounters(
     if (count > 0 || done > 0) out.push({ key, count, done });
   }
   return out;
-}
-
-/** "🤖2✓1", "📄3". */
-export function counterText(c: StripCounter): string {
-  const count = c.count > 0 ? String(c.count) : "";
-  return `${STRIP_EMOJI[c.key]}${count}${c.done > 0 ? `✓${c.done}` : ""}`;
 }
 
 /** The counter in words, for screen readers. */
@@ -274,47 +263,58 @@ export function counterSpoken(c: StripCounter): string {
 
 /** Gap (px) between counters. */
 export const COUNTER_GAP_PX = 6;
+/** A counter's icon (px square) and the space between it and the number. */
+export const COUNTER_ICON_PX = 13;
+export const COUNTER_ICON_GAP_PX = 2;
+/** The subagents' check icon (px square). */
+export const COUNTER_CHECK_PX = 11;
+/** Space between the subagents' running and done groups. */
+export const COUNTER_GROUP_GAP_PX = 7;
+/** The braille spinner's box, in em of the counter text. */
+export const COUNTER_SPINNER_EM = 0.8;
 
-/** A conservative width estimate (px) of drawer text at `fontPx`: emoji are
- *  wide, digits tabular. No canvas, so it runs anywhere (and in tests). */
+/** A conservative width estimate (px) of drawer text at `fontPx`, digits
+ *  tabular. No canvas, so it runs anywhere (and in tests). */
 export function estimateStripTextPx(text: string, fontPx = 12): number {
   let w = 0;
-  for (const ch of text) {
-    const cp = ch.codePointAt(0) ?? 0;
-    if (cp === 0xfe0f || cp === 0x200d) continue;
-    if (ch === "✓") w += 0.8 * fontPx;
-    else if (/\p{Extended_Pictographic}/u.test(ch)) w += 1.3 * fontPx;
-    else if (/[0-9:]/.test(ch)) w += 0.62 * fontPx;
-    else w += 0.6 * fontPx;
-  }
+  for (const ch of text) w += (/[0-9:]/.test(ch) ? 0.62 : 0.6) * fontPx;
   return Math.ceil(w);
 }
 
-function countersWidth(list: StripCounter[], measure: (text: string) => number): number {
+/** A counter's width (px): its icon, a gap, the number. Subagents: the
+ *  agent icon, then the spinner and running count, then a gap, the check
+ *  and the done count (each group only when above zero). */
+export function counterWidthPx(c: StripCounter, fontPx = 12): number {
+  let w = COUNTER_ICON_PX + COUNTER_ICON_GAP_PX;
+  if (c.key !== "subagents") return w + estimateStripTextPx(String(c.count), fontPx);
+  if (c.count > 0) w += Math.ceil(COUNTER_SPINNER_EM * fontPx) + estimateStripTextPx(String(c.count), fontPx);
+  if (c.done > 0) {
+    w += (c.count > 0 ? COUNTER_GROUP_GAP_PX : 0) + COUNTER_CHECK_PX + COUNTER_ICON_GAP_PX;
+    w += estimateStripTextPx(String(c.done), fontPx);
+  }
+  return w;
+}
+
+function countersWidth(list: StripCounter[], measure: (c: StripCounter) => number): number {
   if (!list.length) return 0;
-  return (
-    list.reduce((sum, c) => sum + measure(counterText(c)), 0) +
-    COUNTER_GAP_PX * (list.length - 1)
-  );
+  return list.reduce((sum, c) => sum + measure(c), 0) + COUNTER_GAP_PX * (list.length - 1);
 }
 
 /**
  * The counters that fit `budgetPx` (the room left after the step's minimum
- * width, the pulse and the clock). Drops, in order: the subagents' ✓done,
- * then search, read, edit, commands. Subagents running and background
- * tasks always stay, even over budget.
+ * width, the pulse and the clock). Drops, in order: the subagents' done
+ * group (while some still run), then search, read, edit, commands. The
+ * subagents counter and background tasks always stay, even over budget.
  */
 export function fitStripCounters(
   counters: StripCounter[],
   budgetPx: number,
-  measure: (text: string) => number = (t) => estimateStripTextPx(t)
+  measure: (c: StripCounter) => number = (c) => counterWidthPx(c)
 ): StripCounter[] {
   let list = counters.slice();
   const fits = () => countersWidth(list, measure) <= budgetPx;
   if (!Number.isFinite(budgetPx) || fits()) return list;
-  list = list
-    .map((c) => (c.key === "subagents" && c.done > 0 ? { ...c, done: 0 } : c))
-    .filter((c) => c.count > 0);
+  list = list.map((c) => (c.key === "subagents" && c.count > 0 && c.done > 0 ? { ...c, done: 0 } : c));
   if (fits()) return list;
   for (const key of COUNTER_DROP_ORDER) {
     list = list.filter((c) => c.key !== key);

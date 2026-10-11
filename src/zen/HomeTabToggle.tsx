@@ -1,40 +1,10 @@
 import type { ListTab } from "./homes";
 import { SEARCH_BAR_HEIGHT } from "./GlassSearchBar";
+import { AgentIcon, HomeIcon } from "./icons";
 
-// Desktop Garden nav rail icons (`ZenNavRailWidget.tsx` HomeIcon /
-// AgentIcon), stroke 1.7 like the ticket icon port.
-const ICON = {
-  width: 18,
-  height: 18,
-  viewBox: "0 0 24 24",
-  fill: "none",
-  stroke: "currentColor",
-  strokeWidth: 1.7,
-  strokeLinecap: "round" as const,
-  strokeLinejoin: "round" as const,
-  "aria-hidden": true,
-};
-
-export function HomeIcon() {
-  return (
-    <svg {...ICON} data-testid="home-icon">
-      <path d="M3 10.5 12 3l9 7.5" />
-      <path d="M5 9.5V20h5v-6h4v6h5V9.5" />
-    </svg>
-  );
-}
-
-export function AgentIcon() {
-  return (
-    <svg {...ICON} data-testid="agent-icon">
-      <rect x="4" y="7" width="16" height="12" rx="3" />
-      <path d="M12 3v4" />
-      <circle cx="9" cy="13" r="1" />
-      <circle cx="15" cy="13" r="1" />
-      <path d="M2 12v3M22 12v3" />
-    </svg>
-  );
-}
+// Desktop Garden nav rail icons (`./icons`), stroke 1.7 like the ticket
+// icon port.
+const ICON = { size: 18, strokeWidth: 1.7 };
 
 /** Segmented control geometry: the search bar's 44px row, 3px inset. */
 export const TAB_SEG_H = SEARCH_BAR_HEIGHT;
@@ -89,7 +59,7 @@ export function HomeTabToggle({ tab, onTab }: { tab: ListTab; onTab: (tab: ListT
         style={{ width: TAB_SEG_BTN_W, height: "100%" }}
         onClick={() => onTab("home")}
       >
-        <HomeIcon />
+        <HomeIcon {...ICON} testId="home-icon" />
       </button>
       <button
         type="button"
@@ -102,7 +72,7 @@ export function HomeTabToggle({ tab, onTab }: { tab: ListTab; onTab: (tab: ListT
         style={{ width: TAB_SEG_BTN_W, height: "100%" }}
         onClick={() => onTab("agents")}
       >
-        <AgentIcon />
+        <AgentIcon {...ICON} testId="agent-icon" />
       </button>
     </div>
   );

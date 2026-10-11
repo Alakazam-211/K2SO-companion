@@ -65,6 +65,7 @@ import {
 } from "./multi/MergedRows";
 import type { MergedRow } from "./multi/merge";
 import type { RowActivity } from "./agentActivity";
+import { CheckIcon, CogIcon } from "./icons";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -1182,22 +1183,7 @@ export function ChatsList() {
             aria-label="Settings"
             title="Settings"
           >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-              data-testid="settings-icon"
-            >
-              {/* Cog (lucide "settings"). */}
-              <path d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z" />
-              <circle cx="12" cy="12" r="3" />
-            </svg>
+            <CogIcon size={18} strokeWidth={1.7} testId="settings-icon" />
           </button>
         </span>
       </div>
@@ -1286,10 +1272,7 @@ export function ChatsList() {
                   <span className="flex-1 min-w-0 truncate text-[16px]">{g.name}</span>
                   <span aria-hidden className="shrink-0" style={{ width: 16, color: "#0a84ff" }}>
                     {on ? (
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-                        strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" data-testid="focus-check">
-                        <path d="M20 6 9 17l-5-5" />
-                      </svg>
+                      <CheckIcon size={16} strokeWidth={2.6} testId="focus-check" />
                     ) : null}
                   </span>
                 </button>
