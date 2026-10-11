@@ -90,3 +90,76 @@
     animation: none;
   }
 }
+/* Tags: each collapsed counter (and the step's inline code) sits in a
+   small filled pill with no border or outline. Each kind has its own
+   muted tint: the fill is its hue at ~16% alpha, the icon and number the
+   same hue lightened to ~85%. Plain rgba/hex first for iOS 15–16.1 (no
+   color-mix); the @supports block below derives both from the tokens. */
+.k2-drawer-tag {
+  border: 0;
+  outline: 0;
+  border-radius: 9999px;
+  background: var(--k2-tag-fill);
+  color: var(--k2-tag-ink);
+}
+/* A counter: icon + number on one line, 18px tall (inline sizes). */
+.k2-drawer-count {
+  display: inline-flex;
+  align-items: center;
+  flex: none;
+  white-space: nowrap;
+  line-height: 18px;
+}
+/* The tool call in the step text: neutral, like inline code. It stays
+   inline so the step still ellipsizes (collapsed) and wraps (expanded). */
+.k2-drawer-code {
+  padding: 1px 5px;
+  -webkit-box-decoration-break: clone;
+  box-decoration-break: clone;
+}
+.k2-drawer-tag-subagents {
+  --k2-tag-hue: var(--accent);
+  --k2-tag-fill: rgba(34, 211, 238, 0.16);
+  --k2-tag-ink: #a7edf8;
+}
+.k2-drawer-tag-cmd {
+  --k2-tag-hue: var(--success);
+  --k2-tag-fill: rgba(34, 197, 94, 0.16);
+  --k2-tag-ink: #a7e7be;
+}
+.k2-drawer-tag-edit {
+  --k2-tag-hue: var(--warning);
+  --k2-tag-fill: rgba(245, 158, 11, 0.16);
+  --k2-tag-ink: #fbd9a1;
+}
+.k2-drawer-tag-read {
+  --k2-tag-hue: #2dd4bf;
+  --k2-tag-fill: rgba(45, 212, 191, 0.16);
+  --k2-tag-ink: #a9ede5;
+}
+.k2-drawer-tag-search {
+  --k2-tag-hue: var(--group-5);
+  --k2-tag-fill: rgba(168, 85, 247, 0.16);
+  --k2-tag-ink: #dcbbfc;
+}
+.k2-drawer-tag-background {
+  --k2-tag-hue: var(--text-muted);
+  --k2-tag-fill: rgba(113, 113, 122, 0.18);
+  --k2-tag-ink: #c6c6ca;
+}
+.k2-drawer-code {
+  --k2-tag-fill: rgba(228, 228, 231, 0.11);
+  color: inherit;
+}
+@supports (color: color-mix(in srgb, red, blue)) {
+  .k2-drawer-count {
+    --k2-tag-fill: color-mix(in srgb, var(--k2-tag-hue) 16%, transparent);
+    --k2-tag-ink: color-mix(in srgb, var(--k2-tag-hue) 40%, white);
+  }
+  .k2-drawer-tag-background {
+    --k2-tag-fill: color-mix(in srgb, var(--k2-tag-hue) 18%, transparent);
+  }
+  .k2-drawer-code {
+    --k2-tag-fill: color-mix(in srgb, var(--text) 11%, transparent);
+  }
+}
