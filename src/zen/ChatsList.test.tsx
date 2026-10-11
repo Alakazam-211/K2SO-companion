@@ -42,7 +42,7 @@ vi.mock("../lib/revive", () => ({
 import { reorderProjects, setProjectPinned } from "../api/client";
 import { useFeedbackStore } from "../stores/feedback";
 import { hostLabel, useServersStore } from "../stores/servers";
-import { ChatsList } from "./ChatsList";
+import { ChatsList, ZEN_LIST_EDGE_INSET, ZEN_LIST_EDGE_PAD } from "./ChatsList";
 import { SEARCH_BAR_REST_BOTTOM } from "./GlassSearchBar";
 import { JOIN_NO_PROJECT } from "./agentRow";
 import { STUB_AGENTS } from "./stubData";
@@ -557,6 +557,9 @@ describe("ChatsList", () => {
     const drop = screen.getByTestId("chats-pin-drop");
     expect(drop.className).toMatch(/k2-pin-drop/);
     expect(drop.textContent).toMatch(/Drop to pin/);
+    // Same side edges as the pin grid it stands in for.
+    expect(drop.style.left).toBe(`${ZEN_LIST_EDGE_INSET}px`);
+    expect(drop.style.right).toBe(`${ZEN_LIST_EDGE_INSET}px`);
     drop.getBoundingClientRect = () =>
       ({
         left: 0,
@@ -1457,6 +1460,28 @@ describe("ChatsList", () => {
       const grid = screen.getByTestId("chats-pins");
       expect(grid.style.margin).toBe("10px 4px 0px");
       expect(grid.style.padding).toBe("4px 2px 8px");
+    });
+
+    it("the list rows share the pin grid's side edges", () => {
+      setup([LA.id]);
+      const grid = screen.getByTestId("chats-pins");
+      const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-swipe-row]"));
+      expect(rows.length).toBeGreaterThan(0);
+      const inset = `${ZEN_LIST_EDGE_INSET}px`;
+      const pad = `${ZEN_LIST_EDGE_PAD}px`;
+      // Outer box: grid and every row sit the same distance from the screen.
+      expect(grid.style.marginLeft).toBe(inset);
+      expect(grid.style.marginRight).toBe(inset);
+      // Content: pin columns, avatar and chevron share the inner edge.
+      expect(grid.style.paddingLeft).toBe(pad);
+      expect(grid.style.paddingRight).toBe(pad);
+      for (const wrap of rows) {
+        expect(wrap.style.marginLeft).toBe(grid.style.marginLeft);
+        expect(wrap.style.marginRight).toBe(grid.style.marginRight);
+        const row = wrap.querySelector<HTMLElement>("[data-pin-from='list']")!;
+        expect(row.style.paddingLeft).toBe(grid.style.paddingLeft);
+        expect(row.style.paddingRight).toBe(grid.style.paddingRight);
+      }
     });
   });
 
