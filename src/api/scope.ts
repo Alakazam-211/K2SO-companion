@@ -278,6 +278,22 @@ async function getBootStatus(base: string): Promise<unknown | null> {
   }
 }
 
+/** The raw `GET /boot-status` body on `scope` (public, no token; 4 s, one
+ *  retry on a network error only), or null when unreachable / non-2xx /
+ *  removed. NOT recorded: the S2 pool reads it to tell offline from live
+ *  (`refreshBootStatus` keeps the last good answer on a failure). */
+export async function readBootStatus(scope: ServerScope): Promise<unknown | null> {
+  if (!scope.id) return null;
+  let base: string;
+  try {
+    base = scope.httpBase();
+  } catch {
+    return null;
+  }
+  if (!base) return null;
+  return getBootStatus(base);
+}
+
 /** `GET /boot-status` on `scope` (no token; 4 s, one retry on a network
  *  error), recorded in the feature memory. Single-flight per server. A
  *  failure keeps what was known. */
