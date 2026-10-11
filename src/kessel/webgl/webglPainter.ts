@@ -96,7 +96,8 @@ export function createWebglPainter(
   // Diagnostics (owner feel-test aid): localStorage.K2SO_WEBGL_DIAG='1'
   // → one console line per 60 rendered frames with timing + volume.
   const diagEnabled =
-    typeof localStorage?.getItem === 'function' &&
+    typeof localStorage !== 'undefined' &&
+    typeof localStorage.getItem === 'function' &&
     localStorage.getItem('K2SO_WEBGL_DIAG') === '1'
   let diagFrames = 0
   let diagMs = 0
