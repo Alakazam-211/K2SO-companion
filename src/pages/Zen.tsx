@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { WorkspaceAvatar } from "../zen/WorkspaceAvatar";
 import { useWorkspacesStore } from "../stores/workspaces";
@@ -11,11 +11,16 @@ import { useSwipeBack } from "../lib/useSwipeBack";
 import { FileStage } from "../zen/FileStage";
 import { PaneErrorBoundary } from "../zen/PaneErrorBoundary";
 import {
+  ZEN_ADDR_PARAM,
+  readZenReturnState,
+  rememberZenReturn,
   rememberZenThread,
   terminalIdForAgent,
   zenTerminalPath,
+  zenTerminalReturn,
   type ZenTerminalAgent,
 } from "../zen/terminalJump";
+import { resumeSessionThread } from "../zen/sessionReturn";
 import { ThreadPane } from "../zen/ThreadPane";
 import { STUB_BANNER } from "../zen/stubData";
 import { isOverlayExtraAddr, threadHeaderTitle, threadSidecarTitle } from "../zen/overlayExtras";
@@ -42,6 +47,9 @@ export function Zen() {
   const containerHeight = useViewportHeight();
   const [params, setParams] = useSearchParams();
   const threadParam = params.get("thread");
+  // Terminal Done: `/zen?addr=<session addr>` (+ state.zenReturn).
+  const addrParam = (params.get(ZEN_ADDR_PARAM) || "").trim();
+  const location = useLocation();
   const screen = useZenStore((s) => s.screen);
   const agentId = useZenStore((s) => s.agentId);
   const agents = useZenStore((s) => s.agents);
@@ -85,6 +93,9 @@ export function Zen() {
   }, [agentId]);
 
   const openTerminal = (tid: string, chatTitle: string | null) => {
+    // Done on the terminal returns to this exact Thread (Done mode, origin).
+    const back = zenTerminalReturn(agent, tid, drawerOrigin);
+    rememberZenReturn(back);
     const ctx: ZenTerminalAgent | null = agentId
       ? {
           agentId,
@@ -95,6 +106,7 @@ export function Zen() {
           chatTitle,
           projectPath: agent?.path ?? null,
           addr: agent?.addr ?? null,
+          back,
         }
       : null;
     navigate(zenTerminalPath(tid), {
@@ -107,7 +119,17 @@ export function Zen() {
   const skipHydrateOnClear = useRef(false);
   const wantThread =
     screen === "thread" ||
-    (Boolean((threadParam || "").trim()) && !ignoreThreadQuery);
+    (Boolean((threadParam || "").trim() || addrParam) && !ignoreThreadQuery);
+
+  // `?addr=` reopens that session's Thread before paint. The cold
+  // hydrate below must not run over it (it ends Done mode).
+  const zenReturn = readZenReturnState(location.state, addrParam);
+  const zenReturnKey = zenReturn ? JSON.stringify(zenReturn) : "";
+  useLayoutEffect(() => {
+    if (!addrParam) return;
+    setIgnoreThreadQuery(false);
+    void resumeSessionThread(addrParam, zenReturnKey ? JSON.parse(zenReturnKey) : null);
+  }, [addrParam, zenReturnKey]);
 
   // Chat return (`?thread=`) must first-paint LOADING, never leftover bubbles.
   // hydrateAgents is useEffect (after paint); this runs before paint.
@@ -133,24 +155,26 @@ export function Zen() {
       void hydrateAgents({ resumeId: id });
       return;
     }
+    if (addrParam) return;
     if (skipHydrateOnClear.current) {
       skipHydrateOnClear.current = false;
       return;
     }
     void hydrateAgents();
-  }, [hydrateAgents, threadParam]);
+  }, [hydrateAgents, threadParam, addrParam]);
 
   const backToChats = () => {
     // closeChat is zustand-sync and would re-render with the query still
     // holding the thread column (empty name, em dash). Dismiss first.
     flushSync(() => setIgnoreThreadQuery(true));
     closeChat();
-    if ((threadParam || "").trim()) {
+    if ((threadParam || "").trim() || addrParam) {
       skipHydrateOnClear.current = true;
       setParams(
         (prev) => {
           const next = new URLSearchParams(prev);
           next.delete("thread");
+          next.delete(ZEN_ADDR_PARAM);
           return next;
         },
         { replace: true }
