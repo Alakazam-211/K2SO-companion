@@ -1807,6 +1807,9 @@ describe("ChatsList", () => {
         const row = wrap.querySelector<HTMLElement>("[data-pin-from='list']")!;
         expect(row.style.paddingLeft).toBe(inset);
         expect(row.style.paddingRight).toBe(inset);
+        // 12px top and bottom: the rows breathe 4px more than the old 10px.
+        expect(row.style.paddingTop).toBe("12px");
+        expect(row.style.paddingBottom).toBe("12px");
       }
     });
 
@@ -1832,6 +1835,8 @@ describe("ChatsList", () => {
       expect(row).not.toBeNull();
       expect(row.style.paddingLeft).toBe(cssLen(ZEN_LIST_CONTENT_INSET));
       expect(row.style.paddingRight).toBe(cssLen(ZEN_LIST_CONTENT_INSET));
+      expect(row.style.paddingTop).toBe("12px");
+      expect(row.style.paddingBottom).toBe("12px");
     });
   });
 

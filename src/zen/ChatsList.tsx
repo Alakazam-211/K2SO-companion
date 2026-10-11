@@ -1043,8 +1043,8 @@ export function ChatsList() {
               gap: 10,
               // Avatar's left and the when/chevron's right line up with the
               // outer edges of the first and third pinned avatars.
-              paddingTop: 10,
-              paddingBottom: 10,
+              paddingTop: 12,
+              paddingBottom: 12,
               paddingLeft: ZEN_LIST_CONTENT_INSET,
               paddingRight: ZEN_LIST_CONTENT_INSET,
               touchAction: ghost ? "none" : "pan-y",
