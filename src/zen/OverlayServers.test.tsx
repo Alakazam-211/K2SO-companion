@@ -99,9 +99,13 @@ describe("OverlayServers", () => {
     expect(onClose).not.toHaveBeenCalled();
   });
 
-  it("Add opens the overlay add form", () => {
+  it("the + button opens the overlay add form; no header Add button", () => {
     render(<OverlayServers onClose={() => {}} />);
-    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Done" })).not.toBeNull();
+    const plus = screen.getByRole("button", { name: "Add server" });
+    expect(plus.className).toMatch(/zen-glass-round/);
+    fireEvent.click(plus);
     expect(screen.getByTestId("overlay-add-server")).not.toBeNull();
     expect(screen.getByText("Add server")).not.toBeNull();
     expect(screen.getByRole("button", { name: "Cancel" })).not.toBeNull();
@@ -126,5 +130,68 @@ describe("OverlayServers", () => {
     fireEvent.click(screen.getByRole("button", { name: "Other" }));
     await waitFor(() => expect(connectServer).toHaveBeenCalledWith("s2"));
     expect(useServersStore.getState().activeServerId).toBe("s1");
+  });
+
+  it("lists the active server first, then the rest alphabetically", () => {
+    useServersStore.setState({
+      servers: [
+        { ...OTHER, id: "s3", nickname: "zulu" },
+        HOME,
+        { ...OTHER, id: "s4", nickname: "", url: "https://bravo.k2.dev" },
+        OTHER,
+        { ...OTHER, id: "s5", nickname: "alpha" },
+      ],
+      activeServerId: "s2",
+      recovery: { s1: "connected", s2: "connected", s3: "connected", s4: "connected", s5: "connected" },
+    });
+    render(<OverlayServers onClose={() => {}} />);
+    const names = screen
+      .getAllByTestId("overlay-server-row")
+      .map((el) => el.getAttribute("aria-label"));
+    expect(names).toEqual(["Other", "alpha", "bravo.k2.dev", "Home", "zulu"]);
+    expect(screen.getByText("active").closest("[data-testid=overlay-servers-list] > div")?.textContent).toMatch(/^Other/);
+  });
+
+  it("search filters by nickname, host, or username, case-insensitively", () => {
+    useServersStore.setState({
+      servers: [HOME, OTHER, { ...OTHER, id: "s3", nickname: "Lab", url: "https://lab.k2.dev", username: "jeremie" }],
+      activeServerId: "s1",
+      recovery: { s1: "connected", s2: "connected", s3: "connected" },
+    });
+    render(<OverlayServers onClose={() => {}} />);
+    const input = screen.getByPlaceholderText("Search servers");
+    const rows = () =>
+      screen.getAllByTestId("overlay-server-row").map((el) => el.getAttribute("aria-label"));
+
+    fireEvent.change(input, { target: { value: "oTH" } });
+    expect(rows()).toEqual(["Other"]);
+
+    fireEvent.change(input, { target: { value: "LAB.K2" } });
+    expect(rows()).toEqual(["Lab"]);
+
+    fireEvent.change(input, { target: { value: "JEREMIE" } });
+    expect(rows()).toEqual(["Lab"]);
+
+    // Active server stays first when it matches.
+    fireEvent.change(input, { target: { value: "baden" } });
+    expect(rows()).toEqual(["Home", "Other"]);
+
+    fireEvent.change(input, { target: { value: "" } });
+    expect(rows()).toEqual(["Home", "Lab", "Other"]);
+  });
+
+  it("shows an empty state when no server matches", () => {
+    render(<OverlayServers onClose={() => {}} />);
+    fireEvent.change(screen.getByPlaceholderText("Search servers"), {
+      target: { value: "nothing-here" },
+    });
+    expect(screen.queryAllByTestId("overlay-server-row")).toHaveLength(0);
+    expect(screen.getByText("No servers match")).not.toBeNull();
+  });
+
+  it("the list leaves room for the bottom bar", () => {
+    render(<OverlayServers onClose={() => {}} />);
+    expect(screen.getByTestId("overlay-servers-list").style.paddingBottom).toBe("96px");
+    expect(screen.getByTestId("overlay-servers-bar").className).toMatch(/absolute/);
   });
 });
