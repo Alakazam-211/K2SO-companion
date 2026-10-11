@@ -1,3 +1,5 @@
+import { FileIcon } from "../icons";
+
 /** Centered status line for a viewer: loading, error, or an empty state. */
 export function ViewerNote({
   title,
@@ -46,10 +48,7 @@ export function BinaryEmptyState({
       className="flex h-full w-full flex-col items-center justify-center gap-2 px-8 text-center"
       data-testid="file-binary"
     >
-      <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--text-muted)" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-        <polyline points="14 2 14 8 20 8" />
-      </svg>
+      <FileIcon size={40} strokeWidth={1.5} stroke="var(--text-muted)" />
       <span className="text-[14px] text-[var(--text)]">{message}</span>
       <span className="max-w-full truncate font-mono text-[12px] text-[var(--text-muted)]">
         {detail || name}

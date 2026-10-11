@@ -268,7 +268,7 @@ describe("ChatsList", () => {
     const cog = screen.getByRole("button", { name: "Settings" });
     expect(right.contains(cog)).toBe(true);
     expect(cog.textContent).toBe("");
-    expect(cog.querySelector("[data-testid=settings-icon]")).not.toBeNull();
+    expect(cog.querySelector("[data-testid=settings-icon]")?.getAttribute("data-k2-icon")).toBe("cog");
     const rightButtons = Array.from(right.children);
     const projects = screen.getByRole("button", { name: "Projects" });
     expect(rightButtons).toEqual([projects, screen.getByRole("button", { name: "Tickets" }), cog]);

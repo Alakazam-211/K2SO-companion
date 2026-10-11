@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { FocusGroupLite } from "./serverPins";
+import { CheckIcon } from "./icons";
 
 /**
  * Swipe-right "Group" sheet on the Agents list: put one workspace in a
@@ -71,10 +72,7 @@ export function FocusGroupPicker({
       <span className="flex-1 min-w-0 truncate text-[16px]">{label}</span>
       <span aria-hidden className="shrink-0" style={{ width: 18, color: "#0a84ff" }}>
         {on ? (
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-            strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" data-testid="group-pick-check">
-            <path d="M20 6 9 17l-5-5" />
-          </svg>
+          <CheckIcon size={18} strokeWidth={2.6} testId="group-pick-check" />
         ) : null}
       </span>
     </button>

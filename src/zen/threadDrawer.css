@@ -63,3 +63,30 @@
     transition: none;
   }
 }
+/* Running subagents: a braille spinner (desktop `.braille-spinner`,
+   ⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ at 80ms a frame). The glyphs stand in a column and the
+   column steps up one line per frame: a transform, which WKWebView
+   animates everywhere (animating `content` it may not). Reduced motion
+   draws a static dot instead (ThreadWorkingStrip). */
+@keyframes k2-braille-spin {
+  to {
+    transform: translateY(-10em);
+  }
+}
+.k2-braille-spinner {
+  display: inline-block;
+  overflow: hidden;
+  height: 1em;
+  line-height: 1em;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.k2-braille-spinner > span {
+  display: block;
+  animation: k2-braille-spin 800ms steps(10) infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .k2-braille-spinner > span {
+    animation: none;
+  }
+}

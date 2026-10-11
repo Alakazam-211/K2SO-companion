@@ -1,17 +1,33 @@
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ComponentType } from "react";
 import {
+  COUNTER_CHECK_PX,
   COUNTER_GAP_PX,
+  COUNTER_GROUP_GAP_PX,
+  COUNTER_ICON_GAP_PX,
+  COUNTER_ICON_PX,
+  COUNTER_SPINNER_EM,
   STOPPED_LINGER_MS,
-  STRIP_EMOJI,
   counterSpoken,
-  counterText,
+  counterWidthPx,
   estimateStripTextPx,
   fitStripCounters,
   threadDrawerLine,
+  type StripCounter,
+  type StripCounterKey,
   type ThreadDrawerLine,
   type ThreadStripStep,
   type ThreadStripTone,
 } from "./threadStrip";
+import {
+  AgentIcon,
+  CheckIcon,
+  CogIcon,
+  FileIcon,
+  PencilIcon,
+  SearchIcon,
+  TerminalIcon,
+  type IconProps,
+} from "./icons";
 import type { ThreadTurn } from "./threadTurn";
 import { zenTextPx } from "./zenFont";
 import { prefersReducedMotion } from "./sendFly";
@@ -20,7 +36,7 @@ import "./threadDrawer.css";
 // The Thread working drawer: a glass tile pulled out of the composer's top
 // edge (GlassComposer's `drawer` slot owns where it sits) while
 // the agent works on your message, so it stays in view while you read
-// back. Collapsed it is one line (pulse · step · emoji counters · clock);
+// back. Collapsed it is one line (pulse · step · icon counters · clock);
 // a tap grows it upward to the full detail in words, another tap shrinks
 // it back. The choice is remembered per device. Nothing else is stored.
 // It counts its own clock (1 Hz, from the daemon's `startedAt` /
@@ -46,6 +62,81 @@ const RADIUS = "var(--k2-drawer-radius, 15px)";
 const STEP_MIN_PX = 72;
 const COUNTER_FONT_PX = 12;
 const EXPANDED_LINE_PX = 19;
+
+/** Each counter's icon: the app's own, reused (`./icons`). */
+export const STRIP_ICON: Record<StripCounterKey, ComponentType<IconProps>> = {
+  subagents: AgentIcon,
+  background: CogIcon,
+  read: FileIcon,
+  search: SearchIcon,
+  cmd: TerminalIcon,
+  edit: PencilIcon,
+};
+
+/** Braille spinner frames (desktop `.braille-spinner`), 80ms each. */
+export const BRAILLE_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
+/** Reduced motion: one still glyph in the spinner's place. */
+export const SPINNER_STATIC = "•";
+
+/** Icons sit on the text baseline: their middle at the digits' middle. */
+const ON_BASELINE = { verticalAlign: "-0.2em", marginRight: COUNTER_ICON_GAP_PX } as const;
+
+function BrailleSpinner({ still }: { still: boolean }) {
+  const box = { width: `${COUNTER_SPINNER_EM}em`, verticalAlign: "-0.15em" };
+  if (still) {
+    return (
+      <span className="k2-braille-spinner" data-testid="thread-strip-spinner" data-static="true" style={box}>
+        {SPINNER_STATIC}
+      </span>
+    );
+  }
+  return (
+    <span className="k2-braille-spinner" data-testid="thread-strip-spinner" style={box}>
+      <span>
+        {Array.from(BRAILLE_FRAMES).map((f, i) => (
+          <span key={i} className="block">
+            {f}
+          </span>
+        ))}
+      </span>
+    </span>
+  );
+}
+
+/** One collapsed counter's visible part (aria-hidden; the words are beside it). */
+function CounterGlyphs({ c, still }: { c: StripCounter; still: boolean }) {
+  const Glyph = STRIP_ICON[c.key];
+  const icon = <Glyph size={COUNTER_ICON_PX} strokeWidth={2} className="inline-block" style={ON_BASELINE} />;
+  if (c.key !== "subagents") {
+    return (
+      <span aria-hidden="true">
+        {icon}
+        {c.count}
+      </span>
+    );
+  }
+  // [agent] ⠋1  ✓2: the agent icon labels both groups.
+  return (
+    <span aria-hidden="true">
+      {icon}
+      {c.count > 0 ? (
+        <span data-testid="thread-strip-running">
+          <BrailleSpinner still={still} />
+          {c.count}
+        </span>
+      ) : null}
+      {c.done > 0 ? (
+        <span
+          data-testid="thread-strip-done"
+          style={{ marginLeft: c.count > 0 ? COUNTER_GROUP_GAP_PX : 0 }}
+        >
+          <CheckIcon size={COUNTER_CHECK_PX} strokeWidth={2.4} className="inline-block" style={ON_BASELINE} />
+          {c.done}
+        </span>
+      ) : null}
+    </span>
+  );
+}
 
 export const DRAWER_EXPANDED_KEY = "k2-zen-thread-drawer-expanded";
 
@@ -208,8 +299,8 @@ export function ThreadWorkingStrip({
         : "k2-drawer-slide-in";
   const color = TONE[display.tone];
   const pulsing = display.tone === "working";
-  const counters = fitStripCounters(display.counters, counterBudget(width, display.clock), (t) =>
-    estimateStripTextPx(t, COUNTER_FONT_PX)
+  const counters = fitStripCounters(display.counters, counterBudget(width, display.clock), (c) =>
+    counterWidthPx(c, COUNTER_FONT_PX)
   );
   const dot = (
     <span
@@ -352,8 +443,8 @@ export function ThreadWorkingStrip({
                   style={{ gap: COUNTER_GAP_PX, color: "var(--text-muted)" }}
                 >
                   {counters.map((c) => (
-                    <span key={c.key} data-testid={`thread-strip-count-${c.key}`} data-emoji={STRIP_EMOJI[c.key]}>
-                      <span aria-hidden="true">{counterText(c)}</span>
+                    <span key={c.key} data-testid={`thread-strip-count-${c.key}`}>
+                      <CounterGlyphs c={c} still={reduced} />
                       <span className="sr-only">{counterSpoken(c)}</span>
                     </span>
                   ))}
