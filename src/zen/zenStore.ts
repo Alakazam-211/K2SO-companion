@@ -90,6 +90,12 @@ import {
 import { isMine, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import { mergeThreadMessages } from "./threadLive";
 import {
+  hasLanded,
+  newLocalId,
+  threadRoomKey,
+  type OutgoingMessage,
+} from "./outbox";
+import {
   EMPTY_ACTIVITY,
   NO_CHAT_SESSIONS,
   parseActivitySnapshot,
@@ -201,7 +207,23 @@ type ZenState = {
   /** The open project chat is on screen: its messages up to `lastAt` are seen. */
   markGroupSeen: (groupId: string, lastAt?: number | null) => void;
   loadEarlier: () => Promise<void>;
-  sendThread: (text: string) => Promise<void>;
+  /** Send `text` to the open Thread. Optimistic: an outbox bubble shows
+   *  "Sending…" at once, then gives way to the server's item, or turns
+   *  "Not sent". `localId` sends an entry `queueOutgoing` already made
+   *  (ThreadPane, after its uploads). Resolves true once delivered. */
+  sendThread: (text: string, opts?: { localId?: string }) => Promise<boolean>;
+  /** Optimistic outgoing bubbles, every room (`OutgoingMessage.roomKey`).
+   *  In memory only; a failed one stays until retried or put back. */
+  outbox: OutgoingMessage[];
+  /** Add a "Sending…" bubble for the open room; returns its temp id. */
+  queueOutgoing: (input: {
+    text: string;
+    files?: File[];
+    attachWorkspace?: string | null;
+    attachDir?: string | null;
+  }) => string;
+  patchOutgoing: (localId: string, patch: Partial<OutgoingMessage>) => void;
+  dropOutgoing: (localId: string) => void;
   answerChoice: (messageId: string, option: string) => Promise<void>;
   ingestThreadRaw: (raw: ThreadItem) => void;
   refreshOpenThread: () => Promise<void>;
@@ -616,6 +638,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   threadFocusSeq: null,
   sending: false,
   sendError: null,
+  outbox: [],
   answeringId: null,
   answerError: null,
   answerErrorId: null,
@@ -1461,30 +1484,107 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
   },
 
-  sendThread: async (text) => {
+  queueOutgoing: ({ text, files = [], attachWorkspace = null, attachDir = null }) => {
+    const s = get();
+    const localId = newLocalId();
+    const entry: OutgoingMessage = {
+      localId,
+      roomKey: threadRoomKey(zenScope().id, s.threadGroupId, s.threadAddr),
+      text,
+      files,
+      paths: files.map(() => null),
+      attachWorkspace,
+      attachDir,
+      status: "sending",
+      error: null,
+      at: Date.now() / 1000,
+      beforeIds: s.thread.map((m) => m.id),
+      body: null,
+      serverId: null,
+    };
+    set({ outbox: [...s.outbox, entry] });
+    return localId;
+  },
+
+  patchOutgoing: (localId, patch) => {
+    const outbox = get().outbox;
+    if (!outbox.some((o) => o.localId === localId)) return;
+    set({ outbox: outbox.map((o) => (o.localId === localId ? { ...o, ...patch } : o)) });
+  },
+
+  dropOutgoing: (localId) => {
+    const outbox = get().outbox;
+    if (!outbox.some((o) => o.localId === localId)) return;
+    set({ outbox: outbox.filter((o) => o.localId !== localId) });
+  },
+
+  sendThread: async (text, opts) => {
     const trimmed = text.trim();
-    if (!trimmed) return;
-    const scope = zenScope();
-    if (get().agentSource === "stub" || get().threadSource === "stub") {
-      set({ sendError: "STUB — Cannot send — POST /cli/thread/post not proven" });
-      return;
+    const given = opts?.localId;
+    if (!trimmed) {
+      if (given) get().dropOutgoing(given);
+      return false;
     }
+    const scope = zenScope();
     const groupId = (get().threadGroupId || "").trim();
+    const addr = get().threadAddr;
+    const gen = get().threadGen;
+    // "Not sent": the bubble stays (retry / put back); this room's label
+    // gets the reason. A send that landed anyway (echo) is just done.
+    const outboxWithout = (id: string) => get().outbox.filter((o) => o.localId !== id);
+    const fail = (id: string, error: string): boolean => {
+      const entry = get().outbox.find((o) => o.localId === id);
+      const here = get().threadGen === gen;
+      if (entry && here && hasLanded(entry, get().thread)) {
+        set({ sending: false, sendError: null, outbox: outboxWithout(id) });
+        return true;
+      }
+      get().patchOutgoing(id, { status: "failed", error });
+      if (here) set({ sending: false, sendError: error });
+      return false;
+    };
+    let localId = given;
+    if (localId) {
+      const entry = get().outbox.find((o) => o.localId === localId);
+      if (!entry) return false;
+      // Typed in a room that is no longer open (uploads outlived it):
+      // never post it somewhere else.
+      if (entry.roomKey !== threadRoomKey(scope.id, groupId, addr)) {
+        get().patchOutgoing(localId, { status: "failed", error: "Not sent" });
+        return false;
+      }
+      get().patchOutgoing(localId, { status: "sending", error: null, body: trimmed });
+    }
+    if (get().agentSource === "stub" || get().threadSource === "stub") {
+      const error = "STUB — Cannot send — POST /cli/thread/post not proven";
+      if (localId) get().patchOutgoing(localId, { status: "failed", error });
+      set({ sendError: error });
+      return false;
+    }
+    if (!groupId && !isSendableAddr(addr)) {
+      const error = get().threadError || "Not chattable";
+      if (localId) get().patchOutgoing(localId, { status: "failed", error });
+      set({ sendError: error });
+      return false;
+    }
+    if (!localId) {
+      localId = get().queueOutgoing({ text: trimmed });
+      get().patchOutgoing(localId, { body: trimmed });
+    }
+    const id = localId;
     if (groupId) {
-      const gen = get().threadGen;
       set({ sending: true, sendError: null });
       try {
         const posted = await postProjectGroupMessage(scope, groupId, trimmed);
-        if (get().threadGen !== gen) return;
         if (!posted.ok || !posted.data) {
-          set({
-            sending: false,
-            sendError: posted.error || "send failed",
-          });
-          return;
+          return fail(id, posted.error || "send failed");
+        }
+        const row = posted.data;
+        if (get().threadGen !== gen) {
+          get().dropOutgoing(id);
+          return true;
         }
         const username = scope.username();
-        const row = posted.data;
         const msg = groupMessagesToThread(
           [
             {
@@ -1501,6 +1601,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         set({
           sending: false,
           sendError: null,
+          outbox: outboxWithout(id),
           thread: msg && !seen.has(msg.id) ? [...get().thread, msg] : get().thread,
           lastAtByKey: {
             ...get().lastAtByKey,
@@ -1508,32 +1609,17 @@ export const useZenStore = create<ZenState>((set, get) => ({
           },
         });
         get().markGroupSeen(groupId, row.createdAt);
+        return true;
       } catch (e) {
-        if (get().threadGen !== gen) return;
-        set({
-          sending: false,
-          sendError: e instanceof Error ? e.message : String(e),
-        });
+        return fail(id, e instanceof Error ? e.message : String(e));
       }
-      return;
     }
-    const addr = get().threadAddr;
-    if (!isSendableAddr(addr)) {
-      set({ sendError: get().threadError || "Not chattable" });
-      return;
-    }
-    const gen = get().threadGen;
     const before = get().thread.map((m) => m.id);
     set({ sending: true, sendError: null });
     try {
-      const posted = await postThread(scope, addr, trimmed);
-      if (get().threadGen !== gen) return;
+      const posted = await postThread(scope, addr as string, trimmed);
       if (!posted.ok) {
-        set({
-          sending: false,
-          sendError: posted.error || "send failed",
-        });
-        return;
+        return fail(id, posted.error || "send failed");
       }
       const postedId = String(
         (posted.data &&
@@ -1541,14 +1627,19 @@ export const useZenStore = create<ZenState>((set, get) => ({
             (posted.data.doc && posted.data.doc.id))) ||
           ""
       );
-      const reread = await getThread(scope, addr);
-      if (get().threadGen !== gen) return;
+      if (postedId) get().patchOutgoing(id, { serverId: postedId });
+      if (get().threadGen !== gen) {
+        // Posted; that room shows it when it is opened again.
+        get().dropOutgoing(id);
+        return true;
+      }
+      const reread = await getThread(scope, addr as string);
+      if (get().threadGen !== gen) {
+        get().dropOutgoing(id);
+        return true;
+      }
       if (!reread.ok || !reread.data || !Array.isArray(reread.data.items)) {
-        set({
-          sending: false,
-          sendError: "sent but the thread could not be re-read",
-        });
-        return;
+        return fail(id, "sent but the thread could not be re-read");
       }
       const username = scope.username();
       const items = reread.data.items
@@ -1559,24 +1650,17 @@ export const useZenStore = create<ZenState>((set, get) => ({
         ? items.find((m) => m.id === postedId)
         : items.find((m) => m.text === trimmed && !before.includes(m.id));
       if (!onWire) {
-        set({
-          sending: false,
-          sendError: "sent but not on the wire",
-        });
-        return;
+        return fail(id, "sent but not on the wire");
       }
       // Arrival is not authorship. Accept owner or the signed-in
       // username; never this thread's own agent handle.
-      if (!isOwnerAuthored(onWire.from, username, addr)) {
-        set({
-          sending: false,
-          sendError: `sent but the speaker was wrong (from='${onWire.from}')`,
-        });
-        return;
+      if (!isOwnerAuthored(onWire.from, username, addr as string)) {
+        return fail(id, `sent but the speaker was wrong (from='${onWire.from}')`);
       }
       set({
         sending: false,
         sendError: null,
+        outbox: outboxWithout(id),
         thread: items,
         threadConversationId:
           (reread.data.conversation_id || "").trim() ||
@@ -1584,14 +1668,11 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadHasMore: !!reread.data.has_more,
         threadOldestSeq: oldestSeqOf(items),
         // The row shows this send at once ("You: …").
-        ...threadRowPatch(get(), scope, addr, { ...onWire, at: onWire.at ?? Date.now() / 1000 }),
+        ...threadRowPatch(get(), scope, addr as string, { ...onWire, at: onWire.at ?? Date.now() / 1000 }),
       });
+      return true;
     } catch (e) {
-      if (get().threadGen !== gen) return;
-      set({
-        sending: false,
-        sendError: e instanceof Error ? e.message : String(e),
-      });
+      return fail(id, e instanceof Error ? e.message : String(e));
     }
   },
 

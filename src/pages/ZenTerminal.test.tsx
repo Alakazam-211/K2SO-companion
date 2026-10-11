@@ -645,6 +645,38 @@ describe("ZenTerminal", () => {
     await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe(""));
   });
 
+  it("Send clears the field at once, before the send answers", async () => {
+    let answer!: (v: { ok: true }) => void;
+    vi.mocked(sendMessageToSession).mockImplementationOnce(
+      () => new Promise((ok) => (answer = ok as never))
+    );
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+    const input = screen.getByPlaceholderText("Message Appa") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "hello" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(input.value).toBe("");
+    expect(input.disabled).toBe(false);
+    await act(async () => answer({ ok: true }));
+    expect(input.value).toBe("");
+  });
+
+  it("a failed send puts the text back and says why", async () => {
+    let answer!: (v: unknown) => void;
+    vi.mocked(sendMessageToSession).mockImplementationOnce(
+      () => new Promise((ok) => (answer = ok as never))
+    );
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+    const input = screen.getByPlaceholderText("Message Appa") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "hello" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    expect(input.value).toBe("");
+    // Typed more while it was in flight: nothing is lost.
+    fireEvent.change(input, { target: { value: "next" } });
+    await act(async () => answer({ ok: false, message: "session gone" }));
+    expect(input.value).toBe("hello\nnext");
+    expect(screen.getByText("session gone")).not.toBeNull();
+  });
+
   it("＋ uploads into the agent workspace and puts the path in the draft", async () => {
     vi.mocked(uploadFsBinary).mockResolvedValueOnce({
       ok: true,

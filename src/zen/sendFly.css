@@ -1,0 +1,9 @@
+/* Reduced motion (and no Web Animations): the sent bubble just fades in. */
+@keyframes zen-bubble-fade {
+  from {
+    opacity: 0;
+  }
+}
+.zen-bubble-fade {
+  animation: zen-bubble-fade 180ms ease-out;
+}
