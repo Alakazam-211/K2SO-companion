@@ -13,27 +13,30 @@ describe("middleEllipsis", () => {
     expect(middleEllipsis("plan.md", 500, mono)).toBe("plan.md");
   });
 
-  it("cuts the middle and keeps the last 6 characters", () => {
+  it("cuts the middle and keeps the last 10 characters", () => {
     const name = "very-long-file-name-for-the-header.ts";
     const out = middleEllipsis(name, 240, mono);
-    expect(MIDDLE_TAIL_CHARS).toBe(6);
-    expect(out.endsWith("der.ts")).toBe(true);
-    expect(out).toBe(`very-long-file-na${ELLIPSIS}der.ts`);
+    expect(MIDDLE_TAIL_CHARS).toBe(10);
+    expect(out.endsWith("-header.ts")).toBe(true);
+    expect(out).toBe(`very-long-fil${ELLIPSIS}-header.ts`);
+    expect(out.slice(out.indexOf(ELLIPSIS) + 1)).toHaveLength(10);
     expect(mono(out)).toBeLessThanOrEqual(240);
     // As much head as fits: one more character would overflow.
-    expect(mono(name.slice(0, 18) + ELLIPSIS + "der.ts")).toBeGreaterThan(240);
+    expect(mono(name.slice(0, 14) + ELLIPSIS + "-header.ts")).toBeGreaterThan(240);
   });
 
   it("never ends in an ellipsis while the tail fits", () => {
-    for (const w of [70, 90, 120, 160]) {
+    for (const w of [120, 160, 200, 240]) {
       const out = middleEllipsis("screenshot-2026-10-11-at-09.41.22.png", w, mono);
-      expect(out.endsWith("22.png")).toBe(true);
+      expect(out.endsWith(".41.22.png")).toBe(true);
       expect(out).toContain(ELLIPSIS);
       expect(out.endsWith(ELLIPSIS)).toBe(false);
     }
   });
 
-  it("only shrinks the tail when the slot cannot hold … plus 6", () => {
+  it("only shrinks the tail when the slot cannot hold … plus 10", () => {
+    expect(middleEllipsis("abcdefghijkl.ts", 120, mono)).toBe(`a${ELLIPSIS}fghijkl.ts`);
+    expect(middleEllipsis("abcdefghijkl.ts", 100, mono)).toBe(`${ELLIPSIS}ghijkl.ts`);
     expect(middleEllipsis("abcdefghijkl.ts", 50, mono)).toBe(`${ELLIPSIS}l.ts`);
     expect(middleEllipsis("abcdefghijkl.ts", 0, mono)).toBe("");
   });
@@ -57,7 +60,7 @@ describe("<MiddleEllipsis>", () => {
       render(<MiddleEllipsis text="quarterly-report-final-v2.xlsx" measure={mono} testId="n" labelled />);
     });
     const el = screen.getByTestId("n");
-    expect(el.textContent).toBe(`quart${ELLIPSIS}2.xlsx`);
+    expect(el.textContent).toBe(`q${ELLIPSIS}al-v2.xlsx`);
     expect(el.getAttribute("title")).toBe("quarterly-report-final-v2.xlsx");
     expect(el.getAttribute("aria-label")).toBe("quarterly-report-final-v2.xlsx");
     expect(el.className).not.toMatch(/truncate/);

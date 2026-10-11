@@ -1,7 +1,7 @@
 import { useLayoutEffect, useRef, useState, type CSSProperties } from "react";
 import { measureTextPx, middleEllipsis } from "./nameEllipsis";
 
-/** A file name that cuts in the middle and keeps its last 6 characters.
+/** A file name that cuts in the middle and keeps its last 10 characters.
  *  Display only: the full name stays in `title` (and `aria-label` on the
  *  row, or here with `labelled`).
  *  Width comes from the span itself (it fills its slot), re-measured on
