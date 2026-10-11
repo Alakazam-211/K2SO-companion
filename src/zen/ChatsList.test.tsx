@@ -26,6 +26,10 @@ vi.mock("../api/client", () => ({
   createFocusGroup: vi.fn(),
   getAppSettings: vi.fn(async () => ({ ok: true, data: {} })),
   getFocusGroupsList: vi.fn(async () => ({ ok: true, data: [] })),
+  createWorkspace: vi.fn(),
+  getFsInfo: vi.fn(async () => ({ ok: true, data: { home: "/Users/r" } })),
+  updateProjectLook: vi.fn(),
+  ensurePinnedChat: vi.fn(),
 }));
 
 vi.mock("../api/projectGroups", () => ({
@@ -238,7 +242,7 @@ describe("ChatsList", () => {
     );
     expect(screen.getByRole("button", { name: "Settings" }).className).toMatch(/zen-glass/);
     expect(screen.getByLabelText(/STUB \[STUB\] not-a-real-agent-1/)).not.toBeNull();
-    expect((screen.getByRole("button", { name: "New message" }) as HTMLButtonElement).disabled).toBe(false);
+    expect((screen.getByRole("button", { name: "New workspace" }) as HTMLButtonElement).disabled).toBe(false);
     expect(screen.getByRole("button", { name: "Tickets" })).not.toBeNull();
     expect(screen.getByRole("button", { name: /Server / })).not.toBeNull();
     expect(screen.queryByTestId("tickets-badge")).toBeNull();
@@ -1048,16 +1052,20 @@ describe("ChatsList", () => {
     expect(screen.queryByText("connected")).toBeNull();
   });
 
-  it("the plus button opens the New Message picker", () => {
+  it("the plus button opens the New Workspace sheet, not the old picker", () => {
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
       screen: "list",
     });
     mount();
-    fireEvent.click(screen.getByRole("button", { name: "New message" }));
-    expect(screen.getByTestId("overlay-compose")).not.toBeNull();
-    expect(screen.getByText("New Message")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "New message" })).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "New workspace" }));
+    expect(screen.getByTestId("new-workspace")).not.toBeNull();
+    expect(screen.getByText("New Workspace")).not.toBeNull();
+    expect(screen.queryByTestId("overlay-compose")).toBeNull();
+    fireEvent.click(screen.getByTestId("new-workspace-cancel"));
+    expect(screen.queryByTestId("new-workspace")).toBeNull();
   });
 
   it("Settings has no DEBUG projects-summary", () => {

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { PlusGlyph } from "./PlusGlyph";
 
 /** Gap between the bar and the iOS keyboard while typing — the same 8px
@@ -24,6 +24,7 @@ export function GlassSearchBar({
   testId,
   inputTestId,
   plusTestId,
+  plusBlockedNote,
 }: {
   query: string;
   onQuery: (value: string) => void;
@@ -34,12 +35,22 @@ export function GlassSearchBar({
   testId?: string;
   inputTestId?: string;
   plusTestId?: string;
+  /** Set when this login can't use `+`: the button dims, and a tap shows
+   *  this note above it instead of calling `onPlus` (no hover on iOS). */
+  plusBlockedNote?: string | null;
 }) {
   // Typing = keyboard up. The column above is already sized to the visual
   // viewport, so the home-indicator inset would be a dead gap over the
   // keyboard; drop to the composer's 8px instead.
   const [typing, setTyping] = useState(false);
   const bottom = typing ? `${SEARCH_BAR_KEYBOARD_GAP}px` : SEARCH_BAR_REST_BOTTOM;
+  const [noteUp, setNoteUp] = useState(false);
+  useEffect(() => {
+    if (!noteUp) return;
+    const t = setTimeout(() => setNoteUp(false), 3000);
+    return () => clearTimeout(t);
+  }, [noteUp]);
+  const blocked = !!plusBlockedNote;
   return (
     <div
       className="absolute left-3 right-3 flex items-center"
@@ -78,10 +89,26 @@ export function GlassSearchBar({
           data-testid={inputTestId}
         />
       </label>
+      {blocked && noteUp ? (
+        <div
+          role="status"
+          className="absolute right-0 zen-glass zen-glass-pill text-[13px]"
+          style={{
+            bottom: SEARCH_BAR_HEIGHT + 8,
+            padding: "8px 12px",
+            maxWidth: "80%",
+            color: "#fff",
+          }}
+          data-testid={plusTestId ? `${plusTestId}-note` : "search-plus-note"}
+        >
+          {plusBlockedNote}
+        </div>
+      ) : null}
       <button
         type="button"
-        title={plusLabel}
+        title={blocked ? plusBlockedNote ?? plusLabel : plusLabel}
         aria-label={plusLabel}
+        aria-disabled={blocked ? true : undefined}
         className="flex items-center justify-center zen-glass zen-glass-round"
         style={{
           width: SEARCH_BAR_HEIGHT,
@@ -89,8 +116,12 @@ export function GlassSearchBar({
           // Perfect circle (overrides `.zen-glass-round`'s 16px corners).
           borderRadius: "50%",
           flexShrink: 0,
+          opacity: blocked ? 0.4 : undefined,
         }}
-        onClick={onPlus}
+        onClick={() => {
+          if (blocked) setNoteUp(true);
+          else onPlus();
+        }}
         data-testid={plusTestId}
       >
         <PlusGlyph />

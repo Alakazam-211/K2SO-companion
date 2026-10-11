@@ -14,6 +14,9 @@ export interface SessionIdentity {
   /** Connect login name, or `"owner"` when the token is the host. */
   username: string;
   owner: boolean;
+  /** whoami `role`: "owner" | "admin" | "member". Absent on older daemons
+   *  or when whoami failed. */
+  role?: string | null;
 }
 
 let cached: { serverId: string | null; identity: SessionIdentity } | null =
@@ -75,10 +78,12 @@ export async function ensureIdentity(): Promise<SessionIdentity | null> {
     const j = (await res.json()) as {
       username?: string | null;
       owner?: boolean;
+      role?: string | null;
     };
     const identity: SessionIdentity = {
       username: (j.username && j.username.trim()) || fallback.username,
       owner: j.owner === true,
+      role: typeof j.role === "string" && j.role.trim() ? j.role.trim() : null,
     };
     cached = { serverId, identity };
     emit();
