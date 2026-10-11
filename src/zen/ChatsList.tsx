@@ -48,6 +48,13 @@ const SWIPE_HINT_ID = "chats-swipe-hint";
 const TITLE_MAX_W = "min(34vw, 140px)";
 /** Resting header content height below the safe area: 44 row + 12/8 pad. */
 export const CHATS_HEADER_PX = 64;
+/**
+ * Shared side edges for the pin grid and the list under it. The outer box
+ * (grid, each row, the "Drop to pin" strip) sits EDGE_INSET from the screen;
+ * content (pin columns, a row's avatar and chevron) sits EDGE_PAD further in.
+ */
+export const ZEN_LIST_EDGE_INSET = 4;
+export const ZEN_LIST_EDGE_PAD = 2;
 
 function PinGlyph({ off }: { off: boolean }) {
   return (
@@ -636,7 +643,7 @@ export function ChatsList() {
           <div
             ref={pinsRef}
             className="k2-pin-drop absolute"
-            style={{ top: 4, left: 12, right: 12 }}
+            style={{ top: 4, left: ZEN_LIST_EDGE_INSET, right: ZEN_LIST_EDGE_INSET }}
             data-testid="chats-pin-drop"
           >
             <PinGlyph off={false} />
@@ -680,10 +687,10 @@ export function ChatsList() {
         style={{
           // Near the screen edges (3 columns use the width), with 10px of
           // air under the floating header.
-          padding: "4px 2px 8px",
+          padding: `4px ${ZEN_LIST_EDGE_PAD}px 8px`,
           gap: "14px 4px",
           minHeight: 96,
-          margin: "10px 4px 0",
+          margin: `10px ${ZEN_LIST_EDGE_INSET}px 0`,
           borderRadius: 16,
           background: hot ? "rgba(10,132,255,.12)" : "transparent",
           outline: hot ? "1.5px dashed rgba(10,132,255,.5)" : "1.5px dashed transparent",
@@ -816,6 +823,8 @@ export function ChatsList() {
           <div
             key={a.id}
             className="relative overflow-hidden"
+            // Same side edges as the pin grid above.
+            style={{ margin: `0 ${ZEN_LIST_EDGE_INSET}px` }}
             data-swipe-row={a.id}
           >
           {/* Leading swipe action: a round glass pin revealed as the row
@@ -887,7 +896,8 @@ export function ChatsList() {
             className="w-full flex items-center text-left relative"
             style={{
               gap: 10,
-              padding: "10px 14px 10px 6px",
+              // Avatar and chevron line up with the pin grid's content edges.
+              padding: `10px ${ZEN_LIST_EDGE_PAD}px`,
               touchAction: ghost ? "none" : "pan-y",
               transform: `translateX(${sw.x}px)`,
               transition: swipe.transition(sw.dragging, ["transform"]),
