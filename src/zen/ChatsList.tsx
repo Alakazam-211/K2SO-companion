@@ -66,7 +66,7 @@ export function ChatsList() {
     : "signin-required";
   const serverLabel = activeServer
     ? activeServer.nickname || hostLabel(activeServer.url)
-    : "No server";
+    : "Servers";
 
   const searching = q.trim().length > 0;
   const filtered = sortChatsByRecency(
@@ -179,10 +179,12 @@ export function ChatsList() {
       >
         <button
           type="button"
-          className="relative flex items-center justify-center shrink-0 justify-self-start zen-glass zen-glass-pill"
+          className="flex items-center min-w-0 justify-self-start zen-glass zen-glass-pill"
           style={{
-            width: 34,
             height: 34,
+            maxWidth: 124,
+            padding: "0 13px",
+            gap: 6,
             color: "#fff",
           }}
           onClick={() => setServersSheet(true)}
@@ -190,36 +192,25 @@ export function ChatsList() {
           title={serverLabel}
           data-testid="chats-header-server"
         >
-          <svg
-            width="18"
-            height="18"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="1.7"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-            aria-hidden
-            data-testid="server-icon"
-          >
-            {/* Two stacked server units. */}
-            <rect x="3" y="3.5" width="18" height="7" rx="2" />
-            <rect x="3" y="13.5" width="18" height="7" rx="2" />
-            <path d="M7 7h.01M7 17h.01M11 7h6M11 17h6" />
-          </svg>
           <span
-            className="absolute"
+            className="shrink-0"
+            aria-hidden
             data-testid="server-status-dot"
             style={{
-              right: 0,
-              bottom: 0,
-              width: 9,
-              height: 9,
+              width: 8,
+              height: 8,
               borderRadius: "50%",
               background: activeServer ? RECOVERY_DOT[recoveryState] : "#8e8e93",
-              boxShadow: "0 0 0 2px #1c1c1e",
             }}
           />
+          {/* Nickname, never the icon. 124px cap: at 375pt each 1fr column is ~145px. */}
+          <span
+            className="min-w-0 truncate text-[15px] font-medium"
+            data-testid="server-name"
+            style={{ letterSpacing: "-0.2px" }}
+          >
+            {serverLabel}
+          </span>
         </button>
         <h1
           className="text-[17px] font-semibold pointer-events-none"
