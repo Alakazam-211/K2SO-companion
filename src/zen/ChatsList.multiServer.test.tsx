@@ -3,8 +3,9 @@
 //   - flag off (explicit "0"; the default is now on): the list is exactly
 //     today's — active server only,
 //     no chips, no pool traffic, the pill opens the Servers sheet;
-//   - flag on: two mocked servers merge into one list with server chips,
-//     "All servers" title, the pill is a server filter;
+//   - flag on: the Agents tab is ONE server — the pill names it (no "All"
+//     in its menu), the list holds only its rows, the pick persists; Home
+//     reads "All" and switching tabs updates the pill at once;
 //   - failure rows are greyed with one action each, scoped to their server;
 //     Sign in opens that server's sheet without switching;
 //   - S3: opening a row from another server opens a ROOM there (the active
@@ -106,7 +107,7 @@ vi.mock("../lib/revive", () => ({
 }));
 
 import { connectServer } from "../lib/revive";
-import { getAgentList, getCliProjectsList } from "../api/client";
+import { getAgentList } from "../api/client";
 import { roomServerId } from "./zenScope";
 import { roomBelowFloor } from "./multi/useMultiServerList";
 import { __resetScopesForTests } from "../api/scope";
@@ -170,7 +171,7 @@ beforeEach(() => {
   __resetRemoteRowsForTests();
   __resetRemoteIconsForTests();
   for (const id of ["s1", "s2", "s3"]) pool.forget(id);
-  useMultiServerPrefs.setState({ multiServer: false, serverFilter: "all" });
+  useMultiServerPrefs.setState({ multiServer: false, serverFilter: null });
   vi.mocked(connectServer).mockClear();
 });
 
@@ -207,95 +208,40 @@ describe("flag off (explicit): today's list, unchanged", () => {
   });
 });
 
-describe("flag on: one merged list over two servers", () => {
-  it("renders both servers' rows with chips, 'All servers' title and the filter pill", async () => {
+/** Pick a server in the pill's menu. */
+function pickServer(id: string) {
+  fireEvent.click(screen.getByTestId("chats-header-server"));
+  fireEvent.click(within(screen.getByTestId("server-filter-menu")).getByTestId(`server-filter-${id}`));
+}
+
+describe("flag on: the Agents tab is one server", () => {
+  it("defaults to the active server: its name on the pill, its rows only, no chips", async () => {
     seed();
     setFlag(true);
     mount();
-    await waitFor(() => expect(screen.getAllByTestId("remote-row")).toHaveLength(2));
-    expect(rowNames().sort()).toEqual(["alpha", "alpha", "bravo-ws", "docs"].sort());
-    // Same handle on two servers = two rows; each carries its server chip.
-    const chips = screen.getAllByTestId("row-server-chip").map((c) => c.textContent);
-    expect(chips.filter((c) => c === "Home")).toHaveLength(2);
-    expect(chips.filter((c) => c === "Bravo")).toHaveLength(2);
-    expect(screen.getByRole("heading", { name: "All servers" })).not.toBeNull();
-    expect(screen.getByTestId("server-name").textContent).toBe("All");
-    // B's rows were read on B's scope; the active list is untouched.
-    expect(useRemoteRows.getState().byServer.s2.status).toBe("live");
-    expect(useRemoteRows.getState().byServer.s1).toBeUndefined();
-    // B's summary says docs is waiting: dot + word, no counts (MA12).
-    const docs = screen.getAllByTestId("remote-row").find((r) => r.textContent?.includes("docs"))!;
-    expect(within(docs).getByTestId("row-activity").textContent).toBe("Needs you");
-  });
-
-  it("the pin grid shows pins from both servers, each with its server (MS19, R2)", async () => {
-    REMOTE.projects[0].pinned = 1;
-    const original = vi.mocked(getCliProjectsList).getMockImplementation()!;
-    vi.mocked(getCliProjectsList).mockImplementation(async (scope) =>
-      scope.id === "s1"
-        ? { ok: true, data: [{ id: "pa", name: "alpha", handle: "alpha", path: "/a", pinned: 1, tab_order: 0 }] }
-        : original(scope)
-    );
-    try {
-      seed();
-      useZenStore.setState({
-        serverProjects: [
-          { id: "pa", name: "alpha", path: "/a", handle: "alpha", pinned: true, tabOrder: 0, focusGroupId: null },
-        ],
-        pinnedIds: ["/a"],
-      });
-      setFlag(true);
-      mount();
-      await waitFor(() => expect(screen.getAllByTestId("remote-pin")).toHaveLength(1));
-      const grid = within(screen.getByTestId("chats-pins"));
-      expect(grid.getByLabelText(/^Pinned alpha/)).not.toBeNull();
-      const remotePin = screen.getByTestId("remote-pin");
-      expect(remotePin.getAttribute("aria-label")).toMatch(/^Pinned docs, Bravo/);
-      expect(within(remotePin).getByTestId("pin-server").textContent).toBe("Bravo");
-      // A pinned row shows once: not again in the list.
-      expect(screen.getAllByTestId("remote-row").map((r) => r.textContent)).not.toContain(
-        expect.stringContaining("docs")
-      );
-    } finally {
-      REMOTE.projects[0].pinned = 0;
-      vi.mocked(getCliProjectsList).mockImplementation(original);
-    }
-  });
-
-  it("one saved server: no chips; the title is today's", async () => {
-    seed([S1], { s1: "t1" });
-    setFlag(true);
-    mount();
-    await new Promise((r) => setTimeout(r, 20));
+    // B is still read (Home and the menu's dots use it)…
+    await waitFor(() => expect(useRemoteRows.getState().byServer.s2?.status).toBe("live"));
+    // …but the Agents tab lists the active server's rows only.
+    expect(rowNames()).toEqual(["alpha", "bravo-ws"]);
+    expect(screen.queryAllByTestId("remote-row")).toHaveLength(0);
     expect(screen.queryAllByTestId("row-server-chip")).toHaveLength(0);
     expect(screen.getByRole("heading", { name: "Agents" })).not.toBeNull();
+    expect(screen.getByTestId("server-name").textContent).toBe("Home");
+    expect(screen.getByTestId("chats-header-server").getAttribute("aria-label")).toBe("Server Home");
   });
 
-  it("search runs across servers and matches the chip", async () => {
+  it("the menu lists each server (with status) and Manage servers…, never All", async () => {
     seed();
     setFlag(true);
     mount();
-    await waitFor(() => expect(screen.getAllByTestId("remote-row")).toHaveLength(2));
-    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "bravo" } });
-    // "bravo-ws" on Home by name, both B rows by chip.
-    expect(rowNames().sort()).toEqual(["alpha", "bravo-ws", "docs"].sort());
-  });
-
-  it("the pill filters by server and offers Manage servers…", async () => {
-    seed();
-    setFlag(true);
-    mount();
-    await waitFor(() => expect(screen.getAllByTestId("remote-row")).toHaveLength(2));
     fireEvent.click(screen.getByTestId("chats-header-server"));
     const menu = screen.getByTestId("server-filter-menu");
-    expect(within(menu).getByTestId("server-filter-all").getAttribute("aria-checked")).toBe("true");
+    expect(within(menu).queryByTestId("server-filter-all")).toBeNull();
+    expect(within(menu).queryByText("All servers")).toBeNull();
     expect(within(menu).getAllByTestId("server-filter-dot")).toHaveLength(2);
-    fireEvent.click(within(menu).getByTestId("server-filter-s2"));
-    expect(rowNames().sort()).toEqual(["alpha", "docs"]);
-    expect(screen.getByTestId("server-name").textContent).toBe("Bravo");
-    expect(localStorage.getItem("zen.serverFilter")).toBe("s2");
-    fireEvent.click(screen.getByTestId("chats-header-server"));
-    fireEvent.click(screen.getByTestId("server-filter-manage"));
+    expect(within(menu).getByTestId("server-filter-s1").getAttribute("aria-checked")).toBe("true");
+    expect(within(menu).getByTestId("server-filter-s2").getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(within(menu).getByTestId("server-filter-manage"));
     expect(screen.getByTestId("overlay-servers")).not.toBeNull();
     // MS38: the pinned card names the default server's job.
     expect(screen.getByTestId("servers-pinned-label").textContent).toBe(
@@ -303,10 +249,131 @@ describe("flag on: one merged list over two servers", () => {
     );
   });
 
+  it("picking another server shows only its rows and persists the pick", async () => {
+    seed();
+    setFlag(true);
+    mount();
+    pickServer("s2");
+    await waitFor(() => expect(screen.getAllByTestId("remote-row")).toHaveLength(2));
+    expect(rowNames().sort()).toEqual(["alpha", "docs"]);
+    expect(screen.getAllByTestId("remote-row").every((r) => r.getAttribute("data-server-id") === "s2")).toBe(true);
+    expect(screen.getByTestId("server-name").textContent).toBe("Bravo");
+    expect(localStorage.getItem("zen.serverFilter")).toBe("s2");
+    // B's summary says docs is waiting: dot + word, no counts (MA12).
+    const docs = screen.getAllByTestId("remote-row").find((r) => r.textContent?.includes("docs"))!;
+    expect(within(docs).getByTestId("row-activity").textContent).toBe("Needs you");
+    // The active server never changed.
+    expect(useServersStore.getState().activeServerId).toBe("s1");
+    // A remount (next launch) comes back on B.
+    cleanup();
+    mount();
+    await waitFor(() => expect(screen.getAllByTestId("remote-row")).toHaveLength(2));
+    expect(screen.getByTestId("server-name").textContent).toBe("Bravo");
+  });
+
+  it("a stored pick of a server no longer saved (or the old 'all') falls back to the active server", async () => {
+    localStorage.setItem("zen.serverFilter", "all");
+    seed();
+    setFlag(true);
+    useMultiServerPrefs.setState({ serverFilter: "gone" });
+    mount();
+    expect(screen.getByTestId("server-name").textContent).toBe("Home");
+    expect(rowNames()).toEqual(["alpha", "bravo-ws"]);
+  });
+
+  it("another server's pins show read-only, with its server's rows (MS19, MA50)", async () => {
+    REMOTE.projects[0].pinned = 1;
+    try {
+      seed();
+      setFlag(true);
+      mount();
+      pickServer("s2");
+      await waitFor(() => expect(screen.getAllByTestId("remote-pin")).toHaveLength(1));
+      const remotePin = screen.getByTestId("remote-pin");
+      expect(remotePin.getAttribute("aria-label")).toMatch(/^Pinned docs, Bravo/);
+      // A pinned row shows once: not again in the list.
+      expect(screen.getAllByTestId("remote-row").map((r) => r.textContent)).not.toContain(
+        expect.stringContaining("docs")
+      );
+    } finally {
+      REMOTE.projects[0].pinned = 0;
+    }
+  });
+
+  it("the active server's pins stay draggable ones (not remote pins)", async () => {
+    seed();
+    useZenStore.setState({
+      serverProjects: [
+        { id: "pa", name: "alpha", path: "/a", handle: "alpha", pinned: true, tabOrder: 0, focusGroupId: null },
+      ],
+      pinnedIds: ["/a"],
+    });
+    setFlag(true);
+    mount();
+    const grid = within(screen.getByTestId("chats-pins"));
+    expect(grid.getByLabelText(/^Pinned alpha/)).not.toBeNull();
+    expect(screen.queryAllByTestId("remote-pin")).toHaveLength(0);
+  });
+
+  it("one saved server: its name on the pill; the title is today's", async () => {
+    seed([S1], { s1: "t1" });
+    setFlag(true);
+    mount();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(screen.queryAllByTestId("row-server-chip")).toHaveLength(0);
+    expect(screen.getByRole("heading", { name: "Agents" })).not.toBeNull();
+    expect(screen.getByTestId("server-name").textContent).toBe("Home");
+  });
+
+  it("search runs on the selected server only", async () => {
+    seed();
+    setFlag(true);
+    mount();
+    await waitFor(() => expect(useRemoteRows.getState().byServer.s2?.status).toBe("live"));
+    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "alpha" } });
+    expect(rowNames()).toEqual(["alpha"]);
+    expect(screen.queryAllByTestId("remote-row")).toHaveLength(0);
+    // The server's name is no longer a search term.
+    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "bravo" } });
+    expect(rowNames()).toEqual(["bravo-ws"]);
+    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "" } });
+    pickServer("s2");
+    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "alpha" } });
+    expect(rowNames()).toEqual(["alpha"]);
+    expect(screen.getAllByTestId("remote-row")[0].getAttribute("data-server-id")).toBe("s2");
+  });
+
+  it("Home reads All; switching tabs updates the pill at once; a Home pick jumps to Agents on that server", async () => {
+    seed();
+    setFlag(true);
+    mount();
+    pickServer("s2");
+    expect(screen.getByTestId("server-name").textContent).toBe("Bravo");
+    fireEvent.click(screen.getByTestId("list-tab-home"));
+    expect(screen.getByTestId("server-name").textContent).toBe("All");
+    expect(screen.getByTestId("chats-header-server").getAttribute("aria-label")).toBe("Servers: All");
+    fireEvent.click(screen.getByTestId("list-tab-agents"));
+    expect(screen.getByTestId("server-name").textContent).toBe("Bravo");
+    // Home's menu: the server list (nothing checked) + Manage servers….
+    fireEvent.click(screen.getByTestId("list-tab-home"));
+    fireEvent.click(screen.getByTestId("chats-header-server"));
+    const menu = screen.getByTestId("server-filter-menu");
+    expect(within(menu).queryByTestId("server-filter-all")).toBeNull();
+    expect(within(menu).getByTestId("server-filter-s1").getAttribute("aria-checked")).toBe("false");
+    expect(within(menu).getByTestId("server-filter-s2").getAttribute("aria-checked")).toBe("false");
+    expect(within(menu).getByTestId("server-filter-manage")).not.toBeNull();
+    fireEvent.click(within(menu).getByTestId("server-filter-s1"));
+    expect(screen.getByTestId("list-tab-agents").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getByTestId("server-name").textContent).toBe("Home");
+    expect(rowNames()).toEqual(["alpha", "bravo-ws"]);
+    expect(localStorage.getItem("zen.serverFilter")).toBe("s1");
+  });
+
   it("S3 (MS21): opening a row from server B opens a room on B; the active server never changes", async () => {
     seed();
     setFlag(true);
     mount();
+    pickServer("s2");
     await waitFor(() => expect(screen.getAllByTestId("remote-row")).toHaveLength(2));
     vi.mocked(getAgentList).mockClear();
     const docs = screen.getAllByTestId("remote-row").find((r) => r.textContent?.includes("docs"))!;
@@ -344,6 +411,7 @@ describe("flag on: one merged list over two servers", () => {
     });
     const hydrate = vi.fn(async (_opts?: { resumeId?: string }) => {});
     useZenStore.setState({ hydrateAgents: hydrate });
+    useMultiServerPrefs.setState({ serverFilter: "s2" });
     mount();
     await waitFor(() => expect(pool.entry("s2")?.boot?.version).toBe("0.41.5"));
     const row = await waitFor(() => {
@@ -378,12 +446,10 @@ describe("failure rows: greyed, one action each, scoped to their server", () => 
       },
     });
     setFlag(true);
+    useMultiServerPrefs.setState({ serverFilter: "s2" });
     mount();
     await waitFor(() =>
-      expect(screen.getAllByTestId("row-failure").map((f) => f.getAttribute("data-state")).sort()).toEqual([
-        "offline",
-        "signin-required",
-      ])
+      expect(screen.getAllByTestId("row-failure").map((f) => f.getAttribute("data-state"))).toEqual(["offline"])
     );
     const offline = screen.getAllByTestId("remote-row").find((r) => r.getAttribute("data-server-id") === "s2")!;
     expect(offline.getAttribute("data-greyed")).toBe("1");
@@ -392,20 +458,31 @@ describe("failure rows: greyed, one action each, scoped to their server", () => 
     expect(offActions).toHaveLength(1);
     expect(offActions[0].textContent).toBe("Retry now");
 
+    // Charlie (no login) shows its one Sign in row when picked.
+    pickServer("s3");
     const signedOut = screen.getAllByTestId("server-placeholder-row").find((r) => r.getAttribute("data-server-id") === "s3")!;
     expect(within(signedOut).getByTestId("row-failure").textContent).toBe("Sign in to Charlie");
     const signIn = within(signedOut).getAllByTestId("row-failure-action");
     expect(signIn).toHaveLength(1);
 
     // Retry now re-checks B only.
+    pickServer("s2");
+    const offActionsAgain = within(
+      screen.getAllByTestId("remote-row").find((r) => r.getAttribute("data-server-id") === "s2")!
+    ).getAllByTestId("row-failure-action");
     net.calls = [];
     net.boot["bravo.k2.dev"] = READY;
-    fireEvent.click(offActions[0]);
+    fireEvent.click(offActionsAgain[0]);
     await waitFor(() => expect(net.calls.some((u) => u.startsWith("https://bravo.k2.dev/boot-status"))).toBe(true));
     expect(net.calls.every((u) => u.startsWith("https://bravo.k2.dev/"))).toBe(true);
 
     // Sign in opens THAT server's sheet, without switching the active one.
-    fireEvent.click(signIn[0]);
+    pickServer("s3");
+    fireEvent.click(
+      within(
+        screen.getAllByTestId("server-placeholder-row").find((r) => r.getAttribute("data-server-id") === "s3")!
+      ).getByTestId("row-failure-action")
+    );
     const sheet = screen.getByTestId("row-sign-in");
     expect(within(sheet).getByTestId("overlay-add-server")).not.toBeNull();
     expect((within(sheet).getByDisplayValue("charlie.k2.dev") as HTMLInputElement).value).toBe("charlie.k2.dev");
@@ -416,6 +493,7 @@ describe("failure rows: greyed, one action each, scoped to their server", () => 
     net.boot["bravo.k2.dev"] = { ...READY, version: "0.40.2" };
     seed();
     setFlag(true);
+    useMultiServerPrefs.setState({ serverFilter: "s2" });
     mount();
     await waitFor(() => expect(screen.getAllByTestId("row-failure")).not.toHaveLength(0));
     const row = screen.getAllByTestId("server-placeholder-row").find((r) => r.getAttribute("data-server-id") === "s2")!;

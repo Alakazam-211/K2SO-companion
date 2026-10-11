@@ -245,7 +245,7 @@ beforeEach(() => {
   resetThreadPreviewQueue();
   resetRowPreviewMemo();
   for (const s of ALL) pool.forget(s.id);
-  useMultiServerPrefs.setState({ multiServer: false, serverFilter: "all" });
+  useMultiServerPrefs.setState({ multiServer: false, serverFilter: null });
   vi.mocked(connectServer).mockClear();
 });
 

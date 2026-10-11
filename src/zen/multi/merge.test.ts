@@ -1,12 +1,10 @@
-// Merged list (multi-server S2): keys and addresses (MA8), dedupe by
-// address (MS16), pins and focus per server (MS19), search across servers
-// with chip text (MS20), the server filter (MS35), and the Q7 snapshot cap.
+// The Agents tab's per-server list (multi-server S2): keys and addresses
+// (MA8), pins and focus per server (MS19), search within the one server,
+// and the Q7 snapshot cap.
 
 import { describe, expect, it } from "vitest";
 import {
-  buildMergedList,
-  dedupeByAddress,
-  orderSources,
+  buildServerList,
   parseRowAddress,
   parseRowKey,
   rowAddress,
@@ -43,7 +41,6 @@ const project = (id: string, handle: string, path: string, extra: Partial<Server
 function source(over: Partial<MergedSource> & Pick<MergedSource, "serverId" | "hostKey" | "label">): MergedSource {
   return {
     active: false,
-    hasLogin: true,
     agents: [],
     serverProjects: [],
     pinnedIds: [],
@@ -106,78 +103,45 @@ describe("keys and addresses (MA8)", () => {
   });
 });
 
-describe("buildMergedList", () => {
-  it("renders every server's rows; the same handle on two servers is two rows (MS16)", () => {
-    const { rows } = buildMergedList([B, A], { q: "", filter: "all", chips: true });
-    expect(rows.map((r) => r.key)).toEqual([
-      "sa|/w/k2",
-      "sa|/w/k2#k2/1",
-      "sa|group:g1",
-      "sb|/srv/k2",
-      "sb|/srv/docs",
-    ]);
-    expect(rows.filter((r) => r.agent.addr === "k2").map((r) => r.address)).toEqual([
-      "k2::a.k2.dev",
-      "k2::b.k2.dev",
-    ]);
+describe("buildServerList", () => {
+  it("one server's rows only, keyed and addressed on that server (MA8)", () => {
+    const { rows } = buildServerList(B, { q: "" });
+    expect(rows.map((r) => r.key)).toEqual(["sb|/srv/k2", "sb|/srv/docs"]);
+    expect(rows.map((r) => r.address)).toEqual(["k2::b.k2.dev", "docs::b.k2.dev"]);
     expect(rows.find((r) => r.key === "sb|/srv/k2")?.workspaceId).toBe("pb");
+    expect(new Set(rows.map((r) => r.serverId))).toEqual(new Set(["sb"]));
   });
 
-  it("two saved entries sharing a host key give one row: the active / signed-in one (MS2, MA35)", () => {
-    const twin = source({ ...B, serverId: "sb2", hostKey: "b.k2.dev", label: "Aardvark", hasLogin: false });
-    const { rows } = buildMergedList([twin, B], { q: "", filter: "all", chips: true });
-    const docs = rows.filter((r) => r.agent.addr === "docs");
-    expect(docs.map((r) => r.serverId)).toEqual(["sb"]);
-    expect(orderSources([twin, B, A]).map((s) => s.serverId)).toEqual(["sa", "sb", "sb2"]);
+  it("no source (signed out, not loaded): empty", () => {
+    expect(buildServerList(null, { q: "" })).toEqual({ rows: [], pinned: [] });
   });
 
-  it("pins come from each server's own projects.pinned, keyed by row key (MS19)", () => {
-    const { pinned } = buildMergedList([A, B], { q: "", filter: "all", chips: true });
-    expect(pinned.map((r) => r.key)).toEqual(["sa|/w/k2", "sb|/srv/docs"]);
-    expect(buildMergedList([A, B], { q: "doc", filter: "all", chips: true }).pinned).toEqual([]);
+  it("pins come from that server's own projects.pinned; none while searching (MS19)", () => {
+    expect(buildServerList(A, { q: "" }).pinned.map((r) => r.key)).toEqual(["sa|/w/k2"]);
+    expect(buildServerList(B, { q: "" }).pinned.map((r) => r.key)).toEqual(["sb|/srv/docs"]);
+    expect(buildServerList(B, { q: "doc" }).pinned).toEqual([]);
   });
 
-  it("each server's own focus group filters only its own rows (MS19, Q5)", () => {
+  it("the server's own focus group filters its rows; search ignores it (MS19, Q5)", () => {
     const grouped = source({
       ...B,
       serverProjects: [project("pb", "k2", "/srv/k2", { focusGroupId: "work" }), project("pd", "docs", "/srv/docs", { focusGroupId: "home" })],
       pinnedIds: [],
       focus: { enabled: true, currentId: "work", groups: [{ id: "work", name: "Work", color: null }, { id: "home", name: "Home", color: null }] },
     });
-    const { rows } = buildMergedList([A, grouped], { q: "", filter: "all", chips: true });
-    expect(rows.filter((r) => r.serverId === "sb").map((r) => r.agent.addr)).toEqual(["k2"]);
-    // A's rows are untouched by B's group.
-    expect(rows.filter((r) => r.serverId === "sa")).toHaveLength(3);
-    // Search ignores focus groups.
-    expect(buildMergedList([A, grouped], { q: "docs", filter: "all", chips: true }).rows.map((r) => r.key)).toEqual(["sb|/srv/docs"]);
+    expect(buildServerList(grouped, { q: "" }).rows.map((r) => r.agent.addr)).toEqual(["k2"]);
+    expect(buildServerList(grouped, { q: "docs" }).rows.map((r) => r.key)).toEqual(["sb|/srv/docs"]);
   });
 
-  it("search runs across servers and matches the chip text when chips show (MS20)", () => {
-    const hits = buildMergedList([A, B], { q: "k2", filter: "all", chips: true }).rows;
-    expect(hits.map((r) => r.serverId)).toEqual(["sa", "sa", "sb"]);
-    const byChip = buildMergedList([A, B], { q: "bravo", filter: "all", chips: true }).rows;
-    expect(byChip.map((r) => r.key)).toEqual(["sb|/srv/k2", "sb|/srv/docs"]);
-    expect(buildMergedList([A, B], { q: "bravo", filter: "all", chips: false }).rows).toEqual([]);
+  it("search stays inside the one server and never matches its name", () => {
+    expect(buildServerList(A, { q: "k2" }).rows.map((r) => r.serverId)).toEqual(["sa", "sa"]);
+    expect(buildServerList(B, { q: "bravo" }).rows).toEqual([]);
   });
 
-  it("hidden extras stay hidden per server until searched", () => {
+  it("hidden extras stay hidden until searched", () => {
     const hidden = source({ ...A, hiddenAddrs: ["k2/1"] });
-    expect(buildMergedList([hidden], { q: "", filter: "all", chips: false }).rows.map((r) => r.agent.addr)).toEqual([
-      "k2",
-      null,
-    ]);
-    expect(buildMergedList([hidden], { q: "reviewer", filter: "all", chips: false }).rows).toHaveLength(1);
-  });
-
-  it("the server filter keeps one server's rows and pins (MS35)", () => {
-    const only = buildMergedList([A, B], { q: "", filter: "sb", chips: true });
-    expect(new Set(only.rows.map((r) => r.serverId))).toEqual(new Set(["sb"]));
-    expect(only.pinned.map((r) => r.key)).toEqual(["sb|/srv/docs"]);
-  });
-
-  it("dedupeByAddress keeps the first", () => {
-    const rows = buildMergedList([A], { q: "", filter: "all", chips: false }).rows;
-    expect(dedupeByAddress([...rows, ...rows])).toHaveLength(rows.length);
+    expect(buildServerList(hidden, { q: "" }).rows.map((r) => r.agent.addr)).toEqual(["k2", null]);
+    expect(buildServerList(hidden, { q: "reviewer" }).rows).toHaveLength(1);
   });
 });
 
@@ -189,10 +153,10 @@ describe("chips and the snapshot cap", () => {
   });
 
   it("Q7: at most two servers keep the 5 s snapshot", () => {
-    expect(snapshotServerIds({ activeId: "a", filter: "all" })).toEqual(["a"]);
-    expect(snapshotServerIds({ activeId: "a", filter: "a" })).toEqual(["a"]);
-    expect(snapshotServerIds({ activeId: "a", filter: "b" })).toEqual(["b", "a"]);
-    expect(snapshotServerIds({ activeId: "a", filter: "b", roomServerId: "c" })).toEqual(["b", "c"]);
-    expect(snapshotServerIds({ activeId: null, filter: "all" })).toEqual([]);
+    expect(snapshotServerIds({ activeId: "a", selectedId: null })).toEqual(["a"]);
+    expect(snapshotServerIds({ activeId: "a", selectedId: "a" })).toEqual(["a"]);
+    expect(snapshotServerIds({ activeId: "a", selectedId: "b" })).toEqual(["b", "a"]);
+    expect(snapshotServerIds({ activeId: "a", selectedId: "b", roomServerId: "c" })).toEqual(["b", "c"]);
+    expect(snapshotServerIds({ activeId: null, selectedId: null })).toEqual([]);
   });
 });

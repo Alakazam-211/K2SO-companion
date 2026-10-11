@@ -5,14 +5,16 @@
 //     is stored (owner override of PRD MS40's default-off, for now); an
 //     explicit "0" keeps it off. Off, the Agents list shows the active
 //     server only, exactly as before S2.
-//   - `zen.serverFilter` — the nickname pill's pick: "all" (the default
-//     when the flag is on) or one saved server's id.
+//   - `zen.serverFilter` — the Agents tab's server (the nickname pill's
+//     pick): one saved server's id. Nothing stored (or a server no longer
+//     saved) means the active/default server. The Agents tab is always ONE
+//     server; Home is the cross-server list and its pill reads "All". A
+//     legacy "all" from before reads as nothing stored.
 //
 // Same synchronous localStorage idiom as the other Zen UI prefs.
 
 import { create } from "zustand";
 import { onServerForget } from "../../stores/servers";
-import type { ServerFilter } from "./merge";
 
 export const MULTI_SERVER_KEY = "zen.multiServer";
 export const SERVER_FILTER_KEY = "zen.serverFilter";
@@ -26,19 +28,21 @@ export function readMultiServer(): boolean {
   }
 }
 
-function readFilter(): ServerFilter {
+function readFilter(): string | null {
   try {
-    return (localStorage.getItem(SERVER_FILTER_KEY) || "").trim() || "all";
+    const v = (localStorage.getItem(SERVER_FILTER_KEY) || "").trim();
+    return v && v !== "all" ? v : null;
   } catch {
-    return "all";
+    return null;
   }
 }
 
 type MultiServerPrefs = {
   multiServer: boolean;
-  serverFilter: ServerFilter;
+  /** The Agents tab's server id; null = the active/default server. */
+  serverFilter: string | null;
   setMultiServer: (on: boolean) => void;
-  setServerFilter: (filter: ServerFilter) => void;
+  setServerFilter: (serverId: string | null) => void;
 };
 
 export const useMultiServerPrefs = create<MultiServerPrefs>((set) => ({
@@ -52,20 +56,20 @@ export const useMultiServerPrefs = create<MultiServerPrefs>((set) => ({
     }
     set({ multiServer: on });
   },
-  setServerFilter: (filter) => {
+  setServerFilter: (serverId) => {
     try {
-      if (filter === "all") localStorage.removeItem(SERVER_FILTER_KEY);
-      else localStorage.setItem(SERVER_FILTER_KEY, filter);
+      if (!serverId) localStorage.removeItem(SERVER_FILTER_KEY);
+      else localStorage.setItem(SERVER_FILTER_KEY, serverId);
     } catch {
       /* the choice lasts this session */
     }
-    set({ serverFilter: filter });
+    set({ serverFilter: serverId });
   },
 }));
 
-// A removed server can no longer be the filter.
+// A removed server can no longer be the Agents tab's: back to the default.
 onServerForget((id, reason) => {
   if (reason === "removed" && useMultiServerPrefs.getState().serverFilter === id) {
-    useMultiServerPrefs.getState().setServerFilter("all");
+    useMultiServerPrefs.getState().setServerFilter(null);
   }
 });
