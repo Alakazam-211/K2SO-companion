@@ -811,3 +811,27 @@ export const updateProjectLook = (id: string, look: { name?: string; color?: str
     { id, ...look },
     { method: "POST" }
   );
+
+// ─── Sessions drawer: Active terminals → threads, History ───
+
+/** `GET /cli/sessions/list-for-workspace?path=` (Member): the live PTYs
+ *  in one workspace, each with `kind` (`canonical` / `sidecar` / `other`),
+ *  `handle` (`ws` or `ws/N`, empty for a blank shell) and, when the
+ *  harness has one, `conversationId` (the Thread key). */
+export const getWorkspaceLiveSessions = (path: string) =>
+  request<unknown>("sessions.list_for_workspace", "/cli/sessions/list-for-workspace", { path });
+
+/** `GET /cli/chat/list?project_path=` (Member): every harness conversation
+ *  on disk for one workspace (desktop Chat History). `sessionId` is the
+ *  conversation id; `timestamp` is ms; `provider` is the harness. */
+export const getChatList = (projectPath: string) =>
+  request<unknown>("chat.list", "/cli/chat/list", { project_path: projectPath });
+
+/** `GET /cli/chat/custom-names` (Member): `{ "<provider>:<id>": name }`. */
+export const getChatCustomNames = () =>
+  request<unknown>("chat.custom_names", "/cli/chat/custom-names", {});
+
+/** `GET /cli/thread/latest?addrs=a,b` (Member, at most 50 addrs): last
+ *  Thread message per addr, or `{addr, error}` when K2 has no Thread for it. */
+export const getThreadLatest = (addrs: string[]) =>
+  request<unknown>("thread.latest", "/cli/thread/latest", { addrs: addrs.join(",") });

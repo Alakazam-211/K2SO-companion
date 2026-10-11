@@ -59,6 +59,29 @@ describe("terminalIdForAgent", () => {
     ).toBeNull();
   });
 
+  it("a plain tab's ws/N Thread uses the row's own live PTY", () => {
+    const sessions = [
+      sess({ terminalId: "main", isMainChat: true }),
+      sess({ terminalId: "t-77", agentName: "tab-77" }),
+    ];
+    expect(
+      terminalIdForAgent({ path: "/Users/Baden/Appa", addr: "appa/3", terminalId: "t-77" }, sessions)
+    ).toBe("t-77");
+    // A stale id is not trusted.
+    expect(
+      terminalIdForAgent({ path: "/Users/Baden/Appa", addr: "appa/3", terminalId: "gone" }, sessions)
+    ).toBeNull();
+  });
+
+  it("a History conversation addr never falls back to the main chat", () => {
+    expect(
+      terminalIdForAgent(
+        { path: "/Users/Baden/Appa", addr: "f014e8d8-2140-4902-b0b7-a864af664f7e" },
+        [sess({ terminalId: "main", isMainChat: true })]
+      )
+    ).toBeNull();
+  });
+
   it("returns null when nothing matches", () => {
     expect(
       terminalIdForAgent({ path: "/Users/Baden/Appa", addr: "appa" }, [
