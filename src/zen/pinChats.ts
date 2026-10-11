@@ -1,34 +1,15 @@
 export const PIN_HOLD_MS = 280;
 export const PIN_LIFT_PX = 14;
-export const PIN_STORAGE_KEY = "k2-zen-pinned-ids";
+/** The old per-device pin list. Pins now live on the server (per
+ *  workspace, `projects.pinned`); the old key is dropped, not migrated. */
+export const LEGACY_PIN_STORAGE_KEY = "k2-zen-pinned-ids";
 
-export function readPinnedIds(): string[] {
+export function clearLegacyPinStore(): void {
   try {
-    const raw = localStorage.getItem(PIN_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((id): id is string => typeof id === "string" && id.length > 0);
+    localStorage.removeItem(LEGACY_PIN_STORAGE_KEY);
   } catch {
-    return [];
+    /* private mode */
   }
-}
-
-export function writePinnedIds(ids: string[]): void {
-  try {
-    localStorage.setItem(PIN_STORAGE_KEY, JSON.stringify(ids));
-  } catch {
-    /* quota / private mode */
-  }
-}
-
-export function pinId(ids: string[], id: string): string[] {
-  if (!id) return ids;
-  return [id, ...ids.filter((x) => x !== id)];
-}
-
-export function unpinId(ids: string[], id: string): string[] {
-  return ids.filter((x) => x !== id);
 }
 
 /** Place `id` before `beforeId`, or at the end when `beforeId` is null. */

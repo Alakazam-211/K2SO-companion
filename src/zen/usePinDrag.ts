@@ -17,7 +17,11 @@ type Drag = {
   timer: ReturnType<typeof setTimeout> | null;
 };
 
-export function usePinDrag(pinsRef: { current: HTMLElement | null }) {
+export function usePinDrag(
+  pinsRef: { current: HTMLElement | null },
+  /** Server pins are per workspace: a sidecar / group row cannot lift. */
+  canPin: (id: string) => boolean = () => true
+) {
   const pinChat = useZenStore((s) => s.pinChat);
   const movePin = useZenStore((s) => s.movePin);
   const unpinChat = useZenStore((s) => s.unpinChat);
@@ -79,6 +83,7 @@ export function usePinDrag(pinsRef: { current: HTMLElement | null }) {
     if (pin?.dataset.placeholder === "1") return;
     const id = node.dataset.pinId;
     if (!id) return;
+    if (!pin && !canPin(id)) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     dragRef.current = {
       id,
@@ -124,9 +129,9 @@ export function usePinDrag(pinsRef: { current: HTMLElement | null }) {
         ? "pins"
         : "list";
       const before = pinBeforeId(e.clientX, e.clientY, pinsRef.current);
-      if (from === "list" && zone === "pins") pinChat(id, before);
-      if (from === "pin" && zone === "pins") movePin(id, before);
-      if (from === "pin" && zone === "list") unpinChat(id);
+      if (from === "list" && zone === "pins") void pinChat(id, before);
+      if (from === "pin" && zone === "pins") void movePin(id, before);
+      if (from === "pin" && zone === "list") void unpinChat(id);
     }
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);

@@ -20,6 +20,10 @@ vi.mock("../api/client", () => ({
   uploadFsBinary: vi.fn(),
   setTabTitle: vi.fn(async () => ({ ok: true, data: { success: true } })),
   setSessionLabel: vi.fn(async () => ({ ok: true, data: { success: true } })),
+  setProjectPinned: vi.fn(async () => ({ ok: true, data: {} })),
+  reorderProjects: vi.fn(async () => ({ ok: true, data: {} })),
+  getAppSettings: vi.fn(async () => ({ ok: true, data: {} })),
+  getFocusGroupsList: vi.fn(async () => ({ ok: true, data: [] })),
 }));
 
 vi.mock("../api/projectGroups", () => ({
@@ -35,6 +39,7 @@ vi.mock("../lib/revive", () => ({
   connectServer: vi.fn(async () => "still-valid"),
 }));
 
+import { reorderProjects, setProjectPinned } from "../api/client";
 import { useFeedbackStore } from "../stores/feedback";
 import { hostLabel, useServersStore } from "../stores/servers";
 import { ChatsList } from "./ChatsList";
@@ -42,6 +47,21 @@ import { SEARCH_BAR_REST_BOTTOM } from "./GlassSearchBar";
 import { JOIN_NO_PROJECT } from "./agentRow";
 import { STUB_AGENTS } from "./stubData";
 import { OWNER_LIST_HOLD, useZenStore } from "./zenStore";
+import { FOCUS_OFF, type ServerProject } from "./serverPins";
+
+/** Two workspaces the server can pin, and one sidecar of the first. */
+const LA = { id: "/a", name: "alpha", initial: "A", path: "/a", addr: "alpha", kind: "agent" as const };
+const LB = { id: "/b", name: "bravo", initial: "B", path: "/b", addr: "bravo", kind: "agent" as const };
+const LC = { id: "/c", name: "charlie", initial: "C", path: "/c", addr: "charlie", kind: "agent" as const };
+const LIVE_ROWS = [LA, LB, LC];
+function project(id: string, handle: string, extra: Partial<ServerProject> = {}): ServerProject {
+  return { id, name: handle, path: `/${handle[0]}`, handle, pinned: false, tabOrder: 0, focusGroupId: null, ...extra };
+}
+const PROJECTS: ServerProject[] = [
+  project("pa", "alpha", { tabOrder: 0 }),
+  project("pb", "bravo", { tabOrder: 1 }),
+  project("pc", "charlie", { tabOrder: 2 }),
+];
 
 const SEEDED_SERVER = {
   id: "s1",
@@ -58,7 +78,15 @@ afterEach(() => {
 
 beforeEach(() => {
   seedServer();
-  useZenStore.setState({ pinnedIds: [], hiddenSidecarAddrs: [] });
+  useZenStore.setState({
+    pinnedIds: [],
+    hiddenSidecarAddrs: [],
+    serverProjects: [],
+    focus: FOCUS_OFF,
+    pinError: null,
+  });
+  vi.mocked(setProjectPinned).mockClear();
+  vi.mocked(reorderProjects).mockClear();
 });
 
 function seedServer() {
@@ -433,8 +461,9 @@ describe("ChatsList", () => {
     Element.prototype.releasePointerCapture = () => {};
     Element.prototype.hasPointerCapture = () => true;
     useZenStore.setState({
-      agentSource: "stub",
-      agents: STUB_AGENTS,
+      agentSource: "live",
+      agents: LIVE_ROWS,
+      serverProjects: PROJECTS,
       agentError: null,
       screen: "list",
       pinnedIds: [],
@@ -442,7 +471,7 @@ describe("ChatsList", () => {
     mount();
     expect(screen.queryByTestId("chats-pins")).toBeNull();
     expect(screen.queryByTestId("chats-pin-drop")).toBeNull();
-    const row = screen.getByLabelText("STUB [STUB] not-a-real-agent-1");
+    const row = screen.getByLabelText("alpha");
     fireEvent.pointerDown(row, { clientX: 20, clientY: 200, button: 0, pointerId: 1 });
     act(() => {
       vi.advanceTimersByTime(300);
@@ -472,8 +501,10 @@ describe("ChatsList", () => {
       clientY: 40,
       pointerId: 1,
     });
-    expect(useZenStore.getState().pinnedIds).toEqual(["stub-not-a-real-agent-1"]);
-    expect(screen.getByLabelText("Pinned [STUB] not-a-real-agent-1")).not.toBeNull();
+    // Server pin: projects/update {id, pinned: 1}, then the drop spot.
+    expect(setProjectPinned).toHaveBeenCalledWith("pa", true);
+    expect(useZenStore.getState().pinnedIds).toEqual(["/a"]);
+    expect(screen.getByLabelText("Pinned alpha")).not.toBeNull();
     // The strip goes with the drag; the real grid takes over.
     expect(screen.queryByTestId("chats-pin-drop")).toBeNull();
     expect(screen.getByTestId("chats-pins")).not.toBeNull();
@@ -492,7 +523,7 @@ describe("ChatsList", () => {
         },
       }) as DOMRect;
 
-    fireEvent.pointerDown(screen.getByLabelText("Pinned [STUB] not-a-real-agent-1"), {
+    fireEvent.pointerDown(screen.getByLabelText("Pinned alpha"), {
       clientX: 40,
       clientY: 40,
       button: 0,
@@ -506,8 +537,9 @@ describe("ChatsList", () => {
       clientY: 400,
       pointerId: 2,
     });
+    expect(setProjectPinned).toHaveBeenLastCalledWith("pa", false);
     expect(useZenStore.getState().pinnedIds).toEqual([]);
-    expect(screen.queryByLabelText("Pinned [STUB] not-a-real-agent-1")).toBeNull();
+    expect(screen.queryByLabelText("Pinned alpha")).toBeNull();
     expect(screen.queryByTestId("chats-pins")).toBeNull();
     vi.useRealTimers();
   });
@@ -517,11 +549,13 @@ describe("ChatsList", () => {
     Element.prototype.setPointerCapture = () => {};
     Element.prototype.releasePointerCapture = () => {};
     Element.prototype.hasPointerCapture = () => true;
-    const a = STUB_AGENTS[0];
-    const b = STUB_AGENTS[1];
+    const a = LA;
+    const b = LB;
+    const projects = PROJECTS.map((p) => (p.id === "pc" ? p : { ...p, pinned: true }));
     useZenStore.setState({
-      agentSource: "stub",
-      agents: STUB_AGENTS,
+      agentSource: "live",
+      agents: LIVE_ROWS,
+      serverProjects: projects,
       agentError: null,
       screen: "list",
       pinnedIds: [a.id, b.id],
@@ -562,6 +596,9 @@ describe("ChatsList", () => {
       pointerId: 1,
     });
     expect(useZenStore.getState().pinnedIds).toEqual([b.id, a.id]);
+    // Pinned ids only, in the new order (desktop Sidebar parity).
+    expect(reorderProjects).toHaveBeenCalledWith(["pb", "pa"]);
+    expect(setProjectPinned).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
 
@@ -910,35 +947,38 @@ describe("ChatsList", () => {
   });
 
   describe("swipe right to pin", () => {
-    const A = STUB_AGENTS[0];
-    const B = STUB_AGENTS[1];
+    const A = LA;
+    const B = LB;
     const ROW_W = 375;
 
     function setup(pinnedIds: string[] = []) {
       Element.prototype.setPointerCapture = () => {};
       Element.prototype.releasePointerCapture = () => {};
       Element.prototype.hasPointerCapture = () => true;
+      const pinnedProjects = new Set<string>(pinnedIds.map((id) => (id === LA.id ? "pa" : id === LB.id ? "pb" : "pc")));
       useZenStore.setState({
-        agentSource: "stub",
-        agents: STUB_AGENTS,
+        agentSource: "live",
+        agents: LIVE_ROWS,
+        serverProjects: PROJECTS.map((p) => ({ ...p, pinned: pinnedProjects.has(p.id) })),
         agentError: null,
         screen: "list",
         agentId: "",
         pinnedIds,
       });
       mount();
-      for (const a of STUB_AGENTS) {
+      for (const a of LIVE_ROWS) {
         const wrap = document.querySelector(`[data-swipe-row="${a.id}"]`) as HTMLElement;
         wrap.getBoundingClientRect = () =>
           ({ left: 0, right: ROW_W, top: 0, bottom: 70, width: ROW_W, height: 70, x: 0, y: 0, toJSON() { return {}; } }) as DOMRect;
       }
     }
-    const row = (a: (typeof STUB_AGENTS)[number]) => screen.getByLabelText(`STUB ${a.name}`);
-    const action = (a: (typeof STUB_AGENTS)[number]) => screen.getByTestId(`swipe-action-${a.id}`);
+    type Row = (typeof LIVE_ROWS)[number];
+    const row = (a: Row) => screen.getByLabelText(a.name);
+    const action = (a: Row) => screen.getByTestId(`swipe-action-${a.id}`);
     const home = () => screen.getByTestId("chats-home");
 
     /** Pointer down on the row, move through the points, release. */
-    function drag(a: (typeof STUB_AGENTS)[number], points: [number, number][], up = true) {
+    function drag(a: Row, points: [number, number][], up = true) {
       fireEvent.pointerDown(row(a), { clientX: 20, clientY: 200, button: 0, pointerId: 7 });
       for (const [x, y] of points) {
         fireEvent.pointerMove(home(), { clientX: x, clientY: y, pointerId: 7 });
@@ -1036,6 +1076,7 @@ describe("ChatsList", () => {
         (action(A).querySelector("[data-testid='swipe-action-glass']") as HTMLElement).dataset.armed
       ).toBe("1");
       fireEvent.pointerUp(home(), { clientX: 240, clientY: 200, pointerId: 7 });
+      expect(setProjectPinned).toHaveBeenCalledWith("pa", true);
       expect(useZenStore.getState().pinnedIds).toEqual([A.id]);
       expect(screen.getByLabelText(`Pinned ${A.name}`)).not.toBeNull();
       // First pin: the grid appears where there was none.
@@ -1078,6 +1119,7 @@ describe("ChatsList", () => {
         action(A).querySelector("[data-testid='swipe-action-glass'] [data-testid='unpin-glyph']")
       ).not.toBeNull();
       fireEvent.click(action(A));
+      expect(setProjectPinned).toHaveBeenCalledWith("pa", false);
       expect(useZenStore.getState().pinnedIds).toEqual([]);
     });
 
@@ -1108,6 +1150,148 @@ describe("ChatsList", () => {
       setup();
       const hint = document.getElementById(row(A).getAttribute("aria-describedby")!)!;
       expect(hint.textContent).toMatch(/Swipe right to pin/);
+    });
+  });
+  describe("server pins and focus groups", () => {
+    const SIDE = {
+      id: "/a::alpha/1",
+      name: "alpha",
+      initial: "A",
+      path: "/a",
+      addr: "alpha/1",
+      chatTitle: "reviewer",
+      hostLive: true,
+      kind: "agent" as const,
+    };
+    const GROUPS = [
+      { id: "g1", name: "Work", color: "#ff0000" },
+      { id: "g2", name: "A very long focus group name that must truncate", color: null },
+    ];
+    // alpha: g1. bravo: g2 (pinned). charlie: ungrouped.
+    const GROUPED: ServerProject[] = [
+      project("pa", "alpha", { focusGroupId: "g1" }),
+      project("pb", "bravo", { focusGroupId: "g2", pinned: true }),
+      project("pc", "charlie"),
+      { ...project("px", "delta", { focusGroupId: "g2" }), path: "/d" },
+    ];
+    const LD = { id: "/d", name: "delta", initial: "D", path: "/d", addr: "delta", kind: "agent" as const };
+
+    function live(extra: Record<string, unknown> = {}) {
+      useZenStore.setState({
+        agentSource: "live",
+        agents: [...LIVE_ROWS, LD, SIDE],
+        serverProjects: GROUPED,
+        pinnedIds: ["/b"],
+        agentError: null,
+        screen: "list",
+        lastAtByKey: {},
+        ...extra,
+      });
+    }
+    const rowNames = () =>
+      [...document.querySelectorAll("[data-pin-from='list']")].map((n) =>
+        n.getAttribute("data-pin-id")
+      );
+
+    it("a sidecar row has no Pin action and does not swipe", () => {
+      live();
+      mount();
+      expect(screen.queryByTestId(`swipe-action-${SIDE.id}`)).toBeNull();
+      expect(screen.getByTestId(`swipe-action-${LA.id}`)).not.toBeNull();
+    });
+
+    it("a sidecar row cannot be hold-dragged into the pins", () => {
+      vi.useFakeTimers();
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
+      Element.prototype.setPointerCapture = () => {};
+      Element.prototype.releasePointerCapture = () => {};
+      Element.prototype.hasPointerCapture = () => true;
+      live();
+      mount();
+      const side = document.querySelector(`[data-pin-id="${SIDE.id}"][data-pin-from='list']`)!;
+      fireEvent.pointerDown(side, { clientX: 20, clientY: 300, button: 0, pointerId: 3 });
+      act(() => {
+        vi.advanceTimersByTime(400);
+      });
+      expect(screen.queryByTestId("pin-ghost")).toBeNull();
+      fireEvent.pointerUp(screen.getByTestId("chats-home"), { clientX: 40, clientY: 40, pointerId: 3 });
+      expect(setProjectPinned).not.toHaveBeenCalled();
+    });
+
+    it("groups off: the title is Agents, not a button, and every row shows", () => {
+      live();
+      mount();
+      const title = screen.getByTestId("chats-title");
+      expect(title.textContent).toBe("Agents");
+      expect(title.querySelector("button")).toBeNull();
+      expect(rowNames()).toEqual(expect.arrayContaining(["/a", "/b", "/c", "/d", SIDE.id]));
+    });
+
+    it("groups on: the title is the current group's name with its colour dot, capped to fit", () => {
+      live({ focus: { enabled: true, currentId: "g1", groups: GROUPS } });
+      mount();
+      const title = screen.getByTestId("chats-title");
+      expect(title.textContent).toBe("Work");
+      expect(title.style.maxWidth).toBe("min(34vw, 140px)");
+      expect(screen.getByTestId("chats-title-dot").style.background).toMatch(/rgb\(255, 0, 0\)|#ff0000/);
+      expect(title.querySelector(".truncate")?.textContent).toBe("Work");
+    });
+
+    it("filter: pinned + current group + ungrouped; sidecars follow their workspace", () => {
+      live({ focus: { enabled: true, currentId: "g1", groups: GROUPS } });
+      mount();
+      const names = rowNames();
+      // alpha (g1) + its sidecar, bravo (pinned, g2), charlie (ungrouped).
+      expect(names).toEqual(expect.arrayContaining(["/a", SIDE.id, "/b", "/c"]));
+      // delta is in g2 and not pinned.
+      expect(names).not.toContain("/d");
+    });
+
+    it("search ignores the focus group so any agent can be found", () => {
+      live({ focus: { enabled: true, currentId: "g1", groups: GROUPS } });
+      mount();
+      fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "delta" } });
+      expect(rowNames()).toEqual(["/d"]);
+    });
+
+    it("tapping the title opens a switcher; a pick changes only this view", () => {
+      live({ focus: { enabled: true, currentId: "g1", groups: GROUPS } });
+      mount();
+      fireEvent.click(screen.getByTestId("chats-title-group"));
+      const menu = screen.getByTestId("focus-menu");
+      const items = menu.querySelectorAll("[role='menuitemradio']");
+      expect(items).toHaveLength(2);
+      expect(items[0].getAttribute("aria-checked")).toBe("true");
+      expect(items[0].querySelector("[data-testid='focus-check']")).not.toBeNull();
+      fireEvent.click(screen.getByTestId("focus-option-g2"));
+      expect(screen.queryByTestId("focus-menu")).toBeNull();
+      expect(screen.getByTestId("chats-title").textContent).toBe(GROUPS[1].name);
+      expect(rowNames()).toContain("/d");
+      expect(rowNames()).not.toContain("/a");
+      expect(localStorage.getItem("zen.focusGroup.s1")).toBe("g2");
+      expect(setProjectPinned).not.toHaveBeenCalled();
+    });
+
+    it("a failed pin write shows a short error line", () => {
+      live({ pinError: "Could not pin" });
+      mount();
+      expect(screen.getByTestId("chats-pin-error").textContent).toBe("Could not pin");
+    });
+
+    it("re-reads server pins and groups on mount and on app foreground", () => {
+      const refreshServerLists = vi.fn();
+      const orig = useZenStore.getState().refreshServerLists;
+      onTestFinished(() => useZenStore.setState({ refreshServerLists: orig }));
+      live({ refreshServerLists });
+      mount();
+      expect(refreshServerLists).toHaveBeenCalledTimes(1);
+      Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      expect(refreshServerLists).toHaveBeenCalledTimes(2);
     });
   });
 });

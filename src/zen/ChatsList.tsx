@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { useFeedbackStore } from "../stores/feedback";
 import { hostLabel, useServersStore, type RecoveryState } from "../stores/servers";
@@ -16,6 +16,8 @@ import { OverlayCompose } from "./OverlayCompose";
 import { OverlayServers } from "./OverlayServers";
 import { TicketsOverlay } from "./TicketsOverlay";
 import { lastAtKeyFor, sortChatsByRecency } from "./lastAtFetch";
+import { currentFocusGroup, filterByFocus, listTitle, pinProjectIdForRow } from "./serverPins";
+import { connectProjectEvents } from "./ticketEvents";
 import { mountainListWhen } from "./threadModel";
 import { usePinDrag } from "./usePinDrag";
 import { SWIPE_ACTION_W, swipeReveal, useRowSwipe } from "./useRowSwipe";
@@ -35,9 +37,14 @@ const RECOVERY_DOT: Record<RecoveryState, string> = {
 /** How often the Chats list re-reads agent status. */
 const ACTIVITY_POLL_MS = 5_000;
 
+/** How often the list re-reads server pins and focus groups while up. */
+export const SERVER_LISTS_POLL_MS = 30_000;
+
 /** iOS system yellow, the Messages pin action. */
 const PIN_YELLOW = "#ffd60a";
 const SWIPE_HINT_ID = "chats-swipe-hint";
+/** Title cap: at 375pt the side columns keep ~100px for the pills. */
+const TITLE_MAX_W = "min(34vw, 140px)";
 
 function PinGlyph({ off }: { off: boolean }) {
   return (
@@ -84,17 +91,35 @@ export function ChatsList() {
   const zenScreen = useZenStore((s) => s.screen);
   const refreshActivity = useZenStore((s) => s.refreshActivity);
   const pinnedIds = useZenStore((s) => s.pinnedIds);
+  const serverProjects = useZenStore((s) => s.serverProjects);
+  const pinError = useZenStore((s) => s.pinError);
+  const focus = useZenStore((s) => s.focus);
+  const selectFocusGroup = useZenStore((s) => s.selectFocusGroup);
   const hiddenSidecarAddrs = useZenStore((s) => s.hiddenSidecarAddrs);
   const listRef = useRef<HTMLDivElement | null>(null);
   const pinsRef = useRef<HTMLDivElement | null>(null);
-  const pinDrag = usePinDrag(pinsRef);
+  // Pins are per workspace on the server: only rows that map to a project
+  // can pin. Sidecars / extra chats and project-group rows cannot.
+  const pinnable = useMemo(
+    () =>
+      new Set(
+        agents.filter((a) => pinProjectIdForRow(a, serverProjects)).map((a) => a.id)
+      ),
+    [agents, serverProjects]
+  );
+  const canPin = (id: string) => pinnable.has(id);
+  const pinDrag = usePinDrag(pinsRef, canPin);
   const { ghost, hot, consumeSkipClick, onPinClick } = pinDrag;
   const togglePin = (id: string) => {
     const st = useZenStore.getState();
-    if (st.pinnedIds.includes(id)) st.unpinChat(id);
-    else st.pinChat(id);
+    if (!canPin(id)) return;
+    if (st.pinnedIds.includes(id)) void st.unpinChat(id);
+    else void st.pinChat(id);
   };
-  const swipe = useRowSwipe(togglePin);
+  const swipe = useRowSwipe(togglePin, canPin);
+  const [groupMenu, setGroupMenu] = useState(false);
+  const group = currentFocusGroup(focus);
+  const title = listTitle(focus);
   const pinned = pinnedIds
     .map((id) => agents.find((a) => a.id === id))
     .filter((a): a is (typeof agents)[number] => !!a);
@@ -116,11 +141,14 @@ export function ChatsList() {
     : "Servers";
 
   const searching = q.trim().length > 0;
+  // Search ignores the focus group so any agent can still be found.
+  const visible = visibleOverlayAgents(agents, q, hiddenSidecarAddrs);
   const filtered = sortChatsByRecency(
-    visibleOverlayAgents(agents, q, hiddenSidecarAddrs),
+    searching ? visible : filterByFocus(visible, focus, serverProjects, pinnedIds),
     lastAtByKey,
     lastAtKeyFor
   );
+  const serverListsAt = useRef(Date.now());
 
   // Agent status: re-read the activity snapshot while the list is up. The
   // list stays mounted (hidden) under an open Thread; it does not poll then.
@@ -128,7 +156,14 @@ export function ChatsList() {
     if (source !== "live" || zenScreen !== "list") return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = () => {
-      if (document.visibilityState !== "hidden") void refreshActivity();
+      if (document.visibilityState !== "hidden") {
+        void refreshActivity();
+        // Server pins + focus groups ride the same cadence, every ~30 s.
+        if (Date.now() - serverListsAt.current >= SERVER_LISTS_POLL_MS) {
+          serverListsAt.current = Date.now();
+          useZenStore.getState().refreshServerLists();
+        }
+      }
       timer = setTimeout(tick, ACTIVITY_POLL_MS);
     };
     tick();
@@ -136,6 +171,31 @@ export function ChatsList() {
       if (timer) clearTimeout(timer);
     };
   }, [source, zenScreen, refreshActivity]);
+
+  // Server pins + focus groups: re-read on mount and on app foreground
+  // (group edits and switches send no event), and on `projects_changed`
+  // from the shared sessions/events socket (pin / reorder writes).
+  const live = source === "live";
+  useEffect(() => {
+    if (!live) return;
+    serverListsAt.current = Date.now();
+    useZenStore.getState().refreshServerLists();
+    const onVis = () => {
+      if (document.visibilityState !== "visible") return;
+      serverListsAt.current = Date.now();
+      useZenStore.getState().refreshServerLists();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    const events = connectProjectEvents(() => void useZenStore.getState().refreshPins());
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      events.stop();
+    };
+  }, [live, activeServerId]);
+
+  useEffect(() => {
+    if (!group) setGroupMenu(false);
+  }, [group]);
 
   useEffect(() => {
     const root = listRef.current;
@@ -232,7 +292,7 @@ export function ChatsList() {
         className="grid items-center shrink-0 w-full min-w-0"
         data-no-pin="1"
         style={{
-          gridTemplateColumns: "1fr auto 1fr",
+          gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)",
           minHeight: 44,
           padding: "12px 12px 8px",
           columnGap: 8,
@@ -273,11 +333,42 @@ export function ChatsList() {
             {serverLabel}
           </span>
         </button>
+        {/* Groups on: the current focus group's name, a tap opens this
+            device's switcher. Capped so it never meets the pills at 375pt. */}
         <h1
-          className="text-[17px] font-semibold pointer-events-none"
-          style={{ letterSpacing: "-0.2px" }}
+          className="min-w-0 text-[17px] font-semibold"
+          style={{ letterSpacing: "-0.2px", maxWidth: TITLE_MAX_W }}
+          data-testid="chats-title"
         >
-          Agents
+          {group ? (
+            <button
+              type="button"
+              className="flex items-center min-w-0 max-w-full bg-transparent border-0 p-0"
+              style={{ gap: 6, color: "#fff", font: "inherit", letterSpacing: "inherit" }}
+              onClick={() => setGroupMenu((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={groupMenu}
+              aria-label={`Focus group ${group.name}`}
+              data-testid="chats-title-group"
+            >
+              {group.color ? (
+                <span
+                  aria-hidden
+                  className="shrink-0"
+                  data-testid="chats-title-dot"
+                  style={{ width: 8, height: 8, borderRadius: "50%", background: group.color }}
+                />
+              ) : null}
+              <span className="min-w-0 truncate">{title}</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+                className="shrink-0" style={{ opacity: 0.6 }}>
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+          ) : (
+            <span className="block truncate pointer-events-none">{title}</span>
+          )}
         </h1>
         <span className="flex items-center justify-self-end" style={{ gap: 8 }} data-testid="chats-header-right">
           <button
@@ -361,6 +452,91 @@ export function ChatsList() {
           </button>
         </span>
       </header>
+
+      {group && groupMenu ? (
+        <>
+          <button
+            type="button"
+            aria-label="Close focus groups"
+            className="fixed inset-0 bg-transparent border-0 p-0"
+            style={{ zIndex: 29 }}
+            data-no-pin="1"
+            onClick={() => setGroupMenu(false)}
+            data-testid="focus-menu-backdrop"
+          />
+          <div
+            role="menu"
+            aria-label="Focus groups"
+            className="zen-glass absolute"
+            data-no-pin="1"
+            data-testid="focus-menu"
+            style={{
+              zIndex: 30,
+              top: "calc(env(safe-area-inset-top) + 52px)",
+              left: "50%",
+              transform: "translateX(-50%)",
+              width: "min(260px, calc(100vw - 32px))",
+              maxHeight: "50vh",
+              overflowY: "auto",
+              borderRadius: 16,
+              padding: 6,
+              color: "#fff",
+            }}
+          >
+            {focus.groups.map((g) => {
+              const on = g.id === focus.currentId;
+              return (
+                <button
+                  key={g.id}
+                  type="button"
+                  role="menuitemradio"
+                  aria-checked={on}
+                  className="w-full flex items-center text-left bg-transparent border-0"
+                  style={{ gap: 10, padding: "10px 12px", minHeight: 44, borderRadius: 10, color: "#fff" }}
+                  onClick={() => {
+                    selectFocusGroup(g.id);
+                    setGroupMenu(false);
+                  }}
+                  data-testid={`focus-option-${g.id}`}
+                >
+                  <span
+                    aria-hidden
+                    className="shrink-0"
+                    style={{
+                      width: 10,
+                      height: 10,
+                      borderRadius: "50%",
+                      background: g.color || "transparent",
+                      boxShadow: g.color ? undefined : "inset 0 0 0 1.5px #8e8e93",
+                    }}
+                  />
+                  <span className="flex-1 min-w-0 truncate text-[16px]">{g.name}</span>
+                  <span aria-hidden className="shrink-0" style={{ width: 16, color: "#0a84ff" }}>
+                    {on ? (
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                        strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" data-testid="focus-check">
+                        <path d="M20 6 9 17l-5-5" />
+                      </svg>
+                    ) : null}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </>
+      ) : null}
+
+      {pinError ? (
+        <p
+          role="status"
+          className="shrink-0 px-4 pb-1 text-[13px] truncate"
+          style={{ color: "#ff453a" }}
+          data-no-pin="1"
+          data-testid="chats-pin-error"
+        >
+          {pinError}
+        </p>
+      ) : null}
 
       {/* No pins: a hold-drag still needs somewhere to land. A zero-height
           anchor under the header, so the strip floats over the list without
@@ -483,6 +659,7 @@ export function ChatsList() {
                 ? "var(--accent)"
                 : "var(--success)";
           const isPinned = pinnedIds.includes(a.id);
+          const rowCanPin = pinnable.has(a.id);
           const sw = swipe.offsetFor(a.id);
           const pinVerb = isPinned ? "Unpin" : "Pin";
           const reveal = swipeReveal(sw.x, swipe.reduced);
@@ -495,7 +672,9 @@ export function ChatsList() {
           {/* Leading swipe action: a round glass pin revealed as the row
               slides right. The button is the whole revealed strip (row
               height, so the hit target stays over 44px); the strip itself
-              is clear, only the glass circle is drawn. */}
+              is clear, only the glass circle is drawn. None on rows the
+              server cannot pin (sidecars, project groups). */}
+          {rowCanPin ? (
           <button
             type="button"
             className="absolute left-0 top-0 bottom-0 overflow-hidden border-0 p-0 bg-transparent"
@@ -553,6 +732,7 @@ export function ChatsList() {
               <span className="k2-swipe-pin-label">{pinVerb}</span>
             </span>
           </button>
+          ) : null}
           <button
             type="button"
             className="w-full flex items-center text-left relative"
