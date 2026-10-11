@@ -150,6 +150,13 @@ html, body, #root {
 .input-bar-lift:focus-within {
   padding-bottom: 4px;
 }
+/* Zen thread composer: same rule, its own resting inset. */
+.zen-composer-bar {
+  padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+.zen-composer-bar:focus-within {
+  padding-bottom: 8px;
+}
 
 /* Overlay Chats chrome — iOS liquid glass on dark. */
 .zen-glass {

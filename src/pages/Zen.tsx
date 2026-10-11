@@ -1,6 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
+import { useViewportHeight } from "../lib/useViewportHeight";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { ChatsList } from "../zen/ChatsList";
 import { FilePane } from "../zen/FilePane";
@@ -20,6 +21,7 @@ const HEADER_BTN: CSSProperties = {
 
 export function Zen() {
   const navigate = useNavigate();
+  const containerHeight = useViewportHeight();
   const [params, setParams] = useSearchParams();
   const threadParam = params.get("thread");
   const screen = useZenStore((s) => s.screen);
@@ -127,9 +129,29 @@ export function Zen() {
         <ChatsList />
       </div>
       {wantThread ? (
+        // The ChatsList keyboard idiom (981b610): a `fixed` backdrop so an
+        // iOS keyboard pan of #root cannot drag the header off screen, plus
+        // a column sized to visualViewport.height so the composer at its
+        // bottom sits directly above the keyboard.
         <div
-          className="relative flex flex-col h-full min-h-0 overflow-x-hidden"
+          className="fixed inset-0"
+          data-testid="thread-home"
+          style={{
+            position: "fixed",
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: "#000",
+          }}
+        >
+        <div
+          className="relative flex flex-col min-h-0 overflow-x-hidden"
           data-testid="thread-column"
+          style={{
+            height: containerHeight,
+            paddingTop: "env(safe-area-inset-top)",
+          }}
           onClick={filesPaneOpen ? () => dismissFiles() : undefined}
         >
           <header
@@ -272,12 +294,13 @@ export function Zen() {
             </span>
           </header>
           <PaneErrorBoundary name="thread">
-            <ThreadPane />
+            <ThreadPane viewportHeight={containerHeight} />
           </PaneErrorBoundary>
           {filesOpen && !viewingFile ? (
             <div
-              className="absolute inset-y-0 right-0 border-l border-[var(--border)] bg-[var(--background)] flex flex-col"
+              className="absolute bottom-0 right-0 border-l border-[var(--border)] bg-[var(--background)] flex flex-col"
               data-testid="file-pane"
+              style={{ top: "env(safe-area-inset-top)" }}
               onClick={(e) => e.stopPropagation()}
             >
               <PaneErrorBoundary name="files">
@@ -287,8 +310,9 @@ export function Zen() {
           ) : null}
           {viewingFile ? (
             <div
-              className="absolute inset-y-0 right-0 w-[78%] border-l border-[var(--border)] bg-[var(--background)] flex flex-col"
+              className="absolute bottom-0 right-0 w-[78%] border-l border-[var(--border)] bg-[var(--background)] flex flex-col"
               data-testid="file-stage"
+              style={{ top: "env(safe-area-inset-top)" }}
               onClick={(e) => e.stopPropagation()}
             >
               <FileStage />
@@ -379,6 +403,7 @@ export function Zen() {
               </form>
             </div>
           ) : null}
+        </div>
         </div>
       ) : null}
     </div>

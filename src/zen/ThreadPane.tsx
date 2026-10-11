@@ -132,7 +132,7 @@ function Bubble({
  * BEHAVE: GET /cli/thread then WS /cli/overlay/events?conversation=.
  * Send is on for any live overlay addr. Never sends to a PTY.
  */
-export function ThreadPane() {
+export function ThreadPane({ viewportHeight }: { viewportHeight?: number } = {}) {
   const thread = useZenStore((s) => s.thread);
   const source = useZenStore((s) => s.threadSource);
   const error = useZenStore((s) => s.threadError);
@@ -172,6 +172,10 @@ export function ThreadPane() {
   const pendingAnchor = useRef<MessageAnchor | null>(null);
   const prevAgent = useRef<string>("");
   const prevFirst = useRef<number | null>(null);
+  // Was the reader at the newest BEFORE the column resized? A pure
+  // container resize fires no scroll event, so this holds the pre-resize
+  // reading (the useBottomAnchor rule). Opens pinned to the tail.
+  const atNewest = useRef(true);
   // The working strip's turn. The gate drops a catch-up answer that raced
   // an activity frame (the frame is newer) or a later catch-up (a late
   // `{turn:null}` must not clear a live strip).
@@ -268,6 +272,15 @@ export function ThreadPane() {
     };
   }, [source, conversationId, threadGroupId]);
 
+  // Keyboard open/close: Zen sizes the column to the visual viewport, so
+  // the scroller shrinks with scrollTop unchanged and the newest message
+  // would slide under the composer. Re-stick if the reader was there.
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    if (!el || viewportHeight == null) return;
+    if (atNewest.current) stickToNewest(el);
+  }, [viewportHeight]);
+
   // The strip appearing or changing shape keeps the newest in view when
   // the reader was already at the bottom.
   const turnShape = turn ? `${turn.turnId}:${turn.phase}:${turn.end ? 1 : 0}` : "";
@@ -331,6 +344,11 @@ export function ThreadPane() {
         data-testid="thread-scroller"
         className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-2.5 py-3 flex flex-col gap-1"
         style={{ overflowAnchor: "none" }}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          atNewest.current =
+            el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+        }}
       >
         {source === "loading" ? (
           <span
@@ -399,9 +417,11 @@ export function ThreadPane() {
           </>
         )}
       </div>
+      {/* zen-composer-bar: home-indicator inset at rest, collapsed while
+          typing so it is not a gap above the keyboard (.input-bar idiom). */}
       <div
-        className="shrink-0 min-w-0 w-full overflow-hidden px-3 pt-2"
-        style={{ paddingBottom: "max(8px, env(safe-area-inset-bottom))" }}
+        className="shrink-0 min-w-0 w-full overflow-hidden px-3 pt-2 zen-composer-bar"
+        data-testid="composer-bar"
       >
         <p
           className="text-[11px] text-[var(--text-muted)] leading-snug break-words mb-1.5"
@@ -540,6 +560,11 @@ export function ThreadPane() {
               value={draft}
               rows={1}
               onChange={(e) => setDraft(e.target.value)}
+              onFocus={() => {
+                window.scrollTo(0, 0);
+                const el = scrollerRef.current;
+                if (el && atNewest.current) stickToNewest(el);
+              }}
               onPaste={(e) => {
                 const files = filesFromClipboard(e.clipboardData);
                 if (!files.length) return;
