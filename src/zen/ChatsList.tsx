@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { useFeedbackStore } from "../stores/feedback";
 import { hostLabel, useServersStore, type RecoveryState } from "../stores/servers";
@@ -25,6 +25,7 @@ import "./swipePin.css";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { ZenSettings } from "./ZenSettings";
 import { useZenStore } from "./zenStore";
+import { zenTextPx } from "./zenFont";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -45,6 +46,8 @@ const PIN_YELLOW = "#ffd60a";
 const SWIPE_HINT_ID = "chats-swipe-hint";
 /** Title cap: at 375pt the side columns keep ~100px for the pills. */
 const TITLE_MAX_W = "min(34vw, 140px)";
+/** Resting header content height below the safe area: 44 row + 12/8 pad. */
+export const CHATS_HEADER_PX = 64;
 
 function PinGlyph({ off }: { off: boolean }) {
   return (
@@ -98,6 +101,8 @@ export function ChatsList() {
   const hiddenSidecarAddrs = useZenStore((s) => s.hiddenSidecarAddrs);
   const listRef = useRef<HTMLDivElement | null>(null);
   const pinsRef = useRef<HTMLDivElement | null>(null);
+  const headerRef = useRef<HTMLDivElement | null>(null);
+  const [headerPx, setHeaderPx] = useState(CHATS_HEADER_PX);
   // Pins are per workspace on the server: only rows that map to a project
   // can pin. Sidecars / extra chats and project-group rows cannot.
   const pinnable = useMemo(
@@ -197,6 +202,24 @@ export function ChatsList() {
     if (!group) setGroupMenu(false);
   }, [group]);
 
+  // The header floats over the list; the list's top padding tracks its
+  // real height (a pin error line grows it). Hidden under an open Thread
+  // the box measures 0, so keep the last good height.
+  const hasServers = servers.length > 0;
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const read = () => {
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      if (h > 0) setHeaderPx(h);
+    };
+    read();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [hasServers]);
+
   useEffect(() => {
     const root = listRef.current;
     if (root) root.scrollTop = 0;
@@ -282,15 +305,34 @@ export function ChatsList() {
     >
       <div
         className="flex flex-col relative overflow-hidden"
-        style={{
-          height: containerHeight,
-          paddingTop: "env(safe-area-inset-top)",
-        }}
+        style={{ height: containerHeight }}
         data-testid="chats-column"
       >
+      {/* Floats over the list from y=0 (under the status bar) with the
+          chat header's progressive blur (c39c0ac). The blur and the header
+          box pass touches through; only its controls take them, so the
+          list scrolls underneath. Below the overlays (zIndex 6). */}
       <header
-        className="grid items-center shrink-0 w-full min-w-0"
+        className="absolute top-0 left-0 right-0 w-full min-w-0"
         data-no-pin="1"
+        data-testid="chats-header"
+        style={{
+          zIndex: 5,
+          paddingTop: "env(safe-area-inset-top)",
+          pointerEvents: "none",
+        }}
+      >
+      <div className="zen-header-blur" data-testid="chats-header-blur" aria-hidden>
+        <span className="zen-header-blur-1" />
+        <span className="zen-header-blur-2" />
+        <span className="zen-header-blur-3" />
+        <span className="zen-header-blur-4" />
+        <span className="zen-header-tint" />
+      </div>
+      <div ref={headerRef} className="relative w-full min-w-0" data-testid="chats-header-content">
+      <div
+        className="grid items-center w-full min-w-0"
+        data-testid="chats-header-row"
         style={{
           gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)",
           minHeight: 44,
@@ -307,6 +349,7 @@ export function ChatsList() {
             padding: "0 13px",
             gap: 6,
             color: "#fff",
+            pointerEvents: "auto",
           }}
           onClick={() => setServersSheet(true)}
           aria-label={`Server ${serverLabel}`}
@@ -336,7 +379,7 @@ export function ChatsList() {
         {/* Groups on: the current focus group's name, a tap opens this
             device's switcher. Capped so it never meets the pills at 375pt. */}
         <h1
-          className="min-w-0 text-[17px] font-semibold"
+          className="min-w-0 text-[17px] font-semibold zen-header-text"
           style={{ letterSpacing: "-0.2px", maxWidth: TITLE_MAX_W }}
           data-testid="chats-title"
         >
@@ -344,7 +387,13 @@ export function ChatsList() {
             <button
               type="button"
               className="flex items-center min-w-0 max-w-full bg-transparent border-0 p-0"
-              style={{ gap: 6, color: "#fff", font: "inherit", letterSpacing: "inherit" }}
+              style={{
+                gap: 6,
+                color: "#fff",
+                font: "inherit",
+                letterSpacing: "inherit",
+                pointerEvents: "auto",
+              }}
               onClick={() => setGroupMenu((v) => !v)}
               aria-haspopup="menu"
               aria-expanded={groupMenu}
@@ -370,7 +419,11 @@ export function ChatsList() {
             <span className="block truncate pointer-events-none">{title}</span>
           )}
         </h1>
-        <span className="flex items-center justify-self-end" style={{ gap: 8 }} data-testid="chats-header-right">
+        <span
+          className="flex items-center justify-self-end"
+          style={{ gap: 8, pointerEvents: "auto" }}
+          data-testid="chats-header-right"
+        >
           <button
             type="button"
             className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
@@ -451,6 +504,18 @@ export function ChatsList() {
             </svg>
           </button>
         </span>
+      </div>
+      {pinError ? (
+        <p
+          role="status"
+          className="relative px-4 pb-1 text-[13px] truncate zen-header-text"
+          style={{ color: "#ff453a" }}
+          data-testid="chats-pin-error"
+        >
+          {pinError}
+        </p>
+      ) : null}
+      </div>
       </header>
 
       {group && groupMenu ? (
@@ -526,23 +591,20 @@ export function ChatsList() {
         </>
       ) : null}
 
-      {pinError ? (
-        <p
-          role="status"
-          className="shrink-0 px-4 pb-1 text-[13px] truncate"
-          style={{ color: "#ff453a" }}
-          data-no-pin="1"
-          data-testid="chats-pin-error"
-        >
-          {pinError}
-        </p>
-      ) : null}
-
       {/* No pins: a hold-drag still needs somewhere to land. A zero-height
-          anchor under the header, so the strip floats over the list without
-          shifting the row under the finger. */}
+          anchor at the header's bottom edge, so the strip floats over the
+          list (and above the header blur) without shifting the row under
+          the finger. */}
       {!searching && pinned.length === 0 && hot ? (
-        <div className="relative shrink-0" style={{ height: 0, zIndex: 5 }} data-no-pin="1">
+        <div
+          className="absolute left-0 right-0"
+          style={{
+            top: `calc(env(safe-area-inset-top) + ${headerPx}px)`,
+            height: 0,
+            zIndex: 5,
+          }}
+          data-no-pin="1"
+        >
           <div
             ref={pinsRef}
             className="k2-pin-drop absolute"
@@ -559,6 +621,8 @@ export function ChatsList() {
         ref={listRef}
         className="flex-1 min-h-0 overflow-y-auto"
         style={{
+          // Starts under the floating header; rows scroll up behind it.
+          paddingTop: `calc(env(safe-area-inset-top) + ${headerPx}px)`,
           // Searching: no pin tray, so only clear the keyboard-up bar
           // (bar + its 8px gap + 8px air) — not the resting 96.
           paddingBottom: searching
@@ -790,15 +854,19 @@ export function ChatsList() {
             </span>
             <span className="flex-1 min-w-0">
               <span className="flex justify-between items-baseline gap-2">
-                <span className="truncate text-[16px] font-semibold" style={{ letterSpacing: "-0.2px" }}>
+                <span
+                  className="min-w-0 truncate font-semibold"
+                  style={{ fontSize: zenTextPx(16), letterSpacing: "-0.2px" }}
+                  data-testid="row-name"
+                >
                   {a.name}
                 </span>
                 {source === "stub" ? (
                   <StubMark />
                 ) : (
                   <span
-                    className="shrink-0 flex items-center gap-1 text-[14px]"
-                    style={{ color: "#8e8e93", fontWeight: 400 }}
+                    className="shrink-0 flex items-center gap-1"
+                    style={{ color: "#8e8e93", fontWeight: 400, fontSize: zenTextPx(14) }}
                     data-testid="row-when"
                   >
                     {when}
@@ -809,16 +877,16 @@ export function ChatsList() {
               </span>
               {busy ? (
                 <span
-                  className="block text-[14px] truncate"
-                  style={{ color: busyColor, lineHeight: 1.3 }}
+                  className="block truncate"
+                  style={{ color: busyColor, lineHeight: 1.3, fontSize: zenTextPx(14) }}
                   data-testid="row-activity"
                 >
                   {activityRowText(busy)}
                 </span>
               ) : (
                 <span
-                  className="block text-[14px] truncate"
-                  style={{ color: "#8e8e93", lineHeight: 1.3 }}
+                  className="block truncate"
+                  style={{ color: "#8e8e93", lineHeight: 1.3, fontSize: zenTextPx(14) }}
                   data-testid="row-preview"
                 >
                   {preview}
