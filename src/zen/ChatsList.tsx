@@ -212,12 +212,15 @@ export function ChatsList() {
               viewBox="0 0 24 24"
               fill="none"
               stroke="currentColor"
-              strokeWidth="2"
+              strokeWidth="1.7"
               strokeLinecap="round"
               strokeLinejoin="round"
               aria-hidden
+              data-testid="tickets-icon"
             >
-              <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+              {/* Desktop Zen nav rail TicketIcon (ZenNavRailWidget.tsx). */}
+              <path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4Z" />
+              <path d="M14 6v2M14 11v2M14 16v2" />
             </svg>
             {waitingCount > 0 ? (
               <span
