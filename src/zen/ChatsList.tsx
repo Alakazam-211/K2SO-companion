@@ -76,6 +76,22 @@ export const ZEN_PIN_ROW_GAP = 14;
 export const ZEN_PIN_AVATAR_PX = 74;
 const PIN_SIDE_PX = ZEN_LIST_EDGE_INSET + ZEN_LIST_EDGE_PAD;
 
+/** Space under the pin grid, above the first list row (was 8; +6 asked). */
+export const ZEN_PIN_GRID_BOTTOM_PX = 14;
+
+/**
+ * Pin grid columns for `count` pins. Three or more: three equal columns,
+ * a partial last row left-justified. One or two: that many columns of the
+ * same 3-column cell width (same gap), centred as a group. `100%` here is
+ * the grid's content box, so the cell matches the 3-column `1fr` exactly
+ * and the list inset (which assumes three columns) never moves.
+ */
+export function zenPinGridColumns(count: number): string {
+  if (count >= 3) return "repeat(3, minmax(0, 1fr))";
+  const n = Math.max(1, count);
+  return `repeat(${n}, calc((100% - ${2 * ZEN_PIN_COL_GAP}px) / 3))`;
+}
+
 /**
  * Distance from the list's edge to the outer edge of the first (and third)
  * pinned avatar, for a list `containerPx` wide:
@@ -813,11 +829,14 @@ export function ChatsList() {
       {showPins ? (
       <div
         ref={pinsRef}
-        className="grid grid-cols-3"
+        className="grid"
         style={{
           // Near the screen edges (3 columns use the width), with 10px of
-          // air under the floating header.
-          padding: `4px ${ZEN_LIST_EDGE_PAD}px 8px`,
+          // air under the floating header. One or two pins sit centred in
+          // the same cells; four+ wrap with the last row left-justified.
+          gridTemplateColumns: zenPinGridColumns(pinned.length),
+          justifyContent: pinned.length < 3 ? "center" : undefined,
+          padding: `4px ${ZEN_LIST_EDGE_PAD}px ${ZEN_PIN_GRID_BOTTOM_PX}px`,
           gap: `${ZEN_PIN_ROW_GAP}px ${ZEN_PIN_COL_GAP}px`,
           minHeight: 96,
           margin: `10px ${ZEN_LIST_EDGE_INSET}px 0`,
