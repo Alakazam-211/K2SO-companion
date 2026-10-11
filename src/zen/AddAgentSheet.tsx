@@ -8,9 +8,6 @@ import { WorkspaceAvatar } from "./WorkspaceAvatar";
 
 export type AddAgentSegment = "this" | "other";
 
-/** Status line for an other-server section until multi-server lands. */
-export const OTHER_SERVERS_SOON = "Available with multi-server (coming soon)";
-
 type Section = { key: string; title: string | null; dot: string | null; agents: StubAgent[] };
 
 /** This server's candidates, by focus group when groups are on (the
@@ -99,19 +96,18 @@ export function CandidateRow({
 }
 
 /**
- * Other servers (HM5): one section per saved server that is not the active
- * one. Flag off (`zen.multiServer`): every section carries the coming-soon
- * status. Flag on (S3b): `renderBody(server)` lists that server's agents
- * with its own saved login (no switch, at most 4 loading at once) and its
- * loading / offline / sign-in / no-access / needs-an-update / failed state
- * (`multi/OtherServerSection`).
+ * Other servers (HM5, multi-server flag on only): one section per saved
+ * server that is not the active one. `renderBody(server)` lists that
+ * server's agents with its own saved login (no switch, at most 4 loading
+ * at once) and its loading / offline / sign-in / no-access /
+ * needs-an-update / failed state (`multi/OtherServerSection`).
  */
 export function OtherServersSections({
   servers,
   renderBody,
 }: {
   servers: ServerEntry[];
-  renderBody?: (server: ServerEntry) => ReactNode;
+  renderBody: (server: ServerEntry) => ReactNode;
 }) {
   if (servers.length === 0) {
     return (
@@ -129,15 +125,7 @@ export function OtherServersSections({
             style={{ color: "#8e8e93", padding: "8px 16px 6px", letterSpacing: "0.3px" }}>
             {serverDisplayName(s)}
           </h3>
-          {renderBody ? (
-            renderBody(s)
-          ) : (
-            <p className="k2-tile k2-tile-raised text-[14px]"
-              style={{ margin: "0 12px", padding: "12px 14px", borderRadius: 12, color: "#8e8e93" }}
-              data-testid={`add-agent-server-status-${s.id}`}>
-              {OTHER_SERVERS_SOON}
-            </p>
-          )}
+          {renderBody(s)}
         </section>
       ))}
     </>
@@ -171,12 +159,14 @@ export function AddAgentSheet({
   groups: FocusGroupLite[] | null;
   otherServers: ServerEntry[];
   /** Multi-server flag on (S3b): one live section body per other server,
-   *  under the shared search. Absent (flag off): coming-soon sections. */
+   *  under the shared search. Absent (flag off, owner 2026-10): no
+   *  This server / Other servers control — the active server's list only. */
   renderOtherBody?: (server: ServerEntry, q: string) => ReactNode;
   onAdd: (row: HomeRow) => void;
   onClose: () => void;
 }) {
-  const [segment, setSegment] = useState<AddAgentSegment>("this");
+  const [segmentPick, setSegment] = useState<AddAgentSegment>("this");
+  const segment: AddAgentSegment = renderOtherBody ? segmentPick : "this";
   const [q, setQ] = useState("");
   const candidates = useMemo(() => agents.filter(isHomeCandidate), [agents]);
   const sections = useMemo(
@@ -233,44 +223,44 @@ export function AddAgentSheet({
             Done
           </button>
         </div>
-        <div
-          role="group"
-          aria-label="Which servers"
-          className="zen-seg flex items-center shrink-0 zen-glass zen-glass-pill"
-          style={{ position: "relative", height: 34, padding: 2, borderRadius: 17, overflow: "hidden", margin: "0 16px 10px" }}
-        >
-          <span
-            className="zen-seg-thumb"
-            aria-hidden
-            style={{
-              position: "absolute",
-              top: 2,
-              bottom: 2,
-              left: 2,
-              width: "calc(50% - 2px)",
-              borderRadius: 15,
-              transform: segment === "this" ? "translateX(0%)" : "translateX(100%)",
-            }}
-          />
-          {segBtn("this", "This server")}
-          {segBtn("other", "Other servers")}
-        </div>
-        {segment === "this" || renderOtherBody ? (
-          <label className="zen-glass zen-glass-field flex items-center shrink-0"
-            style={{ margin: "0 16px 6px", padding: "8px 14px" }}>
-            <span className="sr-only">Search agents</span>
-            <input
-              type="search"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-              placeholder="Name, path or handle"
-              aria-label="Search agents"
-              className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[16px]"
-              style={{ color: "#fff" }}
-              data-testid="add-agent-search"
+        {renderOtherBody ? (
+          <div
+            role="group"
+            aria-label="Which servers"
+            className="zen-seg flex items-center shrink-0 zen-glass zen-glass-pill"
+            style={{ position: "relative", height: 34, padding: 2, borderRadius: 17, overflow: "hidden", margin: "0 16px 10px" }}
+          >
+            <span
+              className="zen-seg-thumb"
+              aria-hidden
+              style={{
+                position: "absolute",
+                top: 2,
+                bottom: 2,
+                left: 2,
+                width: "calc(50% - 2px)",
+                borderRadius: 15,
+                transform: segment === "this" ? "translateX(0%)" : "translateX(100%)",
+              }}
             />
-          </label>
+            {segBtn("this", "This server")}
+            {segBtn("other", "Other servers")}
+          </div>
         ) : null}
+        <label className="zen-glass zen-glass-field flex items-center shrink-0"
+          style={{ margin: "0 16px 6px", padding: "8px 14px" }}>
+          <span className="sr-only">Search agents</span>
+          <input
+            type="search"
+            value={q}
+            onChange={(e) => setQ(e.target.value)}
+            placeholder="Name, path or handle"
+            aria-label="Search agents"
+            className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[16px]"
+            style={{ color: "#fff" }}
+            data-testid="add-agent-search"
+          />
+        </label>
         {segment === "this" ? (
           <>
             <div className="flex-1 min-h-0 overflow-y-auto" data-testid="add-agent-this">
@@ -312,14 +302,11 @@ export function AddAgentSheet({
               ))}
             </div>
           </>
-        ) : (
+        ) : renderOtherBody ? (
           <div className="flex-1 min-h-0 overflow-y-auto" data-testid="add-agent-other">
-            <OtherServersSections
-              servers={otherServers}
-              renderBody={renderOtherBody ? (server) => renderOtherBody(server, q) : undefined}
-            />
+            <OtherServersSections servers={otherServers} renderBody={(server) => renderOtherBody(server, q)} />
           </div>
-        )}
+        ) : null}
       </div>
     </div>
   );

@@ -7,11 +7,11 @@
 //   - a healthy other server whose rows are missing or over a minute old
 //     is (re)loaded on its own scope; a restart reloads that server only
 //     (MS13) — for the active server, its pins, groups and activity;
-//   - the Agents tab is always ONE server (the pill's pick, else the
-//     active/default server); that server, when it is not the active one,
-//     keeps a 5 s activity snapshot (Q7: at most two servers — that one
-//     and the default); every other server shows the summary's dot and
-//     word (Home rows, the pill menu);
+//   - the Agents tab is always ONE server: the active one (owner 2026-10;
+//     the pill opens the Servers sheet and picking there switches it).
+//     Only with no active server saved does it fall back to the first
+//     saved server, which then keeps a 5 s activity snapshot (Q7); every
+//     other server shows the summary's dot and word (Home rows, Servers);
 //   - the list (rows, pins, placeholder, search) is that server's only.
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -82,11 +82,9 @@ export interface Placeholder {
 
 export interface MultiServerList {
   on: boolean;
-  /** The Agents tab's server: the pill's saved pick, else the active
-   *  (default) server. Null only with no servers saved. */
+  /** The Agents tab's server: the active server (else the first saved
+   *  one). Null only with no servers saved. */
   selectedId: string | null;
-  /** Remember the Agents tab's server on this device. */
-  setSelected: (serverId: string) => void;
   /** More than one server saved: chips on Home rows (MS20). */
   chips: boolean;
   /** The Agents tab's server when it is not the active one. */
@@ -122,8 +120,6 @@ export function useMultiServerList(opts: {
   active: ActiveSlice;
 }): MultiServerList {
   const on = useMultiServerPrefs((s) => s.multiServer);
-  const picked = useMultiServerPrefs((s) => s.serverFilter);
-  const setServerFilter = useMultiServerPrefs((s) => s.setServerFilter);
   const servers = useServersStore((s) => s.servers);
   const activeServerId = useServersStore((s) => s.activeServerId);
   const tokens = useServersStore(useShallow((s) => s.tokens));
@@ -132,12 +128,7 @@ export function useMultiServerList(opts: {
   const [signInFor, setSignInFor] = useState<string | null>(null);
 
   const saved = (id: string | null) => !!id && servers.some((s) => s.id === id);
-  const selectedId: string | null = saved(picked)
-    ? picked
-    : saved(activeServerId)
-      ? activeServerId
-      : servers[0]?.id ?? null;
-  const setSelected = useCallback((id: string) => setServerFilter(id), [setServerFilter]);
+  const selectedId: string | null = saved(activeServerId) ? activeServerId : servers[0]?.id ?? null;
   const chips = showServerChips(servers.length);
   const remoteSelectedId = on && selectedId !== activeServerId ? selectedId : null;
   const ids = useMemo(() => servers.map((s) => s.id), [servers]);
@@ -360,7 +351,6 @@ export function useMultiServerList(opts: {
   return {
     on,
     selectedId,
-    setSelected,
     chips,
     remoteSelectedId,
     merged,

@@ -1,8 +1,8 @@
 // The multi-server Agents list's own pieces (multi-server S2, MS35, MS39).
 // Only rendered with `zen.multiServer` on. The active server's rows keep
 // ChatsList's own row (swipe, pin drag, last-at); these are the rows of a
-// NON-active server picked in the pill, a server's placeholder row, the
-// "Loading {server}…" line and the pill's server menu.
+// NON-active server (only with no active server saved), a server's
+// placeholder row and the "Loading {server}…" line.
 //
 // S3 (MS21): opening a row from another server opens a ROOM on that
 // server (`zenStore.openRoom`); the active server never changes. A server
@@ -326,126 +326,6 @@ export function LoadingLines({
           Loading {l.label}…
         </p>
       ))}
-    </>
-  );
-}
-
-export interface FilterOption {
-  id: string;
-  label: string;
-  dot: string;
-  word: string;
-}
-
-/** MS35: the nickname pill's menu — each saved server with its status dot
- *  (the Agents tab's one is checked), then Manage servers…. No "All": the
- *  Agents tab is always one server; Home is the cross-server list. */
-export function ServerFilterMenu({
-  selectedId,
-  options,
-  onPick,
-  onManage,
-  onClose,
-}: {
-  /** The Agents tab's server (checked); null on Home (nothing checked). */
-  selectedId: string | null;
-  options: FilterOption[];
-  onPick: (serverId: string) => void;
-  onManage: () => void;
-  onClose: () => void;
-}) {
-  const item = (
-    key: string,
-    on: boolean,
-    children: ReactNode,
-    onClick: () => void,
-    testId: string,
-    role: "menuitemradio" | "menuitem" = "menuitemradio"
-  ) => (
-    <button
-      key={key}
-      type="button"
-      role={role}
-      aria-checked={role === "menuitemradio" ? on : undefined}
-      className="w-full flex items-center text-left bg-transparent border-0"
-      style={{ gap: 10, padding: "10px 12px", minHeight: 44, borderRadius: 10, color: "#fff" }}
-      onClick={onClick}
-      data-testid={testId}
-    >
-      {children}
-      {role === "menuitemradio" ? (
-        <span aria-hidden className="shrink-0" style={{ width: 16, color: "#0a84ff" }}>
-          {on ? (
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor"
-              strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
-              <path d="M20 6 9 17l-5-5" />
-            </svg>
-          ) : null}
-        </span>
-      ) : null}
-    </button>
-  );
-  return (
-    <>
-      <button
-        type="button"
-        aria-label="Close server filter"
-        className="fixed inset-0 bg-transparent border-0 p-0"
-        style={{ zIndex: 29 }}
-        data-no-pin="1"
-        onClick={onClose}
-        data-testid="server-filter-backdrop"
-      />
-      <div
-        role="menu"
-        aria-label="Servers"
-        className="zen-glass absolute"
-        data-no-pin="1"
-        data-testid="server-filter-menu"
-        style={{
-          zIndex: 30,
-          top: "calc(env(safe-area-inset-top) + 52px)",
-          left: 12,
-          width: "min(280px, calc(100vw - 24px))",
-          maxHeight: "60vh",
-          overflowY: "auto",
-          borderRadius: 16,
-          padding: 6,
-          color: "#fff",
-        }}
-      >
-        {options.map((o) =>
-          item(
-            o.id,
-            selectedId === o.id,
-            <>
-              <span
-                aria-hidden
-                className="shrink-0"
-                data-testid="server-filter-dot"
-                style={{ width: 8, height: 8, borderRadius: "50%", background: o.dot }}
-              />
-              <span className="flex-1 min-w-0">
-                <span className="block truncate text-[16px]">{o.label}</span>
-                <span className="block truncate text-[12px]" style={{ color: o.dot }}>
-                  {o.word}
-                </span>
-              </span>
-            </>,
-            () => onPick(o.id),
-            `server-filter-${o.id}`
-          )
-        )}
-        <div style={{ height: 0.5, background: "rgba(255,255,255,.12)", margin: "4px 8px" }} />
-        {item(
-          "manage",
-          false,
-          <span className="flex-1 min-w-0 truncate text-[16px]">Manage servers…</span>,
-          onManage,
-          "server-filter-manage",
-          "menuitem"
-        )}
-      </div>
     </>
   );
 }

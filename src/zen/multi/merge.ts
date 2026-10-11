@@ -142,7 +142,7 @@ export interface MergedList {
   pinned: MergedRow[];
 }
 
-/** The Agents tab's list: ONE server's rows and pins (the pill's pick).
+/** The Agents tab's list: ONE server's rows and pins (the active server).
  *  No source (signed out, not loaded yet): empty. */
 export function buildServerList(src: MergedSource | null, opts: { q: string }): MergedList {
   if (!src) return { rows: [], pinned: [] };
