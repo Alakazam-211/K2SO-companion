@@ -61,8 +61,9 @@ export const MAX_SERVER_LOADS = 4;
 
 /** Why a server's lists could not be read (no rows yet), for the Add
  *  Agent picker's section states: 401 → sign in, 403 → no access, no
- *  HTTP answer → offline, anything else → failed. */
-export type RowsErrorKind = "offline" | "signin" | "no-access" | "failed";
+ *  HTTP answer → offline, every read fine but nothing listed → empty,
+ *  anything else → failed. */
+export type RowsErrorKind = "offline" | "signin" | "no-access" | "empty" | "failed";
 
 export interface RemoteRows {
   status: "loading" | "live" | "error";
@@ -130,9 +131,11 @@ export function serverLoadsRunning(): number {
 /** What a failed load means (desktop `listingForError`). A 401 on any
  *  read → sign in; 403 → no access (a `password_change_required` 403 is
  *  a live login that needs a new password: sign in); no HTTP status on
- *  every read → offline; else failed. */
+ *  every read → offline; every read answered but nothing listed → empty;
+ *  else failed. */
 export function rowsErrorKind(results: { ok: boolean; status?: number; error?: string }[]): RowsErrorKind {
   const bad = results.filter((r) => !r.ok);
+  if (bad.length === 0) return "empty";
   if (bad.some((r) => r.status === 401)) return "signin";
   if (bad.some((r) => r.status === 403 && /password_change_required/i.test(r.error || ""))) return "signin";
   if (bad.some((r) => r.status === 403)) return "no-access";

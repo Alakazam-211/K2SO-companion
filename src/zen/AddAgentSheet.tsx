@@ -46,13 +46,65 @@ function Check() {
   );
 }
 
+/** One pickable agent (both segments): avatar, name, handle, and an
+ *  empty ring or a check. Rows already on the Home stay checked and a tap
+ *  does nothing; a row that cannot be addressed is disabled. */
+export function CandidateRow({
+  agent: a,
+  iconUrl,
+  homeName,
+  added,
+  disabled,
+  testId,
+  onAdd,
+}: {
+  agent: StubAgent;
+  iconUrl?: string | null;
+  homeName: string;
+  added: boolean;
+  disabled: boolean;
+  testId: string;
+  onAdd: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      className="w-full flex items-center text-left bg-transparent border-0"
+      style={{ gap: 12, padding: "8px 16px", minHeight: 56, color: "#fff", opacity: disabled ? 0.4 : 1 }}
+      aria-pressed={added}
+      aria-label={added ? `${a.name}, on ${homeName}` : `Add ${a.name}`}
+      disabled={disabled}
+      data-testid={testId}
+      data-added={added ? "1" : undefined}
+      onClick={() => {
+        if (disabled || added) return;
+        onAdd();
+      }}
+    >
+      <WorkspaceAvatar initial={a.initial} color={a.color} iconUrl={iconUrl ?? a.iconUrl} size={40} fontSize={15} />
+      <span className="flex-1 min-w-0">
+        <span className="block truncate text-[16px] font-medium">{a.name}</span>
+        <span className="block truncate text-[13px]" style={{ color: "#8e8e93" }}>
+          {a.addr}
+        </span>
+      </span>
+      <span className="shrink-0 flex items-center justify-center"
+        style={{ width: 24, height: 24, color: "#0a84ff" }}>
+        {added ? <Check /> : (
+          <span aria-hidden style={{ width: 20, height: 20, borderRadius: "50%", boxShadow: "inset 0 0 0 1.5px #636366" }} />
+        )}
+      </span>
+    </button>
+  );
+}
+
 /**
  * Other servers (HM5): one section per saved server that is not the active
- * one. SEAM for the multi-server branch: today every section carries the
- * coming-soon status; there, pass `renderBody(server)` to list that
- * server's workspaces with its own saved login (no switch, at most 4
- * loading at once) and its loading / offline / sign-in / no-access / failed
- * state.
+ * one. Flag off (`zen.multiServer`): every section carries the coming-soon
+ * status. Flag on (S3b): `renderBody(server)` lists that server's agents
+ * with its own saved login (no switch, at most 4 loading at once) and its
+ * loading / offline / sign-in / no-access / needs-an-update / failed state
+ * (`multi/OtherServerSection`).
  */
 export function OtherServersSections({
   servers,
@@ -106,6 +158,7 @@ export function AddAgentSheet({
   projects,
   groups,
   otherServers,
+  renderOtherBody,
   onAdd,
   onClose,
 }: {
@@ -117,6 +170,9 @@ export function AddAgentSheet({
   /** Focus groups when they are on, else null. */
   groups: FocusGroupLite[] | null;
   otherServers: ServerEntry[];
+  /** Multi-server flag on (S3b): one live section body per other server,
+   *  under the shared search. Absent (flag off): coming-soon sections. */
+  renderOtherBody?: (server: ServerEntry, q: string) => ReactNode;
   onAdd: (row: HomeRow) => void;
   onClose: () => void;
 }) {
@@ -199,22 +255,24 @@ export function AddAgentSheet({
           {segBtn("this", "This server")}
           {segBtn("other", "Other servers")}
         </div>
+        {segment === "this" || renderOtherBody ? (
+          <label className="zen-glass zen-glass-field flex items-center shrink-0"
+            style={{ margin: "0 16px 6px", padding: "8px 14px" }}>
+            <span className="sr-only">Search agents</span>
+            <input
+              type="search"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+              placeholder="Name, path or handle"
+              aria-label="Search agents"
+              className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[16px]"
+              style={{ color: "#fff" }}
+              data-testid="add-agent-search"
+            />
+          </label>
+        ) : null}
         {segment === "this" ? (
           <>
-            <label className="zen-glass zen-glass-field flex items-center shrink-0"
-              style={{ margin: "0 16px 6px", padding: "8px 14px" }}>
-              <span className="sr-only">Search agents</span>
-              <input
-                type="search"
-                value={q}
-                onChange={(e) => setQ(e.target.value)}
-                placeholder="Name, path or handle"
-                aria-label="Search agents"
-                className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[16px]"
-                style={{ color: "#fff" }}
-                data-testid="add-agent-search"
-              />
-            </label>
             <div className="flex-1 min-h-0 overflow-y-auto" data-testid="add-agent-this">
               {shown === 0 ? (
                 <p className="text-[14px] text-center" style={{ color: "#8e8e93", padding: "18px 16px" }}
@@ -237,35 +295,17 @@ export function AddAgentSheet({
                     const row = hostKey ? homeRowFor(a, hostKey, projects) : null;
                     const added = !!row && homeHasAddress(home, row.address);
                     return (
-                      <button
+                      <CandidateRow
                         key={a.id}
-                        type="button"
-                        className="w-full flex items-center text-left bg-transparent border-0"
-                        style={{ gap: 12, padding: "8px 16px", minHeight: 56, color: "#fff", opacity: row ? 1 : 0.4 }}
-                        aria-pressed={added}
-                        aria-label={added ? `${a.name}, on ${home.name}` : `Add ${a.name}`}
+                        agent={a}
+                        homeName={home.name}
+                        added={added}
                         disabled={!row}
-                        data-testid={`add-agent-row-${a.id}`}
-                        data-added={added ? "1" : undefined}
-                        onClick={() => {
-                          if (!row || added) return;
-                          onAdd(row);
+                        testId={`add-agent-row-${a.id}`}
+                        onAdd={() => {
+                          if (row) onAdd(row);
                         }}
-                      >
-                        <WorkspaceAvatar initial={a.initial} color={a.color} iconUrl={a.iconUrl} size={40} fontSize={15} />
-                        <span className="flex-1 min-w-0">
-                          <span className="block truncate text-[16px] font-medium">{a.name}</span>
-                          <span className="block truncate text-[13px]" style={{ color: "#8e8e93" }}>
-                            {a.addr}
-                          </span>
-                        </span>
-                        <span className="shrink-0 flex items-center justify-center"
-                          style={{ width: 24, height: 24, color: "#0a84ff" }}>
-                          {added ? <Check /> : (
-                            <span aria-hidden style={{ width: 20, height: 20, borderRadius: "50%", boxShadow: "inset 0 0 0 1.5px #636366" }} />
-                          )}
-                        </span>
-                      </button>
+                      />
                     );
                   })}
                 </section>
@@ -274,7 +314,10 @@ export function AddAgentSheet({
           </>
         ) : (
           <div className="flex-1 min-h-0 overflow-y-auto" data-testid="add-agent-other">
-            <OtherServersSections servers={otherServers} />
+            <OtherServersSections
+              servers={otherServers}
+              renderBody={renderOtherBody ? (server) => renderOtherBody(server, q) : undefined}
+            />
           </div>
         )}
       </div>

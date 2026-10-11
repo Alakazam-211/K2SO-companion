@@ -179,6 +179,7 @@ describe("S3b: why a first load failed (picker section states)", () => {
     expect(rowsErrorKind([{ ok: false, error: "Could not reach server: refused" }, { ok: false }])).toBe("offline");
     expect(rowsErrorKind([{ ok: false, status: 502 }, { ok: false }])).toBe("failed");
     expect(rowsErrorKind([{ ok: true }, { ok: false, status: 500 }])).toBe("failed");
+    expect(rowsErrorKind([{ ok: true }, { ok: true }])).toBe("empty");
   });
 
   it("an all-failed first load records its kind; a good load clears it", async () => {
