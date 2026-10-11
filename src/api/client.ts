@@ -497,13 +497,29 @@ export const setTabTitle = (projectId: string, tabId: string, title: string) =>
     "workspace.set_tab_title", "/cli/workspace/set-tab-title",
     { projectId, tabId, title, locked: true }, { method: "POST" }
   );
-/** Overlay extra title. GET `/cli/sessions/label?id=<uuid>&label=<text>`
- *  (omit `lock`; daemon default true → Locked). Companion/sessions then
- *  returns that label for non-tab extras (K2 `20c49e2b`+). Pty/Seed
- *  titles stay the derived name. `tab-*` still uses `tab_titles`. POST
- *  405s `method not allowed for this route`. */
+/** A write on a route K2 0.44.4 made POST-only (`FORMERLY_GET_WRITES` in
+ *  K2 `route_policy.rs`; GET now 405s). POST with a JSON body first. A
+ *  pre-0.44.4 daemon serves these as GET and 405s the POST, so on a 405
+ *  retry ONCE as the old GET with the params on the query string. */
+async function postWithLegacyGet<T>(
+  wsMethod: string,
+  httpPath: string,
+  params: Record<string, unknown>
+): Promise<ApiResponse<T>> {
+  const r = await request<T>(wsMethod, httpPath, params, { method: "POST" });
+  if (r.ok || r.status !== 405) return r;
+  return request<T>(wsMethod, httpPath, params);
+}
+
+/** Overlay extra title. `POST /cli/sessions/label {id, label}` (K2
+ *  0.44.4+ is POST-only; GET 405s). Older daemons 405 the POST and take
+ *  `GET ?id=<uuid>&label=<text>`, so that is the fallback. Omit `lock`;
+ *  daemon default true → Locked. The response echoes `{label, locked}`.
+ *  Companion/sessions then returns that label for non-tab extras (K2
+ *  `20c49e2b`+). Pty/Seed titles stay the derived name. `tab-*` still
+ *  uses `tab_titles`. */
 export const setSessionLabel = (id: string, label: string) =>
-  request<{ success?: boolean }>(
+  postWithLegacyGet<{ success?: boolean; label?: string; locked?: boolean }>(
     "sessions.label",
     "/cli/sessions/label",
     { id, label }
