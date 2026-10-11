@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import {
   DRAWER_EXPANDED_KEY,
@@ -7,8 +7,20 @@ import {
   BRAILLE_FRAMES,
   SPINNER_STATIC,
   STRIP_ICON,
+  TAG_H_PX,
+  TAG_PAD_X_PX,
   ThreadWorkingStrip,
+  counterTagWidthPx,
 } from "./ThreadWorkingStrip";
+import { counterWidthPx } from "./threadStrip";
+
+/** Vitest does not load CSS; the tag tests read the stylesheet as text. */
+let drawerCss = "";
+beforeAll(async () => {
+  // @ts-expect-error Node fs — vitest runtime, not in app tsconfig libs
+  const { readFileSync } = await import("fs");
+  drawerCss = readFileSync("src/zen/threadDrawer.css", "utf8") as string;
+});
 import { AgentIcon, CogIcon, FileIcon, PencilIcon, SearchIcon, TerminalIcon } from "./icons";
 
 /** A counter's visible number(s): running, then done (subagents). */
@@ -118,8 +130,8 @@ describe("ThreadWorkingStrip drawer", () => {
       // The number right after the icon (subagents: after the spinner).
       if (key !== "subagents") expect(svg.nextSibling?.textContent).toMatch(/^\d+$/);
     }
-    // Muted: the counters inherit the clock's colour.
-    expect(screen.getByTestId("thread-strip-counters").style.color).toBe("var(--text-muted)");
+    // Tinted per tag, not one muted colour for the row.
+    expect(screen.getByTestId("thread-strip-counters").style.color).toBe("");
     expect(STRIP_ICON).toEqual({
       subagents: AgentIcon,
       background: CogIcon,
@@ -128,6 +140,110 @@ describe("ThreadWorkingStrip drawer", () => {
       cmd: TerminalIcon,
       edit: PencilIcon,
     });
+  });
+
+  it("each counter is its own borderless pill tag holding its icon and number", () => {
+    render(<ThreadWorkingStrip turn={busy({ tally: { read: 3, search: 1, cmd: 2, edit: 4 } })} />);
+    const counters = screen.getByTestId("thread-strip-counters");
+    const keys = ["subagents", "background", "read", "search", "cmd", "edit"];
+    expect(Array.from(counters.children).map((n) => n.getAttribute("data-tag"))).toEqual(keys);
+    for (const key of keys) {
+      const tag = screen.getByTestId(`thread-strip-count-${key}`);
+      expect(tag.parentElement).toBe(counters);
+      expect(tag.className.split(" ")).toEqual(
+        expect.arrayContaining(["k2-drawer-tag", "k2-drawer-count", `k2-drawer-tag-${key}`])
+      );
+      expect(tag.className).not.toMatch(/(^|\s)(border|outline|ring)(-|$|\s)/);
+      expect(tag.style.border).toBe("");
+      expect(tag.style.height).toBe(`${TAG_H_PX}px`);
+      expect(tag.style.paddingLeft).toBe(`${TAG_PAD_X_PX}px`);
+      expect(tag.style.paddingRight).toBe(`${TAG_PAD_X_PX}px`);
+      // Icon and number inside the tag; only one tag per counter.
+      expect(tag.querySelector("svg")).not.toBeNull();
+      expect(tag.querySelector(".k2-drawer-tag")).toBeNull();
+    }
+    // The tag widths drive the overflow priority.
+    const c = { key: "read" as const, count: 3, done: 0 };
+    expect(counterTagWidthPx(c)).toBe(counterWidthPx(c, 12) + 2 * TAG_PAD_X_PX);
+  });
+
+  it("the subagent tag holds the agent icon, running spinner+count and done check+count together", () => {
+    reducedMotion(false);
+    render(<ThreadWorkingStrip turn={busy({ subagents: 1, subagentsDone: 2 })} />);
+    const tag = screen.getByTestId("thread-strip-count-subagents");
+    expect(tag.className).toContain("k2-drawer-tag-subagents");
+    const run = screen.getByTestId("thread-strip-running");
+    const done = screen.getByTestId("thread-strip-done");
+    expect(tag.contains(run)).toBe(true);
+    expect(tag.contains(done)).toBe(true);
+    expect(tag.contains(run.querySelector("[data-testid='thread-strip-spinner']"))).toBe(true);
+    expect(done.style.marginLeft).toBe("7px");
+    expect(screen.getAllByTestId(/^thread-strip-count-/)).toHaveLength(5);
+  });
+
+  it("the tag CSS: no border or outline, pill radius, a tint per kind, rgba fallbacks before color-mix", () => {
+    const rule = (sel: string) => {
+      const m = drawerCss.match(new RegExp(`(^|\\n)${sel.replace(/[.-]/g, "\\$&")} \\{([^}]*)\\}`));
+      return m?.[2] ?? "";
+    };
+    const base = rule(".k2-drawer-tag");
+    expect(base).toMatch(/border: 0;/);
+    expect(base).toMatch(/outline: 0;/);
+    expect(base).toMatch(/border-radius: 9999px;/);
+    expect(base).toMatch(/background: var\(--k2-tag-fill\)/);
+    expect(base).toMatch(/color: var\(--k2-tag-ink\)/);
+    const hues: Record<string, string> = {
+      subagents: "var(--accent)",
+      cmd: "var(--success)",
+      edit: "var(--warning)",
+      read: "#2dd4bf",
+      search: "var(--group-5)",
+      background: "var(--text-muted)",
+    };
+    const fills = new Set<string>();
+    for (const [key, hue] of Object.entries(hues)) {
+      const r = rule(`.k2-drawer-tag-${key}`);
+      expect(r).toContain(`--k2-tag-hue: ${hue};`);
+      const fill = r.match(/--k2-tag-fill: (rgba\([^)]*\));/)?.[1];
+      expect(fill).toBeTruthy();
+      expect(r).toMatch(/--k2-tag-ink: #[0-9a-f]{6};/);
+      fills.add(fill!);
+    }
+    expect(fills.size).toBe(6);
+    // color-mix only inside @supports, after the plain fallbacks.
+    const supports = drawerCss.indexOf("@supports (color: color-mix(");
+    expect(supports).toBeGreaterThan(drawerCss.indexOf(".k2-drawer-tag-background {"));
+    expect(drawerCss.slice(0, supports)).not.toContain("color-mix(");
+    expect(drawerCss).not.toMatch(/\.k2-drawer-[a-z-]+ \{[^}]*\bborder: [^0]/);
+  });
+
+  it("the tool call in the step is a neutral borderless code tag, collapsed and expanded", () => {
+    render(<ThreadWorkingStrip turn={busy()} />);
+    const check = (code: Element | null) => {
+      expect(code?.textContent).toBe("npm test");
+      expect(code?.tagName).toBe("CODE");
+      expect(code?.className).toContain("k2-drawer-tag");
+      expect(code?.className).toContain("k2-drawer-code");
+      expect(code?.className).toContain("font-mono");
+      expect(code?.className).not.toMatch(/(^|\s)(border|outline|ring)(-|$|\s)/);
+      expect((code as HTMLElement).style.border).toBe("");
+      expect((code as HTMLElement).style.background).toBe("");
+    };
+    check(screen.getByTestId("thread-strip-step-text").querySelector("code"));
+    fireEvent.click(toggle());
+    check(screen.getByTestId("thread-strip-step-full").querySelector("code"));
+    const code = drawerCss.match(/\n\.k2-drawer-code \{([^}]*)\}/g)!.join("");
+    expect(code).toContain("--k2-tag-fill: rgba(228, 228, 231, 0.11);");
+    expect(code).toContain("color: inherit;");
+  });
+
+  it("the clock is plain text, not a tag: right-aligned and tabular", () => {
+    render(<ThreadWorkingStrip turn={busy()} />);
+    const clock = screen.getByTestId("thread-strip-since");
+    expect(clock.className).not.toContain("k2-drawer-tag");
+    expect(clock.className).toContain("tabular-nums");
+    expect(clock.className).toContain("text-right");
+    expect(clock.parentElement).toBe(screen.getByTestId("thread-strip-line"));
   });
 
   it("no emoji anywhere in the drawer, collapsed or expanded", () => {

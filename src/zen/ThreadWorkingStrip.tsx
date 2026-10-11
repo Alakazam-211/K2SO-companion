@@ -62,6 +62,9 @@ const RADIUS = "var(--k2-drawer-radius, 15px)";
 const STEP_MIN_PX = 72;
 const COUNTER_FONT_PX = 12;
 const EXPANDED_LINE_PX = 19;
+/** Each counter is a borderless tinted tag: side padding (px) and height. */
+export const TAG_PAD_X_PX = 5;
+export const TAG_H_PX = 18;
 
 /** Each counter's icon: the app's own, reused (`./icons`). */
 export const STRIP_ICON: Record<StripCounterKey, ComponentType<IconProps>> = {
@@ -72,6 +75,11 @@ export const STRIP_ICON: Record<StripCounterKey, ComponentType<IconProps>> = {
   cmd: TerminalIcon,
   edit: PencilIcon,
 };
+
+/** A counter's tag width (px): its glyphs plus the tag's side padding. */
+export function counterTagWidthPx(c: StripCounter, fontPx = COUNTER_FONT_PX): number {
+  return counterWidthPx(c, fontPx) + 2 * TAG_PAD_X_PX;
+}
 
 /** Braille spinner frames (desktop `.braille-spinner`), 80ms each. */
 export const BRAILLE_FRAMES = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏";
@@ -163,11 +171,8 @@ function StepText({ text }: { text: string }) {
     <>
       {parts.map((p, i) =>
         i % 2 === 1 && i < parts.length - 1 ? (
-          <code
-            key={i}
-            className="px-1 font-mono text-[0.92em] rounded-[5px]"
-            style={{ background: "var(--wash-08)" }}
-          >
+          // A neutral tag like the counters': filled, no border (threadDrawer.css).
+          <code key={i} data-testid="thread-strip-code" className="k2-drawer-tag k2-drawer-code font-mono text-[0.92em]">
             {p}
           </code>
         ) : (
@@ -300,7 +305,7 @@ export function ThreadWorkingStrip({
   const color = TONE[display.tone];
   const pulsing = display.tone === "working";
   const counters = fitStripCounters(display.counters, counterBudget(width, display.clock), (c) =>
-    counterWidthPx(c, COUNTER_FONT_PX)
+    counterTagWidthPx(c)
   );
   const dot = (
     <span
@@ -440,10 +445,17 @@ export function ThreadWorkingStrip({
                 <span
                   data-testid="thread-strip-counters"
                   className="flex-none flex items-center tabular-nums text-[12px] leading-[18px]"
-                  style={{ gap: COUNTER_GAP_PX, color: "var(--text-muted)" }}
+                  style={{ gap: COUNTER_GAP_PX }}
                 >
+                  {/* One tag per counter, tinted by kind (threadDrawer.css). */}
                   {counters.map((c) => (
-                    <span key={c.key} data-testid={`thread-strip-count-${c.key}`}>
+                    <span
+                      key={c.key}
+                      data-testid={`thread-strip-count-${c.key}`}
+                      data-tag={c.key}
+                      className={`k2-drawer-tag k2-drawer-count k2-drawer-tag-${c.key}`}
+                      style={{ height: TAG_H_PX, paddingLeft: TAG_PAD_X_PX, paddingRight: TAG_PAD_X_PX }}
+                    >
                       <CounterGlyphs c={c} still={reduced} />
                       <span className="sr-only">{counterSpoken(c)}</span>
                     </span>
