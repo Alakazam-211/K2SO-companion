@@ -49,3 +49,32 @@ export function terminalIdForAgent(
   if (main) return main.terminalId;
   return onPath[0]?.terminalId ?? null;
 }
+
+/** Zen terminal page (glass shell over the same TerminalView). */
+export function zenTerminalPath(terminalId: string): string {
+  return `/zen/terminal/${encodeURIComponent(terminalId)}`;
+}
+
+/** Router state for `/zen/terminal/:id`: who the terminal belongs to.
+ *  history.state survives a page reload; a cold entry falls back to the
+ *  Zen store, then a generic header. */
+export type ZenTerminalAgent = {
+  agentId: string;
+  name: string;
+  initial?: string | null;
+  color?: string | null;
+  iconUrl?: string | null;
+  /** Sidecar chat title, when the terminal is a sidecar's. */
+  chatTitle?: string | null;
+  projectPath?: string | null;
+};
+
+export function readZenTerminalAgent(state: unknown): ZenTerminalAgent | null {
+  if (!state || typeof state !== "object") return null;
+  const a = (state as { agent?: unknown }).agent;
+  if (!a || typeof a !== "object") return null;
+  const agentId = (a as { agentId?: unknown }).agentId;
+  const name = (a as { name?: unknown }).name;
+  if (typeof agentId !== "string" || !agentId.trim()) return null;
+  return { ...(a as ZenTerminalAgent), name: typeof name === "string" ? name : "" };
+}
