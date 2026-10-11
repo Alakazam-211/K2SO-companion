@@ -421,10 +421,11 @@ export function defaultTicketScope(counts: Record<TicketScope, number>): TicketS
   return counts.waiting === 0 && counts.all > 0 ? "all" : "waiting";
 }
 
-/** Header Tickets badge. Semantics: show Waiting on me (amber) when it is
- *  above zero; otherwise show the All waiting count muted (grey), so the
- *  badge still says there is work, just not yours; nothing when nothing
- *  waits. Matches the tab counts and the default tab exactly. */
+/** Header Tickets badge. Semantics: show Waiting on me when it is above
+ *  zero; otherwise show the All waiting count, so the badge still says
+ *  there is work, just not yours; nothing when nothing waits. Always drawn
+ *  amber; `tone` records which count it is. Matches the tab counts and the
+ *  default tab exactly. */
 export interface TicketsBadge {
   count: number;
   tone: "mine" | "others";
