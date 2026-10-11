@@ -38,6 +38,8 @@ export function ChatsList() {
   const lastAtByKey = useZenStore((s) => s.lastAtByKey);
   const ensureLastAt = useZenStore((s) => s.ensureLastAt);
   const activity = useZenStore((s) => s.activity);
+  const chatSessions = useZenStore((s) => s.chatSessions);
+  const zenScreen = useZenStore((s) => s.screen);
   const refreshActivity = useZenStore((s) => s.refreshActivity);
   const pinnedIds = useZenStore((s) => s.pinnedIds);
   const hiddenSidecarAddrs = useZenStore((s) => s.hiddenSidecarAddrs);
@@ -72,9 +74,10 @@ export function ChatsList() {
     lastAtKeyFor
   );
 
-  // Agent status: re-read the activity snapshot while the list is up.
+  // Agent status: re-read the activity snapshot while the list is up. The
+  // list stays mounted (hidden) under an open Thread; it does not poll then.
   useEffect(() => {
-    if (source !== "live") return;
+    if (source !== "live" || zenScreen !== "list") return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     const tick = () => {
       if (document.visibilityState !== "hidden") void refreshActivity();
@@ -84,7 +87,7 @@ export function ChatsList() {
     return () => {
       if (timer) clearTimeout(timer);
     };
-  }, [source, refreshActivity]);
+  }, [source, zenScreen, refreshActivity]);
 
   useEffect(() => {
     const root = listRef.current;
@@ -369,7 +372,9 @@ export function ChatsList() {
           const preview =
             source === "stub" ? "STUB" : overlayRowPreview(a);
           const busy =
-            source === "live" ? activityForRow(a, activity, isOverlayExtraAddr(a.addr)) : null;
+            source === "live"
+              ? activityForRow(a, activity, isOverlayExtraAddr(a.addr), chatSessions)
+              : null;
           const busyColor =
             busy?.display === "waiting"
               ? "var(--warning)"

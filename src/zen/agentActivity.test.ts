@@ -2,8 +2,10 @@ import { describe, expect, it } from "vitest";
 import {
   activityForRow,
   activityRowText,
+  chatSessionsOf,
   countsText,
   parseActivitySnapshot,
+  sameActivity,
 } from "./agentActivity";
 
 // Trimmed from a live K2 0.45.3 `GET /cli/activity/snapshot`.
@@ -72,9 +74,40 @@ describe("parseActivitySnapshot", () => {
 
 describe("activityForRow", () => {
   const snap = parseActivitySnapshot(SNAPSHOT);
+  // GET /cli/companion/sessions: terminalId = activity sessionId.
+  const sessions = chatSessionsOf([
+    { terminalId: "main-1", isMainChat: true, cwd: "/w/app/" },
+    { terminalId: "side-1", isMainChat: false, cwd: "/w/app" },
+    { terminalId: "idle-1", isMainChat: false, cwd: "/w/app" },
+  ]);
 
-  it("reads the workspace rollup for a main chat, ignoring a trailing slash", () => {
-    expect(activityForRow({ path: "/w/app/" }, snap, false)?.display).toBe("waiting");
+  it("reads only the main session for a main chat, ignoring a trailing slash", () => {
+    expect(activityForRow({ path: "/w/app/" }, snap, false, sessions)).toEqual({
+      display: "working",
+      counts: { subagents: 1, tools: 7, commands: 2 },
+    });
+  });
+
+  it("falls back to the workspace minus known non-main sessions", () => {
+    const sidecarOnly = chatSessionsOf([{ terminalId: "side-1", isMainChat: false, cwd: "/w/app" }]);
+    expect(activityForRow({ path: "/w/app" }, snap, false, sidecarOnly)?.display).toBe("working");
+    // A main PTY restarted under a new id: the stale id is not in the snapshot.
+    const stale = chatSessionsOf([
+      { terminalId: "gone", isMainChat: true, cwd: "/w/app" },
+      { terminalId: "side-1", isMainChat: false, cwd: "/w/app" },
+    ]);
+    expect(activityForRow({ path: "/w/app" }, snap, false, stale)?.counts.tools).toBe(7);
+  });
+
+  it("is not lit by a sidecar when the main chat is idle", () => {
+    const quietMain = parseActivitySnapshot({
+      rows: [
+        { sessionId: "main-1", agentName: "p", display: "idle", workspacePath: "/w/app" },
+        { sessionId: "side-1", agentName: "1", display: "working", workspacePath: "/w/app" },
+      ],
+      workspaces: [{ workspacePath: "/w/app", display: "working" }],
+    });
+    expect(activityForRow({ path: "/w/app" }, quietMain, false, sessions)).toBeNull();
   });
 
   it("reads its own session for a sidecar", () => {
@@ -82,9 +115,33 @@ describe("activityForRow", () => {
     expect(activityForRow({ path: "/w/app", terminalId: null }, snap, true)).toBeNull();
   });
 
+  it("finds a sidecar without a terminalId by its addr suffix", () => {
+    const live = parseActivitySnapshot({
+      rows: [
+        { sessionId: "p-main", agentName: "uuid", display: "working", workspacePath: "/w/app" },
+        { sessionId: "p-side", agentName: "reviewer", display: "waiting", workspacePath: "/w/app" },
+        { sessionId: "q-side", agentName: "reviewer", display: "working", workspacePath: "/w/other" },
+      ],
+    });
+    const row = { path: "/w/app", addr: "app/reviewer", terminalId: null };
+    expect(activityForRow(row, live, true)?.display).toBe("waiting");
+    expect(activityForRow({ ...row, addr: "app/2" }, live, true)).toBeNull();
+  });
+
   it("shows nothing for idle work", () => {
     expect(activityForRow({ path: "/w/quiet" }, snap, false)).toBeNull();
     expect(activityForRow({ terminalId: "idle-1" }, snap, true)).toBeNull();
+  });
+});
+
+describe("sameActivity", () => {
+  it("is true for an equal re-parse and false when a count moves", () => {
+    const a = parseActivitySnapshot(SNAPSHOT);
+    expect(sameActivity(a, parseActivitySnapshot(SNAPSHOT))).toBe(true);
+    const moved = structuredClone(SNAPSHOT);
+    moved.rows[0].counts = { subagents: 1, tools: 8, commands: 2 };
+    expect(sameActivity(a, parseActivitySnapshot(moved))).toBe(false);
+    expect(sameActivity(a, parseActivitySnapshot({ rows: [], workspaces: [] }))).toBe(false);
   });
 });
 

@@ -56,7 +56,15 @@ import {
 } from "./sidecarRows";
 import { isMine, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import { mergeThreadMessages } from "./threadLive";
-import { EMPTY_ACTIVITY, parseActivitySnapshot, type ActivitySnapshot } from "./agentActivity";
+import {
+  EMPTY_ACTIVITY,
+  NO_CHAT_SESSIONS,
+  chatSessionsOf,
+  parseActivitySnapshot,
+  sameActivity,
+  type ActivitySnapshot,
+  type ChatSessions,
+} from "./agentActivity";
 import {
   NO_WORKSPACE_PATH,
   PATH_NOT_OWNED,
@@ -140,6 +148,8 @@ type ZenState = {
   ensureLastAt: (key: string) => void;
   /** Agent status for the Chats list (`GET /cli/activity/snapshot`). */
   activity: ActivitySnapshot;
+  /** Main-chat vs other PTY ids, so a main row skips its sidecars' work. */
+  chatSessions: ChatSessions;
   refreshActivity: () => Promise<void>;
   pinnedIds: string[];
   pinChat: (id: string, beforeId?: string | null) => void;
@@ -242,6 +252,10 @@ function stubThread(agentId: string): ThreadMessage[] {
   }));
 }
 
+// One activity snapshot read at a time, and the server the dots came from.
+let activityInFlight = false;
+let activityServer: string | null = null;
+
 export const useZenStore = create<ZenState>((set, get) => ({
   // Never start on the stub catalogue. A signed-in first paint used to
   // show STUB_AGENTS until hydrateAgents resolved. Stub is only applied
@@ -270,6 +284,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   answerErrorId: null,
   lastAtByKey: {},
   activity: EMPTY_ACTIVITY,
+  chatSessions: NO_CHAT_SESSIONS,
   pinnedIds: readPinnedIds(),
   hiddenSidecarAddrs: readHiddenSidecarAddrs(),
   pinChat: (id, beforeId) => {
@@ -298,13 +313,29 @@ export const useZenStore = create<ZenState>((set, get) => ({
       filesOpen: false,
     }),
   refreshActivity: async () => {
-    if (get().agentSource !== "live") return;
+    if (get().agentSource !== "live" || activityInFlight) return;
+    const server = getActiveServer()?.id ?? null;
+    // Another server's dots are not this one's.
+    if (server !== activityServer) {
+      activityServer = server;
+      if (get().activity !== EMPTY_ACTIVITY) set({ activity: EMPTY_ACTIVITY });
+    }
+    activityInFlight = true;
     try {
       const r = await getActivitySnapshot();
-      // Pre-0.45 servers 404: keep the list plain.
-      set({ activity: r.ok ? parseActivitySnapshot(r.data) : EMPTY_ACTIVITY });
+      if ((getActiveServer()?.id ?? null) !== server) return;
+      if (r.ok) {
+        const next = parseActivitySnapshot(r.data);
+        if (!sameActivity(get().activity, next)) set({ activity: next });
+      } else if (r.status === 404 && get().activity !== EMPTY_ACTIVITY) {
+        // Pre-0.45 server: keep the list plain.
+        set({ activity: EMPTY_ACTIVITY });
+      }
+      // Any other failure is transient: keep what is on screen.
     } catch {
       /* keep what is on screen */
+    } finally {
+      activityInFlight = false;
     }
   },
   ensureLastAt: (key) => {
@@ -483,9 +514,11 @@ export const useZenStore = create<ZenState>((set, get) => ({
       const mains = joined.filter(
         (r) => r.addr && !r.addr.includes("/") && !r.joinMiss
       );
+      let chatSessions = NO_CHAT_SESSIONS;
       if (rSessions.ok) {
         const parsed = parseCompanionSessions(rSessions.data);
         if (parsed) {
+          chatSessions = chatSessionsOf(parsed);
           const sides = sidecarsFromSessions(parsed, mains);
           for (const side of sides) {
             if (haveAddr.has(side.addr)) continue;
@@ -524,6 +557,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       set({
         agentSource: "live",
         agents,
+        chatSessions,
         agentError: notices.length ? notices.join(" · ") : null,
         fileSource: resumeId ? get().fileSource : "live",
         files: resumeId ? get().files : [],
