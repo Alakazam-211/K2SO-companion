@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { ABOUT } from "../lib/about";
 import { usePushToggle } from "../lib/usePushToggle";
 import { ZEN_FONTS, ZEN_TEXT_SIZES, useZenFontStore } from "./zenFont";
+import { useMultiServerPrefs } from "./multi/prefs";
 
 const MUTED = "#8e8e93";
 const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
@@ -62,6 +63,14 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
         <Group label="Appearance" testId="settings-appearance">
           <FontRow />
           <TextSizeRow />
+        </Group>
+
+        <Group
+          label="Experimental"
+          testId="settings-experimental"
+          footnote="Lists the agents of every saved server in one place. Opening an agent on another server switches to that server."
+        >
+          <MultiServerRow />
         </Group>
 
         <Group label="About" testId="settings-about">
@@ -183,6 +192,29 @@ function PushRow() {
         </p>
       ) : null}
     </>
+  );
+}
+
+/** Multi-server S2 (MS40): the device setting `zen.multiServer`, default
+ *  off. Off, the Agents list shows the active server only, as before. */
+function MultiServerRow() {
+  const on = useMultiServerPrefs((s) => s.multiServer);
+  const setOn = useMultiServerPrefs((s) => s.setMultiServer);
+  return (
+    <div
+      className="flex items-center justify-between text-[17px]"
+      style={{ minHeight: 44, padding: "6px 12px 6px 16px", gap: 12 }}
+    >
+      <span id="zen-multi-server-label">Show agents from all servers</span>
+      <span className="flex items-center shrink-0" data-testid="multi-server-switch">
+        <Switch
+          on={on}
+          disabled={false}
+          onToggle={() => setOn(!on)}
+          labelledBy="zen-multi-server-label"
+        />
+      </span>
+    </div>
   );
 }
 

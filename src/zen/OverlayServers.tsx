@@ -6,6 +6,9 @@ import { OverlayAddServer } from "./OverlayAddServer";
 import { filterServers, splitPinnedServer } from "./serverList";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 import { useZenStore } from "./zenStore";
+import { useMultiServerPrefs } from "./multi/prefs";
+import { usePoolEntries } from "./multi/pool";
+import { serverBadge } from "./multi/rowStatus";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -80,6 +83,11 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
   const servers = useServersStore((s) => s.servers);
   const activeServerId = useServersStore((s) => s.activeServerId);
   const recovery = useServersStore((s) => s.recovery);
+  const tokens = useServersStore((s) => s.tokens);
+  // MS38: with the multi-server list on, every other server shows its
+  // pool state (dot + word), and the pinned card says what "default" means.
+  const multi = useMultiServerPrefs((s) => s.multiServer);
+  const poolEntries = usePoolEntries();
   const [connectingId, setConnectingId] = useState<string | null>(null);
   const [justConnectedId, setJustConnectedId] = useState<string | null>(null);
   const [returningId, setReturningId] = useState<string | null>(null);
@@ -266,6 +274,15 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
           style={{ padding: "4px 12px 10px" }}
           data-testid="servers-pinned"
         >
+          {multi ? (
+            <p
+              className="text-[12px] uppercase tracking-wide"
+              style={{ color: "#8e8e93", padding: "0 4px 6px" }}
+              data-testid="servers-pinned-label"
+            >
+              Default server (Tickets, classic view)
+            </p>
+          ) : null}
           <div
             key={pinned.id}
             ref={pinnedRef}
@@ -375,6 +392,16 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
             const state = recovery[server.id] ?? "signin-required";
             const isConnecting = connectingId === server.id;
             const label = labelOf(server);
+            const badge =
+              multi && poolEntries[server.id]
+                ? serverBadge({
+                    saved: true,
+                    hasLogin: !!tokens[server.id],
+                    entry: poolEntries[server.id],
+                    serverLabel: label,
+                  })
+                : null;
+            const dot = badge ? badge.color : RECOVERY_DOT[state];
             return (
               <div
                 key={server.id}
@@ -406,8 +433,8 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                       width: 8,
                       height: 8,
                       borderRadius: "50%",
-                      background: RECOVERY_DOT[state],
-                      color: RECOVERY_DOT[state],
+                      background: dot,
+                      color: dot,
                     }}
                     data-testid={isConnecting ? "overlay-server-connecting" : undefined}
                   />
@@ -421,9 +448,10 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                     </span>
                     <span
                       className="block text-[12px]"
-                      style={{ color: RECOVERY_DOT[state] }}
+                      style={{ color: dot }}
+                      data-testid="overlay-server-state"
                     >
-                      {isConnecting ? "connecting…" : STATE_LABEL[state]}
+                      {isConnecting ? "connecting…" : badge ? badge.word : STATE_LABEL[state]}
                     </span>
                   </span>
                 </button>

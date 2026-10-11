@@ -24,6 +24,7 @@ import {
 } from "../lib/push";
 import { useServersStore } from "../stores/servers";
 import { LEAVE_ZEN_PATH, ZenSettings } from "./ZenSettings";
+import { MULTI_SERVER_KEY, useMultiServerPrefs } from "./multi/prefs";
 import {
   ZEN_FONT_ATTR,
   ZEN_FONT_STORAGE_KEY,
@@ -76,6 +77,21 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ZenSettings", () => {
+  it("Experimental: 'Show agents from all servers' is off by default and persists (MS40)", () => {
+    useMultiServerPrefs.setState({ multiServer: false });
+    mount();
+    const group = within(screen.getByTestId("settings-experimental"));
+    expect(group.getByText("Experimental")).not.toBeNull();
+    const sw = screen.getByRole("switch", { name: "Show agents from all servers" });
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(sw);
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+    expect(localStorage.getItem(MULTI_SERVER_KEY)).toBe("1");
+    fireEvent.click(sw);
+    expect(localStorage.getItem(MULTI_SERVER_KEY)).toBe(null);
+    expect(useMultiServerPrefs.getState().multiServer).toBe(false);
+  });
+
   it("renders Notifications, Appearance, About and Leave Zen Mode in glass cards", async () => {
     mount();
     expect(screen.getByTestId("overlay-settings")).not.toBeNull();
