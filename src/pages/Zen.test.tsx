@@ -9,7 +9,7 @@ vi.mock("../api/client", () => ({
   getProjects: vi.fn(),
   getAgentList: vi.fn(),
   getCliProjectsList: vi.fn(),
-  getFsReadDir: vi.fn(),
+  getWorkspaceResources: vi.fn(),
   getFsReadFile: vi.fn(),
   getThread: vi.fn(),
   postThread: vi.fn(),

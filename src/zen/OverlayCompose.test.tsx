@@ -8,7 +8,7 @@ vi.mock("../api/client", () => ({
   getProjects: vi.fn(),
   getAgentList: vi.fn(),
   getCliProjectsList: vi.fn(),
-  getFsReadDir: vi.fn(async () => ({ ok: true, data: [] })),
+  getWorkspaceResources: vi.fn(async () => ({ ok: true, data: { ok: true, docs: [] } })),
   getFsReadFile: vi.fn(),
   getThread: vi.fn(async () => ({ ok: true, data: { items: [] } })),
   postThread: vi.fn(),

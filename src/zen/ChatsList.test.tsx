@@ -10,7 +10,7 @@ vi.mock("../api/client", () => ({
   getToken: vi.fn(() => ""),
   getBaseUrl: vi.fn(() => ""),
   getProjects: vi.fn(),
-  getFsReadDir: vi.fn(),
+  getWorkspaceResources: vi.fn(),
   getFsReadFile: vi.fn(),
   getThread: vi.fn(),
   postThread: vi.fn(),

@@ -116,13 +116,20 @@ export interface Review {
   summary?: string;
 }
 
-/** `GET /cli/fs/read-dir` — Skin gets a top-level array of these. */
-export interface FsDirEntry {
-  name: string;
-  path: string;
-  isDirectory: boolean;
-  size?: number;
-  modifiedAt?: string;
+/** One pinned file from `GET /cli/workspace/resources` (K2 0.45+). */
+export interface WorkspaceResourceDoc {
+  filePath: string;
+  fileName: string;
+  /** Unix seconds. */
+  addedAt: number;
+  /** True when the pinned file is gone from disk. */
+  missing: boolean;
+}
+
+export interface WorkspaceResources {
+  ok?: boolean;
+  workspaceId?: string;
+  docs?: WorkspaceResourceDoc[];
 }
 
 /** `GET /cli/fs/read-file` — text, 10MB cap. */
@@ -498,11 +505,18 @@ export const clearTerminalPin = (session: string) =>
 export const getStatus = (project: string) =>
   request("status", "/cli/companion/status", { project });
 
-/** Companion daemon: `path` is the absolute filesystem path.
- *  `path=.` lists the daemon cwd (`/` on this box) — 5a30d62 regression.
- *  Skin's `workspace=<handle>&path=<rel>` is a different contract. */
-export const getFsReadDir = (path: string) =>
-  request<FsDirEntry[]>("fs.read_dir", "/cli/fs/read-dir", { path });
+/** Workspace Resources: the files pinned in the desktop Files drawer.
+ *  `workspace` is a path, name or UUID. An unknown workspace is a 404
+ *  `{error:{code:"not_found"}}`; a pre-0.45 daemon 404s "route not found".
+ *  The list changes on `workspace_resources_changed` (sessions/events),
+ *  which the phone does not hear, so callers re-fetch on open. */
+export const getWorkspaceResources = (workspace: string) =>
+  request<WorkspaceResources>(
+    "workspace.resources",
+    "/cli/workspace/resources",
+    { workspace }
+  );
+
 export const getFsReadFile = (path: string) =>
   request<FsFileContent>("fs.read_file", "/cli/fs/read-file", { path });
 
