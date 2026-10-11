@@ -30,3 +30,22 @@ export function restoreTopMessage(
   if (!anchor.el.isConnected) return;
   scroller.scrollTop += anchor.el.getBoundingClientRect().top - anchor.top;
 }
+
+/** How far (px) the reader is above the newest. */
+export function distanceFromBottom(scroller: HTMLElement): number {
+  return Math.max(0, scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight);
+}
+
+/** Within this distance of the bottom the Thread follows the newest:
+ *  ~120px, but never more than a little under half the visible column
+ *  (a short column with the keyboard up). */
+export const FOLLOW_PX = 120;
+export function followThreshold(clientHeight: number): number {
+  if (!Number.isFinite(clientHeight) || clientHeight <= 0) return FOLLOW_PX;
+  return Math.min(FOLLOW_PX, Math.round(clientHeight * 0.45));
+}
+
+/** At (or near enough to) the newest to keep following it. */
+export function nearNewest(scroller: HTMLElement): boolean {
+  return distanceFromBottom(scroller) <= followThreshold(scroller.clientHeight);
+}

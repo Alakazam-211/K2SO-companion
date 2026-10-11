@@ -15,6 +15,7 @@ import { StubMark } from "./StubMark";
 import { mountainTime, type ThreadMessage } from "./threadModel";
 import {
   captureTopMessage,
+  nearNewest,
   restoreTopMessage,
   stickToNewest,
   type MessageAnchor,
@@ -272,13 +273,24 @@ export function ThreadPane({
     /** Reduced motion / no Web Animations: fade instead of fly. */
     fade: boolean;
   } | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
   const pendingAnchor = useRef<MessageAnchor | null>(null);
   const prevAgent = useRef<string>("");
-  const prevFirst = useRef<number | null>(null);
-  // Was the reader at the newest BEFORE the column resized? A pure
-  // container resize fires no scroll event, so this holds the pre-resize
-  // reading (the useBottomAnchor rule). Opens pinned to the tail.
-  const atNewest = useRef(true);
+  const prevFirst = useRef<string | null>(null);
+  const prevLast = useRef<string | null>(null);
+  // FOLLOWING: pinned to the newest. Remembered intent, not a distance
+  // measured at render time — the working strip growing, ending, and the
+  // reply landing in one layout change must not unpin the reader. On at
+  // open, on Send, and whenever the reader scrolls back near the bottom;
+  // off only when the reader scrolls up (or opens history / a push seq).
+  const following = useRef(true);
+  // Not following and the agent posted: the "New message" pill.
+  const [newBelow, setNewBelow] = useState(false);
+  // Our own scrolls: their scroll events must not read as the reader's.
+  const ownTop = useRef<number | null>(null);
+  const lastTop = useRef(0);
+  const followRaf = useRef(0);
+  const focusSeq = useZenStore((s) => s.threadFocusSeq);
   // The working strip's turn. The gate drops a catch-up answer that raced
   // an activity frame (the frame is newer) or a later catch-up (a late
   // `{turn:null}` must not clear a live strip).
@@ -296,25 +308,94 @@ export function ThreadPane({
     if (serverId) void useNotifyPrefsStore.getState().probe(serverId);
   }, [serverId]);
 
+  function setFollowing(on: boolean) {
+    following.current = on;
+    if (on) setNewBelow(false);
+  }
+
+  /** Jump to the newest now (a scroll the reader did not make). */
+  function stick(el: HTMLElement) {
+    stickToNewest(el);
+    ownTop.current = el.scrollTop;
+    lastTop.current = el.scrollTop;
+  }
+
+  /** While following: stick now, and again next frame for late layout
+   *  (markdown, code highlighting, images). Refs only — safe to call
+   *  from the ResizeObserver set up on mount. */
+  function follow() {
+    const el = scrollerRef.current;
+    if (!el || !following.current || pendingAnchor.current) return;
+    stick(el);
+    if (typeof requestAnimationFrame !== "function") return;
+    cancelAnimationFrame(followRaf.current);
+    followRaf.current = requestAnimationFrame(() => {
+      const cur = scrollerRef.current;
+      if (cur && following.current && !pendingAnchor.current) stick(cur);
+    });
+  }
+
   useLayoutEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
-    const first = thread[0]?.seq ?? null;
+    const keyOf = (m: ThreadMessage | undefined) =>
+      m ? m.id || `seq-${m.seq ?? ""}` : null;
+    const first = keyOf(thread[0]);
+    const lastMsg = thread[thread.length - 1];
+    const last = keyOf(lastMsg);
     const agentChanged = agentId !== prevAgent.current;
     const opened = agentChanged || prevFirst.current == null;
     if (pendingAnchor.current) {
       restoreTopMessage(el, pendingAnchor.current);
+      ownTop.current = el.scrollTop;
+      lastTop.current = el.scrollTop;
       pendingAnchor.current = null;
     } else if (opened) {
-      stickToNewest(el);
-    } else {
-      const near =
-        el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-      if (near) stickToNewest(el);
+      // A push-tap seq lands after this (useThreadFocusSeq): no following
+      // over it until the reader comes back to the bottom.
+      setNewBelow(false);
+      following.current = focusSeq == null;
+      stick(el);
+      follow();
+    } else if (following.current) {
+      follow();
+    } else if (lastMsg && last !== prevLast.current && !lastMsg.mine && !lastMsg.pending) {
+      // Reading history: never yank. Offer the jump instead.
+      setNewBelow(true);
     }
     prevAgent.current = agentId;
     prevFirst.current = first;
+    prevLast.current = last;
   }, [thread, agentId, source]);
+
+  // A push-tap seq: hold off following while it lands. Once it has (or
+  // was given up on) follow again only if the view sits at the bottom.
+  useLayoutEffect(() => {
+    if (focusSeq != null) {
+      following.current = false;
+      return;
+    }
+    const el = scrollerRef.current;
+    if (el && !following.current && !pendingAnchor.current && nearNewest(el)) {
+      setFollowing(true);
+    }
+  }, [focusSeq]);
+
+  // Anything else that changes height while following — the working
+  // strip mounting, growing, ending; late markdown/images in the last
+  // bubbles; the keyboard or composer resizing the column — sticks.
+  useEffect(() => {
+    const el = scrollerRef.current;
+    const content = contentRef.current;
+    if (!el || !content || typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(() => follow());
+    ro.observe(content);
+    ro.observe(el);
+    return () => {
+      ro.disconnect();
+      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(followRaf.current);
+    };
+  }, []);
 
   // Push tap `?seq=`: land on that message (after the stick above).
   const highlightSeq = useThreadFocusSeq(scrollerRef);
@@ -411,27 +492,24 @@ export function ThreadPane({
   // the scroller shrinks with scrollTop unchanged and the newest message
   // would slide under the composer. Re-stick if the reader was there.
   useLayoutEffect(() => {
-    const el = scrollerRef.current;
-    if (!el || viewportHeight == null) return;
-    if (atNewest.current) stickToNewest(el);
+    if (viewportHeight == null) return;
+    follow();
   }, [viewportHeight]);
 
   // The floating header growing (sidecar line, banner) adds top padding,
   // which pushes the tail down by the same amount. Keep the newest in view.
   useLayoutEffect(() => {
-    const el = scrollerRef.current;
-    if (!el || topInset == null) return;
-    if (atNewest.current) stickToNewest(el);
+    if (topInset == null) return;
+    follow();
   }, [topInset]);
 
-  // The strip appearing or changing shape keeps the newest in view when
-  // the reader was already at the bottom.
-  const turnShape = turn ? `${turn.turnId}:${turn.phase}:${turn.end ? 1 : 0}` : "";
+  // Outgoing bubbles and the working strip (mount, every frame, unmount)
+  // keep the newest in view while following — synchronously, before the
+  // ResizeObserver gets a say.
+  const outgoingKey = outgoing.map((o) => `${o.localId}:${o.status}`).join(",");
   useLayoutEffect(() => {
-    const el = scrollerRef.current;
-    if (!el || !turnShape) return;
-    if (el.scrollHeight - el.scrollTop - el.clientHeight < 120) stickToNewest(el);
-  }, [turnShape]);
+    follow();
+  }, [outgoingKey, turn]);
 
   function queueFiles(files: File[]) {
     if (!files.length) return;
@@ -458,6 +536,8 @@ export function ThreadPane({
 
   async function onLoadEarlier() {
     const el = scrollerRef.current;
+    // Opening history is reading it: stop following the tail.
+    following.current = false;
     if (el) {
       const msgs = Array.from(
         el.querySelectorAll<HTMLElement>("[data-thread-msg]")
@@ -560,9 +640,22 @@ export function ThreadPane({
       source: canFly ? { rect, fontPx: Number.isFinite(fontPx) ? fontPx : 17 } : null,
       fade: !canFly,
     });
-    atNewest.current = true;
+    // The reader just spoke: the agent's reply must come into view.
+    setFollowing(true);
     composerRef.current?.focus({ preventScroll: true });
     void deliver(localId);
+  }
+
+  /** "New message ↓": glide to the newest and follow again. */
+  function onNewBelow() {
+    const el = scrollerRef.current;
+    setFollowing(true);
+    if (!el) return;
+    if (typeof el.scrollTo === "function" && !prefersReducedMotion()) {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+    } else {
+      stick(el);
+    }
   }
 
   function onRetry(localId: string) {
@@ -601,9 +694,9 @@ export function ThreadPane({
     if (!fly) return;
     const id = fly.localId;
     const clear = () => setFly((cur) => (cur?.localId === id ? null : cur));
+    setFollowing(true);
     const el = scrollerRef.current;
-    if (el) stickToNewest(el);
-    atNewest.current = true;
+    if (el) stick(el);
     if (fly.fade || !fly.source) {
       const t = setTimeout(clear, 220);
       return () => clearTimeout(t);
@@ -633,162 +726,197 @@ export function ThreadPane({
       <div
         ref={scrollerRef}
         data-testid="thread-scroller"
-        className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-2.5 py-3 flex flex-col gap-1"
+        className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-2.5 py-3 flex flex-col"
         style={{ overflowAnchor: "none", paddingTop: threadTopPadding(topInset) }}
         onScroll={(e) => {
           const el = e.currentTarget;
-          atNewest.current =
-            el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          const top = el.scrollTop;
+          const prev = lastTop.current;
+          lastTop.current = top;
+          // Our own stick/restore landing: not the reader.
+          if (ownTop.current != null && Math.abs(top - ownTop.current) <= 1) return;
+          ownTop.current = null;
+          if (nearNewest(el)) {
+            if (focusSeq == null) setFollowing(true);
+          } else if (top < prev - 1) {
+            // The reader scrolled up past the threshold.
+            following.current = false;
+          }
         }}
       >
-        {source === "loading" ? (
-          <span
-            className="text-[11px] text-[var(--text-muted)] tracking-widest uppercase px-2"
-            data-testid="thread-loading"
-          >
-            {sourceWord(source)} thread
-          </span>
-        ) : (
-          <>
-            {source === "error" && error && (doneMode || error === SESSION_UNAVAILABLE) ? (
-              <div
-                className="flex flex-col items-start gap-2 px-2"
-                data-testid="thread-unavailable"
-              >
-                <span className="text-[13px] text-[var(--text-muted)] leading-snug">
-                  {SESSION_UNAVAILABLE}
-                </span>
-                {doneMode ? (
-                  <button
-                    type="button"
-                    className="text-[13px] zen-glass zen-glass-pill"
-                    style={{ minHeight: 32, padding: "0 12px", color: "#fff" }}
-                    onClick={() => returnToDrawerOrigin()}
-                  >
-                    Open main chat
-                  </button>
-                ) : null}
-              </div>
-            ) : source === "error" && error ? (
-              <span className="text-[11px] text-[var(--warning)] px-2">
-                {asErrorText(error)}
-              </span>
-            ) : null}
-            {empty ? (
-              <span
-                className="text-[11px] text-[var(--text-muted)] px-2"
-                data-testid="thread-empty"
-              >
-                No messages
-              </span>
-            ) : null}
-            {hasMore && source === "live" ? (
-              <button
-                type="button"
-                data-testid="load-earlier"
-                onClick={() => void onLoadEarlier()}
-                disabled={loadingEarlier}
-                className="self-center text-[13px] text-[var(--text-muted)] py-2"
-              >
-                {loadingEarlier ? "Loading…" : "Load earlier messages"}
-              </button>
-            ) : null}
-            {thread.map((m, i) => (
-              <div
-                key={m.id || `seq-${m.seq ?? i}`}
-                data-thread-msg=""
-                data-seq={m.seq ?? undefined}
-                data-highlight={highlightSeq != null && m.seq === highlightSeq ? "true" : undefined}
-                className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}`}
-                style={
-                  highlightSeq != null && m.seq === highlightSeq
-                    ? { borderRadius: 20, boxShadow: "0 0 0 2px rgba(10,132,255,.85)", transition: "box-shadow .4s" }
-                    : undefined
-                }
-              >
-                {!m.mine ? (
-                  <span className="text-[11px] text-[var(--text-muted)] px-3 mb-0.5">
-                    {source === "stub" ? <StubMark /> : null}
-                    {m.from}
-                  </span>
-                ) : null}
-                <Bubble
-                  m={m}
-                  onFileLink={openFileFromPath}
-                  canAnswer={
-                    canSend &&
-                    !threadGroupId &&
-                    (source === "live" || source === "error")
-                  }
-                  answering={answeringId === m.id}
-                  answerError={answerErrorId === m.id ? answerError : null}
-                  onAnswer={(option) => void answerChoice(m.id, option)}
-                  flying={flyThreadId === m.id && !fly?.fade}
-                  fadeIn={flyThreadId === m.id && fly?.fade}
-                />
-                <span className="text-[11px] text-[var(--text-muted)] px-2 mt-0.5">
-                  {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
-                </span>
-              </div>
-            ))}
-            {outgoing.map((o) => {
-              const m = outgoingBubble(o);
-              const flying = fly?.localId === o.localId;
-              return (
+        <div
+          ref={contentRef}
+          data-testid="thread-content"
+          className="shrink-0 min-w-0 flex flex-col gap-1"
+        >
+          {source === "loading" ? (
+            <span
+              className="text-[11px] text-[var(--text-muted)] tracking-widest uppercase px-2"
+              data-testid="thread-loading"
+            >
+              {sourceWord(source)} thread
+            </span>
+          ) : (
+            <>
+              {source === "error" && error && (doneMode || error === SESSION_UNAVAILABLE) ? (
                 <div
-                  key={o.localId}
-                  data-thread-msg=""
-                  data-outgoing={o.status}
-                  className="flex flex-col max-w-[78%] min-w-0 self-end items-end"
+                  className="flex flex-col items-start gap-2 px-2"
+                  data-testid="thread-unavailable"
                 >
+                  <span className="text-[13px] text-[var(--text-muted)] leading-snug">
+                    {SESSION_UNAVAILABLE}
+                  </span>
+                  {doneMode ? (
+                    <button
+                      type="button"
+                      className="text-[13px] zen-glass zen-glass-pill"
+                      style={{ minHeight: 32, padding: "0 12px", color: "#fff" }}
+                      onClick={() => returnToDrawerOrigin()}
+                    >
+                      Open main chat
+                    </button>
+                  ) : null}
+                </div>
+              ) : source === "error" && error ? (
+                <span className="text-[11px] text-[var(--warning)] px-2">
+                  {asErrorText(error)}
+                </span>
+              ) : null}
+              {empty ? (
+                <span
+                  className="text-[11px] text-[var(--text-muted)] px-2"
+                  data-testid="thread-empty"
+                >
+                  No messages
+                </span>
+              ) : null}
+              {hasMore && source === "live" ? (
+                <button
+                  type="button"
+                  data-testid="load-earlier"
+                  onClick={() => void onLoadEarlier()}
+                  disabled={loadingEarlier}
+                  className="self-center text-[13px] text-[var(--text-muted)] py-2"
+                >
+                  {loadingEarlier ? "Loading…" : "Load earlier messages"}
+                </button>
+              ) : null}
+              {thread.map((m, i) => (
+                <div
+                  key={m.id || `seq-${m.seq ?? i}`}
+                  data-thread-msg=""
+                  data-seq={m.seq ?? undefined}
+                  data-highlight={highlightSeq != null && m.seq === highlightSeq ? "true" : undefined}
+                  className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}`}
+                  style={
+                    highlightSeq != null && m.seq === highlightSeq
+                      ? { borderRadius: 20, boxShadow: "0 0 0 2px rgba(10,132,255,.85)", transition: "box-shadow .4s" }
+                      : undefined
+                  }
+                >
+                  {!m.mine ? (
+                    <span className="text-[11px] text-[var(--text-muted)] px-3 mb-0.5">
+                      {source === "stub" ? <StubMark /> : null}
+                      {m.from}
+                    </span>
+                  ) : null}
                   <Bubble
                     m={m}
                     onFileLink={openFileFromPath}
-                    canAnswer={false}
-                    answering={false}
-                    answerError={null}
-                    onAnswer={() => {}}
-                    attachments={o.files.map(uploadFilename)}
-                    flying={flying && !fly?.fade}
-                    fadeIn={flying && fly?.fade}
+                    canAnswer={
+                      canSend &&
+                      !threadGroupId &&
+                      (source === "live" || source === "error")
+                    }
+                    answering={answeringId === m.id}
+                    answerError={answerErrorId === m.id ? answerError : null}
+                    onAnswer={(option) => void answerChoice(m.id, option)}
+                    flying={flyThreadId === m.id && !fly?.fade}
+                    fadeIn={flyThreadId === m.id && fly?.fade}
                   />
-                  {o.status === "failed" ? (
-                    <span
-                      className="flex items-center gap-2 text-[11px] px-2 mt-0.5"
-                      data-testid="outgoing-failed"
-                    >
-                      <button
-                        type="button"
-                        className="text-[var(--warning)]"
-                        data-testid="outgoing-retry"
-                        aria-label="Not sent. Tap to retry"
-                        title={o.error || undefined}
-                        onClick={() => onRetry(o.localId)}
+                  <span className="text-[11px] text-[var(--text-muted)] px-2 mt-0.5">
+                    {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
+                  </span>
+                </div>
+              ))}
+              {outgoing.map((o) => {
+                const m = outgoingBubble(o);
+                const flying = fly?.localId === o.localId;
+                return (
+                  <div
+                    key={o.localId}
+                    data-thread-msg=""
+                    data-outgoing={o.status}
+                    className="flex flex-col max-w-[78%] min-w-0 self-end items-end"
+                  >
+                    <Bubble
+                      m={m}
+                      onFileLink={openFileFromPath}
+                      canAnswer={false}
+                      answering={false}
+                      answerError={null}
+                      onAnswer={() => {}}
+                      attachments={o.files.map(uploadFilename)}
+                      flying={flying && !fly?.fade}
+                      fadeIn={flying && fly?.fade}
+                    />
+                    {o.status === "failed" ? (
+                      <span
+                        className="flex items-center gap-2 text-[11px] px-2 mt-0.5"
+                        data-testid="outgoing-failed"
                       >
-                        Not sent · Retry
-                      </button>
-                      {!draft.trim() && !attachments.length ? (
                         <button
                           type="button"
-                          className="text-[var(--text-muted)]"
-                          data-testid="outgoing-restore"
-                          onClick={() => onRestore(o)}
+                          className="text-[var(--warning)]"
+                          data-testid="outgoing-retry"
+                          aria-label="Not sent. Tap to retry"
+                          title={o.error || undefined}
+                          onClick={() => onRetry(o.localId)}
                         >
-                          Edit
+                          Not sent · Retry
                         </button>
-                      ) : null}
-                    </span>
-                  ) : (
-                    <span className="text-[11px] text-[var(--text-muted)] px-2 mt-0.5">
-                      Sending…
-                    </span>
-                  )}
-                </div>
-              );
-            })}
-            {turn && !threadGroupId ? <ThreadWorkingStrip turn={turn} /> : null}
-          </>
-        )}
+                        {!draft.trim() && !attachments.length ? (
+                          <button
+                            type="button"
+                            className="text-[var(--text-muted)]"
+                            data-testid="outgoing-restore"
+                            onClick={() => onRestore(o)}
+                          >
+                            Edit
+                          </button>
+                        ) : null}
+                      </span>
+                    ) : (
+                      <span className="text-[11px] text-[var(--text-muted)] px-2 mt-0.5">
+                        Sending…
+                      </span>
+                    )}
+                  </div>
+                );
+              })}
+              {turn && !threadGroupId ? <ThreadWorkingStrip turn={turn} /> : null}
+            </>
+          )}
+        </div>
+      </div>
+      {/* Zero-height row: the pill floats just above the composer. */}
+      <div className="relative h-0 shrink-0">
+        <div
+          aria-live="polite"
+          className="absolute bottom-2 left-0 right-0 flex justify-center pointer-events-none"
+        >
+          {newBelow ? (
+            <button
+              type="button"
+              data-testid="thread-new-message"
+              className="pointer-events-auto zen-glass zen-glass-pill text-[13px]"
+              style={{ minHeight: 32, padding: "0 14px", color: "#fff" }}
+              onClick={onNewBelow}
+            >
+              New message <span aria-hidden="true">↓</span>
+            </button>
+          ) : null}
+        </div>
       </div>
       <GlassComposer
         value={draft}
@@ -803,8 +931,7 @@ export function ThreadPane({
         textareaRef={composerRef}
         onFocus={() => {
           window.scrollTo(0, 0);
-          const el = scrollerRef.current;
-          if (el && atNewest.current) stickToNewest(el);
+          follow();
         }}
       >
         {roomBanner}
