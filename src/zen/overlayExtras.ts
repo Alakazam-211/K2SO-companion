@@ -25,6 +25,29 @@ export function threadSidecarTitle(row: {
   return sidecarSuffix(row?.addr || "") || null;
 }
 
+/** Centre header title. Main chat: `<Agent>`. A separate session (extra
+ *  chat, or any Done-mode pick from the Sessions drawer): `<Agent>/<sidecar>`,
+ *  the same addr suffix the composer placeholder uses (`k2/reviewer` →
+ *  `K2/reviewer`). A Done-mode session with no suffix (conversation id) falls
+ *  back to its title, else a short id. */
+export function threadSessionHeaderTitle(
+  row: {
+    name?: string | null;
+    addr?: string | null;
+    chatTitle?: string | null;
+  } | null | undefined,
+  drawerPicked = false
+): string {
+  const name = threadHeaderTitle(row);
+  if (name === "—") return name;
+  const addr = (row?.addr || "").trim();
+  let suffix = sidecarSuffix(addr).trim();
+  if (!suffix && drawerPicked) {
+    suffix = (row?.chatTitle || "").trim() || addr.slice(0, 8);
+  }
+  return suffix ? `${name}/${suffix}` : name;
+}
+
 export function readHiddenSidecarAddrs(): string[] {
   try {
     const raw = localStorage.getItem(HIDDEN_SIDECAR_KEY);

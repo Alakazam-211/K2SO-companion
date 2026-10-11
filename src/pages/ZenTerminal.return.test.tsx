@@ -136,7 +136,7 @@ async function toTerminal(terminalId: string) {
   );
 }
 
-async function expectSessionThread(addr: string, header?: string | null) {
+async function expectSessionThread(addr: string, header?: string) {
   await waitFor(() => expect(useZenStore.getState().threadAddr).toBe(addr));
   await waitFor(() => expect(useZenStore.getState().threadSource).toBe("live"));
   const s = useZenStore.getState();
@@ -149,7 +149,7 @@ async function expectSessionThread(addr: string, header?: string | null) {
   expect(screen.getByTestId("chat-done").textContent).toBe("Done");
   // The same header the drawer pick showed.
   if (header !== undefined) {
-    expect(screen.queryByTestId("chat-sidecar-title")?.textContent ?? null).toBe(header);
+    expect(screen.getByTestId("chat-header-title").textContent).toBe(header);
   }
   expect(screen.queryByText("Not chattable")).toBeNull();
 }
@@ -201,16 +201,16 @@ afterEach(() => {
 
 describe("Terminal Done from a drawer-picked session", () => {
   it.each([
-    ["sidecar agent/x", "Code review", "k2/reviewer", "t-rev"],
-    ["ws/N tab", "Scratch", "k2/3", "t-77"],
-    ["conversation-id tab", "Convo", CONVO, "t-88"],
-  ])("%s: Terminal → Done reopens that thread in Done mode", async (_kind, label, addr, tid) => {
+    ["sidecar agent/x", "Code review", "k2/reviewer", "t-rev", "k2/reviewer"],
+    ["ws/N tab", "Scratch", "k2/3", "t-77", "k2/3"],
+    ["conversation-id tab", "Convo", CONVO, "t-88", "k2/Convo"],
+  ])("%s: Terminal → Done reopens that thread in Done mode", async (_kind, label, addr, tid, title) => {
     await openMain();
     await pick(label);
     await waitFor(() => expect(useZenStore.getState().threadAddr).toBe(addr));
     expect(useZenStore.getState().drawerOrigin).toBe("/ws");
-    const header = screen.queryByTestId("chat-sidecar-title")?.textContent ?? null;
-    if (addr.includes("/")) expect(header).toBe(addr);
+    const header = screen.getByTestId("chat-header-title").textContent ?? "";
+    expect(header).toBe(title);
     await toTerminal(tid);
 
     fireEvent.click(screen.getByTestId("zen-terminal-done"));

@@ -24,7 +24,12 @@ import { resumeSessionThread } from "../zen/sessionReturn";
 import { ThreadPane } from "../zen/ThreadPane";
 import { ZEN_SEQ_PARAM, zenFocusSeq } from "../zen/threadFocus";
 import { STUB_BANNER } from "../zen/stubData";
-import { isOverlayExtraAddr, threadHeaderTitle, threadSidecarTitle } from "../zen/overlayExtras";
+import {
+  isOverlayExtraAddr,
+  threadHeaderTitle,
+  threadSessionHeaderTitle,
+  threadSidecarTitle,
+} from "../zen/overlayExtras";
 import { useZenStore } from "../zen/zenStore";
 import { AgentIconSheet } from "../zen/AgentIconSheet";
 import { canChangeIcon, iconTargetFor } from "../zen/workspaceIcon";
@@ -75,6 +80,9 @@ export function Zen() {
   const extraChat = isOverlayExtraAddr(agent?.addr);
   const headerTitle = threadHeaderTitle(agent);
   const sidecarTitle = threadSidecarTitle(agent);
+  /** Centre title: `<Agent>`, or `<Agent>/<sidecar>` on a separate session. */
+  const centreTitle =
+    extraChat || drawerPicked ? threadSessionHeaderTitle(agent, drawerPicked) : headerTitle;
   const headerRef = useRef<HTMLDivElement>(null);
   const [headerPx, setHeaderPx] = useState(CHAT_HEADER_PX);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -191,7 +199,7 @@ export function Zen() {
   };
 
   // The header floats over the list; the list's top padding tracks the
-  // header's real height (sidecar line, Hide chat, banner grow it).
+  // header's real height (Hide chat, banner grow it).
   useLayoutEffect(() => {
     const el = headerRef.current;
     if (!el) return;
@@ -352,12 +360,41 @@ export function Zen() {
                   />
                 </span>
               )}
+              {/* Main chat: `<Agent>`. A separate session swaps in
+                  `<Agent>/<sidecar>` plus the rename pencil; the text
+                  truncates, the pencil never does. */}
               <span
-                data-testid="chat-header-title"
-                className="block w-full text-[15px] font-bold truncate text-center"
-                style={{ color: "#fff" }}
+                data-testid="chat-header-title-row"
+                className="flex items-center justify-center w-full min-w-0"
+                style={{ columnGap: 4 }}
               >
-                {headerTitle}
+                <span
+                  data-testid="chat-header-title"
+                  className="block min-w-0 text-[15px] font-bold truncate text-center"
+                  style={{ color: "#fff" }}
+                >
+                  {centreTitle}
+                </span>
+                {extraChat && sidecarTitle ? (
+                  <button
+                    type="button"
+                    data-testid="chat-rename-open"
+                    className="shrink-0 flex items-center justify-center bg-transparent border-0 p-0"
+                    style={{ color: "#fff", width: 18, height: 18, pointerEvents: "auto" }}
+                    aria-label={`Rename ${sidecarTitle}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setRenameValue(sidecarTitle);
+                      setRenameError(null);
+                      setRenameOpen(true);
+                    }}
+                  >
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                    </svg>
+                  </button>
+                ) : null}
               </span>
               {extraChat && !drawerPicked ? (
                 <button
@@ -384,8 +421,8 @@ export function Zen() {
                 </span>
               ) : null}
             </div>
-            {/* Right column: the three buttons, then the session name
-                right-aligned under them (white, so it reads over the blur). */}
+            {/* Right column: the three buttons. The session name lives in
+                the centre title now. */}
             <div
               data-testid="chat-header-right"
               className="flex flex-col items-end zen-header-text"
@@ -475,40 +512,6 @@ export function Zen() {
                 </svg>
               </button>
             </span>
-              {sidecarTitle ? (
-                <span
-                  data-testid="chat-session-line"
-                  className="zen-header-session flex items-center justify-end gap-1"
-                >
-                  <span
-                    data-testid="chat-sidecar-title"
-                    className="truncate min-w-0 text-[12.5px] font-medium text-right"
-                    style={{ color: "#fff" }}
-                  >
-                    {drawerPicked ? agent?.addr : sidecarTitle}
-                  </span>
-                  {extraChat ? (
-                    <button
-                      type="button"
-                      data-testid="chat-rename-open"
-                      className="shrink-0 flex items-center justify-center bg-transparent border-0 p-0"
-                      style={{ color: "#fff", width: 18, height: 18, pointerEvents: "auto" }}
-                      aria-label={`Rename ${sidecarTitle}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setRenameValue(sidecarTitle);
-                        setRenameError(null);
-                        setRenameOpen(true);
-                      }}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <path d="M12 20h9" />
-                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                      </svg>
-                    </button>
-                  ) : null}
-                </span>
-              ) : null}
             </div>
             </div>
           </header>
