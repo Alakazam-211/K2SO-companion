@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { useFeedbackStore } from "../stores/feedback";
 import { ticketsAriaLabel, ticketsBadge } from "../api/feedbackPure";
@@ -17,6 +18,7 @@ import {
 import { OverlayCompose } from "./OverlayCompose";
 import { OverlayServers } from "./OverlayServers";
 import { TicketsOverlay, useTicketWaitingCounts } from "./TicketsOverlay";
+import { ZEN_TICKET_PARAM } from "./terminalJump";
 import { lastAtKeyFor, sortChatsByRecency } from "./lastAtFetch";
 import {
   currentFocusGroup,
@@ -288,6 +290,26 @@ export function ChatsList() {
   const [q, setQ] = useState("");
   const [settings, setSettings] = useState(false);
   const [tickets, setTickets] = useState(false);
+  // Push-tap deep link `/zen?ticket=<id>`: open Tickets on that ticket.
+  // A new id remounts the overlay (key) so it re-opens on the new ticket.
+  const [params, setParams] = useSearchParams();
+  const ticketParam = (params.get(ZEN_TICKET_PARAM) || "").trim();
+  const [deepTicket, setDeepTicket] = useState<string | null>(null);
+  useEffect(() => {
+    if (!ticketParam) return;
+    // An open chat hides this list (and the overlay inside it).
+    if (useZenStore.getState().screen === "thread") useZenStore.getState().closeChat();
+    setDeepTicket(ticketParam);
+    setTickets(true);
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete(ZEN_TICKET_PARAM);
+        return next;
+      },
+      { replace: true }
+    );
+  }, [ticketParam, setParams]);
   const [compose, setCompose] = useState(false);
   const [serversSheet, setServersSheet] = useState(false);
   const servers = useServersStore((s) => s.servers);
@@ -1316,7 +1338,16 @@ export function ChatsList() {
         plusLabel="New message"
       />
 
-      {tickets ? <TicketsOverlay onClose={() => setTickets(false)} /> : null}
+      {tickets ? (
+        <TicketsOverlay
+          key={deepTicket ?? "list"}
+          initialTicketId={deepTicket}
+          onClose={() => {
+            setTickets(false);
+            setDeepTicket(null);
+          }}
+        />
+      ) : null}
       {compose ? <OverlayCompose onClose={() => setCompose(false)} /> : null}
       {serversSheet ? <OverlayServers onClose={() => setServersSheet(false)} /> : null}
 

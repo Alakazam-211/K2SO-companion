@@ -3,6 +3,7 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { load } from "@tauri-apps/plugin-store";
 import { cliAuthHeaders } from "../api/cliAuth";
 import { useServersStore, getActiveServer, type ServerEntry } from "../stores/servers";
+import { zenTicketPath } from "../zen/terminalJump";
 
 // Push glue — Companion C6 (prd-companion-v2 §4). Talks to the local
 // `tauri-plugin-k2-push` plugin and the daemon's `/cli/push/*` routes.
@@ -30,8 +31,15 @@ interface Availability {
 }
 
 export interface TapPayload {
+  /** `"ticket"` (daemon since 2026-07-23), legacy `"feedback"`, or
+   *  `"project"`. */
   kind?: string;
+  /** The ticket id. The daemon sends `feedbackId` (k2-core
+   *  `push/mod.rs` `PushEvent::data`); `ticketId` / `id` are accepted
+   *  too in case the wire key is renamed later. */
   feedbackId?: string;
+  ticketId?: string;
+  id?: string;
   groupId?: string;
   /** May name a different server in a later version; V1 navigates on
    *  the current server regardless. */
@@ -153,28 +161,69 @@ export async function unregisterAll(): Promise<void> {
 
 // ─── Tap deep-link + token rotation wiring ───
 
-function tapPath(tap: TapPayload | null | undefined): string | null {
+/** Ticket push kinds: the daemon sends `"ticket"`; `"feedback"` is the
+ *  pre-2026-07-23 wire value, still accepted. */
+const TICKET_KINDS = new Set(["ticket", "feedback"]);
+
+/** Classic-UI routes. Anywhere else (including `/`, which redirects to
+ *  the `/zen` home, and the shared `/login` `/servers`) Zen is the UI. */
+const CLASSIC_PREFIXES = ["/sessions", "/chat", "/projects", "/feedback", "/settings"];
+
+/** True when Zen is the active UI for a tap landing at `pathname`. */
+export function isZenUi(pathname: string): boolean {
+  return !CLASSIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
+}
+
+function str(v: unknown): string {
+  return typeof v === "string" ? v.trim() : "";
+}
+
+/** First non-empty ticket id key (`feedbackId`, then `ticketId`, `id`). */
+export function tapTicketId(tap: TapPayload): string {
+  return str(tap.feedbackId) || str(tap.ticketId) || str(tap.id);
+}
+
+/** Where a notification tap goes, or null to ignore it. `zen` picks the
+ *  Zen Tickets overlay deep link over the classic `/feedback/<id>`. */
+export function tapPath(
+  tap: TapPayload | null | undefined,
+  opts: { zen?: boolean } = {}
+): string | null {
   if (!tap) return null;
   // V1: a `subdomain` naming another server is ignored — navigate on
   // the current server (spec'd fallback).
-  if (tap.kind === "feedback" && tap.feedbackId) return `/feedback/${tap.feedbackId}`;
-  if (tap.kind === "project" && tap.groupId) return `/projects/${tap.groupId}`;
+  const kind = str(tap.kind);
+  if (TICKET_KINDS.has(kind)) {
+    const id = tapTicketId(tap);
+    if (!id) return null;
+    return opts.zen === false ? `/feedback/${encodeURIComponent(id)}` : zenTicketPath(id);
+  }
+  const groupId = str(tap.groupId);
+  if (kind === "project" && groupId) return `/projects/${groupId}`;
   return null;
+}
+
+function currentPathname(): string {
+  return typeof window === "undefined" ? "/" : window.location.pathname;
 }
 
 /** Wire tap→navigation and tokenRefresh→re-register. Mounted once by
  *  <PushBridge/> inside the router. No-op (returning a no-op cleanup)
  *  when push is unavailable. */
 export async function attachPushNavigation(
-  navigate: (path: string) => void
+  navigate: (path: string) => void,
+  opts: { pathname?: () => string } = {}
 ): Promise<() => void> {
   if (!(await pushIsAvailable())) return () => {};
+  const pathname = opts.pathname ?? currentPathname;
+  const route = (tap: TapPayload | null | undefined) =>
+    tapPath(tap, { zen: isZenUi(pathname()) });
 
   // Cold-start tap: the notification launched the app; the native side
   // buffered the payload before JS booted.
   try {
     const launch = await invoke<{ tap: TapPayload | null }>(`plugin:${PLUGIN}|get_launch_tap`);
-    const path = tapPath(launch?.tap);
+    const path = route(launch?.tap);
     if (path) navigate(path);
   } catch {
     /* no buffered tap */
@@ -182,7 +231,7 @@ export async function attachPushNavigation(
 
   const listeners = await Promise.all([
     addPluginListener(PLUGIN, "tap", (tap: TapPayload) => {
-      const path = tapPath(tap);
+      const path = route(tap);
       if (path) navigate(path);
     }),
     addPluginListener(PLUGIN, "tokenRefresh", () => {
