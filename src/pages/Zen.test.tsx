@@ -660,3 +660,57 @@ describe("Zen keeps the chats list mounted", () => {
     expect(screen.queryByTestId("chat-hide")).toBeNull();
   });
 });
+
+describe("Zen thread terminal button", () => {
+  it("opens the glass Zen terminal page with the agent in router state", async () => {
+    const { Routes, Route, useLocation } = await import("react-router-dom");
+    const { readZenThread } = await import("../zen/terminalJump");
+    function TermLoc() {
+      const loc = useLocation();
+      const st = loc.state as { agent?: { agentId: string; name: string; color?: string } } | null;
+      return (
+        <div data-testid="term-loc">
+          {`${loc.pathname}|${st?.agent?.agentId}|${st?.agent?.name}|${st?.agent?.color}`}
+        </div>
+      );
+    }
+    vi.mocked(getToken).mockReturnValue("");
+    const aspen = { ...STUB_AGENTS[0], path: "/ws/aspen", addr: "aspen", color: "#123456" };
+    vi.mocked(getAllSessions).mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          terminalId: "t-main",
+          cwd: "/ws/aspen",
+          isMainChat: true,
+          workspaceName: "aspen",
+          workspaceId: "w",
+          workspaceColor: "#000",
+          agentName: "aspen",
+          label: "main",
+        },
+      ],
+    } as never);
+    useZenStore.setState({ agentSource: "stub", agents: [aspen], screen: "list", agentError: null });
+    render(
+      <MemoryRouter initialEntries={[`/zen?thread=${aspen.id}`]}>
+        <Routes>
+          <Route path="/zen" element={<Zen />} />
+          <Route path="/zen/terminal/:terminalId" element={<TermLoc />} />
+          <Route path="*" element={<div data-testid="term-loc">elsewhere</div>} />
+        </Routes>
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(useZenStore.getState().screen).toBe("thread"));
+    act(() => {
+      useZenStore.setState({ agents: [aspen], agentId: aspen.id });
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    await waitFor(() => expect(screen.getByTestId("term-loc")).not.toBeNull());
+    expect(screen.getByTestId("term-loc").textContent).toBe(
+      `/zen/terminal/t-main|${aspen.id}|${aspen.name}|#123456`
+    );
+    expect(readZenThread()).toBe(aspen.id);
+    vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [] } as never);
+  });
+});

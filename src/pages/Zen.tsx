@@ -8,7 +8,12 @@ import { ChatsList } from "../zen/ChatsList";
 import { FilePane } from "../zen/FilePane";
 import { FileStage } from "../zen/FileStage";
 import { PaneErrorBoundary } from "../zen/PaneErrorBoundary";
-import { rememberZenThread, terminalIdForAgent } from "../zen/terminalJump";
+import {
+  rememberZenThread,
+  terminalIdForAgent,
+  zenTerminalPath,
+  type ZenTerminalAgent,
+} from "../zen/terminalJump";
 import { ThreadPane } from "../zen/ThreadPane";
 import { STUB_BANNER } from "../zen/stubData";
 import { isOverlayExtraAddr, threadHeaderTitle, threadSidecarTitle } from "../zen/overlayExtras";
@@ -317,7 +322,24 @@ export function Zen() {
                     await useWorkspacesStore.getState().fetchAllSessions();
                     const sessions = useWorkspacesStore.getState().allSessions;
                     if (!tid) tid = terminalIdForAgent(agent, sessions);
-                    navigate(tid ? `/chat/${tid}` : "/sessions");
+                    if (!tid) {
+                      navigate("/sessions");
+                      return;
+                    }
+                    const ctx: ZenTerminalAgent | null = agentId
+                      ? {
+                          agentId,
+                          name: headerTitle,
+                          initial: agent?.initial ?? null,
+                          color: agent?.color ?? null,
+                          iconUrl: agent?.iconUrl ?? null,
+                          chatTitle: sidecarTitle,
+                          projectPath: agent?.path ?? null,
+                        }
+                      : null;
+                    navigate(zenTerminalPath(tid), {
+                      state: ctx ? { agent: ctx } : undefined,
+                    });
                   };
                   void go();
                 }}
