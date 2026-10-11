@@ -308,8 +308,8 @@ export function ZenTerminal() {
             <span data-testid="zen-terminal-avatar" className="flex shrink-0">
               <WorkspaceAvatar
                 initial={agent?.initial || headerName.slice(0, 1) || "?"}
-                color={agent?.color}
-                iconUrl={agent?.iconUrl}
+                color={storeById ? storeById.color : agent?.color}
+                iconUrl={storeById ? storeById.iconUrl : agent?.iconUrl}
                 size={AVATAR_PX}
                 fontSize={12}
                 fallback="#2c2c2e"
