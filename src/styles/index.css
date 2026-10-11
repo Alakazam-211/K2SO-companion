@@ -817,3 +817,67 @@ button, a, nav {
     transition: none;
   }
 }
+
+/* Open ticket only (`--heavy`, TicketView). Its header is tall (title up
+   to 2 lines, meta, status chip), so the shared ramp left most of it
+   lightly blurred. Here 24px and a .85 tint hold through ~60% of the
+   header, then ease out over the last ~40%, reaching clear at its bottom
+   edge. Once the conversation scrolls (`data-scrolled="1"` on the header)
+   the stack reaches 18px below the header, so text softens before it
+   gets there. At rest the strip is off: the brief card stays sharp. The
+   header content paints above these layers, so its text stays crisp. */
+.zen-header-blur--heavy {
+  --zen-blur-heavy: 0px;
+  --zen-blur-h: calc(100% - var(--zen-blur-heavy));
+  bottom: calc(-1 * var(--zen-blur-heavy));
+}
+[data-scrolled="1"] > .zen-header-blur--heavy {
+  --zen-blur-heavy: 18px;
+}
+.zen-header-blur--heavy > .zen-header-blur-1 {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 calc(var(--zen-blur-h) * 0.9), transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 calc(var(--zen-blur-h) * 0.9), transparent 100%);
+}
+.zen-header-blur--heavy > .zen-header-blur-2 {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 calc(var(--zen-blur-h) * 0.8), transparent calc(var(--zen-blur-h) + var(--zen-blur-heavy) * 0.5));
+  mask-image: linear-gradient(to bottom, #000 0%, #000 calc(var(--zen-blur-h) * 0.8), transparent calc(var(--zen-blur-h) + var(--zen-blur-heavy) * 0.5));
+}
+.zen-header-blur--heavy > .zen-header-blur-3 {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 calc(var(--zen-blur-h) * 0.7), transparent var(--zen-blur-h));
+  mask-image: linear-gradient(to bottom, #000 0%, #000 calc(var(--zen-blur-h) * 0.7), transparent var(--zen-blur-h));
+}
+.zen-header-blur--heavy > .zen-header-blur-4 {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 calc(var(--zen-blur-h) * 0.62), transparent calc(var(--zen-blur-h) * 0.95));
+  mask-image: linear-gradient(to bottom, #000 0%, #000 calc(var(--zen-blur-h) * 0.62), transparent calc(var(--zen-blur-h) * 0.95));
+}
+.zen-header-blur--heavy > .zen-header-tint {
+  background: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.85) 0%,
+    rgba(0, 0, 0, 0.85) calc(var(--zen-blur-h) * 0.6),
+    rgba(0, 0, 0, 0.4) calc(var(--zen-blur-h) * 0.85),
+    rgba(0, 0, 0, 0.1) var(--zen-blur-h),
+    rgba(0, 0, 0, 0) 100%
+  );
+}
+/* Same fallback as the shared stack (this block's tint would win over it). */
+@media (prefers-reduced-transparency: reduce) {
+  .zen-header-blur--heavy > .zen-header-tint {
+    background: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.96) 0%,
+      rgba(0, 0, 0, 0.88) 60%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  }
+}
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .zen-header-blur--heavy > .zen-header-tint {
+    background: linear-gradient(
+      to bottom,
+      rgba(0, 0, 0, 0.96) 0%,
+      rgba(0, 0, 0, 0.88) 60%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  }
+}

@@ -6,11 +6,20 @@ import { useCallback, useState } from "react";
 // Servers and Tickets sheets.
 
 /** Four masked backdrop-blur layers plus the dark tint. Fills its
- *  (absolute, top:0) header from y=0 and never takes touches. */
-export function ZenHeaderBlur({ testId }: { testId?: string }) {
+ *  (absolute, top:0) header from y=0 and never takes touches.
+ *  `variant="heavy"` (open ticket only): full strength through ~60% of a
+ *  tall header, then a strip below it once the parent header carries
+ *  `data-scrolled="1"` (`.zen-header-blur--heavy` in index.css). */
+export function ZenHeaderBlur({
+  testId,
+  variant,
+}: {
+  testId?: string;
+  variant?: "heavy";
+}) {
   return (
     <div
-      className="zen-header-blur"
+      className={variant === "heavy" ? "zen-header-blur zen-header-blur--heavy" : "zen-header-blur"}
       data-testid={testId}
       aria-hidden
       style={{ pointerEvents: "none" }}

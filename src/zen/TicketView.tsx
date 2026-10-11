@@ -411,6 +411,9 @@ export function TicketView({
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   const [headerRef, headerPx] = useMeasuredHeight(TICKET_HEADER_PX);
+  // At rest the brief card sits just under the header and stays sharp;
+  // the heavy blur's strip below the header waits for a scroll.
+  const [scrolled, setScrolled] = useState(false);
 
   const brief = entry?.state === "ready" ? entry.brief : null;
   const doc = useBriefDoc(brief);
@@ -535,8 +538,9 @@ export function TicketView({
           paddingTop: "env(safe-area-inset-top)",
           pointerEvents: "none",
         }}
+        data-scrolled={scrolled ? "1" : undefined}
       >
-      <ZenHeaderBlur testId="ticket-header-blur" />
+      <ZenHeaderBlur testId="ticket-header-blur" variant="heavy" />
       <div
         ref={headerRef}
         className="relative w-full min-w-0"
@@ -651,6 +655,7 @@ export function TicketView({
         ref={scrollerRef}
         className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 pb-3 flex flex-col gap-3"
         data-testid="ticket-scroller"
+        onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}
         style={{
           // Starts under the floating header; the conversation scrolls up
           // behind it.

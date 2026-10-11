@@ -188,11 +188,15 @@ describe("Tickets list", () => {
 });
 
 /** The shared floating-header contract (chat header c39c0ac). */
-function expectBlurHeader(header: HTMLElement, blur: HTMLElement) {
+function expectBlurHeader(
+  header: HTMLElement,
+  blur: HTMLElement,
+  className = "zen-header-blur",
+) {
   expect(header.className).toMatch(/absolute/);
   expect(header.style.pointerEvents).toBe("none");
   expect(header.contains(blur)).toBe(true);
-  expect(blur.className).toBe("zen-header-blur");
+  expect(blur.className).toBe(className);
   expect(blur.style.pointerEvents).toBe("none");
   expect(blur.getAttribute("aria-hidden")).not.toBeNull();
   expect(blur.querySelectorAll("[class^='zen-header-blur-']").length).toBe(4);
@@ -204,7 +208,9 @@ describe("Floating blur headers", () => {
     const onClose = vi.fn();
     render(<TicketsOverlay onClose={onClose} />);
     const header = screen.getByTestId("tickets-header");
+    // The list keeps the shared blur; only an open ticket goes heavy.
     expectBlurHeader(header, screen.getByTestId("tickets-header-blur"));
+    expect(screen.getByTestId("tickets-header-blur").className).not.toMatch(/--heavy/);
     expect(screen.getByTestId("overlay-tickets").style.paddingTop).toBe("");
 
     const tabs = screen.getByTestId("ticket-scopes");
@@ -233,7 +239,12 @@ describe("Floating blur headers", () => {
     render(<TicketsOverlay onClose={() => {}} />);
     await openTicket("Which pricing tier for Acme?");
     const header = screen.getByTestId("ticket-header");
-    expectBlurHeader(header, screen.getByTestId("ticket-header-blur"));
+    // Tall header: the heavy blur (full strength through ~60%).
+    expectBlurHeader(
+      header,
+      screen.getByTestId("ticket-header-blur"),
+      "zen-header-blur zen-header-blur--heavy",
+    );
     expect(screen.getByTestId("ticket-view").style.paddingTop).toBe("");
     // Under the brief reader (12) and the sheets (14).
     expect(Number(header.style.zIndex)).toBeLessThan(12);
@@ -249,6 +260,16 @@ describe("Floating blur headers", () => {
     const pad = Number(scroller.style.paddingTop.match(/(\d+)px/)![1]);
     expect(pad).toBeGreaterThanOrEqual(TICKET_HEADER_PX);
     expect(scroller.contains(screen.getByTestId("ticket-comments"))).toBe(true);
+
+    // At rest the brief card stays sharp: the strip below the header waits
+    // for a scroll, and goes away again at the top.
+    expect(header.dataset.scrolled).toBeUndefined();
+    scroller.scrollTop = 40;
+    fireEvent.scroll(scroller);
+    expect(header.dataset.scrolled).toBe("1");
+    scroller.scrollTop = 0;
+    fireEvent.scroll(scroller);
+    expect(header.dataset.scrolled).toBeUndefined();
 
     fireEvent.click(screen.getByTestId("ticket-status"));
     expect(screen.getByTestId("ticket-status-menu")).not.toBeNull();
