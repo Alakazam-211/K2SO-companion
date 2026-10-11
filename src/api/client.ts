@@ -645,10 +645,12 @@ export const getFsZipList = (scope: ServerScope, path: string) =>
     { path }
   );
 
-/** Skin route POST /cli/fs/upload-binary. `workspace` is the overlay
- *  handle. Companion `dir` is this agent's own absolute workspace path.
- *  Skin `dir: "."` is room-relative; here it is the daemon cwd and
- *  writes EROFS. Empty dir is refused as "Destination Directory is Empty". */
+/** POST /cli/fs/upload-binary. `workspace` is the overlay handle (the
+ *  skin gateway's jail; the owner route ignores it). Companion `dir` is
+ *  absolute: `<workspace>/.k2/downloads` (`uploadDirOf`). The daemon
+ *  creates `dir` when missing and returns the collision-free path it wrote
+ *  (`name (1).ext`). `dir: "."` would be the daemon cwd (EROFS); an empty
+ *  dir is refused as "Destination directory is empty". */
 export const uploadFsBinary = (scope: ServerScope, 
   workspace: string,
   dir: string,

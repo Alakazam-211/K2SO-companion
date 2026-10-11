@@ -10,6 +10,7 @@ import {
   uploadFilename,
   workspaceHandleOf,
 } from "./composerAttach";
+import { loadGroupPoc, type GroupPoc } from "./groupPoc";
 import { GlassComposer, composerPlaceholder } from "./GlassComposer";
 import { StubMark } from "./StubMark";
 import { mountainTime, type ThreadMessage } from "./threadModel";
@@ -52,6 +53,9 @@ import {
   type FlySource,
 } from "./sendFly";
 import "./sendFly.css";
+
+/** No workspace folder to upload into (no usable path / no PoC yet). */
+const ATTACH_UNAVAILABLE = "Files need this chat's workspace folder.";
 
 export { COMPOSER_MAX_PX, composerHeight } from "./GlassComposer";
 
@@ -261,17 +265,36 @@ export function ThreadPane({
     (source === "live" ||
       (source === "error" && isSendableAddr(threadAddr))) &&
     (Boolean((threadGroupId || "").trim()) || isSendableAddr(threadAddr));
-  const attachWorkspace = workspaceHandleOf(threadAddr);
   const agent = agents.find((a) => a.id === agentId);
-  const attachDir = uploadDirOf(agent?.path);
+  // The room's server: the overlay socket redials only on its own server.
+  const zenServer = useZenScope().id;
+  // Uploads land in `<workspace>/.k2/downloads/` (desktop's compose bar).
+  // A project chat has no workspace of its own: its PoC member's.
+  const groupId = (threadGroupId || "").trim();
+  const [groupPoc, setGroupPoc] = useState<{ key: string; poc: GroupPoc } | null>(null);
+  const groupKey = groupId ? `${zenServer}\n${groupId}` : "";
+  const poc = groupPoc && groupPoc.key === groupKey ? groupPoc.poc : null;
+  useEffect(() => {
+    if (!groupKey || source !== "live") return;
+    let live = true;
+    const scope = zenScope();
+    void loadGroupPoc(scope, groupId).then((p) => {
+      if (!live || zenScope().id !== scope.id) return;
+      setGroupPoc({ key: groupKey, poc: p });
+      if (p.path) useZenStore.getState().setGroupRoot(p.path);
+    });
+    return () => {
+      live = false;
+    };
+  }, [groupKey, groupId, source]);
+  const attachWorkspace = groupId ? poc?.handle ?? "" : workspaceHandleOf(threadAddr);
+  const attachDir = groupId ? uploadDirOf(poc?.path) : uploadDirOf(agent?.path);
   const placeholder = composerPlaceholder(
     (threadGroupId || "").trim()
       ? { name: agent?.name, kind: "group" }
       : { name: agent?.name, addr: threadAddr || agent?.addr }
   );
   const canAttach = canSend && Boolean(attachWorkspace) && Boolean(attachDir);
-  // The room's server: the overlay socket redials only on its own server.
-  const zenServer = useZenScope().id;
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -583,7 +606,7 @@ export function ThreadPane({
   function queueFiles(files: File[]) {
     if (!files.length) return;
     if (!canAttach) {
-      setAttachError("Files are per workspace, not per project chat.");
+      setAttachError(ATTACH_UNAVAILABLE);
       return;
     }
     setAttachError(null);
@@ -628,7 +651,7 @@ export function ThreadPane({
     const paths = [...entry.paths];
     if (entry.files.length) {
       if (!entry.attachWorkspace || !entry.attachDir) {
-        failed("Files are per workspace, not per project chat.");
+        failed(ATTACH_UNAVAILABLE);
         return;
       }
       for (let i = 0; i < entry.files.length; i++) {
@@ -677,7 +700,7 @@ export function ThreadPane({
     const st = useZenStore.getState();
     if (sendInFlight(st.outbox, st.thread, roomKey)) return;
     if (files.length && (!canAttach || !attachWorkspace || !attachDir)) {
-      setAttachError("Files are per workspace, not per project chat.");
+      setAttachError(ATTACH_UNAVAILABLE);
       return;
     }
     onComposerInput?.();
