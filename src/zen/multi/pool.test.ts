@@ -149,6 +149,32 @@ describe("reducePool", () => {
 });
 
 describe("createPool", () => {
+  it("MS29: an accepted login reports it; a dead one does not", async () => {
+    const onAccepted = vi.fn();
+    const h = harness({ onAccepted });
+    await h.pool.check("b");
+    expect(onAccepted).toHaveBeenCalledWith("b");
+    const dead = harness({
+      onAccepted,
+      get: vi.fn(async () => status(401)),
+    } as Partial<PoolDeps>);
+    onAccepted.mockClear();
+    await dead.pool.check("b");
+    expect(onAccepted).not.toHaveBeenCalled();
+  });
+
+  it("socket signals: kicked and signin land on that server's entry only", async () => {
+    const h = harness();
+    await h.pool.check("b");
+    h.pool.noteSigninRequired("b");
+    expect(h.pool.entry("b")?.auth).toBe("signin-required");
+    h.pool.noteKicked("b");
+    expect(h.pool.entry("b")?.auth).toBe("kicked");
+    h.pool.noteSigninRequired("b"); // kicked is the stronger word
+    expect(h.pool.entry("b")?.auth).toBe("kicked");
+    expect(h.pool.entry("a")).toBeUndefined();
+  });
+
   it("check: boot-status → whoami → summary, with that server's scope only", async () => {
     const h = harness();
     const e = await h.pool.check("b");

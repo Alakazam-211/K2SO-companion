@@ -342,7 +342,7 @@ function scheduleEventsReconnect(): void {
  *  bug. `signin-required` STOPS this loop until the user acts. */
 async function reviveThenReopen(): Promise<void> {
   if (eventsServerId) {
-    const outcome = await revive(scopeFor(eventsServerId));
+    const outcome = await revive(scopeFor(eventsServerId), { background: true });
     if (eventsRefs === 0) return;
     // The user may have switched servers while we probed — retarget.
     if (useServersStore.getState().activeServerId !== eventsServerId) {

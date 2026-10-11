@@ -369,7 +369,7 @@ class FeedbackEventsSocket {
    *  restarts it. unreachable/cooldown reopen and land back here. */
   private async reviveThenReopen(): Promise<void> {
     if (this.serverId) {
-      const outcome = await revive(scopeFor(this.serverId));
+      const outcome = await revive(scopeFor(this.serverId), { background: true });
       if (!this.shouldReconnect) return;
       if (outcome === "signin-required" || outcome === "not-applicable") {
         this.shouldReconnect = false;

@@ -1,5 +1,9 @@
 import { isTicketEventFrame } from "../api/feedbackPure";
 import type { ServerScope } from "../api/scope";
+import { queueDial, type DialTicket } from "../api/dialQueue";
+import { emitServerSignal } from "../api/serverSignals";
+import { inBackground, onAppLifecycle } from "../lib/appLifecycle";
+import { revive } from "../lib/revive";
 import { onServerForget } from "../stores/servers";
 
 // App-level live events: WS
@@ -16,16 +20,34 @@ import { onServerForget } from "../stores/servers";
 // its URL from THAT scope (fresh token). It never checks or follows the
 // active server; subscribers on another server get their own hub.
 //
-// Close codes (daemon `session_events_ws.rs`): 4001 = this login was
-// KICKED (removed from the server) — stop, never spin on it. 4003 =
-// revoked, 4008 = we lagged; both reconnect and re-pull. Anything else
-// reconnects with backoff (1 s doubling to 30 s). A `hello` whose
-// `instance_id` changed means the daemon restarted: full refetch. (The
-// per-code table of MS27/MA14 — revive on 4003, events backoff 500 ms →
-// 5 s — lands with rooms in S3.)
+// Close codes (daemon `session_events_ws.rs`, MS27 as amended by MA14):
+//   - 4001 = this login was KICKED (removed from the server): stop, never
+//     reconnect, never sign in on its own; the pool and room hear it.
+//   - 4003 = the token was REVOKED: one whoami check (revive on this
+//     server, never deleting the token from here, MA22), then reconnect
+//     while it still stands; a dead token stops the hub.
+//   - 4008 = we LAGGED: reconnect at once and re-pull (every subscriber
+//     refetches; the room re-pulls its snapshots).
+//   - anything else: reconnect with backoff, 500 ms doubling to 5 s, each
+//     delay drawn from [ms/2, ms] (desktop `lib/backoff.ts`).
+// A `hello` whose `instance_id` changed means the daemon restarted: full
+// refetch. Every (re)dial goes through the dial queue (MS26). With the
+// multi-server flag on, the app's background closes every hub socket and
+// the foreground reopens them (MS28).
 
 export const TICKET_EVENT_DEBOUNCE_MS = 300;
-const MAX_BACKOFF_MS = 30_000;
+export const EVENTS_BACKOFF_BASE_MS = 500;
+export const EVENTS_BACKOFF_CAP_MS = 5_000;
+export const WS_CLOSE_KICKED = 4001;
+export const WS_CLOSE_REVOKED = 4003;
+export const WS_CLOSE_LAGGED = 4008;
+
+/** Events backoff for attempt `n` (0-based): 500 ms doubling to 5 s, with
+ *  bounded jitter — the delay is in `[ms/2, ms]`. */
+export function eventsBackoffMs(attempt: number, rand: () => number = Math.random): number {
+  const ms = Math.min(EVENTS_BACKOFF_CAP_MS, EVENTS_BACKOFF_BASE_MS * 2 ** Math.max(0, attempt));
+  return Math.round(ms / 2 + rand() * (ms / 2));
+}
 
 export type TicketEventsHandle = { stop: () => void };
 
@@ -52,6 +74,9 @@ type Hub = {
   everOpened: boolean;
   instanceId: string | null;
   retryTimer: ReturnType<typeof setTimeout> | null;
+  dial: DialTicket | null;
+  /** Closed for the app's background; the foreground reopens it. */
+  paused: boolean;
   dead: boolean;
 };
 
@@ -77,23 +102,34 @@ function bumpAll(hub: Hub) {
   for (const sub of hub.subs) bump(sub);
 }
 
-function killHub(hub: Hub) {
-  hub.dead = true;
-  if (hubs.get(hub.key) === hub) hubs.delete(hub.key);
+/** Close the hub's socket quietly (its close must not reconnect). */
+function dropSocket(hub: Hub) {
+  hub.dial?.cancel();
+  hub.dial = null;
   if (hub.retryTimer) clearTimeout(hub.retryTimer);
   hub.retryTimer = null;
   const ws = hub.ws;
   hub.ws = null;
+  if (!ws) return;
+  ws.onopen = null;
+  ws.onmessage = null;
+  ws.onclose = null;
+  ws.onerror = null;
   try {
-    ws?.close();
+    ws.close();
   } catch {
     /* */
   }
 }
 
-function schedule(hub: Hub) {
-  if (hub.dead || hub.retryTimer) return;
-  const delay = Math.min(MAX_BACKOFF_MS, 1000 * 2 ** hub.attempt);
+function killHub(hub: Hub) {
+  hub.dead = true;
+  if (hubs.get(hub.key) === hub) hubs.delete(hub.key);
+  dropSocket(hub);
+}
+
+function schedule(hub: Hub, delay = eventsBackoffMs(hub.attempt)) {
+  if (hub.dead || hub.paused || hub.retryTimer) return;
   hub.attempt += 1;
   hub.retryTimer = setTimeout(() => {
     hub.retryTimer = null;
@@ -101,8 +137,37 @@ function schedule(hub: Hub) {
   }, delay);
 }
 
+/** 4003: whoami on this server first (never deleting the token from a
+ *  background socket, MA22). A token that still stands reconnects. */
+async function afterRevoked(hub: Hub) {
+  const outcome = await revive(hub.scope, { background: true });
+  if (hub.dead || hub.paused) return;
+  if (outcome === "signin-required" || outcome === "not-applicable") {
+    emitServerSignal(hub.key, "signin");
+    killHub(hub);
+    return;
+  }
+  schedule(hub);
+}
+
 function openHub(hub: Hub) {
-  if (hub.dead) return;
+  if (hub.dead || hub.paused || hub.dial || hub.ws) return;
+  // MS28: in the background (flag on) the foreground reopens it.
+  if (inBackground()) {
+    hub.paused = true;
+    return;
+  }
+  let started = false;
+  const ticket = queueDial(hub.scope, () => {
+    started = true;
+    hub.dial = null;
+    if (hub.dead || hub.paused) return null;
+    return dialHub(hub);
+  });
+  if (!started) hub.dial = ticket;
+}
+
+function dialHub(hub: Hub): WebSocket | "failed" | null {
   // Base + token read fresh from the hub's OWN scope each open (a revive
   // mints a new token). A removed server stops the hub.
   let url: string | null;
@@ -110,22 +175,25 @@ function openHub(hub: Hub) {
     url = ticketEventsUrl(hub.scope.httpBase(), hub.scope.token());
   } catch {
     killHub(hub);
-    return;
+    return null;
   }
-  if (!url) return;
+  if (!url) return null;
   let sock: WebSocket;
   try {
     sock = new WebSocket(url);
   } catch {
     schedule(hub);
-    return;
+    return "failed";
   }
   hub.ws = sock;
   sock.onopen = () => {
     if (hub.dead || hub.ws !== sock) return;
     hub.attempt = 0;
     // A re-open may have missed frames while down: re-pull once.
-    if (hub.everOpened) bumpAll(hub);
+    if (hub.everOpened) {
+      bumpAll(hub);
+      emitServerSignal(hub.key, "reopened");
+    }
     hub.everOpened = true;
   };
   sock.onmessage = (e) => {
@@ -148,8 +216,21 @@ function openHub(hub: Hub) {
   sock.onclose = (e) => {
     if (hub.dead || hub.ws !== sock) return;
     hub.ws = null;
-    if (e.code === 4001) {
-      killHub(hub); // kicked from this server: never reconnect
+    const code = (e as CloseEvent | undefined)?.code;
+    if (code === WS_CLOSE_KICKED) {
+      // Kicked from this server: never reconnect, never sign in alone.
+      emitServerSignal(hub.key, "kicked");
+      killHub(hub);
+      return;
+    }
+    if (code === WS_CLOSE_REVOKED) {
+      void afterRevoked(hub);
+      return;
+    }
+    if (code === WS_CLOSE_LAGGED) {
+      emitServerSignal(hub.key, "lagged");
+      hub.attempt = 0;
+      schedule(hub, 0);
       return;
     }
     schedule(hub);
@@ -161,6 +242,7 @@ function openHub(hub: Hub) {
       /* */
     }
   };
+  return sock;
 }
 
 /** Subscribe to app-level frames that `match` on `scope`'s server. Shares
@@ -190,6 +272,8 @@ export function subscribeAppEvents(
       everOpened: false,
       instanceId: null,
       retryTimer: null,
+      dial: null,
+      paused: false,
       dead: false,
     };
     hubs.set(key, hub);
@@ -209,6 +293,32 @@ export function subscribeAppEvents(
       if (owner.subs.size === 0) killHub(owner);
     },
   };
+}
+
+// MS28 (flag on): the background closes every hub socket; the foreground
+// reopens them through the dial queue, and the reopen re-pulls.
+onAppLifecycle((phase) => {
+  for (const hub of hubs.values()) {
+    if (phase === "background") {
+      hub.paused = true;
+      dropSocket(hub);
+    } else if (hub.paused) {
+      hub.paused = false;
+      hub.attempt = 0;
+      // The reopen re-pulls (everOpened), like any reconnect.
+      openHub(hub);
+    }
+  }
+});
+
+/** Tests: is a hub open (or dialling) for this server id? */
+export function hubState(serverId: string): "none" | "paused" | "open" | "dialling" | "idle" {
+  const hub = hubs.get(serverId);
+  if (!hub) return "none";
+  if (hub.paused) return "paused";
+  if (hub.ws) return "open";
+  if (hub.dial || hub.retryTimer) return "dialling";
+  return "idle";
 }
 
 export function connectTicketEvents(scope: ServerScope, onChange: () => void): TicketEventsHandle {
