@@ -678,10 +678,10 @@ describe("ZenTerminal", () => {
     expect(screen.getByText("session gone")).not.toBeNull();
   });
 
-  it("＋ uploads into the agent workspace and puts the path in the draft", async () => {
+  it("＋ uploads into the agent workspace .k2/downloads and puts the path in the draft", async () => {
     vi.mocked(uploadFsBinary).mockResolvedValueOnce({
       ok: true,
-      data: { path: "/ws/appa/note.txt" },
+      data: { path: "/ws/appa/.k2/downloads/note.txt" },
     } as never);
     renderAt({
       pathname: zenTerminalPath("t1"),
@@ -695,10 +695,11 @@ describe("ZenTerminal", () => {
     fireEvent.change(screen.getByTestId("terminal-composer-file-input"), {
       target: { files: [file] },
     });
-    await waitFor(() => expect(input.value).toBe("read this\n/ws/appa/note.txt"));
+    await waitFor(() => expect(input.value).toBe("read this /ws/appa/.k2/downloads/note.txt "));
+    // Same folder and naming as the thread composer (`uploadDirOf`).
     expect(vi.mocked(uploadFsBinary).mock.calls[0].slice(1, 4)).toEqual([
       "appa",
-      "/ws/appa",
+      "/ws/appa/.k2/downloads",
       "note.txt",
     ]);
     expect(sendMessageToSession).not.toHaveBeenCalled();

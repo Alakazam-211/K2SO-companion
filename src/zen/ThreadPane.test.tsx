@@ -7,9 +7,15 @@ vi.mock("../api/client", async (importOriginal) => {
   return {
     ...actual,
     uploadFsBinary: vi.fn(),
+    createFsFolder: vi.fn(),
     answerThread: vi.fn(),
     getThreadActivity: vi.fn(async () => ({ ok: true, data: { turn: null } })),
   };
+});
+
+vi.mock("../api/projectGroups", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api/projectGroups")>();
+  return { ...actual, fetchProjectGroupShow: vi.fn(async () => ({ ok: false, error: "nope" })) };
 });
 
 vi.mock("./overlayEvents", () => ({
@@ -17,7 +23,8 @@ vi.mock("./overlayEvents", () => ({
 }));
 
 import { act } from "@testing-library/react";
-import { answerThread, getThreadActivity, uploadFsBinary } from "../api/client";
+import { answerThread, createFsFolder, getThreadActivity, uploadFsBinary } from "../api/client";
+import { fetchProjectGroupShow } from "../api/projectGroups";
 import { connectOverlayEvents } from "./overlayEvents";
 import { COMPOSER_MAX_PX, ThreadPane, composerHeight, threadTopPadding } from "./ThreadPane";
 import { composerPlaceholder } from "./GlassComposer";
@@ -693,12 +700,7 @@ describe("ThreadPane", () => {
     expect(screen.getByTestId("attach-chip").textContent).toMatch(/shot.png/);
   });
 
-  it("uploads into this agent's own absolute workspace path", async () => {
-    vi.mocked(uploadFsBinary).mockResolvedValue({
-      ok: true,
-      data: { path: "/Users/Baden/Appa/shot.png" },
-    });
-    const sendThread = vi.fn(async () => true);
+  function openAppa(sendThread: () => Promise<boolean>) {
     useZenStore.setState({
       agentId: "appa",
       agents: [
@@ -719,21 +721,124 @@ describe("ThreadPane", () => {
       thread: [],
       sendThread,
     });
-    render(<ThreadPane />);
-    const file = new File(["x"], "shot.png", { type: "image/png" });
+  }
+
+  function pasteAndSend(file: File, caption = "") {
     fireEvent.paste(screen.getByTestId("composer-form"), {
-      clipboardData: {
-        files: [file],
-        items: [],
-      },
+      clipboardData: { files: [file], items: [] },
     });
+    if (caption) {
+      fireEvent.change(screen.getByPlaceholderText(/Message/), { target: { value: caption } });
+    }
     fireEvent.submit(screen.getByTestId("composer-form"));
+  }
+
+  it("uploads into <workspace>/.k2/downloads and sends that path", async () => {
+    vi.mocked(uploadFsBinary).mockResolvedValue({
+      ok: true,
+      data: { path: "/Users/Baden/Appa/.k2/downloads/shot.png" },
+    });
+    const sendThread = vi.fn(async () => true);
+    openAppa(sendThread);
+    render(<ThreadPane />);
+    pasteAndSend(new File(["x"], "shot.png", { type: "image/png" }), "see this");
     await waitFor(() => expect(uploadFsBinary).toHaveBeenCalled());
     expect(vi.mocked(uploadFsBinary).mock.calls[0][1]).toBe("appa");
-    expect(vi.mocked(uploadFsBinary).mock.calls[0][2]).toBe("/Users/Baden/Appa");
+    expect(vi.mocked(uploadFsBinary).mock.calls[0][2]).toBe("/Users/Baden/Appa/.k2/downloads");
     expect(vi.mocked(uploadFsBinary).mock.calls[0][3]).toBe("shot.png");
     await waitFor(() =>
-      expect(sendThread).toHaveBeenCalledWith("/Users/Baden/Appa/shot.png", { localId: expect.any(String) })
+      expect(sendThread).toHaveBeenCalledWith(
+        "see this /Users/Baden/Appa/.k2/downloads/shot.png",
+        { localId: expect.any(String) }
+      )
+    );
+  });
+
+  it("a missing .k2/downloads is created by the upload itself (no separate mkdir)", async () => {
+    // Daemon `write_upload` runs `create_dir_all(dir)` before writing, so
+    // the first upload into a fresh workspace needs no fs/create (desktop
+    // relies on the same).
+    vi.mocked(uploadFsBinary).mockResolvedValue({
+      ok: true,
+      data: { path: "/Users/Baden/Appa/.k2/downloads/shot.png" },
+    });
+    const sendThread = vi.fn(async () => true);
+    openAppa(sendThread);
+    render(<ThreadPane />);
+    pasteAndSend(new File(["x"], "shot.png", { type: "image/png" }));
+    await waitFor(() => expect(sendThread).toHaveBeenCalled());
+    expect(uploadFsBinary).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(uploadFsBinary).mock.calls[0][2]).toBe("/Users/Baden/Appa/.k2/downloads");
+    expect(createFsFolder).not.toHaveBeenCalled();
+  });
+
+  it("a name clash sends the daemon's `name (1).ext` path, quoted like desktop", async () => {
+    vi.mocked(uploadFsBinary).mockResolvedValue({
+      ok: true,
+      data: { path: "/Users/Baden/Appa/.k2/downloads/shot (1).png" },
+    });
+    const sendThread = vi.fn(async () => true);
+    openAppa(sendThread);
+    render(<ThreadPane />);
+    pasteAndSend(new File(["x"], "shot.png", { type: "image/png" }));
+    await waitFor(() =>
+      expect(sendThread).toHaveBeenCalledWith(
+        "'/Users/Baden/Appa/.k2/downloads/shot (1).png'",
+        { localId: expect.any(String) }
+      )
+    );
+    // The phone sends the picked name; the daemon picks ` (1)`.
+    expect(vi.mocked(uploadFsBinary).mock.calls[0][3]).toBe("shot.png");
+  });
+
+  it("a project chat uploads into its PoC member's .k2/downloads", async () => {
+    vi.mocked(fetchProjectGroupShow).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        id: "pg1",
+        name: "K2",
+        pocWorkspaceId: "w2",
+        members: [
+          { workspaceId: "w1", name: "other", path: "/Users/Baden/Other", agentName: null, createdAt: 0 },
+          { workspaceId: "w2", name: "appa", path: "/Users/Baden/Appa", agentName: "Appa", createdAt: 0 },
+        ],
+      } as never,
+    });
+    vi.mocked(uploadFsBinary).mockResolvedValue({
+      ok: true,
+      data: { path: "/Users/Baden/Appa/.k2/downloads/shot.png" },
+    });
+    const sendThread = vi.fn(async () => true);
+    useZenStore.setState({
+      agentId: "group:pg1",
+      agents: [
+        { id: "group:pg1", name: "K2", initial: "K", kind: "group", groupId: "pg1", memberCount: 2, addr: null, joinMiss: null },
+      ] as never,
+      threadSource: "live",
+      threadAddr: null,
+      threadGroupId: "pg1",
+      threadError: null,
+      sendError: null,
+      sending: false,
+      thread: [],
+      sendThread,
+    });
+    render(<ThreadPane />);
+    await waitFor(() =>
+      expect(screen.getByTestId("composer-attach")).toHaveProperty("disabled", false)
+    );
+    expect(useZenStore.getState().groupRoot).toBe("/Users/Baden/Appa");
+    pasteAndSend(new File(["x"], "shot.png", { type: "image/png" }));
+    await waitFor(() => expect(uploadFsBinary).toHaveBeenCalled());
+    expect(vi.mocked(uploadFsBinary).mock.calls[0].slice(1, 4)).toEqual([
+      "appa",
+      "/Users/Baden/Appa/.k2/downloads",
+      "shot.png",
+    ]);
+    await waitFor(() =>
+      expect(sendThread).toHaveBeenCalledWith("/Users/Baden/Appa/.k2/downloads/shot.png", {
+        localId: expect.any(String),
+      })
     );
   });
 

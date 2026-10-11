@@ -21,7 +21,7 @@ import { WorkspaceAvatar } from "../zen/WorkspaceAvatar";
 import { composerPlaceholder } from "../zen/GlassComposer";
 import {
   MAX_UPLOAD_BYTES,
-  attachmentSendBody,
+  attachPathsToDraft,
   fileToBase64,
   uploadDirOf,
   uploadFilename,
@@ -113,8 +113,9 @@ export function ZenTerminal() {
           addr: storeAgent.addr ?? null,
         }
       : null);
-  // `＋` uploads into the agent's own workspace (the Zen thread's flow):
-  // handle from its overlay addr, dir from its absolute path.
+  // `＋` uploads into the agent's workspace `.k2/downloads/` (the Zen
+  // thread's flow, desktop's compose bar): handle from its overlay addr,
+  // dir from its absolute path.
   const storeById = agent ? zenAgents.find((a) => a.id === agent.agentId) : undefined;
   const attachWorkspace = workspaceHandleOf(agent?.addr ?? storeById?.addr);
   const attachDir = uploadDirOf(agent?.projectPath ?? storeById?.path);
@@ -217,8 +218,8 @@ export function ZenTerminal() {
       });
   };
 
-  // `＋`: upload now, then put the returned path(s) in the draft so the
-  // user sends them to the agent with the normal send.
+  // `＋`: upload now, then put the returned path(s) in the draft the way
+  // desktop's compose bar does, so the user sends them with the normal send.
   const handleAttach = (files: File[]) => {
     if (!files.length || uploading) return;
     if (!canAttach || !attachWorkspace || !attachDir) {
@@ -253,7 +254,7 @@ export function ZenTerminal() {
       } finally {
         setUploading(false);
       }
-      if (paths.length) setInput((prev) => attachmentSendBody(prev, paths));
+      if (paths.length) setInput((prev) => attachPathsToDraft(prev, paths));
     })();
   };
 

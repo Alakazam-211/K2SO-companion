@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import {
+  attachPathsToDraft,
   attachmentSendBody,
+  composeDropPayload,
+  insertIntoDraft,
   extensionForType,
   filesFromClipboard,
   safeFilename,
@@ -53,10 +56,11 @@ describe("composerAttach", () => {
     expect(extensionForType("video/quicktime")).toBe("mov");
   });
 
-  it("uploads into this agent's own absolute workspace path", () => {
-    expect(uploadDirOf("/Users/Baden/Appa")).toBe("/Users/Baden/Appa");
+  it("uploads into the workspace's .k2/downloads folder (desktop's destination)", () => {
+    expect(uploadDirOf("/Users/Baden/Appa")).toBe("/Users/Baden/Appa/.k2/downloads");
+    expect(uploadDirOf("/Users/Baden/Appa/")).toBe("/Users/Baden/Appa/.k2/downloads");
     expect(uploadDirOf("/Users/Baden/AI Projects/Skin Test B")).toBe(
-      "/Users/Baden/AI Projects/Skin Test B"
+      "/Users/Baden/AI Projects/Skin Test B/.k2/downloads"
     );
     expect(uploadDirOf(".")).toBeNull();
     expect(uploadDirOf("")).toBeNull();
@@ -64,10 +68,47 @@ describe("composerAttach", () => {
     expect(uploadDirOf("appa")).toBeNull();
   });
 
-  it("joins a caption with uploaded paths", () => {
-    expect(attachmentSendBody("see this", ["/ws/a.png", "/ws/b.pdf"])).toBe(
-      "see this\n/ws/a.png\n/ws/b.pdf"
+  it("keeps the picked name: no timestamp, no client-side de-dupe (the daemon writes `name (1).ext`)", () => {
+    // Desktop sends `file.name` as is; the daemon sanitises it and picks a
+    // collision-free `stem (n).ext`. Two picks of one name send one name.
+    const a = new File(["x"], "shot.png", { type: "image/png" });
+    const b = new File(["y"], "shot.png", { type: "image/png" });
+    expect(uploadFilename(a)).toBe("shot.png");
+    expect(uploadFilename(b)).toBe("shot.png");
+  });
+
+  it("formats paths like desktop's compose bar", () => {
+    expect(composeDropPayload(["/ws/.k2/downloads/a.png"])).toBe("/ws/.k2/downloads/a.png ");
+    // Images (and PDFs): single-quoted when not plain.
+    expect(composeDropPayload(["/ws/.k2/downloads/shot (1).png"])).toBe(
+      "'/ws/.k2/downloads/shot (1).png' "
     );
-    expect(attachmentSendBody("", ["/ws/a.png"])).toBe("/ws/a.png");
+    expect(composeDropPayload(["/ws/.k2/downloads/it's.pdf"])).toBe(
+      "'/ws/.k2/downloads/it'\\''s.pdf' "
+    );
+    // Other files: backslash-escaped.
+    expect(composeDropPayload(["/ws/.k2/downloads/my notes (1).txt"])).toBe(
+      "/ws/.k2/downloads/my\\ notes\\ \\(1\\).txt "
+    );
+    expect(composeDropPayload(["/a.png", "/b.txt"])).toBe("/a.png /b.txt ");
+    expect(composeDropPayload([])).toBe("");
+  });
+
+  it("inserts into a draft like desktop's insertIntoDraft", () => {
+    expect(insertIntoDraft("", "/a.png ", null)).toBe("/a.png ");
+    expect(insertIntoDraft("read", "/a.png ", null)).toBe("read /a.png ");
+    expect(insertIntoDraft("read ", "/a.png ", null)).toBe("read /a.png ");
+    expect(insertIntoDraft("ab", "/a.png ", 1)).toBe("a /a.png b");
+    expect(attachPathsToDraft("read this", ["/ws/.k2/downloads/note.txt"])).toBe(
+      "read this /ws/.k2/downloads/note.txt "
+    );
+  });
+
+  it("send body: caption then the downloads paths, trimmed like desktop's send", () => {
+    expect(
+      attachmentSendBody("see this", ["/ws/.k2/downloads/a.png", "/ws/.k2/downloads/b.pdf"])
+    ).toBe("see this /ws/.k2/downloads/a.png /ws/.k2/downloads/b.pdf");
+    expect(attachmentSendBody("", ["/ws/.k2/downloads/a.png"])).toBe("/ws/.k2/downloads/a.png");
+    expect(attachmentSendBody("  hi  ", [])).toBe("hi");
   });
 });

@@ -248,17 +248,17 @@ describe("optimistic send", () => {
     expect(postThread).not.toHaveBeenCalled();
     vi.mocked(uploadFsBinary).mockResolvedValueOnce({
       ok: true,
-      data: { path: "/Users/Baden/Appa/shot.png" },
+      data: { path: "/Users/Baden/Appa/.k2/downloads/shot.png" },
     });
     vi.mocked(postThread).mockResolvedValueOnce({ ok: true, data: { id: "n2", seq: 6 } });
     vi.mocked(getThread).mockResolvedValue({
       ok: true,
-      data: { items: [wireItem("n2", 6, "look\n/Users/Baden/Appa/shot.png")] },
+      data: { items: [wireItem("n2", 6, "look /Users/Baden/Appa/.k2/downloads/shot.png")] },
     });
     fireEvent.click(screen.getByTestId("outgoing-retry"));
     await waitFor(() => expect(useZenStore.getState().outbox).toEqual([]));
     expect(uploadFsBinary).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(postThread).mock.calls[0][2]).toBe("look\n/Users/Baden/Appa/shot.png");
+    expect(vi.mocked(postThread).mock.calls[0][2]).toBe("look /Users/Baden/Appa/.k2/downloads/shot.png");
     expect(bubbles()).toHaveLength(1);
   });
 

@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { asErrorText } from "../lib/apiError";
 import { writeClipboard } from "../lib/oscClipboard";
 import { createFsFolder, getFsReadDir, renameFsEntry, type ServerScope } from "../api/client";
-import { fetchProjectGroupShow } from "../api/projectGroups";
+import { loadGroupPoc } from "./groupPoc";
 import { StubMark } from "./StubMark";
 import { RESOURCES_EMPTY_LINE, RESOURCES_EMPTY_TITLE } from "./workspaceResources";
 import { useZenStore, sourceWord } from "./zenStore";
@@ -49,19 +49,11 @@ function useFilesRoot(scope: ServerScope): { root: string | null; note: string |
     if (!groupId || agentSource !== "live" || groupRoot) return;
     let live = true;
     setGroupNote(null);
-    (async () => {
-      try {
-        const r = await fetchProjectGroupShow(scope, groupId);
-        if (!live || zenScope().id !== scope.id) return;
-        const poc = r.ok ? r.data?.pocWorkspaceId : null;
-        const member = r.data?.members?.find((m) => m.workspaceId === poc);
-        const path = usableFsPath(member?.path ?? "");
-        if (path) useZenStore.getState().setGroupRoot(path);
-        else setGroupNote(r.ok ? "This project has no PoC folder yet." : r.error || "Could not read the project");
-      } catch (e) {
-        if (live) setGroupNote(e instanceof Error ? e.message : String(e));
-      }
-    })();
+    void loadGroupPoc(scope, groupId).then((poc) => {
+      if (!live || zenScope().id !== scope.id) return;
+      if (poc.path) useZenStore.getState().setGroupRoot(poc.path);
+      else setGroupNote(poc.note);
+    });
     return () => {
       live = false;
     };

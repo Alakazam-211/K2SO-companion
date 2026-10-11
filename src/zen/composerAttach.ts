@@ -1,11 +1,13 @@
 import { usableFsPath } from "./workspacePath";
 
-/** Skin door: POST /cli/fs/upload-binary. 50MB single-shot ceiling.
- *  Companion is an owner token: `dir` is this agent's own absolute
- *  workspace path (the agent row's `path`). Skin's `dir: "."` is
- *  room-relative because the gateway jails it. Here `"."` is the daemon cwd (`/` on
- *  this box) and writes EROFS (os error 30). Empty dir is refused as
- *  "Destination Directory is Empty". */
+/** POST /cli/fs/upload-binary. 50MB single-shot ceiling.
+ *  Companion is an owner token, so `dir` is absolute: the agent's
+ *  workspace `.k2/downloads/` (desktop's compose-bar and terminal-drop
+ *  destination). The daemon's `write_upload` creates that folder when it
+ *  is missing, sanitises the name to its basename and, on a clash, writes
+ *  `name (1).ext`, `name (2).ext`, … and returns the path it wrote.
+ *  `"."` would be the daemon cwd (`/` on this box: EROFS) and an empty dir
+ *  is refused, so a workspace with no usable path cannot attach. */
 export const MAX_UPLOAD_BYTES = 50_000_000;
 
 const MIME_EXT: Record<string, string> = {
@@ -61,11 +63,17 @@ export function workspaceHandleOf(
   return (addr || "").trim().split("/")[0] || "";
 }
 
-/** Absolute workspace directory this agent owns. Null for `.` / `` / `/`. */
+/** Where uploads land inside a workspace (desktop `handle-remote-drop`). */
+export const DOWNLOADS_SUBDIR = ".k2/downloads";
+
+/** Upload folder for a workspace: `<workspace>/.k2/downloads`. The
+ *  workspace is the agent's own absolute path (a project chat: its PoC
+ *  member's). Null for `.` / `` / `/` / relative paths. */
 export function uploadDirOf(
-  agentPath: string | null | undefined
+  workspacePath: string | null | undefined
 ): string | null {
-  return usableFsPath(agentPath ?? "");
+  const root = usableFsPath(workspacePath ?? "");
+  return root ? `${root}/${DOWNLOADS_SUBDIR}` : null;
 }
 
 export async function fileToBase64(file: File): Promise<string> {
@@ -107,7 +115,63 @@ export function uploadFilename(file: File): string {
   return "upload.bin";
 }
 
-/** Caption plus returned workspace paths, one path per line. */
+// ── Path text, as desktop's compose bar writes it ─────────────────────
+// Ports of K2 `external-drop-router.ts` `buildComposeDropPayload`,
+// `file-drag.ts` `isImagePath` / `quotePathForImageDrop` and
+// `TerminalComposeBar.tsx` `insertIntoDraft`.
+
+const IMAGE_EXTS = [
+  ".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".heic", ".heif", ".pdf",
+];
+
+function isImagePath(p: string): boolean {
+  const lower = p.toLowerCase();
+  return IMAGE_EXTS.some((ext) => lower.endsWith(ext));
+}
+
+/** Images: bare if safe, else single-quoted (Claude Code's image detector
+ *  strips quotes but not backslashes). */
+function quotePathForImage(p: string): string {
+  if (/[^a-zA-Z0-9_\-./]/.test(p)) return "'" + p.replace(/'/g, "'\\''") + "'";
+  return p;
+}
+
+function shellEscape(p: string): string {
+  return p.replace(/[ '"\\()&|;<>$`!#*?[\]{}~]/g, "\\$&");
+}
+
+/** Desktop compose payload: each path formatted, space-joined, trailing
+ *  space for continued typing. No bracketed paste (plain text field). */
+export function composeDropPayload(paths: string[]): string {
+  const list = paths.filter(Boolean);
+  if (!list.length) return "";
+  return list.map((p) => (isImagePath(p) ? quotePathForImage(p) : shellEscape(p))).join(" ") + " ";
+}
+
+/** Insert `chunk` at `caret` (null: append), adding a separating space
+ *  when needed. Desktop `insertIntoDraft`. */
+export function insertIntoDraft(draft: string, chunk: string, caret: number | null): string {
+  const piece = chunk.trimEnd() + (chunk.endsWith(" ") ? " " : chunk.length > 0 ? " " : "");
+  if (!piece.trim()) return draft;
+  if (caret === null || caret < 0 || caret > draft.length) {
+    if (!draft) return piece;
+    const needSpace = !/\s$/.test(draft) && !/^\s/.test(piece);
+    return draft + (needSpace ? " " : "") + piece;
+  }
+  const before = draft.slice(0, caret);
+  const after = draft.slice(caret);
+  const needBefore = before.length > 0 && !/\s$/.test(before) && !/^\s/.test(piece);
+  return before + (needBefore ? " " : "") + piece + after;
+}
+
+/** Uploaded paths put in a draft the way desktop's compose bar does
+ *  (the terminal page's `＋`: the user keeps typing, then sends). */
+export function attachPathsToDraft(draft: string, paths: string[]): string {
+  return insertIntoDraft(draft, composeDropPayload(paths), null);
+}
+
+/** The message a thread send posts: caption, then the uploaded paths,
+ *  trimmed like desktop's send (`draft.trim()`). */
 export function attachmentSendBody(caption: string, paths: string[]): string {
-  return [caption.trim(), ...paths.filter(Boolean)].filter(Boolean).join("\n");
+  return attachPathsToDraft(caption.trim(), paths).trim();
 }
