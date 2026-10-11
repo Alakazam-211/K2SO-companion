@@ -32,3 +32,19 @@ export function filterServers<T>(
     fieldsOf(s).some((f) => !!f && f.toLowerCase().includes(q))
   );
 }
+
+/** Split for the Servers sheet: the active server (pinned above the list,
+ *  never filtered) and every other server A–Z for the scrolling list. */
+export function splitPinnedServer<T extends { id: string }>(
+  servers: readonly T[],
+  activeId: string | null | undefined,
+  labelOf: (s: T) => string
+): { pinned: T | null; others: T[] } {
+  const pinned = servers.find((s) => s.id === activeId) ?? null;
+  const others = sortServersActiveFirst(
+    servers.filter((s) => s !== pinned),
+    null,
+    labelOf
+  );
+  return { pinned, others };
+}

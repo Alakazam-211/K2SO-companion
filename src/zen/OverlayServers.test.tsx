@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("../api/client", () => ({
   getToken: vi.fn(() => "t"),
@@ -36,7 +36,7 @@ vi.mock("../lib/revive", () => ({
 
 import { connectServer } from "../lib/revive";
 import { useServersStore } from "../stores/servers";
-import { OverlayServers } from "./OverlayServers";
+import { JUST_CONNECTED_MS, OverlayServers } from "./OverlayServers";
 import { useZenStore } from "./zenStore";
 
 const HOME = {
@@ -54,7 +54,22 @@ const OTHER = {
   rememberPassword: false,
 };
 
-afterEach(() => cleanup());
+afterEach(() => {
+  cleanup();
+  vi.useRealTimers();
+});
+
+const listRows = () =>
+  screen.getAllByTestId("overlay-server-row").map((el) => el.getAttribute("aria-label"));
+
+/** Let the mocked connect / hydrate promises settle under fake timers. */
+async function flush() {
+  for (let i = 0; i < 5; i++) {
+    await act(async () => {
+      await Promise.resolve();
+    });
+  }
+}
 
 beforeEach(() => {
   useServersStore.setState({
@@ -86,7 +101,7 @@ describe("OverlayServers", () => {
     await waitFor(() => expect(connectServer).toHaveBeenCalledWith("s2"));
     await waitFor(() => expect(hydrateAgents).toHaveBeenCalled());
     expect(useServersStore.getState().activeServerId).toBe("s2");
-    expect(onClose).toHaveBeenCalled();
+    await waitFor(() => expect(onClose).toHaveBeenCalled(), { timeout: JUST_CONNECTED_MS + 1500 });
   });
 
   it("signin-required opens the overlay add/edit form, not /login", async () => {
@@ -132,7 +147,7 @@ describe("OverlayServers", () => {
     expect(useServersStore.getState().activeServerId).toBe("s1");
   });
 
-  it("lists the active server first, then the rest alphabetically", () => {
+  it("pins the active server above the scroller; the list holds the others A-Z", () => {
     useServersStore.setState({
       servers: [
         { ...OTHER, id: "s3", nickname: "zulu" },
@@ -145,14 +160,62 @@ describe("OverlayServers", () => {
       recovery: { s1: "connected", s2: "connected", s3: "connected", s4: "connected", s5: "connected" },
     });
     render(<OverlayServers onClose={() => {}} />);
-    const names = screen
-      .getAllByTestId("overlay-server-row")
-      .map((el) => el.getAttribute("aria-label"));
-    expect(names).toEqual(["Other", "alpha", "bravo.k2.dev", "Home", "zulu"]);
-    expect(screen.getByText("active").closest("[data-testid=overlay-servers-list] > div")?.textContent).toMatch(/^Other/);
+    const pinned = screen.getByTestId("servers-pinned");
+    const list = screen.getByTestId("overlay-servers-list");
+    expect(list.contains(pinned)).toBe(false);
+    expect(within(pinned).getByRole("button", { name: "Other" })).not.toBeNull();
+    expect(within(pinned).getByText("Connected")).not.toBeNull();
+    expect(within(pinned).getByRole("button", { name: "Edit Other" })).not.toBeNull();
+    expect(listRows()).toEqual(["alpha", "bravo.k2.dev", "Home", "zulu"]);
   });
 
-  it("search filters by nickname, host, or username, case-insensitively", () => {
+  it("with no active server there is no pinned card", () => {
+    useServersStore.setState({ activeServerId: null });
+    render(<OverlayServers onClose={() => {}} />);
+    expect(screen.queryByTestId("servers-pinned")).toBeNull();
+    expect(listRows()).toEqual(["Home", "Other"]);
+  });
+
+  it("a successful switch pins the new server and highlights it until the animation ends", async () => {
+    vi.useFakeTimers();
+    vi.mocked(connectServer).mockResolvedValue("revived");
+    const hydrateAgents = vi.fn(async () => {});
+    useZenStore.setState({ hydrateAgents });
+    const onClose = vi.fn();
+    render(<OverlayServers onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    await flush();
+
+    const pinned = screen.getByTestId("servers-pinned");
+    expect(within(pinned).getByRole("button", { name: "Other" })).not.toBeNull();
+    const card = pinned.querySelector("[data-just-connected]");
+    expect(card?.getAttribute("data-just-connected")).toBe("true");
+    expect(within(pinned).getByTestId("servers-pinned-check")).not.toBeNull();
+    // The previous server is back in the list.
+    expect(listRows()).toEqual(["Home"]);
+    expect(onClose).not.toHaveBeenCalled();
+
+    await act(async () => {
+      vi.advanceTimersByTime(JUST_CONNECTED_MS);
+    });
+    await flush();
+    expect(pinned.querySelector("[data-just-connected]")).toBeNull();
+    expect(screen.queryByTestId("servers-pinned-check")).toBeNull();
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failed switch shows no highlight", async () => {
+    vi.mocked(connectServer).mockResolvedValue("unreachable");
+    render(<OverlayServers onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Other" }));
+    await waitFor(() => expect(connectServer).toHaveBeenCalledWith("s2"));
+    await flush();
+    expect(document.querySelector("[data-just-connected]")).toBeNull();
+    expect(within(screen.getByTestId("servers-pinned")).getByRole("button", { name: "Home" })).not.toBeNull();
+  });
+
+  it("search filters only the list (nickname, host, username); the pinned card stays", () => {
     useServersStore.setState({
       servers: [HOME, OTHER, { ...OTHER, id: "s3", nickname: "Lab", url: "https://lab.k2.dev", username: "jeremie" }],
       activeServerId: "s1",
@@ -160,24 +223,31 @@ describe("OverlayServers", () => {
     });
     render(<OverlayServers onClose={() => {}} />);
     const input = screen.getByPlaceholderText("Search servers");
-    const rows = () =>
-      screen.getAllByTestId("overlay-server-row").map((el) => el.getAttribute("aria-label"));
+    const pinnedHome = () =>
+      within(screen.getByTestId("servers-pinned")).getByRole("button", { name: "Home" });
 
     fireEvent.change(input, { target: { value: "oTH" } });
-    expect(rows()).toEqual(["Other"]);
+    expect(listRows()).toEqual(["Other"]);
+    expect(pinnedHome()).not.toBeNull();
 
     fireEvent.change(input, { target: { value: "LAB.K2" } });
-    expect(rows()).toEqual(["Lab"]);
+    expect(listRows()).toEqual(["Lab"]);
 
     fireEvent.change(input, { target: { value: "JEREMIE" } });
-    expect(rows()).toEqual(["Lab"]);
+    expect(listRows()).toEqual(["Lab"]);
+    expect(pinnedHome()).not.toBeNull();
 
-    // Active server stays first when it matches.
+    // The active server is never a list row, even when it matches.
     fireEvent.change(input, { target: { value: "baden" } });
-    expect(rows()).toEqual(["Home", "Other"]);
+    expect(listRows()).toEqual(["Other"]);
+
+    fireEvent.change(input, { target: { value: "home" } });
+    expect(screen.queryAllByTestId("overlay-server-row")).toHaveLength(0);
+    expect(screen.getByText("No servers match")).not.toBeNull();
+    expect(pinnedHome()).not.toBeNull();
 
     fireEvent.change(input, { target: { value: "" } });
-    expect(rows()).toEqual(["Home", "Lab", "Other"]);
+    expect(listRows()).toEqual(["Lab", "Other"]);
   });
 
   it("shows an empty state when no server matches", () => {
