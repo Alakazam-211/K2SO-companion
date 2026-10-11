@@ -308,9 +308,10 @@ export function Zen() {
               }}
             >
               <form
-                className="w-full px-4 pt-4"
+                className="w-full px-4 pt-4 k2-tile k2-tile-sheet"
                 style={{
-                  background: "#1c1c1e",
+                  borderTopLeftRadius: 14,
+                  borderTopRightRadius: 14,
                   paddingBottom: "calc(16px + env(safe-area-inset-bottom))",
                 }}
                 onClick={(e) => e.stopPropagation()}
@@ -343,8 +344,8 @@ export function Zen() {
                   data-testid="chat-rename-input"
                   value={renameValue}
                   onChange={(e) => setRenameValue(e.target.value)}
-                  className="w-full px-3 py-2 text-[16px] rounded-lg"
-                  style={{ background: "#2c2c2e", color: "#fff", border: "0" }}
+                  className="w-full px-3 py-2 text-[16px] rounded-lg k2-tile k2-tile-raised"
+                  style={{ color: "#fff" }}
                   autoFocus
                 />
                 {renameError ? (

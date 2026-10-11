@@ -45,12 +45,11 @@ export function OverlayCompose({ onClose }: { onClose: () => void }) {
       >
         <button
           type="button"
-          className="text-[17px]"
+          className="text-[17px] k2-tile"
           style={{
             minHeight: 34,
             padding: "0 14px",
             borderRadius: 17,
-            background: "#1c1c1e",
           }}
           onClick={onClose}
         >
@@ -107,9 +106,8 @@ export function OverlayCompose({ onClose }: { onClose: () => void }) {
           }}
         >
           <div
-            className="w-full"
+            className="w-full k2-tile k2-tile-sheet"
             style={{
-              background: "#1c1c1e",
               borderTopLeftRadius: 14,
               borderTopRightRadius: 14,
               padding: "18px 16px max(16px, env(safe-area-inset-bottom))",
@@ -139,11 +137,10 @@ export function OverlayCompose({ onClose }: { onClose: () => void }) {
             </button>
             <button
               type="button"
-              className="w-full font-semibold text-[17px]"
+              className="w-full font-semibold text-[17px] k2-tile k2-tile-raised"
               style={{
                 minHeight: 44,
                 borderRadius: 12,
-                background: "#2c2c2e",
                 color: "#fff",
                 marginBottom: 8,
                 opacity: busy ? 0.4 : 1,

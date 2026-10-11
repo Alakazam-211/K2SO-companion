@@ -169,6 +169,95 @@ html, body, #root {
   border-radius: 22px;
 }
 
+/* Glass tiles — desktop Zen's tile edge (K2 `zen-glass.ts`, Garden 1).
+   The glass is the EDGE, not see-through: a solid fill, a semi-clear
+   rim mixed from the border and text colours, a 1px light catch on the
+   top inner edge, and a soft drop. No blur — WebKit kept stale blurred
+   layers on desktop, and blur over a scrolling list costs frames on iOS.
+   Frosted `.zen-glass` stays on floating chrome only. Radius belongs to
+   each tile. */
+:root {
+  --tile: var(--card);
+  --tile-raised: #2c2c2e;
+  --tile-edge: color-mix(
+    in srgb,
+    var(--card-border) 55%,
+    color-mix(in srgb, var(--text) 14%, transparent)
+  );
+  --tile-sheen: inset 0 1px 0 color-mix(in srgb, white 22%, transparent);
+  --tile-shadow: 0 10px 30px color-mix(in srgb, black 8%, transparent);
+}
+.k2-tile {
+  background: var(--tile);
+  border: 1px solid var(--tile-edge);
+  box-shadow: var(--tile-sheen), var(--tile-shadow);
+}
+.k2-tile-raised {
+  background: var(--tile-raised);
+}
+/* A sheet rising from the bottom edge: no bottom rim. */
+.k2-tile-sheet {
+  border-bottom: 0;
+}
+
+/* Working pulse: a dot whose ring breathes out in its own colour
+   (set `color` to the dot's colour). */
+@keyframes k2-pulse {
+  0% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 55%, transparent);
+  }
+  70% {
+    box-shadow: 0 0 0 6px color-mix(in srgb, currentColor 0%, transparent);
+  }
+  100% {
+    box-shadow: 0 0 0 0 color-mix(in srgb, currentColor 0%, transparent);
+  }
+}
+.k2-pulse {
+  animation: k2-pulse 1.6s ease-out infinite;
+}
+
+/* "Thinking… 8s": a light sweep across the words. */
+@keyframes k2-shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: 0 0;
+  }
+}
+.k2-shimmer {
+  background: linear-gradient(
+      90deg,
+      var(--text-muted) 0%,
+      var(--text-muted) 40%,
+      var(--text) 50%,
+      var(--text-muted) 60%,
+      var(--text-muted) 100%
+    )
+    0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: k2-shimmer 1.8s linear infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .k2-pulse,
+  .k2-shimmer {
+    animation: none;
+  }
+  .k2-shimmer {
+    color: var(--text-muted);
+    background: none;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  .k2-tile {
+    border-color: var(--card-border);
+  }
+}
+
 /* Project / Feedback markdown — desktop globals.css `.markdown-content`
    + compact `.chat-markdown`, remapped onto Companion tokens. */
 .markdown-content {
