@@ -245,3 +245,46 @@ export function rowFailure(
       return null;
   }
 }
+
+// ─── A server's own dot + word (filter menu, Servers sheet: MS35, MS38) ───
+
+export interface ServerBadge {
+  color: string;
+  word: string;
+}
+
+const GREEN = "#22c55e";
+const AMBER = "#f59e0b";
+const RED = "#ef4444";
+const GREY = "#8e8e93";
+
+/** The pool's view of a whole server: the row fold with no workspace. */
+export function serverBadge(input: Omit<RowStatusInput, "workspaceId" | "roomActivity">): ServerBadge {
+  const s = resolveRowStatus({ ...input, workspaceId: null, roomActivity: null });
+  switch (s.kind) {
+    case "checking":
+      return { color: GREY, word: "Checking…" };
+    case "offline":
+      return { color: RED, word: "Offline" };
+    case "starting":
+      return { color: AMBER, word: "Restarting…" };
+    case "signing-in":
+      return { color: AMBER, word: "Signing in…" };
+    case "sign-in":
+      return {
+        color: RED,
+        word:
+          input.entry?.auth === "kicked"
+            ? "Removed"
+            : input.entry?.auth === "rotate-required"
+              ? "Change password"
+              : "Sign in",
+      };
+    case "too-old":
+      return { color: GREY, word: "Needs an update" };
+    case "no-access":
+      return { color: GREY, word: "No access" };
+    default:
+      return { color: GREEN, word: "Live" };
+  }
+}

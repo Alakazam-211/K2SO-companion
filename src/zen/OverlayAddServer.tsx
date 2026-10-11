@@ -9,10 +9,18 @@ export function OverlayAddServer({
   editingId,
   onCancel,
   onSaved,
+  activate = true,
+  onSignedIn,
 }: {
   editingId?: string | null;
   onCancel?: () => void;
   onSaved?: () => void;
+  /** Make it the active server and reload the list (default). False: a
+   *  row's "Sign in" in the multi-server list signs in to THAT server
+   *  without switching (MS34, MA3). */
+  activate?: boolean;
+  /** After a successful sign-in, with the saved server's id. */
+  onSignedIn?: (id: string) => void;
 } = {}) {
   const editing = useServersStore((s) =>
     editingId ? s.servers.find((x) => x.id === editingId) : undefined
@@ -39,13 +47,15 @@ export function OverlayAddServer({
       username,
       password,
       rememberPassword: false,
+      activate,
     });
     setBusy(false);
     if (!result.ok) {
       setError(result.error);
       return;
     }
-    await useZenStore.getState().hydrateAgents();
+    onSignedIn?.(result.id);
+    if (activate) await useZenStore.getState().hydrateAgents();
     onSaved?.();
   };
 

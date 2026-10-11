@@ -38,6 +38,8 @@ import { connectServer } from "../lib/revive";
 import { useServersStore } from "../stores/servers";
 import { JUST_CONNECTED_MS, OverlayServers, SERVERS_HEADER_PX } from "./OverlayServers";
 import { useZenStore } from "./zenStore";
+import { useMultiServerPrefs } from "./multi/prefs";
+import { blankEntry, pool } from "./multi/pool";
 
 const HOME = {
   id: "s1",
@@ -82,6 +84,29 @@ beforeEach(() => {
 });
 
 describe("OverlayServers", () => {
+  it("MS38: with multi-server on, other servers show their pool state; the pinned card says Default", () => {
+    useMultiServerPrefs.setState({ multiServer: true });
+    pool.store.setState({
+      entries: { s2: { ...blankEntry("s2", "other.k2.dev"), reach: "offline", offlineStreak: 1 } },
+    });
+    try {
+      render(<OverlayServers onClose={() => {}} />);
+      expect(screen.getByTestId("servers-pinned-label").textContent).toBe(
+        "Default server (Tickets, classic view)"
+      );
+      expect(screen.getByTestId("overlay-server-state").textContent).toBe("Offline");
+    } finally {
+      useMultiServerPrefs.setState({ multiServer: false });
+      pool.forget("s2");
+    }
+  });
+
+  it("flag off: the old recovery words, no Default label", () => {
+    render(<OverlayServers onClose={() => {}} />);
+    expect(screen.queryByTestId("servers-pinned-label")).toBeNull();
+    expect(screen.getByTestId("overlay-server-state").textContent).toBe("connected");
+  });
+
   it("lists stored servers inside the overlay", () => {
     render(<OverlayServers onClose={() => {}} />);
     expect(screen.getByTestId("overlay-servers")).not.toBeNull();

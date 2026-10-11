@@ -41,6 +41,22 @@ import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { ZenSettings } from "./ZenSettings";
 import { useZenStore } from "./zenStore";
 import { zenTextPx } from "./zenFont";
+import { FOCUS_OFF } from "./serverPins";
+import { snapshotCapable, useMultiServerList, type ActiveSlice } from "./multi/useMultiServerList";
+import { homeActivityWord, rowActivityOf } from "./multi/rowStatus";
+import { loadServerRows, selectRemoteFocusGroup } from "./multi/remoteRows";
+import { ensureRemoteIcon, remoteIconFor, useRemoteIcons } from "./multi/remoteIcons";
+import { retryServerNow } from "./multi/poolLoop";
+import {
+  LoadingLines,
+  RemoteAgentRow,
+  ServerChip,
+  ServerFilterMenu,
+  ServerPlaceholderRow,
+} from "./multi/MergedRows";
+import type { MergedRow } from "./multi/merge";
+import type { RowActivity } from "./agentActivity";
+import type { StubAgent } from "./stubData";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -176,6 +192,19 @@ function PinGlyph({ off }: { off: boolean }) {
   );
 }
 
+/** One list or pin-grid entry: an active-server row (ChatsList's own row,
+ *  with swipe and pin drag) or, with multi-server on, another server's. */
+type ListItem =
+  | { active: true; key: string; agent: StubAgent; chip: string | null }
+  | { active: false; key: string; row: MergedRow };
+
+const RECOVERY_WORD: Record<RecoveryState, string> = {
+  connected: "Live",
+  reconnecting: "Reconnecting…",
+  reauthenticating: "Re-authenticating…",
+  "signin-required": "Sign in",
+};
+
 export function ChatsList() {
   const containerHeight = useViewportHeight();
   const agents = useZenStore((s) => s.agents);
@@ -288,8 +317,6 @@ export function ChatsList() {
   // Groups turned off (or the row went away): no picker.
   const pickAgent = groupPick && groupsOn ? agents.find((a) => a.id === groupPick) ?? null : null;
   const [groupMenu, setGroupMenu] = useState(false);
-  const group = currentFocusGroup(focus);
-  const title = listTitle(focus);
   const pinned = pinnedIds
     .map((id) => agents.find((a) => a.id === id))
     .filter((a): a is (typeof agents)[number] => !!a);
@@ -347,6 +374,54 @@ export function ChatsList() {
     ? activeServer.nickname || hostLabel(activeServer.url)
     : "Servers";
 
+  // Multi-server S2 (flag `zen.multiServer`, default off): rows from every
+  // saved server. Off, `multi.on` is false and nothing below changes.
+  const activeSlice = useMemo<ActiveSlice>(
+    () => ({
+      source,
+      agents,
+      serverProjects,
+      pinnedIds,
+      focus,
+      hiddenAddrs: hiddenSidecarAddrs,
+    }),
+    [source, agents, serverProjects, pinnedIds, focus, hiddenSidecarAddrs]
+  );
+  const multi = useMultiServerList({ q, listOnScreen: zenScreen === "list", active: activeSlice });
+  const [filterMenu, setFilterMenu] = useState(false);
+  const remoteIcons = useRemoteIcons((s) => s.icons);
+  // The header's focus: one server's groups; "All servers" over several
+  // servers mixes groups, so the title reads "All servers" (Q5).
+  const headerFocus = multi.remoteFilterId
+    ? multi.byServer[multi.remoteFilterId]?.focus ?? FOCUS_OFF
+    : multi.mixing
+      ? FOCUS_OFF
+      : focus;
+  const group = currentFocusGroup(headerFocus);
+  const title = multi.mixing ? "All servers" : listTitle(headerFocus);
+  // MS35: with the flag on, the nickname pill is the server filter.
+  const pillLabel =
+    multi.filter === "all"
+      ? "All servers"
+      : multi.filter === activeServerId
+        ? serverLabel
+        : multi.labelFor(multi.filter);
+  const pillDot =
+    multi.filter === "all"
+      ? "#8e8e93"
+      : multi.filter === activeServerId
+        ? RECOVERY_DOT[recoveryState]
+        : multi.badgeFor(multi.filter).color;
+  const pickFocusGroup = (gid: string) => {
+    if (multi.remoteFilterId) selectRemoteFocusGroup(multi.remoteFilterId, gid);
+    else selectFocusGroup(gid);
+  };
+
+  const toListItem = (r: MergedRow): ListItem =>
+    r.active
+      ? { active: true, key: r.key, agent: r.agent, chip: multi.chips ? r.serverLabel : null }
+      : { active: false, key: r.key, row: r };
+
   const searching = q.trim().length > 0;
   // Search ignores the focus group so any agent can still be found.
   const visible = visibleOverlayAgents(agents, q, hiddenSidecarAddrs);
@@ -357,9 +432,23 @@ export function ChatsList() {
   );
   // Each agent shows once: in the pin grid, or in the list. Search hides
   // the grid, so there every hit (pinned too) is a row.
-  const showPins = !searching && pinned.length > 0;
-  const pinnedInGrid = new Set(showPins ? pinned.map((a) => a.id) : []);
+  // Multi-server (flag on): pins and rows from every server in the
+  // filter, keyed `<serverId>|<localId>`. Off: the active server's, keyed
+  // by row id, exactly as before.
+  const pinItems: ListItem[] = multi.on
+    ? searching
+      ? []
+      : multi.merged.pinned.map(toListItem)
+    : pinned.map((a) => ({ active: true, key: a.id, agent: a, chip: null }));
+  const showPins = !searching && pinItems.length > 0;
+  const pinnedInGrid = new Set(showPins ? pinItems.map((p) => p.key) : []);
   const rows = showPins ? filtered.filter((a) => !pinnedInGrid.has(a.id)) : filtered;
+  const listItems: ListItem[] = multi.on
+    ? sortChatsByRecency(multi.merged.rows, lastAtByKey, (r) => lastAtKeyFor(r.serverId, r.agent))
+        .filter((r) => !pinnedInGrid.has(r.key))
+        .map(toListItem)
+    : rows.map((a) => ({ active: true, key: a.id, agent: a, chip: null }));
+  const placeholders = multi.on ? multi.placeholders : [];
   const menuAgent = pinMenu ? pinned.find((a) => a.id === pinMenu.id) ?? null : null;
   const serverListsAt = useRef(Date.now());
 
@@ -459,7 +548,7 @@ export function ChatsList() {
   }, [agents, source, ensureLastAt, zen]);
 
   useEffect(() => {
-    if (source !== "live") return;
+    if (source !== "live" && !multi.on) return;
     const root = listRef.current;
     if (!root || typeof IntersectionObserver === "undefined") return;
     const io = new IntersectionObserver(
@@ -474,7 +563,136 @@ export function ChatsList() {
     );
     root.querySelectorAll("[data-last-at-key]").forEach((el) => io.observe(el));
     return () => io.disconnect();
-  }, [rows, source, ensureLastAt]);
+  }, [rows, listItems.length, multi.on, source, ensureLastAt]);
+
+  // MA24: pictures for rows from other servers with no `iconUrl`, asked
+  // of their own server while it is live and signed in.
+  useEffect(() => {
+    if (!multi.on) return;
+    for (const r of [...multi.merged.rows, ...multi.merged.pinned]) {
+      if (r.active || r.agent.iconUrl || r.agent.kind === "group") continue;
+      const e = multi.entries[r.serverId];
+      if (!e || e.reach !== "live" || e.auth !== "ok") continue;
+      void ensureRemoteIcon(r.serverId, r.workspaceId, r.agent.path);
+    }
+  }, [multi.on, multi.merged, multi.entries]);
+
+  /** A non-active row's status, failure and activity. Its server's 5 s
+   *  snapshot (Q7) gives counts; otherwise the summary's dot and word. */
+  const remoteView = (r: MergedRow) => {
+    const hasSnap = multi.snapshotIds.includes(r.serverId) && snapshotCapable(r.serverId);
+    const snap = multi.byServer[r.serverId];
+    const snapBusy =
+      hasSnap && snap
+        ? activityForRow(r.agent, snap.activity, isOverlayExtraAddr(r.agent.addr), snap.chatSessions)
+        : null;
+    const status = multi.statusFor(
+      r.serverId,
+      r.workspaceId,
+      hasSnap ? (snapBusy ? homeActivityWord(snapBusy.display) : "idle") : null
+    );
+    const failure = multi.failureFor(r.serverId, status);
+    const busy: RowActivity | null = failure ? null : hasSnap ? snapBusy : rowActivityOf(status);
+    return { failure, busy };
+  };
+  const openRemote = (r: MergedRow) => void multi.openOnServer(r.serverId, r.agent.id);
+  const iconOf = (r: MergedRow) =>
+    r.agent.iconUrl || remoteIconFor(remoteIcons, r.serverId, r.workspaceId);
+
+  const renderRemoteRow = (r: MergedRow) => {
+    const { failure, busy } = remoteView(r);
+    const lastKey = failure ? undefined : lastAtKeyFor(r.serverId, r.agent) ?? undefined;
+    const when =
+      lastKey && lastAtByKey[lastKey] != null ? mountainListWhen(lastAtByKey[lastKey] as number) : "";
+    return (
+      <RemoteAgentRow
+        key={r.key}
+        row={r}
+        chip={multi.chips}
+        failure={failure}
+        busy={busy}
+        when={when}
+        lastKey={lastKey}
+        iconUrl={iconOf(r)}
+        inset={ZEN_LIST_CONTENT_INSET}
+        nextAt={multi.entries[r.serverId]?.nextAt ?? null}
+        onOpen={() => openRemote(r)}
+        onAction={() => {
+          if (failure?.action) multi.act(r.serverId, failure.action);
+        }}
+      />
+    );
+  };
+
+  /** A pin from another server: not draggable in S2 (pin writes on a
+   *  non-active server come with rooms, S3); a tap opens it the S2 way,
+   *  or runs its server's one fix. */
+  const renderRemotePin = (r: MergedRow) => {
+    const { failure, busy } = remoteView(r);
+    const color = busy ? activityColor(busy) : "";
+    return (
+      <button
+        key={r.key}
+        type="button"
+        className="text-center bg-transparent border-0 p-0"
+        style={{ color: "#fff", opacity: failure ? 0.6 : 1 }}
+        data-no-pin="1"
+        data-testid="remote-pin"
+        data-server-id={r.serverId}
+        aria-label={
+          `Pinned ${r.agent.name}, ${r.serverLabel}` +
+          (failure ? `, ${failure.copy}` : busy ? `, ${activityRowText(busy)}` : "")
+        }
+        onClick={() => {
+          if (failure) {
+            if (failure.action) multi.act(r.serverId, failure.action);
+          } else openRemote(r);
+        }}
+      >
+        <div className="mb-2 flex justify-center" data-testid="pin-avatar">
+          <span className="relative inline-flex">
+            <WorkspaceAvatar
+              initial={r.agent.initial}
+              color={r.agent.color}
+              iconUrl={iconOf(r)}
+              size={ZEN_PIN_AVATAR_PX}
+              fontSize={26}
+              fallback="#2c2c2e"
+            />
+            {busy ? (
+              <span
+                aria-hidden
+                data-testid="pin-activity-dot"
+                className={`absolute rounded-full ${busy.display === "working" ? "k2-pulse" : ""}`}
+                style={{
+                  right: 1,
+                  bottom: 1,
+                  width: 20,
+                  height: 20,
+                  background: color,
+                  color,
+                  border: "2.5px solid var(--root)",
+                  ["--k2-pulse-edge" as string]: "2.5px",
+                }}
+              />
+            ) : null}
+          </span>
+        </div>
+        <div className="text-[12px] truncate mx-auto" style={{ color: "#d1d1d6", maxWidth: 110 }}>
+          {r.agent.name}
+        </div>
+        {multi.chips ? (
+          <div
+            className="text-[11px] truncate mx-auto"
+            style={{ color: "#8e8e93", maxWidth: 110, lineHeight: 1.3 }}
+            data-testid="pin-server"
+          >
+            {failure ? failure.copy : r.serverLabel}
+          </div>
+        ) : null}
+      </button>
+    );
+  };
 
   if (servers.length === 0) return <OverlayAddServer />;
 
@@ -570,9 +788,11 @@ export function ChatsList() {
             color: "#fff",
             pointerEvents: "auto",
           }}
-          onClick={() => setServersSheet(true)}
-          aria-label={`Server ${serverLabel}`}
-          title={serverLabel}
+          onClick={() => (multi.on ? setFilterMenu(true) : setServersSheet(true))}
+          aria-label={multi.on ? `Server filter: ${pillLabel}` : `Server ${serverLabel}`}
+          aria-haspopup={multi.on ? "menu" : undefined}
+          aria-expanded={multi.on ? filterMenu : undefined}
+          title={multi.on ? pillLabel : serverLabel}
           data-testid="chats-header-server"
         >
           <span
@@ -583,7 +803,7 @@ export function ChatsList() {
               width: 8,
               height: 8,
               borderRadius: "50%",
-              background: activeServer ? RECOVERY_DOT[recoveryState] : "#8e8e93",
+              background: multi.on ? pillDot : activeServer ? RECOVERY_DOT[recoveryState] : "#8e8e93",
             }}
           />
           {/* Nickname, never the icon. 124px cap: at 375pt each 1fr column is ~145px. */}
@@ -592,7 +812,7 @@ export function ChatsList() {
             data-testid="server-name"
             style={{ letterSpacing: "-0.2px" }}
           >
-            {serverLabel}
+            {multi.on ? (multi.filter === "all" ? "All" : pillLabel) : serverLabel}
           </span>
         </button>
         {/* Groups on: the current focus group's name, a tap opens this
@@ -739,6 +959,33 @@ export function ChatsList() {
       </div>
       </header>
 
+      {multi.on && filterMenu ? (
+        <ServerFilterMenu
+          filter={multi.filter}
+          options={servers.map((sv) => {
+            const isActive = sv.id === activeServerId;
+            const badge = multi.badgeFor(sv.id);
+            const state = recovery[sv.id] ?? "signin-required";
+            return {
+              id: sv.id,
+              label: sv.nickname || hostLabel(sv.url),
+              // The active server keeps today's recovery dot.
+              dot: isActive ? RECOVERY_DOT[state] : badge.color,
+              word: isActive ? `Default · ${RECOVERY_WORD[state]}` : badge.word,
+            };
+          })}
+          onPick={(f) => {
+            multi.setFilter(f);
+            setFilterMenu(false);
+          }}
+          onManage={() => {
+            setFilterMenu(false);
+            setServersSheet(true);
+          }}
+          onClose={() => setFilterMenu(false)}
+        />
+      ) : null}
+
       {group && groupMenu ? (
         <>
           <button
@@ -769,8 +1016,8 @@ export function ChatsList() {
               color: "#fff",
             }}
           >
-            {focus.groups.map((g) => {
-              const on = g.id === focus.currentId;
+            {headerFocus.groups.map((g) => {
+              const on = g.id === headerFocus.currentId;
               return (
                 <button
                   key={g.id}
@@ -780,7 +1027,7 @@ export function ChatsList() {
                   className="w-full flex items-center text-left bg-transparent border-0"
                   style={{ gap: 10, padding: "10px 12px", minHeight: 44, borderRadius: 10, color: "#fff" }}
                   onClick={() => {
-                    selectFocusGroup(g.id);
+                    pickFocusGroup(g.id);
                     setGroupMenu(false);
                   }}
                   data-testid={`focus-option-${g.id}`}
@@ -816,7 +1063,7 @@ export function ChatsList() {
           anchor at the header's bottom edge, so the strip floats over the
           list (and above the header blur) without shifting the row under
           the finger. */}
-      {!searching && pinned.length === 0 && hot ? (
+      {!searching && pinItems.length === 0 && hot ? (
         <div
           className="absolute left-0 right-0"
           style={{
@@ -876,8 +1123,8 @@ export function ChatsList() {
           // Near the screen edges (3 columns use the width), with 10px of
           // air under the floating header. One or two pins sit centred in
           // the same cells; four+ wrap with the last row left-justified.
-          gridTemplateColumns: zenPinGridColumns(pinned.length),
-          justifyContent: pinned.length < 3 ? "center" : undefined,
+          gridTemplateColumns: zenPinGridColumns(pinItems.length),
+          justifyContent: pinItems.length < 3 ? "center" : undefined,
           padding: `4px ${ZEN_LIST_EDGE_PAD}px ${ZEN_PIN_GRID_BOTTOM_PX}px`,
           gap: `${ZEN_PIN_ROW_GAP}px ${ZEN_PIN_COL_GAP}px`,
           minHeight: 96,
@@ -888,14 +1135,16 @@ export function ChatsList() {
         }}
         data-testid="chats-pins"
       >
-        {pinned.map((a) => {
+        {pinItems.map((item) => {
+          if (!item.active) return renderRemotePin(item.row);
+          const a = item.agent;
           // Pins are main chats: their workspace activity.
           const pinBusy =
             source === "live" ? activityForRow(a, activity, false, chatSessions) : null;
           const pinColor = pinBusy ? activityColor(pinBusy) : "";
           return (
             <button
-              key={a.id}
+              key={item.key}
               type="button"
               className="text-center bg-transparent border-0 p-0"
               style={{
@@ -983,7 +1232,8 @@ export function ChatsList() {
             {agentError}
           </p>
         ) : null}
-        {source !== "loading" && rows.length === 0 && !showPins ? (
+        {multi.on ? <LoadingLines loads={multi.loads} inset={ZEN_LIST_CONTENT_INSET} /> : null}
+        {source !== "loading" && listItems.length === 0 && !showPins && placeholders.length === 0 ? (
           <p
             className="py-6 text-[14px]"
             style={{ ...LIST_LINE_SIDES, color: "#8e8e93" }}
@@ -992,7 +1242,9 @@ export function ChatsList() {
             {agentError || "No agents on this list."}
           </p>
         ) : null}
-        {rows.map((a) => {
+        {listItems.map((item) => {
+          if (!item.active) return renderRemoteRow(item.row);
+          const a = item.agent;
           const lastKey = source === "live" ? lastAtKeyFor(zen.id, a) ?? undefined : undefined;
           const when =
             lastKey && lastAtByKey[lastKey] != null
@@ -1016,7 +1268,7 @@ export function ChatsList() {
             !!newRowPath && !!a.path && posixNormalize(a.path) === newRowPath;
           return (
           <div
-            key={a.id}
+            key={item.key}
             // Full width, so the tap / swipe target is the whole line; the
             // row's content is inset to the pinned avatars' width below.
             className="relative overflow-hidden"
@@ -1163,13 +1415,26 @@ export function ChatsList() {
             </span>
             <span className="flex-1 min-w-0">
               <span className="flex justify-between items-baseline gap-2">
-                <span
-                  className="min-w-0 truncate font-semibold"
-                  style={{ fontSize: zenTextPx(16), letterSpacing: "-0.2px" }}
-                  data-testid="row-name"
-                >
-                  {a.name}
-                </span>
+                {item.chip ? (
+                  <span className="flex items-baseline min-w-0" style={{ gap: 6 }}>
+                    <span
+                      className="min-w-0 truncate font-semibold"
+                      style={{ fontSize: zenTextPx(16), letterSpacing: "-0.2px" }}
+                      data-testid="row-name"
+                    >
+                      {a.name}
+                    </span>
+                    <ServerChip label={item.chip} />
+                  </span>
+                ) : (
+                  <span
+                    className="min-w-0 truncate font-semibold"
+                    style={{ fontSize: zenTextPx(16), letterSpacing: "-0.2px" }}
+                    data-testid="row-name"
+                  >
+                    {a.name}
+                  </span>
+                )}
                 {source === "stub" ? (
                   <StubMark />
                 ) : (
@@ -1206,6 +1471,20 @@ export function ChatsList() {
           </div>
           );
         })}
+        {placeholders.map((p) => (
+          <ServerPlaceholderRow
+            key={`server:${p.serverId}`}
+            serverId={p.serverId}
+            label={p.label}
+            failure={p.failure}
+            note={p.note}
+            nextAt={p.nextAt}
+            inset={ZEN_LIST_CONTENT_INSET}
+            onAction={() => {
+              if (p.failure?.action) multi.act(p.serverId, p.failure.action);
+            }}
+          />
+        ))}
       </div>
 
       {pinMenu && menuAgent ? (
@@ -1380,6 +1659,28 @@ export function ChatsList() {
         />
       ) : null}
       {serversSheet ? <OverlayServers onClose={() => setServersSheet(false)} /> : null}
+      {multi.on && multi.signInFor ? (
+        // MS34 / MA3: sign in to THAT server without switching the active
+        // one (the active server's own sign-in keeps today's flow).
+        <div
+          className="absolute inset-0 flex flex-col"
+          style={{ background: "#000", zIndex: 6, paddingTop: "env(safe-area-inset-top)" }}
+          data-testid="row-sign-in"
+        >
+          <OverlayAddServer
+            key={multi.signInFor}
+            editingId={multi.signInFor}
+            activate={multi.signInFor === activeServerId}
+            onCancel={() => multi.setSignInFor(null)}
+            onSaved={() => multi.setSignInFor(null)}
+            onSignedIn={(id) => {
+              if (id === activeServerId) return;
+              retryServerNow(id);
+              void loadServerRows(id);
+            }}
+          />
+        </div>
+      ) : null}
 
       {settings ? <ZenSettings onClose={() => setSettings(false)} /> : null}
       </div>
