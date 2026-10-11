@@ -21,12 +21,14 @@ import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { useFeedbackStore } from "../stores/feedback";
 import { BriefCard, BriefReader, useBriefDoc } from "./TicketBrief";
 import { composerHeight, COMPOSER_MAX_PX } from "./ThreadPane";
+import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 import { zenTextPx } from "./zenFont";
 
 // Zen open ticket — Layout A (Rosson, 2026-10-11). Full-screen inside the
 // Chats column, below the notch, the ThreadPane look:
 //
-//   header   glass ‹ Tickets pill + ⋯ (Reassign); title (2 lines); meta:
+//   header   floats over the scroll with the chat header's progressive
+//            blur (c39c0ac); glass ‹ Tickets pill + ⋯ (Reassign); title (2 lines); meta:
 //            status chip (a menu) · P# · agent → assignees · age
 //   scroll   brief card (TicketBrief) → answer card (quick-answer pills)
 //            → comments as iMessage bubbles
@@ -41,6 +43,11 @@ import { zenTextPx } from "./zenFont";
 // refetch here is a plain `show`.
 
 const PILL_H = 34;
+/** Resting floating-header height below the safe area: pills, a two-line
+ *  title and the meta line. Measured for real once mounted. */
+export const TICKET_HEADER_PX = 140;
+/** Air between the header's bottom edge and the first card. */
+const TICKET_TOP_GAP = 4;
 
 function ago(atSec: number): string {
   const a = relativeAge(atSec);
@@ -403,6 +410,7 @@ export function TicketView({
   const [receipt, setReceipt] = useState<{ from: "pick" | "text"; line: string } | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const [headerRef, headerPx] = useMeasuredHeight(TICKET_HEADER_PX);
 
   const brief = entry?.state === "ready" ? entry.brief : null;
   const doc = useBriefDoc(brief);
@@ -512,23 +520,40 @@ export function TicketView({
       style={{
         background: "#000",
         zIndex: 8,
-        paddingTop: "env(safe-area-inset-top)",
         fontFamily: "var(--zen-font)",
       }}
       data-testid="ticket-view"
     >
-      <header className="shrink-0 relative" style={{ padding: "12px 12px 10px" }}>
+      {/* Floats over the conversation from y=0. The blur and the header box
+          pass touches through; only the pills, the status chip and their
+          menus take them. Under the brief reader (12) and sheets (14). */}
+      <header
+        className="absolute top-0 left-0 right-0 w-full min-w-0"
+        data-testid="ticket-header"
+        style={{
+          zIndex: 10,
+          paddingTop: "env(safe-area-inset-top)",
+          pointerEvents: "none",
+        }}
+      >
+      <ZenHeaderBlur testId="ticket-header-blur" />
+      <div
+        ref={headerRef}
+        className="relative w-full min-w-0"
+        style={{ padding: "12px 12px 10px" }}
+        data-testid="ticket-header-content"
+      >
         <div className="flex items-center justify-between relative">
           <button
             type="button"
             data-testid="ticket-back"
             className="text-[17px] zen-glass zen-glass-pill"
-            style={{ minHeight: PILL_H, padding: "0 14px 0 10px", color: "#fff" }}
+            style={{ minHeight: PILL_H, padding: "0 14px 0 10px", color: "#fff", pointerEvents: "auto" }}
             onClick={onBack}
           >
             ‹ Tickets
           </button>
-          <div className="relative">
+          <div className="relative" style={{ pointerEvents: "auto" }} data-testid="ticket-more-wrap">
             <button
               type="button"
               data-testid="ticket-more"
@@ -568,17 +593,17 @@ export function TicketView({
           </div>
         </div>
         <h1
-          className="mt-3 text-[20px] font-semibold leading-tight line-clamp-2 break-words [overflow-wrap:anywhere]"
+          className="mt-3 text-[20px] font-semibold leading-tight line-clamp-2 break-words [overflow-wrap:anywhere] zen-header-text"
           data-testid="ticket-title"
         >
           {item?.title ?? "Ticket"}
         </h1>
         {item ? (
           <div
-            className="mt-1.5 flex items-center flex-wrap gap-x-2 gap-y-1 text-[13px] min-w-0"
+            className="mt-1.5 flex items-center flex-wrap gap-x-2 gap-y-1 text-[13px] min-w-0 zen-header-text"
             style={{ color: "#8e8e93" }}
           >
-            <span className="relative">
+            <span className="relative" style={{ pointerEvents: "auto" }} data-testid="ticket-status-wrap">
               <button
                 type="button"
                 data-testid="ticket-status"
@@ -619,13 +644,19 @@ export function TicketView({
             <span>{ago(item.createdAt)}</span>
           </div>
         ) : null}
+      </div>
       </header>
 
       <div
         ref={scrollerRef}
         className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 pb-3 flex flex-col gap-3"
         data-testid="ticket-scroller"
-        style={{ WebkitOverflowScrolling: "touch" }}
+        style={{
+          // Starts under the floating header; the conversation scrolls up
+          // behind it.
+          paddingTop: underHeaderPadding(headerPx, TICKET_TOP_GAP),
+          WebkitOverflowScrolling: "touch",
+        }}
       >
         {openError && !item ? (
           <div className="flex flex-col items-center gap-3 py-10">

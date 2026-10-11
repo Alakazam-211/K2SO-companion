@@ -4,6 +4,7 @@ import { hostLabel, useServersStore, type RecoveryState, type ServerEntry } from
 import { GlassSearchBar } from "./GlassSearchBar";
 import { OverlayAddServer } from "./OverlayAddServer";
 import { filterServers, splitPinnedServer } from "./serverList";
+import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 import { useZenStore } from "./zenStore";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
@@ -29,6 +30,10 @@ export const JUST_CONNECTED_MS = 1000;
 const FLIP_MS = 420;
 /** Spring-ish: slight overshoot, then settle. */
 const FLIP_EASE = "cubic-bezier(0.2, 0.9, 0.25, 1.12)";
+/** Resting floating-header height below the safe area: the 64px title
+ *  row, plus the pinned card (~76px) when there is an active server. */
+export const SERVERS_HEADER_PX = 64;
+const SERVERS_PINNED_PX = 76;
 
 function prefersReducedMotion(): boolean {
   try {
@@ -62,8 +67,10 @@ function CheckMark() {
 
 /** In-overlay server list. Tap switches the active server. Sign-in
  *  required opens OverlayAddServer. Never navigates to `/servers`.
- *  The active server is pinned in its own card under the header (outside
- *  the scroller, never filtered); the list below holds the others A–Z.
+ *  The active server is pinned in its own card under the title, inside
+ *  the floating header (outside the scroller, never filtered); the list
+ *  holds the others A–Z and scrolls up under both, behind the Agents /
+ *  chat header's progressive blur.
  *  A successful switch FLIPs the tapped row into the pinned slot, rings it
  *  green with a checkmark, then closes. The bottom glass bar (shared with
  *  Chats) searches and `+` adds. Rendered inside the Chats column, which
@@ -84,6 +91,9 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
   const flipFrom = useRef<{ id: string; rect: DOMRect | null } | null>(null);
   const busy = useRef(false);
   const mounted = useRef(true);
+  const [headerRef, headerPx] = useMeasuredHeight(
+    SERVERS_HEADER_PX + (activeServerId ? SERVERS_PINNED_PX : 0)
+  );
   useEffect(() => {
     mounted.current = true;
     return () => {
@@ -208,11 +218,26 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
   return (
     <div
       className="absolute inset-0 flex flex-col"
-      style={{ background: "#000", zIndex: 6, paddingTop: "env(safe-area-inset-top)" }}
+      style={{ background: "#000", zIndex: 6 }}
       data-testid="overlay-servers"
     >
+      {/* Floats over the list from y=0 with the chat / Agents header's
+          progressive blur. The pinned card rides inside it, so the list
+          scrolls up under the title and the card; the FLIP lands the card
+          above the list. Only the controls take touches. */}
+      <header
+        className="absolute top-0 left-0 right-0 w-full min-w-0"
+        data-testid="servers-header"
+        style={{
+          zIndex: 3,
+          paddingTop: "env(safe-area-inset-top)",
+          pointerEvents: "none",
+        }}
+      >
+      <ZenHeaderBlur testId="servers-header-blur" />
+      <div ref={headerRef} className="relative w-full min-w-0" data-testid="servers-header-content">
       <div
-        className="flex items-center justify-between relative shrink-0"
+        className="flex items-center justify-between relative"
         style={{
           minHeight: 44,
           padding: "12px 16px 8px",
@@ -225,19 +250,20 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
             minHeight: 34,
             padding: "0 14px",
             borderRadius: 17,
+            pointerEvents: "auto",
           }}
           onClick={onClose}
         >
           Done
         </button>
-        <h1 className="absolute left-1/2 -translate-x-1/2 text-[17px] font-semibold pointer-events-none">
+        <h1 className="absolute left-1/2 -translate-x-1/2 text-[17px] font-semibold pointer-events-none zen-header-text">
           Servers
         </h1>
       </div>
       {pinned ? (
         <div
-          className="shrink-0 relative"
-          style={{ padding: "4px 12px 10px", zIndex: 2 }}
+          className="relative"
+          style={{ padding: "4px 12px 10px" }}
           data-testid="servers-pinned"
         >
           <div
@@ -246,7 +272,12 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
             className={`k2-tile flex items-center relative${
               justConnected ? " k2-server-just-connected" : ""
             }`}
-            style={{ gap: 10, padding: "10px 10px 10px 14px", borderRadius: 14 }}
+            style={{
+              gap: 10,
+              padding: "10px 10px 10px 14px",
+              borderRadius: 14,
+              pointerEvents: "auto",
+            }}
             data-just-connected={justConnected ? "true" : undefined}
           >
             <button
@@ -311,9 +342,18 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       ) : null}
+      </div>
+      </header>
       <div
         className="flex-1 min-h-0 overflow-y-auto"
-        style={{ padding: "0 8px 96px", WebkitOverflowScrolling: "touch" }}
+        style={{
+          // Starts under the floating header (title + pinned card).
+          paddingTop: underHeaderPadding(headerPx),
+          paddingLeft: 8,
+          paddingRight: 8,
+          paddingBottom: 96,
+          WebkitOverflowScrolling: "touch",
+        }}
         data-testid="overlay-servers-list"
       >
         {servers.length === 0 ? (

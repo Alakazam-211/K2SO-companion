@@ -36,7 +36,7 @@ vi.mock("../lib/revive", () => ({
 
 import { connectServer } from "../lib/revive";
 import { useServersStore } from "../stores/servers";
-import { JUST_CONNECTED_MS, OverlayServers } from "./OverlayServers";
+import { JUST_CONNECTED_MS, OverlayServers, SERVERS_HEADER_PX } from "./OverlayServers";
 import { useZenStore } from "./zenStore";
 
 const HOME = {
@@ -257,6 +257,57 @@ describe("OverlayServers", () => {
     });
     expect(screen.queryAllByTestId("overlay-server-row")).toHaveLength(0);
     expect(screen.getByText("No servers match")).not.toBeNull();
+  });
+
+  it("header floats over the list with the progressive blur; the pinned card rides in it", () => {
+    const onClose = vi.fn();
+    render(<OverlayServers onClose={onClose} />);
+    const header = screen.getByTestId("servers-header");
+    expect(header.className).toMatch(/absolute/);
+    expect(header.style.pointerEvents).toBe("none");
+    expect(screen.getByTestId("overlay-servers").style.paddingTop).toBe("");
+
+    const blur = screen.getByTestId("servers-header-blur");
+    expect(header.contains(blur)).toBe(true);
+    expect(blur.className).toBe("zen-header-blur");
+    expect(blur.style.pointerEvents).toBe("none");
+    expect(blur.getAttribute("aria-hidden")).not.toBeNull();
+    expect(blur.querySelectorAll("[class^='zen-header-blur-']").length).toBe(4);
+    expect(blur.querySelector(".zen-header-tint")).not.toBeNull();
+
+    // Title and pinned card float; only Done and the card take touches.
+    const pinned = screen.getByTestId("servers-pinned");
+    expect(header.contains(pinned)).toBe(true);
+    const card = within(pinned).getByRole("button", { name: "Home" }).parentElement!;
+    expect(card.style.pointerEvents).toBe("auto");
+    const done = within(header).getByRole("button", { name: "Done" });
+    expect(done.style.pointerEvents).toBe("auto");
+    fireEvent.click(done);
+    expect(onClose).toHaveBeenCalledTimes(1);
+
+    // The list starts under the header and card (jsdom measures 0, so the
+    // resting height) and scrolls up behind both.
+    const list = screen.getByTestId("overlay-servers-list");
+    expect(header.contains(list)).toBe(false);
+    expect(list.style.paddingTop).toMatch(/env\(safe-area-inset-top\)/);
+    const pad = Number(list.style.paddingTop.match(/(\d+)px/)![1]);
+    expect(pad).toBeGreaterThan(SERVERS_HEADER_PX);
+  });
+
+  it("with no pinned card the list pads by the title row only", () => {
+    useServersStore.setState({ activeServerId: null });
+    render(<OverlayServers onClose={() => {}} />);
+    const pad = screen.getByTestId("overlay-servers-list").style.paddingTop;
+    expect(pad).toMatch(/env\(safe-area-inset-top\)/);
+    expect(pad).toContain(`${SERVERS_HEADER_PX}px`);
+  });
+
+  it("the edit form replaces the sheet and Cancel brings the floating header back", async () => {
+    render(<OverlayServers onClose={() => {}} />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit Home" }));
+    expect(screen.queryByTestId("servers-header")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Cancel/ }));
+    expect(screen.getByTestId("servers-header-blur")).not.toBeNull();
   });
 
   it("the list leaves room for the bottom bar", () => {
