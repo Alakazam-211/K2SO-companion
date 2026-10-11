@@ -19,6 +19,7 @@ vi.mock("../api/client", () => ({
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),
   spawnTabSession: vi.fn(),
+  spawnResumeTab: vi.fn(),
   getActivePresets: vi.fn(async () => ({ ok: true, data: [] })),
   uploadFsBinary: vi.fn(),
   setTabTitle: vi.fn(async () => ({ ok: true, data: { success: true } })),
@@ -46,6 +47,7 @@ import {
   getThreadLatest,
   getToken,
   getWorkspaceLiveSessions,
+  spawnResumeTab,
   spawnSidecarSession,
   spawnTabSession,
 } from "../api/client";
@@ -207,13 +209,30 @@ afterEach(() => {
   vi.mocked(getActivePresets).mockResolvedValue({ ok: true, data: [] } as never);
   vi.mocked(spawnSidecarSession).mockReset();
   vi.mocked(spawnTabSession).mockReset();
+  vi.mocked(spawnResumeTab).mockReset();
   vi.mocked(getThreadLatest).mockReset();
+  vi.mocked(getWorkspaceLiveSessions).mockReset();
   localStorage.clear();
 });
 
 async function openDrawer() {
   fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
   return screen.findByTestId("sessions-drawer");
+}
+
+const PLANNING = "0a0b0c0d-0000-4000-8000-000000000002";
+/** The tab a wake spawns, as `companion/sessions` and `list-for-workspace` list it. */
+const WOKEN = { ...base, cwd: "/ws", agentName: "tab-w", terminalId: "t-woken", label: "Planning", command: "claude" };
+const WOKEN_LIVE = { sessionId: "t-woken", agentName: "tab-w", kind: "other", handle: "", conversationId: PLANNING, command: "claude" };
+
+async function historyRow(drawer: HTMLElement, addr: string): Promise<HTMLElement> {
+  return waitFor(() => {
+    const hit = within(drawer)
+      .getAllByTestId("session-row-history")
+      .find((r) => r.getAttribute("data-thread-addr") === addr);
+    expect(hit).toBeTruthy();
+    return hit!;
+  });
 }
 
 function rememberOld() {
@@ -352,57 +371,172 @@ describe("Zen Sessions drawer", () => {
     expect(rows[59].getAttribute("data-thread-addr")).toBe("c-bulk-59");
   });
 
-  it("a History row opens its Thread in Done mode, never the terminal", async () => {
+  it("tapping a History row wakes it with its harness, resume id and workspace, then it moves to Active", async () => {
+    vi.mocked(getActivePresets).mockResolvedValue({ ok: true, data: PRESETS } as never);
+    let finish!: (v: unknown) => void;
+    vi.mocked(spawnResumeTab).mockImplementation(
+      () => new Promise((res) => (finish = res)) as never
+    );
     await openMain();
     const drawer = await openDrawer();
-    const row = (await within(drawer).findAllByTestId("session-row-history")).find(
-      (r) => r.getAttribute("data-thread-addr") === "0a0b0c0d-0000-4000-8000-000000000002"
-    )!;
+    // Presets loaded (the + shows): the wake uses the Claude preset's args.
+    await within(drawer).findByTestId("sessions-new-toggle");
+    const row = await historyRow(drawer, PLANNING);
     fireEvent.click(row);
-    expect(useZenStore.getState().threadAddr).toBe("0a0b0c0d-0000-4000-8000-000000000002");
+    // Pending: the row says Waking…, the drawer stays, nothing opens yet.
+    expect((await within(row).findByTestId("session-waking")).textContent).toBe("Waking…");
+    expect(row.getAttribute("aria-busy")).toBe("true");
+    expect(useZenStore.getState().threadAddr).toBe("k2");
+    expect(spawnResumeTab).toHaveBeenCalledWith(
+      "/ws",
+      { command: "claude", args: ["--dangerously-skip-permissions", "--resume", PLANNING] },
+      "Planning"
+    );
+    expect(spawnSidecarSession).not.toHaveBeenCalled();
+    // The daemon now lists the woken tab holding that conversation.
+    vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [...SESSIONS, WOKEN] } as never);
+    vi.mocked(getWorkspaceLiveSessions).mockResolvedValue({ ok: true, data: [...LIVE, WOKEN_LIVE] } as never);
+    const calls = vi.mocked(getAllSessions).mock.calls.length;
+    await act(async () => finish({ ok: true, data: { sessionId: "t-woken", agentName: "tab-w" } }));
+    await waitFor(() => expect(useZenStore.getState().threadAddr).toBe(PLANNING));
+    expect(vi.mocked(getAllSessions).mock.calls.length).toBeGreaterThan(calls);
     expect(useZenStore.getState().drawerOrigin).toBe(MAIN.id);
     expect(screen.queryByTestId("sessions-drawer")).toBeNull();
     expect(screen.getByTestId("chat-done").textContent).toBe("Done");
     expect(screen.queryByTestId("term-loc")).toBeNull();
-    expect(spawnSidecarSession).not.toHaveBeenCalled();
-    // A hostless History conversation stays out of the Chats list.
-    const added = useZenStore.getState().agents.find((a) => a.addr === "0a0b0c0d-0000-4000-8000-000000000002");
-    expect(added?.hostLive).toBe(false);
-    // Reopened from that Thread, the drawer still knows the workspace's Main.
+    const added = useZenStore.getState().agents.find((a) => a.addr === PLANNING);
+    expect(added?.hostLive).toBe(true);
+    expect(added?.terminalId).toBe("t-woken");
+    // Reopened: the session is under Active, gone from History.
     const again = await openDrawer();
-    const main = await within(again).findByTestId("session-row-main");
+    const active = await waitFor(() => {
+      const hit = within(again)
+        .getAllByTestId("session-row-terminal")
+        .find((r) => r.getAttribute("data-thread-addr") === PLANNING);
+      expect(hit).toBeTruthy();
+      return hit!;
+    });
+    expect(within(active).getByTestId("session-current")).not.toBeNull();
+    await waitFor(() => expect(within(again).getAllByTestId("session-row-history")).toHaveLength(2));
+    expect(
+      within(again)
+        .getAllByTestId("session-row-history")
+        .map((r) => r.getAttribute("data-thread-addr"))
+    ).not.toContain(PLANNING);
+    const main = within(again).getByTestId("session-row-main");
     expect(main.textContent).toContain("k2");
-    expect(within(main).queryByTestId("session-current")).toBeNull();
-    await within(again).findByText("k2/reviewer");
-    const picked = (await within(again).findAllByTestId("session-row-history")).find(
-      (r) => r.getAttribute("data-thread-addr") === "0a0b0c0d-0000-4000-8000-000000000002"
-    )!;
-    expect(within(picked).getByTestId("session-current")).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
     fireEvent.click(screen.getByTestId("chat-done"));
     expect(useZenStore.getState().threadAddr).toBe("k2");
   });
 
-  it("a remembered History sidecar respawns with its own LLM, not Claude", async () => {
-    rememberOld();
-    vi.mocked(spawnSidecarSession).mockResolvedValue({
+  it("a woken tab whose Thread moved to a ws/N handle opens at the new address", async () => {
+    vi.mocked(spawnResumeTab).mockResolvedValue({
       ok: true,
-      data: { sessionId: "t-old", agentName: "old" },
+      data: { sessionId: "t-woken", agentName: "tab-w" },
     } as never);
     await openMain();
     const drawer = await openDrawer();
-    const row = (await within(drawer).findAllByTestId("session-row-history")).find(
-      (r) => r.getAttribute("data-thread-addr") === "k2/old"
-    )!;
+    const row = await historyRow(drawer, PLANNING);
+    vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [...SESSIONS, WOKEN] } as never);
+    vi.mocked(getWorkspaceLiveSessions).mockImplementation(async () => {
+      // First read (the race check) has no such tab; after the spawn it is `k2/4`.
+      const spawned = vi.mocked(spawnResumeTab).mock.calls.length > 0;
+      return {
+        ok: true,
+        data: spawned ? [...LIVE, { ...WOKEN_LIVE, kind: "sidecar", handle: "k2/4" }] : LIVE,
+      } as never;
+    });
     fireEvent.click(row);
-    expect(useZenStore.getState().threadAddr).toBe("k2/old");
+    await waitFor(() => expect(useZenStore.getState().threadAddr).toBe("k2/4"));
+    // No enabled preset: desktop adds no flags either.
+    expect(spawnResumeTab).toHaveBeenCalledWith(
+      "/ws",
+      { command: "claude", args: ["--resume", PLANNING] },
+      "Planning"
+    );
+  });
+
+  it("a failed wake stays on the row with an error and Open without waking", async () => {
+    vi.mocked(spawnResumeTab).mockResolvedValue({ ok: false, error: "spawn refused" } as never);
+    await openMain();
+    const drawer = await openDrawer();
+    const row = await historyRow(drawer, PLANNING);
+    fireEvent.click(row);
+    const err = await within(drawer).findByTestId("session-wake-error");
+    expect(err.textContent).toBe("spawn refused");
+    expect(within(row).queryByTestId("session-waking")).toBeNull();
+    expect(useZenStore.getState().threadAddr).toBe("k2");
+    expect(screen.getByTestId("sessions-drawer")).not.toBeNull();
+    fireEvent.click(within(drawer).getByTestId("session-open-without-waking"));
+    expect(useZenStore.getState().threadAddr).toBe(PLANNING);
     expect(screen.getByTestId("chat-done").textContent).toBe("Done");
+    expect(spawnResumeTab).toHaveBeenCalledTimes(1);
+    // Read-only: a hostless History row stays out of the Chats list.
+    expect(useZenStore.getState().agents.find((a) => a.addr === PLANNING)?.hostLive).toBe(false);
+  });
+
+  it("a harness K2 cannot resume opens read-only, with a note, and never spawns", async () => {
+    mockHistory([
+      ...CHATS,
+      { sessionId: "c-bulk-aider", provider: "aider", title: "aider chat", timestamp: (NOW - 50) * 1000, archived: false },
+    ]);
+    await openMain();
+    const drawer = await openDrawer();
+    const row = await historyRow(drawer, "c-bulk-aider");
+    expect(row.getAttribute("data-read-only")).toBe("true");
+    expect(within(row).getByTestId("session-read-only").textContent).toBe("Open (read-only)");
+    expect(within(row).getByTestId("session-read-only-note").textContent).toBe(
+      "Can't resume this LLM from the phone"
+    );
+    // A resumable row has neither.
+    const planning = await historyRow(drawer, PLANNING);
+    expect(within(planning).queryByTestId("session-read-only")).toBeNull();
+    fireEvent.click(row);
+    expect(useZenStore.getState().threadAddr).toBe("c-bulk-aider");
+    expect(screen.getByTestId("chat-done").textContent).toBe("Done");
+    expect(spawnResumeTab).not.toHaveBeenCalled();
+    expect(spawnSidecarSession).not.toHaveBeenCalled();
+  });
+
+  it("a conversation that went live meanwhile is just opened, not spawned again", async () => {
+    await openMain();
+    const drawer = await openDrawer();
+    const row = await historyRow(drawer, PLANNING);
+    // Desktop resumed it after the drawer loaded.
+    vi.mocked(getWorkspaceLiveSessions).mockResolvedValue({ ok: true, data: [...LIVE, WOKEN_LIVE] } as never);
+    vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [...SESSIONS, WOKEN] } as never);
+    fireEvent.click(row);
+    await waitFor(() => expect(useZenStore.getState().threadAddr).toBe(PLANNING));
+    expect(spawnResumeTab).not.toHaveBeenCalled();
+    expect(useZenStore.getState().agents.find((a) => a.addr === PLANNING)?.terminalId).toBe("t-woken");
+  });
+
+  it("a remembered History sidecar wakes through its own LLM, not Claude", async () => {
+    rememberOld();
+    vi.mocked(spawnSidecarSession).mockImplementation(async () => {
+      // From now on companion/sessions lists the respawned sidecar.
+      vi.mocked(getAllSessions).mockResolvedValue({
+        ok: true,
+        data: [...SESSIONS, { ...base, cwd: "/ws", agentName: "old", terminalId: "t-old", label: "Old reviewer", command: "grok" }],
+      } as never);
+      return { ok: true, data: { sessionId: "t-old", agentName: "old" } } as never;
+    });
+    await openMain();
+    const drawer = await openDrawer();
+    const row = await historyRow(drawer, "k2/old");
+    fireEvent.click(row);
+    expect(within(row).getByTestId("session-waking")).not.toBeNull();
     await waitFor(() =>
       expect(spawnSidecarSession).toHaveBeenCalledWith("/ws", "old", "Old reviewer", {
         command: "grok",
         args: [],
       })
     );
+    await waitFor(() => expect(useZenStore.getState().threadAddr).toBe("k2/old"));
+    expect(screen.getByTestId("chat-done").textContent).toBe("Done");
+    expect(spawnSidecarSession).toHaveBeenCalledTimes(1);
+    expect(spawnResumeTab).not.toHaveBeenCalled();
     expect(screen.queryByTestId("term-loc")).toBeNull();
   });
 

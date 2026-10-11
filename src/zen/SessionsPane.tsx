@@ -5,6 +5,7 @@ import {
   getChatList,
   getThreadLatest,
   getWorkspaceLiveSessions,
+  spawnResumeTab,
 } from "../api/client";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { activityColor, activityForRow, type RowActivity } from "./agentActivity";
@@ -14,6 +15,14 @@ import { LlmIcon } from "./LlmIcon";
 import { llmIconSvg } from "./llmIcons";
 import { canSidecar, emojiByHarness, parseActiveLlms, type ActiveLlm } from "./llmPresets";
 import { PlusGlyph } from "./PlusGlyph";
+import {
+  OPEN_READ_ONLY,
+  OPEN_WITHOUT_WAKING,
+  READ_ONLY_NOTE,
+  WAKING,
+  wakeHistoryRow,
+  wakePlanFor,
+} from "./historyWake";
 import {
   buildHistory,
   HISTORY_PAGE,
@@ -112,7 +121,9 @@ function When({ at }: { at: number | null }) {
 /** Sessions in the open chat's workspace. Same shell as the Files drawer.
  *  **Active** (`GET /cli/companion/sessions`): Main, sidecar chats as
  *  `agent/sidecar`, then plain tabs. **+ New session**. **History**: past
- *  conversations here that are not open (see `sessionHistory.ts`).
+ *  conversations here that are not open (see `sessionHistory.ts`). A
+ *  History tap wakes the session first (`historyWake.ts`), so it moves to
+ *  Active; a harness K2 cannot resume opens read-only.
  *  Every row opens its Thread in Done mode, never the terminal; the chat
  *  header's Terminal button still reaches the PTY. */
 export function SessionsPane({
@@ -145,6 +156,11 @@ export function SessionsPane({
   const [latest, setLatest] = useState<Map<string, LatestEntry>>(() => new Map());
   const [historyLimit, setHistoryLimit] = useState(HISTORY_PAGE);
   const [historyLoading, setHistoryLoading] = useState(true);
+  /** History row being woken (its addr), and the last wake failure. */
+  const [waking, setWaking] = useState<string | null>(null);
+  const [wakeError, setWakeError] = useState<{ addr: string; error: string } | null>(null);
+  /** Bumped after a wake to re-read live tabs + History. */
+  const [reload, setReload] = useState(0);
 
   useEffect(() => {
     mounted.current = true;
@@ -211,7 +227,7 @@ export function SessionsPane({
     return () => {
       alive = false;
     };
-  }, [path]);
+  }, [path, reload]);
 
   const mainRow =
     agents.find(
@@ -316,7 +332,8 @@ export function SessionsPane({
     if (!t.addr) return;
     pickSide({ addr: t.addr, path, name, chatTitle: t.title, terminalId: t.terminalId });
   };
-  const pickHistory = (h: HistoryRow) => {
+  /** Open a History row's Thread without waking it (read-only history). */
+  const openHistoryReadOnly = (h: HistoryRow) => {
     pickSide({
       addr: h.addr,
       path,
@@ -324,6 +341,50 @@ export function SessionsPane({
       chatTitle: h.label || h.title,
       hostLive: false,
       launch: launchForHarness(h.harness, llms),
+    });
+  };
+  /** Wake a History row the way desktop Chat history does (resume spawn,
+   *  or the sidecar respawn), then open its Thread in Done mode. A failure
+   *  stays on the row with an "Open without waking" action. */
+  const pickHistory = (h: HistoryRow) => {
+    if (waking) return;
+    if (wakePlanFor(h, llms).kind === "readonly") {
+      openHistoryReadOnly(h);
+      return;
+    }
+    setWaking(h.addr);
+    setWakeError(null);
+    void wakeHistoryRow(
+      { row: h, path, llms, sidecarLaunch: launchForHarness(h.harness, llms) },
+      {
+        listLive: async (p) => {
+          const r = await getWorkspaceLiveSessions(p);
+          return r.ok ? parseWorkspaceLive(r.data) : null;
+        },
+        spawnTab: async (p, launch, label) => {
+          const r = await spawnResumeTab(p, launch, label);
+          return { ok: r.ok, sessionId: r.data?.sessionId ?? null, error: r.error };
+        },
+        ensureSidecar: (row) => useZenStore.getState().ensureSidecarHost(row),
+        refreshSessions: () => useWorkspacesStore.getState().fetchAllSessions(),
+      }
+    ).then((r) => {
+      if (!mounted.current) return;
+      setWaking(null);
+      if (!r.ok) {
+        setWakeError({ addr: h.addr, error: r.error });
+        return;
+      }
+      setReload((n) => n + 1);
+      pickSide({
+        addr: r.addr,
+        path,
+        name,
+        chatTitle: h.label || h.title,
+        hostLive: true,
+        terminalId: r.terminalId ?? undefined,
+        launch: launchForHarness(h.harness, llms),
+      });
     });
   };
   const pickLlm = (llm: ActiveLlm) => {
@@ -515,29 +576,85 @@ export function SessionsPane({
         <div className={HEADING} data-testid="sessions-history">
           {HISTORY_HEADING}
         </div>
-        {history.map((h) => (
-          <button
-            key={h.addr}
-            type="button"
-            className={ROW}
-            data-testid="session-row-history"
-            data-thread-addr={h.addr}
-            onClick={() => pickHistory(h)}
-          >
-            {(() => {
-              const emoji = h.harness && !llmIconSvg(h.harness) ? emojis[h.harness] ?? null : null;
-              return <LlmIcon harness={h.harness} emoji={emoji} />;
-            })()}
-            <span className="flex flex-col flex-1 min-w-0">
-              <span className="truncate text-[12px] text-[var(--text)]">{h.title}</span>
-              {h.label ? (
-                <span className="truncate text-[10px] text-[var(--text-muted)]">{h.label}</span>
+        {history.map((h) => {
+          const busy = waking === h.addr;
+          const readOnly = wakePlanFor(h, llms).kind === "readonly";
+          const failed = wakeError?.addr === h.addr ? wakeError.error : null;
+          const emoji = h.harness && !llmIconSvg(h.harness) ? emojis[h.harness] ?? null : null;
+          return (
+            <div key={h.addr} data-testid="session-history-item" data-thread-addr={h.addr}>
+              <button
+                type="button"
+                className={ROW}
+                data-testid="session-row-history"
+                data-thread-addr={h.addr}
+                data-read-only={readOnly || undefined}
+                aria-busy={busy || undefined}
+                disabled={!!waking}
+                style={waking && !busy ? { opacity: 0.4 } : undefined}
+                onClick={() => pickHistory(h)}
+              >
+                <LlmIcon harness={h.harness} emoji={emoji} />
+                <span className="flex flex-col flex-1 min-w-0">
+                  <span className="truncate text-[12px] text-[var(--text)]">{h.title}</span>
+                  {h.label ? (
+                    <span className="truncate text-[10px] text-[var(--text-muted)]">{h.label}</span>
+                  ) : null}
+                  {busy ? (
+                    <span
+                      className="truncate text-[10px] text-[var(--accent)]"
+                      data-testid="session-waking"
+                    >
+                      {WAKING}
+                    </span>
+                  ) : (
+                    <When at={h.at} />
+                  )}
+                  {readOnly ? (
+                    <>
+                      <span
+                        className="truncate text-[10px] text-[var(--text)]"
+                        data-testid="session-read-only"
+                      >
+                        {OPEN_READ_ONLY}
+                      </span>
+                      <span
+                        className="text-[10px] leading-snug text-[var(--text-muted)]"
+                        data-testid="session-read-only-note"
+                      >
+                        {READ_ONLY_NOTE}
+                      </span>
+                    </>
+                  ) : null}
+                </span>
+                {currentAddr === h.addr ? <Check /> : null}
+              </button>
+              {failed ? (
+                <div className="px-3 pb-2 border-b border-[var(--border)]">
+                  <p
+                    className="text-[11px]"
+                    style={{ color: "#ef4444" }}
+                    role="alert"
+                    data-testid="session-wake-error"
+                  >
+                    {failed}
+                  </p>
+                  <button
+                    type="button"
+                    className="mt-1 text-[11px] text-[var(--accent)] bg-transparent p-0"
+                    data-testid="session-open-without-waking"
+                    onClick={() => {
+                      setWakeError(null);
+                      openHistoryReadOnly(h);
+                    }}
+                  >
+                    {OPEN_WITHOUT_WAKING}
+                  </button>
+                </div>
               ) : null}
-              <When at={h.at} />
-            </span>
-            {currentAddr === h.addr ? <Check /> : null}
-          </button>
-        ))}
+            </div>
+          );
+        })}
         {history.length === 0 ? (
           <div
             className="px-3 py-2 text-[12px] text-[var(--text-muted)]"

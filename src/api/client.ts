@@ -480,6 +480,30 @@ export const spawnTabSession = (
     { method: "POST" }
   );
 
+/** Wake a past conversation as a new tab, the way desktop Chat history
+ *  does (`TerminalPane` → `POST /cli/sessions/v2/spawn`): `launch` already
+ *  carries the harness's resume argv; the title is locked like desktop's.
+ *  The daemon reads the conversation id back from argv and keys the tab's
+ *  Thread to it, so the old messages stay attached. */
+export const spawnResumeTab = (
+  cwd: string,
+  launch: { command: string; args: string[] },
+  label: string
+) =>
+  request<{ sessionId: string; agentName: string; reused?: boolean; conversationId?: string }>(
+    "sessions.v2_spawn",
+    "/cli/sessions/v2/spawn",
+    {
+      agent_name: "tab-" + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)),
+      cwd,
+      command: launch.command,
+      args: launch.args,
+      label,
+      label_locked: true,
+    },
+    { method: "POST" }
+  );
+
 /** One enabled agent preset (Settings → Agents on desktop). `command` is
  *  the full launch line, e.g. `codex --yolo`; `icon` is a custom preset's
  *  emoji (built-ins send ""). */
