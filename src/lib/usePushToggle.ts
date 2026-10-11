@@ -1,10 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { getActiveServer } from "../stores/servers";
 import {
   pushAvailability,
   getPushEnabled,
   setPushEnabled,
-  ensureRegistered,
+  registerAllSignedIn,
   unregisterAll,
 } from "./push";
 
@@ -21,9 +20,9 @@ export interface PushToggleState {
 /** C6 "Push notifications" toggle state, shared by the old Settings page
  *  and Zen Settings. DORMANT builds (no APNs entitlement / no
  *  google-services.json) report `available: false`. Toggling ON runs the
- *  permission→token→register-device flow for the active server; OFF
- *  unregisters this device from every saved server (registration follows
- *  the active server around). A denied OS permission ends silently inside
+ *  permission→token→register-device flow on every signed-in server
+ *  (`registerAllSignedIn`); OFF unregisters this device from every saved
+ *  server. A denied OS permission ends silently inside
  *  `ensureRegistered` — the switch stays on, as before. */
 export function usePushToggle(): PushToggleState {
   const [available, setAvailable] = useState<boolean | null>(null);
@@ -54,8 +53,7 @@ export function usePushToggle(): PushToggleState {
     try {
       await setPushEnabled(next);
       if (next) {
-        const active = getActiveServer();
-        if (active) await ensureRegistered(active);
+        await registerAllSignedIn();
       } else {
         await unregisterAll();
       }

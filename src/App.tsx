@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
 import { useServersStore, getActiveServer } from "./stores/servers";
 import { useWorkspacesStore } from "./stores/workspaces";
-import { ensureRegistered, attachPushNavigation } from "./lib/push";
+import { ensureRegistered, attachPushNavigation, watchPushRegistrations } from "./lib/push";
 import { TabBar } from "./components/TabBar";
 import { ServerFooter } from "./components/ServerFooter";
 import { Login } from "./pages/Login";
@@ -91,7 +91,12 @@ function PushBridge() {
     void attachPushNavigation((path) => navigate(path)).then((c) => {
       cleanup = c;
     });
-    return () => cleanup?.();
+    // Register on every signed-in server now, and again on each login.
+    const stopWatch = watchPushRegistrations();
+    return () => {
+      cleanup?.();
+      stopWatch();
+    };
   }, []);
   return null;
 }
