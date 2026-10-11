@@ -27,6 +27,7 @@ import {
 } from "./fileTreeModel";
 import { useFileDrag } from "./fileDrag";
 import { useFileHold, type FileMenu } from "./useFileHold";
+import { GlassCloseButton } from "./GlassCloseButton";
 
 /** Drawer width. The tree needs more room than the old resource list. */
 export const FILE_PANE_PX = 224;
@@ -245,23 +246,7 @@ function FilePaneOpen() {
             </svg>
           </button>
         ) : null}
-        {/* Close: a 44x44 hit target around the same 28px glass pill. The
-         *  negative margins keep the visual spacing of the other buttons. */}
-        <button
-          type="button"
-          onClick={toggleFiles}
-          className="flex items-center justify-center shrink-0"
-          style={{ width: 44, height: 44, marginLeft: -6, marginRight: -6, color: "#fff" }}
-          aria-label="Close files"
-          data-testid="files-close"
-        >
-          <span className="flex items-center justify-center zen-glass zen-glass-pill" style={ICON_BTN} aria-hidden>
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" aria-hidden>
-              <line x1="6" y1="6" x2="18" y2="18" />
-              <line x1="18" y1="6" x2="6" y2="18" />
-            </svg>
-          </span>
-        </button>
+        <GlassCloseButton onClick={toggleFiles} label="Close files" testId="files-close" />
       </div>
       <div
         ref={hold.scrollerRef}

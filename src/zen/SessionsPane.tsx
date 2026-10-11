@@ -58,6 +58,7 @@ import {
   workspaceSourceText,
 } from "../stores/notifyPrefs";
 import { BellIcon, useNotifyPrefsLive } from "./NotifyBell";
+import { GlassCloseButton } from "./GlassCloseButton";
 
 export const SESSIONS_EMPTY = "No other sessions in this workspace";
 export const NEW_SESSION_LABEL = "New session";
@@ -502,20 +503,14 @@ export function SessionsPane({
       aria-label="Sessions"
       data-testid="sessions-drawer"
     >
-      <div className="flex items-center px-2 h-9 border-b border-[var(--border)]">
+      <div className="flex items-center gap-1.5 pl-2 pr-1.5 h-11 border-b border-[var(--border)]">
         <span className="flex-1 min-w-0 flex flex-col">
           <span className="truncate text-[10px] text-[var(--text-muted)] tracking-widest">
             Sessions
           </span>
           <ServerChip serverId={scope.id} testId="sessions-server" align="left" />
         </span>
-        <button
-          onClick={onClose}
-          className="text-[var(--text-muted)] text-[11px] px-1"
-          aria-label="Hide sessions"
-        >
-          ›
-        </button>
+        <GlassCloseButton onClick={onClose} label="Hide sessions" testId="sessions-close" />
       </div>
       {handle && agent?.kind !== "group" ? (
         <WorkspaceNotify
