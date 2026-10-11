@@ -1,9 +1,9 @@
 /** One ellipsis character (U+2026), never three dots. */
 export const ELLIPSIS = "…";
 
-/** Characters always kept at the end of a cut name (owner's ask:
- *  `very-long-file-na…der.ts`). */
-export const MIDDLE_TAIL_CHARS = 6;
+/** Characters always kept at the end of a cut name (owner's ask, was 6:
+ *  `very-long-fi…-header.ts`). */
+export const MIDDLE_TAIL_CHARS = 10;
 
 /**
  * Shorten `name` to fit `maxWidthPx` by cutting the middle: the last
