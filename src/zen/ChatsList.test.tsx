@@ -52,7 +52,29 @@ import {
 } from "../api/client";
 import { useFeedbackStore } from "../stores/feedback";
 import { hostLabel, useServersStore } from "../stores/servers";
-import { ChatsList, ZEN_LIST_EDGE_INSET, ZEN_LIST_EDGE_PAD } from "./ChatsList";
+import {
+  ChatsList,
+  ZEN_LIST_CONTENT_INSET,
+  ZEN_LIST_EDGE_INSET,
+  ZEN_LIST_EDGE_PAD,
+  ZEN_PIN_AVATAR_PX,
+  ZEN_PIN_COL_GAP,
+  zenPinnedGroupInsetPx,
+} from "./ChatsList";
+
+/** A CSS length as jsdom normalises it (calc() gets rewritten). */
+function cssLen(v: string): string {
+  const el = document.createElement("div");
+  el.style.left = v;
+  return el.style.left;
+}
+
+/** Evaluate the inset calc() for a list `w` px wide (100% = w). */
+function evalInsetPx(css: string, w: number): number {
+  const expr = css.replace(/calc/g, "").replace(/100%/g, String(w)).replace(/px/g, "");
+  expect(expr).toMatch(/^[\d\s.+\-*/()]+$/);
+  return Function(`return (${expr});`)() as number;
+}
 import { SEARCH_BAR_REST_BOTTOM } from "./GlassSearchBar";
 import { JOIN_NO_PROJECT } from "./agentRow";
 import { STUB_AGENTS } from "./stubData";
@@ -568,9 +590,9 @@ describe("ChatsList", () => {
     const drop = screen.getByTestId("chats-pin-drop");
     expect(drop.className).toMatch(/k2-pin-drop/);
     expect(drop.textContent).toMatch(/Drop to pin/);
-    // Same side edges as the pin grid it stands in for.
-    expect(drop.style.left).toBe(`${ZEN_LIST_EDGE_INSET}px`);
-    expect(drop.style.right).toBe(`${ZEN_LIST_EDGE_INSET}px`);
+    // Same width as the pinned avatars it stands in for.
+    expect(drop.style.left).toBe(cssLen(ZEN_LIST_CONTENT_INSET));
+    expect(drop.style.right).toBe(cssLen(ZEN_LIST_CONTENT_INSET));
     drop.getBoundingClientRect = () =>
       ({
         left: 0,
@@ -1678,26 +1700,67 @@ describe("ChatsList", () => {
       expect(grid.style.padding).toBe("4px 2px 8px");
     });
 
-    it("the list rows share the pin grid's side edges", () => {
+    it("the list content inset is the pinned avatars' outer edge", () => {
+      // side + (cell - avatar) / 2, cell = (W - 2*side - 2*gap) / 3.
+      const side = ZEN_LIST_EDGE_INSET + ZEN_LIST_EDGE_PAD;
+      for (const w of [375, 390, 430]) {
+        const cell = (w - 2 * side - 2 * ZEN_PIN_COL_GAP) / 3;
+        const expected = side + (cell - ZEN_PIN_AVATAR_PX) / 2;
+        expect(zenPinnedGroupInsetPx(w)).toBeCloseTo(expected, 6);
+        expect(evalInsetPx(ZEN_LIST_CONTENT_INSET, w)).toBeCloseTo(expected, 6);
+      }
+      // 375pt: ~28px each side; 430pt: ~37px.
+      expect(zenPinnedGroupInsetPx(375)).toBeCloseTo(28.17, 2);
+      expect(zenPinnedGroupInsetPx(430)).toBeCloseTo(37.33, 2);
+    });
+
+    it("the grid uses the shared pin geometry", () => {
       setup([LA.id]);
       const grid = screen.getByTestId("chats-pins");
+      expect(grid.style.marginLeft).toBe(`${ZEN_LIST_EDGE_INSET}px`);
+      expect(grid.style.paddingLeft).toBe(`${ZEN_LIST_EDGE_PAD}px`);
+      expect(grid.style.gap).toBe(`14px ${ZEN_PIN_COL_GAP}px`);
+      const circle = grid.querySelector<HTMLElement>("[data-testid='pin-avatar'] span span")!;
+      expect(circle.style.width).toBe(`${ZEN_PIN_AVATAR_PX}px`);
+    });
+
+    it("list rows are full width with content confined to the pinned avatars", () => {
+      setup([LA.id]);
+      const inset = cssLen(ZEN_LIST_CONTENT_INSET);
       const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-swipe-row]"));
       expect(rows.length).toBeGreaterThan(0);
-      const inset = `${ZEN_LIST_EDGE_INSET}px`;
-      const pad = `${ZEN_LIST_EDGE_PAD}px`;
-      // Outer box: grid and every row sit the same distance from the screen.
-      expect(grid.style.marginLeft).toBe(inset);
-      expect(grid.style.marginRight).toBe(inset);
-      // Content: pin columns, avatar and chevron share the inner edge.
-      expect(grid.style.paddingLeft).toBe(pad);
-      expect(grid.style.paddingRight).toBe(pad);
       for (const wrap of rows) {
-        expect(wrap.style.marginLeft).toBe(grid.style.marginLeft);
-        expect(wrap.style.marginRight).toBe(grid.style.marginRight);
+        // Tap / swipe target spans the whole line.
+        expect(wrap.style.marginLeft).toBe("");
+        expect(wrap.style.marginRight).toBe("");
         const row = wrap.querySelector<HTMLElement>("[data-pin-from='list']")!;
-        expect(row.style.paddingLeft).toBe(grid.style.paddingLeft);
-        expect(row.style.paddingRight).toBe(grid.style.paddingRight);
+        expect(row.style.paddingLeft).toBe(inset);
+        expect(row.style.paddingRight).toBe(inset);
       }
+    });
+
+    it("the empty line uses the same inset with no pins", () => {
+      useZenStore.setState({
+        agents: [],
+        agentSource: "live",
+        agentError: null,
+        screen: "list",
+        pinnedIds: [],
+      });
+      mount();
+      const empty = screen.getByTestId("chats-empty");
+      expect(empty.style.paddingLeft).toBe(cssLen(ZEN_LIST_CONTENT_INSET));
+      expect(empty.style.paddingRight).toBe(cssLen(ZEN_LIST_CONTENT_INSET));
+    });
+
+    it("search hits keep the inset", () => {
+      setup([LA.id]);
+      fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: LA.name } });
+      expect(screen.queryByTestId("chats-pins")).toBeNull();
+      const row = document.querySelector<HTMLElement>(`[data-pin-from='list'][data-pin-id='${LA.id}']`)!;
+      expect(row).not.toBeNull();
+      expect(row.style.paddingLeft).toBe(cssLen(ZEN_LIST_CONTENT_INSET));
+      expect(row.style.paddingRight).toBe(cssLen(ZEN_LIST_CONTENT_INSET));
     });
   });
 
