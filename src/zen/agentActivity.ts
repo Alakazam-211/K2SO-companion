@@ -19,7 +19,8 @@ export type ActivityCounts = { subagents: number; tools: number; commands: numbe
 
 export type RowActivity = { display: ActivityDisplay; counts: ActivityCounts };
 
-export type SessionActivity = RowActivity & { path?: string; agentName?: string };
+/** `harness` is the snapshot's LLM id for that PTY (`claude`, `grok`, …). */
+export type SessionActivity = RowActivity & { path?: string; agentName?: string; harness?: string };
 
 export type ActivitySnapshot = {
   byPath: Record<string, RowActivity>;
@@ -76,6 +77,7 @@ export function parseActivitySnapshot(body: unknown): ActivitySnapshot {
           ? { path: trimPath(r.workspacePath) }
           : {}),
         ...(typeof r.agentName === "string" && r.agentName ? { agentName: r.agentName } : {}),
+        ...(typeof r.harness === "string" && r.harness ? { harness: r.harness } : {}),
       };
     }
     // An idle session's finished turn is not "now".
@@ -217,6 +219,7 @@ function sameRows(
       x.display === y.display &&
       x.path === y.path &&
       x.agentName === y.agentName &&
+      x.harness === y.harness &&
       sameCounts(x.counts, y.counts)
     );
   });
