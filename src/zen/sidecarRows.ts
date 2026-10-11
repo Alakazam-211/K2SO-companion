@@ -140,7 +140,15 @@ export function sidecarsFromSessions(
   return out;
 }
 
+/** The pre-multi-server key (one list for whatever server was active).
+ *  Adopted once by the active server, then removed (MA6 / MA8). */
 export const SIDECAR_STORAGE_KEY = "k2-zen-sidecar-addrs";
+
+/** Per-server key: `k2-zen-sidecar-addrs.<serverId>`. A sidecar addr is
+ *  only an identity on its own server. */
+export function sidecarStorageKey(serverId: string): string {
+  return `${SIDECAR_STORAGE_KEY}.${serverId}`;
+}
 
 export type RememberedSidecar = {
   addr: string;
@@ -149,45 +157,76 @@ export type RememberedSidecar = {
   chatTitle: string;
 };
 
-export function readRememberedSidecars(): RememberedSidecar[] {
+function parseRemembered(raw: string | null): RememberedSidecar[] {
+  if (!raw) return [];
+  const parsed = JSON.parse(raw) as unknown;
+  if (!Array.isArray(parsed)) return [];
+  const out: RememberedSidecar[] = [];
+  for (const item of parsed) {
+    if (!item || typeof item !== "object") continue;
+    const row = item as Partial<RememberedSidecar>;
+    const addr = typeof row.addr === "string" ? row.addr.trim() : "";
+    const path = typeof row.path === "string" ? row.path.trim() : "";
+    if (!addr || !path) continue;
+    if (!isOverlaySidecarSuffix(sidecarSuffix(addr))) continue;
+    out.push({
+      addr,
+      path,
+      name: typeof row.name === "string" ? row.name : "",
+      chatTitle: typeof row.chatTitle === "string" ? row.chatTitle : sidecarSuffix(addr),
+    });
+  }
+  return out;
+}
+
+/** `serverId`'s remembered sidecars. `adoptLegacy` (the active server
+ *  only) moves a pre-multi-server list under this server first. */
+export function readRememberedSidecars(
+  serverId: string,
+  opts: { adoptLegacy?: boolean } = {}
+): RememberedSidecar[] {
+  if (!serverId) return [];
   try {
-    const raw = localStorage.getItem(SIDECAR_STORAGE_KEY);
-    if (!raw) return [];
-    const parsed = JSON.parse(raw) as unknown;
-    if (!Array.isArray(parsed)) return [];
-    const out: RememberedSidecar[] = [];
-    for (const item of parsed) {
-      if (!item || typeof item !== "object") continue;
-      const row = item as Partial<RememberedSidecar>;
-      const addr = typeof row.addr === "string" ? row.addr.trim() : "";
-      const path = typeof row.path === "string" ? row.path.trim() : "";
-      if (!addr || !path) continue;
-      if (!isOverlaySidecarSuffix(sidecarSuffix(addr))) continue;
-      out.push({
-        addr,
-        path,
-        name: typeof row.name === "string" ? row.name : "",
-        chatTitle: typeof row.chatTitle === "string" ? row.chatTitle : sidecarSuffix(addr),
-      });
+    const key = sidecarStorageKey(serverId);
+    let raw = localStorage.getItem(key);
+    if (opts.adoptLegacy) {
+      const legacy = localStorage.getItem(SIDECAR_STORAGE_KEY);
+      if (legacy !== null) {
+        if (raw === null) {
+          localStorage.setItem(key, legacy);
+          raw = legacy;
+        }
+        localStorage.removeItem(SIDECAR_STORAGE_KEY);
+      }
     }
-    return out;
+    return parseRemembered(raw);
   } catch {
     return [];
   }
 }
 
-export function writeRememberedSidecars(rows: RememberedSidecar[]): void {
+export function writeRememberedSidecars(serverId: string, rows: RememberedSidecar[]): void {
+  if (!serverId) return;
   try {
-    localStorage.setItem(SIDECAR_STORAGE_KEY, JSON.stringify(rows));
+    localStorage.setItem(sidecarStorageKey(serverId), JSON.stringify(rows));
   } catch {
     /* quota / private mode */
   }
 }
 
-export function rememberSidecar(row: RememberedSidecar): void {
+/** Drop a server's list (removed, or re-keyed to what may be another daemon). */
+export function forgetRememberedSidecars(serverId: string): void {
+  try {
+    localStorage.removeItem(sidecarStorageKey(serverId));
+  } catch {
+    /* no storage */
+  }
+}
+
+export function rememberSidecar(serverId: string, row: RememberedSidecar): void {
   const addr = (row.addr || "").trim();
   const path = (row.path || "").trim();
-  if (!addr || !path || !isOverlaySidecarSuffix(sidecarSuffix(addr))) return;
+  if (!serverId || !addr || !path || !isOverlaySidecarSuffix(sidecarSuffix(addr))) return;
   const next = [
     {
       addr,
@@ -195,9 +234,9 @@ export function rememberSidecar(row: RememberedSidecar): void {
       name: (row.name || "").trim(),
       chatTitle: (row.chatTitle || sidecarSuffix(addr)).trim(),
     },
-    ...readRememberedSidecars().filter((r) => r.addr !== addr),
+    ...readRememberedSidecars(serverId, { adoptLegacy: true }).filter((r) => r.addr !== addr),
   ];
-  writeRememberedSidecars(next);
+  writeRememberedSidecars(serverId, next);
 }
 
 /** Overlay extra chats persist after the Mac tab closes. Parent main

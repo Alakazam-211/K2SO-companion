@@ -25,9 +25,31 @@ export function threadSidecarTitle(row: {
   return sidecarSuffix(row?.addr || "") || null;
 }
 
-export function readHiddenSidecarAddrs(): string[] {
+/** Per-server key: `k2-zen-hidden-sidecar-addrs.<serverId>`. */
+export function hiddenSidecarKey(serverId: string): string {
+  return `${HIDDEN_SIDECAR_KEY}.${serverId}`;
+}
+
+/** `serverId`'s hidden extras. `adoptLegacy` (the active server only)
+ *  moves the pre-multi-server list under this server first. */
+export function readHiddenSidecarAddrs(
+  serverId: string,
+  opts: { adoptLegacy?: boolean } = {}
+): string[] {
+  if (!serverId) return [];
   try {
-    const raw = localStorage.getItem(HIDDEN_SIDECAR_KEY);
+    const key = hiddenSidecarKey(serverId);
+    let raw = localStorage.getItem(key);
+    if (opts.adoptLegacy) {
+      const legacy = localStorage.getItem(HIDDEN_SIDECAR_KEY);
+      if (legacy !== null) {
+        if (raw === null) {
+          localStorage.setItem(key, legacy);
+          raw = legacy;
+        }
+        localStorage.removeItem(HIDDEN_SIDECAR_KEY);
+      }
+    }
     if (!raw) return [];
     const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) return [];
@@ -39,29 +61,44 @@ export function readHiddenSidecarAddrs(): string[] {
   }
 }
 
-export function writeHiddenSidecarAddrs(addrs: string[]): void {
+export function writeHiddenSidecarAddrs(serverId: string, addrs: string[]): void {
+  if (!serverId) return;
   try {
-    localStorage.setItem(HIDDEN_SIDECAR_KEY, JSON.stringify(addrs));
+    localStorage.setItem(hiddenSidecarKey(serverId), JSON.stringify(addrs));
   } catch {
     /* quota / private mode */
   }
 }
 
-export function hideSidecarAddr(addr: string): void {
+export function forgetHiddenSidecarAddrs(serverId: string): void {
+  try {
+    localStorage.removeItem(hiddenSidecarKey(serverId));
+  } catch {
+    /* no storage */
+  }
+}
+
+export function hideSidecarAddr(serverId: string, addr: string): void {
   const a = (addr || "").trim();
   if (!isOverlayExtraAddr(a)) return;
-  writeHiddenSidecarAddrs([a, ...readHiddenSidecarAddrs().filter((x) => x !== a)]);
+  writeHiddenSidecarAddrs(serverId, [
+    a,
+    ...readHiddenSidecarAddrs(serverId, { adoptLegacy: true }).filter((x) => x !== a),
+  ]);
 }
 
-export function unhideSidecarAddr(addr: string): void {
+export function unhideSidecarAddr(serverId: string, addr: string): void {
   const a = (addr || "").trim();
-  writeHiddenSidecarAddrs(readHiddenSidecarAddrs().filter((x) => x !== a));
+  writeHiddenSidecarAddrs(
+    serverId,
+    readHiddenSidecarAddrs(serverId, { adoptLegacy: true }).filter((x) => x !== a)
+  );
 }
 
-export function isHiddenSidecarAddr(addr: string | null | undefined): boolean {
+export function isHiddenSidecarAddr(serverId: string, addr: string | null | undefined): boolean {
   const a = (addr || "").trim();
   if (!a) return false;
-  return readHiddenSidecarAddrs().includes(a);
+  return readHiddenSidecarAddrs(serverId).includes(a);
 }
 
 function chatSearchHay(row: {

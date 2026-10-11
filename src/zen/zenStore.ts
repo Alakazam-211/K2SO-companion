@@ -38,6 +38,7 @@ import {
   ownerAgentOf,
   parseCliProjects,
   parseOwnerAgents,
+  sidecarRowId,
   skinInitials,
 } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
@@ -72,6 +73,7 @@ import {
   mergeSidecarTitles,
   nextSidecarAddr,
   parseCompanionSessions,
+  forgetRememberedSidecars,
   readRememberedSidecars,
   rememberSidecar,
   matchSidecarSession,
@@ -101,7 +103,13 @@ import {
   usableFsPath,
 } from "./workspacePath";
 import { parseWorkspaceResources } from "./workspaceResources";
-import { hideSidecarAddr, isOverlayExtraAddr, readHiddenSidecarAddrs, unhideSidecarAddr } from "./overlayExtras";
+import {
+  forgetHiddenSidecarAddrs,
+  hideSidecarAddr,
+  isOverlayExtraAddr,
+  readHiddenSidecarAddrs,
+  unhideSidecarAddr,
+} from "./overlayExtras";
 import { nextDrawerOrigin, readDrawerOrigin, writeDrawerOrigin } from "./sessionDrawer";
 import { canSidecar, type ActiveLlm } from "./llmPresets";
 
@@ -297,7 +305,7 @@ function overlaySidecarAgent(
   hostLive = true
 ): StubAgent {
   return {
-    id: `${side.path}::${side.addr}`,
+    id: sidecarRowId(side.path, side.addr),
     name: side.name,
     initial: skinInitials(side.name),
     path: side.path,
@@ -389,6 +397,8 @@ onServerForget((id) => {
   } catch {
     /* no storage */
   }
+  forgetRememberedSidecars(id);
+  forgetHiddenSidecarAddrs(id);
   if (activityServer === id) activityServer = null;
   if (focusServer === id) focusServer = null;
 });
@@ -439,7 +449,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
   pinError: null,
   focus: FOCUS_OFF,
   focusGroupsEnabled: false,
-  hiddenSidecarAddrs: readHiddenSidecarAddrs(),
+  // Per server (MA6): read for the server on screen by hydrateAgents.
+  hiddenSidecarAddrs: [],
   pinChat: async (id, beforeId) => {
     const s = get();
     const pid = pinProjectIdForRow(s.agents.find((a) => a.id === id), s.serverProjects);
@@ -873,7 +884,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         notices.push(rSessions.error || "GET /cli/companion/sessions failed");
       }
       for (const side of extrasFromRemembered(
-        readRememberedSidecars(),
+        readRememberedSidecars(scope.id, { adoptLegacy: true }),
         haveAddr,
         mains
       )) {
@@ -881,6 +892,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         mapped.push(overlaySidecarAgent(side, parent, false));
       }
       writeRememberedSidecars(
+        scope.id,
         mapped
           .filter((a) => (a.addr || "").includes("/") && (a.path || "").trim())
           .map((a) => ({
@@ -898,6 +910,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         serverProjects,
         pinnedIds: derivePinnedIds(agents, serverProjects),
         chatSessions,
+        hiddenSidecarAddrs: readHiddenSidecarAddrs(scope.id, { adoptLegacy: true }),
         agentError: notices.length ? notices.join(" · ") : null,
         fileSource: resumeId ? get().fileSource : "live",
         files: resumeId ? get().files : [],
@@ -1485,7 +1498,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         error: spawned.error || "Could not start the host session",
       };
     }
-    rememberSidecar({
+    rememberSidecar(scope.id, {
       addr,
       path,
       name: "",
@@ -1540,7 +1553,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       ? serverName
       : `${addr.split("/")[0]}/${serverName}`;
     const placeholder: StubAgent = {
-      id: `${path}::${sidecarAddr}`,
+      id: sidecarRowId(path, sidecarAddr),
       name: base.name,
       initial: base.initial,
       path,
@@ -1554,7 +1567,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       color: base.color,
       iconUrl: base.iconUrl,
     };
-    rememberSidecar({
+    rememberSidecar(zenId(), {
       addr: sidecarAddr,
       path,
       name: base.name,
@@ -1662,20 +1675,20 @@ export const useZenStore = create<ZenState>((set, get) => ({
         a.id === id ? { ...a, chatTitle: name } : a
       ),
     });
-    rememberSidecar({
+    rememberSidecar(zenId(), {
       addr,
       path: row.path || "",
       name: row.name,
       chatTitle: name,
     });
-    unhideSidecarAddr(addr);
+    unhideSidecarAddr(zenId(), addr);
     return { ok: true };
   },
   hideSidecarChat: (id) => {
     const row = get().agents.find((a) => a.id === id);
     const addr = (row?.addr || "").trim();
     if (!row || !isOverlayExtraAddr(addr)) return;
-    hideSidecarAddr(addr);
+    hideSidecarAddr(zenId(), addr);
     set({
       hiddenSidecarAddrs: [
         addr,
