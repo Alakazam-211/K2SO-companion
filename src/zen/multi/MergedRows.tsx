@@ -63,7 +63,7 @@ export function FailureText({ failure, nextAt }: { failure: RowFailure; nextAt?:
 }
 
 /** The trailing one-tap fix on a failure row. */
-function FailureAction({
+export function FailureAction({
   failure,
   serverLabel,
   onAction,
