@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterServers, sortServersActiveFirst } from "./serverList";
+import { filterServers, sortServersActiveFirst, splitPinnedServer } from "./serverList";
 
 type S = { id: string; label: string; user?: string };
 const label = (s: S) => s.label;
@@ -62,5 +62,24 @@ describe("filterServers", () => {
     expect(ids(filterServers(servers, "hOm", fields))).toEqual(["1"]);
     expect(ids(filterServers(servers, "ROSS", fields))).toEqual(["2"]);
     expect(ids(filterServers(servers, "zzz", fields))).toEqual([]);
+  });
+});
+
+describe("splitPinnedServer", () => {
+  const servers: S[] = [
+    { id: "a", label: "zeta" },
+    { id: "b", label: "Alpha" },
+    { id: "c", label: "beta" },
+  ];
+
+  it("pins the active server and sorts the others A-Z", () => {
+    const { pinned, others } = splitPinnedServer(servers, "b", label);
+    expect(pinned?.id).toBe("b");
+    expect(ids(others)).toEqual(["c", "a"]);
+  });
+
+  it("pins nothing without a matching active id", () => {
+    expect(splitPinnedServer(servers, null, label).pinned).toBeNull();
+    expect(ids(splitPinnedServer(servers, "zz", label).others)).toEqual(["b", "c", "a"]);
   });
 });
