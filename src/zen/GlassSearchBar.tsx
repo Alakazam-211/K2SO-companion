@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { PlusGlyph } from "./PlusGlyph";
 
 /** Gap between the bar and the iOS keyboard while typing — the same 8px
@@ -25,19 +25,24 @@ export function GlassSearchBar({
   inputTestId,
   plusTestId,
   plusBlockedNote,
+  leading,
 }: {
   query: string;
   onQuery: (value: string) => void;
   placeholder?: string;
   searchLabel?: string;
-  onPlus: () => void;
-  plusLabel: string;
+  /** Omit (with `plusLabel`) for a search-only bar (Projects sheet). */
+  onPlus?: () => void;
+  plusLabel?: string;
   testId?: string;
   inputTestId?: string;
   plusTestId?: string;
   /** Set when this login can't use `+`: the button dims, and a tap shows
    *  this note above it instead of calling `onPlus` (no hover on iOS). */
   plusBlockedNote?: string | null;
+  /** Drawn left of the search field (the Agents list's Home | Agents
+   *  toggle). The field shrinks to fit. */
+  leading?: ReactNode;
 }) {
   // Typing = keyboard up. The column above is already sized to the visual
   // viewport, so the home-indicator inset would be a dead gap over the
@@ -65,6 +70,7 @@ export function GlassSearchBar({
         zIndex: 4,
       }}
     >
+      {leading}
       <label
         className="flex-1 min-w-0 flex items-center zen-glass zen-glass-field"
         style={{
@@ -104,6 +110,7 @@ export function GlassSearchBar({
           {plusBlockedNote}
         </div>
       ) : null}
+      {onPlus ? (
       <button
         type="button"
         title={blocked ? plusBlockedNote ?? plusLabel : plusLabel}
@@ -126,6 +133,7 @@ export function GlassSearchBar({
       >
         <PlusGlyph />
       </button>
+      ) : null}
     </div>
   );
 }

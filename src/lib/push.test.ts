@@ -62,8 +62,9 @@ describe("tapPath", () => {
     expect(tapPath({ kind: "ticket", feedbackId: "  " }, { zen: true })).toBeNull();
   });
 
-  it("the project groupId route is unchanged", () => {
-    expect(tapPath({ kind: "project", groupId: "g-1" }, { zen: true })).toBe("/projects/g-1");
+  it("a project tap opens Zen Projects on that group; classic keeps its page", () => {
+    expect(tapPath({ kind: "project", groupId: "g-1" }, { zen: true })).toBe("/zen?project=g-1");
+    expect(tapPath({ kind: "project", groupId: "g-1" })).toBe("/zen?project=g-1");
     expect(tapPath({ kind: "project", groupId: "g-1" }, { zen: false })).toBe("/projects/g-1");
   });
 
@@ -105,6 +106,9 @@ describe("attachPushNavigation", () => {
     expect(navigate).toHaveBeenLastCalledWith("/feedback/warm-2");
     listeners.tap({ kind: "project", groupId: "g-9" });
     expect(navigate).toHaveBeenLastCalledWith("/projects/g-9");
+    path = "/zen";
+    listeners.tap({ kind: "project", groupId: "g-9" });
+    expect(navigate).toHaveBeenLastCalledWith("/zen?project=g-9");
   });
 
   it("ignores an unknown-kind tap", async () => {

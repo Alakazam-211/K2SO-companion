@@ -45,7 +45,8 @@ function lastSeenKey(serverId: string, groupId: string): string {
   return `k2_pg_seen.${serverId}.${groupId}`;
 }
 
-function getLastSeen(serverId: string, groupId: string): number {
+/** Exported for Zen's Projects badge, which shares these cursors. */
+export function getLastSeen(serverId: string, groupId: string): number {
   try {
     return (
       parseInt(localStorage.getItem(lastSeenKey(serverId, groupId)) ?? "0", 10) || 0
@@ -63,6 +64,16 @@ function setLastSeenNow(serverId: string, groupId: string): void {
     );
   } catch {
     /* private mode / quota — the dot just re-arms next launch */
+  }
+}
+
+/** Move the cursor to `at` (unix seconds), never backwards. */
+export function setLastSeen(serverId: string, groupId: string, at: number): void {
+  if (!Number.isFinite(at) || at <= getLastSeen(serverId, groupId)) return;
+  try {
+    localStorage.setItem(lastSeenKey(serverId, groupId), String(Math.floor(at)));
+  } catch {
+    /* private mode / quota */
   }
 }
 

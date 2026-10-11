@@ -5,6 +5,8 @@ import {
   getCliProjectsList,
   getFsReadFile,
   getActivitySnapshot,
+  FEATURE_THREAD_LATEST,
+  serverHasFeature,
   getAppSettings,
   getFocusGroupsList,
   assignFocusGroup as postAssignFocusGroup,
@@ -24,8 +26,10 @@ import {
 } from "../api/client";
 import {
   fetchProjectGroupMessages,
+  fetchProjectGroupResources,
   fetchProjectGroups,
   postProjectGroupMessage,
+  type ProjectGroup,
   type ProjectGroupMessage,
 } from "../api/projectGroups";
 import { ensureBootStatus, serverMemory, type ServerScope } from "../api/scope";
@@ -33,9 +37,19 @@ import { roomServerId, setRoomServer, zenScope } from "./zenScope";
 import { onServerForget, useServersStore } from "../stores/servers";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { sidecarRowId } from "./agentRow";
-import { buildServerRows, overlaySidecarAgent } from "./serverRows";
+import { buildServerRows, groupAgentRow, overlaySidecarAgent } from "./serverRows";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
-import { beginLastAt, fetchLastAtForKey, lastAtKey } from "./lastAtFetch";
+import {
+  beginLastAt,
+  fetchLastAtForKey,
+  fetchThreadLasts,
+  lastAtKey,
+  parseLastAtKey,
+  rowLastFromMessage,
+  sameRowLast,
+} from "./lastAtFetch";
+import type { RowLast } from "./rowPreview";
+import { readRowPreviews, writeRowPreviews } from "./rowPreviewCache";
 import { clearLegacyPinStore, insertPinned } from "./pinChats";
 import {
   FOCUS_OFF,
@@ -90,7 +104,7 @@ import {
   ownedWorkspacePath,
   usableFsPath,
 } from "./workspacePath";
-import { parseWorkspaceResources } from "./workspaceResources";
+import { parseGroupResources, parseWorkspaceResources } from "./workspaceResources";
 import {
   forgetHiddenSidecarAddrs,
   hideSidecarAddr,
@@ -100,6 +114,8 @@ import {
 } from "./overlayExtras";
 import { nextDrawerOrigin, readDrawerOrigin, writeDrawerOrigin } from "./sessionDrawer";
 import { canSidecar, type ActiveLlm } from "./llmPresets";
+import { markGroupSeenAt, type GroupPreview } from "./projectChats";
+import { activityForRow } from "./agentActivity";
 
 /** `openSidecar` options. `launch` picks the harness (default Claude);
  *  `existingAddrs` adds server addrs the agents list may not hold (hidden
@@ -162,6 +178,28 @@ type ZenState = {
   hydrateFiles: (dir: string, opts?: { refresh?: boolean }) => Promise<void>;
   hydrateThread: (addr: string) => Promise<void>;
   hydrateGroup: (groupId: string) => Promise<void>;
+  /** Files pane for a project chat: the group's own Workspace Resources
+   *  (`GET /cli/project-group/resources`, the union over its members). */
+  hydrateGroupFiles: (groupId: string, opts?: { refresh?: boolean }) => Promise<void>;
+  /** The Agents header's Projects sheet is up. Kept here (not in the
+   *  list's local state) so a project chat opened from it, and that
+   *  chat's terminal, return to the sheet. */
+  projectsOpen: boolean;
+  setProjectsOpen: (open: boolean) => void;
+  /** Open a project group's chat, adding its row if the list lacks it. */
+  openGroupChat: (
+    group: Pick<ProjectGroup, "id" | "name" | "memberCount"> & { color?: string | null }
+  ) => void;
+  /** Newest message per group id (Projects sheet line two). Null = none. */
+  groupPreviews: Record<string, GroupPreview | null>;
+  /** Re-read each group's newest message (`messages?limit=1`) on Zen's
+   *  server; also refreshes its group last-at, which drives order and
+   *  unread. */
+  refreshGroupPreviews: (groupIds: string[]) => Promise<void>;
+  /** Bumped when a project chat is marked seen (the badge re-reads). */
+  groupSeenRev: number;
+  /** The open project chat is on screen: its messages up to `lastAt` are seen. */
+  markGroupSeen: (groupId: string, lastAt?: number | null) => void;
   loadEarlier: () => Promise<void>;
   sendThread: (text: string) => Promise<void>;
   answerChoice: (messageId: string, option: string) => Promise<void>;
@@ -170,6 +208,16 @@ type ZenState = {
   /** Last-message unix seconds, keyed `t:<addr>` / `g:<groupId>`. Null = fetched empty. */
   lastAtByKey: Record<string, number | null>;
   ensureLastAt: (key: string) => void;
+  /** Line-two snippet per `lastAtKey` (`<serverId>|t:<addr>`), the same
+   *  item as its `lastAtByKey`. Undefined = not read yet; null = the
+   *  Thread has no messages. Seeded from this device's cache, so a cold
+   *  launch draws at once. */
+  previewByKey: Record<string, RowLast | null>;
+  /** Re-read row snippets on Zen's server: one batched `thread/latest`
+   *  (pure reads; no session wakes, no seen marks, no overlay socket). Per
+   *  addr at most every ~30 s unless `force`. No `addrs` = every row
+   *  already shown, and only on a server with `thread-latest`. */
+  refreshThreadPreviews: (opts?: { addrs?: string[]; force?: boolean }) => Promise<void>;
   /** Agent status for the Chats list (`GET /cli/activity/snapshot`). */
   activity: ActivitySnapshot;
   /** Main-chat vs other PTY ids, so a main row skips its sidecars' work. */
@@ -362,6 +410,90 @@ let focusServer: string | null = null;
 
 export const PIN_ERROR_MS = 4000;
 
+/** Agents-list row id for a project group. */
+export function groupRowId(groupId: string): string {
+  return `group:${groupId}`;
+}
+
+// Row snippets: per-key last read (throttle), the addrs waiting for the
+// next batched read (per server), and which servers' cached snippets were
+// already seeded. Keys are `lastAtKey`s, so two servers never mix (MA6).
+export const PREVIEW_REFRESH_MS = 30_000;
+const previewFetchedAt = new Map<string, number>();
+const previewPending = serverMemory(() => ({ addrs: new Set<string>(), queued: false }));
+const previewSeeded = new Set<string>();
+
+/** Tests only. */
+export function resetThreadPreviewQueue(): void {
+  previewFetchedAt.clear();
+  previewPending.clear();
+  previewSeeded.clear();
+}
+
+type PreviewSlice = Pick<ZenState, "lastAtByKey" | "previewByKey">;
+
+/** Merge snippets for `scope`'s rows. `event`: the phone holds the full
+ *  message (open Thread), so it may replace a flat preview of the same
+ *  item. Unchanged items keep the same objects (no re-render). Changed
+ *  ones are cached on this device under the server's host key. */
+function applyRowLasts(
+  s: PreviewSlice,
+  scope: ServerScope,
+  entries: Iterable<[string, RowLast | null]>,
+  event: boolean
+): PreviewSlice {
+  let previewByKey = s.previewByKey;
+  let lastAtByKey = s.lastAtByKey;
+  const changed: Record<string, RowLast | null> = {};
+  for (const [addr, last] of entries) {
+    const key = lastAtKey(scope.id, "thread", addr);
+    const cur = s.previewByKey[key];
+    const richer = event && !!cur?.flat && !!last && !last.flat;
+    if (sameRowLast(cur, last) && !richer) continue;
+    if (previewByKey === s.previewByKey) previewByKey = { ...s.previewByKey };
+    if (lastAtByKey === s.lastAtByKey) lastAtByKey = { ...s.lastAtByKey };
+    previewByKey[key] = last;
+    lastAtByKey[key] = last?.at ?? (event ? s.lastAtByKey[key] ?? null : null);
+    changed[addr] = last;
+  }
+  if (Object.keys(changed).length && scope.hostKey) writeRowPreviews(scope.hostKey, changed);
+  return { previewByKey, lastAtByKey };
+}
+
+/** The open Thread's newest message is that row's snippet now. */
+function threadRowPatch(
+  s: PreviewSlice,
+  scope: ServerScope,
+  addr: string,
+  m: ThreadMessage | undefined
+): PreviewSlice {
+  if (!m) {
+    const key = lastAtKey(scope.id, "thread", addr);
+    return { previewByKey: s.previewByKey, lastAtByKey: { ...s.lastAtByKey, [key]: s.lastAtByKey[key] ?? null } };
+  }
+  return applyRowLasts(s, scope, [[addr, rowLastFromMessage(m, addr, scope.username())]], true);
+}
+
+/** Projects sheet open, kept for a reload of a project chat's terminal. */
+const PROJECTS_OPEN_KEY = "k2-zen-projects-open";
+
+function readProjectsOpen(): boolean {
+  try {
+    return sessionStorage.getItem(PROJECTS_OPEN_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function writeProjectsOpen(open: boolean): void {
+  try {
+    if (open) sessionStorage.setItem(PROJECTS_OPEN_KEY, "1");
+    else sessionStorage.removeItem(PROJECTS_OPEN_KEY);
+  } catch {
+    /* private mode */
+  }
+}
+
 // Rooms (MS21): while a room is open on another server, the store holds
 // THAT server's rows (the room's header, drawer and terminal read them).
 // The active server's list is parked here and put back on Back, so the
@@ -475,6 +607,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   answerError: null,
   answerErrorId: null,
   lastAtByKey: {},
+  previewByKey: {},
   activity: EMPTY_ACTIVITY,
   chatSessions: NO_CHAT_SESSIONS,
   serverProjects: [],
@@ -685,6 +818,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const scope = zenScope();
     const mem = activityMem.get(scope.id);
     if (mem.inFlight) return;
+    // Row snippets ride the list's poll, throttled to ~30 s.
+    void get().refreshThreadPreviews().catch(() => {});
     const server = scope.id || null;
     // Another server's dots are not this one's.
     if (server !== activityServer) {
@@ -697,7 +832,22 @@ export const useZenStore = create<ZenState>((set, get) => ({
       if (zenId() !== scope.id) return;
       if (r.ok) {
         const next = parseActivitySnapshot(r.data);
-        if (!sameActivity(get().activity, next)) set({ activity: next });
+        const prev = get().activity;
+        if (!sameActivity(prev, next)) {
+          set({ activity: next });
+          // A turn ended: that agent likely just wrote. Re-read its snippet.
+          const sessions = get().chatSessions;
+          const done = get()
+            .agents.filter(
+              (a) =>
+                a.kind !== "group" &&
+                a.addr &&
+                activityForRow(a, prev, false, sessions) &&
+                !activityForRow(a, next, false, sessions)
+            )
+            .map((a) => a.addr as string);
+          if (done.length) void get().refreshThreadPreviews({ addrs: done, force: true });
+        }
       } else if (r.status === 404 && get().activity !== EMPTY_ACTIVITY) {
         // Pre-0.45 server: keep the list plain.
         set({ activity: EMPTY_ACTIVITY });
@@ -709,9 +859,73 @@ export const useZenStore = create<ZenState>((set, get) => ({
       mem.inFlight = false;
     }
   },
+  refreshThreadPreviews: async (opts) => {
+    if (get().agentSource !== "live") return;
+    const scope = zenScope();
+    if (!scope.id) return;
+    if (!previewSeeded.has(scope.id)) {
+      // First read on this server: its cached snippets, at once.
+      previewSeeded.add(scope.id);
+      const cached = scope.hostKey ? readRowPreviews(scope.hostKey) : {};
+      const previewByKey = { ...get().previewByKey };
+      const lastAtByKey = { ...get().lastAtByKey };
+      for (const [addr, last] of Object.entries(cached)) {
+        const key = lastAtKey(scope.id, "thread", addr);
+        if (previewByKey[key] === undefined) previewByKey[key] = last;
+        lastAtByKey[key] = lastAtByKey[key] ?? last?.at ?? null;
+      }
+      set({ previewByKey, lastAtByKey });
+    }
+    let addrs = opts?.addrs;
+    if (!addrs) {
+      // The sweep: one call for every row on screen, never N per-row GETs.
+      addrs = Object.keys(get().previewByKey)
+        .map((k) => parseLastAtKey(k))
+        .filter((k) => k?.serverId === scope.id && k.kind === "thread")
+        .map((k) => k!.id);
+      if (!addrs.length) return;
+      try {
+        if (!(await serverHasFeature(scope, FEATURE_THREAD_LATEST))) return;
+      } catch {
+        return;
+      }
+    }
+    const pending = previewPending.get(scope.id);
+    const now = Date.now();
+    for (const addr of addrs) {
+      if (!addr) continue;
+      const key = lastAtKey(scope.id, "thread", addr);
+      const at = previewFetchedAt.get(key);
+      if (!opts?.force && at != null && now - at < PREVIEW_REFRESH_MS) continue;
+      previewFetchedAt.set(key, now);
+      pending.addrs.add(addr);
+    }
+    if (!pending.addrs.size || pending.queued) return;
+    // Every row observed in this tick rides the same request.
+    pending.queued = true;
+    await Promise.resolve();
+    pending.queued = false;
+    const batch = [...pending.addrs];
+    pending.addrs.clear();
+    if (!batch.length) return;
+    try {
+      const { lasts } = await fetchThreadLasts(scope, batch, scope.username());
+      const next = applyRowLasts(get(), scope, lasts, false);
+      if (next.previewByKey !== get().previewByKey) set(next);
+    } catch {
+      // Keep what is on screen; the next visibility or sweep asks again.
+      for (const addr of batch) previewFetchedAt.delete(lastAtKey(scope.id, "thread", addr));
+    }
+  },
   ensureLastAt: (key) => {
     // `key` is a `lastAtKey` (`<serverId>|t:<addr>`): it fetches on its own
-    // server's scope (MA6).
+    // server's scope (MA6). A Thread row on Zen's server reads its snippet
+    // (which carries the time); other servers' rows read the time only.
+    const parsed = parseLastAtKey(key);
+    if (parsed?.kind === "thread" && parsed.serverId === zenId()) {
+      void get().refreshThreadPreviews({ addrs: [parsed.id] });
+      return;
+    }
     if (!beginLastAt(key)) return;
     void fetchLastAtForKey(key)
       .then((at) => {
@@ -935,6 +1149,93 @@ export const useZenStore = create<ZenState>((set, get) => ({
   focusId: null,
   fileReturn: "chat",
 
+  projectsOpen: readProjectsOpen(),
+  setProjectsOpen: (open) => {
+    writeProjectsOpen(open);
+    if (get().projectsOpen !== open) set({ projectsOpen: open });
+  },
+  groupPreviews: {},
+  refreshGroupPreviews: async (groupIds) => {
+    const scope = zenScope();
+    const ids = [...new Set(groupIds.map((x) => x.trim()).filter(Boolean))];
+    const got = await Promise.all(
+      ids.map(async (id) => {
+        try {
+          const r = await fetchProjectGroupMessages(scope, id, { limit: 1 });
+          if (!r.ok) return null;
+          const m = r.data?.messages?.[r.data.messages.length - 1];
+          const p: GroupPreview | null =
+            m && Number.isFinite(m.createdAt)
+              ? { at: m.createdAt, author: m.author || "", body: m.body || "" }
+              : null;
+          return [id, p] as const;
+        } catch {
+          return null;
+        }
+      })
+    );
+    if (zenId() !== scope.id) return;
+    const previews = { ...get().groupPreviews };
+    const lastAtByKey = { ...get().lastAtByKey };
+    for (const hit of got) {
+      if (!hit) continue;
+      const [id, p] = hit;
+      previews[id] = p;
+      lastAtByKey[lastAtKey(scope.id, "group", id)] = p?.at ?? null;
+    }
+    set({ groupPreviews: previews, lastAtByKey });
+    // A chat open right now stays seen.
+    const open = (get().threadGroupId || "").trim();
+    if (open && get().screen === "thread" && ids.includes(open)) {
+      get().markGroupSeen(open, previews[open]?.at ?? null);
+    }
+  },
+  groupSeenRev: 0,
+  markGroupSeen: (groupId, lastAt) => {
+    markGroupSeenAt(zenId() || null, groupId, lastAt);
+    set({ groupSeenRev: get().groupSeenRev + 1 });
+  },
+  openGroupChat: (group) => {
+    const id = groupRowId(group.id);
+    if (!get().agents.some((a) => a.id === id)) {
+      set({ agents: [groupAgentRow(group), ...get().agents] });
+    }
+    get().setAgent(id);
+  },
+
+  hydrateGroupFiles: async (groupId, opts) => {
+    const gen = get().filesGen + 1;
+    if (opts?.refresh && get().fileSource === "live") {
+      set({ filesGen: gen });
+    } else {
+      set({ filesGen: gen, files: keepOpenFiles(get()), fileError: null, fileSource: "loading" });
+    }
+    const apply = (patch: () => Partial<ZenState>) => {
+      if (get().filesGen !== gen) return;
+      set(patch());
+    };
+    try {
+      const r = await fetchProjectGroupResources(zenScope(), groupId);
+      // No resources route on this server: nothing pinned to show.
+      if (r.status === 404) {
+        apply(() => noResources(keepOpenFiles(get())));
+        return;
+      }
+      if (!r.ok || r.data === undefined) {
+        apply(() =>
+          failFiles(r.error || "Could not load Workspace Resources", keepOpenFiles(get()))
+        );
+        return;
+      }
+      const rows = parseGroupResources(r.data);
+      apply(() => noResources(mergeResources(rows ?? [], get())));
+    } catch (e) {
+      apply(() =>
+        failFiles(e instanceof Error ? e.message : String(e), keepOpenFiles(get()))
+      );
+    }
+  },
+
   hydrateGroup: async (groupId) => {
     const gen = get().threadGen + 1;
     set({
@@ -962,13 +1263,16 @@ export const useZenStore = create<ZenState>((set, get) => ({
         return;
       }
       const items = groupMessagesToThread(r.data?.messages ?? [], username);
+      const lastAt = items[items.length - 1]?.at ?? null;
       set({
         threadSource: "live",
         thread: items,
         threadError: null,
         threadHasMore: !!r.data?.truncated,
         threadOldestSeq: items.length ? 0 : null,
+        lastAtByKey: { ...get().lastAtByKey, [lastAtKey(scope.id, "group", groupId)]: lastAt },
       });
+      get().markGroupSeen(groupId, lastAt);
     } catch (e) {
       if (get().threadGen !== gen) return;
       set({
@@ -1035,11 +1339,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadConversationId: (r.data.conversation_id || "").trim() || null,
         threadHasMore: !!r.data.has_more,
         threadOldestSeq: oldestSeqOf(items),
-        lastAtByKey: {
-          ...get().lastAtByKey,
-          [lastAtKey(scope.id, "thread", addr)]:
-            last?.at ?? get().lastAtByKey[lastAtKey(scope.id, "thread", addr)] ?? null,
-        },
+        ...threadRowPatch(get(), scope, addr, last),
       });
     } catch (e) {
       if (get().threadGen !== gen) return;
@@ -1133,6 +1433,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
             [lastAtKey(scope.id, "group", groupId)]: row.createdAt,
           },
         });
+        get().markGroupSeen(groupId, row.createdAt);
       } catch (e) {
         if (get().threadGen !== gen) return;
         set({
@@ -1208,10 +1509,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
           get().threadConversationId,
         threadHasMore: !!reread.data.has_more,
         threadOldestSeq: oldestSeqOf(items),
-        lastAtByKey: {
-          ...get().lastAtByKey,
-          [lastAtKey(scope.id, "thread", addr)]: onWire.at ?? Date.now() / 1000,
-        },
+        // The row shows this send at once ("You: …").
+        ...threadRowPatch(get(), scope, addr, { ...onWire, at: onWire.at ?? Date.now() / 1000 }),
       });
     } catch (e) {
       if (get().threadGen !== gen) return;
@@ -1290,13 +1589,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       thread,
       threadSource: wasError ? "live" : get().threadSource,
       threadError: wasError ? null : get().threadError,
-      lastAtByKey: addr
-        ? {
-            ...get().lastAtByKey,
-            [lastAtKey(scope.id, "thread", addr)]:
-            last?.at ?? get().lastAtByKey[lastAtKey(scope.id, "thread", addr)] ?? null,
-          }
-        : get().lastAtByKey,
+      ...(addr ? threadRowPatch(get(), scope, addr, last) : {}),
     });
   },
 
@@ -1328,6 +1621,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
               last?.at ?? get().lastAtByKey[lastAtKey(scope.id, "group", groupId)] ?? null,
           },
         });
+        get().markGroupSeen(groupId, last?.at ?? null);
       } catch {
         /* keep what is on screen */
       }
@@ -1353,11 +1647,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadError: null,
         threadConversationId: conv,
         threadOldestSeq: get().threadOldestSeq ?? oldestSeqOf(thread),
-        lastAtByKey: {
-          ...get().lastAtByKey,
-          [lastAtKey(scope.id, "thread", addr)]:
-            last?.at ?? get().lastAtByKey[lastAtKey(scope.id, "thread", addr)] ?? null,
-        },
+        ...threadRowPatch(get(), scope, addr, last),
       });
     } catch {
       /* keep what is on screen */
@@ -1375,9 +1665,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
     });
     const row = get().agents.find((a) => a.id === id);
     if (row?.kind === "group" && row.groupId) {
-      // A project chat has no workspace, so no resources: show the note.
-      // Bump filesGen so an older agent's GET cannot land here.
-      set({ filesGen: get().filesGen + 1, ...noResources() });
+      // A project chat's Files are the group's own resources (its
+      // members' Workspace Resources). Stub mode has none: the note.
+      if (get().agentSource === "live") void get().hydrateGroupFiles(row.groupId);
+      else set({ filesGen: get().filesGen + 1, ...noResources() });
       void get().hydrateGroup(row.groupId);
       return;
     }
@@ -1768,7 +2059,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
     // sessions/events, so re-read the list every time the pane opens.
     if (!open || get().agentSource !== "live") return;
     const row = get().agents.find((a) => a.id === get().agentId);
-    if (row?.kind === "group") return;
+    if (row?.kind === "group") {
+      if (row.groupId) void get().hydrateGroupFiles(row.groupId, { refresh: true });
+      return;
+    }
     const owned = typeof row?.path === "string" ? row.path.trim() : "";
     if (owned) void get().hydrateFiles(owned, { refresh: true });
   },
