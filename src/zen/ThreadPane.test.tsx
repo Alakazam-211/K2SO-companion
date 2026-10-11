@@ -824,4 +824,40 @@ describe("ThreadPane", () => {
     render(<ThreadPane />);
     expect(connectOverlayEvents).not.toHaveBeenCalled();
   });
+
+  describe("composer field (iMessage layout)", () => {
+    const liveState = () =>
+      useZenStore.setState({
+        threadSource: "live",
+        threadAddr: "skin-test-a",
+        threadGroupId: null,
+        threadError: null,
+        sendError: null,
+        sending: false,
+        thread: [],
+      });
+
+    it("send is disabled with an empty draft and enabled after typing", () => {
+      liveState();
+      render(<ThreadPane />);
+      const send = screen.getByRole("button", { name: "Send" });
+      expect(send).toHaveProperty("disabled", true);
+      expect(send.getAttribute("type")).toBe("submit");
+      fireEvent.change(screen.getByTestId("composer-input"), { target: { value: "   " } });
+      expect(send).toHaveProperty("disabled", true);
+      fireEvent.change(screen.getByTestId("composer-input"), { target: { value: "hi" } });
+      expect(screen.getByTestId("composer-send")).toHaveProperty("disabled", false);
+      expect(screen.getByTestId("composer-send").querySelector("svg")).not.toBeNull();
+    });
+
+    it("renders attach, input and send inside the one field", () => {
+      liveState();
+      render(<ThreadPane />);
+      const field = screen.getByTestId("composer-field");
+      expect(field.contains(screen.getByTestId("composer-attach"))).toBe(true);
+      expect(field.contains(screen.getByTestId("composer-input"))).toBe(true);
+      expect(field.contains(screen.getByTestId("composer-send"))).toBe(true);
+      expect(screen.getByRole("button", { name: "Add file" })).not.toBeNull();
+    });
+  });
 });
