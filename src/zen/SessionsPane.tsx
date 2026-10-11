@@ -1,5 +1,11 @@
-import { useEffect, useRef, useState } from "react";
-import { getActivePresets } from "../api/client";
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  getActivePresets,
+  getChatCustomNames,
+  getChatList,
+  getThreadLatest,
+  getWorkspaceLiveSessions,
+} from "../api/client";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { activityColor, activityForRow, type RowActivity } from "./agentActivity";
 import { mainHandleOf, workspaceSessions } from "./sessionDrawer";
@@ -8,14 +14,44 @@ import { LlmIcon } from "./LlmIcon";
 import { llmIconSvg } from "./llmIcons";
 import { canSidecar, emojiByHarness, parseActiveLlms, type ActiveLlm } from "./llmPresets";
 import { PlusGlyph } from "./PlusGlyph";
-import { matchSidecarSession, type OverlaySidecar, type SessionSidecarInput } from "./sidecarRows";
+import {
+  buildHistory,
+  HISTORY_PAGE,
+  historyCandidates,
+  isConversationAddr,
+  latestBatches,
+  launchForHarness,
+  parseChatList,
+  parseCustomNames,
+  parseThreadLatest,
+  parseWorkspaceLive,
+  threadAddrOfLive,
+  type ChatListEntry,
+  type HistoryRow,
+  type LatestEntry,
+  type LiveWorkspaceSession,
+} from "./sessionHistory";
+import {
+  matchSidecarSession,
+  readRememberedSidecars,
+  type OverlaySidecar,
+  type SessionSidecarInput,
+} from "./sidecarRows";
 import type { StubAgent } from "./stubData";
+import { mountainTime } from "./threadModel";
+import { posixNormalize } from "./workspacePath";
 import { useZenStore } from "./zenStore";
 
 export const SESSIONS_EMPTY = "No other sessions in this workspace";
 export const NEW_SESSION_LABEL = "New session";
 /** Subtitle on a `+` choice the daemon can only run as a plain tab. */
 export const OPENS_AS_TERMINAL = "Opens as a terminal";
+export const ACTIVE_HEADING = "Active";
+export const HISTORY_HEADING = "History";
+export const HISTORY_EMPTY = "No past sessions";
+export const SHOW_MORE = "Show more";
+/** A live tab with no conversation (a blank shell): nothing to open. */
+export const NO_THREAD_HINT = "No thread — a plain shell";
 
 function activityWord(a: RowActivity): string {
   return a.display === "waiting" ? "Needs you" : a.display === "monitoring" ? "Monitoring" : "Working";
@@ -61,10 +97,24 @@ function Check() {
 
 const ROW =
   "w-full flex items-center gap-2 text-left px-3 py-2 border-b border-[var(--border)] bg-transparent";
+const HEADING = "px-3 pt-3 pb-1 text-[10px] tracking-widest text-[var(--text-muted)]";
 
-/** Tabs open in the open chat's workspace (`GET /cli/companion/sessions`).
- *  Same shell as the Files drawer. Main chat first, then sidecar chats as
- *  `agent/sidecar`, then plain terminals. */
+function When({ at }: { at: number | null }) {
+  const when = mountainTime(at);
+  if (!when) return null;
+  return (
+    <span className="truncate text-[10px] text-[var(--text-muted)]" data-testid="session-when">
+      {when}
+    </span>
+  );
+}
+
+/** Sessions in the open chat's workspace. Same shell as the Files drawer.
+ *  **Active** (`GET /cli/companion/sessions`): Main, sidecar chats as
+ *  `agent/sidecar`, then plain tabs. **+ New session**. **History**: past
+ *  conversations here that are not open (see `sessionHistory.ts`).
+ *  Every row opens its Thread in Done mode, never the terminal; the chat
+ *  header's Terminal button still reaches the PTY. */
 export function SessionsPane({
   agent,
   onClose,
@@ -88,6 +138,13 @@ export function SessionsPane({
   const [pendingId, setPendingId] = useState<string | null>(null);
   const [addError, setAddError] = useState<string | null>(null);
   const mounted = useRef(true);
+  /** `/cli/sessions/list-for-workspace`: plain tab → Thread addr. */
+  const [live, setLive] = useState<LiveWorkspaceSession[] | null>(null);
+  const [chats, setChats] = useState<ChatListEntry[] | null>(null);
+  const [names, setNames] = useState<Record<string, string>>({});
+  const [latest, setLatest] = useState<Map<string, LatestEntry>>(() => new Map());
+  const [historyLimit, setHistoryLimit] = useState(HISTORY_PAGE);
+  const [historyLoading, setHistoryLoading] = useState(true);
 
   useEffect(() => {
     mounted.current = true;
@@ -118,7 +175,44 @@ export function SessionsPane({
   }, []);
 
   const path = (agent?.path || "").trim();
-  const handle = mainHandleOf(agent?.addr);
+  // A History conversation (bare id) is not a workspace handle: use the
+  // workspace's main chat row on the same path.
+  const handle = isConversationAddr(agent?.addr)
+    ? mainHandleOf(
+        agents.find(
+          (a) =>
+            (a.path || "").trim() === path &&
+            a.kind !== "group" &&
+            !!a.addr &&
+            !a.addr.includes("/") &&
+            !isConversationAddr(a.addr)
+        )?.addr
+      )
+    : mainHandleOf(agent?.addr);
+
+  useEffect(() => {
+    if (!path) {
+      setLive([]);
+      setChats([]);
+      setHistoryLoading(false);
+      return;
+    }
+    let alive = true;
+    void Promise.all([
+      getWorkspaceLiveSessions(path).catch(() => null),
+      getChatList(path).catch(() => null),
+      getChatCustomNames().catch(() => null),
+    ]).then(([l, c, n]) => {
+      if (!alive) return;
+      setLive(l?.ok ? parseWorkspaceLive(l.data) : []);
+      setChats(c?.ok ? parseChatList(c.data) : []);
+      setNames(n?.ok ? parseCustomNames(n.data) : {});
+    });
+    return () => {
+      alive = false;
+    };
+  }, [path]);
+
   const mainRow =
     agents.find(
       (a) => (a.path || "").trim() === path && (a.addr || "").trim() === handle && a.kind !== "group"
@@ -143,6 +237,72 @@ export function SessionsPane({
   const hasOthers =
     currentAddr !== handle || listed.sidecars.length > 0 || listed.terminals.length > 0;
 
+  const liveById = new Map((live ?? []).map((l) => [l.sessionId, l]));
+  const terminalRows = listed.terminals.map((t) => ({
+    ...t,
+    addr: threadAddrOfLive(liveById.get(t.terminalId)),
+  }));
+  const activeAddrs = new Set<string>([
+    handle,
+    ...listed.sidecars.map((c) => c.addr),
+    ...terminalRows.map((t) => t.addr || ""),
+  ].filter(Boolean));
+  const liveConversations = (live ?? []).map((l) => l.conversationId || "").filter(Boolean);
+  const mainConversation = latest.get(handle)?.conversationId ?? null;
+  const activeConversations = new Set<string>(
+    [...liveConversations, mainConversation || ""].filter(Boolean)
+  );
+  const remembered = useMemo(() => {
+    const norm = posixNormalize(path);
+    return readRememberedSidecars().filter(
+      (r) => norm && posixNormalize(r.path) === norm && mainHandleOf(r.addr) === handle
+    );
+  }, [path, handle]);
+  const candidates = chats ? historyCandidates(chats, activeConversations) : [];
+  const page = candidates.slice(0, historyLimit);
+  const lookupKey = [handle, ...remembered.map((r) => r.addr), ...page.map((c) => c.id)].join(",");
+
+  useEffect(() => {
+    if (!chats || live === null) return;
+    const want = lookupKey.split(",").filter((a) => a && !latest.has(a));
+    if (want.length === 0) {
+      setHistoryLoading(false);
+      return;
+    }
+    let alive = true;
+    setHistoryLoading(true);
+    void Promise.all(
+      latestBatches(want).map((batch) => getThreadLatest(batch).catch(() => null))
+    ).then((results) => {
+      if (!alive) return;
+      const next = new Map(latest);
+      for (const r of results) {
+        if (!r?.ok) continue;
+        for (const [addr, entry] of parseThreadLatest(r.data)) next.set(addr, entry);
+      }
+      // A failed lookup must not loop: mark what came back empty as missing.
+      for (const a of want) if (!next.has(a)) next.set(a, { addr: a, conversationId: null, at: null, missing: true });
+      setLatest(next);
+      setHistoryLoading(false);
+    });
+    return () => {
+      alive = false;
+    };
+    // `latest` is read, not watched: it changes only from this effect.
+  }, [lookupKey, chats, live]);
+
+  const history: HistoryRow[] = chats
+    ? buildHistory({
+        chats: page,
+        names,
+        remembered,
+        latest,
+        activeAddrs,
+        activeConversations,
+      })
+    : [];
+  const historyMore = candidates.length > historyLimit;
+
   const pickMain = () => {
     onClose();
     openWorkspaceSession({ addr: handle, path });
@@ -150,6 +310,21 @@ export function SessionsPane({
   const pickSide = (side: OverlaySidecar) => {
     onClose();
     openWorkspaceSession({ addr: side.addr, path: side.path, side });
+  };
+  /** A plain tab opens its Thread (`ws/N` or conversation id), not the PTY. */
+  const pickTerminal = (t: { terminalId: string; title: string; addr: string | null }) => {
+    if (!t.addr) return;
+    pickSide({ addr: t.addr, path, name, chatTitle: t.title, terminalId: t.terminalId });
+  };
+  const pickHistory = (h: HistoryRow) => {
+    pickSide({
+      addr: h.addr,
+      path,
+      name,
+      chatTitle: h.label || h.title,
+      hostLive: false,
+      launch: launchForHarness(h.harness, llms),
+    });
   };
   const pickLlm = (llm: ActiveLlm) => {
     if (!agent || pendingId) return;
@@ -194,6 +369,9 @@ export function SessionsPane({
         </button>
       </div>
       <div className="flex-1 overflow-y-auto">
+        <div className={HEADING} data-testid="sessions-active">
+          {ACTIVE_HEADING}
+        </div>
         {handle ? (
           <button type="button" className={ROW} data-testid="session-row-main" onClick={pickMain}>
             {iconFor(listed.mainTerminalId)}
@@ -230,34 +408,38 @@ export function SessionsPane({
             {currentAddr === side.addr ? <Check /> : null}
           </button>
         ))}
-        {listed.terminals.length > 0 ? (
-          <>
-            <div
-              className="px-3 pt-3 pb-1 text-[10px] tracking-widest text-[var(--text-muted)]"
-              data-testid="sessions-terminals"
-            >
-              Terminals
-            </div>
-            {listed.terminals.map((t) => (
-              <button
-                key={t.terminalId}
-                type="button"
-                className={ROW}
-                data-testid="session-row-terminal"
-                onClick={() => {
-                  onClose();
-                  onOpenTerminal(t.terminalId, t.title);
-                }}
-              >
-                {iconFor(t.terminalId)}
-                <span className="flex flex-col flex-1 min-w-0">
-                  <span className="truncate text-[12px] text-[var(--text)]">{t.title}</span>
-                  <Status a={activityForRow({ terminalId: t.terminalId }, activity, true)} />
+        {terminalRows.map((t) => (
+          <button
+            key={t.terminalId}
+            type="button"
+            className={ROW}
+            data-testid="session-row-terminal"
+            data-thread-addr={t.addr || undefined}
+            disabled={!t.addr}
+            aria-disabled={!t.addr}
+            style={t.addr ? undefined : { opacity: 0.5 }}
+            onClick={() => pickTerminal(t)}
+          >
+            {iconFor(t.terminalId)}
+            <span className="flex flex-col flex-1 min-w-0">
+              <span className="truncate text-[12px] text-[var(--text)]">{t.title}</span>
+              {t.addr ? (
+                t.addr.includes("/") ? (
+                  <span className="truncate text-[10px] text-[var(--text-muted)]">{t.addr}</span>
+                ) : null
+              ) : (
+                <span
+                  className="truncate text-[10px] text-[var(--text-muted)]"
+                  data-testid="session-no-thread"
+                >
+                  {live === null ? "loading" : NO_THREAD_HINT}
                 </span>
-              </button>
-            ))}
-          </>
-        ) : null}
+              )}
+              <Status a={activityForRow({ terminalId: t.terminalId }, activity, true)} />
+            </span>
+            {t.addr && currentAddr === t.addr ? <Check /> : null}
+          </button>
+        ))}
         {!hasOthers ? (
           <div className="px-3 py-2 text-[12px] text-[var(--text-muted)]" data-testid="sessions-empty">
             {loading && sessions.length === 0 ? "loading" : SESSIONS_EMPTY}
@@ -328,6 +510,53 @@ export function SessionsPane({
                 {addError}
               </p>
             ) : null}
+          </div>
+        ) : null}
+        <div className={HEADING} data-testid="sessions-history">
+          {HISTORY_HEADING}
+        </div>
+        {history.map((h) => (
+          <button
+            key={h.addr}
+            type="button"
+            className={ROW}
+            data-testid="session-row-history"
+            data-thread-addr={h.addr}
+            onClick={() => pickHistory(h)}
+          >
+            {(() => {
+              const emoji = h.harness && !llmIconSvg(h.harness) ? emojis[h.harness] ?? null : null;
+              return <LlmIcon harness={h.harness} emoji={emoji} />;
+            })()}
+            <span className="flex flex-col flex-1 min-w-0">
+              <span className="truncate text-[12px] text-[var(--text)]">{h.title}</span>
+              {h.label ? (
+                <span className="truncate text-[10px] text-[var(--text-muted)]">{h.label}</span>
+              ) : null}
+              <When at={h.at} />
+            </span>
+            {currentAddr === h.addr ? <Check /> : null}
+          </button>
+        ))}
+        {history.length === 0 ? (
+          <div
+            className="px-3 py-2 text-[12px] text-[var(--text-muted)]"
+            data-testid="sessions-history-empty"
+          >
+            {historyLoading || chats === null ? "loading" : HISTORY_EMPTY}
+          </div>
+        ) : null}
+        {historyMore ? (
+          <div className="p-2">
+            <button
+              type="button"
+              className="w-full text-center text-[12px] text-[var(--text-muted)] bg-transparent py-1"
+              data-testid="sessions-history-more"
+              disabled={historyLoading}
+              onClick={() => setHistoryLimit((n) => n + HISTORY_PAGE)}
+            >
+              {historyLoading ? "loading" : SHOW_MORE}
+            </button>
           </div>
         ) : null}
       </div>

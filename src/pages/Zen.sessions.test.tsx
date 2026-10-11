@@ -23,6 +23,10 @@ vi.mock("../api/client", () => ({
   uploadFsBinary: vi.fn(),
   setTabTitle: vi.fn(async () => ({ ok: true, data: { success: true } })),
   setSessionLabel: vi.fn(async () => ({ ok: true, data: { success: true } })),
+  getWorkspaceLiveSessions: vi.fn(async () => ({ ok: true, data: [] })),
+  getChatList: vi.fn(async () => ({ ok: true, data: [] })),
+  getChatCustomNames: vi.fn(async () => ({ ok: true, data: {} })),
+  getThreadLatest: vi.fn(async () => ({ ok: true, data: { items: [] } })),
 }));
 
 vi.mock("../api/projectGroups", () => ({
@@ -37,10 +41,16 @@ vi.mock("../api/projectGroups", () => ({
 import {
   getActivePresets,
   getAllSessions,
+  getChatCustomNames,
+  getChatList,
+  getThreadLatest,
   getToken,
+  getWorkspaceLiveSessions,
   spawnSidecarSession,
   spawnTabSession,
 } from "../api/client";
+import { SIDECAR_STORAGE_KEY } from "../zen/sidecarRows";
+import { mountainTime } from "../zen/threadModel";
 import { useServersStore } from "../stores/servers";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { DRAWER_ORIGIN_KEY } from "../zen/sessionDrawer";
@@ -62,6 +72,64 @@ const PRESETS = [
   { id: "p-codex", name: "Codex", command: "codex --yolo", icon: "" },
   { id: "p-aider", name: "Aider", command: "aider", icon: "" },
 ];
+
+/** GET /cli/sessions/list-for-workspace?path=/ws: kind, handle, conversationId per PTY. */
+const LIVE = [
+  { sessionId: "t-main", agentName: "k2", kind: "canonical", handle: "k2", conversationId: "c-main", command: "claude" },
+  { sessionId: "t-rev", agentName: "reviewer", kind: "other", handle: "", conversationId: "c-rev", command: "grok" },
+  { sessionId: "t-1", agentName: "1", kind: "other", handle: "", conversationId: "c-1", command: "codex" },
+  { sessionId: "t-zsh", agentName: "tab-6b1c", kind: "other", handle: "", command: null },
+  { sessionId: "t-77", agentName: "tab-77", kind: "sidecar", handle: "k2/3", conversationId: "c-77", command: "claude" },
+];
+/** A desktop `+` tab running Claude: a plain tab with its own Thread (`k2/3`). */
+const SCRATCH = { ...base, cwd: "/ws", agentName: "tab-77", terminalId: "t-77", label: "Scratch", command: "claude" };
+
+const NOW = Math.floor(Date.now() / 1000);
+/** GET /cli/chat/list?project_path=/ws (timestamps in ms). */
+const CHATS = [
+  { sessionId: "c-main", provider: "claude", title: "pinned main", timestamp: (NOW - 60) * 1000, archived: false },
+  { sessionId: "c-rev", provider: "grok", title: "open reviewer", timestamp: (NOW - 120) * 1000, archived: false },
+  { sessionId: "c-old1", provider: "codex", title: "Refactor login\nmore text", timestamp: (NOW - 3 * 86400) * 1000, archived: false },
+  { sessionId: "0a0b0c0d-0000-4000-8000-000000000002", provider: "claude", title: "first message", timestamp: (NOW - 3600) * 1000, archived: false },
+  { sessionId: "c-old3", provider: "grok", title: "grok chat", timestamp: (NOW - 10000) * 1000, archived: false },
+  { sessionId: "c-gone", provider: "claude", title: "never in K2", timestamp: (NOW - 30) * 1000, archived: false },
+  { sessionId: "c-arch", provider: "claude", title: "archived", timestamp: (NOW - 40) * 1000, archived: true },
+];
+/** GET /cli/thread/latest rows by addr; anything else is not_found. */
+const LATEST: Record<string, { conversationId: string; at: number | null }> = {
+  k2: { conversationId: "c-main", at: NOW - 60 },
+  "k2/old": { conversationId: "c-old3", at: NOW - 7200 },
+  "c-old1": { conversationId: "c-old1", at: null },
+  "0a0b0c0d-0000-4000-8000-000000000002": { conversationId: "0a0b0c0d-0000-4000-8000-000000000002", at: NOW - 5000 },
+  "c-old3": { conversationId: "c-old3", at: NOW - 7200 },
+  "c-main": { conversationId: "c-main", at: NOW - 60 },
+  "c-rev": { conversationId: "c-rev", at: NOW - 120 },
+};
+function latestFor(addrs: string[]) {
+  return {
+    ok: true,
+    data: {
+      items: addrs.map((addr) => {
+        const hit = LATEST[addr] ?? (addr.startsWith("c-bulk") ? { conversationId: addr, at: NOW - 100 } : null);
+        return hit
+          ? { addr, conversationId: hit.conversationId, at: hit.at, seq: 1 }
+          : { addr, error: { code: "not_found", hint: `unknown overlay addr '${addr}'` } };
+      }),
+    },
+  };
+}
+
+function mockHistory(chats: unknown[] = CHATS) {
+  vi.mocked(getWorkspaceLiveSessions).mockResolvedValue({ ok: true, data: LIVE } as never);
+  vi.mocked(getChatList).mockResolvedValue({ ok: true, data: chats } as never);
+  vi.mocked(getChatCustomNames).mockResolvedValue({
+    ok: true,
+    data: { "claude:0a0b0c0d-0000-4000-8000-000000000002": "Planning", "claude:c-gone": "Ghost" },
+  } as never);
+  vi.mocked(getThreadLatest).mockImplementation(
+    async (addrs: string[]) => latestFor(addrs) as never
+  );
+}
 
 const MAIN = {
   id: "/ws",
@@ -126,6 +194,8 @@ beforeEach(() => {
     recovery: { s1: "connected" },
   });
   useWorkspacesStore.setState({ allSessions: [] });
+  localStorage.clear();
+  mockHistory();
 });
 
 afterEach(() => {
@@ -137,7 +207,24 @@ afterEach(() => {
   vi.mocked(getActivePresets).mockResolvedValue({ ok: true, data: [] } as never);
   vi.mocked(spawnSidecarSession).mockReset();
   vi.mocked(spawnTabSession).mockReset();
+  vi.mocked(getThreadLatest).mockReset();
+  localStorage.clear();
 });
+
+async function openDrawer() {
+  fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+  return screen.findByTestId("sessions-drawer");
+}
+
+function rememberOld() {
+  localStorage.setItem(
+    SIDECAR_STORAGE_KEY,
+    JSON.stringify([
+      { addr: "k2/old", path: "/ws", name: "K2", chatTitle: "Old reviewer" },
+      { addr: "other/9", path: "/other", name: "Other", chatTitle: "elsewhere" },
+    ])
+  );
+}
 
 describe("Zen Sessions drawer", () => {
   it("header buttons run terminal, sessions, files", async () => {
@@ -156,14 +243,13 @@ describe("Zen Sessions drawer", () => {
     expect(sessions.style.height).toBe(files.style.height);
   });
 
-  it("lists main first, then this workspace's sidecars as agent/sidecar, then terminals", async () => {
+  it("Active lists main, then sidecars as agent/sidecar, then plain terminals; no Terminals heading", async () => {
     await openMain();
-    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
-    const drawer = await screen.findByTestId("sessions-drawer");
+    const drawer = await openDrawer();
     await within(drawer).findByText("k2/reviewer");
     const rows = within(drawer)
       .getAllByRole("button")
-      .filter((b) => (b.getAttribute("data-testid") || "").startsWith("session-row"));
+      .filter((b) => /^session-row-(main|sidecar|terminal)$/.test(b.getAttribute("data-testid") || ""));
     expect(rows.map((r) => r.getAttribute("data-testid"))).toEqual([
       "session-row-main",
       "session-row-sidecar",
@@ -177,8 +263,147 @@ describe("Zen Sessions drawer", () => {
     expect(rows[2].textContent).toContain("k2/1");
     expect(rows[3].textContent).toContain("zsh");
     expect(within(drawer).queryByText(/elsewhere|other\/x/)).toBeNull();
-    expect(within(drawer).getByTestId("sessions-terminals")).not.toBeNull();
+    expect(within(drawer).getByTestId("sessions-active").textContent).toBe("Active");
+    expect(within(drawer).queryByText("Terminals")).toBeNull();
+    expect(within(drawer).queryByTestId("sessions-terminals")).toBeNull();
     expect(within(drawer).queryByTestId("sessions-empty")).toBeNull();
+  });
+
+  it("reads Active, + New session, History top to bottom", async () => {
+    vi.mocked(getActivePresets).mockResolvedValue({ ok: true, data: PRESETS } as never);
+    await openMain();
+    const drawer = await openDrawer();
+    await within(drawer).findByTestId("sessions-new");
+    await within(drawer).findAllByTestId("session-row-history");
+    const order = Array.from(drawer.querySelectorAll("[data-testid]"))
+      .map((el) => el.getAttribute("data-testid"))
+      .filter((id) =>
+        ["sessions-active", "session-row-main", "session-row-terminal", "sessions-new", "sessions-history", "session-row-history"].includes(id || "")
+      );
+    const first = (id: string) => order.indexOf(id);
+    expect(first("sessions-active")).toBe(0);
+    expect(first("session-row-main")).toBeGreaterThan(first("sessions-active"));
+    expect(first("session-row-terminal")).toBeLessThan(first("sessions-new"));
+    expect(first("sessions-new")).toBeLessThan(first("sessions-history"));
+    expect(first("sessions-history")).toBeLessThan(first("session-row-history"));
+    expect(order.lastIndexOf("session-row-terminal")).toBeLessThan(first("sessions-new"));
+    expect(within(drawer).getByTestId("sessions-history").textContent).toBe("History");
+  });
+
+  it("History leaves out open sessions, archived and K2-less chats; newest first with the date", async () => {
+    rememberOld();
+    await openMain();
+    const drawer = await openDrawer();
+    await waitFor(() => expect(within(drawer).getAllByTestId("session-row-history")).toHaveLength(3));
+    const rows = within(drawer).getAllByTestId("session-row-history");
+    // 0a0b0c0d-0000-4000-8000-000000000002 (named "Planning", 1h ago) > k2/old (2h; its chat c-old3 merges in) > c-old1 (3d).
+    expect(rows.map((r) => r.getAttribute("data-thread-addr"))).toEqual(["0a0b0c0d-0000-4000-8000-000000000002", "k2/old", "c-old1"]);
+    expect(rows[0].textContent).toContain("Planning");
+    expect(rows[1].textContent).toContain("k2/old");
+    expect(rows[1].textContent).toContain("Old reviewer");
+    expect(rows[2].textContent).toContain("Refactor login");
+    expect(rows[2].textContent).not.toContain("more text");
+    expect(within(rows[0]).getByTestId("session-when").textContent).toBe(mountainTime(NOW - 3600));
+    expect(within(rows[1]).getByTestId("session-when").textContent).toBe(mountainTime(NOW - 7200));
+    expect(within(rows[2]).getByTestId("session-when").textContent).toBe(mountainTime(NOW - 3 * 86400));
+    // Same row shape as Active: the LLM mark leads.
+    expect(rows.map((r) => within(r).getByTestId("llm-icon").getAttribute("data-llm"))).toEqual([
+      "claude",
+      "grok",
+      "codex",
+    ]);
+    const text = drawer.textContent || "";
+    for (const gone of ["pinned main", "open reviewer", "Ghost", "never in K2", "archived", "elsewhere"]) {
+      expect(text).not.toContain(gone);
+    }
+    // Every lookup stays within the route's 50-addr cap.
+    for (const [addrs] of vi.mocked(getThreadLatest).mock.calls) expect(addrs.length).toBeLessThanOrEqual(50);
+    expect(getChatList).toHaveBeenCalledWith("/ws");
+    expect(getWorkspaceLiveSessions).toHaveBeenCalledWith("/ws");
+  });
+
+  it("History shows the empty state when there are no past sessions", async () => {
+    mockHistory([]);
+    await openMain();
+    const drawer = await openDrawer();
+    await waitFor(() =>
+      expect(within(drawer).getByTestId("sessions-history-empty").textContent).toBe("No past sessions")
+    );
+    expect(within(drawer).queryAllByTestId("session-row-history")).toHaveLength(0);
+  });
+
+  it("History caps at 50 and Show more loads the next page", async () => {
+    const bulk = Array.from({ length: 60 }, (_, i) => ({
+      sessionId: `c-bulk-${i}`,
+      provider: "claude",
+      title: `bulk ${i}`,
+      timestamp: (NOW - 1000 - i) * 1000,
+      archived: false,
+    }));
+    mockHistory(bulk);
+    await openMain();
+    const drawer = await openDrawer();
+    await waitFor(() => expect(within(drawer).getAllByTestId("session-row-history")).toHaveLength(50));
+    fireEvent.click(within(drawer).getByTestId("sessions-history-more"));
+    await waitFor(() => expect(within(drawer).getAllByTestId("session-row-history")).toHaveLength(60));
+    expect(within(drawer).queryByTestId("sessions-history-more")).toBeNull();
+    const rows = within(drawer).getAllByTestId("session-row-history");
+    expect(rows[0].getAttribute("data-thread-addr")).toBe("c-bulk-0");
+    expect(rows[59].getAttribute("data-thread-addr")).toBe("c-bulk-59");
+  });
+
+  it("a History row opens its Thread in Done mode, never the terminal", async () => {
+    await openMain();
+    const drawer = await openDrawer();
+    const row = (await within(drawer).findAllByTestId("session-row-history")).find(
+      (r) => r.getAttribute("data-thread-addr") === "0a0b0c0d-0000-4000-8000-000000000002"
+    )!;
+    fireEvent.click(row);
+    expect(useZenStore.getState().threadAddr).toBe("0a0b0c0d-0000-4000-8000-000000000002");
+    expect(useZenStore.getState().drawerOrigin).toBe(MAIN.id);
+    expect(screen.queryByTestId("sessions-drawer")).toBeNull();
+    expect(screen.getByTestId("chat-done").textContent).toBe("Done");
+    expect(screen.queryByTestId("term-loc")).toBeNull();
+    expect(spawnSidecarSession).not.toHaveBeenCalled();
+    // A hostless History conversation stays out of the Chats list.
+    const added = useZenStore.getState().agents.find((a) => a.addr === "0a0b0c0d-0000-4000-8000-000000000002");
+    expect(added?.hostLive).toBe(false);
+    // Reopened from that Thread, the drawer still knows the workspace's Main.
+    const again = await openDrawer();
+    const main = await within(again).findByTestId("session-row-main");
+    expect(main.textContent).toContain("k2");
+    expect(within(main).queryByTestId("session-current")).toBeNull();
+    await within(again).findByText("k2/reviewer");
+    const picked = (await within(again).findAllByTestId("session-row-history")).find(
+      (r) => r.getAttribute("data-thread-addr") === "0a0b0c0d-0000-4000-8000-000000000002"
+    )!;
+    expect(within(picked).getByTestId("session-current")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    fireEvent.click(screen.getByTestId("chat-done"));
+    expect(useZenStore.getState().threadAddr).toBe("k2");
+  });
+
+  it("a remembered History sidecar respawns with its own LLM, not Claude", async () => {
+    rememberOld();
+    vi.mocked(spawnSidecarSession).mockResolvedValue({
+      ok: true,
+      data: { sessionId: "t-old", agentName: "old" },
+    } as never);
+    await openMain();
+    const drawer = await openDrawer();
+    const row = (await within(drawer).findAllByTestId("session-row-history")).find(
+      (r) => r.getAttribute("data-thread-addr") === "k2/old"
+    )!;
+    fireEvent.click(row);
+    expect(useZenStore.getState().threadAddr).toBe("k2/old");
+    expect(screen.getByTestId("chat-done").textContent).toBe("Done");
+    await waitFor(() =>
+      expect(spawnSidecarSession).toHaveBeenCalledWith("/ws", "old", "Old reviewer", {
+        command: "grok",
+        args: [],
+      })
+    );
+    expect(screen.queryByTestId("term-loc")).toBeNull();
   });
 
   it("shows the empty state when the workspace has only its main chat", async () => {
@@ -217,12 +442,35 @@ describe("Zen Sessions drawer", () => {
     );
   });
 
-  it("a plain terminal row opens that terminal", async () => {
-    await openMain();
-    await pick("zsh");
+  it("a plain terminal row opens its Thread (ws/N) in Done mode, not the terminal", async () => {
+    await openMain([...SESSIONS, SCRATCH]);
+    await pick("Scratch");
+    expect(useZenStore.getState().threadAddr).toBe("k2/3");
+    expect(useZenStore.getState().drawerOrigin).toBe(MAIN.id);
+    expect(screen.getByTestId("chat-done").textContent).toBe("Done");
+    expect(screen.queryByTestId("term-loc")).toBeNull();
+    // Its own live PTY hosts it: no second host is spawned.
+    await waitFor(() => expect(getAllSessions).toHaveBeenCalled());
+    expect(spawnSidecarSession).not.toHaveBeenCalled();
+    // The header's Terminal button still reaches that PTY.
+    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
     await waitFor(() =>
-      expect(screen.getByTestId("term-loc").textContent).toBe("/zen/terminal/t-zsh")
+      expect(screen.getByTestId("term-loc").textContent).toBe("/zen/terminal/t-77")
     );
+  });
+
+  it("a blank shell with no thread is disabled with a hint and opens nothing", async () => {
+    await openMain();
+    const drawer = await openDrawer();
+    const zsh = (await within(drawer).findByText("zsh")).closest("button")!;
+    await waitFor(() =>
+      expect(within(zsh).getByTestId("session-no-thread").textContent).toBe("No thread — a plain shell")
+    );
+    expect((zsh as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(zsh);
+    expect(screen.getByTestId("sessions-drawer")).not.toBeNull();
+    expect(useZenStore.getState().threadAddr).toBe("k2");
+    expect(screen.queryByTestId("term-loc")).toBeNull();
   });
 
   it("Done returns to the original chat after two picks in a row", async () => {
