@@ -3,7 +3,6 @@ import {
   getAgentList,
   getAllSessions,
   getCliProjectsList,
-  getFsReadDir,
   getFsReadFile,
   getActivitySnapshot,
   getThread,
@@ -13,7 +12,7 @@ import {
   setSessionLabel,
   setTabTitle,
   spawnSidecarSession,
-  type FsDirEntry,
+  getWorkspaceResources,
   type GlobalSession,
   type ThreadItem,
 } from "../api/client";
@@ -68,12 +67,11 @@ import {
 import {
   NO_WORKSPACE_PATH,
   PATH_NOT_OWNED,
-  ROOT_LISTING_HIDDEN,
   isUnderWorkspace,
-  looksLikeRootListing,
   ownedWorkspacePath,
   usableFsPath,
 } from "./workspacePath";
+import { parseWorkspaceResources } from "./workspaceResources";
 import { hideSidecarAddr, isOverlayExtraAddr, readHiddenSidecarAddrs, unhideSidecarAddr } from "./overlayExtras";
 
 export type DataSource = "stub" | "live" | "error" | "loading";
@@ -87,27 +85,6 @@ export function sourceWord(s: DataSource): "LIVE" | "STUB" | "ERROR" | "LOADING"
   if (s === "error") return "ERROR";
   if (s === "loading") return "LOADING";
   return "STUB";
-}
-
-function dirEntries(data: unknown): FsDirEntry[] {
-  const arr = Array.isArray(data)
-    ? data
-    : data &&
-        typeof data === "object" &&
-        Array.isArray((data as { entries?: unknown }).entries)
-      ? ((data as { entries: unknown[] }).entries)
-      : [];
-  return arr
-    .map((raw) => {
-      const e = raw as Record<string, unknown>;
-      return {
-        name: String(e.name ?? ""),
-        path: String(e.path ?? e.name ?? ""),
-        isDirectory: Boolean(e.isDirectory ?? e.is_directory),
-        size: typeof e.size === "number" ? e.size : undefined,
-      };
-    })
-    .filter((e) => e.name && e.path);
 }
 
 type ZenState = {
@@ -135,7 +112,9 @@ type ZenState = {
   answerError: string | null;
   answerErrorId: string | null;
   hydrateAgents: (opts?: { resumeId?: string }) => Promise<void>;
-  hydrateFiles: (dir: string) => Promise<void>;
+  /** Workspace Resources for `dir` (this agent's own path). `refresh`
+   *  keeps a live list on screen while it re-reads. */
+  hydrateFiles: (dir: string, opts?: { refresh?: boolean }) => Promise<void>;
   hydrateThread: (addr: string) => Promise<void>;
   hydrateGroup: (groupId: string) => Promise<void>;
   loadEarlier: () => Promise<void>;
@@ -185,8 +164,38 @@ type ZenState = {
   setSplitRatio: (n: number) => void;
 };
 
-function failFiles(message: string): Pick<ZenState, "fileSource" | "files" | "fileError"> {
-  return { fileSource: "error", files: [], fileError: message };
+function failFiles(
+  message: string,
+  keep: StubFile[] = []
+): Pick<ZenState, "fileSource" | "files" | "fileError"> {
+  return { fileSource: "error", files: keep, fileError: message };
+}
+
+/** Live and empty: the pane shows the "No Workspace Resources yet" note. */
+function noResources(keep: StubFile[] = []): Pick<ZenState, "fileSource" | "files" | "fileError"> {
+  return { fileSource: "live", files: keep, fileError: null };
+}
+
+/** Files that are open in a tab survive a resources re-read: an open
+ *  file the new list dropped stays as a chat-link file. */
+function keepOpenFiles(s: Pick<ZenState, "files" | "openFileIds">): StubFile[] {
+  return s.files
+    .filter((f) => s.openFileIds.includes(f.id))
+    .map((f) => ({ ...f, linked: true }));
+}
+
+/** New resource rows plus open tabs. Reuse a body already read. */
+function mergeResources(
+  rows: StubFile[],
+  s: Pick<ZenState, "files" | "openFileIds">
+): StubFile[] {
+  const prev = new Map(s.files.map((f) => [f.id, f]));
+  const listed = rows.map((r) => {
+    const body = prev.get(r.id)?.body;
+    return body ? { ...r, body } : r;
+  });
+  const ids = new Set(listed.map((f) => f.id));
+  return [...listed, ...keepOpenFiles(s).filter((f) => !ids.has(f.id))];
 }
 
 function overlaySidecarAgent(
@@ -593,7 +602,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
   },
 
-  hydrateFiles: async (dir) => {
+  hydrateFiles: async (dir, opts) => {
     const gen = get().filesGen + 1;
     const agent = get().agents.find((a) => a.id === get().agentId);
     const owned = typeof agent?.path === "string" ? agent.path.trim() : "";
@@ -601,36 +610,45 @@ export const useZenStore = create<ZenState>((set, get) => ({
     if (!usable) {
       const reason =
         owned && dir !== owned ? PATH_NOT_OWNED : NO_WORKSPACE_PATH;
-      set({ filesGen: gen, ...failFiles(reason) });
+      set({ filesGen: gen, ...failFiles(reason, keepOpenFiles(get())) });
       return;
     }
-    set({ filesGen: gen, files: [], fileError: null, fileSource: "loading" });
-    const apply = (patch: Partial<ZenState>) => {
+    // A re-read on open keeps the live list up instead of flashing loading.
+    if (opts?.refresh && get().fileSource === "live") {
+      set({ filesGen: gen });
+    } else {
+      set({
+        filesGen: gen,
+        files: keepOpenFiles(get()),
+        fileError: null,
+        fileSource: "loading",
+      });
+    }
+    // Build the patch at apply time: tabs may open while the GET is out.
+    const apply = (patch: () => Partial<ZenState>) => {
       if (get().filesGen !== gen) return;
-      set(patch);
+      set(patch());
     };
     try {
-      const r = await getFsReadDir(usable);
+      const r = await getWorkspaceResources(usable);
+      // 404 is a pre-0.45 server ("route not found") or a workspace the
+      // daemon does not know. Either way there is nothing pinned to show.
+      if (r.status === 404) {
+        apply(() => noResources(keepOpenFiles(get())));
+        return;
+      }
       if (!r.ok || r.data === undefined) {
-        apply(failFiles(r.error || "read-dir failed"));
+        apply(() =>
+          failFiles(r.error || "Could not load Workspace Resources", keepOpenFiles(get()))
+        );
         return;
       }
-      const entries = dirEntries(r.data);
-      if (looksLikeRootListing(entries)) {
-        apply(failFiles(ROOT_LISTING_HIDDEN));
-        return;
-      }
-      const files: StubFile[] = entries
-        .filter((e) => !e.isDirectory && !e.name.startsWith("."))
-        .slice(0, 200)
-        .map((e) => ({ id: e.path, name: e.name, body: "" }));
-      apply({
-        fileSource: "live",
-        files,
-        fileError: null,
-      });
+      const rows = parseWorkspaceResources(r.data, usable);
+      apply(() => noResources(mergeResources(rows ?? [], get())));
     } catch (e) {
-      apply(failFiles(e instanceof Error ? e.message : String(e)));
+      apply(() =>
+        failFiles(e instanceof Error ? e.message : String(e), keepOpenFiles(get()))
+      );
     }
   },
 
@@ -1073,13 +1091,17 @@ export const useZenStore = create<ZenState>((set, get) => ({
     });
     const row = get().agents.find((a) => a.id === id);
     if (row?.kind === "group" && row.groupId) {
-      set(failFiles("Files are per workspace, not per project chat."));
+      // A project chat has no workspace, so no resources: show the note.
+      // Bump filesGen so an older agent's GET cannot land here.
+      set({ filesGen: get().filesGen + 1, ...noResources() });
       void get().hydrateGroup(row.groupId);
       return;
     }
     const owned = typeof row?.path === "string" ? row.path.trim() : "";
     if (owned) void get().hydrateFiles(owned);
-    else if (get().agentSource !== "stub") set(failFiles(NO_WORKSPACE_PATH));
+    else if (get().agentSource !== "stub") {
+      set({ filesGen: get().filesGen + 1, ...failFiles(NO_WORKSPACE_PATH) });
+    }
     if (get().agentSource === "stub") {
       void get().hydrateThread(id);
       return;
@@ -1304,9 +1326,21 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadConversationId: null,
       files: [],
     }),
-  toggleFiles: () => set({ filesOpen: !get().filesOpen }),
+  toggleFiles: () => {
+    const open = !get().filesOpen;
+    set({ filesOpen: open });
+    // The phone does not hear `workspace_resources_changed` on
+    // sessions/events, so re-read the list every time the pane opens.
+    if (!open || get().agentSource !== "live") return;
+    const row = get().agents.find((a) => a.id === get().agentId);
+    if (row?.kind === "group") return;
+    const owned = typeof row?.path === "string" ? row.path.trim() : "";
+    if (owned) void get().hydrateFiles(owned, { refresh: true });
+  },
 
   openFile: (id) => {
+    // A pinned file that is gone from disk is listed but not openable.
+    if (get().files.find((f) => f.id === id)?.missing) return;
     get().openFileFromPath(id);
   },
   openFileFromPath: (ref) => {
@@ -1324,10 +1358,11 @@ export const useZenStore = create<ZenState>((set, get) => ({
     if (!id) return;
     let file = files.find((f) => f.id === id);
     if (!file) {
+      // Chat links open any file in the workspace, not just resources.
       if (fileSource === "stub") return;
       if (!workspace || !isUnderWorkspace(id, workspace)) return;
       const name = id.split("/").filter(Boolean).pop() || id;
-      file = { id, name, body: "" };
+      file = { id, name, body: "", linked: true };
       set({ files: [...get().files, file] });
     }
     if (openFileIds.includes(id)) {
@@ -1344,13 +1379,18 @@ export const useZenStore = create<ZenState>((set, get) => ({
     } else {
       set({ openFileIds: [...openFileIds, id], focusId: id, filesOpen: true });
     }
-    if (fileSource === "live" && !file.body) {
-      const gen = get().filesGen;
+    if (fileSource !== "stub" && !file.body) {
       const ws = ownedWorkspacePath(owned, owned);
       const filePath = usableFsPath(id);
-      if (!filePath || !ws || !isUnderWorkspace(filePath, ws)) return;
+      if (!filePath) return;
+      // The daemon's own resource list vouches for a pinned file, even one
+      // outside the workspace folder. Anything else must sit under it.
+      const pinned = !file.linked && fileSource === "live";
+      if (!pinned && (!ws || !isUnderWorkspace(filePath, ws))) return;
+      // Not filesGen: a resources re-read on pane open must not drop the
+      // body of a tab it kept. A different chat is a different agentId.
       void getFsReadFile(filePath).then((r) => {
-        if (get().filesGen !== gen) return;
+        if (get().agentId !== agentId) return;
         if (!get().files.some((f) => f.id === id)) return;
         const body =
           r.ok && r.data

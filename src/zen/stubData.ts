@@ -38,6 +38,13 @@ export type StubFile = {
   id: string;
   name: string;
   body: string;
+  /** Muted second line: the resource's folder, relative to the workspace. */
+  hint?: string | null;
+  /** Pinned, but the file is gone from disk. Shown, not openable. */
+  missing?: boolean;
+  /** Opened from a chat link, not a Workspace Resource. Kept for the
+   *  open tab only; the Files list hides it. */
+  linked?: boolean;
 };
 
 export const STUB_MARK = "STUB";

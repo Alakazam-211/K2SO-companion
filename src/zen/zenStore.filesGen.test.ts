@@ -4,7 +4,7 @@ vi.mock("../api/client", () => ({
   getToken: vi.fn(),
   getAgentList: vi.fn(),
   getCliProjectsList: vi.fn(),
-  getFsReadDir: vi.fn(),
+  getWorkspaceResources: vi.fn(),
   getFsReadFile: vi.fn(),
   getThread: vi.fn(),
   postThread: vi.fn(),
@@ -33,7 +33,7 @@ import {
   getAgentList,
   getAllSessions,
   getCliProjectsList,
-  getFsReadDir,
+  getWorkspaceResources,
   getFsReadFile,
   getThread,
   getToken,
@@ -54,7 +54,7 @@ import { JOIN_NO_AGENT, JOIN_NO_PROJECT } from "./agentRow";
 import { resetLastAtQueue } from "./lastAtFetch";
 import { STUB_AGENTS, STUB_FILES } from "./stubData";
 import { useZenStore } from "./zenStore";
-import { NO_WORKSPACE_PATH, PATH_NOT_OWNED, ROOT_LISTING_HIDDEN } from "./workspacePath";
+import { NO_WORKSPACE_PATH, PATH_NOT_OWNED } from "./workspacePath";
 
 function liveAt(path: string, id = "ag") {
   return {
@@ -77,7 +77,10 @@ function deferred<T>() {
 }
 
 function dir(name: string, path: string) {
-  return { ok: true as const, data: [{ name, path, isDirectory: false }] };
+  return {
+    ok: true as const,
+    data: { ok: true, docs: [{ fileName: name, filePath: path, addedAt: 1, missing: false }] },
+  };
 }
 
 function reset() {
@@ -123,7 +126,7 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
       data: { messages: [], truncated: false },
     });
     vi.mocked(postProjectGroupMessage).mockReset();
-    vi.mocked(getFsReadDir).mockReset();
+    vi.mocked(getWorkspaceResources).mockReset();
     vi.mocked(getThread).mockReset();
     vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
   });
@@ -243,14 +246,14 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
   });
 });
 
-describe("files never list the filesystem root", () => {
+describe("Workspace Resources ask only for this agent's own path", () => {
   beforeEach(() => {
     reset();
     vi.mocked(getToken).mockReturnValue("tok");
-    vi.mocked(getFsReadDir).mockReset();
+    vi.mocked(getWorkspaceResources).mockReset();
   });
 
-  it("does not request read-dir for /, ~, or a handle", async () => {
+  it("does not request resources for /, ~, or a handle", async () => {
     useZenStore.setState(liveAt("/"));
     await useZenStore.getState().hydrateFiles("/");
     useZenStore.setState(liveAt("~"));
@@ -259,7 +262,7 @@ describe("files never list the filesystem root", () => {
     await useZenStore.getState().hydrateFiles("~/Appa");
     useZenStore.setState(liveAt("appa"));
     await useZenStore.getState().hydrateFiles("appa");
-    expect(getFsReadDir).not.toHaveBeenCalled();
+    expect(getWorkspaceResources).not.toHaveBeenCalled();
     expect(useZenStore.getState().fileSource).toBe("error");
     expect(useZenStore.getState().files).toEqual([]);
     expect(useZenStore.getState().fileError).toBe(NO_WORKSPACE_PATH);
@@ -268,12 +271,12 @@ describe("files never list the filesystem root", () => {
   it("refuses a path that is not this agent's own row path", async () => {
     useZenStore.setState(liveAt("/Users/Baden/Appa", "appa"));
     await useZenStore.getState().hydrateFiles("/Users/Baden");
-    expect(getFsReadDir).not.toHaveBeenCalled();
+    expect(getWorkspaceResources).not.toHaveBeenCalled();
     expect(useZenStore.getState().files).toEqual([]);
     expect(useZenStore.getState().fileError).toBe(PATH_NOT_OWNED);
   });
 
-  it("setAgent with / does not call read-dir", async () => {
+  it("setAgent with / does not request resources", async () => {
     useZenStore.setState({
       agentSource: "live",
       agents: [
@@ -281,44 +284,20 @@ describe("files never list the filesystem root", () => {
       ],
     });
     useZenStore.getState().setAgent("appa");
-    expect(getFsReadDir).not.toHaveBeenCalled();
+    expect(getWorkspaceResources).not.toHaveBeenCalled();
     expect(useZenStore.getState().files).toEqual([]);
     expect(useZenStore.getState().fileError).toBe(NO_WORKSPACE_PATH);
   });
 
   it("sends this agent's own absolute path, not path=.", async () => {
     useZenStore.setState(liveAt("/Users/Baden/Appa", "appa"));
-    vi.mocked(getFsReadDir).mockResolvedValue({
-      ok: true,
-      data: [
-        {
-          name: "AGENTS.md",
-          path: "/Users/Baden/Appa/AGENTS.md",
-          isDirectory: false,
-        },
-      ],
-    });
+    vi.mocked(getWorkspaceResources).mockResolvedValue(
+      dir("AGENTS.md", "/Users/Baden/Appa/AGENTS.md")
+    );
     await useZenStore.getState().hydrateFiles("/Users/Baden/Appa");
-    expect(getFsReadDir).toHaveBeenCalledWith("/Users/Baden/Appa");
+    expect(getWorkspaceResources).toHaveBeenCalledWith("/Users/Baden/Appa");
     expect(useZenStore.getState().fileSource).toBe("live");
     expect(useZenStore.getState().files.map((f) => f.name)).toEqual(["AGENTS.md"]);
-  });
-
-  it("hides a root listing even if the request returned 200", async () => {
-    useZenStore.setState(liveAt("/Users/Baden/Appa", "appa"));
-    vi.mocked(getFsReadDir).mockResolvedValue({
-      ok: true,
-      data: [
-        { name: "etc", path: "/etc", isDirectory: false },
-        { name: "home", path: "/home", isDirectory: false },
-        { name: "tmp", path: "/tmp", isDirectory: false },
-        { name: "var", path: "/var", isDirectory: false },
-      ],
-    });
-    await useZenStore.getState().hydrateFiles("/Users/Baden/Appa");
-    expect(useZenStore.getState().fileSource).toBe("error");
-    expect(useZenStore.getState().files).toEqual([]);
-    expect(useZenStore.getState().fileError).toBe(ROOT_LISTING_HIDDEN);
   });
 });
 
@@ -326,12 +305,12 @@ describe("hydrateFiles generation token", () => {
   beforeEach(() => {
     reset();
     vi.mocked(getToken).mockReturnValue("");
-    vi.mocked(getFsReadDir).mockReset();
+    vi.mocked(getWorkspaceResources).mockReset();
   });
 
   it("in-flight hydrate is loading, not LIVE empty", async () => {
     const pending = deferred<ReturnType<typeof dir>>();
-    vi.mocked(getFsReadDir).mockImplementationOnce(() => pending.promise);
+    vi.mocked(getWorkspaceResources).mockImplementationOnce(() => pending.promise);
     useZenStore.setState({
       ...liveAt("/ws-new"),
       fileSource: "live",
@@ -347,10 +326,10 @@ describe("hydrateFiles generation token", () => {
     expect(useZenStore.getState().files.map((f) => f.name)).toEqual(["b.txt"]);
   });
 
-  it("drops a slower older read-dir so the later agent wins", async () => {
+  it("drops a slower older resources read so the later agent wins", async () => {
     const first = deferred<ReturnType<typeof dir>>();
     const second = deferred<ReturnType<typeof dir>>();
-    vi.mocked(getFsReadDir)
+    vi.mocked(getWorkspaceResources)
       .mockImplementationOnce(() => first.promise)
       .mockImplementationOnce(() => second.promise);
 
@@ -380,7 +359,7 @@ describe("hydrateFiles generation token", () => {
   it("also drops an older success that arrives before the newer one resolves", async () => {
     const first = deferred<ReturnType<typeof dir>>();
     const second = deferred<ReturnType<typeof dir>>();
-    vi.mocked(getFsReadDir)
+    vi.mocked(getWorkspaceResources)
       .mockImplementationOnce(() => first.promise)
       .mockImplementationOnce(() => second.promise);
 
@@ -410,24 +389,28 @@ describe("live failure never shows the stub catalog", () => {
   beforeEach(() => {
     reset();
     vi.mocked(getToken).mockReturnValue("tok");
-    vi.mocked(getFsReadDir).mockReset();
+    vi.mocked(getWorkspaceResources).mockReset();
     vi.mocked(getThread).mockReset();
     vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
     vi.mocked(getAllSessions).mockReset();
     vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [] });
   });
 
-  it("read-dir fail → empty files + error, not STUB_FILES", async () => {
+  it("resources fail → empty files + error, not STUB_FILES", async () => {
     useZenStore.setState({
       ...liveAt("/ws", "alpha"),
       agents: [{ id: "alpha", name: "alpha", initial: "A", path: "/ws" }],
     });
-    vi.mocked(getFsReadDir).mockResolvedValue({ ok: false, error: "read-dir failed" });
+    vi.mocked(getWorkspaceResources).mockResolvedValue({
+      ok: false,
+      error: "HTTP 500",
+      status: 500,
+    });
     await useZenStore.getState().hydrateFiles("/ws");
     const s = useZenStore.getState();
     expect(s.fileSource).toBe("error");
     expect(s.files).toEqual([]);
-    expect(s.fileError).toMatch(/read-dir failed/);
+    expect(s.fileError).toMatch(/HTTP 500/);
     expect(s.files).not.toBe(STUB_FILES);
   });
 
@@ -632,7 +615,7 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
   beforeEach(() => {
     reset();
     vi.mocked(getToken).mockReturnValue("tok");
-    vi.mocked(getFsReadDir).mockReset();
+    vi.mocked(getWorkspaceResources).mockReset();
     vi.mocked(getThread).mockReset();
     vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
     vi.mocked(postThread).mockReset();
@@ -1072,7 +1055,7 @@ describe("OPEN 8 project groups in hydrateAgents", () => {
     expect(s.agentError).toBeNull();
   });
 
-  it("opening a project chat hydrates messages, refuses files, and sends via project-group/msg", async () => {
+  it("opening a project chat hydrates messages, shows no resources, and sends via project-group/msg", async () => {
     vi.mocked(getActiveServer).mockReturnValue({
       id: "s1",
       nickname: "test",
@@ -1107,8 +1090,11 @@ describe("OPEN 8 project groups in hydrateAgents", () => {
       sendError: null,
     });
     useZenStore.getState().setAgent("group:pg1");
-    expect(useZenStore.getState().fileError).toMatch(/per workspace/);
+    // No workspace, so the Files pane shows the empty-resources note.
+    expect(useZenStore.getState().fileSource).toBe("live");
+    expect(useZenStore.getState().fileError).toBeNull();
     expect(useZenStore.getState().files).toEqual([]);
+    expect(getWorkspaceResources).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(useZenStore.getState().threadSource).toBe("live"));
     expect(fetchProjectGroupMessages).toHaveBeenCalledWith("pg1", { limit: 50 });
     expect(useZenStore.getState().thread.map((m) => m.text)).toEqual(["hello"]);
@@ -1755,5 +1741,220 @@ describe("openFileFromPath", () => {
     useZenStore.getState().openFileFromPath("/etc/passwd");
     expect(useZenStore.getState().openFileIds).toEqual([]);
     expect(getFsReadFile).not.toHaveBeenCalled();
+  });
+});
+
+describe("Workspace Resources in the Files pane", () => {
+  const WS = "/Users/Baden/Appa";
+
+  beforeEach(() => {
+    reset();
+    vi.mocked(getToken).mockReturnValue("tok");
+    vi.mocked(getWorkspaceResources).mockReset();
+    vi.mocked(getFsReadFile).mockReset();
+    vi.mocked(getFsReadFile).mockResolvedValue({
+      ok: true,
+      data: { content: "body\n", path: `${WS}/docs/plan.md`, name: "plan.md" },
+    });
+    vi.mocked(getThread).mockReset();
+    vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
+  });
+
+  it("lists pinned docs with their folder and missing flag", async () => {
+    useZenStore.setState(liveAt(WS, "appa"));
+    vi.mocked(getWorkspaceResources).mockResolvedValue({
+      ok: true,
+      data: {
+        ok: true,
+        workspaceId: "w1",
+        docs: [
+          { filePath: `${WS}/docs/plan.md`, fileName: "plan.md", addedAt: 1791702163, missing: false },
+          { filePath: `${WS}/gone.md`, fileName: "gone.md", addedAt: 1791702164, missing: true },
+        ],
+      },
+    });
+    await useZenStore.getState().hydrateFiles(WS);
+    const s = useZenStore.getState();
+    expect(s.fileSource).toBe("live");
+    expect(s.fileError).toBeNull();
+    expect(s.files).toEqual([
+      { id: `${WS}/docs/plan.md`, name: "plan.md", body: "", hint: "docs", missing: false },
+      { id: `${WS}/gone.md`, name: "gone.md", body: "", hint: null, missing: true },
+    ]);
+  });
+
+  it("an empty list is live and empty, so the note shows", async () => {
+    useZenStore.setState(liveAt(WS, "appa"));
+    vi.mocked(getWorkspaceResources).mockResolvedValue({
+      ok: true,
+      data: { ok: true, workspaceId: "w1", docs: [] },
+    });
+    await useZenStore.getState().hydrateFiles(WS);
+    const s = useZenStore.getState();
+    expect(s.fileSource).toBe("live");
+    expect(s.files).toEqual([]);
+    expect(s.fileError).toBeNull();
+  });
+
+  it("an older server without the route (404) shows the note, not an error", async () => {
+    useZenStore.setState(liveAt(WS, "appa"));
+    vi.mocked(getWorkspaceResources).mockResolvedValue({
+      ok: false,
+      error: "route not found",
+      status: 404,
+    });
+    await useZenStore.getState().hydrateFiles(WS);
+    const s = useZenStore.getState();
+    expect(s.fileSource).toBe("live");
+    expect(s.files).toEqual([]);
+    expect(s.fileError).toBeNull();
+  });
+
+  it("an unknown workspace (404 not_found) also shows the note", async () => {
+    useZenStore.setState(liveAt(WS, "appa"));
+    vi.mocked(getWorkspaceResources).mockResolvedValue({
+      ok: false,
+      error: "no agent/workspace named '/Users/Baden/Appa'",
+      status: 404,
+    });
+    await useZenStore.getState().hydrateFiles(WS);
+    expect(useZenStore.getState().fileSource).toBe("live");
+    expect(useZenStore.getState().fileError).toBeNull();
+  });
+
+  it("a 200 that is not a resources answer shows the note", async () => {
+    useZenStore.setState(liveAt(WS, "appa"));
+    vi.mocked(getWorkspaceResources).mockResolvedValue({ ok: true, data: [] as never });
+    await useZenStore.getState().hydrateFiles(WS);
+    expect(useZenStore.getState().fileSource).toBe("live");
+    expect(useZenStore.getState().files).toEqual([]);
+  });
+
+  it("tapping a resource opens it through read-file", async () => {
+    useZenStore.setState({
+      ...liveAt(WS, "appa"),
+      fileSource: "live",
+      files: [{ id: `${WS}/docs/plan.md`, name: "plan.md", body: "", hint: "docs" }],
+      openFileIds: [],
+      focusId: null,
+    });
+    useZenStore.getState().openFile(`${WS}/docs/plan.md`);
+    expect(useZenStore.getState().openFileIds).toEqual([`${WS}/docs/plan.md`]);
+    expect(useZenStore.getState().focusId).toBe(`${WS}/docs/plan.md`);
+    expect(getFsReadFile).toHaveBeenCalledWith(`${WS}/docs/plan.md`);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(useZenStore.getState().files[0].body).toBe("body\n");
+  });
+
+  it("a pinned file outside the workspace folder still opens", async () => {
+    useZenStore.setState({
+      ...liveAt(WS, "appa"),
+      fileSource: "live",
+      files: [{ id: "/Users/Baden/notes/brief.md", name: "brief.md", body: "", hint: "/Users/Baden/notes" }],
+      openFileIds: [],
+    });
+    useZenStore.getState().openFile("/Users/Baden/notes/brief.md");
+    expect(getFsReadFile).toHaveBeenCalledWith("/Users/Baden/notes/brief.md");
+  });
+
+  it("a missing resource does not open", () => {
+    useZenStore.setState({
+      ...liveAt(WS, "appa"),
+      fileSource: "live",
+      files: [{ id: `${WS}/gone.md`, name: "gone.md", body: "", missing: true }],
+      openFileIds: [],
+    });
+    useZenStore.getState().openFile(`${WS}/gone.md`);
+    expect(useZenStore.getState().openFileIds).toEqual([]);
+    expect(getFsReadFile).not.toHaveBeenCalled();
+  });
+
+  it("a chat link opens any workspace file, marked linked so it is not listed", () => {
+    useZenStore.setState({
+      ...liveAt(WS, "appa"),
+      fileSource: "live",
+      files: [{ id: `${WS}/docs/plan.md`, name: "plan.md", body: "" }],
+      openFileIds: [],
+    });
+    useZenStore.getState().openFileFromPath("src/zen/ThreadPane.tsx");
+    const id = `${WS}/src/zen/ThreadPane.tsx`;
+    expect(useZenStore.getState().openFileIds).toEqual([id]);
+    expect(useZenStore.getState().files.find((f) => f.id === id)?.linked).toBe(true);
+    expect(getFsReadFile).toHaveBeenCalledWith(id);
+  });
+
+  it("a chat link still opens after the resources read failed", () => {
+    useZenStore.setState({
+      ...liveAt(WS, "appa"),
+      fileSource: "error",
+      fileError: "HTTP 500",
+      files: [],
+      openFileIds: [],
+    });
+    useZenStore.getState().openFileFromPath("AGENTS.md");
+    expect(getFsReadFile).toHaveBeenCalledWith(`${WS}/AGENTS.md`);
+  });
+
+  it("opening the pane re-reads the list without dropping an open tab", async () => {
+    const open = `${WS}/src/x.ts`;
+    useZenStore.setState({
+      ...liveAt(WS, "appa"),
+      fileSource: "live",
+      filesOpen: false,
+      files: [
+        { id: `${WS}/old.md`, name: "old.md", body: "" },
+        { id: open, name: "x.ts", body: "const x = 1;", linked: true },
+      ],
+      openFileIds: [open],
+      focusId: open,
+    });
+    const pending = deferred<ReturnType<typeof dir>>();
+    vi.mocked(getWorkspaceResources).mockImplementationOnce(() => pending.promise);
+    useZenStore.getState().toggleFiles();
+    expect(useZenStore.getState().filesOpen).toBe(true);
+    expect(getWorkspaceResources).toHaveBeenCalledWith(WS);
+    // Quiet refresh: the old list stays up while the GET is out.
+    expect(useZenStore.getState().fileSource).toBe("live");
+    expect(useZenStore.getState().files.map((f) => f.name)).toContain("old.md");
+    pending.resolve(dir("new.md", `${WS}/new.md`));
+    await pending.promise;
+    await Promise.resolve();
+    const s = useZenStore.getState();
+    expect(s.files.map((f) => f.name)).toEqual(["new.md", "x.ts"]);
+    expect(s.files.find((f) => f.id === open)).toMatchObject({ body: "const x = 1;", linked: true });
+  });
+
+  it("closing the pane does not re-read; stub mode never asks the server", () => {
+    useZenStore.setState({ ...liveAt(WS, "appa"), filesOpen: true });
+    useZenStore.getState().toggleFiles();
+    expect(getWorkspaceResources).not.toHaveBeenCalled();
+    reset();
+    useZenStore.setState({ filesOpen: false });
+    useZenStore.getState().toggleFiles();
+    expect(useZenStore.getState().filesOpen).toBe(true);
+    expect(getWorkspaceResources).not.toHaveBeenCalled();
+    expect(useZenStore.getState().files).toBe(STUB_FILES);
+  });
+
+  it("switching to a project chat drops an older agent's in-flight list", async () => {
+    const pending = deferred<ReturnType<typeof dir>>();
+    vi.mocked(getWorkspaceResources).mockImplementationOnce(() => pending.promise);
+    useZenStore.setState({
+      agentSource: "live",
+      agentId: "appa",
+      agents: [
+        { id: "appa", name: "appa", initial: "A", path: WS, addr: null },
+        { id: "g:pg1", name: "Group", initial: "G", kind: "group", groupId: "pg1" },
+      ],
+    });
+    const p = useZenStore.getState().hydrateFiles(WS);
+    useZenStore.getState().setAgent("g:pg1");
+    pending.resolve(dir("plan.md", `${WS}/plan.md`));
+    await p;
+    const s = useZenStore.getState();
+    expect(s.files).toEqual([]);
+    expect(s.fileSource).toBe("live");
+    expect(s.fileError).toBeNull();
   });
 });

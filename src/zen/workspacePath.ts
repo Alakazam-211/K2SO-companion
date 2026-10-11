@@ -1,20 +1,16 @@
-/** Companion `GET /cli/fs/read-dir` lists the `path` query as a filesystem
- *  directory. `path=.` is the daemon cwd — on this box that is `/`.
- *  `~` and `~/…` are also unusable: the daemon does not expand them, and
- *  expanding on the phone would be the phone's home.
+/** Workspace paths the phone sends to the daemon (`/cli/fs/*`,
+ *  `/cli/workspace/resources`). `.` is the daemon cwd — on this box that
+ *  is `/`. `~` and `~/…` are also unusable: the daemon does not expand
+ *  them, and expanding on the phone would be the phone's home.
  *
  *  Allow-list (appa 2026-09-30): the path we request must equal this
- *  agent's own `path` from its own `/cli/agent/list` row. Layer 2 still
- *  hides a root listing on HTTP 200. */
+ *  agent's own `path` from its own `/cli/agent/list` row. */
 
 export const NO_WORKSPACE_PATH =
   "No usable workspace path. Files are hidden until the path is known.";
 
 export const PATH_NOT_OWNED =
   "Path is not this agent's workspace. Files hidden.";
-
-export const ROOT_LISTING_HIDDEN =
-  "read-dir listed the filesystem root. Files hidden.";
 
 /** Collapse `.` / `..` / duplicate slashes. Null if the result is `/`
  *  or the path climbed above root (`/tmp/..`, `/Users/..`). */
@@ -57,19 +53,4 @@ export function isUnderWorkspace(filePath: string, workspace: string): boolean {
   const root = posixNormalize(workspace);
   if (!file || !root) return false;
   return file === root || file.startsWith(`${root}/`);
-}
-
-/** QA saw etc/home/tmp/var (root symlinks) labelled LIVE FILES. */
-export function looksLikeRootListing(
-  entries: { name: string; path?: string }[]
-): boolean {
-  const names = new Set(entries.map((e) => e.name));
-  if (names.has("etc") && names.has("home") && names.has("tmp")) return true;
-  if (names.has("Applications") && names.has("Users") && names.has("bin")) {
-    return true;
-  }
-  return entries.some(
-    (e) =>
-      e.path === "/Applications" || e.path === "/Users" || e.path === "/bin"
-  );
 }

@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   isUnderWorkspace,
-  looksLikeRootListing,
   ownedWorkspacePath,
   usableFsPath,
 } from "./workspacePath";
@@ -57,27 +56,5 @@ describe("isUnderWorkspace", () => {
     expect(isUnderWorkspace("/Users/Baden/AI Projects/Skin Test A/x", own)).toBe(
       false
     );
-  });
-});
-
-describe("looksLikeRootListing", () => {
-  it("catches the macOS root symlink set QA saw", () => {
-    expect(
-      looksLikeRootListing([
-        { name: "etc", path: "/etc" },
-        { name: "home", path: "/home" },
-        { name: "tmp", path: "/tmp" },
-        { name: "var", path: "/var" },
-      ])
-    ).toBe(true);
-  });
-
-  it("lets an agent workspace through", () => {
-    expect(
-      looksLikeRootListing([
-        { name: "AGENTS.md", path: "/Users/Baden/Appa/AGENTS.md" },
-        { name: "app", path: "/Users/Baden/Appa/app" },
-      ])
-    ).toBe(false);
   });
 });

@@ -2,8 +2,8 @@ import { usableFsPath } from "./workspacePath";
 
 /** Skin door: POST /cli/fs/upload-binary. 50MB single-shot ceiling.
  *  Companion is an owner token: `dir` is this agent's own absolute
- *  workspace path (same as read-dir). Skin's `dir: "."` is room-relative
- *  because the gateway jails it. Here `"."` is the daemon cwd (`/` on
+ *  workspace path (the agent row's `path`). Skin's `dir: "."` is
+ *  room-relative because the gateway jails it. Here `"."` is the daemon cwd (`/` on
  *  this box) and writes EROFS (os error 30). Empty dir is refused as
  *  "Destination Directory is Empty". */
 export const MAX_UPLOAD_BYTES = 50_000_000;
