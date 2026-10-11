@@ -5,6 +5,7 @@ import {
   getCliProjectsList,
   getFsReadDir,
   getFsReadFile,
+  getActivitySnapshot,
   getThread,
   getToken,
   postThread,
@@ -55,6 +56,7 @@ import {
 } from "./sidecarRows";
 import { isMine, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import { mergeThreadMessages } from "./threadLive";
+import { EMPTY_ACTIVITY, parseActivitySnapshot, type ActivitySnapshot } from "./agentActivity";
 import {
   NO_WORKSPACE_PATH,
   PATH_NOT_OWNED,
@@ -136,6 +138,9 @@ type ZenState = {
   /** Last-message unix seconds, keyed `t:<addr>` / `g:<groupId>`. Null = fetched empty. */
   lastAtByKey: Record<string, number | null>;
   ensureLastAt: (key: string) => void;
+  /** Agent status for the Chats list (`GET /cli/activity/snapshot`). */
+  activity: ActivitySnapshot;
+  refreshActivity: () => Promise<void>;
   pinnedIds: string[];
   pinChat: (id: string, beforeId?: string | null) => void;
   movePin: (id: string, beforeId: string | null) => void;
@@ -264,6 +269,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   answerError: null,
   answerErrorId: null,
   lastAtByKey: {},
+  activity: EMPTY_ACTIVITY,
   pinnedIds: readPinnedIds(),
   hiddenSidecarAddrs: readHiddenSidecarAddrs(),
   pinChat: (id, beforeId) => {
@@ -291,6 +297,16 @@ export const useZenStore = create<ZenState>((set, get) => ({
       splitId: null,
       filesOpen: false,
     }),
+  refreshActivity: async () => {
+    if (get().agentSource !== "live") return;
+    try {
+      const r = await getActivitySnapshot();
+      // Pre-0.45 servers 404: keep the list plain.
+      set({ activity: r.ok ? parseActivitySnapshot(r.data) : EMPTY_ACTIVITY });
+    } catch {
+      /* keep what is on screen */
+    }
+  },
   ensureLastAt: (key) => {
     if (!beginLastAt(key)) return;
     const kind = key.startsWith("g:") ? "group" : "thread";

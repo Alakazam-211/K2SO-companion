@@ -13,6 +13,9 @@ export function connectOverlayEvents(opts: {
   conversationId: string;
   onItem: (raw: ThreadItem) => void;
   onNeedCatchUp: () => void;
+  /** Every socket open, first and re-open (activity catch-up: K2 never
+   *  replays ephemeral `activity` frames). */
+  onOpen?: () => void;
 }): OverlayLiveHandle {
   let stopped = false;
   let ws: WebSocket | null = null;
@@ -83,6 +86,7 @@ export function connectOverlayEvents(opts: {
       stopPoll();
       everOpened = true;
       if (catchUp) opts.onNeedCatchUp();
+      opts.onOpen?.();
     };
     sock.onmessage = (e) => {
       if (stopped || ws !== sock) return;
