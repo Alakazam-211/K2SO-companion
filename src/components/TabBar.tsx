@@ -71,7 +71,7 @@ export function TabBar() {
   // (C3 — /feedback/:id hides nav chrome like /chat/:id does), or the
   // add/edit-server flow (chrome-free by design; the route now lives
   // inside the shell so navigation can't unmount AppLayout).
-  if (location.pathname.startsWith("/chat/") || /^\/feedback\/./.test(location.pathname) || location.pathname === "/login" || location.pathname === "/zen") return null;
+  if (location.pathname.startsWith("/chat/") || /^\/feedback\/./.test(location.pathname) || location.pathname === "/login" || location.pathname === "/zen" || location.pathname.startsWith("/zen/")) return null;
 
   return (
     <nav className="flex border-t border-[var(--border)] bg-[var(--chrome)] shrink-0 px-2" style={{ paddingBottom: "calc(20px + var(--android-nav-lift, 0px))" }}>

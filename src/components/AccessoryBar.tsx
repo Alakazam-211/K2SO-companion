@@ -52,6 +52,9 @@ interface Props {
    *  capture pipeline so pending IME text flushes first and backspace
    *  local-edits pending text instead of sending \x7f. */
   onKey: (bytes: string, localEdit?: LiveLocalEdit) => void;
+  /** `"zen"` = keys as small tile chips (Zen terminal page). Same keys,
+   *  same press model; the default look is untouched. */
+  variant?: "default" | "zen";
 }
 
 function localEditFor(k: TerminalAccessoryKey): LiveLocalEdit | undefined {
@@ -60,7 +63,7 @@ function localEditFor(k: TerminalAccessoryKey): LiveLocalEdit | undefined {
   return undefined;
 }
 
-export function AccessoryBar({ onKey }: Props) {
+export function AccessoryBar({ onKey, variant = "default" }: Props) {
   const onKeyRef = useRef(onKey);
   onKeyRef.current = onKey;
   // At most one held key; both timers die on any stop.
@@ -123,7 +126,11 @@ export function AccessoryBar({ onKey }: Props) {
                 onPointerDown: (e: React.PointerEvent) => e.preventDefault(),
                 onClick: () => onKeyRef.current(k.bytes, localEditFor(k)),
               })}
-          className="border border-[var(--accent-dim)] bg-[var(--background)] text-[var(--text)] text-[12px] shrink-0"
+          className={
+            variant === "zen"
+              ? "k2-tile k2-tile-raised rounded-[10px] text-[var(--text)] text-[12px] shrink-0"
+              : "border border-[var(--accent-dim)] bg-[var(--background)] text-[var(--text)] text-[12px] shrink-0"
+          }
           style={{
             // Size-to-content: full chord labels (Ctrl+C) widen the key;
             // 44pt min stays the touch-target floor.

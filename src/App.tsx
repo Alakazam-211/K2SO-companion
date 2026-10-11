@@ -14,6 +14,7 @@ import { ProjectsPage } from "./pages/Projects";
 import { Feedback } from "./pages/Feedback";
 import { NewSessionModal } from "./components/NewSessionModal";
 import { Zen } from "./pages/Zen";
+import { ZenTerminal } from "./pages/ZenTerminal";
 import { overlayHomePath } from "./zen/overlayHome";
 import { ZenReturnButton } from "./zen/ZenReturnButton";
 
@@ -140,6 +141,8 @@ function AppLayout() {
           {/* Stub door: toggle location is not decided. No server required
               so the structure is visible on the Vite loop. Data is labelled STUB. */}
           <Route path="/zen" element={<Zen />} />
+          {/* Zen thread's terminal button: glass copy of /chat/:id. */}
+          <Route path="/zen/terminal/:terminalId" element={<ServerGuard><ZenTerminal /></ServerGuard>} />
           <Route path="*" element={<HomeRedirect />} />
         </Routes>
       </div>

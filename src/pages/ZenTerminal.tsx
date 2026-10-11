@@ -1,0 +1,417 @@
+import { useState, useRef, useEffect, useSyncExternalStore, type CSSProperties } from "react";
+import { useParams, useNavigate, useLocation } from "react-router-dom";
+import { useViewportHeight } from "../lib/useViewportHeight";
+import { useWorkspacesStore } from "../stores/workspaces";
+import { TerminalView } from "../components/TerminalView";
+import { ensurePinnedChat } from "../api/client";
+import { MessageComposer } from "../components/MessageComposer";
+import { AccessoryBar } from "../components/AccessoryBar";
+import { LiveInputCapture } from "../components/LiveInputCapture";
+import { sendMessageToSession } from "../api/sendMessage";
+import type { LiveLocalEdit } from "../lib/liveInputText";
+import {
+  modeFor,
+  setSendMode,
+  getDirectHandles,
+  subscribeSendModes,
+  pruneSendModes,
+  type SendMode,
+} from "../lib/sendMode";
+import { WorkspaceAvatar } from "../zen/WorkspaceAvatar";
+import { useZenStore } from "../zen/zenStore";
+import { threadHeaderTitle, threadSidecarTitle } from "../zen/overlayExtras";
+import {
+  readZenTerminalAgent,
+  readZenThread,
+  terminalIdForAgent,
+  zenTerminalPath,
+  zenThreadPath,
+  type ZenTerminalAgent,
+} from "../zen/terminalJump";
+
+const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
+
+const PILL_PX = 34;
+const PILL: CSSProperties = { width: PILL_PX, height: PILL_PX, color: "#fff" };
+const SEG_BTN: CSSProperties = { width: 30, height: PILL_PX - 2 };
+const AVATAR_PX = 40;
+
+/** Zen terminal page — a glass copy of the ChatSession shell. Same
+ *  TerminalView, Watch/Drive, send modes, reload/respawn and keyboard
+ *  sizing; only the chrome differs. Back returns to the agent's Zen
+ *  thread, never /sessions. No thread toggle here by design. */
+export function ZenTerminal() {
+  const { terminalId } = useParams<{ terminalId: string }>();
+  const navigate = useNavigate();
+  const location = useLocation();
+  const projects = useWorkspacesStore((s) => s.projects);
+  const allSessions = useWorkspacesStore((s) => s.allSessions);
+  const session = allSessions.find((sess) => sess.terminalId === terminalId);
+
+  // Who this terminal belongs to: router state (survives reload via
+  // history.state) → the Zen store by terminal id → generic header.
+  const stateAgent = readZenTerminalAgent(location.state);
+  const zenAgents = useZenStore((s) => s.agents);
+  const storeAgent = stateAgent
+    ? null
+    : zenAgents.find((a) => a.terminalId && a.terminalId === terminalId) ??
+      zenAgents.find(
+        (a) => a.kind !== "group" && terminalIdForAgent(a, allSessions) === terminalId
+      ) ??
+      null;
+  const agent: ZenTerminalAgent | null =
+    stateAgent ??
+    (storeAgent
+      ? {
+          agentId: storeAgent.id,
+          name: threadHeaderTitle(storeAgent),
+          initial: storeAgent.initial,
+          color: storeAgent.color,
+          iconUrl: storeAgent.iconUrl,
+          chatTitle: threadSidecarTitle(storeAgent),
+          projectPath: storeAgent.path ?? null,
+        }
+      : null);
+  const agentName = (agent?.name || "").trim();
+  const headerName = agentName && agentName !== "—" ? agentName : "Terminal";
+
+  const projectPath = session?.cwd || agent?.projectPath || "";
+  const workspacePath =
+    (session && projects.find((p) => p.id === session.workspaceId)?.path) ||
+    projectPath;
+  const [input, setInput] = useState("");
+  const containerHeight = useViewportHeight();
+
+  const directHandles = useSyncExternalStore(
+    subscribeSendModes,
+    getDirectHandles,
+    getDirectHandles
+  );
+  const sendMode: SendMode = terminalId ? modeFor(directHandles, terminalId) : "safe";
+  const [sendBusy, setSendBusy] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  // Watch (default) is a size policy; Drive is an explicit tap, reset
+  // on session change (ChatSession rule).
+  const [driveForId, setDriveForId] = useState(terminalId);
+  const [drive, setDrive] = useState(false);
+  if (terminalId && driveForId !== terminalId) {
+    setDriveForId(terminalId);
+    setDrive(false);
+  }
+
+  useEffect(() => {
+    if (allSessions.length === 0) return;
+    pruneSendModes(allSessions.map((s) => s.terminalId));
+  }, [allSessions]);
+
+  const terminalWrapperRef = useRef<HTMLDivElement>(null);
+  const sendInputRef = useRef<((text: string) => void) | null>(null);
+  const reloadRef = useRef<(() => void) | null>(null);
+  const captureFocusRef = useRef<(() => void) | null>(null);
+  const sendKeyRef = useRef<
+    ((bytes: string, localEdit?: LiveLocalEdit) => void) | null
+  >(null);
+  const [reloading, setReloading] = useState(false);
+  const [debugInfo, setDebugInfo] = useState("");
+
+  useEffect(() => {
+    const wrapper = terminalWrapperRef.current;
+    if (!wrapper) return;
+    const updateDebug = () => {
+      setDebugInfo(`w=${wrapper.offsetHeight} h=${containerHeight.toFixed(0)}`);
+    };
+    requestAnimationFrame(updateDebug);
+    const t = setTimeout(updateDebug, 500);
+    return () => clearTimeout(t);
+  }, [containerHeight]);
+
+  const handleSend = () => {
+    const text = input.trim();
+    if (!text || !terminalId || sendBusy) return;
+    setSendError(null);
+    setSendBusy(true);
+    void sendMessageToSession(terminalId, text).then((out) => {
+      setSendBusy(false);
+      if (out.ok) setInput("");
+      else setSendError(out.message);
+    });
+  };
+
+  const switchMode = (mode: SendMode) => {
+    if (!terminalId) return;
+    setSendMode(terminalId, mode);
+    setSendError(null);
+  };
+
+  const handleReload = async () => {
+    if (reloading) return;
+    setReloading(true);
+    try {
+      // Pinned main chat: force-respawn, then follow the new PTY id on
+      // THIS page (keep the agent context in state).
+      if (session?.isMainChat && workspacePath) {
+        const r = await ensurePinnedChat(workspacePath, { forceRespawn: true });
+        await useWorkspacesStore.getState().fetchAllSessions();
+        if (r.ok && r.data?.sessionId && r.data.sessionId !== terminalId) {
+          navigate(zenTerminalPath(r.data.sessionId), {
+            replace: true,
+            state: agent ? { agent } : location.state,
+          });
+          return;
+        }
+      }
+      reloadRef.current?.();
+      await new Promise((res) => setTimeout(res, 800));
+    } finally {
+      setReloading(false);
+    }
+  };
+
+  const backToThread = () => {
+    const id = agent?.agentId || readZenThread();
+    navigate(zenThreadPath(id));
+  };
+
+  if (!terminalId) return null;
+
+  const subtitle = agent?.chatTitle ? `${agent.chatTitle} · Terminal` : "Terminal";
+
+  return (
+    // Fixed backdrop + visualViewport-sized column (ChatSession / Zen
+    // thread keyboard idiom): the composer sits on the keyboard and an
+    // iOS focus-pan can't drag the header under the notch.
+    <div
+      className="fixed inset-0 z-40 zen-font"
+      data-testid="zen-terminal"
+      style={{ background: "#000" }}
+    >
+      <div
+        className="relative flex flex-col min-h-0"
+        data-testid="zen-terminal-column"
+        style={{ height: containerHeight, overflow: "hidden" }}
+      >
+        {/* Glass header with the Zen thread's progressive blur. In flow,
+            not over the grid: a terminal row under the header would be
+            unreadable and TerminalView sizes rows to its box. */}
+        <header
+          className="relative w-full min-w-0 shrink-0"
+          data-testid="zen-terminal-header"
+          style={{ zIndex: 10, paddingTop: "env(safe-area-inset-top)" }}
+        >
+          <div className="zen-header-blur" data-testid="zen-terminal-header-blur" aria-hidden>
+            <span className="zen-header-blur-1" />
+            <span className="zen-header-blur-2" />
+            <span className="zen-header-blur-3" />
+            <span className="zen-header-blur-4" />
+            <span className="zen-header-tint" />
+          </div>
+          <div
+            className="relative grid items-center w-full min-w-0 px-3"
+            style={{
+              gridTemplateColumns: "1fr auto 1fr",
+              paddingTop: 6,
+              paddingBottom: 8,
+              columnGap: 6,
+              rowGap: 2,
+            }}
+          >
+            <button
+              type="button"
+              onClick={backToThread}
+              data-testid="zen-terminal-back"
+              className="flex items-center justify-center shrink-0 justify-self-start zen-glass zen-glass-pill"
+              style={PILL}
+              aria-label="Back to chat"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
+            </button>
+            <span data-testid="zen-terminal-avatar" className="flex justify-self-center">
+              <WorkspaceAvatar
+                initial={agent?.initial || headerName.slice(0, 1) || "?"}
+                color={agent?.color}
+                iconUrl={agent?.iconUrl}
+                size={AVATAR_PX}
+                fontSize={15}
+                fallback="#2c2c2e"
+              />
+            </span>
+            <span className="flex items-center justify-self-end" style={{ gap: 6 }}>
+              <div
+                data-k2="watch-drive"
+                className="flex items-center zen-glass zen-glass-pill overflow-hidden"
+                style={{ height: PILL_PX, padding: 1 }}
+                role="group"
+                aria-label="Viewer or claimer"
+              >
+                <button
+                  data-k2="watch-btn"
+                  type="button"
+                  aria-pressed={!drive}
+                  aria-label="Viewer — watch only"
+                  title="Viewer — watch only"
+                  onClick={() => setDrive(false)}
+                  className="flex items-center justify-center rounded-full"
+                  style={{
+                    ...SEG_BTN,
+                    color: !drive ? "#000" : "#fff",
+                    background: !drive ? "rgba(255,255,255,0.9)" : "transparent",
+                  }}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z" />
+                    <circle cx="12" cy="12" r="3" />
+                  </svg>
+                </button>
+                <button
+                  data-k2="drive-btn"
+                  type="button"
+                  aria-pressed={drive}
+                  aria-label="Claimer — type and resize"
+                  title="Claimer — type and resize"
+                  onClick={() => setDrive(true)}
+                  className="flex items-center justify-center rounded-full"
+                  style={{
+                    ...SEG_BTN,
+                    color: drive ? "#000" : "#fff",
+                    background: drive ? "rgba(255,255,255,0.9)" : "transparent",
+                  }}
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                    <path d="M17 3a2.828 2.828 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5L17 3z" />
+                  </svg>
+                </button>
+              </div>
+              <button
+                data-k2="mode-toggle"
+                type="button"
+                onClick={() => switchMode(sendMode === "safe" ? "direct" : "safe")}
+                aria-label={
+                  sendMode === "safe" ? "Switch to direct typing" : "Switch to safe send"
+                }
+                className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
+                style={PILL}
+              >
+                {sendMode === "direct" ? (
+                  <span aria-hidden="true" className="text-[12px] font-semibold leading-none">
+                    &gt;_
+                  </span>
+                ) : (
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <rect x="2" y="6" width="20" height="12" rx="2" />
+                    <path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8" />
+                  </svg>
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={handleReload}
+                disabled={reloading}
+                aria-label="Reload session"
+                className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill disabled:opacity-60"
+                style={PILL}
+              >
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className={reloading ? "animate-spin" : ""} aria-hidden>
+                  <path d="M21 2v6h-6" />
+                  <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
+                  <path d="M3 22v-6h6" />
+                  <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
+                </svg>
+              </button>
+            </span>
+            <div
+              className="min-w-0 flex flex-col items-center zen-header-text"
+              style={{ gridColumn: "1 / -1" }}
+            >
+              <span
+                data-testid="zen-terminal-title"
+                className="block w-full text-[15px] font-bold truncate text-center"
+                style={{ color: "#fff" }}
+              >
+                {headerName}
+              </span>
+              <span
+                data-testid="zen-terminal-subtitle"
+                className="block w-full text-[12px] truncate text-center"
+                style={{ color: "#8e8e93" }}
+              >
+                {subtitle}
+              </span>
+            </div>
+          </div>
+        </header>
+
+        {DEV_MODE && (
+          <div style={{ flexShrink: 0, color: "#8e8e93", fontSize: 9, padding: "2px 8px", opacity: 0.7 }}>
+            h={containerHeight.toFixed(0)} | vv={window.visualViewport?.height?.toFixed(0)} | {debugInfo}
+          </div>
+        )}
+
+        <div
+          ref={terminalWrapperRef}
+          style={{ flex: 1, minHeight: 0, overflow: "hidden", position: "relative" }}
+          onClick={() => {
+            if (sendMode === "direct") captureFocusRef.current?.();
+          }}
+        >
+          <TerminalView
+            terminalId={terminalId}
+            projectPath={projectPath}
+            onInputRef={sendInputRef}
+            onReloadRef={reloadRef}
+            drive={drive}
+          />
+        </div>
+
+        {sendMode === "direct" ? (
+          <div
+            className="px-4 pt-3 k2-tile k2-tile-sheet rounded-t-[16px] input-bar input-bar-lift"
+            data-testid="zen-terminal-direct-bar"
+            style={{ flexShrink: 0 }}
+          >
+            <AccessoryBar
+              variant="zen"
+              onKey={(bytes, localEdit) => {
+                if (sendKeyRef.current) sendKeyRef.current(bytes, localEdit);
+                else sendInputRef.current?.(bytes);
+              }}
+            />
+            <LiveInputCapture
+              send={(bytes) => sendInputRef.current?.(bytes)}
+              focusRef={captureFocusRef}
+              sendKeyRef={sendKeyRef}
+            />
+          </div>
+        ) : (
+          <MessageComposer
+            variant="zen"
+            lift
+            value={input}
+            onChange={setInput}
+            onSend={handleSend}
+            busy={sendBusy}
+            placeholder="Message the agent…  (↑ to send)"
+            accessory={
+              sendError ? (
+                <div className="flex items-start gap-2 pb-2">
+                  <span className="flex-1 text-[var(--warning)] text-[11px] leading-snug">
+                    {sendError}
+                  </span>
+                  <button
+                    onClick={() => setSendError(null)}
+                    aria-label="Dismiss send error"
+                    className="text-[var(--text-muted)] text-[11px] px-1 shrink-0"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : undefined
+            }
+          />
+        )}
+      </div>
+    </div>
+  );
+}
