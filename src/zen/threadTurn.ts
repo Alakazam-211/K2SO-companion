@@ -151,6 +151,33 @@ export function isActivityFrame(raw: unknown): boolean {
   );
 }
 
+/** True for a frame the Thread list takes: `thread`, or an untagged item
+ *  (poll path). `chatter`, host-wide `chatterlog`, `address`, `moved` and
+ *  `activity` frames never become messages. */
+export function isThreadFrame(raw: unknown): boolean {
+  if (!raw || typeof raw !== "object") return false;
+  const c = (raw as { collection?: unknown }).collection;
+  return c === undefined || c === null || c === "thread";
+}
+
+/** Catch-up answers can land out of order. Each `begin()` returns a check
+ *  that passes only while it is the newest catch-up issued and no activity
+ *  frame has arrived since (the frame is newer than the answer). */
+export function createCatchUpGate(): { begin: () => () => boolean; frame: () => void } {
+  let issued = 0;
+  let frames = 0;
+  return {
+    begin() {
+      const gen = ++issued;
+      const mark = frames;
+      return () => gen === issued && mark === frames;
+    },
+    frame() {
+      frames += 1;
+    },
+  };
+}
+
 /** Apply one overlay socket frame. Non-activity frames return `turn` itself. */
 export function applyActivityFrame(
   turn: ThreadTurn | null,

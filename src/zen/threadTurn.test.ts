@@ -3,7 +3,9 @@ import {
   applyActivityCatchUp,
   applyActivityFrame,
   coerceThreadTurn,
+  createCatchUpGate,
   isActivityFrame,
+  isThreadFrame,
 } from "./threadTurn";
 
 // Shape captured live from K2 0.45.3 `GET /cli/thread/activity` (line redacted by the daemon).
@@ -93,5 +95,34 @@ describe("applyActivityCatchUp", () => {
 
   it("adopts a live turn", () => {
     expect(applyActivityCatchUp(null, { ok: true, turn: BODY }, 0)?.turnId).toBe("t-1");
+  });
+});
+
+describe("isThreadFrame", () => {
+  it("takes thread and untagged items, nothing else", () => {
+    expect(isThreadFrame({ collection: "thread", id: "a" })).toBe(true);
+    expect(isThreadFrame({ id: "a", doc: {} })).toBe(true);
+    for (const c of ["chatter", "chatterlog", "activity", "address", "moved"]) {
+      expect(isThreadFrame({ collection: c, id: "a" })).toBe(false);
+    }
+    expect(isThreadFrame(null)).toBe(false);
+  });
+});
+
+describe("createCatchUpGate", () => {
+  it("accepts only the newest catch-up issued", () => {
+    const gate = createCatchUpGate();
+    const first = gate.begin();
+    const second = gate.begin();
+    expect(first()).toBe(false);
+    expect(second()).toBe(true);
+  });
+
+  it("drops a catch-up that an activity frame overtook", () => {
+    const gate = createCatchUpGate();
+    const pending = gate.begin();
+    gate.frame();
+    expect(pending()).toBe(false);
+    expect(gate.begin()()).toBe(true);
   });
 });
