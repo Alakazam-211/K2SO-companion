@@ -881,3 +881,82 @@ button, a, nav {
     );
   }
 }
+
+/* Zen terminal key row — the header's progressive blur turned sideways,
+   behind the pinned hide-keyboard pill. Same four masked backdrop layers
+   (2/6/12/24px) and the same stops, but the masks run `to left`: blur and
+   tint are strongest at the row's right edge and fade to nothing at the
+   zone's left edge, so keys soften and dim as they scroll toward the pill.
+   Spans the row's full height; never takes touches. */
+.zen-edge-blur {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  pointer-events: none;
+  z-index: 1;
+}
+.zen-edge-blur > span {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.zen-edge-blur--to-left > .zen-edge-blur-1 {
+  -webkit-backdrop-filter: blur(2px);
+  backdrop-filter: blur(2px);
+  -webkit-mask-image: linear-gradient(to left, #000 0%, #000 55%, transparent 100%);
+  mask-image: linear-gradient(to left, #000 0%, #000 55%, transparent 100%);
+}
+.zen-edge-blur--to-left > .zen-edge-blur-2 {
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  -webkit-mask-image: linear-gradient(to left, #000 0%, #000 40%, transparent 80%);
+  mask-image: linear-gradient(to left, #000 0%, #000 40%, transparent 80%);
+}
+.zen-edge-blur--to-left > .zen-edge-blur-3 {
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+  -webkit-mask-image: linear-gradient(to left, #000 0%, #000 25%, transparent 60%);
+  mask-image: linear-gradient(to left, #000 0%, #000 25%, transparent 60%);
+}
+.zen-edge-blur--to-left > .zen-edge-blur-4 {
+  -webkit-backdrop-filter: blur(24px);
+  backdrop-filter: blur(24px);
+  -webkit-mask-image: linear-gradient(to left, #000 0%, #000 12%, transparent 40%);
+  mask-image: linear-gradient(to left, #000 0%, #000 12%, transparent 40%);
+}
+.zen-edge-blur--to-left > .zen-edge-blur-tint {
+  background: linear-gradient(
+    to left,
+    rgba(0, 0, 0, 0.85) 0%,
+    rgba(0, 0, 0, 0.55) 45%,
+    rgba(0, 0, 0, 0) 100%
+  );
+}
+/* No backdrop blur: a heavier solid ramp, right to left. */
+@media (prefers-reduced-transparency: reduce) {
+  .zen-edge-blur--to-left > .zen-edge-blur-1,
+  .zen-edge-blur--to-left > .zen-edge-blur-2,
+  .zen-edge-blur--to-left > .zen-edge-blur-3,
+  .zen-edge-blur--to-left > .zen-edge-blur-4 {
+    display: none;
+  }
+  .zen-edge-blur--to-left > .zen-edge-blur-tint {
+    background: linear-gradient(
+      to left,
+      rgba(0, 0, 0, 0.96) 0%,
+      rgba(0, 0, 0, 0.88) 60%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  }
+}
+@supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+  .zen-edge-blur--to-left > .zen-edge-blur-tint {
+    background: linear-gradient(
+      to left,
+      rgba(0, 0, 0, 0.96) 0%,
+      rgba(0, 0, 0, 0.88) 60%,
+      rgba(0, 0, 0, 0) 100%
+    );
+  }
+}

@@ -53,24 +53,20 @@ interface Props {
    *  local-edits pending text instead of sending \x7f. */
   onKey: (bytes: string, localEdit?: LiveLocalEdit) => void;
   /** `"zen"` = each key a frosted `.zen-glass` pill on the bare page
-   *  background (no casing around the group), a Return key right after
-   *  ⇧⏎, and a pinned hide-keyboard pill at the right end. Same press
-   *  model; the default look is untouched. */
+   *  background (no casing around the group), and a pinned hide-keyboard
+   *  pill at the right end over a right-to-left progressive blur. Same
+   *  press model; the default look is untouched. */
   variant?: "default" | "zen";
 }
 
-// Zen only: plain Return as a key, right after ⇧⏎. Same bytes the iOS
-// keyboard's return sends through LiveInputCapture (\r, one CR).
-export const ZEN_RETURN_KEY: TerminalAccessoryKey = {
-  id: "return",
-  label: "⏎",
-  bytes: "\r",
-  accessibilityLabel: "Return",
-};
-
-export const ZEN_ACCESSORY_KEYS: TerminalAccessoryKey[] = TERMINAL_ACCESSORY_KEYS.flatMap((k) =>
-  k.id === "newline" ? [k, ZEN_RETURN_KEY] : [k]
-);
+// Zen hide-keyboard pill geometry. The pill floats over the right end
+// of the key strip; the strip's right padding (pill + gap) lets the last
+// key scroll fully clear of it.
+export const ZEN_HIDE_PILL_WIDTH = 44;
+const ZEN_HIDE_PILL_GAP = 6;
+export const ZEN_STRIP_END_PAD = ZEN_HIDE_PILL_WIDTH + ZEN_HIDE_PILL_GAP;
+// The blur zone covers the pill and reaches this far left over the keys.
+const ZEN_BLUR_REACH = 48;
 
 /** Dismiss the iOS keyboard: blur whatever owns focus (the hidden
  *  live capture in Direct mode). */
@@ -135,7 +131,7 @@ export function AccessoryBar({ onKey, variant = "default" }: Props) {
   };
 
   const zen = variant === "zen";
-  const keys = zen ? ZEN_ACCESSORY_KEYS : TERMINAL_ACCESSORY_KEYS;
+  const keys = TERMINAL_ACCESSORY_KEYS;
 
   const toolbar = (
     <div
@@ -143,9 +139,10 @@ export function AccessoryBar({ onKey, variant = "default" }: Props) {
       role="toolbar"
       aria-label="Terminal keys"
       className={
-        zen ? "flex gap-1.5 py-0.5 -ml-3 pl-3 pr-1 flex-1 min-w-0" : "flex gap-1.5 pb-2 -mx-4 px-4"
+        zen ? "flex gap-1.5 py-0.5 -ml-3 pl-3 flex-1 min-w-0" : "flex gap-1.5 pb-2 -mx-4 px-4"
       }
       style={{
+        ...(zen ? { paddingRight: ZEN_STRIP_END_PAD } : null),
         overflowX: "auto",
         WebkitOverflowScrolling: "touch",
         flexShrink: zen ? 1 : 0,
@@ -198,12 +195,28 @@ export function AccessoryBar({ onKey, variant = "default" }: Props) {
 
   if (!zen) return toolbar;
 
-  // Zen: the key strip scrolls; the hide-keyboard pill is pinned at the
-  // right end, outside the scroll, so it is always reachable. The row
-  // itself has no fill, border or shadow — only the pills are glass.
+  // Zen: the key strip scrolls the full row width; the hide-keyboard pill
+  // floats pinned at the right end, outside the scroll, so it is always
+  // reachable. Between them, a right-to-left progressive blur (the header
+  // blur's stack turned sideways, `.zen-edge-blur--to-left` in index.css)
+  // softens and dims keys as they slide under the pill. The blur never
+  // takes touches. The row itself has no fill, border or shadow — only
+  // the pills are glass.
   return (
-    <div data-k2="accessory-row" className="flex items-center gap-1.5 pb-1">
+    <div data-k2="accessory-row" className="relative flex items-center pb-1">
       {toolbar}
+      <div
+        data-k2="hide-keyboard-blur"
+        className="zen-edge-blur zen-edge-blur--to-left"
+        aria-hidden
+        style={{ width: ZEN_HIDE_PILL_WIDTH + ZEN_BLUR_REACH, pointerEvents: "none" }}
+      >
+        <span className="zen-edge-blur-1" />
+        <span className="zen-edge-blur-2" />
+        <span className="zen-edge-blur-3" />
+        <span className="zen-edge-blur-4" />
+        <span className="zen-edge-blur-tint" />
+      </div>
       <button
         type="button"
         data-k2="hide-keyboard"
@@ -213,7 +226,18 @@ export function AccessoryBar({ onKey, variant = "default" }: Props) {
         onContextMenu={(e) => e.preventDefault()}
         onClick={hideKeyboard}
         className="zen-glass zen-glass-pill text-[var(--text)] shrink-0 flex items-center justify-center active:opacity-60"
-        style={{ width: 44, height: 32, padding: 0, userSelect: "none", WebkitUserSelect: "none" }}
+        style={{
+          // Centred on the 32px keys: the strip's py-0.5 puts them 2px down.
+          position: "absolute",
+          right: 0,
+          top: 2,
+          zIndex: 2,
+          width: ZEN_HIDE_PILL_WIDTH,
+          height: 32,
+          padding: 0,
+          userSelect: "none",
+          WebkitUserSelect: "none",
+        }}
       >
         <HideKeyboardGlyph />
       </button>
