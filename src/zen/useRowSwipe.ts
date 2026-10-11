@@ -17,6 +17,16 @@ export function swipeRelease(x: number, width: number): SwipeRelease {
   return "close";
 }
 
+/**
+ * How far the glass action has grown in: opacity 0→1 and scale 0.6→1 as
+ * the row slides to the open threshold. Reduced motion keeps scale at 1.
+ */
+export function swipeReveal(x: number, reduced: boolean): { opacity: number; scale: number } {
+  const p = Math.max(0, Math.min(1, x / SWIPE_OPEN_PX));
+  const round = (n: number) => Math.round(n * 1000) / 1000;
+  return { opacity: round(p), scale: reduced ? 1 : round(0.6 + 0.4 * p) };
+}
+
 /** True once a move is clearly horizontal (not a vertical list pan). */
 export function isHorizontalSwipe(dx: number, dy: number): boolean {
   return Math.abs(dx) > SWIPE_SLOP_PX && Math.abs(dx) > Math.abs(dy) * 1.5;
