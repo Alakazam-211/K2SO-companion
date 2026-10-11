@@ -427,6 +427,8 @@ export function ChatsList() {
                     background: busyColor,
                     color: busyColor,
                     border: "2.5px solid var(--root)",
+                    // The pulse ring starts outside the cutout border.
+                    ["--k2-pulse-edge" as string]: "2.5px",
                   }}
                 />
               ) : null}
