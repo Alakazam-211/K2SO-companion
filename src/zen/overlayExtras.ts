@@ -87,7 +87,8 @@ export function visibleOverlayAgents<T extends {
     const addr = (a.addr || "").trim();
     if (a.kind === "group") return true;
     if (isOverlayExtraAddr(addr) && hidden.has(addr)) return false;
-    if (isOverlayExtraAddr(addr) && a.hostLive === false) return false;
+    // Hostless extras and History conversation rows stay out of the list.
+    if (a.hostLive === false) return false;
     return true;
   });
 }
