@@ -6,6 +6,10 @@ import { AgentRowContent } from "./AgentRowContent";
 import { skinInitials } from "./agentRow";
 import { parseHomeAddress } from "./homes";
 import type { HomeRowView } from "./homeView";
+import { FailureAction, FailureText } from "./multi/MergedRows";
+import type { FailureAction as FailureActionKind, RowFailure } from "./multi/rowStatus";
+import { roomBelowFloor } from "./multi/useMultiServerList";
+import type { RowActivity } from "./agentActivity";
 import { lastAtKeyFor } from "./lastAtFetch";
 import type { StubAgent } from "./stubData";
 import { mountainListWhen } from "./threadModel";
@@ -28,12 +32,28 @@ export function homeSwipeRelease(x: number): "open" | "close" {
 }
 
 /**
- * Open a Home row that lives on another saved server: make that server
- * active the way the Servers sheet does, then open the agent's chat.
+ * Open a Home row that lives on another saved server.
+ *
+ *   - `room` given (multi-server flag on, S3b / HM3): open a ROOM on that
+ *     server (`zenStore.openRoom`, MS21) — the active server never
+ *     changes; Back and Done return to Home. `localId` is the row's id in
+ *     that server's list when known, else the handle (the room's hydrate
+ *     finds it by address). A server known to be below the phone floor
+ *     (MS30, Q9) opens the old way instead.
+ *   - Flag off: make that server active the way the Servers sheet does,
+ *     then open the agent's chat (today's single-server Home).
+ *
  * False when it needs a sign-in or cannot be reached.
- * TODO(multi-server S3): open a room on that server without switching.
  */
-export async function openHomeRowOnServer(serverId: string, handle: string): Promise<boolean> {
+export async function openHomeRowOnServer(
+  serverId: string,
+  handle: string,
+  room?: { localId?: string | null; seed?: StubAgent[] }
+): Promise<boolean> {
+  if (room && !roomBelowFloor(serverId)) {
+    await useZenStore.getState().openRoom(serverId, { id: room.localId || handle, seed: room.seed });
+    return true;
+  }
   const store = useServersStore.getState();
   if (store.activeServerId !== serverId) {
     const outcome = await connectServer(serverId);
@@ -42,6 +62,22 @@ export async function openHomeRowOnServer(serverId: string, handle: string): Pro
   }
   await useZenStore.getState().hydrateAgents({ resumeId: handle });
   return true;
+}
+
+/** What a row from another server shows with the multi-server flag on
+ *  (HM3): its server's state from the S2 pool, its activity, picture and
+ *  snippet. */
+export interface RemoteRowLook {
+  failure: RowFailure | null;
+  busy: RowActivity | null;
+  iconUrl: string | null;
+  /** Line two when healthy and idle. */
+  preview: ReactNode;
+  when: string;
+  /** The pool's next check (offline countdown). */
+  nextAt: number | null;
+  /** Greyed without a failure (not on its server's list right now). */
+  dim: boolean;
 }
 
 type Track = { address: string; x0: number; y0: number; base: number; committed: boolean };
@@ -60,6 +96,9 @@ export function HomeList({
   onMove,
   onOpenRemote,
   previewFor,
+  remoteLook,
+  onRemoteAction,
+  hereChip = null,
   inset = "16px",
 }: {
   views: HomeRowView[];
@@ -71,6 +110,13 @@ export function HomeList({
   onOpenRemote: (view: Extract<HomeRowView, { kind: "remote" }>) => void;
   /** Line two of an active-server row: the Agents list's own preview. */
   previewFor: (agent: StubAgent) => ReactNode;
+  /** Multi-server flag on (S3b): how a row from another server looks.
+   *  Absent (flag off): today's greyed "On <server>" row. */
+  remoteLook?: (view: Extract<HomeRowView, { kind: "remote" }>) => RemoteRowLook;
+  /** A failure row's one action, scoped to its server. */
+  onRemoteAction?: (view: Extract<HomeRowView, { kind: "remote" }>, action: FailureActionKind) => void;
+  /** The active server's chip on its own rows (flag on, several servers). */
+  hereChip?: string | null;
   /** Row side padding: the Agents list's content inset. */
   inset?: string;
 }) {
@@ -188,25 +234,49 @@ export function HomeList({
         const x = drag?.address === address ? drag.x : openAddr === address ? -HOME_REMOVE_W : 0;
         const dragging = drag?.address === address;
         const here = v.kind === "here" ? v.agent : null;
-        const busy =
-          here && source === "live" ? activityForRow(here, activity, false, chatSessions) : null;
+        const look = v.kind === "remote" && remoteLook ? remoteLook(v) : null;
+        const there = v.kind === "remote" ? v.resolved?.agent ?? null : null;
+        const failure = look?.failure ?? null;
+        const busy = look
+          ? look.busy
+          : here && source === "live"
+            ? activityForRow(here, activity, false, chatSessions)
+            : null;
         const lastKey = here && source === "live" ? lastAtKeyFor(zenId, here) ?? undefined : undefined;
-        const when =
-          lastKey && lastAtByKey[lastKey] != null ? mountainListWhen(lastAtByKey[lastKey] as number) : "";
-        const name = here?.name ?? v.row.label ?? handle;
-        const preview =
-          v.kind === "here"
-            ? previewFor(v.agent)
-            : v.kind === "remote"
-              ? `On ${v.serverLabel}`
-              : "Not on this server's list right now";
-        const dim = v.kind !== "here";
+        const when = look
+          ? look.when
+          : lastKey && lastAtByKey[lastKey] != null
+            ? mountainListWhen(lastAtByKey[lastKey] as number)
+            : "";
+        const name = here?.name ?? there?.name ?? v.row.label ?? handle;
+        const preview = failure ? (
+          <span data-testid="row-failure" data-state={failure.state} title={failure.detail ?? undefined}>
+            <FailureText failure={failure} nextAt={look?.nextAt ?? null} />
+          </span>
+        ) : look ? (
+          look.preview
+        ) : v.kind === "here" ? (
+          previewFor(v.agent)
+        ) : v.kind === "remote" ? (
+          `On ${v.serverLabel}`
+        ) : (
+          "Not on this server's list right now"
+        );
+        const dim = look ? !!failure || look.dim : v.kind !== "here";
+        const opacity = look ? (dim ? 0.6 : 1) : dim ? 0.55 : 1;
+        const remoteView = v.kind === "remote" ? v : null;
+        const action =
+          remoteView && failure?.action && onRemoteAction
+            ? () => onRemoteAction(remoteView, failure.action as FailureActionKind)
+            : null;
         return (
           <div
             key={address}
             className="relative overflow-hidden"
             data-home-row={address}
             data-home-kind={v.kind}
+            data-server-id={v.kind === "remote" ? v.server?.id : undefined}
+            data-greyed={look && dim ? "1" : undefined}
           >
             <button
               type="button"
@@ -238,8 +308,8 @@ export function HomeList({
                 paddingTop: 12,
                 paddingBottom: 12,
                 paddingLeft: inset,
-                paddingRight: inset,
-                opacity: dim ? 0.55 : 1,
+                paddingRight: failure?.action ? `calc(${inset} + 96px)` : inset,
+                opacity,
                 touchAction: "pan-y",
                 userSelect: "none",
                 WebkitUserSelect: "none",
@@ -250,7 +320,11 @@ export function HomeList({
               data-no-pin="1"
               data-testid={`home-row-${handle}`}
               aria-describedby="home-row-hint"
-              aria-label={v.kind === "remote" ? `${name}, on ${v.serverLabel}` : name}
+              aria-label={
+                v.kind === "remote"
+                  ? `${name}, on ${v.serverLabel}` + (failure ? `, ${failure.copy}` : "")
+                  : name
+              }
               onPointerDown={onDown(address)}
               onPointerMove={onMoveRow}
               onPointerUp={onUp}
@@ -271,21 +345,43 @@ export function HomeList({
                   return;
                 }
                 if (v.kind === "here") setAgent(v.agent.id);
-                else if (v.kind === "remote") onOpenRemote(v);
+                else if (v.kind === "remote") {
+                  // Flag on: a server in trouble runs its one fix instead.
+                  if (failure) action?.();
+                  else onOpenRemote(v);
+                }
               }}
             >
               <AgentRowContent
                 name={name}
-                initial={here?.initial ?? skinInitials(name || "?")}
-                color={here?.color}
-                iconUrl={here?.iconUrl}
-                busy={busy}
-                when={when}
+                iconUrl={look ? look.iconUrl : here?.iconUrl}
+                color={here?.color ?? there?.color}
+                initial={here?.initial ?? there?.initial ?? skinInitials(name || "?")}
+                busy={failure ? null : busy}
+                when={failure ? "" : when}
                 preview={preview}
                 stub={source === "stub" && v.kind === "here"}
-                serverChip={v.kind === "remote" ? v.serverLabel : null}
+                serverChip={v.kind === "remote" ? v.serverLabel : hereChip}
               />
             </button>
+            {failure && remoteView ? (
+              <span
+                className="absolute flex items-center"
+                style={{
+                  right: inset,
+                  top: "50%",
+                  transform: `translate(${x}px, -50%)`,
+                  transition: dragging ? "none" : "transform 260ms cubic-bezier(.2,.9,.25,1)",
+                }}
+                data-no-pin="1"
+              >
+                <FailureAction
+                  failure={failure}
+                  serverLabel={v.kind === "remote" ? v.serverLabel : ""}
+                  onAction={() => action?.()}
+                />
+              </span>
+            ) : null}
           </div>
         );
       })}

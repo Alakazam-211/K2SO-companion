@@ -34,24 +34,26 @@ import {
   rowFocusGroupId,
 } from "./serverPins";
 import { connectProjectEvents, subscribeAppEvents } from "./ticketEvents";
-import { useZenScope } from "./zenScope";
+import { useRoomElsewhere, useZenScope } from "./zenScope";
 import { mountainListWhen } from "./threadModel";
 import { usePinDrag } from "./usePinDrag";
 import { SWIPE_ACTION_W, swipeReveal, useRowSwipe } from "./useRowSwipe";
 import { FocusGroupPicker } from "./FocusGroupPicker";
 import { AddAgentSheet } from "./AddAgentSheet";
-import { HomeList, openHomeRowOnServer } from "./HomeList";
+import { HomeList, openHomeRowOnServer, type RemoteRowLook } from "./HomeList";
 import { HomeMenu } from "./HomeMenu";
 import { HomeTabToggle } from "./HomeTabToggle";
-import { readListTab, selectedHome, useHomesStore, writeListTab, type ListTab } from "./homes";
-import { homeRowMatches, resolveHomeRows } from "./homeView";
+import { parseHomeAddress, readListTab, selectedHome, useHomesStore, writeListTab, type ListTab } from "./homes";
+import { homeRowMatches, renameRepairFor, resolveHomeRows, type HomeRowView } from "./homeView";
+import { OtherServerSection } from "./multi/OtherServerSection";
+import { otherServersForPicker } from "./multi/homePicker";
 import type { StubAgent } from "./stubData";
 import "./swipePin.css";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { ZenSettings } from "./ZenSettings";
 import { useZenStore } from "./zenStore";
 import { FOCUS_OFF } from "./serverPins";
-import { snapshotCapable, useMultiServerList, type ActiveSlice } from "./multi/useMultiServerList";
+import { labelOf, snapshotCapable, useMultiServerList, type ActiveSlice } from "./multi/useMultiServerList";
 import { homeActivityWord, rowActivityOf } from "./multi/rowStatus";
 import { loadServerRows, selectRemoteFocusGroup } from "./multi/remoteRows";
 import { ensureRemoteIcon, remoteIconFor, useRemoteIcons } from "./multi/remoteIcons";
@@ -463,6 +465,9 @@ export function ChatsList() {
     if (onHome) useHomesStore.getState().ensureSeeded();
   }, [onHome]);
   const activeHostKey = activeServer ? serverHostKey(activeServer) : null;
+  const tokens = useServersStore((s) => s.tokens);
+  // Flag on (S3b, HM3): rows from other servers resolve against THAT
+  // server's own lists. Off: they only name their server (today).
   const homeViews = useMemo(
     () =>
       resolveHomeRows(home.rows, {
@@ -470,9 +475,28 @@ export function ChatsList() {
         agents,
         projects: serverProjects,
         servers,
+        remote: multi.on ? { byServer: multi.byServer, tokens } : undefined,
       }),
-    [home.rows, activeHostKey, agents, serverProjects, servers]
+    [home.rows, activeHostKey, agents, serverProjects, servers, multi.on, multi.byServer, tokens]
   );
+  // Rename repair (flag on; desktop `repairFromList`): a row whose handle
+  // left its server while its workspace id is still there follows the
+  // rename. The active server's lists only while Zen is on it (a room on
+  // another server holds THAT server's rows in the store).
+  const roomElsewhere = useRoomElsewhere();
+  useEffect(() => {
+    if (!multi.on || roomElsewhere || source !== "live" || !activeHostKey || serverProjects.length === 0) return;
+    useHomesStore.getState().repairRows(renameRepairFor(activeHostKey, serverProjects, agents));
+  }, [multi.on, roomElsewhere, source, activeHostKey, serverProjects, agents]);
+  useEffect(() => {
+    if (!multi.on) return;
+    for (const sv of servers) {
+      if (sv.id === activeServerId) continue;
+      const r = multi.byServer[sv.id];
+      if (!r || r.loadedAt === null || r.error || r.serverProjects.length === 0) continue;
+      useHomesStore.getState().repairRows(renameRepairFor(serverHostKey(sv), r.serverProjects, r.agents));
+    }
+  }, [multi.on, multi.byServer, servers, activeServerId]);
 
   // Projects badge: project chats with a message newer than this device
   // saw (shared last-seen cursors), off the list's own group last-at
@@ -659,6 +683,31 @@ export function ChatsList() {
     }
   }, [multi.on, multi.merged, multi.entries]);
 
+  // Home rows from other servers (flag on): their snippets (this device's
+  // per-server cache, then one `thread/latest` on THAT server while it is
+  // live and signed in) and pictures (MA24).
+  useEffect(() => {
+    if (!multi.on || !onHome || zenScreen !== "list") return;
+    const byServer = new Map<string, { handles: string[]; ws: { id: string | null; path?: string | null }[] }>();
+    for (const v of homeViews) {
+      if (v.kind !== "remote" || !v.server) continue;
+      const handle = parseHomeAddress(v.row.address)?.handle;
+      if (!handle) continue;
+      const slot = byServer.get(v.server.id) ?? { handles: [], ws: [] };
+      slot.handles.push(handle);
+      const a = v.resolved?.agent;
+      if (a && !a.iconUrl) slot.ws.push({ id: v.resolved?.workspaceId ?? null, path: a.path });
+      byServer.set(v.server.id, slot);
+    }
+    for (const [sid, slot] of byServer) {
+      const e = multi.entries[sid];
+      const healthy = !!e && e.reach === "live" && e.auth === "ok";
+      void useZenStore.getState().refreshRemotePreviews(sid, slot.handles, { fetch: healthy });
+      if (!healthy) continue;
+      for (const w of slot.ws) void ensureRemoteIcon(sid, w.id, w.path);
+    }
+  }, [multi.on, onHome, zenScreen, homeViews, multi.entries]);
+
   /** A non-active row's status, failure and activity. Its server's 5 s
    *  snapshot (Q7) gives counts; otherwise the summary's dot and word. */
   const remoteView = (r: MergedRow) => {
@@ -680,6 +729,58 @@ export function ChatsList() {
   const openRemote = (r: MergedRow) => void multi.openOnServer(r.serverId, r.agent.id);
   const iconOf = (r: MergedRow) =>
     r.agent.iconUrl || remoteIconFor(remoteIcons, r.serverId, r.workspaceId);
+
+  // Home rows from other servers (flag on, S3b / HM3): status from the
+  // S2 pool and row fold; activity from that server's 5 s snapshot when it
+  // has one (the open room's / the filter's, Q7), else the summary's dot
+  // and word; picture by MA24; line two from the per-server snippet cache.
+  type RemoteHomeView = Extract<HomeRowView, { kind: "remote" }>;
+  const homeRemoteLook = (v: RemoteHomeView): RemoteRowLook => {
+    const handle = parseHomeAddress(v.row.address)?.handle ?? "";
+    if (!v.server) {
+      return {
+        failure: null,
+        busy: null,
+        iconUrl: null,
+        preview: `${v.serverLabel} is not saved on this phone`,
+        when: "",
+        nextAt: null,
+        dim: true,
+      };
+    }
+    const sid = v.server.id;
+    const agent = v.resolved?.agent ?? null;
+    const ws = v.resolved?.workspaceId ?? null;
+    const hasSnap = !!agent && multi.snapshotIds.includes(sid) && snapshotCapable(sid);
+    const snap = multi.byServer[sid];
+    const snapBusy =
+      hasSnap && snap ? activityForRow(agent!, snap.activity, false, snap.chatSessions) : null;
+    const status = multi.statusFor(
+      sid,
+      ws,
+      hasSnap ? (snapBusy ? homeActivityWord(snapBusy.display) : "idle") : null
+    );
+    const failure = multi.failureFor(sid, status);
+    const busy: RowActivity | null = failure ? null : hasSnap ? snapBusy : rowActivityOf(status);
+    const key = lastAtKeyFor(sid, { addr: handle });
+    const missing = !!v.resolved?.loaded && !agent;
+    const preview = missing ? (
+      `Not on ${v.serverLabel}'s list right now`
+    ) : (
+      <RowSnippet
+        preview={rowPreviewFor(agent ?? { addr: handle, kind: "agent" }, key ? previewByKey[key] : undefined)}
+      />
+    );
+    return {
+      failure,
+      busy,
+      iconUrl: agent?.iconUrl || remoteIconFor(remoteIcons, sid, ws),
+      preview,
+      when: key && lastAtByKey[key] != null ? mountainListWhen(lastAtByKey[key] as number) : "",
+      nextAt: multi.entries[sid]?.nextAt ?? null,
+      dim: missing,
+    };
+  };
 
   const renderRemoteRow = (r: MergedRow) => {
     const { failure, busy } = remoteView(r);
@@ -1295,10 +1396,31 @@ export function ChatsList() {
             const from = home.rows.findIndex((r) => r.address === address);
             if (from >= 0) useHomesStore.getState().moveRow(home.id, from, from + delta);
           }}
+          hereChip={multi.on && multi.chips ? serverLabel : null}
+          remoteLook={multi.on ? homeRemoteLook : undefined}
+          onRemoteAction={(v, action) => {
+            if (!v.server) return;
+            // "Open the old way" opens THIS row after the switch.
+            if (action === "switch") {
+              const handle = parseHomeAddress(v.row.address)?.handle ?? null;
+              void multi.switchOpen(v.server.id, v.resolved?.agent?.id ?? handle);
+            } else multi.act(v.server.id, action);
+          }}
           onOpenRemote={(v) => {
-            const handle = v.row.address.split("::")[0];
+            const handle = parseHomeAddress(v.row.address)?.handle ?? v.row.address.split("::")[0];
             if (!v.server) {
               setServersSheet(true);
+              return;
+            }
+            if (multi.on) {
+              // S3b / HM3: a ROOM on the row's server, no switch. A row
+              // its server no longer lists has nothing to open.
+              const agent = v.resolved?.agent ?? null;
+              if (v.resolved?.loaded && !agent) return;
+              void openHomeRowOnServer(v.server.id, handle, {
+                localId: agent?.id ?? null,
+                seed: multi.byServer[v.server.id]?.agents,
+              });
               return;
             }
             void openHomeRowOnServer(v.server.id, handle).then((ok) => {
@@ -1790,7 +1912,30 @@ export function ChatsList() {
           agents={chatRows}
           projects={serverProjects}
           groups={groupsOn && focus.groups.length > 0 ? focus.groups : null}
-          otherServers={servers.filter((s) => s.id !== activeServerId)}
+          otherServers={
+            multi.on
+              ? otherServersForPicker(servers, activeServerId, tokens, labelOf)
+              : servers.filter((s) => s.id !== activeServerId)
+          }
+          renderOtherBody={
+            multi.on
+              ? (sv, query) => (
+                  <OtherServerSection
+                    server={sv}
+                    label={multi.labelFor(sv.id)}
+                    q={query}
+                    home={home}
+                    signingIn={multi.signInFor === sv.id}
+                    onAdd={(row) => useHomesStore.getState().addRow(home.id, row)}
+                    onSignIn={() => multi.setSignInFor(sv.id)}
+                    onRetry={() => {
+                      retryServerNow(sv.id);
+                      void loadServerRows(sv.id);
+                    }}
+                  />
+                )
+              : undefined
+          }
           onAdd={(row) => useHomesStore.getState().addRow(home.id, row)}
           onClose={() => setAddAgent(false)}
         />
@@ -1807,7 +1952,9 @@ export function ChatsList() {
         // one (the active server's own sign-in keeps today's flow).
         <div
           className="absolute inset-0 flex flex-col"
-          style={{ background: "#000", zIndex: 6, paddingTop: "env(safe-area-inset-top)" }}
+          // Above the Add Agent sheet (z 30) when signing in from its
+          // Other servers segment.
+          style={{ background: "#000", zIndex: addAgent ? 40 : 6, paddingTop: "env(safe-area-inset-top)" }}
           data-testid="row-sign-in"
         >
           <OverlayAddServer
