@@ -2,7 +2,13 @@ import { invoke, addPluginListener } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { load } from "@tauri-apps/plugin-store";
 import { cliAuthHeaders } from "../api/cliAuth";
-import { useServersStore, getActiveServer, type ServerEntry } from "../stores/servers";
+import { FEATURE_THREAD_PUSH, getBootStatus, serverHasFeature } from "../api/client";
+import {
+  onServerLeave,
+  useServersStore,
+  type ServerEntry,
+} from "../stores/servers";
+import { connectServer } from "./revive";
 import { zenTicketPath } from "../zen/terminalJump";
 
 // Push glue — Companion C6 (prd-companion-v2 §4). Talks to the local
@@ -41,9 +47,19 @@ export interface TapPayload {
   ticketId?: string;
   id?: string;
   groupId?: string;
-  /** May name a different server in a later version; V1 navigates on
-   *  the current server regardless. */
+  /** The tunnel label of the server that sent the push. K2's relay
+   *  overwrites it with the label it authenticated, so it is trusted. */
   subdomain?: string;
+  /** Thread pushes (K2 0.45.5 `thread-push-v1`). All values are strings.
+   *  `instanceId` is daemon-chosen: a tiebreaker only, never a match. */
+  instanceId?: string;
+  addr?: string;
+  conversationId?: string;
+  seq?: string;
+  projectId?: string;
+  agentName?: string;
+  msgKind?: string;
+  count?: string;
 }
 
 // ─── Availability (session-cached probe) ───
@@ -103,9 +119,10 @@ export async function setPushEnabled(enabled: boolean): Promise<void> {
 async function postPush(
   server: ServerEntry,
   path: string,
-  body: Record<string, string>
+  body: Record<string, string>,
+  tokenOverride?: string
 ): Promise<void> {
-  const token = useServersStore.getState().tokens[server.id];
+  const token = tokenOverride || useServersStore.getState().tokens[server.id];
   if (!token) throw new Error("no session token");
   const url = `${server.url}${path}`;
   const res = await tauriFetch(url, {
@@ -118,46 +135,127 @@ async function postPush(
 
 // ─── Register / unregister ───
 
-/** Called after the ACTIVE server is connected (and from Settings when
- *  the toggle turns on). Gates: plugin available AND user enabled the
- *  toggle → request permission (the OS prompts at most once; a denial
- *  just ends here) → token → register-device. Never throws. */
-export async function ensureRegistered(server: ServerEntry): Promise<void> {
+type DeviceReg = { deviceId: string; platform: string; token: string };
+
+/** Gates: plugin available AND user enabled the toggle → request
+ *  permission (the OS prompts at most once; a denial just ends here) →
+ *  vendor token. Null when any gate says no. */
+async function deviceRegistration(): Promise<DeviceReg | null> {
+  if (!(await pushIsAvailable())) return null;
+  if (!(await getPushEnabled())) return null;
+  const perm = await invoke<{ granted: boolean }>(`plugin:${PLUGIN}|request_permission`);
+  if (!perm.granted) return null;
+  const tok = await invoke<{ token: string; platform: string }>(`plugin:${PLUGIN}|get_token`);
+  return { deviceId: await getDeviceId(), platform: tok.platform, token: tok.token };
+}
+
+async function registerWith(server: ServerEntry, reg: DeviceReg): Promise<void> {
   try {
-    if (!(await pushIsAvailable())) return;
-    if (!(await getPushEnabled())) return;
-    const perm = await invoke<{ granted: boolean }>(`plugin:${PLUGIN}|request_permission`);
-    if (!perm.granted) return;
-    const tok = await invoke<{ token: string; platform: string }>(`plugin:${PLUGIN}|get_token`);
-    const deviceId = await getDeviceId();
-    await postPush(server, "/cli/push/register-device", {
-      deviceId,
-      platform: tok.platform,
-      token: tok.token,
-    });
+    await postPush(server, "/cli/push/register-device", reg);
   } catch (e) {
     // Push is best-effort; the next launch/connect retries.
     console.warn("[push] register skipped:", e);
   }
 }
 
-/** Toggle-off: remove this device from a server's registry (blind). */
-export async function unregister(server: ServerEntry): Promise<void> {
+/** Register this device on one server (upsert by stable deviceId).
+ *  Never throws. */
+export async function ensureRegistered(server: ServerEntry): Promise<void> {
+  try {
+    const reg = await deviceRegistration();
+    if (reg) await registerWith(server, reg);
+  } catch (e) {
+    console.warn("[push] register skipped:", e);
+  }
+}
+
+/** The servers this device registers on: the ACTIVE one (as before) plus
+ *  every other signed-in server that advertises `thread-push-v1` — an
+ *  older server's pushes carry no `subdomain`, so a tap could not find
+ *  its way back to it. */
+export async function registrationTargets(): Promise<ServerEntry[]> {
+  const s = useServersStore.getState();
+  const signedIn = s.servers.filter((x) => s.tokens[x.id]);
+  const keep = await Promise.all(
+    signedIn.map(async (x) =>
+      x.id === s.activeServerId ? true : serverHasFeature(FEATURE_THREAD_PUSH, x.id).catch(() => false)
+    )
+  );
+  return signedIn.filter((_, i) => keep[i]);
+}
+
+/** Register on every signed-in server (see `registrationTargets`): on
+ *  launch, after a login, and when the toggle turns on. Never throws. */
+export async function registerAllSignedIn(): Promise<void> {
+  try {
+    const reg = await deviceRegistration();
+    if (!reg) return;
+    const targets = await registrationTargets();
+    await Promise.all(targets.map((x) => registerWith(x, reg)));
+  } catch (e) {
+    console.warn("[push] register skipped:", e);
+  }
+}
+
+/** Register now, then again whenever a server gains a new session token
+ *  (any login or revive). Returns the unsubscribe. */
+export function watchPushRegistrations(): () => void {
+  void registerAllSignedIn();
+  let prev = useServersStore.getState().tokens;
+  return useServersStore.subscribe((state) => {
+    if (state.tokens === prev) return;
+    const before = prev;
+    prev = state.tokens;
+    const changed = state.servers.filter(
+      (x) => state.tokens[x.id] && state.tokens[x.id] !== before[x.id]
+    );
+    if (!changed.length) return;
+    void (async () => {
+      try {
+        const reg = await deviceRegistration();
+        if (!reg) return;
+        const targets = new Set((await registrationTargets()).map((x) => x.id));
+        await Promise.all(changed.filter((x) => targets.has(x.id)).map((x) => registerWith(x, reg)));
+      } catch (e) {
+        console.warn("[push] register skipped:", e);
+      }
+    })();
+  });
+}
+
+/** Toggle-off: remove this device from a server's registry (blind).
+ *  `token` covers a server whose token is about to be dropped. */
+export async function unregister(server: ServerEntry, token?: string): Promise<void> {
   try {
     const deviceId = await getDeviceId();
-    await postPush(server, "/cli/push/unregister-device", { deviceId });
+    await postPush(server, "/cli/push/unregister-device", { deviceId }, token);
   } catch (e) {
     console.warn("[push] unregister skipped:", e);
   }
 }
 
-/** Toggle-off hygiene: registration follows the ACTIVE server around,
- *  so any saved server we still hold a session for may know this
- *  device — unregister from all of them. */
+/** Toggle-off hygiene: any saved server we still hold a session for may
+ *  know this device — unregister from all of them. */
 export async function unregisterAll(): Promise<void> {
   const s = useServersStore.getState();
   await Promise.all(s.servers.filter((x) => s.tokens[x.id]).map((x) => unregister(x)));
 }
+
+/** Rosson Q8: removing or signing out of a server unregisters this device
+ *  from it first, with the token captured before the store drops it.
+ *  Blind and best-effort; a dormant build does nothing. */
+export async function unregisterLeaving(server: ServerEntry, token: string): Promise<void> {
+  try {
+    if (!(await pushIsAvailable())) return;
+    await unregister(server, token);
+  } catch (e) {
+    console.warn("[push] unregister skipped:", e);
+  }
+}
+
+onServerLeave((server, token) => {
+  void unregisterLeaving(server, token);
+});
 
 // ─── Tap deep-link + token rotation wiring ───
 
@@ -190,9 +288,10 @@ export function tapPath(
   opts: { zen?: boolean } = {}
 ): string | null {
   if (!tap) return null;
-  // V1: a `subdomain` naming another server is ignored — navigate on
-  // the current server (spec'd fallback).
+  // Ticket / project taps navigate on the current server. Thread taps
+  // pick their server first (`routeTap`).
   const kind = str(tap.kind);
+  if (kind === "thread") return threadTapPath(tap);
   if (TICKET_KINDS.has(kind)) {
     const id = tapTicketId(tap);
     if (!id) return null;
@@ -201,6 +300,123 @@ export function tapPath(
   const groupId = str(tap.groupId);
   if (kind === "project" && groupId) return `/projects/${groupId}`;
   return null;
+}
+
+/** `/zen?addr=<addr>&seq=<seq>`: open that Thread, scrolled to `seq`. */
+export function threadTapPath(tap: TapPayload): string | null {
+  const addr = str(tap.addr);
+  if (!addr) return null;
+  const seq = str(tap.seq);
+  const q = new URLSearchParams({ addr });
+  if (/^\d+$/.test(seq)) q.set("seq", seq);
+  return `/zen?${q.toString()}`;
+}
+
+/** The host of a saved server URL, lowercased, without a port. */
+function hostOf(url: string): string {
+  try {
+    return new URL(url).hostname.toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Which saved server a push came from (K2 contract after the relay
+ * security review):
+ *   1. `subdomain` — stamped by the relay from the label it authenticated,
+ *      so trusted. Saved servers whose URL host is `<subdomain>.k2.dev`.
+ *   2. `instanceId` — chosen by the daemon, so only a tiebreaker when
+ *      more than one saved server matched step 1.
+ *   No `subdomain` match → null (ignore the tap). Never `projectId`.
+ * Still tied after step 2: the active server, then a signed-in one.
+ */
+export function matchTapServer(
+  tap: TapPayload,
+  servers: ServerEntry[],
+  ctx: {
+    instanceIds?: Record<string, string | null | undefined>;
+    activeServerId?: string | null;
+    tokens?: Record<string, string>;
+  } = {}
+): ServerEntry | null {
+  const sub = str(tap.subdomain).toLowerCase();
+  if (!sub) return null;
+  const host = `${sub}.k2.dev`;
+  const hits = servers.filter((x) => hostOf(x.url) === host);
+  if (hits.length <= 1) return hits[0] ?? null;
+  const inst = str(tap.instanceId);
+  let pool = hits;
+  if (inst) {
+    const byInst = hits.filter((x) => ctx.instanceIds?.[x.id] === inst);
+    if (byInst.length) pool = byInst;
+  }
+  return (
+    pool.find((x) => x.id === ctx.activeServerId) ??
+    pool.find((x) => ctx.tokens?.[x.id]) ??
+    pool[0]
+  );
+}
+
+/** `matchTapServer` with live data: `instanceId` is read fresh from each
+ *  tied server's `/boot-status` (it changes on every daemon restart). */
+export async function resolveTapServer(tap: TapPayload): Promise<ServerEntry | null> {
+  const s = useServersStore.getState();
+  const sub = str(tap.subdomain).toLowerCase();
+  const tied = sub
+    ? s.servers.filter((x) => hostOf(x.url) === `${sub}.k2.dev`)
+    : [];
+  const instanceIds: Record<string, string | null> = {};
+  if (tied.length > 1 && str(tap.instanceId)) {
+    await Promise.all(
+      tied.map(async (x) => {
+        const b = await getBootStatus(x.id, { fresh: true, timeoutMs: 4000 });
+        instanceIds[x.id] = b?.instanceId ?? null;
+      })
+    );
+  }
+  return matchTapServer(tap, s.servers, {
+    instanceIds,
+    activeServerId: s.activeServerId,
+    tokens: s.tokens,
+  });
+}
+
+/** Make `serverId` active the way the Servers sheet does: (re)connect,
+ *  then switch. False when it needs a sign-in or cannot be reached. */
+async function switchToServer(serverId: string): Promise<boolean> {
+  const store = useServersStore.getState();
+  if (store.activeServerId === serverId) return true;
+  const outcome = await connectServer(serverId);
+  if (outcome !== "still-valid" && outcome !== "revived") return false;
+  useServersStore.getState().setActive(serverId);
+  return true;
+}
+
+/** Route one tap. Thread taps resolve their server first (switching to
+ *  it when it is not the active one) and are dropped when no saved
+ *  server matches. Other kinds keep the current server. */
+export async function routeTap(
+  tap: TapPayload | null | undefined,
+  navigate: (path: string) => void,
+  opts: { zen?: boolean } = {}
+): Promise<void> {
+  if (!tap) return;
+  if (str(tap.kind) !== "thread") {
+    const path = tapPath(tap, opts);
+    if (path) navigate(path);
+    return;
+  }
+  const path = threadTapPath(tap);
+  if (!path) return;
+  try {
+    const server = await resolveTapServer(tap);
+    if (!server) return;
+    if (!(await switchToServer(server.id))) return;
+    navigate(path);
+  } catch (e) {
+    console.warn("[push] thread tap dropped:", e);
+  }
 }
 
 function currentPathname(): string {
@@ -217,27 +433,24 @@ export async function attachPushNavigation(
   if (!(await pushIsAvailable())) return () => {};
   const pathname = opts.pathname ?? currentPathname;
   const route = (tap: TapPayload | null | undefined) =>
-    tapPath(tap, { zen: isZenUi(pathname()) });
+    routeTap(tap, navigate, { zen: isZenUi(pathname()) });
 
   // Cold-start tap: the notification launched the app; the native side
   // buffered the payload before JS booted.
   try {
     const launch = await invoke<{ tap: TapPayload | null }>(`plugin:${PLUGIN}|get_launch_tap`);
-    const path = route(launch?.tap);
-    if (path) navigate(path);
+    await route(launch?.tap);
   } catch {
     /* no buffered tap */
   }
 
   const listeners = await Promise.all([
     addPluginListener(PLUGIN, "tap", (tap: TapPayload) => {
-      const path = route(tap);
-      if (path) navigate(path);
+      void route(tap);
     }),
     addPluginListener(PLUGIN, "tokenRefresh", () => {
-      // Vendor rotated the token — re-upsert (same deviceId).
-      const active = getActiveServer();
-      if (active) void ensureRegistered(active);
+      // Vendor rotated the token — re-upsert (same deviceId) everywhere.
+      void registerAllSignedIn();
     }),
   ]).catch(() => []);
 

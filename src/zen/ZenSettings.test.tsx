@@ -7,7 +7,7 @@ vi.mock("../lib/push", () => ({
   pushAvailability: vi.fn(async () => ({ available: true, platform: "apns" })),
   getPushEnabled: vi.fn(async () => false),
   setPushEnabled: vi.fn(async () => undefined),
-  ensureRegistered: vi.fn(async () => undefined),
+  registerAllSignedIn: vi.fn(async () => undefined),
   unregisterAll: vi.fn(async () => undefined),
 }));
 
@@ -16,7 +16,7 @@ vi.mock("../lib/about", () => ({
 }));
 
 import {
-  ensureRegistered,
+  registerAllSignedIn,
   getPushEnabled,
   pushAvailability,
   setPushEnabled,
@@ -112,9 +112,9 @@ describe("ZenSettings", () => {
     );
   });
 
-  it("toggle ON runs the old page's flow: setPushEnabled(true) then ensureRegistered(active)", async () => {
+  it("toggle ON: setPushEnabled(true) then register on every signed-in server", async () => {
     let finish!: () => void;
-    vi.mocked(ensureRegistered).mockImplementation(
+    vi.mocked(registerAllSignedIn).mockImplementation(
       () => new Promise<void>((r) => (finish = r))
     );
     mount();
@@ -122,7 +122,7 @@ describe("ZenSettings", () => {
     await waitFor(() => expect(sw.hasAttribute("disabled")).toBe(false));
     fireEvent.click(sw);
     expect(sw.getAttribute("aria-checked")).toBe("true");
-    await waitFor(() => expect(ensureRegistered).toHaveBeenCalledWith(SERVER));
+    await waitFor(() => expect(registerAllSignedIn).toHaveBeenCalled());
     expect(setPushEnabled).toHaveBeenCalledWith(true);
     // In flight: disabled with a spinner.
     expect(sw.hasAttribute("disabled")).toBe(true);
@@ -142,7 +142,7 @@ describe("ZenSettings", () => {
     await waitFor(() => expect(unregisterAll).toHaveBeenCalled());
     expect(setPushEnabled).toHaveBeenCalledWith(false);
     expect(sw.getAttribute("aria-checked")).toBe("false");
-    expect(ensureRegistered).not.toHaveBeenCalled();
+    expect(registerAllSignedIn).not.toHaveBeenCalled();
   });
 
   it("dormant build: switch disabled with the old page's Unavailable text", async () => {
