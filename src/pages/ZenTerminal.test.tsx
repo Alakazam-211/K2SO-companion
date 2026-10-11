@@ -637,7 +637,7 @@ describe("ZenTerminal", () => {
       expect(key.className).toMatch(/zen-glass zen-glass-pill/);
       expect(key.style.height).toBe("32px");
     }
-    expect(screen.getByRole("button", { name: "Return" })).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Return" })).toBeNull();
     expect(screen.getByRole("button", { name: "Hide keyboard" })).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Switch to safe send" }));
   });

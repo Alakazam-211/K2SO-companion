@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { AccessoryBar } from "./AccessoryBar";
+import { AccessoryBar, ZEN_HIDE_PILL_WIDTH, ZEN_STRIP_END_PAD } from "./AccessoryBar";
 import { TERMINAL_ACCESSORY_KEYS } from "../lib/terminalKeys";
 
 afterEach(cleanup);
@@ -14,7 +14,7 @@ describe("AccessoryBar zen variant", () => {
     render(<AccessoryBar variant="zen" onKey={() => {}} />);
     const bar = screen.getByRole("toolbar", { name: "Terminal keys" });
     const keys = Array.from(bar.querySelectorAll("button"));
-    expect(keys.length).toBe(TERMINAL_ACCESSORY_KEYS.length + 1);
+    expect(keys.length).toBe(TERMINAL_ACCESSORY_KEYS.length);
     for (const k of keys) {
       expect(k.className).toMatch(/\bzen-glass\b/);
       expect(k.className).toMatch(/\bzen-glass-pill\b/);
@@ -37,17 +37,46 @@ describe("AccessoryBar zen variant", () => {
     expect(bar.style.overflowX).toBe("auto");
   });
 
-  it("puts Return right after Shift+Return and sends a plain CR", () => {
+  it("has no Return key; Shift+Return keeps its own bytes", () => {
     const onKey = vi.fn();
     render(<AccessoryBar variant="zen" onKey={onKey} />);
     const bar = screen.getByRole("toolbar", { name: "Terminal keys" });
-    const ids = keyIds(bar);
-    expect(ids[ids.indexOf("newline") + 1]).toBe("return");
-    fireEvent.click(screen.getByRole("button", { name: "Return" }));
-    expect(onKey).toHaveBeenCalledWith("\r", undefined);
-    // Shift+Return keeps its own meta-Enter bytes.
+    expect(keyIds(bar)).toEqual(TERMINAL_ACCESSORY_KEYS.map((k) => k.id));
+    expect(keyIds(bar)).not.toContain("return");
+    expect(screen.queryByRole("button", { name: "Return" })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Shift Enter — newline" }));
     expect(onKey).toHaveBeenLastCalledWith("\x1b\r", undefined);
+  });
+
+  it("pads the strip's right end so the last key scrolls clear of the pill", () => {
+    render(<AccessoryBar variant="zen" onKey={() => {}} />);
+    const bar = screen.getByRole("toolbar", { name: "Terminal keys" });
+    expect(ZEN_STRIP_END_PAD).toBeGreaterThan(ZEN_HIDE_PILL_WIDTH);
+    expect(bar.style.paddingRight).toBe(`${ZEN_STRIP_END_PAD}px`);
+    expect(bar.className).not.toMatch(/\bpr-/);
+  });
+
+  it("puts a right-to-left progressive blur behind the pill that never takes touches", () => {
+    render(<AccessoryBar variant="zen" onKey={() => {}} />);
+    const row = screen.getByRole("toolbar", { name: "Terminal keys" }).parentElement as HTMLElement;
+    const blur = row.querySelector('[data-k2="hide-keyboard-blur"]') as HTMLElement;
+    expect(blur).not.toBeNull();
+    expect(blur.className).toMatch(/\bzen-edge-blur\b/);
+    expect(blur.className).toMatch(/\bzen-edge-blur--to-left\b/);
+    expect(blur.getAttribute("aria-hidden")).toBe("true");
+    expect(blur.style.pointerEvents).toBe("none");
+    // Covers the pill and reaches over the keys to its left.
+    const width = parseFloat(blur.style.width);
+    expect(width - ZEN_HIDE_PILL_WIDTH).toBeGreaterThanOrEqual(40);
+    expect(width - ZEN_HIDE_PILL_WIDTH).toBeLessThanOrEqual(56);
+    for (const n of [1, 2, 3, 4]) expect(blur.querySelector(`.zen-edge-blur-${n}`)).not.toBeNull();
+    expect(blur.querySelector(".zen-edge-blur-tint")).not.toBeNull();
+    // Stacked between the strip and the pill.
+    const hide = screen.getByRole("button", { name: "Hide keyboard" });
+    expect(blur.nextElementSibling).toBe(hide);
+    expect(hide.style.position).toBe("absolute");
+    expect(hide.style.right).toBe("0px");
+    expect(hide.style.width).toBe(`${ZEN_HIDE_PILL_WIDTH}px`);
   });
 
   it("pins a hide-keyboard pill at the right end that blurs the focused input", () => {
