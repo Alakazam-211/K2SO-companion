@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useViewportHeight } from "../lib/useViewportHeight";
 import { useFeedbackStore } from "../stores/feedback";
@@ -7,7 +7,7 @@ import { hostLabel, useServersStore, type RecoveryState } from "../stores/server
 import { isOverlayExtraAddr, visibleOverlayAgents } from "./overlayExtras";
 import { overlayRowPreview } from "./rowPreview";
 import { activityColor, activityForRow, activityPinText, activityRowText } from "./agentActivity";
-import { StubMark } from "./StubMark";
+import { AgentRowContent } from "./AgentRowContent";
 import { OverlayAddServer } from "./OverlayAddServer";
 import {
   GlassSearchBar,
@@ -37,11 +37,18 @@ import { mountainListWhen } from "./threadModel";
 import { usePinDrag } from "./usePinDrag";
 import { SWIPE_ACTION_W, swipeReveal, useRowSwipe } from "./useRowSwipe";
 import { FocusGroupPicker } from "./FocusGroupPicker";
+import { AddAgentSheet } from "./AddAgentSheet";
+import { HomeList, openHomeRowOnServer } from "./HomeList";
+import { HomeMenu } from "./HomeMenu";
+import { HomeTabToggle } from "./HomeTabToggle";
+import { readListTab, selectedHome, useHomesStore, writeListTab, type ListTab } from "./homes";
+import { homeRowMatches, resolveHomeRows } from "./homeView";
+import { serverHostKey } from "../lib/hostKey";
+import type { StubAgent } from "./stubData";
 import "./swipePin.css";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { ZenSettings } from "./ZenSettings";
 import { useZenStore } from "./zenStore";
-import { zenTextPx } from "./zenFont";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -357,6 +364,39 @@ export function ChatsList() {
     ? activeServer.nickname || hostLabel(activeServer.url)
     : "Servers";
 
+  // Home | Agents (multi-server PRD §14 HM1). Agents is the default; the
+  // pick is this device's (localStorage). Home is one server for now.
+  const [tab, setTabState] = useState<ListTab>(readListTab);
+  const onHome = tab === "home";
+  const setTab = (next: ListTab) => {
+    if (next === tab) return;
+    writeListTab(next);
+    setTabState(next);
+    setGroupMenu(false);
+    setHomeMenu(false);
+    swipe.close();
+    closeMenu();
+  };
+  const homes = useHomesStore((s) => s.homes);
+  const homeSelectedId = useHomesStore((s) => s.selectedId);
+  const home = selectedHome({ homes, selectedId: homeSelectedId });
+  const [homeMenu, setHomeMenu] = useState(false);
+  const [addAgent, setAddAgent] = useState(false);
+  useEffect(() => {
+    if (onHome) useHomesStore.getState().ensureSeeded();
+  }, [onHome]);
+  const activeHostKey = serverHostKey(activeServer?.url);
+  const homeViews = useMemo(
+    () =>
+      resolveHomeRows(home.rows, {
+        activeHostKey,
+        agents,
+        projects: serverProjects,
+        servers,
+      }),
+    [home.rows, activeHostKey, agents, serverProjects, servers]
+  );
+
   // Projects badge: project chats with a message newer than this device
   // saw (shared last-seen cursors), off the list's own `g:<id>` last-at.
   const groupIds = useMemo(
@@ -365,6 +405,10 @@ export function ChatsList() {
   );
   useZenStore((s) => s.groupSeenRev);
   const projectsUnread = unreadGroupCount(activeServerId, groupIds, lastAtByKey);
+
+  /** Line two of a row (Agents and Home share it). */
+  const previewFor = (a: StubAgent): ReactNode =>
+    source === "stub" ? "STUB" : overlayRowPreview(a);
 
   const searching = q.trim().length > 0;
   // Search ignores the focus group so any agent can still be found.
@@ -631,7 +675,31 @@ export function ChatsList() {
           style={{ letterSpacing: "-0.2px", maxWidth: TITLE_MAX_W }}
           data-testid="chats-title"
         >
-          {group ? (
+          {onHome ? (
+            <button
+              type="button"
+              className="flex items-center min-w-0 max-w-full bg-transparent border-0 p-0"
+              style={{
+                gap: 6,
+                color: "#fff",
+                font: "inherit",
+                letterSpacing: "inherit",
+                pointerEvents: "auto",
+              }}
+              onClick={() => setHomeMenu((v) => !v)}
+              aria-haspopup="menu"
+              aria-expanded={homeMenu}
+              aria-label={`Home ${home.name}`}
+              data-testid="chats-title-home"
+            >
+              <span className="min-w-0 truncate">{home.name}</span>
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor"
+                strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden
+                className="shrink-0" style={{ opacity: 0.6 }}>
+                <path d="m6 9 6 6 6-6" />
+              </svg>
+            </button>
+          ) : group ? (
             <button
               type="button"
               className="flex items-center min-w-0 max-w-full bg-transparent border-0 p-0"
@@ -824,7 +892,19 @@ export function ChatsList() {
       </div>
       </header>
 
-      {group && groupMenu ? (
+      {onHome && homeMenu ? (
+        <HomeMenu
+          homes={homes}
+          currentId={home.id}
+          onSelect={(id) => useHomesStore.getState().selectHome(id)}
+          onCreate={(name) => useHomesStore.getState().createHome(name)}
+          onRename={(name) => useHomesStore.getState().renameHome(home.id, name)}
+          onDelete={() => useHomesStore.getState().deleteHome(home.id)}
+          onClose={() => setHomeMenu(false)}
+        />
+      ) : null}
+
+      {!onHome && group && groupMenu ? (
         <>
           <button
             type="button"
@@ -901,7 +981,7 @@ export function ChatsList() {
           anchor at the header's bottom edge, so the strip floats over the
           list (and above the header blur) without shifting the row under
           the finger. */}
-      {!searching && pinned.length === 0 && hot ? (
+      {!onHome && !searching && pinned.length === 0 && hot ? (
         <div
           className="absolute left-0 right-0"
           style={{
@@ -947,6 +1027,31 @@ export function ChatsList() {
           setScrolled(e.currentTarget.scrollTop > 0);
         }}
       >
+      {onHome ? (
+        <HomeList
+          views={homeViews.filter((v) => homeRowMatches(v, q))}
+          homeName={home.name}
+          searching={searching}
+          inset={ZEN_LIST_CONTENT_INSET}
+          previewFor={previewFor}
+          onRemove={(address) => useHomesStore.getState().removeRow(home.id, address)}
+          onMove={(address, delta) => {
+            const from = home.rows.findIndex((r) => r.address === address);
+            if (from >= 0) useHomesStore.getState().moveRow(home.id, from, from + delta);
+          }}
+          onOpenRemote={(v) => {
+            const handle = v.row.address.split("::")[0];
+            if (!v.server) {
+              setServersSheet(true);
+              return;
+            }
+            void openHomeRowOnServer(v.server.id, handle).then((ok) => {
+              if (!ok) setServersSheet(true);
+            });
+          }}
+        />
+      ) : (
+      <>
       <span id={SWIPE_HINT_ID} className="sr-only">
         {groupsOn ? "Swipe right to add to a focus group. " : ""}
         Press and hold, then drag to the top to pin.
@@ -1083,13 +1188,11 @@ export function ChatsList() {
             lastKey && lastAtByKey[lastKey] != null
               ? mountainListWhen(lastAtByKey[lastKey] as number)
               : "";
-          const preview =
-            source === "stub" ? "STUB" : overlayRowPreview(a);
+          const preview = previewFor(a);
           const busy =
             source === "live"
               ? activityForRow(a, activity, isOverlayExtraAddr(a.addr), chatSessions)
               : null;
-          const busyColor = busy ? activityColor(busy) : "var(--success)";
           const rowCanGroup = canGroup(a.id);
           const rowGroupId = rowCanGroup ? rowFocusGroupId(a, serverProjects) : null;
           const rowGroup = rowGroupId
@@ -1219,78 +1322,22 @@ export function ChatsList() {
             data-pin-id={a.id}
             data-pin-from="list"
           >
-            <span className="relative shrink-0">
-              <WorkspaceAvatar
-                initial={a.initial}
-                color={a.color}
-                iconUrl={a.iconUrl}
-                size={50}
-                fontSize={18}
-              />
-              {busy ? (
-                <span
-                  aria-hidden
-                  data-testid="row-activity-dot"
-                  className={`absolute rounded-full ${busy.display === "working" ? "k2-pulse" : ""}`}
-                  style={{
-                    right: -1,
-                    bottom: -1,
-                    width: 14,
-                    height: 14,
-                    background: busyColor,
-                    color: busyColor,
-                    border: "2.5px solid var(--root)",
-                    // The pulse ring starts outside the cutout border.
-                    ["--k2-pulse-edge" as string]: "2.5px",
-                  }}
-                />
-              ) : null}
-            </span>
-            <span className="flex-1 min-w-0">
-              <span className="flex justify-between items-baseline gap-2">
-                <span
-                  className="min-w-0 truncate font-semibold"
-                  style={{ fontSize: zenTextPx(16), letterSpacing: "-0.2px" }}
-                  data-testid="row-name"
-                >
-                  {a.name}
-                </span>
-                {source === "stub" ? (
-                  <StubMark />
-                ) : (
-                  <span
-                    className="shrink-0 flex items-center gap-1"
-                    style={{ color: "#8e8e93", fontWeight: 400, fontSize: zenTextPx(14) }}
-                    data-testid="row-when"
-                  >
-                    {when}
-                    {when ? " " : ""}
-                    ›
-                  </span>
-                )}
-              </span>
-              {busy ? (
-                <span
-                  className="block truncate"
-                  style={{ color: busyColor, lineHeight: 1.3, fontSize: zenTextPx(14) }}
-                  data-testid="row-activity"
-                >
-                  {activityRowText(busy)}
-                </span>
-              ) : (
-                <span
-                  className="block truncate"
-                  style={{ color: "#8e8e93", lineHeight: 1.3, fontSize: zenTextPx(14) }}
-                  data-testid="row-preview"
-                >
-                  {preview}
-                </span>
-              )}
-            </span>
+            <AgentRowContent
+              name={a.name}
+              initial={a.initial}
+              color={a.color}
+              iconUrl={a.iconUrl}
+              busy={busy}
+              when={when}
+              preview={preview}
+              stub={source === "stub"}
+            />
           </button>
           </div>
           );
         })}
+      </>
+      )}
       </div>
 
       {pinMenu && menuAgent ? (
@@ -1443,9 +1490,10 @@ export function ChatsList() {
         query={q}
         onQuery={setQ}
         placeholder="Search"
-        onPlus={() => setNewWorkspace(true)}
-        plusLabel="New workspace"
-        plusBlockedNote={canCreate ? null : createRoleNote()}
+        leading={<HomeTabToggle tab={tab} onTab={setTab} />}
+        onPlus={() => (onHome ? setAddAgent(true) : setNewWorkspace(true))}
+        plusLabel={onHome ? "Add agent" : "New workspace"}
+        plusBlockedNote={onHome || canCreate ? null : createRoleNote()}
       />
 
       {projectsOpen ? <ProjectsOverlay onClose={() => setProjectsOpen(false)} /> : null}
@@ -1457,6 +1505,18 @@ export function ChatsList() {
             setTickets(false);
             setDeepTicket(null);
           }}
+        />
+      ) : null}
+      {addAgent && onHome ? (
+        <AddAgentSheet
+          home={home}
+          hostKey={activeHostKey}
+          agents={chatRows}
+          projects={serverProjects}
+          groups={groupsOn && focus.groups.length > 0 ? focus.groups : null}
+          otherServers={servers.filter((s) => s.id !== activeServerId)}
+          onAdd={(row) => useHomesStore.getState().addRow(home.id, row)}
+          onClose={() => setAddAgent(false)}
         />
       ) : null}
       {newWorkspace ? (
