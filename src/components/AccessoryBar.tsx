@@ -52,8 +52,9 @@ interface Props {
    *  capture pipeline so pending IME text flushes first and backspace
    *  local-edits pending text instead of sending \x7f. */
   onKey: (bytes: string, localEdit?: LiveLocalEdit) => void;
-  /** `"zen"` = keys as small tile chips (Zen terminal page). Same keys,
-   *  same press model; the default look is untouched. */
+  /** `"zen"` = bare keys on a transparent row (Zen terminal page): no
+   *  tile/glass chip, just the label with a 44pt target. Same keys, same
+   *  press model; the default look is untouched. */
   variant?: "default" | "zen";
 }
 
@@ -97,7 +98,9 @@ export function AccessoryBar({ onKey, variant = "default" }: Props) {
       data-k2="accessory-bar"
       role="toolbar"
       aria-label="Terminal keys"
-      className="flex gap-1.5 pb-2 -mx-4 px-4"
+      className={
+        variant === "zen" ? "flex gap-1 pb-1 -mx-3 px-3" : "flex gap-1.5 pb-2 -mx-4 px-4"
+      }
       style={{
         overflowX: "auto",
         WebkitOverflowScrolling: "touch",
@@ -128,7 +131,7 @@ export function AccessoryBar({ onKey, variant = "default" }: Props) {
               })}
           className={
             variant === "zen"
-              ? "k2-tile k2-tile-raised rounded-[10px] text-[var(--text)] text-[12px] shrink-0"
+              ? "bg-transparent border-0 rounded-[10px] text-[var(--text)] text-[13px] shrink-0 active:bg-white/10"
               : "border border-[var(--accent-dim)] bg-[var(--background)] text-[var(--text)] text-[12px] shrink-0"
           }
           style={{

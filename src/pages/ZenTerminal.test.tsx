@@ -42,6 +42,7 @@ vi.mock("../api/client", () => ({
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),
   uploadFsBinary: vi.fn(),
+  getThreadActivity: vi.fn(async () => ({ ok: true, data: { turn: null } })),
   setTabTitle: vi.fn(),
   setSessionLabel: vi.fn(),
   ensurePinnedChat: vi.fn(),
@@ -56,13 +57,14 @@ vi.mock("../api/projectGroups", () => ({
   postProjectGroupMessage: vi.fn(),
 }));
 
-import { ensurePinnedChat, getAllSessions } from "../api/client";
+import { ensurePinnedChat, getAllSessions, uploadFsBinary } from "../api/client";
 import { sendMessageToSession } from "../api/sendMessage";
 import { useServersStore } from "../stores/servers";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { STUB_AGENTS } from "../zen/stubData";
 import { rememberZenThread, zenTerminalPath, type ZenTerminalAgent } from "../zen/terminalJump";
 import { useZenStore } from "../zen/zenStore";
+import { ThreadPane } from "../zen/ThreadPane";
 import { ChatSession } from "./ChatSession";
 import { Zen } from "./Zen";
 import { ZenTerminal } from "./ZenTerminal";
@@ -110,6 +112,8 @@ beforeEach(() => {
   useWorkspacesStore.setState({ allSessions: [], projects: [] });
   useZenStore.setState({ agents: [], agentId: "", screen: "list" });
   rememberZenThread(null);
+  vi.mocked(sendMessageToSession).mockClear();
+  vi.mocked(uploadFsBinary).mockReset();
 });
 
 afterEach(() => {
@@ -118,7 +122,7 @@ afterEach(() => {
 });
 
 describe("ZenTerminal", () => {
-  it("renders the glass header: avatar, name, Terminal subtitle, back pill, Viewer/Claimer, reload", () => {
+  it("renders the glass header: Done, avatar, name, Terminal subtitle, Viewer/Claimer, reload", () => {
     renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
     const header = screen.getByTestId("zen-terminal-header");
     const blur = screen.getByTestId("zen-terminal-header-blur");
@@ -132,16 +136,18 @@ describe("ZenTerminal", () => {
       screen.getByTestId("zen-terminal-avatar").querySelector("img")?.getAttribute("src")
     ).toBe(AGENT.iconUrl);
 
-    const back = screen.getByTestId("zen-terminal-back");
-    expect(back.className).toMatch(/zen-glass/);
-    expect(back.className).toMatch(/zen-glass-pill/);
-    expect(back.style.width).toBe("34px");
-    expect(back.style.height).toBe("34px");
+    const done = screen.getByTestId("zen-terminal-done");
+    expect(done.textContent).toBe("Done");
+    expect(done.className).toMatch(/zen-glass/);
+    expect(done.className).toMatch(/zen-glass-pill/);
+    expect(done.className).toMatch(/text-\[17px\]/);
+    expect(done.style.height).toBe("34px");
+    expect(screen.queryByRole("button", { name: "Back to chat" })).toBeNull();
 
     const group = screen.getByRole("group", { name: "Viewer or claimer" });
     expect(group.className).toMatch(/zen-glass/);
     expect(screen.getByRole("button", { name: "Reload session" }).className).toMatch(/zen-glass/);
-    // No thread door in this header — back is the only way out.
+    // No thread door in this header — Done is the only way out.
     expect(screen.queryByRole("button", { name: "Chat" })).toBeNull();
 
     expect(termProps[termProps.length - 1]).toEqual({ terminalId: "t1", projectPath: "/ws/appa", drive: false });
@@ -159,9 +165,42 @@ describe("ZenTerminal", () => {
     expect(screen.getByTestId("terminal-view").getAttribute("data-drive")).toBe("false");
   });
 
-  it("back pill restores the agent's Zen thread, not /sessions", async () => {
+  it("compact header: one row, Done → small avatar → name over Terminal → controls", () => {
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+    const row = screen.getByTestId("zen-terminal-header-row");
+    expect(row.className).toMatch(/\bflex\b/);
+    expect(row.className).not.toMatch(/\bgrid\b/);
+    const h = parseInt(row.style.height, 10);
+    expect(h).toBeGreaterThanOrEqual(44);
+    expect(h).toBeLessThanOrEqual(48);
+
+    const kids = Array.from(row.children);
+    const done = screen.getByTestId("zen-terminal-done");
+    const avatar = screen.getByTestId("zen-terminal-avatar");
+    const titles = screen.getByTestId("zen-terminal-titles");
+    expect(kids.indexOf(done)).toBe(0);
+    expect(kids.indexOf(avatar)).toBe(1);
+    expect(kids.indexOf(titles)).toBe(2);
+    expect(kids[3].contains(screen.getByRole("group", { name: "Viewer or claimer" }))).toBe(true);
+    expect(kids[3].contains(screen.getByRole("button", { name: "Reload session" }))).toBe(true);
+
+    // Avatar shrank to ~28px; name and "Terminal" stack to its right.
+    const img = avatar.querySelector("img") as HTMLElement;
+    expect((img.parentElement as HTMLElement).style.width || img.style.width).toBe("28px");
+    const title = screen.getByTestId("zen-terminal-title");
+    const sub = screen.getByTestId("zen-terminal-subtitle");
+    expect(Array.from(titles.children)).toEqual([title, sub]);
+    expect(titles.className).toMatch(/flex-col/);
+    expect(title.className).toMatch(/text-\[15px\]/);
+    expect(title.className).toMatch(/font-semibold/);
+    expect(title.className).toMatch(/truncate/);
+    expect(sub.className).toMatch(/text-\[12px\]/);
+    expect(sub.textContent).toBe("Terminal");
+  });
+
+  it("Done restores the agent's Zen thread, not /sessions", async () => {
     renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } }, true);
-    fireEvent.click(screen.getByTestId("zen-terminal-back"));
+    fireEvent.click(screen.getByTestId("zen-terminal-done"));
     await waitFor(() => expect(useZenStore.getState().screen).toBe("thread"));
     expect(useZenStore.getState().agentId).toBe(AGENT.agentId);
     expect(screen.getByTestId("thread-column")).not.toBeNull();
@@ -171,7 +210,7 @@ describe("ZenTerminal", () => {
   it("without router state, back uses the remembered thread", () => {
     rememberZenThread("/ws/remembered");
     renderAt(zenTerminalPath("t1"));
-    fireEvent.click(screen.getByTestId("zen-terminal-back"));
+    fireEvent.click(screen.getByTestId("zen-terminal-done"));
     expect(screen.getByTestId("loc").textContent).toBe("/zen?thread=%2Fws%2Fremembered");
   });
 
@@ -181,14 +220,14 @@ describe("ZenTerminal", () => {
     });
     renderAt(zenTerminalPath("t9"));
     expect(screen.getByTestId("zen-terminal-title").textContent).toBe("Bee");
-    fireEvent.click(screen.getByTestId("zen-terminal-back"));
+    fireEvent.click(screen.getByTestId("zen-terminal-done"));
     expect(screen.getByTestId("loc").textContent).toBe("/zen?thread=%2Fws%2Fb%3A%3Ab-2");
   });
 
   it("with nothing to go on, shows a generic header and back goes to /zen", () => {
     renderAt(zenTerminalPath("t1"));
     expect(screen.getByTestId("zen-terminal-title").textContent).toBe("Terminal");
-    fireEvent.click(screen.getByTestId("zen-terminal-back"));
+    fireEvent.click(screen.getByTestId("zen-terminal-done"));
     expect(screen.getByTestId("loc").textContent).toBe("/zen");
   });
 
@@ -231,21 +270,117 @@ describe("ZenTerminal", () => {
     expect(screen.getByTestId("zen-terminal-title").textContent).toBe("Appa");
   });
 
-  it("composer keeps the terminal composer's wording and sends to the PTY", async () => {
+  it("composer is the thread's glass field: ＋ and send inside, send disabled when empty", () => {
     renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
-    const field = screen.getByPlaceholderText(/Message the agent…/);
-    expect(field.closest("[data-k2-variant='zen']")).not.toBeNull();
-    fireEvent.change(field, { target: { value: "ls" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send" }));
-    await waitFor(() => expect(sendMessageToSession).toHaveBeenCalledWith("t1", "ls"));
-    expect(screen.queryByTestId("composer-field")).toBeNull();
+    const field = screen.getByTestId("terminal-composer-field");
+    const attach = screen.getByTestId("terminal-composer-attach");
+    const input = screen.getByTestId("terminal-composer-input");
+    const send = screen.getByTestId("terminal-composer-send");
+    expect(Array.from(field.children)).toEqual([attach, input, send]);
+    expect(field.className).toMatch(/k2-tile/);
+    expect(field.className).toMatch(/rounded-\[20px\]/);
+    expect(attach.textContent).toBe("＋");
+    expect(send.getAttribute("type")).toBe("submit");
+    expect(send).toHaveProperty("disabled", true);
+    fireEvent.change(input, { target: { value: "  " } });
+    expect(send).toHaveProperty("disabled", true);
+    fireEvent.change(input, { target: { value: "ls" } });
+    expect(send).toHaveProperty("disabled", false);
+    expect(send.style.background).toBe("rgb(10, 132, 255)");
+    expect(screen.getByTestId("terminal-composer-bar").className).toMatch(/zen-composer-bar/);
+    expect(input.closest("[data-k2-variant='zen']")).not.toBeNull();
+    // Send keeps the keyboard up.
+    const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true });
+    send.dispatchEvent(down);
+    expect(down.defaultPrevented).toBe(true);
   });
 
-  it("direct mode shows the accessory keys as tile chips", () => {
+  it("composer markup matches the Zen thread composer", () => {
+    const shape = (prefix: string) => {
+      const field = screen.getByTestId(`${prefix}-field`);
+      return {
+        bar: screen.getByTestId(`${prefix}-bar`).className,
+        form: screen.getByTestId(`${prefix}-form`).className,
+        field: field.className,
+        kids: Array.from(field.children).map((el) => [
+          el.tagName,
+          el.className,
+          el.getAttribute("type"),
+          el.getAttribute("aria-label"),
+        ]),
+        inputStyle: screen.getByTestId(`${prefix}-input`).getAttribute("style"),
+      };
+    };
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+    const term = shape("terminal-composer");
+    cleanup();
+    useZenStore.setState({
+      threadSource: "live",
+      threadAddr: "appa",
+      threadGroupId: null,
+      threadError: null,
+      sendError: null,
+      sending: false,
+      thread: [],
+    });
+    render(<ThreadPane />);
+    expect(shape("composer")).toEqual(term);
+  });
+
+  it("sending goes through the terminal send path (sendMessageToSession)", async () => {
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+    const input = screen.getByPlaceholderText(/Message the agent…/);
+    fireEvent.change(input, { target: { value: "line one\nline two" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send" }));
+    await waitFor(() =>
+      expect(sendMessageToSession).toHaveBeenCalledWith("t1", "line one\nline two")
+    );
+    await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe(""));
+  });
+
+  it("＋ uploads into the agent workspace and puts the path in the draft", async () => {
+    vi.mocked(uploadFsBinary).mockResolvedValueOnce({
+      ok: true,
+      data: { path: "/ws/appa/note.txt" },
+    } as never);
+    renderAt({
+      pathname: zenTerminalPath("t1"),
+      state: { agent: { ...AGENT, addr: "appa" } },
+    });
+    const attach = screen.getByTestId("terminal-composer-attach");
+    expect(attach).toHaveProperty("disabled", false);
+    const input = screen.getByTestId("terminal-composer-input") as HTMLTextAreaElement;
+    fireEvent.change(input, { target: { value: "read this" } });
+    const file = new File(["hi"], "note.txt", { type: "text/plain" });
+    fireEvent.change(screen.getByTestId("terminal-composer-file-input"), {
+      target: { files: [file] },
+    });
+    await waitFor(() => expect(input.value).toBe("read this\n/ws/appa/note.txt"));
+    expect(vi.mocked(uploadFsBinary).mock.calls[0].slice(0, 3)).toEqual([
+      "appa",
+      "/ws/appa",
+      "note.txt",
+    ]);
+    expect(sendMessageToSession).not.toHaveBeenCalled();
+  });
+
+  it("＋ is disabled without a workspace (no addr)", () => {
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+    expect(screen.getByTestId("terminal-composer-attach")).toHaveProperty("disabled", true);
+  });
+
+  it("direct mode: accessory keys sit bare, no glass or tile encasing", () => {
     renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
     fireEvent.click(screen.getByRole("button", { name: "Switch to direct typing" }));
     const bar = screen.getByRole("toolbar", { name: "Terminal keys" });
-    expect(bar.querySelector("button")?.className).toMatch(/k2-tile/);
+    const wrap = screen.getByTestId("zen-terminal-direct-bar");
+    for (const el of [wrap, bar, ...Array.from(bar.querySelectorAll("button"))]) {
+      expect(el.className).not.toMatch(/k2-tile|zen-glass/);
+    }
+    const key = bar.querySelector("button") as HTMLElement;
+    expect(key.className).toMatch(/bg-transparent/);
+    expect(key.style.minWidth).toBe("44px");
+    expect(key.style.height).toBe("44px");
     fireEvent.click(screen.getByRole("button", { name: "Switch to safe send" }));
   });
 });
@@ -257,6 +392,8 @@ describe("old /chat/:id page is unchanged", () => {
     const field = screen.getByPlaceholderText(/Message the agent…/);
     expect(field.closest("[data-k2-variant='zen']")).toBeNull();
     expect(field.className).toMatch(/border-\[var\(--accent-dim\)\]/);
+    expect(screen.queryByRole("button", { name: "Add file" })).toBeNull();
+    expect(screen.getByRole("button", { name: "Send" }).className).toMatch(/w-11 h-11 border/);
     expect(screen.getByRole("button", { name: "Chat" })).not.toBeNull();
     const back = document.querySelector("button.-ml-2") as HTMLButtonElement;
     fireEvent.click(back);

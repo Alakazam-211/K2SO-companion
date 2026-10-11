@@ -335,6 +335,7 @@ export function Zen() {
                           iconUrl: agent?.iconUrl ?? null,
                           chatTitle: sidecarTitle,
                           projectPath: agent?.path ?? null,
+                          addr: agent?.addr ?? null,
                         }
                       : null;
                     navigate(zenTerminalPath(tid), {

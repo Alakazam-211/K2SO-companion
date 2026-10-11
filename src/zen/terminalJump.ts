@@ -67,6 +67,8 @@ export type ZenTerminalAgent = {
   /** Sidecar chat title, when the terminal is a sidecar's. */
   chatTitle?: string | null;
   projectPath?: string | null;
+  /** Overlay addr (`appa` / `appa/1`) — the workspace handle for `＋` uploads. */
+  addr?: string | null;
 };
 
 export function readZenTerminalAgent(state: unknown): ZenTerminalAgent | null {
