@@ -209,7 +209,7 @@ function PinGlyph({ off }: { off: boolean }) {
 /** One list or pin-grid entry: an active-server row (ChatsList's own row,
  *  with swipe and pin drag) or, with multi-server on, another server's. */
 type ListItem =
-  | { active: true; key: string; agent: StubAgent; chip: string | null }
+  | { active: true; key: string; agent: StubAgent }
   | { active: false; key: string; row: MergedRow };
 
 const RECOVERY_WORD: Record<RecoveryState, string> = {
@@ -411,37 +411,19 @@ export function ChatsList() {
   const multi = useMultiServerList({ q, listOnScreen: zenScreen === "list", active: activeSlice });
   const [filterMenu, setFilterMenu] = useState(false);
   const remoteIcons = useRemoteIcons((s) => s.icons);
-  // The header's focus: one server's groups; "All servers" over several
-  // servers mixes groups, so the title reads "All servers" (Q5).
-  const headerFocus = multi.remoteFilterId
-    ? multi.byServer[multi.remoteFilterId]?.focus ?? FOCUS_OFF
-    : multi.mixing
-      ? FOCUS_OFF
-      : focus;
+  // The header's focus: the Agents tab's server's own groups.
+  const headerFocus = multi.remoteSelectedId
+    ? multi.byServer[multi.remoteSelectedId]?.focus ?? FOCUS_OFF
+    : focus;
   const group = currentFocusGroup(headerFocus);
-  const title = multi.mixing ? "All servers" : listTitle(headerFocus);
-  // MS35: with the flag on, the nickname pill is the server filter.
-  const pillLabel =
-    multi.filter === "all"
-      ? "All servers"
-      : multi.filter === activeServerId
-        ? serverLabel
-        : multi.labelFor(multi.filter);
-  const pillDot =
-    multi.filter === "all"
-      ? "#8e8e93"
-      : multi.filter === activeServerId
-        ? RECOVERY_DOT[recoveryState]
-        : multi.badgeFor(multi.filter).color;
+  const title = listTitle(headerFocus);
   const pickFocusGroup = (gid: string) => {
-    if (multi.remoteFilterId) selectRemoteFocusGroup(multi.remoteFilterId, gid);
+    if (multi.remoteSelectedId) selectRemoteFocusGroup(multi.remoteSelectedId, gid);
     else selectFocusGroup(gid);
   };
 
   const toListItem = (r: MergedRow): ListItem =>
-    r.active
-      ? { active: true, key: r.key, agent: r.agent, chip: multi.chips ? r.serverLabel : null }
-      : { active: false, key: r.key, row: r };
+    r.active ? { active: true, key: r.key, agent: r.agent } : { active: false, key: r.key, row: r };
 
   // Home | Agents (multi-server PRD §14 HM1). Agents is the default; the
   // pick is this device's (localStorage). Home is one server for now.
@@ -453,9 +435,27 @@ export function ChatsList() {
     setTabState(next);
     setGroupMenu(false);
     setHomeMenu(false);
+    setFilterMenu(false);
     swipe.close();
     closeMenu();
   };
+  // MS35 (owner 2026-10): with the flag on, the nickname pill names the
+  // Agents tab's ONE server (its status dot too). Home spans every server
+  // (a curated list), so there it reads "All"; its menu jumps to Agents on
+  // the server picked.
+  const selectedId = multi.selectedId;
+  const pillLabel = onHome
+    ? "All"
+    : selectedId === activeServerId || !selectedId
+      ? serverLabel
+      : multi.labelFor(selectedId);
+  const pillDot = onHome
+    ? "#8e8e93"
+    : selectedId === activeServerId || !selectedId
+      ? activeServer
+        ? RECOVERY_DOT[recoveryState]
+        : "#8e8e93"
+      : multi.badgeFor(selectedId).color;
   const homes = useHomesStore((s) => s.homes);
   const homeSelectedId = useHomesStore((s) => s.selectedId);
   const home = selectedHome({ homes, selectedId: homeSelectedId });
@@ -535,7 +535,7 @@ export function ChatsList() {
     ? searching
       ? []
       : multi.merged.pinned.map(toListItem)
-    : pinned.map((a) => ({ active: true, key: a.id, agent: a, chip: null }));
+    : pinned.map((a) => ({ active: true, key: a.id, agent: a }));
   const showPins = !searching && pinItems.length > 0;
   const pinnedInGrid = new Set(showPins ? pinItems.map((p) => p.key) : []);
   const rows = showPins ? filtered.filter((a) => !pinnedInGrid.has(a.id)) : filtered;
@@ -543,7 +543,7 @@ export function ChatsList() {
     ? sortChatsByRecency(multi.merged.rows, lastAtByKey, (r) => lastAtKeyFor(r.serverId, r.agent))
         .filter((r) => !pinnedInGrid.has(r.key))
         .map(toListItem)
-    : rows.map((a) => ({ active: true, key: a.id, agent: a, chip: null }));
+    : rows.map((a) => ({ active: true, key: a.id, agent: a }));
   const placeholders = multi.on ? multi.placeholders : [];
   const menuAgent = pinMenu ? pinned.find((a) => a.id === pinMenu.id) ?? null : null;
   const serverListsAt = useRef(Date.now());
@@ -791,7 +791,6 @@ export function ChatsList() {
       <RemoteAgentRow
         key={r.key}
         row={r}
-        chip={multi.chips}
         failure={failure}
         busy={busy}
         when={when}
@@ -864,13 +863,13 @@ export function ChatsList() {
         <div className="text-[12px] truncate mx-auto" style={{ color: "#d1d1d6", maxWidth: 110 }}>
           {r.agent.name}
         </div>
-        {multi.chips ? (
+        {failure ? (
           <div
             className="text-[11px] truncate mx-auto"
             style={{ color: "#8e8e93", maxWidth: 110, lineHeight: 1.3 }}
             data-testid="pin-server"
           >
-            {failure ? failure.copy : r.serverLabel}
+            {failure.copy}
           </div>
         ) : null}
       </button>
@@ -972,7 +971,9 @@ export function ChatsList() {
             pointerEvents: "auto",
           }}
           onClick={() => (multi.on ? setFilterMenu(true) : setServersSheet(true))}
-          aria-label={multi.on ? `Server filter: ${pillLabel}` : `Server ${serverLabel}`}
+          aria-label={
+            multi.on ? (onHome ? "Servers: All" : `Server ${pillLabel}`) : `Server ${serverLabel}`
+          }
           aria-haspopup={multi.on ? "menu" : undefined}
           aria-expanded={multi.on ? filterMenu : undefined}
           title={multi.on ? pillLabel : serverLabel}
@@ -995,7 +996,7 @@ export function ChatsList() {
             data-testid="server-name"
             style={{ letterSpacing: "-0.2px" }}
           >
-            {multi.on ? (multi.filter === "all" ? "All" : pillLabel) : serverLabel}
+            {multi.on ? pillLabel : serverLabel}
           </span>
         </button>
         {/* Groups on: the current focus group's name, a tap opens this
@@ -1224,7 +1225,7 @@ export function ChatsList() {
 
       {multi.on && filterMenu ? (
         <ServerFilterMenu
-          filter={multi.filter}
+          selectedId={onHome ? null : selectedId}
           options={servers.map((sv) => {
             const isActive = sv.id === activeServerId;
             const badge = multi.badgeFor(sv.id);
@@ -1237,9 +1238,11 @@ export function ChatsList() {
               word: isActive ? `Default · ${RECOVERY_WORD[state]}` : badge.word,
             };
           })}
-          onPick={(f) => {
-            multi.setFilter(f);
+          onPick={(id) => {
+            multi.setSelected(id);
             setFilterMenu(false);
+            // Home: a server pick opens the Agents tab on that server.
+            if (onHome) setTab("agents");
           }}
           onManage={() => {
             setFilterMenu(false);
@@ -1714,7 +1717,6 @@ export function ChatsList() {
               when={when}
               preview={preview}
               stub={source === "stub"}
-              serverChip={item.chip}
             />
           </button>
           </div>

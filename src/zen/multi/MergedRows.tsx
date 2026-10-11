@@ -1,8 +1,8 @@
-// The merged Agents list's own pieces (multi-server S2, MS20, MS35, MS39).
+// The multi-server Agents list's own pieces (multi-server S2, MS35, MS39).
 // Only rendered with `zen.multiServer` on. The active server's rows keep
-// ChatsList's own row (swipe, pin drag, last-at); these are the rows from
-// OTHER servers, the server chip, a server's placeholder row, the
-// "Loading {server}…" line and the server filter menu.
+// ChatsList's own row (swipe, pin drag, last-at); these are the rows of a
+// NON-active server picked in the pill, a server's placeholder row, the
+// "Loading {server}…" line and the pill's server menu.
 //
 // S3 (MS21): opening a row from another server opens a ROOM on that
 // server (`zenStore.openRoom`); the active server never changes. A server
@@ -28,28 +28,6 @@ export function useTicker(on: boolean, ms = 1_000): number {
     return () => clearInterval(t);
   }, [on, ms]);
   return now;
-}
-
-/** MS20: a row's server, only when more than one server is saved. */
-export function ServerChip({ label }: { label: string }) {
-  return (
-    <span
-      className="shrink min-w-0 truncate"
-      data-testid="row-server-chip"
-      style={{
-        maxWidth: 96,
-        padding: "0 6px",
-        borderRadius: 6,
-        border: "0.5px solid rgba(255,255,255,.28)",
-        color: MUTED,
-        fontSize: 11,
-        lineHeight: "16px",
-        fontWeight: 500,
-      }}
-    >
-      {label}
-    </span>
-  );
 }
 
 /** A failure's state word. Offline counts down to the next check on its
@@ -138,7 +116,6 @@ function RowShell({
  *  opens on tap. */
 export function RemoteAgentRow({
   row,
-  chip,
   failure,
   busy,
   when,
@@ -150,7 +127,6 @@ export function RemoteAgentRow({
   nextAt,
 }: {
   row: MergedRow;
-  chip: boolean;
   failure: RowFailure | null;
   busy: RowActivity | null;
   when: string;
@@ -203,7 +179,6 @@ export function RemoteAgentRow({
             >
               {a.name}
             </span>
-            {chip ? <ServerChip label={row.serverLabel} /> : null}
           </span>
           {failure ? null : (
             <span
@@ -362,18 +337,20 @@ export interface FilterOption {
   word: string;
 }
 
-/** MS35: the nickname pill's menu — All servers, each server with its
- *  status dot, then Manage servers…. */
+/** MS35: the nickname pill's menu — each saved server with its status dot
+ *  (the Agents tab's one is checked), then Manage servers…. No "All": the
+ *  Agents tab is always one server; Home is the cross-server list. */
 export function ServerFilterMenu({
-  filter,
+  selectedId,
   options,
   onPick,
   onManage,
   onClose,
 }: {
-  filter: string;
+  /** The Agents tab's server (checked); null on Home (nothing checked). */
+  selectedId: string | null;
   options: FilterOption[];
-  onPick: (filter: string) => void;
+  onPick: (serverId: string) => void;
   onManage: () => void;
   onClose: () => void;
 }) {
@@ -437,17 +414,10 @@ export function ServerFilterMenu({
           color: "#fff",
         }}
       >
-        {item(
-          "all",
-          filter === "all",
-          <span className="flex-1 min-w-0 truncate text-[16px]">All servers</span>,
-          () => onPick("all"),
-          "server-filter-all"
-        )}
         {options.map((o) =>
           item(
             o.id,
-            filter === o.id,
+            selectedId === o.id,
             <>
               <span
                 aria-hidden

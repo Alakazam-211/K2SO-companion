@@ -108,7 +108,7 @@ beforeEach(() => {
   sessionStorage.clear();
   __resetScopesForTests();
   __resetDialQueueForTests();
-  useMultiServerPrefs.setState({ multiServer: true, serverFilter: "all" });
+  useMultiServerPrefs.setState({ multiServer: true, serverFilter: null });
   useServersStore.setState({
     hydrated: true,
     servers: [A, B],
