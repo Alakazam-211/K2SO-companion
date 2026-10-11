@@ -7,7 +7,7 @@
 // A. The transport is mocked; every module above it is real.
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 const net = vi.hoisted(() => ({ calls: [] as string[] }));
@@ -42,6 +42,19 @@ vi.mock("@tauri-apps/plugin-http", () => ({
         return body({ rows: [], workspaces: [] });
       case "/cli/workspace/resources":
         return body({ resources: [] });
+      case "/cli/fs/read-dir":
+        return body(
+          u.searchParams.get("path") === "/srv/docs"
+            ? [
+                { name: "notes", path: "/srv/docs/notes", isDirectory: true },
+                { name: "Alpha.ts", path: "/srv/docs/Alpha.ts", isDirectory: false },
+              ]
+            : []
+        );
+      case "/cli/fs/create":
+        return body({ success: true });
+      case "/cli/fs/rename":
+        return body({ path: "/srv/docs/Beta.ts" });
       default:
         return body({});
     }
@@ -69,6 +82,7 @@ import { useServersStore } from "../../stores/servers";
 import { useZenStore } from "../zenStore";
 import { roomServerId } from "../zenScope";
 import { SessionsPane } from "../SessionsPane";
+import { FilePane } from "../FilePane";
 import { ZenTerminal } from "../../pages/ZenTerminal";
 import { useMultiServerPrefs } from "../multi/prefs";
 import { routeTap } from "../../lib/push";
@@ -179,6 +193,55 @@ describe("rooms on any server (MS21–MS23)", () => {
     await waitFor(() => expect(net.calls.some((c) => c.includes("/cli/companion/presets"))).toBe(true));
     // The drawer header names the room's server (MS37: two servers saved).
     expect(screen.getByTestId("sessions-server").textContent).toBe("Bravo");
+    expectOnlyB();
+  });
+
+  it("the Files drawer in a B room reads the tree, creates and renames on B (no fallback)", async () => {
+    Element.prototype.setPointerCapture = () => {};
+    Element.prototype.releasePointerCapture = () => {};
+    Element.prototype.hasPointerCapture = () => true;
+    await openRoomOnB();
+    expect(useZenStore.getState().agentId).toBe("/srv/docs");
+    net.calls = [];
+    act(() => useZenStore.getState().toggleFiles());
+    render(<FilePane />);
+
+    // Tree: the room's workspace, read on B.
+    await screen.findByText("Alpha.ts");
+    expect(net.calls.some((c) => c.startsWith("GET https://bravo.k2.dev/cli/fs/read-dir?"))).toBe(true);
+
+    // Create: + folder at the root.
+    fireEvent.click(screen.getByTestId("files-new-folder"));
+    fireEvent.change(screen.getByTestId("files-name-input"), { target: { value: "fresh" } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("files-name-save"));
+    });
+    await waitFor(() => expect(screen.queryByTestId("files-name-sheet")).toBeNull());
+    expect(net.calls).toContain("POST https://bravo.k2.dev/cli/fs/create");
+
+    // Rename: hold the file still, Rename, save.
+    vi.useFakeTimers();
+    try {
+      fireEvent.pointerDown(screen.getByLabelText("Alpha.ts"), {
+        clientX: 100,
+        clientY: 100,
+        button: 0,
+        pointerId: 1,
+      });
+      act(() => {
+        vi.advanceTimersByTime(520);
+      });
+      fireEvent.click(screen.getByTestId("file-menu-rename"));
+    } finally {
+      vi.useRealTimers();
+    }
+    fireEvent.change(screen.getByTestId("files-name-input"), { target: { value: "Beta.ts" } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("files-name-save"));
+    });
+    await waitFor(() => expect(net.calls).toContain("POST https://bravo.k2.dev/cli/fs/rename"));
+
+    expect(useServersStore.getState().activeServerId).toBe("a");
     expectOnlyB();
   });
 
