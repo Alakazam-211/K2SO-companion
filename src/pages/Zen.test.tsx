@@ -545,7 +545,26 @@ describe("Zen keeps the chats list mounted", () => {
     expect(screen.getByTestId("chat-sidecar-title").textContent).toBe("Example Sidecar");
     expect(screen.getByTestId("chat-rename-open")).not.toBeNull();
     expect(screen.getByTestId("chat-hide")).not.toBeNull();
+    // The session name sits under the three right-hand buttons, right
+    // aligned and white; the centre column holds only avatar + name.
+    const right = screen.getByTestId("chat-header-right");
+    const line = screen.getByTestId("chat-session-line");
+    expect(right.contains(line)).toBe(true);
+    expect(right.contains(screen.getByTestId("chat-rename-open"))).toBe(true);
+    expect(right.firstElementChild).toBe(screen.getByTestId("chat-header-buttons"));
+    expect(
+      screen.getByTestId("chat-header-buttons").compareDocumentPosition(line) &
+        Node.DOCUMENT_POSITION_FOLLOWING
+    ).toBeTruthy();
+    expect(right.className).toContain("items-end");
+    expect(line.className).toContain("justify-end");
+    expect(
+      screen.getByTestId("chat-header-title").parentElement?.contains(line)
+    ).toBe(false);
+    expect(screen.getByTestId("chat-sidecar-title").style.color).toBe("rgb(255, 255, 255)");
+    expect(screen.getByTestId("chat-rename-open").style.color).toBe("rgb(255, 255, 255)");
     fireEvent.click(screen.getByTestId("chat-rename-open"));
+    expect(screen.getByTestId("chat-rename-input")).not.toBeNull();
     fireEvent.change(screen.getByTestId("chat-rename-input"), {
       target: { value: "notes" },
     });
