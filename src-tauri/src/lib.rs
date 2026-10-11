@@ -75,10 +75,70 @@ mod ios_keyboard {
         }
     }
 
+    /// UIUserInterfaceStyleDark. The app is all dark, so the keyboard should be too.
+    const UI_USER_INTERFACE_STYLE_DARK: i64 = 2;
+
+    /// Forces dark appearance on the WKWebView, its window, and every window of
+    /// every connected scene. Keyboards for web inputs follow the trait
+    /// collection, so this keeps them dark when the system is in Light mode.
+    /// Belt-and-braces with `UIUserInterfaceStyle = Dark` in Info.ios.plist.
+    /// Idempotent; must run on the main thread.
+    pub fn force_dark(webview_ptr: *mut std::ffi::c_void) {
+        unsafe {
+            let wk: *mut AnyObject = webview_ptr.cast();
+            if !wk.is_null() {
+                let _: () = msg_send![wk, setOverrideUserInterfaceStyle: UI_USER_INTERFACE_STYLE_DARK];
+                let window: *mut AnyObject = msg_send![wk, window];
+                if !window.is_null() {
+                    let _: () = msg_send![window, setOverrideUserInterfaceStyle: UI_USER_INTERFACE_STYLE_DARK];
+                }
+            }
+            // UIScene app: walk connectedScenes -> windows.
+            let app: *mut AnyObject = msg_send![class!(UIApplication), sharedApplication];
+            if app.is_null() {
+                return;
+            }
+            let scenes: *mut AnyObject = msg_send![app, connectedScenes];
+            if scenes.is_null() {
+                return;
+            }
+            let scenes: *mut AnyObject = msg_send![scenes, allObjects];
+            if scenes.is_null() {
+                return;
+            }
+            let window_scene = class!(UIWindowScene);
+            let n: usize = msg_send![scenes, count];
+            for i in 0..n {
+                let scene: *mut AnyObject = msg_send![scenes, objectAtIndex: i];
+                if scene.is_null() {
+                    continue;
+                }
+                let is_window_scene: bool = msg_send![scene, isKindOfClass: window_scene];
+                if !is_window_scene {
+                    continue;
+                }
+                let windows: *mut AnyObject = msg_send![scene, windows];
+                if windows.is_null() {
+                    continue;
+                }
+                let wn: usize = msg_send![windows, count];
+                for j in 0..wn {
+                    let w: *mut AnyObject = msg_send![windows, objectAtIndex: j];
+                    if !w.is_null() {
+                        let _: () = msg_send![w, setOverrideUserInterfaceStyle: UI_USER_INTERFACE_STYLE_DARK];
+                    }
+                }
+            }
+        }
+    }
+
     /// Disables WKWebView's native scroll view so web content handles all scrolling.
     pub fn setup(webview_ptr: *mut std::ffi::c_void) {
         unsafe {
             let wk: *mut AnyObject = webview_ptr.cast();
+
+            // Dark keyboard / controls regardless of system appearance.
+            force_dark(webview_ptr);
 
             let scroll_view: *mut AnyObject = msg_send![wk, scrollView];
             let _: () = msg_send![scroll_view, setScrollEnabled: false];
@@ -225,6 +285,9 @@ fn ios_strip_accessory_bar(webview: tauri::WebviewWindow) {
     {
         let _ = webview.with_webview(|wv| {
             ios_keyboard::strip_accessory_bar(wv.inner());
+            // Re-assert dark style: a window/scene created after startup
+            // (e.g. iPad second scene) gets it on first input focus.
+            ios_keyboard::force_dark(wv.inner());
         });
     }
     #[cfg(not(target_os = "ios"))]

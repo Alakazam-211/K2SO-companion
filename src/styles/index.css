@@ -961,3 +961,9 @@ button, a, nav {
   }
 }
 
+/* App is all dark. Pin the color scheme so WebKit draws form controls and
+   the iOS keyboard dark even when the system is in Light mode. Native
+   side also forces UIUserInterfaceStyle=Dark (Info.ios.plist + lib.rs). */
+:root {
+  color-scheme: dark;
+}
