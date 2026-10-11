@@ -1,0 +1,151 @@
+/* Full-screen file viewer. Own sheet (not index.css) so the viewer's
+   styles ship with the files code. Tokens come from index.css. */
+
+.fv-root {
+  /* Native UIScrollView is off (lib.rs); each viewer box scrolls itself. */
+  overscroll-behavior: contain;
+}
+
+.fv-scroll {
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+
+/* Last line clears the home indicator. */
+.fv-safe-bottom {
+  padding-bottom: max(16px, env(safe-area-inset-bottom));
+}
+.fv-safe-bottom-white {
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* ── Code (shiki github-dark-default, or the plain fallback) ── */
+.fv-code pre {
+  margin: 0;
+  padding: 4px 16px 12px;
+  background: transparent !important;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  white-space: pre;
+  tab-size: 2;
+  width: max-content;
+  min-width: 100%;
+}
+.fv-code pre code {
+  background: none;
+  padding: 0;
+  color: inherit;
+  font-size: inherit;
+}
+.fv-code-wrap pre {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  width: auto;
+}
+
+/* Markdown fence: a box that scrolls sideways on its own. */
+.fv-fence {
+  margin: 0 0 12px 0;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.fv-fence .fv-code pre {
+  padding: 10px 12px;
+}
+
+/* ── Markdown / DOCX: reading size, not chat-bubble size ── */
+.fv-markdown,
+.fv-docx {
+  padding: 4px 18px 8px;
+  font-size: 15px;
+  line-height: 1.6;
+}
+.fv-markdown h1,
+.fv-docx h1 {
+  font-size: 1.5em;
+  margin-top: 4px;
+}
+.fv-markdown h2,
+.fv-docx h2 {
+  font-size: 1.25em;
+  margin-top: 16px;
+}
+.fv-markdown h3,
+.fv-docx h3 {
+  margin-top: 14px;
+}
+.fv-markdown table,
+.fv-docx table {
+  display: block;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+}
+.fv-markdown th,
+.fv-markdown td,
+.fv-docx th,
+.fv-docx td {
+  border: 1px solid var(--border);
+  padding: 4px 8px;
+}
+.fv-md-img,
+.fv-docx img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}
+
+/* ── CSV table ── */
+.fv-table {
+  width: max-content;
+  min-width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  color: var(--text);
+}
+.fv-table th,
+.fv-table td {
+  padding: 5px 10px;
+  border-bottom: 1px solid var(--border);
+  border-right: 1px solid var(--border);
+  white-space: pre;
+  max-width: 18rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.fv-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface);
+  color: var(--text-muted);
+  font-weight: 600;
+}
+.fv-table tbody tr:nth-child(even) td {
+  background: color-mix(in srgb, var(--surface) 60%, transparent);
+}
+.fv-table .fv-rownum {
+  position: sticky;
+  left: 0;
+  z-index: 1;
+  background: var(--background);
+  color: var(--text-muted);
+  font-variant-numeric: tabular-nums;
+}
+.fv-table thead .fv-rownum {
+  z-index: 3;
+  background: var(--surface);
+}
+
+/* ── Mermaid ── */
+.fv-mermaid svg {
+  max-width: 100%;
+  height: auto;
+}
