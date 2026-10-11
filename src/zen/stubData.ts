@@ -45,6 +45,12 @@ export type StubFile = {
   /** Opened from a chat link, not a Workspace Resource. Kept for the
    *  open tab only; the Files list hides it. */
   linked?: boolean;
+  /** The open read finished (text in `body`, or bytes left to the viewer). */
+  loaded?: boolean;
+  /** Daemon path the viewer may read. Null = refused (outside the workspace). */
+  fsPath?: string | null;
+  /** `fs/read-file` failure, e.g. "Cannot read binary file". */
+  readError?: string | null;
 };
 
 export const STUB_MARK = "STUB";

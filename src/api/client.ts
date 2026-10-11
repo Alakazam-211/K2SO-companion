@@ -520,6 +520,49 @@ export const getWorkspaceResources = (workspace: string) =>
 export const getFsReadFile = (path: string) =>
   request<FsFileContent>("fs.read_file", "/cli/fs/read-file", { path });
 
+// File viewer bytes: desktop `lib/load-host-binary.ts` routes. Base64 in
+// JSON; `read-binary` is capped at 50MB, `read-range` at 16MB a slice.
+// A slow tunnel moves 50MB of base64 well past the 15s default.
+const FS_BYTES_TIMEOUT_MS = 120000;
+
+/** `GET /cli/fs/read-binary?path=` → `{ base64 }`. */
+export const getFsReadBinary = (path: string) =>
+  httpRequest<{ base64?: string }>(
+    `/cli/fs/read-binary?path=${encodeURIComponent(path)}`,
+    {},
+    FS_BYTES_TIMEOUT_MS
+  );
+
+export interface FsReadRange {
+  base64: string;
+  len: number;
+  size: number;
+  eof: boolean;
+}
+
+/** `GET /cli/fs/read-range?path=&offset=&len=` → one slice. */
+export const getFsReadRange = (path: string, offset: number, len: number) =>
+  httpRequest<FsReadRange>(
+    `/cli/fs/read-range?path=${encodeURIComponent(path)}&offset=${offset}&len=${len}`,
+    {},
+    FS_BYTES_TIMEOUT_MS
+  );
+
+export interface FsZipEntry {
+  name: string;
+  size: number;
+  compressed_size?: number;
+  is_dir: boolean;
+}
+
+/** `GET /cli/fs/zip-list?path=` — central directory only, no extract. */
+export const getFsZipList = (path: string) =>
+  request<{ entries?: FsZipEntry[]; truncated?: boolean }>(
+    "fs.zip_list",
+    "/cli/fs/zip-list",
+    { path }
+  );
+
 /** Skin route POST /cli/fs/upload-binary. `workspace` is the overlay
  *  handle. Companion `dir` is this agent's own absolute workspace path.
  *  Skin `dir: "."` is room-relative; here it is the daemon cwd and
