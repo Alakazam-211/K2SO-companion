@@ -19,7 +19,7 @@ vi.mock("./overlayEvents", () => ({
 import { act } from "@testing-library/react";
 import { answerThread, getThreadActivity, uploadFsBinary } from "../api/client";
 import { connectOverlayEvents } from "./overlayEvents";
-import { COMPOSER_MAX_PX, ThreadPane, composerHeight } from "./ThreadPane";
+import { COMPOSER_MAX_PX, ThreadPane, composerHeight, threadTopPadding } from "./ThreadPane";
 import { normaliseThreadItem } from "./threadModel";
 import { useZenStore } from "./zenStore";
 
@@ -418,6 +418,50 @@ describe("ThreadPane", () => {
     expect(el.scrollTop).toBe(200);
 
     expect(screen.getByTestId("composer-bar").className).toMatch(/zen-composer-bar/);
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return 0;
+      },
+    });
+  });
+
+  it("pads the scroller under a floating header and keeps the newest in view when it grows", () => {
+    expect(threadTopPadding(undefined)).toBeUndefined();
+    expect(threadTopPadding(0)).toBeUndefined();
+    expect(threadTopPadding(84)).toBe("calc(env(safe-area-inset-top) + 92px)");
+
+    let height = 1800;
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.getAttribute?.("data-testid") === "thread-scroller" ? height : 0;
+      },
+    });
+    useZenStore.setState({
+      agentId: "appa",
+      threadSource: "live",
+      threadError: null,
+      threadHasMore: false,
+      thread: [
+        { id: "a", seq: 1, text: "one", from: "appa", at: 1, mine: false, kind: "text", choice: null },
+      ],
+    });
+    const { rerender } = render(<ThreadPane viewportHeight={800} topInset={84} />);
+    const el = screen.getByTestId("thread-scroller");
+    expect(el.style.paddingTop).toMatch(/env\(safe-area-inset-top\)/);
+    expect(el.style.paddingTop).toMatch(/92px/);
+    expect(el.scrollTop).toBe(1800);
+
+    // Sidecar line appears: header grows, padding grows, tail stays stuck.
+    height = 1820;
+    rerender(<ThreadPane viewportHeight={800} topInset={104} />);
+    expect(el.style.paddingTop).toMatch(/112px/);
+    expect(el.scrollTop).toBe(1820);
+
+    // Without a floating header the stock padding applies.
+    rerender(<ThreadPane viewportHeight={800} />);
+    expect(el.style.paddingTop).toBe("");
     Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
       configurable: true,
       get() {

@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type 
 import { flushSync } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useViewportHeight } from "../lib/useViewportHeight";
+import { WorkspaceAvatar } from "../zen/WorkspaceAvatar";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { ChatsList } from "../zen/ChatsList";
 import { FilePane } from "../zen/FilePane";
@@ -18,6 +19,13 @@ const HEADER_BTN: CSSProperties = {
   height: 36,
   color: "#fff",
 };
+
+/** iMessage contact photo above the name. */
+const HEADER_AVATAR_PX = 42;
+/** Resting header content height (below the safe area): avatar + name. */
+export const CHAT_HEADER_PX = 84;
+/** Buttons centre on the avatar. */
+const HEADER_BTN_TOP = (HEADER_AVATAR_PX - 36) / 2;
 
 export function Zen() {
   const navigate = useNavigate();
@@ -41,6 +49,8 @@ export function Zen() {
   const extraChat = isOverlayExtraAddr(agent?.addr);
   const headerTitle = threadHeaderTitle(agent);
   const sidecarTitle = threadSidecarTitle(agent);
+  const headerRef = useRef<HTMLDivElement>(null);
+  const [headerPx, setHeaderPx] = useState(CHAT_HEADER_PX);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
@@ -104,6 +114,22 @@ export function Zen() {
     }
   };
 
+  // The header floats over the list; the list's top padding tracks the
+  // header's real height (sidecar line, Hide chat, banner grow it).
+  useLayoutEffect(() => {
+    const el = headerRef.current;
+    if (!el) return;
+    const read = () => {
+      const h = Math.ceil(el.getBoundingClientRect().height);
+      if (h > 0) setHeaderPx(h);
+    };
+    read();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(read);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [wantThread]);
+
   const stubBanner =
     agentSource === "stub" && fileSource === "stub" ? STUB_BANNER : "";
   const err = [agentError, fileError].filter(Boolean).join(" · ");
@@ -148,37 +174,63 @@ export function Zen() {
         <div
           className="relative flex flex-col min-h-0 overflow-x-hidden"
           data-testid="thread-column"
-          style={{
-            height: containerHeight,
-            paddingTop: "env(safe-area-inset-top)",
-          }}
+          style={{ height: containerHeight }}
           onClick={filesPaneOpen ? () => dismissFiles() : undefined}
         >
+          {/* Floats over the list from y=0 (under the status bar). The blur
+              and the header box pass touches through; only its controls
+              take them, so the list still scrolls underneath. */}
           <header
-            className="grid items-center shrink-0 w-full min-w-0 px-3"
+            className="absolute top-0 left-0 right-0 w-full min-w-0"
             data-testid="chat-header"
             style={{
-              gridTemplateColumns: "1fr auto 1fr",
-              minHeight: 44,
-              paddingTop: 12,
-              paddingBottom: 12,
-              background: "#000",
-              columnGap: 8,
+              zIndex: 10,
+              paddingTop: "env(safe-area-inset-top)",
+              pointerEvents: "none",
             }}
           >
+            <div className="zen-header-blur" data-testid="chat-header-blur" aria-hidden>
+              <span className="zen-header-blur-1" />
+              <span className="zen-header-blur-2" />
+              <span className="zen-header-blur-3" />
+              <span className="zen-header-blur-4" />
+              <span className="zen-header-tint" />
+            </div>
+            <div
+              ref={headerRef}
+              className="relative grid items-start w-full min-w-0 px-3"
+              data-testid="chat-header-content"
+              style={{
+                gridTemplateColumns: "1fr auto 1fr",
+                minHeight: CHAT_HEADER_PX,
+                paddingTop: 6,
+                paddingBottom: 12,
+                columnGap: 8,
+              }}
+            >
             <button
               type="button"
               onClick={backToChats}
               data-testid="chat-back"
               className="flex items-center justify-center shrink-0 justify-self-start zen-glass zen-glass-pill"
-              style={HEADER_BTN}
+              style={{ ...HEADER_BTN, marginTop: HEADER_BTN_TOP, pointerEvents: "auto" }}
               aria-label="Back to chats"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                 <polyline points="15 18 9 12 15 6" />
               </svg>
             </button>
-            <div className="min-w-0 flex flex-col items-center justify-center">
+            <div className="min-w-0 flex flex-col items-center justify-center zen-header-text">
+              <span data-testid="chat-header-avatar" className="flex mb-1">
+                <WorkspaceAvatar
+                  initial={agent?.initial || headerTitle.slice(0, 1) || "?"}
+                  color={agent?.color}
+                  iconUrl={agent?.iconUrl}
+                  size={HEADER_AVATAR_PX}
+                  fontSize={16}
+                  fallback="#2c2c2e"
+                />
+              </span>
               <span
                 data-testid="chat-header-title"
                 className="block w-full text-[15px] font-bold truncate text-center"
@@ -200,7 +252,7 @@ export function Zen() {
                       type="button"
                       data-testid="chat-rename-open"
                       className="shrink-0 flex items-center justify-center bg-transparent border-0 p-0"
-                      style={{ color: "#8e8e93", width: 18, height: 18 }}
+                      style={{ color: "#8e8e93", width: 18, height: 18, pointerEvents: "auto" }}
                       aria-label={`Rename ${sidecarTitle}`}
                       onClick={(e) => {
                         e.stopPropagation();
@@ -222,7 +274,7 @@ export function Zen() {
                   type="button"
                   data-testid="chat-hide"
                   className="text-[11px] bg-transparent border-0 p-0"
-                  style={{ color: "#8e8e93" }}
+                  style={{ color: "#8e8e93", pointerEvents: "auto" }}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (agentId) useZenStore.getState().hideSidecarChat(agentId);
@@ -242,7 +294,10 @@ export function Zen() {
                 </span>
               ) : null}
             </div>
-            <span className="flex items-center justify-self-end" style={{ gap: 8 }}>
+            <span
+              className="flex items-center justify-self-end"
+              style={{ gap: 8, marginTop: HEADER_BTN_TOP, pointerEvents: "auto" }}
+            >
               <button
                 type="button"
                 aria-label="Terminal"
@@ -292,15 +347,16 @@ export function Zen() {
                 </svg>
               </button>
             </span>
+            </div>
           </header>
           <PaneErrorBoundary name="thread">
-            <ThreadPane viewportHeight={containerHeight} />
+            <ThreadPane viewportHeight={containerHeight} topInset={headerPx} />
           </PaneErrorBoundary>
           {filesOpen && !viewingFile ? (
             <div
               className="absolute bottom-0 right-0 border-l border-[var(--border)] bg-[var(--background)] flex flex-col"
               data-testid="file-pane"
-              style={{ top: "env(safe-area-inset-top)" }}
+              style={{ top: "env(safe-area-inset-top)", zIndex: 15 }}
               onClick={(e) => e.stopPropagation()}
             >
               <PaneErrorBoundary name="files">
@@ -312,7 +368,7 @@ export function Zen() {
             <div
               className="absolute bottom-0 right-0 w-[78%] border-l border-[var(--border)] bg-[var(--background)] flex flex-col"
               data-testid="file-stage"
-              style={{ top: "env(safe-area-inset-top)" }}
+              style={{ top: "env(safe-area-inset-top)", zIndex: 15 }}
               onClick={(e) => e.stopPropagation()}
             >
               <FileStage />

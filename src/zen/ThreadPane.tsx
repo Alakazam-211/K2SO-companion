@@ -132,7 +132,23 @@ function Bubble({
  * BEHAVE: GET /cli/thread then WS /cli/overlay/events?conversation=.
  * Send is on for any live overlay addr. Never sends to a PTY.
  */
-export function ThreadPane({ viewportHeight }: { viewportHeight?: number } = {}) {
+/** Gap between the floating header's bottom edge and the first message. */
+const THREAD_TOP_GAP = 8;
+
+/** Scroller top padding: clears the status bar plus a floating header. */
+export function threadTopPadding(topInset?: number): string | undefined {
+  if (topInset == null || !Number.isFinite(topInset) || topInset <= 0) return undefined;
+  return `calc(env(safe-area-inset-top) + ${Math.ceil(topInset) + THREAD_TOP_GAP}px)`;
+}
+
+export function ThreadPane({
+  viewportHeight,
+  topInset,
+}: {
+  viewportHeight?: number;
+  /** Height (px, below the safe area) of a header floating over the list. */
+  topInset?: number;
+} = {}) {
   const thread = useZenStore((s) => s.thread);
   const source = useZenStore((s) => s.threadSource);
   const error = useZenStore((s) => s.threadError);
@@ -281,6 +297,14 @@ export function ThreadPane({ viewportHeight }: { viewportHeight?: number } = {})
     if (atNewest.current) stickToNewest(el);
   }, [viewportHeight]);
 
+  // The floating header growing (sidecar line, banner) adds top padding,
+  // which pushes the tail down by the same amount. Keep the newest in view.
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    if (!el || topInset == null) return;
+    if (atNewest.current) stickToNewest(el);
+  }, [topInset]);
+
   // The strip appearing or changing shape keeps the newest in view when
   // the reader was already at the bottom.
   const turnShape = turn ? `${turn.turnId}:${turn.phase}:${turn.end ? 1 : 0}` : "";
@@ -343,7 +367,7 @@ export function ThreadPane({ viewportHeight }: { viewportHeight?: number } = {})
         ref={scrollerRef}
         data-testid="thread-scroller"
         className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-2.5 py-3 flex flex-col gap-1"
-        style={{ overflowAnchor: "none" }}
+        style={{ overflowAnchor: "none", paddingTop: threadTopPadding(topInset) }}
         onScroll={(e) => {
           const el = e.currentTarget;
           atNewest.current =
