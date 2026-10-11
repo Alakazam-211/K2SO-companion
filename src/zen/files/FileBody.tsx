@@ -18,6 +18,7 @@ import { HtmlView } from "./HtmlView";
 import { ImageView } from "./ImageView";
 import { MarkdownView } from "./MarkdownView";
 import { MediaView } from "./MediaView";
+import { ModelView } from "./ModelView";
 import { PdfView } from "./PdfView";
 import { ZipView } from "./ZipView";
 
@@ -63,6 +64,7 @@ export default function FileBody({
     if (category === "pdf") return <PdfView path={path} />;
     if (category === "audio" || category === "video") return <MediaView path={path} kind={category} />;
     if (category === "docx") return <Scroll><DocxView path={path} /></Scroll>;
+    if (category === "model3d") return <ModelView path={path} name={file.name} />;
     return <Scroll><ZipView path={path} /></Scroll>;
   }
 
