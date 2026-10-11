@@ -3,6 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { setTabTitle, type GlobalSession } from "../api/client";
 import { SessionTitle } from "../components/SessionTitle";
+import { activeScope } from "../api/scope";
 
 export function Sessions() {
   const allSessions = useWorkspacesStore((s) => s.allSessions);
@@ -48,7 +49,7 @@ export function Sessions() {
     const name = renameValue.trim();
     if (!name) return;
     setSavingRename(true);
-    const r = await setTabTitle(renameTarget.projectId, renameTarget.tabId, name);
+    const r = await setTabTitle(activeScope(), renameTarget.projectId, renameTarget.tabId, name);
     await useWorkspacesStore.getState().fetchAllSessions();
     setSavingRename(false);
     if (r.ok) setRenameTarget(null); // keep the modal open if it didn't save

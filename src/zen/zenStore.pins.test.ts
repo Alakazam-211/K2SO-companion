@@ -1,9 +1,10 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// MA21: Zen's server is a fake scope (`zen()`), not mocked globals.
+vi.mock("./zenScope", async () => (await import("../test/zenScopeMock")).zenScopeModule);
+
 vi.mock("../api/client", () => ({
-  getToken: vi.fn(() => "tok"),
-  getBaseUrl: vi.fn(() => ""),
   getAgentList: vi.fn(),
   getCliProjectsList: vi.fn(),
   getActivitySnapshot: vi.fn(async () => ({ ok: false, status: 404 })),
@@ -30,10 +31,6 @@ vi.mock("../api/projectGroups", () => ({
   postProjectGroupMessage: vi.fn(),
 }));
 
-vi.mock("../stores/servers", () => ({
-  getActiveServer: vi.fn(() => ({ id: "s1", username: "u" })),
-}));
-
 import * as client from "../api/client";
 import {
   assignFocusGroup,
@@ -45,10 +42,17 @@ import {
   reorderProjects,
   setProjectPinned,
 } from "../api/client";
-import { getActiveServer } from "../stores/servers";
 import { LEGACY_PIN_STORAGE_KEY } from "./pinChats";
 import { FOCUS_OFF, focusGroupStorageKey } from "./serverPins";
 import { PIN_ERROR_MS, useZenStore } from "./zenStore";
+import { fakeScope } from "../test/fakeScope";
+import { setZenScope, zen } from "../test/zenScopeMock";
+
+// A fresh fake server per test (was: getActiveServer / getToken mocks).
+beforeEach(() => {
+  setZenScope(fakeScope({ id: "s1", username: "u" }));
+});
+
 
 const AGENTS = {
   ok: true,
@@ -97,7 +101,7 @@ async function hydrate() {
 
 beforeEach(() => {
   localStorage.clear();
-  vi.mocked(getActiveServer).mockReturnValue({ id: "s1", username: "u" } as never);
+  zen().setId("s1"); zen().setUsername("u");
   vi.mocked(getAgentList).mockResolvedValue(AGENTS as never);
   vi.mocked(getCliProjectsList).mockReset();
   vi.mocked(getCliProjectsList).mockResolvedValue(projects() as never);
@@ -145,7 +149,7 @@ describe("server pins", () => {
     await useZenStore.getState().pinChat("/a");
     expect(localStorage.getItem(LEGACY_PIN_STORAGE_KEY)).toBeNull();
     // The old list did not migrate: /a only pinned by the write above.
-    expect(setProjectPinned).toHaveBeenCalledWith("pa", true);
+    expect(setProjectPinned).toHaveBeenCalledWith(expect.anything(), "pa", true);
   });
 
   it("pin calls projects/update with the projectId and 1, optimistically", async () => {
@@ -153,7 +157,7 @@ describe("server pins", () => {
     const gate = deferred<{ ok: boolean; data: unknown }>();
     vi.mocked(setProjectPinned).mockReturnValue(gate.promise as never);
     const done = useZenStore.getState().pinChat("/a");
-    expect(setProjectPinned).toHaveBeenCalledWith("pa", true);
+    expect(setProjectPinned).toHaveBeenCalledWith(expect.anything(), "pa", true);
     // Optimistic: alpha (tabOrder 0) is in the grid before the server answers.
     expect(useZenStore.getState().pinnedIds).toEqual(["/a", "/c", "/b"]);
     gate.resolve({ ok: true, data: {} });
@@ -166,7 +170,7 @@ describe("server pins", () => {
   it("unpin calls projects/update with 0", async () => {
     await hydrate();
     await useZenStore.getState().unpinChat("/b");
-    expect(setProjectPinned).toHaveBeenCalledWith("pb", false);
+    expect(setProjectPinned).toHaveBeenCalledWith(expect.anything(), "pb", false);
   });
 
   it("a failed pin rolls back, shows a short error, then refetches", async () => {
@@ -185,7 +189,7 @@ describe("server pins", () => {
   it("reorder sends only the pinned ids, in the new order", async () => {
     await hydrate();
     const done = useZenStore.getState().movePin("/b", "/c");
-    expect(reorderProjects).toHaveBeenCalledWith(["pb", "pc"]);
+    expect(reorderProjects).toHaveBeenCalledWith(expect.anything(), ["pb", "pc"]);
     expect(useZenStore.getState().pinnedIds).toEqual(["/b", "/c"]);
     await done;
     expect(setProjectPinned).not.toHaveBeenCalled();
@@ -204,8 +208,8 @@ describe("server pins", () => {
     const done = useZenStore.getState().pinChat("/a", "/b");
     expect(useZenStore.getState().pinnedIds).toEqual(["/c", "/a", "/b"]);
     await done;
-    expect(setProjectPinned).toHaveBeenCalledWith("pa", true);
-    expect(reorderProjects).toHaveBeenCalledWith(["pc", "pa", "pb"]);
+    expect(setProjectPinned).toHaveBeenCalledWith(expect.anything(), "pa", true);
+    expect(reorderProjects).toHaveBeenCalledWith(expect.anything(), ["pc", "pa", "pb"]);
   });
 
   it("sidecar and project-group rows cannot pin", async () => {
@@ -348,7 +352,7 @@ describe("focus group membership writes", () => {
     const hold = deferred<{ ok: boolean; data: unknown }>();
     vi.mocked(assignFocusGroup).mockReturnValue(hold.promise as never);
     const done = useZenStore.getState().assignFocusGroup("/a", "g2");
-    expect(assignFocusGroup).toHaveBeenCalledWith("pa", "g2");
+    expect(assignFocusGroup).toHaveBeenCalledWith(expect.anything(), "pa", "g2");
     expect(groupOf("pa")).toBe("g2");
     hold.resolve({ ok: true, data: {} });
     vi.mocked(getCliProjectsList).mockResolvedValue(projects({ pa: { focusGroupId: "g2" } }) as never);
@@ -362,7 +366,7 @@ describe("focus group membership writes", () => {
     groupsOn();
     await hydrate();
     await useZenStore.getState().assignFocusGroup("/b", null);
-    expect(assignFocusGroup).toHaveBeenCalledWith("pb", null);
+    expect(assignFocusGroup).toHaveBeenCalledWith(expect.anything(), "pb", null);
   });
 
   it("a failed assign rolls back with a short error", async () => {
@@ -398,8 +402,8 @@ describe("focus group membership writes", () => {
     vi.mocked(getFocusGroupsList).mockResolvedValue({ ok: true, data: [g] });
     vi.mocked(getCliProjectsList).mockResolvedValue(projects({ pa: { focusGroupId: "g9" } }) as never);
     expect(await useZenStore.getState().createFocusGroupFor("/a", " Ops ")).toBe(true);
-    expect(createFocusGroup).toHaveBeenCalledWith("Ops");
-    expect(assignFocusGroup).toHaveBeenCalledWith("pa", "g9");
+    expect(createFocusGroup).toHaveBeenCalledWith(expect.anything(), "Ops");
+    expect(assignFocusGroup).toHaveBeenCalledWith(expect.anything(), "pa", "g9");
     expect(groupOf("pa")).toBe("g9");
     const f = useZenStore.getState().focus;
     expect(f.enabled).toBe(true);

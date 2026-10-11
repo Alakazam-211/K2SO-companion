@@ -16,6 +16,7 @@ import {
 } from "./newWorkspace";
 import { posixNormalize } from "./workspacePath";
 import { useZenStore } from "./zenStore";
+import { zenScope } from "./zenScope";
 
 type Stage = "idle" | "creating" | "starting" | "opening";
 
@@ -65,7 +66,7 @@ export function NewWorkspaceSheet({
   useEffect(() => {
     if (!needHome) return;
     let live = true;
-    void getFsInfo().then((r) => {
+    void getFsInfo(zenScope()).then((r) => {
       if (live && r.ok && typeof r.data?.home === "string") setHome(r.data.home);
     });
     return () => {
@@ -84,7 +85,9 @@ export function NewWorkspaceSheet({
     if (busy || problem || !path || !slug) return;
     setError(null);
     setStage("creating");
-    const made = await createWorkspace(path);
+    // One server for the whole create → look → group → chat sequence.
+    const scope = zenScope();
+    const made = await createWorkspace(scope, path);
     if (!made.ok) {
       setStage("idle");
       setError(createErrorText(made.error, made.status));
@@ -98,13 +101,13 @@ export function NewWorkspaceSheet({
       const typed = name.trim();
       if (typed && typed !== slug) look.name = typed;
       if (color !== WORKSPACE_COLORS[0]) look.color = color;
-      if (look.name || look.color) await updateProjectLook(projectId, look);
-      if (groupsOn && groupId) await assignFocusGroup(projectId, groupId);
+      if (look.name || look.color) await updateProjectLook(scope, projectId, look);
+      if (groupsOn && groupId) await assignFocusGroup(scope, projectId, groupId);
     }
     // Start the agent's main chat (desktop does this when the Chat tab
     // mounts). Best effort: the thread still opens without a live host.
     setStage("starting");
-    await ensurePinnedChat(where);
+    await ensurePinnedChat(scope, where);
     setStage("opening");
     const store = useZenStore.getState();
     await store.hydrateAgents();

@@ -21,6 +21,8 @@ import { AssigneePicker } from "../components/AssigneePicker";
 import { displayAuthor, isMyAuthor } from "../lib/sessionAuthor";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
 
+import { activeScope } from "../api/scope";
+import { useActiveScope } from "../lib/useScope";
 // Feedback C3 — the thread screen (`/feedback/:id`): the ask (title +
 // body) then the comment thread as attributed cards (desktop
 // ChatMessage: You vs agent name, GFM markdown), with a full-width
@@ -59,7 +61,7 @@ export function FeedbackThread() {
   /** The list row knows `linked` (show doesn't); missing = linked. */
   const linked = useFeedbackStore((s) => s.rows.find((r) => r.id === id)?.linked !== false);
   const openError = useFeedbackStore((s) => s.openError);
-  const identity = useSessionIdentity();
+  const identity = useSessionIdentity(useActiveScope());
 
   const [reply, setReply] = useState("");
   /** Full-ticket review sheet (tap the header to open). */
@@ -123,7 +125,7 @@ export function FeedbackThread() {
     const body = text.trim();
     if (!body || !item) return;
     void submit(async () => {
-      const res = await commentFeedback(item.id, body, { optionPick });
+      const res = await commentFeedback(activeScope(), item.id, body, { optionPick });
       if (!optionPick) setReply("");
       setReceipt({
         answered: res.answered === true,
@@ -135,7 +137,7 @@ export function FeedbackThread() {
   const setStatus = (status: "resolved" | "dismissed" | "waiting"): void => {
     if (!item) return;
     setReceipt(null);
-    void submit(() => resolveFeedback(item.id, status));
+    void submit(() => resolveFeedback(activeScope(), item.id, status));
   };
 
   const nowSec = Date.now() / 1000;

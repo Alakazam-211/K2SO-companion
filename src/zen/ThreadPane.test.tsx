@@ -279,7 +279,7 @@ describe("ThreadPane", () => {
     render(<ThreadPane />);
     fireEvent.click(screen.getByRole("button", { name: "Yes" }));
     await waitFor(() => {
-      expect(answerThread).toHaveBeenCalledWith("aspen", "ch", "Yes");
+      expect(answerThread).toHaveBeenCalledWith(expect.anything(), "aspen", "ch", "Yes");
     });
     await waitFor(() => {
       expect(screen.getByText("Answered.")).not.toBeNull();
@@ -641,9 +641,9 @@ describe("ThreadPane", () => {
     });
     fireEvent.submit(screen.getByTestId("composer-form"));
     await waitFor(() => expect(uploadFsBinary).toHaveBeenCalled());
-    expect(vi.mocked(uploadFsBinary).mock.calls[0][0]).toBe("aspen");
-    expect(vi.mocked(uploadFsBinary).mock.calls[0][1]).toBe("/Users/Bob/Aspen");
-    expect(vi.mocked(uploadFsBinary).mock.calls[0][2]).toBe("shot.png");
+    expect(vi.mocked(uploadFsBinary).mock.calls[0][1]).toBe("aspen");
+    expect(vi.mocked(uploadFsBinary).mock.calls[0][2]).toBe("/Users/Bob/Aspen");
+    expect(vi.mocked(uploadFsBinary).mock.calls[0][3]).toBe("shot.png");
     await waitFor(() =>
       expect(sendThread).toHaveBeenCalledWith("/Users/Bob/Aspen/shot.png")
     );

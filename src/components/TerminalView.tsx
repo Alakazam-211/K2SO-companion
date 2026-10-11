@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import * as api from "../api/client";
+import type { ServerScope } from "../api/scope";
 import {
   GridSocket,
   type GridFrame,
@@ -198,6 +199,10 @@ function syncLinesFromSnap(snap: LiveGrid, dest: Map<number, CompactLine>): void
 // ─── Component ───
 
 interface Props {
+  /** The server this terminal lives on (MS6/MA5). The grid socket, the
+   *  capabilities probe, the HTTP fallback and the pin release all use it,
+   *  never the active server. */
+  scope: ServerScope;
   terminalId: string;
   projectPath: string;
   // Populated with a function that sends keystrokes/text to THIS session's
@@ -229,6 +234,7 @@ export function tapRequestsDrive(opts: {
 }
 
 export function TerminalView({
+  scope,
   terminalId,
   projectPath,
   onInputRef,
@@ -548,19 +554,19 @@ export function TerminalView({
   useEffect(() => {
     let cancelled = false;
     setGridDial(null);
-    void api.getCompanionCapabilities().then((r) => {
+    void api.getCompanionCapabilities(scope).then((r) => {
       if (cancelled) return;
       setGridDial(
         chooseGridDial({
           capabilities: r.data,
-          companionToken: api.getCompanionToken(),
+          companionToken: api.companionTokenFor(scope),
         }),
       );
     });
     return () => {
       cancelled = true;
     };
-  }, [terminalId]);
+  }, [terminalId, scope]);
 
   // Live grid stream via the daemon grid-WS.
   useEffect(() => {
@@ -579,7 +585,7 @@ export function TerminalView({
       if (loadingContent) return;
       loadingContent = true;
       let lines: string[] | null = null;
-      const r = await api.readTerminal(projectPath, terminalId, 500);
+      const r = await api.readTerminal(scope, projectPath, terminalId, 500);
       if (r.ok && r.data?.lines) lines = r.data.lines;
       loadingContent = false;
       if (!lines) return;
@@ -768,8 +774,8 @@ export function TerminalView({
       // title / label_* / bell / error: not consumed yet.
     };
 
-    const gridSock = new GridSocket(onFrame);
-    const companionToken = api.getCompanionToken();
+    const gridSock = new GridSocket(scope, onFrame);
+    const companionToken = api.companionTokenFor(scope);
     // Drive is PR4 — omit so the socket flag stays false and SGR
     // input is a no-op even if a handler calls sendInput.
     gridSock.connect(terminalId, {
@@ -970,7 +976,7 @@ export function TerminalView({
       // nobody left to render them.
       coalescer.clear();
     };
-  }, [terminalId, projectPath, dispatchClaim, applyClipboardText, gridDial]);
+  }, [terminalId, projectPath, dispatchClaim, applyClipboardText, gridDial, scope]);
 
   // Header Watch/Drive — flip the live socket, do not reconnect.
   useEffect(() => {
@@ -981,8 +987,8 @@ export function TerminalView({
   const handleReleaseTap = useCallback(() => {
     // Optimistic; the pin_changed {cleared:true} broadcast confirms.
     dispatchClaim({ type: "release_sent" });
-    void api.clearTerminalPin(terminalId);
-  }, [dispatchClaim, terminalId]);
+    void api.clearTerminalPin(scope, terminalId);
+  }, [dispatchClaim, terminalId, scope]);
 
   // Auto-scroll to bottom — only if user hasn't scrolled up
   const userScrolledRef = useRef(false);

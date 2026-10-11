@@ -162,7 +162,7 @@ describe("byte viewers", () => {
     render(<FileBody file={bin("/ws/shot.jpg")} source={false} stub={false} />);
     const img = await screen.findByRole("img");
     expect(img.getAttribute("src")).toBe("blob:mock");
-    expect(getFsReadBinary).toHaveBeenCalledWith("/ws/shot.jpg");
+    expect(getFsReadBinary).toHaveBeenCalledWith(expect.anything(), "/ws/shot.jpg");
     const blob = vi.mocked(URL.createObjectURL).mock.calls[0][0] as Blob;
     // Sniffed PNG beats the .jpg name.
     expect(blob.type).toBe("image/png");

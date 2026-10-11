@@ -5,12 +5,15 @@ vi.mock("@tauri-apps/plugin-http", () => ({
   fetch: (...args: unknown[]) => tauriFetch(...args),
 }));
 
-import { setSessionLabel } from "./client";
+import { resetWriteVerbMemory, setSessionLabel, writeVerbFor } from "./client";
 import { useServersStore } from "../stores/servers";
+import { __resetScopesForTests, activeScope, noteBootStatus, scopeFor } from "./scope";
 
 describe("setSessionLabel", () => {
   beforeEach(() => {
     tauriFetch.mockReset();
+    resetWriteVerbMemory();
+    __resetScopesForTests();
     useServersStore.setState({
       servers: [
         {
@@ -46,7 +49,7 @@ describe("setSessionLabel", () => {
 
   it("POSTs /cli/sessions/label with {id, label} as a JSON body (K2 0.44.4+)", async () => {
     tauriFetch.mockResolvedValue(okBody);
-    const r = await setSessionLabel(ID, "qa731");
+    const r = await setSessionLabel(activeScope(), ID, "qa731");
     expect(r).toEqual({
       ok: true,
       data: { success: true, label: "qa731", locked: true },
@@ -68,7 +71,7 @@ describe("setSessionLabel", () => {
           JSON.stringify({ error: "method not allowed for this route" }),
       })
       .mockResolvedValueOnce(okBody);
-    const r = await setSessionLabel(ID, "qa 731");
+    const r = await setSessionLabel(activeScope(), ID, "qa 731");
     expect(r.ok).toBe(true);
     expect(tauriFetch).toHaveBeenCalledTimes(2);
     expect(calls()[0][1].method).toBe("POST");
@@ -87,7 +90,7 @@ describe("setSessionLabel", () => {
       ok: false,
       text: async () => JSON.stringify({ error: "missing label param" }),
     });
-    const r = await setSessionLabel(ID, "qa731");
+    const r = await setSessionLabel(activeScope(), ID, "qa731");
     expect(r).toMatchObject({ ok: false, status: 400 });
     expect(tauriFetch).toHaveBeenCalledTimes(1);
   });
@@ -98,8 +101,46 @@ describe("setSessionLabel", () => {
       ok: false,
       text: async () => JSON.stringify({ error: "nope" }),
     });
-    const r = await setSessionLabel(ID, "qa731");
+    const r = await setSessionLabel(activeScope(), ID, "qa731");
     expect(r).toMatchObject({ ok: false, status: 405 });
     expect(tauriFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it("remembers the legacy GET per server only (MA15)", async () => {
+    useServersStore.setState({
+      servers: [
+        { id: "s1", nickname: "old", url: "http://127.0.0.1:9", username: "u", rememberPassword: false },
+        { id: "s2", nickname: "new", url: "http://127.0.0.1:10", username: "u", rememberPassword: false },
+      ],
+      activeServerId: "s1",
+      tokens: { s1: "tok", s2: "tok2" },
+    });
+    tauriFetch
+      .mockResolvedValueOnce({ status: 405, ok: false, text: async () => "{}" })
+      .mockResolvedValue(okBody);
+    await setSessionLabel(scopeFor("s1"), ID, "a");
+    // s1 now goes straight to GET; s2 still POSTs.
+    await setSessionLabel(scopeFor("s1"), ID, "b");
+    await setSessionLabel(scopeFor("s2"), ID, "c");
+    const methods = calls().map(([url, o]) => `${o.method ?? "GET"} ${url.split("?")[0]}`);
+    expect(methods).toEqual([
+      "POST http://127.0.0.1:9/cli/sessions/label",
+      "GET http://127.0.0.1:9/cli/sessions/label",
+      "GET http://127.0.0.1:9/cli/sessions/label",
+      "POST http://127.0.0.1:10/cli/sessions/label",
+    ]);
+  });
+
+  it("a known version picks the verb without a failed try (MA15)", async () => {
+    noteBootStatus("s1", { version: "0.44.3", features: [] });
+    expect(writeVerbFor(scopeFor("s1"), "/cli/sessions/label")).toBe("GET");
+    noteBootStatus("s1", { version: "0.45.3", features: [] });
+    expect(writeVerbFor(scopeFor("s1"), "/cli/sessions/label")).toBe("POST");
+    noteBootStatus("s1", { version: "0.44.3", features: [] });
+    tauriFetch.mockResolvedValue(okBody);
+    await setSessionLabel(scopeFor("s1"), ID, "x");
+    expect(tauriFetch).toHaveBeenCalledTimes(1);
+    expect(calls()[0][1].method).toBe("GET");
+    expect(calls()[0][0]).toContain("/cli/sessions/label?id=");
   });
 });

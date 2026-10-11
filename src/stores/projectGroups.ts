@@ -34,9 +34,9 @@ import {
   type ProjectGroup,
   type GroupIconResult,
 } from "../api/projectGroups";
-import { getBaseUrl, getToken } from "../api/client";
-import { useServersStore } from "./servers";
-import { reviveServerSession } from "../lib/revive";
+import { onServerForget, useServersStore } from "./servers";
+import { revive } from "../lib/revive";
+import { scopeFor } from "../api/scope";
 import { iconCacheKey, pocLabel } from "../lib/projectChat";
 
 // ── Per-server last-seen cursors (localStorage; advisory) ──────────────
@@ -116,7 +116,8 @@ export const useProjectGroupsStore = create<ProjectGroupsState>((set, get) => ({
       return;
     }
     set({ forServerId: serverId, loading: true });
-    const r = await fetchProjectGroups();
+    const scope = scopeFor(serverId);
+    const r = await fetchProjectGroups(scope);
     // A server switch mid-flight: drop this response, the new server's
     // own refresh is (or will be) running.
     if (useServersStore.getState().activeServerId !== serverId) return;
@@ -129,7 +130,7 @@ export const useProjectGroupsStore = create<ProjectGroupsState>((set, get) => ({
 
     // Advisory enrichments — never block or error the list.
     // 1. Unread dots from the per-server last-seen cursors.
-    void fetchUnreadGroupIds(groups, (gid) => getLastSeen(serverId, gid)).then(
+    void fetchUnreadGroupIds(scope, groups, (gid) => getLastSeen(serverId, gid)).then(
       (unread) => {
         if (useServersStore.getState().activeServerId !== serverId) return;
         const open = get().openGroupId;
@@ -143,7 +144,7 @@ export const useProjectGroupsStore = create<ProjectGroupsState>((set, get) => ({
       groups
         .filter((g) => g.pocWorkspaceId !== null)
         .map(async (g) => {
-          const s = await fetchProjectGroupShow(g.id);
+          const s = await fetchProjectGroupShow(scope, g.id);
           if (!s.ok || !s.data) return null;
           const label = pocLabel(s.data.members, s.data.pocWorkspaceId);
           return label ? ([g.id, label] as const) : null;
@@ -177,7 +178,7 @@ export const useProjectGroupsStore = create<ProjectGroupsState>((set, get) => ({
     if (!serverId) return;
     const key = iconCacheKey(serverId, groupId);
     if (get().icons[key]) return;
-    void fetchProjectGroupIcon(groupId).then((r) => {
+    void fetchProjectGroupIcon(scopeFor(serverId), groupId).then((r) => {
       // Cache misses too (found:false) so a broken route never hammers
       // the daemon — the initials fallback is always right.
       const entry: GroupIconResult = r.ok && r.data ? r.data : { found: false, dataUrl: null };
@@ -283,9 +284,17 @@ function handleWireEvent(frame: WireEvent): void {
  *  is picked up (the daemon kicks stale tokens off the WS within 5s —
  *  reconnecting with the old one would just be kicked again). */
 function buildEventsUrl(): string | null {
-  const base = getBaseUrl().replace(/^http/, "ws");
-  if (!base) return null;
-  return `${base}/events?token=${encodeURIComponent(getToken())}`;
+  if (!eventsServerId) return null;
+  try {
+    // The socket's own server (captured on retarget), never "whatever is
+    // active at reconnect time" (MS6).
+    const scope = scopeFor(eventsServerId);
+    const base = scope.wsBase();
+    if (!base) return null;
+    return `${base}/events?token=${encodeURIComponent(scope.token())}`;
+  } catch {
+    return null; // removed
+  }
 }
 
 function openEvents(): void {
@@ -333,7 +342,7 @@ function scheduleEventsReconnect(): void {
  *  bug. `signin-required` STOPS this loop until the user acts. */
 async function reviveThenReopen(): Promise<void> {
   if (eventsServerId) {
-    const outcome = await reviveServerSession(eventsServerId);
+    const outcome = await revive(scopeFor(eventsServerId));
     if (eventsRefs === 0) return;
     // The user may have switched servers while we probed — retarget.
     if (useServersStore.getState().activeServerId !== eventsServerId) {
@@ -390,3 +399,16 @@ export function startEvents(): () => void {
     }
   };
 }
+
+// A removed or re-keyed server (MS3 / MA2): drop its cached group icons —
+// the same group id on a different daemon is a different group.
+onServerForget((id) => {
+  const prefix = iconCacheKey(id, "");
+  useProjectGroupsStore.setState((s) => {
+    const keys = Object.keys(s.icons).filter((k) => k.startsWith(prefix));
+    if (keys.length === 0) return {};
+    const icons = { ...s.icons };
+    for (const k of keys) delete icons[k];
+    return { icons };
+  });
+});

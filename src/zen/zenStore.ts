@@ -10,7 +10,6 @@ import {
   assignFocusGroup as postAssignFocusGroup,
   createFocusGroup as postCreateFocusGroup,
   getThread,
-  getToken,
   postThread,
   answerThread,
   reorderProjects,
@@ -29,7 +28,9 @@ import {
   postProjectGroupMessage,
   type ProjectGroupMessage,
 } from "../api/projectGroups";
-import { getActiveServer } from "../stores/servers";
+import { ensureBootStatus, serverMemory, type ServerScope } from "../api/scope";
+import { zenScope } from "./zenScope";
+import { onServerForget } from "../stores/servers";
 import { useWorkspacesStore } from "../stores/workspaces";
 import {
   cliProjectOf,
@@ -40,7 +41,7 @@ import {
   skinInitials,
 } from "./agentRow";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
-import { beginLastAt, fetchLastAt } from "./lastAtFetch";
+import { beginLastAt, fetchLastAtForKey, lastAtKey } from "./lastAtFetch";
 import { clearLegacyPinStore, insertPinned } from "./pinChats";
 import {
   FOCUS_OFF,
@@ -50,6 +51,7 @@ import {
   focusSettingsOf,
   pinProjectIdForRow,
   pinnedProjectOrder,
+  focusGroupStorageKey,
   readStoredFocusGroup,
   resolveFocus,
   serverProjectsOf,
@@ -352,22 +354,24 @@ function stubThread(agentId: string): ThreadMessage[] {
   }));
 }
 
-// One activity snapshot read at a time, and the server the dots came from.
-let activityInFlight = false;
+// Per-server module memory (multi-server MA6): every in-flight flag and
+// generation is kept PER SERVER id, so reads and writes on two servers never
+// cancel or block each other. Slots drop when a server is removed or
+// re-keyed (MS3). `activityServer` / `focusServer` record which server's
+// slice is ON SCREEN (the store shows one server's list today).
+
+// One activity snapshot read at a time per server.
+const activityMem = serverMemory(() => ({ inFlight: false }));
 let activityServer: string | null = null;
 
-// Pins: one projects/list read at a time; a write in flight (or one that
-// started after the read) wins over that read. The write refetches after.
-let pinsInFlight = false;
-let pinsAgain = false;
-let pinWrites = 0;
-let pinGen = 0;
+// Pins: one projects/list read at a time per server; a write in flight (or
+// one that started after the read) wins over that read. The write
+// refetches after.
+const pinMem = serverMemory(() => ({ inFlight: false, again: false, writes: 0, gen: 0 }));
 let pinErrorTimer: ReturnType<typeof setTimeout> | null = null;
-// Focus groups: one read at a time, and the server the groups came from.
-let focusInFlight = false;
-let focusAgain = false;
-/** Bumped by local group writes: a read that started before one is stale. */
-let focusGen = 0;
+// Focus groups: one read at a time per server. `gen` is bumped by local
+// group writes: a read that started before one is stale.
+const focusMem = serverMemory(() => ({ inFlight: false, again: false, gen: 0 }));
 let focusServer: string | null = null;
 
 export const PIN_ERROR_MS = 4000;
@@ -375,8 +379,23 @@ export const PIN_ERROR_MS = 4000;
 // Pins moved to the server: drop the old per-device list, do not migrate.
 clearLegacyPinStore();
 
-function activeServerId(): string | null {
-  return getActiveServer()?.id ?? null;
+// A removed or re-keyed server may be a different daemon (MS3 / MA2):
+// forget its per-device focus pick too (the module memories above drop
+// their own slots).
+onServerForget((id) => {
+  try {
+    localStorage.removeItem(focusGroupStorageKey(id));
+  } catch {
+    /* no storage */
+  }
+  if (activityServer === id) activityServer = null;
+  if (focusServer === id) focusServer = null;
+});
+
+/** The id of the server Zen is on now ("" when none). Late answers compare
+ *  it with the scope they captured. */
+function zenId(): string {
+  return zenScope().id;
 }
 
 function errorText(e: unknown, fallback: string): string {
@@ -433,11 +452,11 @@ export const useZenStore = create<ZenState>((set, get) => ({
       order = insertPinned(pinnedProjectOrder(s.serverProjects), pid, beforePid);
       next = withOrder(next, order);
     }
-    await writePins(next, "Could not pin", async () => {
-      const r = await setProjectPinned(pid, true);
+    await writePins(next, "Could not pin", async (scope) => {
+      const r = await setProjectPinned(scope, pid, true);
       if (!r.ok) throw r.error || "Could not pin";
       if (order) {
-        const o = await reorderProjects(order);
+        const o = await reorderProjects(scope, order);
         if (!o.ok) throw o.error || "Could not reorder pins";
       }
     });
@@ -453,8 +472,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
     if (!current.includes(pid)) return;
     const order = insertPinned(current, pid, beforePid);
     if (order.join("\n") === current.join("\n")) return;
-    await writePins(withOrder(s.serverProjects, order), "Could not reorder pins", async () => {
-      const r = await reorderProjects(order);
+    await writePins(withOrder(s.serverProjects, order), "Could not reorder pins", async (scope) => {
+      const r = await reorderProjects(scope, order);
       if (!r.ok) throw r.error || "Could not reorder pins";
     });
   },
@@ -462,23 +481,24 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const s = get();
     const pid = pinProjectIdForRow(s.agents.find((a) => a.id === id), s.serverProjects);
     if (!pid) return;
-    await writePins(withPinned(s.serverProjects, pid, false), "Could not unpin", async () => {
-      const r = await setProjectPinned(pid, false);
+    await writePins(withPinned(s.serverProjects, pid, false), "Could not unpin", async (scope) => {
+      const r = await setProjectPinned(scope, pid, false);
       if (!r.ok) throw r.error || "Could not unpin";
     });
   },
   refreshPins: async () => {
     if (get().agentSource !== "live") return;
-    if (pinsInFlight) {
-      pinsAgain = true;
+    const scope = zenScope();
+    const pins = pinMem.get(scope.id);
+    if (pins.inFlight) {
+      pins.again = true;
       return;
     }
-    const server = activeServerId();
-    const gen = pinGen;
-    pinsInFlight = true;
+    const gen = pins.gen;
+    pins.inFlight = true;
     try {
-      const r = await getCliProjectsList();
-      if (activeServerId() !== server || pinWrites > 0 || pinGen !== gen) return;
+      const r = await getCliProjectsList(scope);
+      if (zenId() !== scope.id || pins.writes > 0 || pins.gen !== gen) return;
       if (!r.ok) return; // transient: keep what is on screen
       const projects = serverProjectsOf(r.data);
       if (!projects) return;
@@ -489,36 +509,38 @@ export const useZenStore = create<ZenState>((set, get) => ({
     } catch {
       /* keep what is on screen */
     } finally {
-      pinsInFlight = false;
-      if (pinsAgain) {
-        pinsAgain = false;
+      pins.inFlight = false;
+      if (pins.again) {
+        pins.again = false;
         void get().refreshPins();
       }
     }
   },
   refreshFocus: async () => {
     if (get().agentSource !== "live") return;
-    if (focusInFlight) {
-      focusAgain = true;
+    const scope = zenScope();
+    const server = scope.id || null;
+    const mem = focusMem.get(scope.id);
+    if (mem.inFlight) {
+      mem.again = true;
       return;
     }
-    const server = activeServerId();
     if (server !== focusServer) {
       focusServer = server;
       if (get().focus !== FOCUS_OFF || get().focusGroupsEnabled) {
         set({ focus: FOCUS_OFF, focusGroupsEnabled: false });
       }
     }
-    focusInFlight = true;
-    const gen = focusGen;
+    mem.inFlight = true;
+    const gen = mem.gen;
     let enabled = false;
     const apply = (focus: FocusState) => {
-      if (activeServerId() !== server || focusGen !== gen) return;
+      if (zenId() !== scope.id || mem.gen !== gen) return;
       if (focus.enabled && focus.currentId) writeStoredFocusGroup(server, focus.currentId);
       set({ focus, focusGroupsEnabled: enabled });
     };
     try {
-      const rs = await getAppSettings();
+      const rs = await getAppSettings(scope);
       if (!rs.ok) {
         // Older daemon (no route): groups off. Anything else is transient.
         if (rs.status === 404) apply(FOCUS_OFF);
@@ -530,7 +552,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         apply(FOCUS_OFF);
         return;
       }
-      const rg = await getFocusGroupsList();
+      const rg = await getFocusGroupsList(scope);
       if (!rg.ok) {
         if (rg.status === 404) apply(FOCUS_OFF);
         return;
@@ -540,9 +562,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
     } catch {
       /* keep what is on screen */
     } finally {
-      focusInFlight = false;
-      if (focusAgain) {
-        focusAgain = false;
+      mem.inFlight = false;
+      if (mem.again) {
+        mem.again = false;
         void get().refreshFocus();
       }
     }
@@ -550,7 +572,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   selectFocusGroup: (groupId) => {
     const focus = get().focus;
     if (!focus.enabled || !focus.groups.some((g) => g.id === groupId)) return;
-    writeStoredFocusGroup(activeServerId(), groupId);
+    writeStoredFocusGroup(zenId() || null, groupId);
     if (focus.currentId !== groupId) set({ focus: { ...focus, currentId: groupId } });
   },
   assignFocusGroup: async (id, groupId) => {
@@ -558,12 +580,12 @@ export const useZenStore = create<ZenState>((set, get) => ({
     if (!s.focusGroupsEnabled && !s.focus.enabled) return false;
     const pid = pinProjectIdForRow(s.agents.find((a) => a.id === id), s.serverProjects);
     if (!pid) return false; // sidecar / group / unmatched row: groups are per workspace
-    focusGen += 1;
+    focusMem.get(zenId()).gen += 1;
     const ok = await writePins(
       withFocusGroup(s.serverProjects, pid, groupId),
       "Could not change group",
-      async () => {
-        const r = await postAssignFocusGroup(pid, groupId);
+      async (scope) => {
+        const r = await postAssignFocusGroup(scope, pid, groupId);
         if (!r.ok) throw r.error || "Could not change group";
       }
     );
@@ -577,19 +599,20 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const s = get();
     if (!s.focusGroupsEnabled && !s.focus.enabled) return false;
     if (!pinProjectIdForRow(s.agents.find((a) => a.id === id), s.serverProjects)) return false;
-    const server = activeServerId();
+    const scope = zenScope();
+    const server = scope.id || null;
     let group: FocusGroupLite | null = null;
     try {
-      const r = await postCreateFocusGroup(clean);
+      const r = await postCreateFocusGroup(scope, clean);
       if (!r.ok) throw r.error || "Could not create group";
       group = focusGroupOf(r.data);
       if (!group) throw "Could not create group";
     } catch (e) {
-      if (activeServerId() === server) showPinError(errorText(e, "Could not create group"));
+      if (zenId() === scope.id) showPinError(errorText(e, "Could not create group"));
       return false;
     }
-    if (activeServerId() !== server) return false;
-    focusGen += 1;
+    if (zenId() !== scope.id) return false;
+    focusMem.get(scope.id).gen += 1;
     const focus = get().focus;
     set({
       focus: focus.enabled
@@ -613,17 +636,20 @@ export const useZenStore = create<ZenState>((set, get) => ({
       filesOpen: false,
     }),
   refreshActivity: async () => {
-    if (get().agentSource !== "live" || activityInFlight) return;
-    const server = getActiveServer()?.id ?? null;
+    if (get().agentSource !== "live") return;
+    const scope = zenScope();
+    const mem = activityMem.get(scope.id);
+    if (mem.inFlight) return;
+    const server = scope.id || null;
     // Another server's dots are not this one's.
     if (server !== activityServer) {
       activityServer = server;
       if (get().activity !== EMPTY_ACTIVITY) set({ activity: EMPTY_ACTIVITY });
     }
-    activityInFlight = true;
+    mem.inFlight = true;
     try {
-      const r = await getActivitySnapshot();
-      if ((getActiveServer()?.id ?? null) !== server) return;
+      const r = await getActivitySnapshot(scope);
+      if (zenId() !== scope.id) return;
       if (r.ok) {
         const next = parseActivitySnapshot(r.data);
         if (!sameActivity(get().activity, next)) set({ activity: next });
@@ -635,15 +661,14 @@ export const useZenStore = create<ZenState>((set, get) => ({
     } catch {
       /* keep what is on screen */
     } finally {
-      activityInFlight = false;
+      mem.inFlight = false;
     }
   },
   ensureLastAt: (key) => {
+    // `key` is a `lastAtKey` (`<serverId>|t:<addr>`): it fetches on its own
+    // server's scope (MA6).
     if (!beginLastAt(key)) return;
-    const kind = key.startsWith("g:") ? "group" : "thread";
-    const id = key.slice(2);
-    if (!id) return;
-    void fetchLastAt(kind, id)
+    void fetchLastAtForKey(key)
       .then((at) => {
         set((s) => ({
           lastAtByKey: { ...s.lastAtByKey, [key]: at },
@@ -663,7 +688,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
       writeDrawerOrigin(null);
       set({ drawerOrigin: null });
     }
-    if (!getToken()) {
+    const scope = zenScope();
+    if (!scope.token()) {
       set({
         agentSource: "stub",
         fileSource: "stub",
@@ -681,6 +707,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
       if (resumeId) get().setAgent(resumeId);
       return;
     }
+    // Per-server feature memory (MS31): what this server's /boot-status
+    // lists (features, version) gates routes and verbs on its scope.
+    // Public, single-flight, re-read at most every few minutes.
+    void ensureBootStatus(scope);
     // Session exists: stub is unreachable. Owner fleet is GET /cli/agent/list
     // (singular). Address book is GET /cli/projects/list. Join on path.
     // Plural /cli/agents/list is the skills enumerator.
@@ -703,10 +733,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
     });
     try {
       const [rAgents, rProjects, rGroups, rSessions] = await Promise.all([
-        getAgentList(),
-        getCliProjectsList(),
-        fetchProjectGroups(),
-        getAllSessions(),
+        getAgentList(scope),
+        getCliProjectsList(scope),
+        fetchProjectGroups(scope),
+        getAllSessions(scope),
       ]);
       const notices: string[] = [];
       let fleet: {
@@ -860,7 +890,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
           }))
       );
       const agents: StubAgent[] = [...groups, ...mapped];
-      pinGen += 1; // this read supersedes any refresh already out
+      pinMem.get(scope.id).gen += 1; // this read supersedes any refresh already out
       set({
         agentSource: "live",
         agents,
@@ -931,7 +961,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       set(patch());
     };
     try {
-      const r = await getWorkspaceResources(usable);
+      const r = await getWorkspaceResources(zenScope(), usable);
       // 404 is a pre-0.45 server ("route not found") or a workspace the
       // daemon does not know. Either way there is nothing pinned to show.
       if (r.status === 404) {
@@ -974,9 +1004,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadHasMore: false,
       threadOldestSeq: null,
     });
-    const username = getActiveServer()?.username ?? "";
+    const scope = zenScope();
+    const username = scope.username();
     try {
-      const r = await fetchProjectGroupMessages(groupId, { limit: 50 });
+      const r = await fetchProjectGroupMessages(scope, groupId, { limit: 50 });
       if (get().threadGen !== gen) return;
       if (!r.ok) {
         set({
@@ -1030,9 +1061,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadHasMore: false,
       threadOldestSeq: null,
     });
-    const username = getActiveServer()?.username ?? "";
+    const scope = zenScope();
+    const username = scope.username();
     try {
-      const r = await getThread(addr);
+      const r = await getThread(scope, addr);
       if (get().threadGen !== gen) return;
       if (!r.ok || !r.data || !Array.isArray(r.data.items)) {
         set({
@@ -1061,7 +1093,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadOldestSeq: oldestSeqOf(items),
         lastAtByKey: {
           ...get().lastAtByKey,
-          [`t:${addr}`]: last?.at ?? get().lastAtByKey[`t:${addr}`] ?? null,
+          [lastAtKey(scope.id, "thread", addr)]:
+            last?.at ?? get().lastAtByKey[lastAtKey(scope.id, "thread", addr)] ?? null,
         },
       });
     } catch (e) {
@@ -1083,9 +1116,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
     const gen = get().threadGen;
     set({ threadLoadingEarlier: true });
-    const username = getActiveServer()?.username ?? "";
+    const scope = zenScope();
+    const username = scope.username();
     try {
-      const r = await getThread(threadAddr, 50, threadOldestSeq);
+      const r = await getThread(scope, threadAddr, 50, threadOldestSeq);
       if (get().threadGen !== gen) return;
       if (!r.ok || !r.data || !Array.isArray(r.data.items)) {
         set({ threadLoadingEarlier: false });
@@ -1112,6 +1146,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   sendThread: async (text) => {
     const trimmed = text.trim();
     if (!trimmed) return;
+    const scope = zenScope();
     if (get().agentSource === "stub" || get().threadSource === "stub") {
       set({ sendError: "STUB — Cannot send — POST /cli/thread/post not proven" });
       return;
@@ -1121,7 +1156,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       const gen = get().threadGen;
       set({ sending: true, sendError: null });
       try {
-        const posted = await postProjectGroupMessage(groupId, trimmed);
+        const posted = await postProjectGroupMessage(scope, groupId, trimmed);
         if (get().threadGen !== gen) return;
         if (!posted.ok || !posted.data) {
           set({
@@ -1130,7 +1165,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
           });
           return;
         }
-        const username = getActiveServer()?.username ?? "";
+        const username = scope.username();
         const row = posted.data;
         const msg = groupMessagesToThread(
           [
@@ -1151,7 +1186,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
           thread: msg && !seen.has(msg.id) ? [...get().thread, msg] : get().thread,
           lastAtByKey: {
             ...get().lastAtByKey,
-            [`g:${groupId}`]: row.createdAt,
+            [lastAtKey(scope.id, "group", groupId)]: row.createdAt,
           },
         });
       } catch (e) {
@@ -1172,7 +1207,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const before = get().thread.map((m) => m.id);
     set({ sending: true, sendError: null });
     try {
-      const posted = await postThread(addr, trimmed);
+      const posted = await postThread(scope, addr, trimmed);
       if (get().threadGen !== gen) return;
       if (!posted.ok) {
         set({
@@ -1187,7 +1222,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
             (posted.data.doc && posted.data.doc.id))) ||
           ""
       );
-      const reread = await getThread(addr);
+      const reread = await getThread(scope, addr);
       if (get().threadGen !== gen) return;
       if (!reread.ok || !reread.data || !Array.isArray(reread.data.items)) {
         set({
@@ -1196,7 +1231,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         });
         return;
       }
-      const username = getActiveServer()?.username ?? "";
+      const username = scope.username();
       const items = reread.data.items
         .map((it) => normaliseThreadItem(it, username))
         .filter((m): m is ThreadMessage => !!m)
@@ -1231,7 +1266,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadOldestSeq: oldestSeqOf(items),
         lastAtByKey: {
           ...get().lastAtByKey,
-          [`t:${addr}`]: onWire.at ?? Date.now() / 1000,
+          [lastAtKey(scope.id, "thread", addr)]: onWire.at ?? Date.now() / 1000,
         },
       });
     } catch (e) {
@@ -1264,7 +1299,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const gen = get().threadGen;
     set({ answeringId: id, answerError: null, answerErrorId: null });
     try {
-      const posted = await answerThread(addr, id, answer);
+      const posted = await answerThread(zenScope(), addr, id, answer);
       if (get().threadGen !== gen) return;
       if (!posted.ok) {
         set({
@@ -1298,7 +1333,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
   ingestThreadRaw: (raw) => {
     if (get().agentSource === "stub") return;
     if (!get().threadAddr) return;
-    const username = getActiveServer()?.username ?? "";
+    const scope = zenScope();
+    const username = scope.username();
     const msg = normaliseThreadItem(raw, username);
     if (!msg) return;
     const thread = mergeThreadMessages(get().thread, [msg]);
@@ -1313,7 +1349,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
       lastAtByKey: addr
         ? {
             ...get().lastAtByKey,
-            [`t:${addr}`]: last?.at ?? get().lastAtByKey[`t:${addr}`] ?? null,
+            [lastAtKey(scope.id, "thread", addr)]:
+            last?.at ?? get().lastAtByKey[lastAtKey(scope.id, "thread", addr)] ?? null,
           }
         : get().lastAtByKey,
     });
@@ -1323,10 +1360,11 @@ export const useZenStore = create<ZenState>((set, get) => ({
     if (get().agentSource === "stub") return;
     const gen = get().threadGen;
     const groupId = (get().threadGroupId || "").trim();
-    const username = getActiveServer()?.username ?? "";
+    const scope = zenScope();
+    const username = scope.username();
     if (groupId) {
       try {
-        const r = await fetchProjectGroupMessages(groupId, { limit: 50 });
+        const r = await fetchProjectGroupMessages(scope, groupId, { limit: 50 });
         if (get().threadGen !== gen || get().threadGroupId !== groupId) return;
         if (!r.ok) return;
         const incoming = groupMessagesToThread(r.data?.messages ?? [], username);
@@ -1342,7 +1380,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
           threadError: null,
           lastAtByKey: {
             ...get().lastAtByKey,
-            [`g:${groupId}`]: last?.at ?? get().lastAtByKey[`g:${groupId}`] ?? null,
+            [lastAtKey(scope.id, "group", groupId)]:
+              last?.at ?? get().lastAtByKey[lastAtKey(scope.id, "group", groupId)] ?? null,
           },
         });
       } catch {
@@ -1353,7 +1392,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const addr = get().threadAddr;
     if (!addr) return;
     try {
-      const r = await getThread(addr);
+      const r = await getThread(scope, addr);
       if (get().threadGen !== gen || get().threadAddr !== addr) return;
       if (!r.ok || !r.data || !Array.isArray(r.data.items)) return;
       const incoming = r.data.items
@@ -1372,7 +1411,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadOldestSeq: get().threadOldestSeq ?? oldestSeqOf(thread),
         lastAtByKey: {
           ...get().lastAtByKey,
-          [`t:${addr}`]: last?.at ?? get().lastAtByKey[`t:${addr}`] ?? null,
+          [lastAtKey(scope.id, "thread", addr)]:
+            last?.at ?? get().lastAtByKey[lastAtKey(scope.id, "thread", addr)] ?? null,
         },
       });
     } catch {
@@ -1424,13 +1464,14 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const path = (row.path || "").trim();
     const suffix = sidecarSuffix(addr);
     if (!path || !suffix) return { ok: true, terminalId: null };
-    const listed = await getAllSessions();
+    const scope = zenScope();
+    const listed = await getAllSessions(scope);
     const sessions =
       listed.ok && Array.isArray(listed.data) ? listed.data : [];
     const existing = terminalIdForAgent({ path, addr }, sessions);
     if (existing) return { ok: true, terminalId: existing };
     const label = (row.chatTitle || suffix).trim() || suffix;
-    const spawned = await spawnSidecarSession(path, suffix, label);
+    const spawned = await spawnSidecarSession(scope, path, suffix, label);
     if (!spawned.ok) {
       return {
         ok: false,
@@ -1444,7 +1485,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       name: "",
       chatTitle: label,
     });
-    const again = await getAllSessions();
+    const again = await getAllSessions(scope);
     const next = again.ok && Array.isArray(again.data) ? again.data : [];
     const terminalId =
       terminalIdForAgent({ path, addr }, next) ??
@@ -1481,7 +1522,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
     ]);
     if (!next) return { ok: false, error: "Could not pick a sidecar address" };
     const suffix = sidecarSuffix(next);
-    const spawned = await spawnSidecarSession(path, suffix, suffix, opts?.launch);
+    const spawned = await spawnSidecarSession(zenScope(), path, suffix, suffix, opts?.launch);
     if (!spawned.ok) {
       return {
         ok: false,
@@ -1545,7 +1586,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const base = get().agents.find((a) => a.id === baseId);
     const path = (base?.path || "").trim();
     if (!path) return { ok: false, error: "No workspace path to start a session" };
-    const spawned = await spawnTabSession(path, launch, llm.name);
+    const spawned = await spawnTabSession(zenScope(), path, launch, llm.name);
     const terminalId = (spawned.data?.sessionId || "").trim();
     if (!spawned.ok || !terminalId) {
       return { ok: false, error: spawned.error || `Could not start ${llm.name}` };
@@ -1561,8 +1602,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
     if (!row || !isOverlayExtraAddr(addr)) {
       return { ok: false, error: "Only extra chats can be renamed" };
     }
+    const scope = zenScope();
     try {
-      const listed = await getAllSessions();
+      const listed = await getAllSessions(scope);
       const sessions: GlobalSession[] =
         listed.ok && Array.isArray(listed.data) ? listed.data : [];
       const target = sidecarRenameTarget({
@@ -1579,12 +1621,12 @@ export const useZenStore = create<ZenState>((set, get) => ({
       }
       let wrote = false;
       if (target.terminalId) {
-        const r = await setSessionLabel(target.terminalId, name);
+        const r = await setSessionLabel(scope, target.terminalId, name);
         if (!r.ok) return { ok: false, error: r.error || "K2 did not take the new name" };
         wrote = true;
       }
       if (target.projectId && target.tabId) {
-        const r = await setTabTitle(target.projectId, target.tabId, name);
+        const r = await setTabTitle(scope, target.projectId, target.tabId, name);
         if (r.ok) wrote = true;
         else if (!wrote) {
           return { ok: false, error: r.error || "K2 did not take the new name" };
@@ -1593,7 +1635,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       if (!wrote) {
         return { ok: false, error: "Couldn't find this sidecar in K2" };
       }
-      const again = await getAllSessions();
+      const again = await getAllSessions(scope);
       const next: GlobalSession[] =
         again.ok && Array.isArray(again.data) ? again.data : [];
       const live = sidecarLiveLabel(
@@ -1749,7 +1791,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
     // Not filesGen: a resources re-read on pane open must not drop the
     // body of a tab it kept. A different chat is a different agentId.
-    void getFsReadFile(filePath).then((r) => {
+    void getFsReadFile(zenScope(), filePath).then((r) => {
       if (get().agentId !== agentId) return;
       if (!get().files.some((f) => f.id === id)) return;
       if (r.ok && r.data) {
@@ -1796,19 +1838,22 @@ function showPinError(text: string): void {
 async function writePins(
   next: ServerProject[],
   fallback: string,
-  call: () => Promise<void>
+  call: (scope: ServerScope) => Promise<void>
 ): Promise<boolean> {
   const { getState: get, setState: set } = useZenStore;
   const before = get().serverProjects;
-  const server = activeServerId();
-  pinWrites += 1;
-  pinGen += 1;
+  // The write and its refetch stay on the server it started on (MS7).
+  const scope = zenScope();
+  const server = scope.id;
+  const pins = pinMem.get(server);
+  pins.writes += 1;
+  pins.gen += 1;
   set({ serverProjects: next, pinnedIds: derivePinnedIds(get().agents, next), pinError: null });
   try {
-    await call();
+    await call(scope);
     return true;
   } catch (e) {
-    if (activeServerId() === server) {
+    if (zenId() === server) {
       set({
         serverProjects: before,
         pinnedIds: derivePinnedIds(get().agents, before),
@@ -1817,7 +1862,7 @@ async function writePins(
     }
     return false;
   } finally {
-    pinWrites -= 1;
-    if (activeServerId() === server) void get().refreshPins();
+    pins.writes -= 1;
+    if (zenId() === server) void get().refreshPins();
   }
 }

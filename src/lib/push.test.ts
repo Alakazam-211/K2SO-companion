@@ -19,8 +19,9 @@ vi.mock("@tauri-apps/plugin-http", () => ({ fetch: vi.fn() }));
 vi.mock("@tauri-apps/plugin-store", () => ({ load: vi.fn() }));
 vi.mock("../api/cliAuth", () => ({ cliAuthHeaders: vi.fn(() => ({})) }));
 vi.mock("../stores/servers", () => ({
-  useServersStore: { getState: () => ({ servers: [], tokens: {} }) },
+  useServersStore: { getState: () => ({ servers: [], tokens: {}, activeServerId: null }) },
   getActiveServer: vi.fn(() => null),
+  onServerForget: vi.fn(() => () => {}),
 }));
 
 import { attachPushNavigation, isZenUi, tapPath } from "./push";

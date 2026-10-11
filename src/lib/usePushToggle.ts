@@ -7,6 +7,7 @@ import {
   ensureRegistered,
   unregisterAll,
 } from "./push";
+import { scopeFor } from "../api/scope";
 
 export interface PushToggleState {
   /** null while the availability probe runs. */
@@ -55,7 +56,7 @@ export function usePushToggle(): PushToggleState {
       await setPushEnabled(next);
       if (next) {
         const active = getActiveServer();
-        if (active) await ensureRegistered(active);
+        if (active) await ensureRegistered(scopeFor(active.id));
       } else {
         await unregisterAll();
       }

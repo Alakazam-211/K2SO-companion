@@ -2,6 +2,7 @@ import { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import { useWorkspacesStore } from "../stores/workspaces";
 import * as api from "../api/client";
+import { activeScope } from "../api/scope";
 
 interface Props {
   open: boolean;
@@ -51,7 +52,7 @@ export function NewSessionModal({ open, onClose }: Props) {
   // Step 2a — open (or resume) the workspace's pinned main chat session.
   const openMainChat = async (projectPath: string) => {
     setLaunching(true);
-    const r = await api.ensurePinnedChat(projectPath);
+    const r = await api.ensurePinnedChat(activeScope(), projectPath);
     await useWorkspacesStore.getState().fetchAllSessions();
     setLaunching(false);
     if (r.ok && r.data?.sessionId) {
@@ -64,7 +65,7 @@ export function NewSessionModal({ open, onClose }: Props) {
   // Step 2b — spawn a fresh tab (a distinct grid-WS session) in the workspace.
   const openNewTab = async (projectPath: string) => {
     setLaunching(true);
-    const r = await api.spawnNewTab(projectPath);
+    const r = await api.spawnNewTab(activeScope(), projectPath);
     await useWorkspacesStore.getState().fetchAllSessions();
     setLaunching(false);
     if (r.ok && r.data?.sessionId) {

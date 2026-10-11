@@ -114,9 +114,9 @@ describe("NewWorkspaceSheet", () => {
     fireEvent.click(screen.getByTestId("new-workspace-create"));
     expect(screen.getByTestId("new-workspace-create").textContent).toBe("Creating…");
     await waitFor(() => expect(setAgent).toHaveBeenCalledWith("/Users/r/Dev/my-project"));
-    expect(createWorkspace).toHaveBeenCalledWith("/Users/r/Dev/my-project");
-    expect(updateProjectLook).toHaveBeenCalledWith("p9", { name: "My Project", color: "#22c55e" });
-    expect(ensurePinnedChat).toHaveBeenCalledWith("/Users/r/Dev/my-project");
+    expect(createWorkspace).toHaveBeenCalledWith(expect.anything(), "/Users/r/Dev/my-project");
+    expect(updateProjectLook).toHaveBeenCalledWith(expect.anything(), "p9", { name: "My Project", color: "#22c55e" });
+    expect(ensurePinnedChat).toHaveBeenCalledWith(expect.anything(), "/Users/r/Dev/my-project");
     expect(hydrate).toHaveBeenCalled();
     expect(onClose).toHaveBeenCalled();
     expect(onListed).not.toHaveBeenCalled();
@@ -150,7 +150,7 @@ describe("NewWorkspaceSheet", () => {
     typeName("my-project");
     fireEvent.click(screen.getByTestId("new-workspace-create"));
     await waitFor(() => expect(setAgent).toHaveBeenCalled());
-    expect(assignFocusGroup).toHaveBeenCalledWith("p9", "g2");
+    expect(assignFocusGroup).toHaveBeenCalledWith(expect.anything(), "p9", "g2");
   });
 
   it("lands on the list with the row highlighted when the new row is not chattable", async () => {

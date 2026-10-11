@@ -11,6 +11,7 @@ import { PlusGlyph } from "./PlusGlyph";
 import { matchSidecarSession, type OverlaySidecar, type SessionSidecarInput } from "./sidecarRows";
 import type { StubAgent } from "./stubData";
 import { useZenStore } from "./zenStore";
+import { zenScope } from "./zenScope";
 
 export const SESSIONS_EMPTY = "No other sessions in this workspace";
 export const NEW_SESSION_LABEL = "New session";
@@ -91,7 +92,7 @@ export function SessionsPane({
 
   useEffect(() => {
     mounted.current = true;
-    void getActivePresets()
+    void getActivePresets(zenScope())
       .then((r) => {
         if (mounted.current) setLlms(r.ok ? parseActiveLlms(r.data) : null);
       })

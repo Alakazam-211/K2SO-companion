@@ -1,17 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-vi.mock("./client", () => ({
-  getBaseUrl: () => "http://127.0.0.1:8080",
-  getToken: () => "tok",
-}));
-
-vi.mock("../stores/servers", () => ({
-  useServersStore: { getState: () => ({ activeServerId: "s1" }) },
-}));
+import { fakeScope } from "../test/fakeScope";
 
 vi.mock("../lib/revive", () => ({
-  reviveServerSession: async () => "still-valid",
+  revive: async () => "still-valid",
 }));
+
+// MA21: the socket is constructed with a scope instead of reading globals.
+const SCOPE = fakeScope({ id: "s1", base: "http://127.0.0.1:8080", token: "tok" });
 
 class MockWS {
   static last: MockWS | null = null;
@@ -57,7 +52,7 @@ describe("GridSocket Drive / Watch wire", () => {
 
   it("Watch attach sends set_mode:viewer (never 80×24 / set_active)", async () => {
     const { GridSocket } = await import("./gridSocket");
-    const sock = new GridSocket(() => {});
+    const sock = new GridSocket(SCOPE, () => {});
     sock.connect("sess");
     MockWS.last!.openNow();
     expect(parsed()).toEqual([{ action: "set_mode", mode: "viewer" }]);
@@ -67,7 +62,7 @@ describe("GridSocket Drive / Watch wire", () => {
 
   it("Drive tap before OPEN flushes measured set_active on open", async () => {
     const { GridSocket } = await import("./gridSocket");
-    const sock = new GridSocket(() => {});
+    const sock = new GridSocket(SCOPE, () => {});
     sock.connect("sess");
     sock.setDrive(true);
     sock.noteClaim(42, 18);
@@ -85,7 +80,7 @@ describe("GridSocket Drive / Watch wire", () => {
 
   it("same-dims remasure after reconnect still sends set_active", async () => {
     const { GridSocket } = await import("./gridSocket");
-    const sock = new GridSocket(() => {});
+    const sock = new GridSocket(SCOPE, () => {});
     sock.connect("sess");
     sock.setDrive(true);
     sock.noteClaim(42, 18);
@@ -109,7 +104,7 @@ describe("GridSocket Drive / Watch wire", () => {
 
   it("Watch Direct/accessory bytes flip claimer then input — no set_active", async () => {
     const { GridSocket } = await import("./gridSocket");
-    const sock = new GridSocket(() => {});
+    const sock = new GridSocket(SCOPE, () => {});
     sock.connect("sess");
     MockWS.last!.openNow();
     sock.sendPtyBytes("\x1b");
@@ -127,7 +122,7 @@ describe("GridSocket Drive / Watch wire", () => {
 
   it("Drive sendPtyBytes is input only (already claimer)", async () => {
     const { GridSocket } = await import("./gridSocket");
-    const sock = new GridSocket(() => {});
+    const sock = new GridSocket(SCOPE, () => {});
     sock.connect("sess");
     sock.setDrive(true);
     sock.noteClaim(42, 18);
@@ -140,7 +135,7 @@ describe("GridSocket Drive / Watch wire", () => {
 
   it("Watch never invents 80×24 when a leftover fit exists", async () => {
     const { GridSocket } = await import("./gridSocket");
-    const sock = new GridSocket(() => {});
+    const sock = new GridSocket(SCOPE, () => {});
     sock.connect("sess");
     sock.setDrive(true);
     sock.noteClaim(80, 24);

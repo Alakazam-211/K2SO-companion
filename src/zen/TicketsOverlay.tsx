@@ -17,9 +17,9 @@ import {
 import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { useFeedbackStore } from "../stores/feedback";
 import { useServersStore } from "../stores/servers";
-import { connectTicketEvents } from "./ticketEvents";
 import { StatusChip, TicketView } from "./TicketView";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
+import { useTicketsScope } from "./zenScope";
 
 // Zen Tickets: the list (glass header + Done, scope tabs, status sections
 // of `.k2-tile` cards) and the open ticket (TicketView, Layout A).
@@ -55,7 +55,7 @@ export function useTicketWaitingCounts(): {
   ready: boolean;
 } {
   const rows = useFeedbackStore((s) => s.rows);
-  const identity = useSessionIdentity();
+  const identity = useSessionIdentity(useTicketsScope());
   const serverUser = useServersStore(
     (s) => s.servers.find((x) => x.id === s.activeServerId)?.username ?? ""
   );
@@ -100,7 +100,10 @@ export function TicketsOverlay({
   const nowSec = Math.floor(Date.now() / 1000);
 
   useEffect(() => {
-    useFeedbackStore.getState().ensureLive();
+    // MA9: the store rides the server's one shared sessions/events socket,
+    // which refetches the list and the open ticket on a ticket frame — no
+    // second subscription here (one refetch per change, not two).
+    useFeedbackStore.getState().ensureLive({ via: "hub" });
     const deepId = initialTicketId?.trim();
     if (deepId) {
       // Cold start may not have the row yet, so its hasBrief is unknown:
@@ -110,7 +113,6 @@ export function TicketsOverlay({
         .getState()
         .openThread(deepId, { withBrief: row ? row.hasBrief === true : true });
     }
-    const live = connectTicketEvents(refetchLive);
     const poll = setInterval(() => {
       if (typeof document === "undefined" || document.visibilityState !== "hidden") {
         refetchLive();
@@ -121,7 +123,6 @@ export function TicketsOverlay({
     };
     document.addEventListener("visibilitychange", onVis);
     return () => {
-      live.stop();
       clearInterval(poll);
       document.removeEventListener("visibilitychange", onVis);
       // Done with a ticket still open: stop refetching it.

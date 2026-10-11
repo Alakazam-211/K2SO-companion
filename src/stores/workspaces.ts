@@ -1,3 +1,4 @@
+import { activeScope } from "../api/scope";
 import { create } from "zustand";
 import * as api from "../api/client";
 import { ws } from "../api/websocket";
@@ -50,9 +51,10 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
   error: null,
 
   fetchProjects: async () => {
-    const serverId = useServersStore.getState().activeServerId;
+    const scope = activeScope();
+    const serverId = scope.id || null;
     // Summary endpoint now includes focusGroup, pinned, tabOrder — no need for the heavy /projects endpoint
-    const r = await api.getProjectsSummary();
+    const r = await api.getProjectsSummary(scope);
     // Server switch mid-flight: drop this response — the new server's own
     // refresh is (or will be) running (projectGroups' guard idiom).
     if (isStaleServerResponse(serverId, useServersStore.getState().activeServerId)) return;
@@ -89,15 +91,17 @@ export const useWorkspacesStore = create<WorkspacesState>((set, get) => ({
   },
 
   fetchSummaries: async () => {
-    const serverId = useServersStore.getState().activeServerId;
-    const r = await api.getProjectsSummary();
+    const scope = activeScope();
+    const serverId = scope.id || null;
+    const r = await api.getProjectsSummary(scope);
     if (isStaleServerResponse(serverId, useServersStore.getState().activeServerId)) return;
     if (r.ok && r.data) set({ summaries: r.data });
   },
 
   fetchAllSessions: async () => {
-    const serverId = useServersStore.getState().activeServerId;
-    const r = await api.getAllSessions();
+    const scope = activeScope();
+    const serverId = scope.id || null;
+    const r = await api.getAllSessions(scope);
     if (isStaleServerResponse(serverId, useServersStore.getState().activeServerId)) return;
     if (r.ok && r.data) set({ allSessions: r.data });
   },

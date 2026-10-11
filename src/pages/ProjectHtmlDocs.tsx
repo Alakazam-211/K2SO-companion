@@ -35,6 +35,7 @@ import {
 import { useServersStore } from "../stores/servers";
 import { groupHtmlDocsByWorkspace } from "../lib/projectChat";
 import { useSwipeBack } from "../lib/useSwipeBack";
+import { activeScope } from "../api/scope";
 
 /** Appended to every fetched doc so the document scrolls INSIDE the
  *  viewport-sized iframe with native momentum. Appended last so it
@@ -66,7 +67,7 @@ export function ProjectHtmlDocs() {
 
   const loadDocs = useCallback(async (): Promise<void> => {
     if (!groupId) return;
-    const r = await fetchProjectGroupHtmlDocs(groupId);
+    const r = await fetchProjectGroupHtmlDocs(activeScope(), groupId);
     if (r.ok) {
       setDocs(r.data ?? []);
       setDocsError(null);
@@ -83,7 +84,7 @@ export function ProjectHtmlDocs() {
   const loadBody = useCallback(async (doc: ProjectGroupHtmlDoc): Promise<void> => {
     setBodyLoading(true);
     setBodyError(null);
-    const r = await fetchFileContent(doc.filePath);
+    const r = await fetchFileContent(activeScope(), doc.filePath);
     setBodyLoading(false);
     if (r.ok && r.data) {
       setBody(r.data.content);

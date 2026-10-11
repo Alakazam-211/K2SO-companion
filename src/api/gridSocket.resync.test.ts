@@ -5,19 +5,14 @@ import {
   GRID_STALL_NO_FRAME_MS,
   GRID_STALL_POLL_MS,
 } from "../kessel/softResync";
-
-vi.mock("./client", () => ({
-  getBaseUrl: () => "http://127.0.0.1:8080",
-  getToken: () => "tok",
-}));
-
-vi.mock("../stores/servers", () => ({
-  useServersStore: { getState: () => ({ activeServerId: "s1" }) },
-}));
+import { fakeScope } from "../test/fakeScope";
 
 vi.mock("../lib/revive", () => ({
-  reviveServerSession: async () => "still-valid",
+  revive: async () => "still-valid",
 }));
+
+// MA21: the socket is constructed with a scope instead of reading globals.
+const SCOPE = fakeScope({ id: "s1", base: "http://127.0.0.1:8080", token: "tok" });
 
 class MockWS {
   static last: MockWS | null = null;
@@ -100,7 +95,7 @@ describe("GridSocket soft-resync", () => {
     });
 
     const { GridSocket } = await import("./gridSocket");
-    const sock = new GridSocket(() => {});
+    const sock = new GridSocket(SCOPE, () => {});
     sock.connect("sess");
     const first = MockWS.last!;
     first.readyState = 3;
@@ -116,7 +111,7 @@ describe("GridSocket soft-resync", () => {
 
   it("need-to-send on non-OPEN buffers input and flushes after reopen", async () => {
     const { GridSocket } = await import("./gridSocket");
-    const sock = new GridSocket(() => {});
+    const sock = new GridSocket(SCOPE, () => {});
     sock.connect("sess", { drive: true });
     sock.setDrive(true);
     const first = MockWS.last!;
@@ -136,7 +131,7 @@ describe("GridSocket soft-resync", () => {
 
   it("acks on a dead socket do not buffer or resync", async () => {
     const { GridSocket } = await import("./gridSocket");
-    const sock = new GridSocket(() => {});
+    const sock = new GridSocket(SCOPE, () => {});
     sock.connect("sess");
     const first = MockWS.last!;
     first.openNow();
@@ -151,7 +146,7 @@ describe("GridSocket soft-resync", () => {
   it("OPEN + no frame ≥ 20s while visible → grid-stall-no-frame once", async () => {
     vi.useFakeTimers({ now: 1_000_000 });
     const { GridSocket } = await import("./gridSocket");
-    const sock = new GridSocket(() => {});
+    const sock = new GridSocket(SCOPE, () => {});
     sock.connect("sess");
     const first = MockWS.last!;
     first.openNow();
@@ -177,7 +172,7 @@ describe("GridSocket soft-resync", () => {
 
   it("does not unmount by clearing outbound state on reconnect — last send is replayed", async () => {
     const { GridSocket } = await import("./gridSocket");
-    const sock = new GridSocket(() => {});
+    const sock = new GridSocket(SCOPE, () => {});
     sock.connect("sess", { drive: true });
     sock.setDrive(true);
     const first = MockWS.last!;
@@ -194,7 +189,7 @@ describe("GridSocket soft-resync", () => {
 
   it("fresh CONNECTING need-to-send buffers without aborting the dial", async () => {
     const { GridSocket } = await import("./gridSocket");
-    const sock = new GridSocket(() => {});
+    const sock = new GridSocket(SCOPE, () => {});
     sock.connect("sess", { drive: true });
     sock.setDrive(true);
     const first = MockWS.last!;
@@ -212,7 +207,7 @@ describe("GridSocket soft-resync", () => {
   it("hung CONNECTING past 5s is aborted and reopened", async () => {
     vi.useFakeTimers({ now: 1_000_000 });
     const { GridSocket } = await import("./gridSocket");
-    const sock = new GridSocket(() => {});
+    const sock = new GridSocket(SCOPE, () => {});
     sock.connect("sess");
     const first = MockWS.last!;
     expect(first.readyState).toBe(MockWS.CONNECTING);
@@ -228,7 +223,7 @@ describe("GridSocket soft-resync", () => {
 
   it("reload aborts an in-flight CONNECTING dial immediately", async () => {
     const { GridSocket } = await import("./gridSocket");
-    const sock = new GridSocket(() => {});
+    const sock = new GridSocket(SCOPE, () => {});
     sock.connect("sess");
     const first = MockWS.last!;
     sock.forceGridResync("reload");

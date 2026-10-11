@@ -60,6 +60,11 @@ export function pruneHandles(
 }
 
 // ─── Session-local store (module singleton; NOT persisted) ───
+//
+// Keys are PER SERVER (multi-server MA6): callers pass
+// `scopedKey(scope, terminalId)` (`<serverId>|<terminalId>`), so a Direct
+// pick for a terminal on server A never applies to a same-id terminal on
+// server B. The same goes for the role registry below and for prune lists.
 
 let directHandles: ReadonlySet<string> = new Set();
 const modeListeners = new Set<() => void>();

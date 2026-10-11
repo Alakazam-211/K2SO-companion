@@ -2,10 +2,12 @@ import { useEffect, useState } from "react";
 import { getFsZipList, type FsZipEntry } from "../../api/client";
 import { ViewerNote } from "./BinaryEmptyState";
 import { formatBytes } from "./fileBytes";
+import { useZenScope } from "../zenScope";
 
 /** ZIP contents from the central directory (`GET /cli/fs/zip-list`), like
  *  desktop `ZipViewer`. No Extract: the phone is view-only. */
 export function ZipView({ path }: { path: string | null }) {
+  const scope = useZenScope();
   const [entries, setEntries] = useState<FsZipEntry[] | null>(null);
   const [truncated, setTruncated] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -18,7 +20,7 @@ export function ZipView({ path }: { path: string | null }) {
       setError("This file is not readable from here.");
       return;
     }
-    void getFsZipList(path).then((r) => {
+    void getFsZipList(scope, path).then((r) => {
       if (cancelled) return;
       if (!r.ok || !r.data) {
         setError(r.error || "zip-list failed");
@@ -30,7 +32,7 @@ export function ZipView({ path }: { path: string | null }) {
     return () => {
       cancelled = true;
     };
-  }, [path]);
+  }, [path, scope]);
 
   if (error) return <ViewerNote tone="error" title="Could not list the archive" detail={error} />;
   if (!entries) return <ViewerNote title="Reading archive…" />;

@@ -98,7 +98,7 @@ function showOf(row: FeedbackListRow, over: Partial<FeedbackShow> = {}): Feedbac
 
 /** Serve `show` for one row: brief=1 adds the brief, plain show doesn't. */
 function serve(row: FeedbackListRow, brief: FeedbackBrief | null = null, over: Partial<FeedbackShow> = {}) {
-  vi.mocked(fetchFeedbackShow).mockImplementation(async (_id, opts) =>
+  vi.mocked(fetchFeedbackShow).mockImplementation(async (_scope, _id, opts) =>
     opts?.brief ? { ...showOf(row, over), brief } : showOf(row, over)
   );
 }
@@ -355,14 +355,14 @@ describe("Open ticket — answering", () => {
 
     fireEvent.click(within(screen.getByTestId("answer-card")).getByText("Pro"));
     await waitFor(() => {
-      expect(commentFeedback).toHaveBeenCalledWith("t-wait", "Pro", { optionPick: true });
+      expect(commentFeedback).toHaveBeenCalledWith(expect.anything(), "t-wait", "Pro", { optionPick: true });
     });
 
     const input = screen.getByTestId("ticket-composer-input");
     fireEvent.change(input, { target: { value: "Let's talk first" } });
     fireEvent.submit(screen.getByTestId("ticket-composer"));
     await waitFor(() => {
-      expect(commentFeedback).toHaveBeenLastCalledWith("t-wait", "Let's talk first");
+      expect(commentFeedback).toHaveBeenLastCalledWith(expect.anything(), "t-wait", "Let's talk first");
     });
   });
 
@@ -403,14 +403,14 @@ describe("Open ticket — answering", () => {
     await openTicket("Which pricing tier for Acme?");
     fireEvent.click(screen.getByTestId("ticket-status"));
     fireEvent.click(screen.getByTestId("status-planned"));
-    await waitFor(() => expect(resolveFeedback).toHaveBeenCalledWith("t-wait", "planned"));
+    await waitFor(() => expect(resolveFeedback).toHaveBeenCalledWith(expect.anything(), "t-wait", "planned"));
 
     fireEvent.click(screen.getByTestId("ticket-status"));
     fireEvent.click(screen.getByTestId("status-answered"));
     fireEvent.change(screen.getByTestId("agreed-input"), { target: { value: "Pro for a year" } });
     fireEvent.click(screen.getByTestId("agreed-save"));
     await waitFor(() =>
-      expect(resolveFeedback).toHaveBeenCalledWith("t-wait", "answered", "Pro for a year")
+      expect(resolveFeedback).toHaveBeenCalledWith(expect.anything(), "t-wait", "answered", "Pro for a year")
     );
   });
 
@@ -422,7 +422,7 @@ describe("Open ticket — answering", () => {
     await waitFor(() => screen.getByText("owner"));
     fireEvent.click(screen.getByText("owner"));
     fireEvent.click(screen.getByTestId("reassign-save"));
-    await waitFor(() => expect(assignFeedback).toHaveBeenCalledWith("t-wait", ["u", "owner"]));
+    await waitFor(() => expect(assignFeedback).toHaveBeenCalledWith(expect.anything(), "t-wait", ["u", "owner"]));
   });
 });
 
@@ -460,7 +460,7 @@ describe("Open ticket — brief", () => {
     await openTicket("Which pricing tier for Acme?");
     const briefCalls = vi
       .mocked(fetchFeedbackShow)
-      .mock.calls.filter(([, opts]) => opts?.brief === true);
+      .mock.calls.filter(([, , opts]) => opts?.brief === true);
     expect(briefCalls).toHaveLength(1);
     expect(screen.getByTestId("brief-preview-frame")).not.toBeNull();
 
@@ -488,7 +488,7 @@ describe("Open ticket — brief", () => {
     render(<TicketsOverlay onClose={() => {}} />);
     await openTicket("Which pricing tier for Acme?");
     expect(screen.getByTestId("ticket-summary").textContent).toContain("One-line summary");
-    expect(vi.mocked(fetchFeedbackShow).mock.calls.every(([, o]) => !o?.brief)).toBe(true);
+    expect(vi.mocked(fetchFeedbackShow).mock.calls.every(([, , o]) => !o?.brief)).toBe(true);
 
     fireEvent.click(screen.getByTestId("ticket-back"));
     const bare = { ...ROW, id: "t-bare", title: "No body here", body: null };
@@ -522,7 +522,7 @@ describe("Open ticket — unlinked workspace", () => {
     fireEvent.click(screen.getByTestId("ticket-status"));
 
     fireEvent.click(screen.getByTestId("ticket-resolve"));
-    await waitFor(() => expect(resolveFeedback).toHaveBeenCalledWith("t-wait", "resolved"));
+    await waitFor(() => expect(resolveFeedback).toHaveBeenCalledWith(expect.anything(), "t-wait", "resolved"));
   });
 });
 
@@ -531,7 +531,7 @@ describe("Push deep link (?ticket=)", () => {
     render(<TicketsOverlay onClose={() => {}} initialTicketId="t-wait" />);
     await waitFor(() => screen.getByTestId("ticket-view"));
     await waitFor(() => screen.getByTestId("ticket-comments"));
-    expect(vi.mocked(fetchFeedbackShow).mock.calls[0]?.[0]).toBe("t-wait");
+    expect(vi.mocked(fetchFeedbackShow).mock.calls[0]?.[1]).toBe("t-wait");
     expect(useFeedbackStore.getState().openId).toBe("t-wait");
   });
 
@@ -540,7 +540,7 @@ describe("Push deep link (?ticket=)", () => {
     serve(ROW, BRIEF);
     render(<TicketsOverlay onClose={() => {}} initialTicketId="t-wait" />);
     await waitFor(() => screen.getByTestId("ticket-view"));
-    expect(vi.mocked(fetchFeedbackShow)).toHaveBeenCalledWith("t-wait", { brief: true });
+    expect(vi.mocked(fetchFeedbackShow)).toHaveBeenCalledWith(expect.anything(), "t-wait", { brief: true });
   });
 
   it("without initialTicketId it opens on the list", async () => {

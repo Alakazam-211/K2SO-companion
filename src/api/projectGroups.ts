@@ -2,10 +2,8 @@
 // routes (+ the `/cli/fs/read-file` body fetch the HTML browser needs).
 //
 // Deliberately its OWN module (parallel slice C3 owns other client
-// surface): it reuses `client.ts`'s exported `getBaseUrl`/`getToken`
-// derivations and the C1 revive classifier, and carries a local copy of
-// the one-replay-after-revive request loop (client.ts's `httpRequest` is
-// module-private by design).
+// surface). Transport is the shared `scopedFetch` (MS5/MA4): every call
+// takes the scope it talks to; revive + replay stay on that scope.
 //
 // Wire shapes mirror the desktop's `Projects/projects-api.ts` (verified
 // against `crates/k2-daemon/src/project_group_routes.rs`):
@@ -23,11 +21,9 @@
 // (stable codes); plain routes use `{"error":"..."}`. Both are folded
 // into the ApiResponse `error` string here.
 
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { cliAuthHeaders } from "./cliAuth";
-import { getBaseUrl, getToken, type ApiResponse } from "./client";
-import { useServersStore } from "../stores/servers";
-import { isPossibleAuthFailure, reviveServerSession } from "../lib/revive";
+import type { ApiResponse } from "./client";
+import { NOT_CONNECTED, scopedFetch } from "./scopedFetch";
+import type { ServerScope } from "./scope";
 
 // ── Wire types (desktop projects-api.ts parity) ────────────────────────
 
@@ -134,6 +130,7 @@ function errorFromBody(status: number, text: string): string {
 }
 
 async function pgRequest<T>(
+  scope: ServerScope,
   path: string,
   options: {
     method?: string;
@@ -142,49 +139,18 @@ async function pgRequest<T>(
   } = {},
   timeoutMs = 15000
 ): Promise<ApiResponse<T>> {
-  if (!getBaseUrl()) return { ok: false, error: "Not connected" };
-
-  // ONE attempt: resolve the ACTIVE server's base+token fresh so a token
-  // revived between attempts (or a server switch) is picked up.
-  const attempt = async (): Promise<{ status: number; ok: boolean; text: string }> => {
-    const base = getBaseUrl();
-    const token = getToken();
-    const parts: string[] = [];
-    for (const [k, v] of Object.entries(options.params ?? {})) {
-      parts.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
-    }
-    let url = `${base}${path}`;
-    if (parts.length > 0) url += `?${parts.join("&")}`;
-
-    const res = await Promise.race([
-      tauriFetch(url, {
-        method: options.method || "GET",
-        headers: cliAuthHeaders(token),
-        body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Request timed out")), timeoutMs)
-      ),
-    ]);
-    return { status: res.status, ok: res.ok, text: await res.text() };
-  };
-
   try {
-    let out = await attempt();
-    if (isPossibleAuthFailure(out.status, out.text)) {
-      const serverId = useServersStore.getState().activeServerId;
-      if (serverId) {
-        const outcome = await reviveServerSession(serverId);
-        // 'revived' = the store carries a NEW token — replay ONCE (the
-        // URL is rebuilt per attempt so the replay carries it). Any
-        // other outcome keeps the original response.
-        if (outcome === "revived") out = await attempt();
-      }
-    }
+    const out = await scopedFetch(scope, path, {
+      method: options.method || "GET",
+      query: options.params,
+      body: options.body !== undefined ? JSON.stringify(options.body) : undefined,
+      timeoutMs,
+    });
     if (!out.ok) return { ok: false, error: errorFromBody(out.status, out.text) };
     return { ok: true, data: JSON.parse(out.text) as T };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
+    if (msg === NOT_CONNECTED) return { ok: false, error: NOT_CONNECTED };
     return { ok: false, error: `Could not reach server: ${msg}` };
   }
 }
@@ -193,9 +159,8 @@ async function pgRequest<T>(
 
 /** GET /cli/project-group/list — all groups, daemon-ordered
  *  (pinned-first, then sort_order, then name). */
-export async function fetchProjectGroups(): Promise<ApiResponse<ProjectGroup[]>> {
-  const r = await pgRequest<{ ok: boolean; groups: ProjectGroup[] }>(
-    "/cli/project-group/list"
+export async function fetchProjectGroups(scope: ServerScope): Promise<ApiResponse<ProjectGroup[]>> {
+  const r = await pgRequest<{ ok: boolean; groups: ProjectGroup[] }>(scope, "/cli/project-group/list"
   );
   if (!r.ok) return { ok: false, error: r.error };
   return { ok: true, data: r.data?.groups ?? [] };
@@ -203,9 +168,10 @@ export async function fetchProjectGroups(): Promise<ApiResponse<ProjectGroup[]>>
 
 /** GET /cli/project-group/show?group=<id|name|prefix>. */
 export async function fetchProjectGroupShow(
+  scope: ServerScope,
   group: string
 ): Promise<ApiResponse<ProjectGroupShow>> {
-  return pgRequest<ProjectGroupShow>("/cli/project-group/show", {
+  return pgRequest<ProjectGroupShow>(scope, "/cli/project-group/show", {
     params: { group },
   });
 }
@@ -215,6 +181,7 @@ export async function fetchProjectGroupShow(
  *  unix seconds. Load-earlier = re-read the tail with a bigger limit
  *  (there is no `before` param). */
 export async function fetchProjectGroupMessages(
+  scope: ServerScope,
   group: string,
   opts: { after?: number; limit?: number } = {}
 ): Promise<ApiResponse<ProjectGroupMessagesPage>> {
@@ -225,7 +192,7 @@ export async function fetchProjectGroupMessages(
     ok: boolean;
     messages: ProjectGroupMessage[];
     truncated: boolean;
-  }>("/cli/project-group/messages", { params });
+  }>(scope, "/cli/project-group/messages", { params });
   if (!r.ok) return { ok: false, error: r.error };
   return {
     ok: true,
@@ -241,10 +208,11 @@ export async function fetchProjectGroupMessages(
  *  emits `project-group:message-created`, then best-effort injects into
  *  the PoC's canonical session; the outcome rides the response. */
 export async function postProjectGroupMessage(
+  scope: ServerScope,
   group: string,
   body: string
 ): Promise<ApiResponse<PostedProjectGroupMessage>> {
-  return pgRequest<PostedProjectGroupMessage>("/cli/project-group/msg", {
+  return pgRequest<PostedProjectGroupMessage>(scope, "/cli/project-group/msg", {
     method: "POST",
     body: { group, body },
   });
@@ -253,10 +221,10 @@ export async function postProjectGroupMessage(
 /** GET /cli/project-group/icon?group= — the icon dataUrl, deliberately
  *  outside list/show payloads. `found:false`/null = unset (initials). */
 export async function fetchProjectGroupIcon(
+  scope: ServerScope,
   group: string
 ): Promise<ApiResponse<GroupIconResult>> {
-  const r = await pgRequest<{ ok: boolean; found: boolean; dataUrl: string | null }>(
-    "/cli/project-group/icon",
+  const r = await pgRequest<{ ok: boolean; found: boolean; dataUrl: string | null }>(scope, "/cli/project-group/icon",
     { params: { group } }
   );
   if (!r.ok) return { ok: false, error: r.error };
@@ -270,10 +238,10 @@ export async function fetchProjectGroupIcon(
  *  MEMBER workspaces' layouts, deduped per (workspace, path). Returns
  *  file PATHS — bodies ride `fetchFileContent`. */
 export async function fetchProjectGroupHtmlDocs(
+  scope: ServerScope,
   group: string
 ): Promise<ApiResponse<ProjectGroupHtmlDoc[]>> {
-  const r = await pgRequest<{ ok: boolean; docs: ProjectGroupHtmlDoc[] }>(
-    "/cli/project-group/html-docs",
+  const r = await pgRequest<{ ok: boolean; docs: ProjectGroupHtmlDoc[] }>(scope, "/cli/project-group/html-docs",
     { params: { group } }
   );
   if (!r.ok) return { ok: false, error: r.error };
@@ -284,9 +252,10 @@ export async function fetchProjectGroupHtmlDocs(
  *  Daemon-side: text files only (binary refused), 10MB cap. The HTML
  *  browser feeds `content` into its sandboxed iframe. */
 export async function fetchFileContent(
+  scope: ServerScope,
   path: string
 ): Promise<ApiResponse<FileContent>> {
-  return pgRequest<FileContent>("/cli/fs/read-file", { params: { path } });
+  return pgRequest<FileContent>(scope, "/cli/fs/read-file", { params: { path } });
 }
 
 /** Unread reconciliation (the desktop §4.4 idiom): a group is UNREAD
@@ -294,12 +263,13 @@ export async function fetchFileContent(
  *  One `messages?after=&limit=1` probe per group; a failed probe counts
  *  as read — the dot is advisory and must never error the list. */
 export async function fetchUnreadGroupIds(
+  scope: ServerScope,
   groups: Array<{ id: string }>,
   lastSeenFor: (groupId: string) => number
 ): Promise<string[]> {
   const flags = await Promise.all(
     groups.map(async (g) => {
-      const r = await fetchProjectGroupMessages(g.id, {
+      const r = await fetchProjectGroupMessages(scope, g.id, {
         after: lastSeenFor(g.id),
         limit: 1,
       });

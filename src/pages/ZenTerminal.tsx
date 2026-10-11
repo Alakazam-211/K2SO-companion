@@ -36,6 +36,8 @@ import {
   zenThreadPath,
   type ZenTerminalAgent,
 } from "../zen/terminalJump";
+import { scopedKey } from "../api/scope";
+import { zenScope } from "../zen/zenScope";
 
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
@@ -103,6 +105,9 @@ export function ZenTerminal() {
   const workspacePath =
     (session && projects.find((p) => p.id === session.workspaceId)?.path) ||
     projectPath;
+  // The server this terminal lives on, fixed for the page (MS6/MS7): Zen's
+  // room server (today the active one). S3 reads it from the route.
+  const [termScope] = useState(zenScope);
   const [input, setInput] = useState("");
   const containerHeight = useViewportHeight();
 
@@ -111,7 +116,9 @@ export function ZenTerminal() {
     getDirectHandles,
     getDirectHandles
   );
-  const sendMode: SendMode = terminalId ? modeFor(directHandles, terminalId) : "safe";
+  // Send-mode memory is per server (MA6): `<serverId>|<terminalId>`.
+  const modeKey = terminalId ? scopedKey(termScope, terminalId) : "";
+  const sendMode: SendMode = modeKey ? modeFor(directHandles, modeKey) : "safe";
   const [sendBusy, setSendBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -176,7 +183,7 @@ export function ZenTerminal() {
     if (!text || !terminalId || sendBusy) return;
     setSendError(null);
     setSendBusy(true);
-    void sendMessageToSession(terminalId, text).then((out) => {
+    void sendMessageToSession(termScope, terminalId, text).then((out) => {
       setSendBusy(false);
       if (out.ok) setInput("");
       else setSendError(out.message);
@@ -204,6 +211,7 @@ export function ZenTerminal() {
         for (const f of files) {
           const filename = uploadFilename(f);
           const r = await uploadFsBinary(
+            termScope,
             attachWorkspace,
             attachDir,
             filename,
@@ -224,7 +232,7 @@ export function ZenTerminal() {
 
   const switchMode = (mode: SendMode) => {
     if (!terminalId) return;
-    setSendMode(terminalId, mode);
+    setSendMode(modeKey, mode);
     setSendError(null);
   };
 
@@ -235,7 +243,7 @@ export function ZenTerminal() {
       // Pinned main chat: force-respawn, then follow the new PTY id on
       // THIS page (keep the agent context in state).
       if (session?.isMainChat && workspacePath) {
-        const r = await ensurePinnedChat(workspacePath, { forceRespawn: true });
+        const r = await ensurePinnedChat(termScope, workspacePath, { forceRespawn: true });
         await useWorkspacesStore.getState().fetchAllSessions();
         if (r.ok && r.data?.sessionId && r.data.sessionId !== terminalId) {
           navigate(zenTerminalPath(r.data.sessionId), {
@@ -441,6 +449,7 @@ export function ZenTerminal() {
           }}
         >
           <TerminalView
+            scope={termScope}
             terminalId={terminalId}
             projectPath={projectPath}
             onInputRef={sendInputRef}
