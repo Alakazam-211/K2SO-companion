@@ -7,6 +7,7 @@ import { GroupChatAvatar } from "../zen/GroupChatAvatar";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { ChatsList } from "../zen/ChatsList";
 import { FilePane } from "../zen/FilePane";
+import { useFileDrag } from "../zen/fileDrag";
 import { SessionsPane } from "../zen/SessionsPane";
 import { useSwipeBack } from "../lib/useSwipeBack";
 import { FileStage } from "../zen/FileStage";
@@ -105,6 +106,9 @@ export function Zen() {
   // Header avatar → Change icon: the workspace's (a sidecar edits its parent's).
   const iconTarget = canChangeIcon(identity) ? iconTargetFor(agent, serverProjects) : null;
   const viewingFile = openFileIds.length > 0;
+  /** A file is being dragged out of the Files drawer: the drawer slides
+   *  mostly aside and fades so the composer under it is a drop target. */
+  const fileDragging = useFileDrag((s) => s.drag !== null);
   const filesPaneOpen = filesOpen || viewingFile;
 
   // A different chat closes the Sessions drawer (and the icon sheet).
@@ -573,7 +577,14 @@ export function Zen() {
             <div
               className="absolute bottom-0 right-0 border-l border-[var(--border)] bg-[var(--background)] flex flex-col"
               data-testid="file-pane"
-              style={{ top: "env(safe-area-inset-top)", zIndex: 15 }}
+              data-dragging={fileDragging ? "1" : undefined}
+              style={{
+                top: "env(safe-area-inset-top)",
+                zIndex: 15,
+                opacity: fileDragging ? 0.4 : 1,
+                transform: fileDragging ? "translateX(72%)" : undefined,
+                transition: "transform 180ms ease, opacity 180ms ease",
+              }}
               onClick={(e) => e.stopPropagation()}
             >
               <PaneErrorBoundary name="files">
