@@ -33,6 +33,7 @@ import { isSendableAddr } from "./sendGate";
 import { sourceWord, useZenStore } from "./zenStore";
 import { SESSION_UNAVAILABLE } from "./sessionReturn";
 import { zenTextPx } from "./zenFont";
+import { useThreadFocusSeq } from "./threadFocus";
 
 export { COMPOSER_MAX_PX, composerHeight } from "./GlassComposer";
 
@@ -229,6 +230,9 @@ export function ThreadPane({
     prevAgent.current = agentId;
     prevFirst.current = first;
   }, [thread, agentId, source]);
+
+  // Push tap `?seq=`: land on that message (after the stick above).
+  const highlightSeq = useThreadFocusSeq(scrollerRef);
 
   useLayoutEffect(() => {
     setDraft("");
@@ -434,7 +438,13 @@ export function ThreadPane({
                 key={m.id || `seq-${m.seq ?? i}`}
                 data-thread-msg=""
                 data-seq={m.seq ?? undefined}
+                data-highlight={highlightSeq != null && m.seq === highlightSeq ? "true" : undefined}
                 className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}`}
+                style={
+                  highlightSeq != null && m.seq === highlightSeq
+                    ? { borderRadius: 20, boxShadow: "0 0 0 2px rgba(10,132,255,.85)", transition: "box-shadow .4s" }
+                    : undefined
+                }
               >
                 {!m.mine ? (
                   <span className="text-[11px] text-[var(--text-muted)] px-3 mb-0.5">
