@@ -33,6 +33,7 @@ import type {
 } from "../kessel/webgl/painterTypes";
 import { nativeScrollToPx } from "../kessel/webgl/nativeScroll";
 import { TERMINAL_FONT_FAMILY, loadTerminalFont } from "../kessel/terminalFont";
+import { scaleTransitionCss } from "../kessel/scaleTransition";
 import {
   PAINTER_THEME,
   resolvePainterSurface,
@@ -53,6 +54,7 @@ import {
 import {
   anchorScrollPx,
   clampScrollPx,
+  computeScrollbarThumb,
   computeStripLayout,
 } from "../kessel/scrollMath";
 import { computeResyncScrollPx } from "../kessel/resyncAnchor";
@@ -88,6 +90,8 @@ import {
   CopyAffordance,
   ToastPill,
   ClipboardFallbackPill,
+  ScrollIndicator,
+  SCROLL_INDICATOR_HIDE_MS,
   DEFAULT_BG,
   DEFAULT_FG,
   type StyleSpan,
@@ -301,6 +305,17 @@ export function TerminalView({
   const scrollPxRef = useRef(0);
   const [scrollPx, setScrollPx] = useState(0);
   const scrollAccumRef = useRef(0);
+  // Desktop overlay-scrollbar parity: the indicator shows while the
+  // position genuinely changes and hides 1s after the last change.
+  const [scrollIndicatorActive, setScrollIndicatorActive] = useState(false);
+  const prevScrollPxRef = useRef(0);
+  useEffect(() => {
+    if (prevScrollPxRef.current === scrollPx) return;
+    prevScrollPxRef.current = scrollPx;
+    setScrollIndicatorActive(true);
+    const t = setTimeout(() => setScrollIndicatorActive(false), SCROLL_INDICATOR_HIDE_MS);
+    return () => clearTimeout(t);
+  }, [scrollPx]);
   const scrollRafRef = useRef<number | null>(null);
   const lastTouchRef = useRef<{ y: number; t: number } | null>(null);
   // Ref mirrors for the bind-once touch handlers (desktop TerminalPane
@@ -429,6 +444,25 @@ export function TerminalView({
   const [surfaceWanted, setSurfaceWanted] = useState(
     () => typeof document === "undefined" || document.visibilityState === "visible",
   );
+
+  // Desktop scale-wrapper transition (120ms ease-out), armed two rAFs
+  // after a session's first live frame while visible — so the first
+  // paint, a re-show or a session switch never zooms from a stale scale.
+  const hasLiveSnap = liveSnap !== null;
+  const [scaleTransitionArmed, setScaleTransitionArmed] = useState(false);
+  useEffect(() => {
+    setScaleTransitionArmed(false);
+    if (!surfaceWanted || !hasLiveSnap) return;
+    let raf2 = 0;
+    const raf1 = requestAnimationFrame(() => {
+      raf2 = requestAnimationFrame(() => setScaleTransitionArmed(true));
+    });
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2) cancelAnimationFrame(raf2);
+    };
+  }, [terminalId, surfaceWanted, hasLiveSnap]);
+
   const webglCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const painterRef = useRef<TerminalPainter | null>(null);
   const coalescerRef = useRef<FrameCoalescer<PendingFrame> | null>(null);
@@ -1345,6 +1379,13 @@ export function TerminalView({
       : Math.max(1, Math.floor(Math.max(0, box.h - originY) / (lineH || 1))));
   const strip = computeStripLayout(scrollPx, totalRows, viewportRows, lineH);
   stripLayoutRef.current = strip;
+  const scrollThumb = computeScrollbarThumb(
+    scrollPx,
+    liveSnap ? liveSnap.scrollback.length : Math.max(0, totalRows - viewportRows),
+    totalRows,
+    viewportRows,
+    lineH,
+  );
 
   gridStateRef.current = {
     cols: grid.cols,
@@ -1483,6 +1524,7 @@ export function TerminalView({
         liveSnap.cols,
       )
     : null;
+  const scaleTransition = scaleTransitionCss(scaleTransitionArmed);
   const fontStyles: React.CSSProperties = {
     fontFamily: FONT_FAMILY,
     fontSize: `${FONT_SIZE}px`,
@@ -1526,6 +1568,7 @@ export function TerminalView({
               width: gridW * layout.scale,
               height: viewportRows * lineH * layout.scale,
               overflow: "hidden",
+              transition: scaleTransition,
             }}
           >
             <div
@@ -1534,6 +1577,7 @@ export function TerminalView({
                 width: gridW,
                 transform: `scale(${layout.scale})`,
                 transformOrigin: "0 0",
+                transition: scaleTransition,
               }}
             >
               {DEV_MODE && !useWebgl && (
@@ -1626,6 +1670,7 @@ export function TerminalView({
             height: (grid.viewportRows || liveSnap.rows) * lineH,
             transform: `scale(${layout.scale})`,
             transformOrigin: "0 0",
+            transition: scaleTransition,
             pointerEvents: "none",
             // Wrapper fill is the no-black hole: alpha:false GL hides
             // canvas CSS, including after the 0×0 sanity collapse.
@@ -1666,6 +1711,8 @@ export function TerminalView({
           />
         </div>
       )}
+
+      <ScrollIndicator thumb={scrollThumb} active={scrollIndicatorActive} />
 
       <TerminalChrome
         claim={claimState}

@@ -150,6 +150,34 @@ try {
          fb.includes('data-k2="clipboard-fallback-dismiss"'),
     "clipboard fallback pill shows the text with manual Copy + dismiss");
 
+  // ── ScrollIndicator: desktop overlay-scrollbar thumb, passive ──
+  console.log("\n[ScrollIndicator] desktop scrollbar thumb");
+  const { ScrollIndicator, SCROLL_INDICATOR_HIDE_MS, SCROLL_INDICATOR_FADE_MS } = await import(bundle);
+  const { computeScrollbarThumb } = await import("../src/kessel/scrollMath.ts");
+
+  assert(renderToStaticMarkup(h(ScrollIndicator, { thumb: null, active: true })) === "",
+    "nothing to scroll (no scrollback / alt screen) renders no bar");
+
+  // 100 scrollback + 20 viewport rows at 12px; scrolled to the very top.
+  const topThumb = computeScrollbarThumb(1200, 100, 120, 20, 12);
+  const shown = renderToStaticMarkup(h(ScrollIndicator, { thumb: topThumb, active: true }));
+  assert(shown.includes('data-k2="scroll-indicator"') && shown.includes("opacity:1"),
+    "active indicator is visible");
+  assert(shown.includes("pointer-events:none"),
+    "indicator never takes a touch (the pane's gesture layer owns them)");
+  assert(shown.includes("right:2px") && shown.includes("top:4px") && shown.includes("bottom:4px"),
+    "desktop inset: right 2, top/bottom 4");
+  assert(shown.includes("top:0%") && shown.includes("var(--scroll-thumb)"),
+    "scrolled to the top puts the --scroll-thumb thumb at the track top");
+  assert(shown.includes(`opacity ${SCROLL_INDICATOR_FADE_MS}ms ease`) &&
+         SCROLL_INDICATOR_FADE_MS === 250 && SCROLL_INDICATOR_HIDE_MS === 1000,
+    "desktop fade: 250ms opacity, hidden 1s after the last scroll");
+
+  const idleBar = renderToStaticMarkup(
+    h(ScrollIndicator, { thumb: computeScrollbarThumb(0, 100, 120, 20, 12), active: false })
+  );
+  assert(idleBar.includes("opacity:0"), "idle indicator fades out");
+
   console.log(failures === 0 ? "\nALL PASS" : `\n${failures} FAILURE(S)`);
   process.exitCode = failures === 0 ? 0 : 1;
 } finally {
