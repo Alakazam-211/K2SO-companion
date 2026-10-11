@@ -15,6 +15,8 @@ export interface ApiResponse<T = unknown> {
   ok: boolean;
   data?: T;
   error?: string;
+  /** HTTP status of a non-2xx answer (absent on network errors). */
+  status?: number;
 }
 
 export interface AuthResponse {
@@ -241,13 +243,14 @@ async function httpRequest<T>(
         if (outcome === "revived") out = await attempt();
       }
     }
-    if (out.status === 401) return { ok: false, error: "Unauthorized" };
+    if (out.status === 401) return { ok: false, error: "Unauthorized", status: 401 };
     if (!out.ok) {
       // Daemon bodies are `{error:"..."}` or `{error:{code,hint}}`. The
       // object form is not a React child — stringify before it reaches JSX.
       return {
         ok: false,
         error: apiErrorText(out.text, `HTTP ${out.status}`),
+        status: out.status,
       };
     }
     const data = JSON.parse(out.text) as T;
@@ -563,20 +566,51 @@ export const postThread = (addr: string, text: string) =>
     { method: "POST" }
   );
 
+// Pre-0.45 servers have neither activity route. Remember a route-level
+// 404 per server (base URL) so the Chats poll and every Thread open stop
+// asking. Module memory: an app restart or update asks again.
+const noActivityRoutes = new Set<string>();
+const ROUTE_NOT_FOUND = "route not found";
+
+function activityRoutesMissing(base: string): ApiResponse<never> | null {
+  return noActivityRoutes.has(base) ? { ok: false, error: ROUTE_NOT_FOUND, status: 404 } : null;
+}
+
+/** Tests only: forget which servers lack the activity routes. */
+export function resetActivityRouteMemory(): void {
+  noActivityRoutes.clear();
+}
+
 /** Working-strip catch-up (K2 0.45.0+): the live Thread turn, or
  *  `{turn: null}`. Call on every overlay socket (re)open; activity frames
  *  are never replayed. App passes get 403. */
-export const getThreadActivity = (addr: string) =>
-  request<{ turn?: unknown }>("thread.activity", "/cli/thread/activity", { addr });
+export async function getThreadActivity(addr: string): Promise<ApiResponse<{ turn?: unknown }>> {
+  const base = getBaseUrl();
+  const missing = activityRoutesMissing(base);
+  if (missing) return missing;
+  const r = await request<{ turn?: unknown }>("thread.activity", "/cli/thread/activity", { addr });
+  // An unknown addr is a 404 too (`{error:{code:"not_found"}}`). Only the
+  // daemon's own "route not found" means the server predates the route.
+  if (r.status === 404 && r.error === ROUTE_NOT_FOUND) noActivityRoutes.add(base);
+  return r;
+}
 
 /** Agent activity (K2 0.45.0+): one row per live session plus a rollup
  *  per workspace. `counts` arrived in 0.45.2 (missing = zeros). */
-export const getActivitySnapshot = () =>
-  request<{ rows?: unknown[]; workspaces?: unknown[]; serverNow?: number }>(
+export async function getActivitySnapshot(): Promise<
+  ApiResponse<{ rows?: unknown[]; workspaces?: unknown[]; serverNow?: number }>
+> {
+  const base = getBaseUrl();
+  const missing = activityRoutesMissing(base);
+  if (missing) return missing;
+  const r = await request<{ rows?: unknown[]; workspaces?: unknown[]; serverNow?: number }>(
     "activity.snapshot",
     "/cli/activity/snapshot",
     {}
   );
+  if (r.status === 404) noActivityRoutes.add(base);
+  return r;
+}
 
 /** Overlay choice card. Skin: POST `/cli/thread/answer`
  *  `{ addr, id, answer }` — `answer` is the option text. Secret cards

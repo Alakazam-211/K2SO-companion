@@ -329,6 +329,23 @@ describe("ChatsList", () => {
     expect(quiet.querySelector('[data-testid="row-preview"]')).not.toBeNull();
   });
 
+  it("does not poll agent status while a Thread covers the list", () => {
+    const original = useZenStore.getState().refreshActivity;
+    onTestFinished(() => useZenStore.setState({ refreshActivity: original, screen: "list" }));
+    const refreshActivity = vi.fn(async () => {});
+    useZenStore.setState({
+      agentSource: "live",
+      agents: [{ id: "/ws", name: "appa", initial: "A", path: "/ws", addr: "appa" }],
+      agentError: null,
+      screen: "thread",
+      refreshActivity,
+    });
+    mount();
+    expect(refreshActivity).not.toHaveBeenCalled();
+    act(() => useZenStore.setState({ screen: "list" }));
+    expect(refreshActivity).toHaveBeenCalledTimes(1);
+  });
+
   it("hold-drag a chat onto the pin grid pins it, drag a pin down unpins", () => {
     vi.useFakeTimers();
     Element.prototype.setPointerCapture = () => {};
