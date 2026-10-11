@@ -28,6 +28,8 @@ export type StubAgent = {
   terminalId?: string | null;
   /** False when the extra is remembered but the Mac tab is gone. Search still finds it. */
   hostLive?: boolean | null;
+  /** Harness `ensureSidecarHost` respawns with. Absent = Claude. */
+  launch?: { command: string; args: string[] } | null;
   /** Desktop workspace colour from `/cli/projects/list`. */
   color?: string | null;
   /** Desktop workspace icon from `/cli/projects/list`. http(s) or data:image. */

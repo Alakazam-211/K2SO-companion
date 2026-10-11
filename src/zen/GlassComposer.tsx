@@ -10,6 +10,31 @@ import {
 import { filesFromClipboard } from "./composerAttach";
 import { zenTextPx } from "./zenFont";
 import { PlusGlyph } from "./PlusGlyph";
+import { sidecarSuffix } from "./sidecarRows";
+
+/** Composer placeholder: "Message <Agent>", "Message <Agent>/<sidecar>"
+ *  on an extra chat, "Message <group>" on a project chat, else "Message".
+ *  The sidecar part is the addr suffix (`k2/reviewer` → `reviewer`), not a
+ *  renamed title; `sidecar` is the fallback when the addr is the main one
+ *  (a terminal opened from the Sessions drawer carries only its title). */
+export function composerPlaceholder(
+  row:
+    | {
+        name?: string | null;
+        addr?: string | null;
+        kind?: string | null;
+        sidecar?: string | null;
+      }
+    | null
+    | undefined
+): string {
+  const name = (row?.name || "").trim();
+  if (!name || name === "—") return "Message";
+  if (row?.kind === "group") return `Message ${name}`;
+  const suffix =
+    sidecarSuffix((row?.addr || "").trim()).trim() || (row?.sidecar || "").trim();
+  return suffix ? `Message ${name}/${suffix}` : `Message ${name}`;
+}
 
 /** iMessage grows the field then caps (~5 lines) and scrolls inside. */
 export const COMPOSER_MAX_PX = 132;
@@ -64,7 +89,7 @@ export function GlassComposer({
   children,
   textareaRef,
   onFocus,
-  ariaLabel = "Message",
+  ariaLabel,
   testIdPrefix = "composer",
   barProps,
 }: GlassComposerProps) {
@@ -148,13 +173,13 @@ export function GlassComposer({
             onFocus={onFocus}
             onPaste={onPasteFiles}
             placeholder={placeholder}
-            className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--text)] outline-none py-1 ${canSend ? "" : "px-2"}`}
+            className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--text)] outline-none py-1 placeholder:whitespace-nowrap placeholder:overflow-hidden placeholder:text-ellipsis ${canSend ? "" : "px-2"}`}
             style={{
               maxHeight: COMPOSER_MAX_PX,
               fontSize: zenTextPx(17),
               lineHeight: zenTextPx(22),
             }}
-            aria-label={ariaLabel}
+            aria-label={ariaLabel ?? placeholder}
             data-testid={id("input")}
           />
           {canSend ? (

@@ -18,6 +18,7 @@ import {
   type SendMode,
 } from "../lib/sendMode";
 import { WorkspaceAvatar } from "../zen/WorkspaceAvatar";
+import { composerPlaceholder } from "../zen/GlassComposer";
 import {
   MAX_UPLOAD_BYTES,
   attachmentSendBody,
@@ -158,7 +159,7 @@ export function ZenTerminal() {
     return () => clearTimeout(t);
   }, [containerHeight]);
 
-  // Tapping into "Message the agent…" while watching claims Drive —
+  // Tapping into the composer ("Message <Agent>") while watching claims Drive —
   // the same setDrive(true) as the pencil segment, so TerminalView's
   // claim/resize is identical. One-way: never flips back to Watch.
   // Only state changes; the composer stays mounted and focused, so the
@@ -315,8 +316,8 @@ export function ZenTerminal() {
             <span data-testid="zen-terminal-avatar" className="flex shrink-0">
               <WorkspaceAvatar
                 initial={agent?.initial || headerName.slice(0, 1) || "?"}
-                color={agent?.color}
-                iconUrl={agent?.iconUrl}
+                color={storeById ? storeById.color : agent?.color}
+                iconUrl={storeById ? storeById.iconUrl : agent?.iconUrl}
                 size={AVATAR_PX}
                 fontSize={12}
                 fallback="#2c2c2e"
@@ -488,7 +489,11 @@ export function ZenTerminal() {
             busy={sendBusy || uploading}
             onAttach={canAttach ? handleAttach : undefined}
             attachDisabled={uploading || sendBusy}
-            placeholder="Message the agent…"
+            placeholder={composerPlaceholder({
+              name: agentName,
+              addr: agent?.addr ?? storeById?.addr,
+              sidecar: agent?.chatTitle,
+            })}
             onFocus={claimOnComposerFocus}
             accessory={
               uploading ? (

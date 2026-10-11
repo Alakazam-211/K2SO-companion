@@ -20,6 +20,7 @@ import { act } from "@testing-library/react";
 import { answerThread, getThreadActivity, uploadFsBinary } from "../api/client";
 import { connectOverlayEvents } from "./overlayEvents";
 import { COMPOSER_MAX_PX, ThreadPane, composerHeight, threadTopPadding } from "./ThreadPane";
+import { composerPlaceholder } from "./GlassComposer";
 import { normaliseThreadItem } from "./threadModel";
 import { useZenStore } from "./zenStore";
 
@@ -31,13 +32,99 @@ afterEach(() => {
   useZenStore.setState({
     threadConversationId: null,
     threadGroupId: null,
+    threadAddr: null,
+    agentId: "",
+    agents: [],
     answeringId: null,
     answerError: null,
     answerErrorId: null,
   });
 });
 
+describe("composerPlaceholder", () => {
+  it("main chat: Message <Agent>", () => {
+    expect(composerPlaceholder({ name: "K2 Companion", addr: "k2c" })).toBe(
+      "Message K2 Companion"
+    );
+  });
+  it("sidecar: Message <Agent>/<suffix>, not the renamed title", () => {
+    expect(composerPlaceholder({ name: "K2", addr: "k2/reviewer", sidecar: "Renamed" })).toBe(
+      "Message K2/reviewer"
+    );
+  });
+  it("main addr with a sidecar title uses the title", () => {
+    expect(composerPlaceholder({ name: "K2", addr: "k2", sidecar: "codex" })).toBe(
+      "Message K2/codex"
+    );
+  });
+  it("project group: Message <group>", () => {
+    expect(composerPlaceholder({ name: "Launch", kind: "group" })).toBe("Message Launch");
+  });
+  it("falls back to Message", () => {
+    expect(composerPlaceholder(null)).toBe("Message");
+    expect(composerPlaceholder({ name: "  " })).toBe("Message");
+    expect(composerPlaceholder({ name: "—", addr: "k2/1" })).toBe("Message");
+  });
+});
+
 describe("ThreadPane", () => {
+  const live = {
+    threadSource: "live" as const,
+    threadError: null,
+    sendError: null,
+    sending: false,
+    thread: [],
+  };
+
+  it("main chat placeholder: Message <Agent>", () => {
+    useZenStore.setState({
+      ...live,
+      threadAddr: "k2",
+      agentId: "a1",
+      agents: [{ id: "a1", name: "K2", initial: "K", addr: "k2" }],
+    });
+    render(<ThreadPane />);
+    const input = screen.getByTestId("composer-input");
+    expect(input.getAttribute("placeholder")).toBe("Message K2");
+    expect(input.getAttribute("aria-label")).toBe("Message K2");
+    expect(input.className).toMatch(/placeholder:text-ellipsis/);
+  });
+
+  it("sidecar placeholder: Message <Agent>/<sidecar>", () => {
+    useZenStore.setState({
+      ...live,
+      threadAddr: "k2/reviewer",
+      agentId: "s1",
+      agents: [
+        { id: "s1", name: "K2", initial: "K", addr: "k2/reviewer", chatTitle: "Code review" },
+      ],
+    });
+    render(<ThreadPane />);
+    expect(screen.getByTestId("composer-input").getAttribute("placeholder")).toBe(
+      "Message K2/reviewer"
+    );
+  });
+
+  it("project chat placeholder: Message <group>", () => {
+    useZenStore.setState({
+      ...live,
+      threadAddr: null,
+      threadGroupId: "g1",
+      agentId: "grp",
+      agents: [{ id: "grp", name: "Launch", initial: "L", kind: "group", groupId: "g1" }],
+    });
+    render(<ThreadPane />);
+    expect(screen.getByTestId("composer-input").getAttribute("placeholder")).toBe(
+      "Message Launch"
+    );
+  });
+
+  it("placeholder falls back to Message with no agent", () => {
+    useZenStore.setState({ ...live, threadAddr: "k2", agentId: "", agents: [] });
+    render(<ThreadPane />);
+    expect(screen.getByTestId("composer-input").getAttribute("placeholder")).toBe("Message");
+  });
+
   it("renders a structured daemon error as text, not a throw", () => {
     useZenStore.setState({
       threadSource: "error",

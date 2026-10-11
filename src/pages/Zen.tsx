@@ -20,6 +20,10 @@ import { ThreadPane } from "../zen/ThreadPane";
 import { STUB_BANNER } from "../zen/stubData";
 import { isOverlayExtraAddr, threadHeaderTitle, threadSidecarTitle } from "../zen/overlayExtras";
 import { useZenStore } from "../zen/zenStore";
+import { AgentIconSheet } from "../zen/AgentIconSheet";
+import { canChangeIcon, iconTargetFor } from "../zen/workspaceIcon";
+import { useSessionIdentity } from "../lib/useSessionIdentity";
+import { useZenScope } from "../zen/zenScope";
 
 const HEADER_BTN: CSSProperties = {
   width: 36,
@@ -67,12 +71,18 @@ export function Zen() {
   const [renameValue, setRenameValue] = useState("");
   const [renameBusy, setRenameBusy] = useState(false);
   const [renameError, setRenameError] = useState<string | null>(null);
+  const serverProjects = useZenStore((s) => s.serverProjects);
+  const identity = useSessionIdentity(useZenScope());
+  const [iconOpen, setIconOpen] = useState(false);
+  // Header avatar → Change icon: the workspace's (a sidecar edits its parent's).
+  const iconTarget = canChangeIcon(identity) ? iconTargetFor(agent, serverProjects) : null;
   const viewingFile = openFileIds.length > 0;
   const filesPaneOpen = filesOpen || viewingFile;
 
-  // A different chat closes the Sessions drawer.
+  // A different chat closes the Sessions drawer (and the icon sheet).
   useEffect(() => {
     setSessionsOpen(false);
+    setIconOpen(false);
   }, [agentId]);
 
   const openTerminal = (tid: string, chatTitle: string | null) => {
@@ -276,16 +286,41 @@ export function Zen() {
             </button>
             )}
             <div className="min-w-0 flex flex-col items-center justify-center zen-header-text">
-              <span data-testid="chat-header-avatar" className="flex mb-1">
-                <WorkspaceAvatar
-                  initial={agent?.initial || headerTitle.slice(0, 1) || "?"}
-                  color={agent?.color}
-                  iconUrl={agent?.iconUrl}
-                  size={HEADER_AVATAR_PX}
-                  fontSize={16}
-                  fallback="#2c2c2e"
-                />
-              </span>
+              {iconTarget ? (
+                <button
+                  type="button"
+                  data-testid="chat-header-avatar"
+                  className="flex mb-1 bg-transparent border-0 p-0"
+                  style={{ borderRadius: "50%", pointerEvents: "auto" }}
+                  aria-label={`Change icon for ${headerTitle}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (filesPaneOpen) dismissFiles();
+                    setSessionsOpen(false);
+                    setIconOpen(true);
+                  }}
+                >
+                  <WorkspaceAvatar
+                    initial={agent?.initial || headerTitle.slice(0, 1) || "?"}
+                    color={agent?.color}
+                    iconUrl={agent?.iconUrl}
+                    size={HEADER_AVATAR_PX}
+                    fontSize={16}
+                    fallback="#2c2c2e"
+                  />
+                </button>
+              ) : (
+                <span data-testid="chat-header-avatar" className="flex mb-1">
+                  <WorkspaceAvatar
+                    initial={agent?.initial || headerTitle.slice(0, 1) || "?"}
+                    color={agent?.color}
+                    iconUrl={agent?.iconUrl}
+                    size={HEADER_AVATAR_PX}
+                    fontSize={16}
+                    fallback="#2c2c2e"
+                  />
+                </span>
+              )}
               <span
                 data-testid="chat-header-title"
                 className="block w-full text-[15px] font-bold truncate text-center"
@@ -293,37 +328,6 @@ export function Zen() {
               >
                 {headerTitle}
               </span>
-              {sidecarTitle ? (
-                <span className="flex items-center justify-center gap-1 min-w-0 max-w-full">
-                  <span
-                    data-testid="chat-sidecar-title"
-                    className="text-[12px] truncate"
-                    style={{ color: "#8e8e93" }}
-                  >
-                    {drawerPicked ? agent?.addr : sidecarTitle}
-                  </span>
-                  {extraChat ? (
-                    <button
-                      type="button"
-                      data-testid="chat-rename-open"
-                      className="shrink-0 flex items-center justify-center bg-transparent border-0 p-0"
-                      style={{ color: "#8e8e93", width: 18, height: 18, pointerEvents: "auto" }}
-                      aria-label={`Rename ${sidecarTitle}`}
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setRenameValue(sidecarTitle);
-                        setRenameError(null);
-                        setRenameOpen(true);
-                      }}
-                    >
-                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                        <path d="M12 20h9" />
-                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
-                      </svg>
-                    </button>
-                  ) : null}
-                </span>
-              ) : null}
               {extraChat && !drawerPicked ? (
                 <button
                   type="button"
@@ -349,9 +353,17 @@ export function Zen() {
                 </span>
               ) : null}
             </div>
+            {/* Right column: the three buttons, then the session name
+                right-aligned under them (white, so it reads over the blur). */}
+            <div
+              data-testid="chat-header-right"
+              className="flex flex-col items-end zen-header-text"
+              style={{ marginTop: HEADER_BTN_TOP, rowGap: 6 }}
+            >
             <span
-              className="flex items-center justify-self-end"
-              style={{ gap: 8, marginTop: HEADER_BTN_TOP, pointerEvents: "auto" }}
+              data-testid="chat-header-buttons"
+              className="flex items-center"
+              style={{ gap: 8, pointerEvents: "auto" }}
             >
               <button
                 type="button"
@@ -432,6 +444,41 @@ export function Zen() {
                 </svg>
               </button>
             </span>
+              {sidecarTitle ? (
+                <span
+                  data-testid="chat-session-line"
+                  className="zen-header-session flex items-center justify-end gap-1"
+                >
+                  <span
+                    data-testid="chat-sidecar-title"
+                    className="truncate min-w-0 text-[12.5px] font-medium text-right"
+                    style={{ color: "#fff" }}
+                  >
+                    {drawerPicked ? agent?.addr : sidecarTitle}
+                  </span>
+                  {extraChat ? (
+                    <button
+                      type="button"
+                      data-testid="chat-rename-open"
+                      className="shrink-0 flex items-center justify-center bg-transparent border-0 p-0"
+                      style={{ color: "#fff", width: 18, height: 18, pointerEvents: "auto" }}
+                      aria-label={`Rename ${sidecarTitle}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setRenameValue(sidecarTitle);
+                        setRenameError(null);
+                        setRenameOpen(true);
+                      }}
+                    >
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                        <path d="M12 20h9" />
+                        <path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                      </svg>
+                    </button>
+                  ) : null}
+                </span>
+              ) : null}
+            </div>
             </div>
           </header>
           <PaneErrorBoundary name="thread">
@@ -477,6 +524,9 @@ export function Zen() {
             >
               <FileStage />
             </div>
+          ) : null}
+          {iconOpen && agent && iconTarget ? (
+            <AgentIconSheet agent={agent} target={iconTarget} onClose={() => setIconOpen(false)} />
           ) : null}
           {renameOpen && extraChat ? (
             <div

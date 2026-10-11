@@ -960,3 +960,13 @@ button, a, nav {
     );
   }
 }
+
+/* Zen chat header: the session name under the right-hand buttons.
+   width:0 + min-width:100% keeps a long name out of the grid's min-content
+   sizing, so it truncates inside its own 1fr column and never pushes into
+   the centred avatar / agent name. */
+.zen-header-session {
+  width: 0;
+  min-width: 100%;
+  line-height: 18px;
+}

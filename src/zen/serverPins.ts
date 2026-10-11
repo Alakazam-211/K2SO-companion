@@ -69,7 +69,8 @@ export type ScopedRow = {
   path?: string;
 };
 
-function mainAtPath(path: string | undefined, projects: ServerProject[]): ServerProject | null {
+/** The single main (non-sidecar) project at a path; null when none or several. */
+export function mainAtPath(path: string | undefined, projects: ServerProject[]): ServerProject | null {
   const key = path ? posixNormalize(path.trim()) : null;
   if (!key) return null;
   const mains = projects.filter((p) => p.path === key && !isOverlayExtraAddr(p.handle));

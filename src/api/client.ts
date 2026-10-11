@@ -410,6 +410,31 @@ export const spawnTabSession = (scope: ServerScope,
     { method: "POST" }
   );
 
+/** Wake a past conversation as a new tab, the way desktop Chat history
+ *  does (`TerminalPane` → `POST /cli/sessions/v2/spawn`): `launch` already
+ *  carries the harness's resume argv; the title is locked like desktop's.
+ *  The daemon reads the conversation id back from argv and keys the tab's
+ *  Thread to it, so the old messages stay attached. */
+export const spawnResumeTab = (
+  scope: ServerScope,
+  cwd: string,
+  launch: { command: string; args: string[] },
+  label: string
+) =>
+  request<{ sessionId: string; agentName: string; reused?: boolean; conversationId?: string }>(
+    scope,
+    "/cli/sessions/v2/spawn",
+    {
+      agent_name: "tab-" + (globalThis.crypto?.randomUUID?.() ?? Date.now().toString(36)),
+      cwd,
+      command: launch.command,
+      args: launch.args,
+      label,
+      label_locked: true,
+    },
+    { method: "POST" }
+  );
+
 /** One enabled agent preset (Settings → Agents on desktop). `command` is
  *  the full launch line, e.g. `codex --yolo`; `icon` is a custom preset's
  *  emoji (built-ins send ""). */
@@ -756,9 +781,41 @@ export const createWorkspace = (scope: ServerScope, path: string) =>
 /** `GET /cli/fs/info` (Member) — `{home, separator, os}` of the host. */
 export const getFsInfo = (scope: ServerScope) =>
   request<{ home?: string; separator?: string; os?: string }>(scope, "/cli/fs/info", {});
-/** `POST /cli/projects/update {id, name?, color?}` (Member). */
-export const updateProjectLook = (scope: ServerScope, id: string, look: { name?: string; color?: string }) =>
-  request<unknown>(scope, "/cli/projects/update",
+/** `POST /cli/projects/update {id, name?, color?, iconUrl?}` (Member).
+ *  `iconUrl`: a `data:image/*` URL sets the workspace icon, `""` clears it
+ *  (daemon `ProjectsUpdateBody`); absent leaves it alone. */
+export const updateProjectLook = (
+  scope: ServerScope,
+  id: string,
+  look: { name?: string; color?: string; iconUrl?: string }
+) =>
+  request<unknown>(
+    scope,
+    "/cli/projects/update",
     { id, ...look },
     { method: "POST" }
   );
+
+// ─── Sessions drawer: Active terminals → threads, History ───
+
+/** `GET /cli/sessions/list-for-workspace?path=` (Member): the live PTYs
+ *  in one workspace, each with `kind` (`canonical` / `sidecar` / `other`),
+ *  `handle` (`ws` or `ws/N`, empty for a blank shell) and, when the
+ *  harness has one, `conversationId` (the Thread key). */
+export const getWorkspaceLiveSessions = (scope: ServerScope, path: string) =>
+  request<unknown>(scope, "/cli/sessions/list-for-workspace", { path });
+
+/** `GET /cli/chat/list?project_path=` (Member): every harness conversation
+ *  on disk for one workspace (desktop Chat History). `sessionId` is the
+ *  conversation id; `timestamp` is ms; `provider` is the harness. */
+export const getChatList = (scope: ServerScope, projectPath: string) =>
+  request<unknown>(scope, "/cli/chat/list", { project_path: projectPath });
+
+/** `GET /cli/chat/custom-names` (Member): `{ "<provider>:<id>": name }`. */
+export const getChatCustomNames = (scope: ServerScope) =>
+  request<unknown>(scope, "/cli/chat/custom-names", {});
+
+/** `GET /cli/thread/latest?addrs=a,b` (Member, at most 50 addrs): last
+ *  Thread message per addr, or `{addr, error}` when K2 has no Thread for it. */
+export const getThreadLatest = (scope: ServerScope, addrs: string[]) =>
+  request<unknown>(scope, "/cli/thread/latest", { addrs: addrs.join(",") });

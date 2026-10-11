@@ -216,7 +216,7 @@ type ZenState = {
   setAgent: (id: string) => void;
   /** Spawn the sidecar PTY if the Mac tab is gone. Overlay chat stays. */
   ensureSidecarHost: (
-    row: Pick<StubAgent, "path" | "addr" | "chatTitle">
+    row: Pick<StubAgent, "path" | "addr" | "chatTitle" | "terminalId" | "launch">
   ) => Promise<{ ok: boolean; terminalId?: string | null; error?: string }>;
   openSidecar: (
     baseId: string,
@@ -314,6 +314,7 @@ function overlaySidecarAgent(
     projectId: side.projectId ?? parent?.projectId ?? null,
     terminalId: side.terminalId ?? null,
     hostLive,
+    ...(side.launch ? { launch: side.launch } : {}),
   };
 }
 
@@ -1448,7 +1449,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
     if (row?.addr) {
       void get().hydrateThread(row.addr);
-      if (sidecarSuffix(row.addr)) void get().ensureSidecarHost(row);
+      // A History row opened read-only (`hostLive: false`) is not woken.
+      if (sidecarSuffix(row.addr) && row.hostLive !== false) void get().ensureSidecarHost(row);
     } else {
       set({
         threadSource: "error",
@@ -1468,10 +1470,14 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const listed = await getAllSessions(scope);
     const sessions =
       listed.ok && Array.isArray(listed.data) ? listed.data : [];
-    const existing = terminalIdForAgent({ path, addr }, sessions);
+    // A plain tab's `ws/N` Thread is not keyed by its agentName: trust
+    // the row's own PTY while it is live, never spawn a second host.
+    const existing = terminalIdForAgent({ path, addr, terminalId: row.terminalId }, sessions);
     if (existing) return { ok: true, terminalId: existing };
     const label = (row.chatTitle || suffix).trim() || suffix;
-    const spawned = await spawnSidecarSession(scope, path, suffix, label);
+    const spawned = row.launch
+      ? await spawnSidecarSession(scope, path, suffix, label, row.launch)
+      : await spawnSidecarSession(scope, path, suffix, label);
     if (!spawned.ok) {
       return {
         ok: false,
@@ -1686,11 +1692,29 @@ export const useZenStore = create<ZenState>((set, get) => ({
     let row =
       agents.find((a) => (a.addr || "").trim() === want && samePath(a.path)) ??
       agents.find((a) => (a.addr || "").trim() === want);
+    const woken = side?.hostLive === true && row?.hostLive === false;
+    if (
+      row &&
+      side &&
+      ((side.launch && !row.launch) || (side.terminalId && !row.terminalId) || woken)
+    ) {
+      // The drawer knows the PTY / harness the list row lacks (History
+      // respawn), or a History row it opened read-only has been woken.
+      const prev = row;
+      const merged: StubAgent = {
+        ...prev,
+        launch: prev.launch ?? side.launch ?? null,
+        terminalId: (woken && side.terminalId) || prev.terminalId || side.terminalId || null,
+        ...(woken ? { hostLive: true } : {}),
+      };
+      row = merged;
+      set({ agents: agents.map((a) => (a === prev ? merged : a)) });
+    }
     if (!row && side) {
       const parent = agents.find(
         (a) => samePath(a.path) && !(a.addr || "").includes("/") && a.kind !== "group"
       );
-      row = overlaySidecarAgent(side, parent, true);
+      row = overlaySidecarAgent(side, parent, side.hostLive ?? true);
       set({ agents: [...agents, row] });
     }
     if (!row) return;
