@@ -200,11 +200,20 @@ export function ZenTerminal() {
     if (!text || !terminalId || sendBusy) return;
     setSendError(null);
     setSendBusy(true);
-    void sendMessageToSession(termScope, terminalId, text).then((out) => {
-      setSendBusy(false);
-      if (out.ok) setInput("");
-      else setSendError(out.message);
-    });
+    // Clear at once (no waiting out the tunnel round-trip); a failure
+    // puts the text back, ahead of anything typed since.
+    setInput("");
+    void sendMessageToSession(termScope, terminalId, text)
+      .catch((e: unknown) => ({
+        ok: false as const,
+        message: e instanceof Error ? e.message : String(e),
+      }))
+      .then((out) => {
+        setSendBusy(false);
+        if (out.ok) return;
+        setSendError(out.message);
+        setInput((cur) => (cur.trim() ? `${text}\n${cur}` : text));
+      });
   };
 
   // `＋`: upload now, then put the returned path(s) in the draft so the

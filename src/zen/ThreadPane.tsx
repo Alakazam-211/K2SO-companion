@@ -36,6 +36,21 @@ import { SESSION_UNAVAILABLE } from "./sessionReturn";
 import { zenTextPx } from "./zenFont";
 import { useZenScope, zenScope } from "./zenScope";
 import { useThreadFocusSeq } from "./threadFocus";
+import {
+  outgoingBubble,
+  sendInFlight,
+  threadRoomKey,
+  visibleOutgoing,
+  type OutgoingMessage,
+} from "./outbox";
+import {
+  fontPxOf,
+  prefersReducedMotion,
+  rectOf,
+  runSendFly,
+  type FlySource,
+} from "./sendFly";
+import "./sendFly.css";
 
 export { COMPOSER_MAX_PX, composerHeight } from "./GlassComposer";
 
@@ -49,6 +64,9 @@ function Bubble({
   answering,
   answerError,
   onAnswer,
+  attachments,
+  flying,
+  fadeIn,
 }: {
   m: ThreadMessage;
   onFileLink?: (ref: string) => void;
@@ -56,6 +74,12 @@ function Bubble({
   answering: boolean;
   answerError: string | null;
   onAnswer: (option: string) => void;
+  /** An outgoing bubble's file names (uploads may still be running). */
+  attachments?: string[];
+  /** Laid out but hidden while its send animation flies in. */
+  flying?: boolean;
+  /** Reduced motion: just fade in. */
+  fadeIn?: boolean;
 }) {
   const secret = m.kind === "secret";
   const choice = secret ? null : m.choice;
@@ -63,9 +87,11 @@ function Bubble({
     choice != null && choice.answer != null && String(choice.answer) !== "";
   return (
     <div
-      className="px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden"
+      className={`px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden${fadeIn ? " zen-bubble-fade" : ""}`}
       data-testid="thread-bubble"
+      data-fly-target={flying ? "true" : undefined}
       style={{
+        visibility: flying ? "hidden" : undefined,
         // Settings → Text Size; the markdown body below scales the same way.
         fontSize: zenTextPx(17),
         borderRadius: 18,
@@ -121,12 +147,32 @@ function Bubble({
           ) : null}
         </div>
       ) : (
-        <ChatMessageBody
-          text={m.text}
-          className="!p-0 text-white"
-          style={{ color: "#fff", fontSize: zenTextPx(BUBBLE_TEXT_PX) }}
-          onFileLink={onFileLink}
-        />
+        <>
+          {m.text.trim() ? (
+            <ChatMessageBody
+              text={m.text}
+              className="!p-0 text-white"
+              style={{ color: "#fff", fontSize: zenTextPx(BUBBLE_TEXT_PX) }}
+              onFileLink={onFileLink}
+            />
+          ) : null}
+          {attachments?.length ? (
+            <div
+              className={`flex flex-col gap-0.5 ${m.text.trim() ? "mt-1" : ""}`}
+              data-testid="bubble-attachments"
+            >
+              {attachments.map((name, i) => (
+                <span
+                  key={`${name}-${i}`}
+                  className="text-[13px] opacity-90 truncate"
+                  data-testid="bubble-attachment"
+                >
+                  {name}
+                </span>
+              ))}
+            </div>
+          ) : null}
+        </>
       )}
     </div>
   );
@@ -175,7 +221,6 @@ export function ThreadPane({
   const hasMore = useZenStore((s) => s.threadHasMore);
   const loadingEarlier = useZenStore((s) => s.threadLoadingEarlier);
   const loadEarlier = useZenStore((s) => s.loadEarlier);
-  const sendThread = useZenStore((s) => s.sendThread);
   const answerChoice = useZenStore((s) => s.answerChoice);
   const answeringId = useZenStore((s) => s.answeringId);
   const answerError = useZenStore((s) => s.answerError);
@@ -184,7 +229,7 @@ export function ThreadPane({
   const threadGroupId = useZenStore((s) => s.threadGroupId);
   const conversationId = useZenStore((s) => s.threadConversationId);
   const agents = useZenStore((s) => s.agents);
-  const sending = useZenStore((s) => s.sending);
+  const outbox = useZenStore((s) => s.outbox);
   const sendError = useZenStore((s) => s.sendError);
   const openFileFromPath = useZenStore((s) => s.openFileFromPath);
   const roomBlocked = Boolean(roomBanner);
@@ -207,11 +252,26 @@ export function ThreadPane({
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const sendReady =
-    Boolean(draft.trim() || attachments.length) && !sending && !uploading;
+  // Optimistic sends (iMessage): this room's bubbles not yet confirmed.
+  const roomKey = threadRoomKey(zenServer, threadGroupId, threadAddr);
+  const outgoing = visibleOutgoing(outbox, thread, roomKey);
+  // Double-send guard: one send in flight per room. Typing stays open.
+  const inFlight = outgoing.some((o) => o.status === "sending");
+  const sendReady = Boolean(draft.trim() || attachments.length) && !inFlight;
   const composerRef = useRef<HTMLTextAreaElement>(null);
+  const chipsRef = useRef<HTMLDivElement>(null);
+  const rootRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  // The send animation: which bubble is flying in, and from where.
+  const [fly, setFly] = useState<{
+    localId: string;
+    /** The typed text, to find the bubble once the server's copy replaced it. */
+    text: string;
+    beforeIds: Set<string>;
+    source: FlySource | null;
+    /** Reduced motion / no Web Animations: fade instead of fly. */
+    fade: boolean;
+  } | null>(null);
   const pendingAnchor = useRef<MessageAnchor | null>(null);
   const prevAgent = useRef<string>("");
   const prevFirst = useRef<number | null>(null);
@@ -263,6 +323,7 @@ export function ThreadPane({
     setDraft("");
     setAttachments([]);
     setAttachError(null);
+    setFly(null);
   }, [agentId]);
 
   useEffect(() => {
@@ -406,12 +467,167 @@ export function ThreadPane({
     await loadEarlier();
   }
 
+  /** Upload what is left of an outgoing message's files, then POST it.
+   *  Any failure leaves its bubble "Not sent" (retry / put back). */
+  async function deliver(localId: string) {
+    const store = useZenStore.getState;
+    const entry = store().outbox.find((o) => o.localId === localId);
+    if (!entry) return;
+    store().patchOutgoing(localId, { status: "sending", error: null });
+    const failed = (error: string) =>
+      store().patchOutgoing(localId, { status: "failed", error });
+    const paths = [...entry.paths];
+    if (entry.files.length) {
+      if (!entry.attachWorkspace || !entry.attachDir) {
+        failed("Files are per workspace, not per project chat.");
+        return;
+      }
+      for (let i = 0; i < entry.files.length; i++) {
+        if (paths[i]) continue;
+        // Uploads outlived the room: never upload to another server.
+        const s = store();
+        if (threadRoomKey(zenScope().id, s.threadGroupId, s.threadAddr) !== entry.roomKey) {
+          failed("Not sent");
+          return;
+        }
+        const f = entry.files[i];
+        const filename = uploadFilename(f);
+        try {
+          const r = await uploadFsBinary(
+            zenScope(),
+            entry.attachWorkspace,
+            entry.attachDir,
+            filename,
+            await fileToBase64(f)
+          );
+          if (!r.ok || !r.data?.path) {
+            failed(r.error || `Could not upload ${filename}`);
+            return;
+          }
+          paths[i] = r.data.path;
+        } catch (e) {
+          failed(e instanceof Error ? e.message : `Could not upload ${filename}`);
+          return;
+        }
+        store().patchOutgoing(localId, { paths: [...paths] });
+      }
+    }
+    await store().sendThread(
+      attachmentSendBody(entry.text, paths.filter((p): p is string => !!p)),
+      { localId }
+    );
+  }
+
+  /** Send tap: clear the field at once (focus and keyboard stay), show
+   *  the bubble "Sending…", fly the text into it, deliver behind it. */
+  function onSend() {
+    if (!canSend) return;
+    const text = draft;
+    const files = attachments;
+    if (!text.trim() && !files.length) return;
+    const st = useZenStore.getState();
+    if (sendInFlight(st.outbox, st.thread, roomKey)) return;
+    if (files.length && (!canAttach || !attachWorkspace || !attachDir)) {
+      setAttachError("Files are per workspace, not per project chat.");
+      return;
+    }
+    onComposerInput?.();
+    // Where the text sits now, before it is cleared (the FLIP "first").
+    const field = text.trim() ? composerRef.current : chipsRef.current;
+    const rect = rectOf(field);
+    const fontPx = text.trim()
+      ? fontPxOf(composerRef.current)
+      : fontPxOf(chipsRef.current?.firstElementChild);
+    setDraft("");
+    setAttachments([]);
+    setAttachError(null);
+    const localId = st.queueOutgoing({
+      text: text.trim(),
+      files,
+      attachWorkspace: files.length ? attachWorkspace : null,
+      attachDir: files.length ? attachDir : null,
+    });
+    const reduced = prefersReducedMotion();
+    const canFly =
+      !reduced &&
+      rect != null &&
+      typeof Element !== "undefined" &&
+      typeof Element.prototype.animate === "function";
+    setFly({
+      localId,
+      text: text.trim(),
+      beforeIds: new Set(st.thread.map((m) => m.id)),
+      source: canFly ? { rect, fontPx: Number.isFinite(fontPx) ? fontPx : 17 } : null,
+      fade: !canFly,
+    });
+    atNewest.current = true;
+    composerRef.current?.focus({ preventScroll: true });
+    void deliver(localId);
+  }
+
+  function onRetry(localId: string) {
+    const st = useZenStore.getState();
+    if (sendInFlight(st.outbox, st.thread, roomKey)) return;
+    void deliver(localId);
+  }
+
+  /** "Not sent" → back into an empty composer (the bubble goes). */
+  function onRestore(o: OutgoingMessage) {
+    if (draft.trim() || attachments.length) return;
+    setDraft(o.text);
+    setAttachments(o.files);
+    useZenStore.getState().dropOutgoing(o.localId);
+    composerRef.current?.focus({ preventScroll: true });
+  }
+
+  // The flying bubble: its optimistic copy, or the server's copy if that
+  // already replaced it (fast echo) — never both on screen.
+  const flyOutgoing = fly ? outgoing.find((o) => o.localId === fly.localId) : undefined;
+  let flyThreadId: string | null = null;
+  if (fly && !flyOutgoing) {
+    for (let i = thread.length - 1; i >= 0; i--) {
+      const m = thread[i];
+      if (m.mine && !fly.beforeIds.has(m.id) && (m.text || "").trim().startsWith(fly.text)) {
+        flyThreadId = m.id;
+        break;
+      }
+    }
+  }
+  const flyKey = fly ? fly.localId : "";
+
+  // FLIP "last/invert/play": the bubble is laid out (hidden) at its final
+  // spot; scroll it into view, then fly a clone there from the composer.
+  useLayoutEffect(() => {
+    if (!fly) return;
+    const id = fly.localId;
+    const clear = () => setFly((cur) => (cur?.localId === id ? null : cur));
+    const el = scrollerRef.current;
+    if (el) stickToNewest(el);
+    atNewest.current = true;
+    if (fly.fade || !fly.source) {
+      const t = setTimeout(clear, 220);
+      return () => clearTimeout(t);
+    }
+    const root = rootRef.current;
+    const bubble = root?.querySelector<HTMLElement>('[data-fly-target="true"]');
+    if (!root || !bubble) {
+      clear();
+      return;
+    }
+    return runSendFly({ root, bubble, source: fly.source, done: clear });
+    // Once per send: a re-render mid-flight must not restart it.
+  }, [flyKey]);
+
   const empty =
-    (source === "live" || source === "stub") && !error && thread.length === 0;
+    (source === "live" || source === "stub") &&
+    !error &&
+    thread.length === 0 &&
+    outgoing.length === 0;
 
   return (
     <div
-      className="flex flex-col flex-1 min-h-0 min-w-0 overflow-x-hidden"
+      ref={rootRef}
+      className="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-x-hidden"
       style={{ fontFamily: "var(--zen-font)" }}
     >
       <div
@@ -507,12 +723,69 @@ export function ThreadPane({
                   answering={answeringId === m.id}
                   answerError={answerErrorId === m.id ? answerError : null}
                   onAnswer={(option) => void answerChoice(m.id, option)}
+                  flying={flyThreadId === m.id && !fly?.fade}
+                  fadeIn={flyThreadId === m.id && fly?.fade}
                 />
                 <span className="text-[11px] text-[var(--text-muted)] px-2 mt-0.5">
                   {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
                 </span>
               </div>
             ))}
+            {outgoing.map((o) => {
+              const m = outgoingBubble(o);
+              const flying = fly?.localId === o.localId;
+              return (
+                <div
+                  key={o.localId}
+                  data-thread-msg=""
+                  data-outgoing={o.status}
+                  className="flex flex-col max-w-[78%] min-w-0 self-end items-end"
+                >
+                  <Bubble
+                    m={m}
+                    onFileLink={openFileFromPath}
+                    canAnswer={false}
+                    answering={false}
+                    answerError={null}
+                    onAnswer={() => {}}
+                    attachments={o.files.map(uploadFilename)}
+                    flying={flying && !fly?.fade}
+                    fadeIn={flying && fly?.fade}
+                  />
+                  {o.status === "failed" ? (
+                    <span
+                      className="flex items-center gap-2 text-[11px] px-2 mt-0.5"
+                      data-testid="outgoing-failed"
+                    >
+                      <button
+                        type="button"
+                        className="text-[var(--warning)]"
+                        data-testid="outgoing-retry"
+                        aria-label="Not sent. Tap to retry"
+                        title={o.error || undefined}
+                        onClick={() => onRetry(o.localId)}
+                      >
+                        Not sent · Retry
+                      </button>
+                      {!draft.trim() && !attachments.length ? (
+                        <button
+                          type="button"
+                          className="text-[var(--text-muted)]"
+                          data-testid="outgoing-restore"
+                          onClick={() => onRestore(o)}
+                        >
+                          Edit
+                        </button>
+                      ) : null}
+                    </span>
+                  ) : (
+                    <span className="text-[11px] text-[var(--text-muted)] px-2 mt-0.5">
+                      Sending…
+                    </span>
+                  )}
+                </div>
+              );
+            })}
             {turn && !threadGroupId ? <ThreadWorkingStrip turn={turn} /> : null}
           </>
         )}
@@ -521,57 +794,12 @@ export function ThreadPane({
         value={draft}
         onChange={setDraft}
         onAttach={queueFiles}
-        onSubmit={() => {
-          if (!canSend || sending || uploading) return;
-          const text = draft;
-          const pending = attachments;
-          if (!text.trim() && !pending.length) return;
-          onComposerInput?.();
-          void (async () => {
-            let body = text;
-            if (pending.length) {
-              if (!canAttach || !attachWorkspace || !attachDir) {
-                setAttachError("Files are per workspace, not per project chat.");
-                return;
-              }
-              setUploading(true);
-              setAttachError(null);
-              const paths: string[] = [];
-              try {
-                for (const f of pending) {
-                  const filename = uploadFilename(f);
-                  const b64 = await fileToBase64(f);
-                  const r = await uploadFsBinary(
-                    zenScope(),
-                    attachWorkspace,
-                    attachDir,
-                    filename,
-                    b64
-                  );
-                  if (!r.ok || !r.data?.path) {
-                    setAttachError(r.error || `Could not upload ${filename}`);
-                    return;
-                  }
-                  paths.push(r.data.path);
-                }
-              } finally {
-                setUploading(false);
-              }
-              body = attachmentSendBody(text, paths);
-            }
-            await sendThread(body);
-            if (!useZenStore.getState().sendError) {
-              setDraft("");
-              setAttachments([]);
-              setAttachError(null);
-            }
-          })();
-        }}
+        onSubmit={onSend}
         placeholder={placeholder}
-        disabled={!canSend || sending || uploading}
+        disabled={!canSend}
         canSend={canSend}
         sendReady={sendReady}
-        attachDisabled={!canAttach || sending || uploading}
+        attachDisabled={!canAttach}
         textareaRef={composerRef}
         onFocus={() => {
           window.scrollTo(0, 0);
@@ -586,22 +814,19 @@ export function ThreadPane({
         >
           {source === "stub"
             ? "STUB — Cannot send — POST /cli/thread/post not proven"
-            : uploading
-              ? "Uploading…"
-              : sending
-                ? "Sending…"
-                : attachError
-                  ? attachError
-                  : sendError
-                    ? sendError
-                    : canSend || roomBlocked
-                      ? ""
-                      : source === "live"
-                        ? "Not chattable"
-                        : ""}
+            : attachError
+              ? attachError
+              : sendError
+                ? sendError
+                : canSend || roomBlocked
+                  ? ""
+                  : source === "live"
+                    ? "Not chattable"
+                    : ""}
         </p>
         {attachments.length ? (
           <div
+            ref={chipsRef}
             className="flex flex-wrap gap-1.5 mb-1.5"
             data-testid="attach-chips"
           >

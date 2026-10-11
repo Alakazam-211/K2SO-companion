@@ -38,6 +38,7 @@ afterEach(() => {
     answeringId: null,
     answerError: null,
     answerErrorId: null,
+    outbox: [],
   });
 });
 
@@ -697,7 +698,7 @@ describe("ThreadPane", () => {
       ok: true,
       data: { path: "/Users/Bob/Aspen/shot.png" },
     });
-    const sendThread = vi.fn(async () => {});
+    const sendThread = vi.fn(async () => true);
     useZenStore.setState({
       agentId: "aspen",
       agents: [
@@ -732,12 +733,12 @@ describe("ThreadPane", () => {
     expect(vi.mocked(uploadFsBinary).mock.calls[0][2]).toBe("/Users/Bob/Aspen");
     expect(vi.mocked(uploadFsBinary).mock.calls[0][3]).toBe("shot.png");
     await waitFor(() =>
-      expect(sendThread).toHaveBeenCalledWith("/Users/Bob/Aspen/shot.png")
+      expect(sendThread).toHaveBeenCalledWith("/Users/Bob/Aspen/shot.png", { localId: expect.any(String) })
     );
   });
 
   it("does not upload when the agent path is the daemon cwd", async () => {
-    const sendThread = vi.fn(async () => {});
+    const sendThread = vi.fn(async () => true);
     useZenStore.setState({
       agentId: "aspen",
       agents: [
