@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useViewportHeight } from "../lib/useViewportHeight";
@@ -6,6 +6,8 @@ import { WorkspaceAvatar } from "../zen/WorkspaceAvatar";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { ChatsList } from "../zen/ChatsList";
 import { FilePane } from "../zen/FilePane";
+import { SessionsPane } from "../zen/SessionsPane";
+import { useSwipeBack } from "../lib/useSwipeBack";
 import { FileStage } from "../zen/FileStage";
 import { PaneErrorBoundary } from "../zen/PaneErrorBoundary";
 import {
@@ -50,7 +52,12 @@ export function Zen() {
   const toggleFiles = useZenStore((s) => s.toggleFiles);
   const filesOpen = useZenStore((s) => s.filesOpen);
   const openFileIds = useZenStore((s) => s.openFileIds);
+  const drawerOrigin = useZenStore((s) => s.drawerOrigin);
+  const returnToDrawerOrigin = useZenStore((s) => s.returnToDrawerOrigin);
   const agent = agents.find((a) => a.id === agentId);
+  /** Opened from the Sessions drawer: Done (not Back) returns to the origin. */
+  const drawerPicked = Boolean(drawerOrigin) && drawerOrigin !== agentId;
+  const [sessionsOpen, setSessionsOpen] = useState(false);
   const extraChat = isOverlayExtraAddr(agent?.addr);
   const headerTitle = threadHeaderTitle(agent);
   const sidecarTitle = threadSidecarTitle(agent);
@@ -62,6 +69,29 @@ export function Zen() {
   const [renameError, setRenameError] = useState<string | null>(null);
   const viewingFile = openFileIds.length > 0;
   const filesPaneOpen = filesOpen || viewingFile;
+
+  // A different chat closes the Sessions drawer.
+  useEffect(() => {
+    setSessionsOpen(false);
+  }, [agentId]);
+
+  const openTerminal = (tid: string, chatTitle: string | null) => {
+    const ctx: ZenTerminalAgent | null = agentId
+      ? {
+          agentId,
+          name: headerTitle,
+          initial: agent?.initial ?? null,
+          color: agent?.color ?? null,
+          iconUrl: agent?.iconUrl ?? null,
+          chatTitle,
+          projectPath: agent?.path ?? null,
+          addr: agent?.addr ?? null,
+        }
+      : null;
+    navigate(zenTerminalPath(tid), {
+      state: ctx ? { agent: ctx } : undefined,
+    });
+  };
   // ?thread= paints the thread on first frame (no chats-list flash). After
   // Back, ignore that query until it is stripped, or closeChat leaves an em dash.
   const [ignoreThreadQuery, setIgnoreThreadQuery] = useState(false);
@@ -164,23 +194,22 @@ export function Zen() {
         // iOS keyboard pan of #root cannot drag the header off screen, plus
         // a column sized to visualViewport.height so the composer at its
         // bottom sits directly above the keyboard.
-        <div
-          className="fixed inset-0"
-          data-testid="thread-home"
-          style={{
-            position: "fixed",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "#000",
-          }}
+        <ThreadHome
+          onSwipeBack={returnToDrawerOrigin}
+          swipeEnabled={drawerPicked && !filesPaneOpen && !sessionsOpen}
         >
         <div
           className="relative flex flex-col min-h-0 overflow-x-hidden"
           data-testid="thread-column"
           style={{ height: containerHeight }}
-          onClick={filesPaneOpen ? () => dismissFiles() : undefined}
+          onClick={
+            filesPaneOpen || sessionsOpen
+              ? () => {
+                  if (filesPaneOpen) dismissFiles();
+                  setSessionsOpen(false);
+                }
+              : undefined
+          }
         >
           {/* Floats over the list from y=0 (under the status bar). The blur
               and the header box pass touches through; only its controls
@@ -213,6 +242,26 @@ export function Zen() {
                 columnGap: 8,
               }}
             >
+            {drawerPicked ? (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                returnToDrawerOrigin();
+              }}
+              data-testid="chat-done"
+              className="text-[17px] shrink-0 justify-self-start zen-glass zen-glass-pill"
+              style={{
+                minHeight: 36,
+                padding: "0 14px",
+                color: "#fff",
+                marginTop: HEADER_BTN_TOP,
+                pointerEvents: "auto",
+              }}
+            >
+              Done
+            </button>
+            ) : (
             <button
               type="button"
               onClick={backToChats}
@@ -225,6 +274,7 @@ export function Zen() {
                 <polyline points="15 18 9 12 15 6" />
               </svg>
             </button>
+            )}
             <div className="min-w-0 flex flex-col items-center justify-center zen-header-text">
               <span data-testid="chat-header-avatar" className="flex mb-1">
                 <WorkspaceAvatar
@@ -250,7 +300,7 @@ export function Zen() {
                     className="text-[12px] truncate"
                     style={{ color: "#8e8e93" }}
                   >
-                    {sidecarTitle}
+                    {drawerPicked ? agent?.addr : sidecarTitle}
                   </span>
                   {extraChat ? (
                     <button
@@ -274,7 +324,7 @@ export function Zen() {
                   ) : null}
                 </span>
               ) : null}
-              {extraChat ? (
+              {extraChat && !drawerPicked ? (
                 <button
                   type="button"
                   data-testid="chat-hide"
@@ -326,21 +376,7 @@ export function Zen() {
                       navigate("/sessions");
                       return;
                     }
-                    const ctx: ZenTerminalAgent | null = agentId
-                      ? {
-                          agentId,
-                          name: headerTitle,
-                          initial: agent?.initial ?? null,
-                          color: agent?.color ?? null,
-                          iconUrl: agent?.iconUrl ?? null,
-                          chatTitle: sidecarTitle,
-                          projectPath: agent?.path ?? null,
-                          addr: agent?.addr ?? null,
-                        }
-                      : null;
-                    navigate(zenTerminalPath(tid), {
-                      state: ctx ? { agent: ctx } : undefined,
-                    });
+                    openTerminal(tid, sidecarTitle);
                   };
                   void go();
                 }}
@@ -348,6 +384,31 @@ export function Zen() {
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
                   <polyline points="4 17 10 11 4 5" />
                   <line x1="12" y1="19" x2="20" y2="19" />
+                </svg>
+              </button>
+              <button
+                type="button"
+                aria-label="Sessions"
+                data-testid="chat-sessions"
+                className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
+                style={{
+                  ...HEADER_BTN,
+                  background: sessionsOpen ? "rgba(255,255,255,0.18)" : undefined,
+                }}
+                onClick={(e) => {
+                  e.stopPropagation();
+                  if (filesPaneOpen) dismissFiles();
+                  setSessionsOpen((v) => !v);
+                }}
+              >
+                {/* The old tab bar's Sessions glyph (TabBar /sessions). */}
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <line x1="8" y1="6" x2="21" y2="6" />
+                  <line x1="8" y1="12" x2="21" y2="12" />
+                  <line x1="8" y1="18" x2="21" y2="18" />
+                  <line x1="3" y1="6" x2="3.01" y2="6" />
+                  <line x1="3" y1="12" x2="3.01" y2="12" />
+                  <line x1="3" y1="18" x2="3.01" y2="18" />
                 </svg>
               </button>
               <button
@@ -360,6 +421,7 @@ export function Zen() {
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
+                  setSessionsOpen(false);
                   if (filesPaneOpen) dismissFiles();
                   else toggleFiles();
                 }}
@@ -384,6 +446,25 @@ export function Zen() {
             >
               <PaneErrorBoundary name="files">
                 <FilePane />
+              </PaneErrorBoundary>
+            </div>
+          ) : null}
+          {sessionsOpen ? (
+            <div
+              className="absolute bottom-0 right-0 border-l border-[var(--border)] bg-[var(--background)] flex flex-col"
+              data-testid="sessions-pane"
+              style={{ top: "env(safe-area-inset-top)", zIndex: 15 }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <PaneErrorBoundary name="sessions">
+                <SessionsPane
+                  agent={agent}
+                  onClose={() => setSessionsOpen(false)}
+                  onOpenTerminal={(tid, title) => {
+                    rememberZenThread(agentId);
+                    openTerminal(tid, title);
+                  }}
+                />
               </PaneErrorBoundary>
             </div>
           ) : null}
@@ -483,8 +564,40 @@ export function Zen() {
             </div>
           ) : null}
         </div>
-        </div>
+        </ThreadHome>
       ) : null}
+    </div>
+  );
+}
+
+/** Fixed thread backdrop. A left-edge swipe acts like Done while the chat
+ *  was picked from the Sessions drawer (own component so the swipe hook
+ *  binds when the thread mounts, not when Zen does). */
+function ThreadHome({
+  children,
+  onSwipeBack,
+  swipeEnabled,
+}: {
+  children: ReactNode;
+  onSwipeBack: () => void;
+  swipeEnabled: boolean;
+}) {
+  const swipeRef = useSwipeBack(onSwipeBack, { enabled: swipeEnabled });
+  return (
+    <div
+      ref={swipeRef}
+      className="fixed inset-0"
+      data-testid="thread-home"
+      style={{
+        position: "fixed",
+        top: 0,
+        left: 0,
+        right: 0,
+        bottom: 0,
+        background: "#000",
+      }}
+    >
+      {children}
     </div>
   );
 }
