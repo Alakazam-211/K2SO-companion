@@ -164,6 +164,8 @@ export function ThreadPane() {
   const [attachments, setAttachments] = useState<File[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
+  const sendReady =
+    Boolean(draft.trim() || attachments.length) && !sending && !uploading;
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
@@ -443,7 +445,7 @@ export function ThreadPane() {
           </div>
         ) : null}
         <form
-          className="flex items-end min-w-0 gap-2"
+          className="flex items-end min-w-0"
           data-testid="composer-form"
           onPaste={(e) => {
             const files = filesFromClipboard(e.clipboardData);
@@ -509,27 +511,29 @@ export function ThreadPane() {
               e.target.value = "";
             }}
           />
-          {canSend ? (
-            <button
-              type="button"
-              data-testid="composer-attach"
-              aria-label="Add file"
-              disabled={!canAttach || sending || uploading}
-              onClick={() => fileRef.current?.click()}
-              className="shrink-0 flex items-center justify-center disabled:opacity-40 k2-tile"
-              style={{
-                width: 34,
-                height: 34,
-                borderRadius: "50%",
-                color: "#d1d1d6",
-                fontSize: 22,
-                lineHeight: 1,
-              }}
-            >
-              ＋
-            </button>
-          ) : null}
-          <div className="flex-1 min-w-0 overflow-hidden flex items-end rounded-[20px] px-3 py-2 k2-tile">
+          <div
+            className="flex-1 min-w-0 overflow-hidden flex items-end gap-1 rounded-[20px] pl-1 pr-1 py-1 k2-tile"
+            data-testid="composer-field"
+          >
+            {canSend ? (
+              <button
+                type="button"
+                data-testid="composer-attach"
+                aria-label="Add file"
+                disabled={!canAttach || sending || uploading}
+                onClick={() => fileRef.current?.click()}
+                className="shrink-0 flex items-center justify-center bg-transparent border-0 text-[var(--text-muted)] disabled:opacity-40"
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: "50%",
+                  fontSize: 22,
+                  lineHeight: 1,
+                }}
+              >
+                ＋
+              </button>
+            ) : null}
             <textarea
               ref={composerRef}
               disabled={!canSend || sending || uploading}
@@ -543,21 +547,52 @@ export function ThreadPane() {
                 queueFiles(files);
               }}
               placeholder="Message"
-              className="flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[17px] leading-[22px] text-[var(--text)] outline-none"
+              className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[17px] leading-[22px] text-[var(--text)] outline-none py-1 ${canSend ? "" : "px-2"}`}
               style={{ maxHeight: COMPOSER_MAX_PX }}
               aria-label="Message"
               data-testid="composer-input"
             />
+            {canSend ? (
+              <button
+                type="submit"
+                aria-label="Send"
+                data-testid="composer-send"
+                disabled={!sendReady}
+                // Keep focus in the textarea so the iOS keyboard stays up
+                // (AccessoryBar pattern). Not on attach — it opens a picker.
+                onPointerDown={(e) => e.preventDefault()}
+                onMouseDown={(e) => e.preventDefault()}
+                className={`shrink-0 flex items-center justify-center k2-tile ${
+                  sendReady
+                    ? "text-white"
+                    : "k2-tile-raised text-[var(--text-muted)] opacity-60"
+                }`}
+                style={{
+                  width: 30,
+                  height: 30,
+                  borderRadius: "50%",
+                  ...(sendReady
+                    ? { background: "#0a84ff", borderColor: "#0a84ff" }
+                    : {}),
+                }}
+              >
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.75"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  aria-hidden="true"
+                >
+                  <path d="M12 19V5" />
+                  <path d="M5 12l7-7 7 7" />
+                </svg>
+              </button>
+            ) : null}
           </div>
-          {canSend ? (
-            <button
-              type="submit"
-              disabled={sending || uploading || (!draft.trim() && !attachments.length)}
-              className="shrink-0 text-[15px] font-semibold text-[#0a84ff] disabled:opacity-40"
-            >
-              Send
-            </button>
-          ) : null}
         </form>
       </div>
     </div>
