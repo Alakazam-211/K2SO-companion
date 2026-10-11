@@ -33,7 +33,7 @@ export function OverlayCompose({ onClose }: { onClose: () => void }) {
   return (
     <div
       className="absolute inset-0 flex flex-col"
-      style={{ background: "#000", zIndex: 6 }}
+      style={{ background: "#000", zIndex: 6, paddingTop: "env(safe-area-inset-top)" }}
       data-testid="overlay-compose"
     >
       <div
