@@ -122,7 +122,10 @@ describe("ZenSettings", () => {
     await waitFor(() => expect(sw.hasAttribute("disabled")).toBe(false));
     fireEvent.click(sw);
     expect(sw.getAttribute("aria-checked")).toBe("true");
-    await waitFor(() => expect(ensureRegistered).toHaveBeenCalledWith(SERVER));
+    // Registration is on the active server's scope (MS32: its own token).
+    await waitFor(() =>
+      expect(ensureRegistered).toHaveBeenCalledWith(expect.objectContaining({ id: SERVER.id }))
+    );
     expect(setPushEnabled).toHaveBeenCalledWith(true);
     // In flight: disabled with a spinner.
     expect(sw.hasAttribute("disabled")).toBe(true);

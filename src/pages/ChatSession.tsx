@@ -19,6 +19,7 @@ import {
   pruneSendModes,
   type SendMode,
 } from "../lib/sendMode";
+import { activeScope, scopedKey } from "../api/scope";
 
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
@@ -36,6 +37,9 @@ export function ChatSession() {
     (session && projects.find((p) => p.id === session.workspaceId)?.path) ||
     projectPath;
   const allSessions = useWorkspacesStore((s) => s.allSessions);
+  // The server this terminal was opened on: its socket and sends stay there
+  // even if the active server changes underneath (MS6/MS7).
+  const [termScope] = useState(activeScope);
   const [input, setInput] = useState("");
   // Keyboard-height column sizing — the shared ProjectChat/FeedbackThread
   // idiom (useViewportHeight): the hook pins `window.scrollTo(0, 0)` on
@@ -53,7 +57,9 @@ export function ChatSession() {
     getDirectHandles,
     getDirectHandles
   );
-  const sendMode: SendMode = terminalId ? modeFor(directHandles, terminalId) : "safe";
+  // Send-mode memory is per server (MA6): `<serverId>|<terminalId>`.
+  const modeKey = terminalId ? scopedKey(termScope, terminalId) : "";
+  const sendMode: SendMode = modeKey ? modeFor(directHandles, modeKey) : "safe";
   const [sendBusy, setSendBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
 
@@ -115,7 +121,7 @@ export function ChatSession() {
     // The draft only clears on a confirmed delivery; failures surface
     // reason/hint in the accessory row and keep the text.
     setSendBusy(true);
-    void sendMessageToSession(terminalId, text).then((out) => {
+    void sendMessageToSession(termScope, terminalId, text).then((out) => {
       setSendBusy(false);
       if (out.ok) setInput("");
       else setSendError(out.message);
@@ -124,7 +130,7 @@ export function ChatSession() {
 
   const switchMode = (mode: SendMode) => {
     if (!terminalId) return;
-    setSendMode(terminalId, mode);
+    setSendMode(modeKey, mode);
     setSendError(null);
   };
 
@@ -138,7 +144,7 @@ export function ChatSession() {
       // hand back the already-live (fresh) session, which is why reload
       // couldn't restore the right session before.
       if (session?.isMainChat && workspacePath) {
-        const r = await ensurePinnedChat(workspacePath, { forceRespawn: true });
+        const r = await ensurePinnedChat(termScope, workspacePath, { forceRespawn: true });
         await useWorkspacesStore.getState().fetchAllSessions();
         if (r.ok && r.data?.sessionId && r.data.sessionId !== terminalId) {
           navigate(`/chat/${r.data.sessionId}`, { replace: true });
@@ -300,7 +306,7 @@ export function ChatSession() {
           if (sendMode === "direct") captureFocusRef.current?.();
         }}
       >
-        <TerminalView terminalId={terminalId} projectPath={projectPath} onInputRef={sendInputRef} onReloadRef={reloadRef} drive={drive} />
+        <TerminalView scope={termScope} terminalId={terminalId} projectPath={projectPath} onInputRef={sendInputRef} onReloadRef={reloadRef} drive={drive} />
       </div>
 
       {/* Input bar: Watch keeps Safe send (textarea → send-message).

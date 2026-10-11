@@ -1,9 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("../api/client", () => ({
-  getBaseUrl: () => "https://host.k2.dev",
-  getToken: () => "tok",
-}));
+import { fakeScope } from "../test/fakeScope";
+
+// MA21: the socket is opened on a scope.
+const SCOPE = fakeScope({ id: "s1", base: "https://host.k2.dev", token: "tok" });
 
 import { connectOverlayEvents, OVERLAY_POLL_MS } from "./overlayEvents";
 
@@ -48,6 +48,7 @@ describe("connectOverlayEvents", () => {
     const onItem = vi.fn();
     const onNeedCatchUp = vi.fn();
     const h = connectOverlayEvents({
+      scope: SCOPE,
       conversationId: "conv-1",
       onItem,
       onNeedCatchUp,
@@ -72,6 +73,7 @@ describe("connectOverlayEvents", () => {
     const onItem = vi.fn();
     const onNeedCatchUp = vi.fn();
     const h = connectOverlayEvents({
+      scope: SCOPE,
       conversationId: "conv-1",
       onItem,
       onNeedCatchUp,

@@ -1,5 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { assignFeedback, fetchTicketUsers } from "../api/feedback";
+import type { ServerScope } from "../api/scope";
+import { useActiveScope } from "../lib/useScope";
 
 // Desktop FeedbackItemView AssigneePicker — multi-select Connect users
 // plus synthetic `owner`. Save POSTs /cli/feedback/assign.
@@ -10,7 +12,11 @@ export function AssigneePicker({
   busy,
   onChanged,
   menuInFlow,
+  scope: scopeProp,
 }: {
+  /** The ticket's server. Default: the active server (Tickets stay on the
+   *  default server in v1, NG6). */
+  scope?: ServerScope;
   ticketId: string;
   assignees: string[];
   busy?: boolean;
@@ -18,6 +24,8 @@ export function AssigneePicker({
   /** Sheet/scroll parents clip `absolute` menus — render the list in-flow. */
   menuInFlow?: boolean;
 }) {
+  const activeScope = useActiveScope();
+  const scope = scopeProp ?? activeScope;
   const [open, setOpen] = useState(false);
   const [candidates, setCandidates] = useState<string[]>(["owner"]);
   const [local, setLocal] = useState<string[]>(assignees);
@@ -30,7 +38,7 @@ export function AssigneePicker({
 
   useEffect(() => {
     let cancelled = false;
-    void fetchTicketUsers()
+    void fetchTicketUsers(scope)
       .then((names) => {
         if (!cancelled) setCandidates(names);
       })
@@ -40,7 +48,7 @@ export function AssigneePicker({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     if (!open) return;
@@ -62,7 +70,7 @@ export function AssigneePicker({
   const save = async () => {
     setSaving(true);
     try {
-      await assignFeedback(ticketId, local);
+      await assignFeedback(scope, ticketId, local);
       onChanged();
       setOpen(false);
     } catch (e) {

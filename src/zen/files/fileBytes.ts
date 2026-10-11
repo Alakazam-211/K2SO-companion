@@ -3,6 +3,7 @@
 // for big media); playback and paint stay on the phone via Blob URLs.
 
 import { getFsReadBinary, getFsReadRange } from "../../api/client";
+import type { ServerScope } from "../../api/scope";
 
 /** Daemon `MAX_BINARY_SIZE`: one `read-binary` answer at most. */
 export const READ_BINARY_MAX_BYTES = 50 * 1024 * 1024;
@@ -36,10 +37,11 @@ export function formatBytes(n: number): string {
 /** Whole file via `read-binary`. `ranged` falls back to `read-range`
  *  slices when the daemon refuses the size (audio/video only). */
 export async function loadFileBytes(
+  scope: ServerScope,
   path: string,
   opts: { ranged?: boolean; isCancelled?: () => boolean; onProgress?: (r: number) => void } = {}
 ): Promise<Uint8Array> {
-  const r = await getFsReadBinary(path);
+  const r = await getFsReadBinary(scope, path);
   if (r.ok) return decodeBase64(r.data?.base64);
   const msg = r.error || "read-binary failed";
   if (!opts.ranged || !tooLarge(msg)) throw new Error(msg);
@@ -48,7 +50,7 @@ export async function loadFileBytes(
   let offset = 0;
   for (;;) {
     if (opts.isCancelled?.()) throw new Error("cancelled");
-    const s = await getFsReadRange(path, offset, RANGE_CHUNK_BYTES);
+    const s = await getFsReadRange(scope, path, offset, RANGE_CHUNK_BYTES);
     if (!s.ok || !s.data) throw new Error(s.error || "read-range failed");
     if (s.data.size > MEDIA_MAX_BYTES) {
       throw new Error(

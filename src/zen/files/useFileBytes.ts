@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { loadFileBytes } from "./fileBytes";
+import { useZenScope } from "../zenScope";
 
 export type BytesState = {
   bytes: Uint8Array | null;
@@ -10,6 +11,8 @@ export type BytesState = {
 
 /** Load a file's bytes once per path. A path change drops the old load. */
 export function useFileBytes(path: string | null, ranged = false): BytesState {
+  // The file lives on the room's server (MS23).
+  const scope = useZenScope();
   const [state, setState] = useState<BytesState>({ bytes: null, error: null, progress: null });
 
   useEffect(() => {
@@ -19,7 +22,7 @@ export function useFileBytes(path: string | null, ranged = false): BytesState {
       setState({ bytes: null, error: "This file is not readable from here.", progress: null });
       return;
     }
-    loadFileBytes(path, {
+    loadFileBytes(scope, path, {
       ranged,
       isCancelled: () => cancelled,
       onProgress: (r) => {
@@ -38,7 +41,7 @@ export function useFileBytes(path: string | null, ranged = false): BytesState {
     return () => {
       cancelled = true;
     };
-  }, [path, ranged]);
+  }, [path, ranged, scope]);
 
   return state;
 }

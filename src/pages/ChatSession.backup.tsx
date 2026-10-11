@@ -3,6 +3,7 @@ import { useParams, useNavigate } from "react-router-dom";
 import * as api from "../api/client";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { TerminalView } from "../components/TerminalView";
+import { activeScope } from "../api/scope";
 
 export function ChatSession() {
   const { terminalId } = useParams<{ terminalId: string }>();
@@ -11,6 +12,7 @@ export function ChatSession() {
     s.allSessions.find((sess) => sess.terminalId === terminalId)
   );
   const projectPath = session?.cwd || "";
+  const [termScope] = useState(activeScope);
   const [input, setInput] = useState("");
 
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -28,7 +30,7 @@ export function ChatSession() {
     const text = input.trim();
     if (!text || !terminalId || !projectPath) return;
     setInput("");
-    await api.writeTerminal(projectPath, terminalId, text);
+    await api.writeTerminal(termScope, projectPath, terminalId, text);
   };
 
   if (!terminalId) return null;
@@ -51,7 +53,7 @@ export function ChatSession() {
 
       {/* Terminal content — tall enough to fill the view */}
       <div style={{ height: "calc(100vh - 120px)", position: "relative" }}>
-        <TerminalView terminalId={terminalId} projectPath={projectPath} />
+        <TerminalView scope={termScope} terminalId={terminalId} projectPath={projectPath} />
       </div>
 
       {/* Input bar — sticky bottom */}

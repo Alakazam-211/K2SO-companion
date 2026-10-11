@@ -1,8 +1,8 @@
 import { invoke, addPluginListener } from "@tauri-apps/api/core";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { load } from "@tauri-apps/plugin-store";
-import { cliAuthHeaders } from "../api/cliAuth";
-import { useServersStore, getActiveServer, type ServerEntry } from "../stores/servers";
+import { useServersStore } from "../stores/servers";
+import { activeScope, scopeFor, type ServerScope } from "../api/scope";
+import { scopedFetch } from "../api/scopedFetch";
 import { zenTicketPath } from "../zen/terminalJump";
 
 // Push glue — Companion C6 (prd-companion-v2 §4). Talks to the local
@@ -100,18 +100,18 @@ export async function setPushEnabled(enabled: boolean): Promise<void> {
 
 // ─── Daemon calls (same Bearer transport as api/client.ts) ───
 
+/** POST on `scope`'s server only (MS32: its own token, never another's).
+ *  No revive: push is best-effort and must not move recovery state. */
 async function postPush(
-  server: ServerEntry,
+  scope: ServerScope,
   path: string,
   body: Record<string, string>
 ): Promise<void> {
-  const token = useServersStore.getState().tokens[server.id];
-  if (!token) throw new Error("no session token");
-  const url = `${server.url}${path}`;
-  const res = await tauriFetch(url, {
+  if (!scope.token()) throw new Error("no session token");
+  const res = await scopedFetch(scope, path, {
     method: "POST",
-    headers: cliAuthHeaders(token),
     body: JSON.stringify(body),
+    revive: false,
   });
   if (!res.ok) throw new Error(`${path} -> ${res.status}`);
 }
@@ -122,7 +122,7 @@ async function postPush(
  *  the toggle turns on). Gates: plugin available AND user enabled the
  *  toggle → request permission (the OS prompts at most once; a denial
  *  just ends here) → token → register-device. Never throws. */
-export async function ensureRegistered(server: ServerEntry): Promise<void> {
+export async function ensureRegistered(scope: ServerScope): Promise<void> {
   try {
     if (!(await pushIsAvailable())) return;
     if (!(await getPushEnabled())) return;
@@ -130,7 +130,7 @@ export async function ensureRegistered(server: ServerEntry): Promise<void> {
     if (!perm.granted) return;
     const tok = await invoke<{ token: string; platform: string }>(`plugin:${PLUGIN}|get_token`);
     const deviceId = await getDeviceId();
-    await postPush(server, "/cli/push/register-device", {
+    await postPush(scope, "/cli/push/register-device", {
       deviceId,
       platform: tok.platform,
       token: tok.token,
@@ -142,10 +142,10 @@ export async function ensureRegistered(server: ServerEntry): Promise<void> {
 }
 
 /** Toggle-off: remove this device from a server's registry (blind). */
-export async function unregister(server: ServerEntry): Promise<void> {
+export async function unregister(scope: ServerScope): Promise<void> {
   try {
     const deviceId = await getDeviceId();
-    await postPush(server, "/cli/push/unregister-device", { deviceId });
+    await postPush(scope, "/cli/push/unregister-device", { deviceId });
   } catch (e) {
     console.warn("[push] unregister skipped:", e);
   }
@@ -156,7 +156,9 @@ export async function unregister(server: ServerEntry): Promise<void> {
  *  device — unregister from all of them. */
 export async function unregisterAll(): Promise<void> {
   const s = useServersStore.getState();
-  await Promise.all(s.servers.filter((x) => s.tokens[x.id]).map((x) => unregister(x)));
+  await Promise.all(
+    s.servers.filter((x) => s.tokens[x.id]).map((x) => unregister(scopeFor(x.id)))
+  );
 }
 
 // ─── Tap deep-link + token rotation wiring ───
@@ -236,8 +238,8 @@ export async function attachPushNavigation(
     }),
     addPluginListener(PLUGIN, "tokenRefresh", () => {
       // Vendor rotated the token — re-upsert (same deviceId).
-      const active = getActiveServer();
-      if (active) void ensureRegistered(active);
+      const scope = activeScope();
+      if (scope.id) void ensureRegistered(scope);
     }),
   ]).catch(() => []);
 

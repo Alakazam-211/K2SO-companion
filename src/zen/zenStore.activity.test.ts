@@ -1,18 +1,23 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+// MA21: Zen's server is a fake scope (`zen()`), not mocked globals.
+vi.mock("./zenScope", async () => (await import("../test/zenScopeMock")).zenScopeModule);
+
 vi.mock("../api/client", () => ({
   getActivitySnapshot: vi.fn(),
-  getToken: vi.fn(() => "tok"),
-}));
-
-vi.mock("../stores/servers", () => ({
-  getActiveServer: vi.fn(() => ({ id: "s1" })),
 }));
 
 import { getActivitySnapshot } from "../api/client";
-import { getActiveServer } from "../stores/servers";
 import { EMPTY_ACTIVITY } from "./agentActivity";
 import { useZenStore } from "./zenStore";
+import { fakeScope } from "../test/fakeScope";
+import { setZenScope, zen } from "../test/zenScopeMock";
+
+// A fresh fake server per test (was: getActiveServer / getToken mocks).
+beforeEach(() => {
+  setZenScope(fakeScope({ id: "s1" }));
+});
+
 
 const BODY = {
   rows: [{ sessionId: "m", agentName: "p", display: "working", workspacePath: "/w" }],
@@ -22,7 +27,7 @@ const BODY = {
 describe("refreshActivity", () => {
   beforeEach(() => {
     vi.mocked(getActivitySnapshot).mockReset();
-    vi.mocked(getActiveServer).mockReturnValue({ id: "s1" } as never);
+    zen().setId("s1"); zen().setUsername("");
     useZenStore.setState({ agentSource: "live", activity: EMPTY_ACTIVITY });
   });
 
@@ -52,7 +57,7 @@ describe("refreshActivity", () => {
   it("clears another server's dots after a switch", async () => {
     vi.mocked(getActivitySnapshot).mockResolvedValueOnce({ ok: true, data: BODY });
     await useZenStore.getState().refreshActivity();
-    vi.mocked(getActiveServer).mockReturnValue({ id: "s2" } as never);
+    zen().setId("s2"); zen().setUsername("");
     vi.mocked(getActivitySnapshot).mockResolvedValueOnce({ ok: false, error: "HTTP 502", status: 502 });
     await useZenStore.getState().refreshActivity();
     expect(useZenStore.getState().activity).toBe(EMPTY_ACTIVITY);

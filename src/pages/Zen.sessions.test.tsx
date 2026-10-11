@@ -4,8 +4,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 
 vi.mock("../api/client", () => ({
-  getToken: vi.fn(() => ""),
-  getBaseUrl: vi.fn(() => ""),
   getProjects: vi.fn(),
   getAgentList: vi.fn(),
   getCliProjectsList: vi.fn(),
@@ -37,7 +35,6 @@ vi.mock("../api/projectGroups", () => ({
 import {
   getActivePresets,
   getAllSessions,
-  getToken,
   spawnSidecarSession,
   spawnTabSession,
 } from "../api/client";
@@ -46,6 +43,15 @@ import { useWorkspacesStore } from "../stores/workspaces";
 import { DRAWER_ORIGIN_KEY } from "../zen/sessionDrawer";
 import { useZenStore } from "../zen/zenStore";
 import { Zen } from "./Zen";
+
+/** MA21: the session token lives in the servers store (Zen reads it from
+ *  its scope), not a mocked `getToken`. "" = signed out (stub list). */
+function setSessionToken(token: string) {
+  useServersStore.setState((s) => ({
+    tokens: token ? { ...s.tokens, s1: token } : {},
+  }));
+}
+
 
 const base = { workspaceName: "K2", workspaceId: "k2", workspaceColor: "#000" };
 const SESSIONS = [
@@ -88,7 +94,7 @@ function TermLoc() {
 }
 
 async function openMain(sessions: unknown[] = SESSIONS) {
-  vi.mocked(getToken).mockReturnValue("");
+  setSessionToken("");
   vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: sessions } as never);
   render(
     <MemoryRouter initialEntries={["/zen"]}>
@@ -100,7 +106,7 @@ async function openMain(sessions: unknown[] = SESSIONS) {
     </MemoryRouter>
   );
   await waitFor(() => expect(useZenStore.getState().agentSource).toBe("stub"));
-  vi.mocked(getToken).mockReturnValue("t");
+  setSessionToken("t");
   act(() => {
     useZenStore.setState({ agentSource: "live", agents: [MAIN, OTHER], agentError: null });
     useZenStore.getState().setAgent(MAIN.id);
@@ -125,6 +131,8 @@ beforeEach(() => {
     tokens: { s1: "t" },
     recovery: { s1: "connected" },
   });
+  // The old `getToken` mock defaulted to "" (signed out).
+  setSessionToken("");
   useWorkspacesStore.setState({ allSessions: [] });
 });
 
@@ -132,7 +140,7 @@ afterEach(() => {
   cleanup();
   act(() => useZenStore.getState().closeChat());
   sessionStorage.clear();
-  vi.mocked(getToken).mockReturnValue("");
+  setSessionToken("");
   vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [] } as never);
   vi.mocked(getActivePresets).mockResolvedValue({ ok: true, data: [] } as never);
   vi.mocked(spawnSidecarSession).mockReset();
@@ -356,7 +364,7 @@ describe("Zen Sessions drawer", () => {
     fireEvent.click(codex);
     expect(codex.textContent).toContain("Starting Codex");
     expect(within(drawer).getAllByTestId("sessions-llm").every((b) => (b as HTMLButtonElement).disabled)).toBe(true);
-    expect(spawnSidecarSession).toHaveBeenCalledWith("/ws", "2", "2", {
+    expect(spawnSidecarSession).toHaveBeenCalledWith(expect.anything(), "/ws", "2", "2", {
       command: "codex",
       args: ["--yolo"],
     });
@@ -404,7 +412,7 @@ describe("Zen Sessions drawer", () => {
     await waitFor(() =>
       expect(screen.getByTestId("term-loc").textContent).toBe("/zen/terminal/t-aider")
     );
-    expect(spawnTabSession).toHaveBeenCalledWith("/ws", { command: "aider", args: [] }, "Aider");
+    expect(spawnTabSession).toHaveBeenCalledWith(expect.anything(), "/ws", { command: "aider", args: [] }, "Aider");
     expect(spawnSidecarSession).not.toHaveBeenCalled();
   });
 });

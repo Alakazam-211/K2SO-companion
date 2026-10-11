@@ -1,19 +1,28 @@
-import { getBaseUrl, getToken } from "../api/client";
 import { isTicketEventFrame } from "../api/feedbackPure";
+import type { ServerScope } from "../api/scope";
+import { onServerForget } from "../stores/servers";
 
 // App-level live events: WS
 // `/cli/sessions/events?path=&token=` (empty path = every app-level
-// event). ONE socket per server, shared by every subscriber: the Tickets
-// overlay (`feedback_changed` / `ticket_changed`, 0.43.3+) and the Agents
-// list (`projects_changed`, pins). Frames carry ids only, so each
+// event). ONE socket per server (MS25 as amended by MA9), keyed by server
+// id and shared by every subscriber: the Tickets overlay and the Zen
+// feedback store (`feedback_changed` / `ticket_changed`, 0.43.3+) and the
+// Agents list (`projects_changed`, pins). Frames carry ids only, so each
 // subscriber debounces its burst into ONE refetch (300 ms, the desktop
 // board's window). Both surfaces also poll, so a socket that never opens
 // costs nothing but the poll.
 //
-// Close codes: 4001 = the login was revoked / token refused — stop, never
-// spin on a dead token. 4008 = we lagged; reconnect and re-pull. Anything
-// else reconnects with backoff (1 s doubling to 30 s). A `hello` whose
-// `instance_id` changed means the daemon restarted: full refetch.
+// Multi-server (MS6): a hub is opened on a scope and every reopen builds
+// its URL from THAT scope (fresh token). It never checks or follows the
+// active server; subscribers on another server get their own hub.
+//
+// Close codes (daemon `session_events_ws.rs`): 4001 = this login was
+// KICKED (removed from the server) — stop, never spin on it. 4003 =
+// revoked, 4008 = we lagged; both reconnect and re-pull. Anything else
+// reconnects with backoff (1 s doubling to 30 s). A `hello` whose
+// `instance_id` changed means the daemon restarted: full refetch. (The
+// per-code table of MS27/MA14 — revive on 4003, events backoff 500 ms →
+// 5 s — lands with rooms in S3.)
 
 export const TICKET_EVENT_DEBOUNCE_MS = 300;
 const MAX_BACKOFF_MS = 30_000;
@@ -34,7 +43,9 @@ type Sub = {
 };
 
 type Hub = {
-  base: string;
+  /** Server id (MA2: per-server memories key by id, not base URL). */
+  key: string;
+  scope: ServerScope;
   subs: Set<Sub>;
   ws: WebSocket | null;
   attempt: number;
@@ -46,9 +57,12 @@ type Hub = {
 
 const hubs = new Map<string, Hub>();
 
-function baseKey(base: string): string {
-  return (base || "").trim().replace(/\/+$/, "");
-}
+// A removed or re-keyed server (MS3): close its hub. Its subscribers fall
+// back to their polls; a re-subscribe dials the new address.
+onServerForget((id) => {
+  const hub = hubs.get(id);
+  if (hub) killHub(hub);
+});
 
 function bump(sub: Sub) {
   if (sub.stopped) return;
@@ -65,7 +79,7 @@ function bumpAll(hub: Hub) {
 
 function killHub(hub: Hub) {
   hub.dead = true;
-  if (hubs.get(hub.base) === hub) hubs.delete(hub.base);
+  if (hubs.get(hub.key) === hub) hubs.delete(hub.key);
   if (hub.retryTimer) clearTimeout(hub.retryTimer);
   hub.retryTimer = null;
   const ws = hub.ws;
@@ -89,10 +103,15 @@ function schedule(hub: Hub) {
 
 function openHub(hub: Hub) {
   if (hub.dead) return;
-  // Token read fresh each open (a revive mints a new one). Another server
-  // active now: this hub's subscribers re-subscribe on the switch.
-  if (baseKey(getBaseUrl()) !== hub.base) return;
-  const url = ticketEventsUrl(hub.base, getToken() ?? "");
+  // Base + token read fresh from the hub's OWN scope each open (a revive
+  // mints a new token). A removed server stops the hub.
+  let url: string | null;
+  try {
+    url = ticketEventsUrl(hub.scope.httpBase(), hub.scope.token());
+  } catch {
+    killHub(hub);
+    return;
+  }
   if (!url) return;
   let sock: WebSocket;
   try {
@@ -130,7 +149,7 @@ function openHub(hub: Hub) {
     if (hub.dead || hub.ws !== sock) return;
     hub.ws = null;
     if (e.code === 4001) {
-      killHub(hub); // revoked / refused token: never reconnect
+      killHub(hub); // kicked from this server: never reconnect
       return;
     }
     schedule(hub);
@@ -144,18 +163,27 @@ function openHub(hub: Hub) {
   };
 }
 
-/** Subscribe to app-level frames that `match`. Shares the server's socket. */
+/** Subscribe to app-level frames that `match` on `scope`'s server. Shares
+ *  that server's socket. */
 export function subscribeAppEvents(
+  scope: ServerScope,
   match: (frame: unknown) => boolean,
   onChange: () => void
 ): TicketEventsHandle {
-  const base = baseKey(getBaseUrl());
   const sub: Sub = { match, onChange, debounce: null, stopped: false };
-  if (!base || !getToken()) return { stop() {} }; // not connected: the poll carries it
-  let hub = hubs.get(base);
+  let connected = false;
+  try {
+    connected = !!scope.id && !!scope.httpBase() && !!scope.token();
+  } catch {
+    connected = false;
+  }
+  if (!connected) return { stop() {} }; // not connected: the poll carries it
+  const key = scope.id;
+  let hub = hubs.get(key);
   if (!hub) {
     hub = {
-      base,
+      key,
+      scope,
       subs: new Set(),
       ws: null,
       attempt: 0,
@@ -164,7 +192,7 @@ export function subscribeAppEvents(
       retryTimer: null,
       dead: false,
     };
-    hubs.set(base, hub);
+    hubs.set(key, hub);
     hub.subs.add(sub);
     openHub(hub);
   } else {
@@ -183,8 +211,8 @@ export function subscribeAppEvents(
   };
 }
 
-export function connectTicketEvents(onChange: () => void): TicketEventsHandle {
-  return subscribeAppEvents(isTicketEventFrame, onChange);
+export function connectTicketEvents(scope: ServerScope, onChange: () => void): TicketEventsHandle {
+  return subscribeAppEvents(scope, isTicketEventFrame, onChange);
 }
 
 /** `{"kind":"projects_changed"}` (0.39.45+): pins / tab order / projects. */
@@ -192,6 +220,6 @@ export function isProjectsChangedFrame(frame: unknown): boolean {
   return !!frame && typeof frame === "object" && (frame as { kind?: unknown }).kind === "projects_changed";
 }
 
-export function connectProjectEvents(onChange: () => void): TicketEventsHandle {
-  return subscribeAppEvents(isProjectsChangedFrame, onChange);
+export function connectProjectEvents(scope: ServerScope, onChange: () => void): TicketEventsHandle {
+  return subscribeAppEvents(scope, isProjectsChangedFrame, onChange);
 }

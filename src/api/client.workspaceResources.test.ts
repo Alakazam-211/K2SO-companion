@@ -7,6 +7,7 @@ vi.mock("@tauri-apps/plugin-http", () => ({
 
 import { getWorkspaceResources } from "./client";
 import { useServersStore } from "../stores/servers";
+import { activeScope } from "./scope";
 
 const WS = "/Users/z3thon/DevProjects/Alakazam Labs/K2SO-companion";
 
@@ -54,7 +55,7 @@ describe("getWorkspaceResources", () => {
       ok: true,
       text: async () => JSON.stringify(body),
     });
-    const r = await getWorkspaceResources(WS);
+    const r = await getWorkspaceResources(activeScope(), WS);
     expect(r).toEqual({ ok: true, data: body });
     const [url, opts] = tauriFetch.mock.calls[0] as [string, { method?: string }];
     expect(url).toBe(
@@ -69,7 +70,7 @@ describe("getWorkspaceResources", () => {
       ok: false,
       text: async () => JSON.stringify({ error: "route not found" }),
     });
-    const r = await getWorkspaceResources(WS);
+    const r = await getWorkspaceResources(activeScope(), WS);
     expect(r).toEqual({ ok: false, error: "route not found", status: 404 });
   });
 });

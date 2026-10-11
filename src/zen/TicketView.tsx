@@ -23,6 +23,7 @@ import { BriefCard, BriefReader, useBriefDoc } from "./TicketBrief";
 import { composerHeight, COMPOSER_MAX_PX } from "./ThreadPane";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 import { zenTextPx } from "./zenFont";
+import { ticketsScope, useTicketsScope } from "./zenScope";
 
 // Zen open ticket — Layout A (Rosson, 2026-10-11). Full-screen inside the
 // Chats column, below the notch, the ThreadPane look:
@@ -119,7 +120,7 @@ function ReassignSheet({
 
   useEffect(() => {
     let cancelled = false;
-    void fetchTicketUsers()
+    void fetchTicketUsers(ticketsScope())
       .catch(() => ["owner"])
       .then((names) => {
         if (!cancelled) setPeople(names);
@@ -137,7 +138,7 @@ function ReassignSheet({
     setSaving(true);
     setError(null);
     try {
-      await assignFeedback(item.id, picked);
+      await assignFeedback(ticketsScope(), item.id, picked);
       await refetchAll();
       onClose();
     } catch (e) {
@@ -210,7 +211,7 @@ function AgreedSheet({
     setSaving(true);
     setError(null);
     try {
-      await resolveFeedback(item.id, "answered", answer);
+      await resolveFeedback(ticketsScope(), item.id, "answered", answer);
       await refetchAll();
       onClose();
     } catch (e) {
@@ -397,7 +398,7 @@ export function TicketView({
   const item = useFeedbackStore((s) => (s.openId === id ? s.openItem : null));
   const openError = useFeedbackStore((s) => (s.openId === id ? s.openError : null));
   const entry = useFeedbackStore((s) => s.briefs[id]);
-  const identity = useSessionIdentity();
+  const identity = useSessionIdentity(useTicketsScope());
   const [menu, setMenu] = useState<"status" | "more" | null>(null);
   const [sheet, setSheet] = useState<"reassign" | "agreed" | null>(null);
   const [reader, setReader] = useState(false);
@@ -461,7 +462,7 @@ export function TicketView({
     setError(null);
     setReceipt(null);
     try {
-      const res = await commentFeedback(item.id, answer, { optionPick: true });
+      const res = await commentFeedback(ticketsScope(), item.id, answer, { optionPick: true });
       const miss = deliveryMissLine(res);
       if (miss) setReceipt({ from: "pick", line: miss });
       await refetchAll();
@@ -479,7 +480,7 @@ export function TicketView({
     setError(null);
     setReceipt(null);
     try {
-      const res = await commentFeedback(item.id, body);
+      const res = await commentFeedback(ticketsScope(), item.id, body);
       setDraft("");
       const miss = deliveryMissLine(res);
       if (miss) setReceipt({ from: "text", line: miss });
@@ -502,7 +503,7 @@ export function TicketView({
     setBusy(true);
     setError(null);
     try {
-      await resolveFeedback(item.id, next);
+      await resolveFeedback(ticketsScope(), item.id, next);
       await refetchAll();
     } catch (e) {
       setError(errText(e));

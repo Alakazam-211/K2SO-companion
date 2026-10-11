@@ -1,6 +1,5 @@
-import { getBaseUrl, getToken } from "./client";
-import { useServersStore } from "../stores/servers";
-import { reviveServerSession } from "../lib/revive";
+import { revive } from "../lib/revive";
+import type { ServerScope } from "./scope";
 import { reconnectDelayMs } from "../lib/reconnect";
 import { decodeGridFrame } from "./gridWire";
 import {
@@ -28,7 +27,7 @@ import {
 } from "../kessel/softResync";
 
 // Live k1 grid-WS. Two origins (do not smash tokens):
-//   Connect/daemon (this app's `getBaseUrl()`):
+//   Connect/daemon (the socket's scope, `scope.httpBase()`):
 //     `/cli/sessions/grid?token=<connect-token>&proto=k1`
 //   Companion tunnel (capabilities k1 + companion token):
 //     `/companion/sessions/grid?token=<companion-token>&proto=k1`
@@ -46,6 +45,12 @@ import {
 //
 // Grid-only heal (PRD §6.3): forceGridResync — last painted snapshot
 // stays mounted. RPC `/companion/ws` is a different socket.
+//
+// Multi-server (MS6/MA5): the socket is CONSTRUCTED with the scope of the
+// server the session lives on. Every (re)dial builds its URL from that
+// scope and every revive targets it; it never reads the active server, so
+// a switch while it is open never redials another server with this
+// server's session id.
 
 export type { GridAttach, GridRoute };
 
@@ -104,8 +109,8 @@ type FrameHandler = (frame: GridFrame) => void;
 export class GridSocket {
   private ws: WebSocket | null = null;
   private sessionId = "";
-  /** The server this stream was opened against (revive target on close). */
-  private serverId: string | null = null;
+  /** The server this stream belongs to: URL, token and revive target. */
+  private readonly scope: ServerScope;
   private onFrame: FrameHandler;
   private shouldReconnect = true;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -151,7 +156,8 @@ export class GridSocket {
   /** Coalesce same-turn forceGridResync reasons into one dial. */
   private resyncGen = 0;
 
-  constructor(onFrame: FrameHandler) {
+  constructor(scope: ServerScope, onFrame: FrameHandler) {
+    this.scope = scope;
     this.onFrame = onFrame;
   }
 
@@ -162,7 +168,6 @@ export class GridSocket {
     this.attach = opts?.attach ?? "watch";
     this.companionToken = opts?.token ?? "";
     this.drive = opts?.drive ?? false;
-    this.serverId = useServersStore.getState().activeServerId;
     this.shouldReconnect = true;
     if (this.reconnectTimer) {
       clearTimeout(this.reconnectTimer);
@@ -233,14 +238,21 @@ export class GridSocket {
    *  is picked up (the daemon kicks stale tokens off the WS within 5s —
    *  reconnecting with the old one would just be kicked again). */
   private buildUrl(): string | null {
-    const base = getBaseUrl();
+    let base: string;
+    let token: string;
+    try {
+      base = this.scope.httpBase();
+      token = this.scope.token();
+    } catch {
+      return null; // ServerRemovedError: the server is gone — stop.
+    }
     if (!base) return null;
     if (this.route === "companion") {
       // Refuse to stamp the Connect token on the companion grid route.
       if (!this.companionToken) return null;
       return buildGridWsUrl(base, this.sessionId, this.companionToken, "companion");
     }
-    return buildGridWsUrl(base, this.sessionId, getToken(), "cli");
+    return buildGridWsUrl(base, this.sessionId, token, "cli");
   }
 
   private open(): void {
@@ -471,8 +483,8 @@ export class GridSocket {
     if (this.reviving) return;
     this.reviving = true;
     try {
-      if (this.serverId) {
-        const outcome = await reviveServerSession(this.serverId);
+      if (this.scope.id) {
+        const outcome = await revive(this.scope);
         if (!this.shouldReconnect) return;
         if (outcome === "signin-required" || outcome === "not-applicable") {
           this.shouldReconnect = false;

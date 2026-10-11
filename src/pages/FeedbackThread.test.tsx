@@ -75,7 +75,7 @@ describe("classic FeedbackThread", () => {
     expect((pro as HTMLButtonElement).disabled).toBe(false);
     fireEvent.click(pro);
     await waitFor(() => {
-      expect(commentFeedback).toHaveBeenCalledWith("t1", "Pro", { optionPick: true });
+      expect(commentFeedback).toHaveBeenCalledWith(expect.anything(), "t1", "Pro", { optionPick: true });
     });
   });
 });

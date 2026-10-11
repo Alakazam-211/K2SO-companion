@@ -32,6 +32,7 @@ import { ThreadWorkingStrip } from "./ThreadWorkingStrip";
 import { isSendableAddr } from "./sendGate";
 import { sourceWord, useZenStore } from "./zenStore";
 import { zenTextPx } from "./zenFont";
+import { useZenScope, zenScope } from "./zenScope";
 
 export { COMPOSER_MAX_PX, composerHeight } from "./GlassComposer";
 
@@ -177,6 +178,8 @@ export function ThreadPane({
   const agent = agents.find((a) => a.id === agentId);
   const attachDir = uploadDirOf(agent?.path);
   const canAttach = canSend && Boolean(attachWorkspace) && Boolean(attachDir);
+  // The room's server: the overlay socket redials only on its own server.
+  const zenServer = useZenScope().id;
   const [draft, setDraft] = useState("");
   const [attachments, setAttachments] = useState<File[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
@@ -233,6 +236,8 @@ export function ThreadPane({
   useEffect(() => {
     if (source !== "live" && source !== "error") return;
     let stopped = false;
+    // The room's server for this socket and every catch-up (MS6/MS23).
+    const scope = zenScope();
     // `GET /cli/thread/activity`: the live turn, or null. Pre-0.45 servers
     // 404 and the strip just never shows.
     const catchUpActivity = async () => {
@@ -240,7 +245,7 @@ export function ThreadPane({
       if (!addr || threadGroupId) return;
       const current = catchUps.current.begin();
       try {
-        const r = await getThreadActivity(addr);
+        const r = await getThreadActivity(scope, addr);
         if (stopped || addrRef.current !== addr || !current()) return;
         if (!r.ok) return;
         const at = Date.now();
@@ -265,6 +270,7 @@ export function ThreadPane({
     // No catch-up before the socket: onOpen fires on the first open too,
     // and the poll fallback's onNeedCatchUp covers a socket that never opens.
     const live = connectOverlayEvents({
+      scope,
       conversationId,
       onItem: (raw) => {
         if (isActivityFrame(raw)) {
@@ -286,7 +292,7 @@ export function ThreadPane({
       live.stop();
       document.removeEventListener("visibilitychange", onVis);
     };
-  }, [source, conversationId, threadGroupId]);
+  }, [source, conversationId, threadGroupId, zenServer]);
 
   // Keyboard open/close: Zen sizes the column to the visual viewport, so
   // the scroller shrinks with scrollTop unchanged and the newest message
@@ -458,6 +464,7 @@ export function ThreadPane({
                   const filename = uploadFilename(f);
                   const b64 = await fileToBase64(f);
                   const r = await uploadFsBinary(
+                    zenScope(),
                     attachWorkspace,
                     attachDir,
                     filename,

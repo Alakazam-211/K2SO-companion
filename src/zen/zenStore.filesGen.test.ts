@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+// MA21: Zen's server is a fake scope (`zen()`), not mocked globals.
+vi.mock("./zenScope", async () => (await import("../test/zenScopeMock")).zenScopeModule);
+
 vi.mock("../api/client", () => ({
-  getToken: vi.fn(),
   getAgentList: vi.fn(),
   getCliProjectsList: vi.fn(),
   getWorkspaceResources: vi.fn(),
@@ -25,10 +27,6 @@ vi.mock("../api/projectGroups", () => ({
   postProjectGroupMessage: vi.fn(),
 }));
 
-vi.mock("../stores/servers", () => ({
-  getActiveServer: vi.fn(() => null),
-}));
-
 import {
   getAgentList,
   getAllSessions,
@@ -36,7 +34,6 @@ import {
   getWorkspaceResources,
   getFsReadFile,
   getThread,
-  getToken,
   postThread,
   answerThread,
   setSessionLabel,
@@ -49,12 +46,19 @@ import {
   fetchProjectGroups,
   postProjectGroupMessage,
 } from "../api/projectGroups";
-import { getActiveServer } from "../stores/servers";
 import { JOIN_NO_AGENT, JOIN_NO_PROJECT } from "./agentRow";
 import { resetLastAtQueue } from "./lastAtFetch";
 import { STUB_AGENTS, STUB_FILES } from "./stubData";
 import { useZenStore } from "./zenStore";
 import { NO_WORKSPACE_PATH, PATH_NOT_OWNED } from "./workspacePath";
+import { fakeScope } from "../test/fakeScope";
+import { setZenScope, zen } from "../test/zenScopeMock";
+
+// A fresh fake server per test (was: getActiveServer / getToken mocks).
+beforeEach(() => {
+  setZenScope(fakeScope({ id: "s1", username: "", token: "" }));
+});
+
 
 function liveAt(path: string, id = "ag") {
   return {
@@ -110,7 +114,7 @@ function reset() {
 describe("signed-in hydrate never exposes the stub catalogue", () => {
   beforeEach(() => {
     reset();
-    vi.mocked(getToken).mockReturnValue("tok");
+    zen().setToken("tok");
     vi.mocked(getAgentList).mockReset();
     vi.mocked(getCliProjectsList).mockReset();
     vi.mocked(getCliProjectsList).mockResolvedValue({ ok: true, data: [] });
@@ -212,13 +216,15 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
         ],
       },
     });
-    useZenStore.getState().ensureLastAt("t:appa");
-    useZenStore.getState().ensureLastAt("t:appa");
+    useZenStore.getState().ensureLastAt("s1|t:appa");
+    useZenStore.getState().ensureLastAt("s1|t:appa");
     await vi.waitFor(() => {
-      expect(useZenStore.getState().lastAtByKey["t:appa"]).toBe(1700000000);
+      expect(useZenStore.getState().lastAtByKey["s1|t:appa"]).toBe(1700000000);
     });
     expect(getThread).toHaveBeenCalledTimes(1);
-    expect(getThread).toHaveBeenCalledWith("appa", 1);
+    expect(getThread).toHaveBeenCalledWith(expect.anything(), "appa", 1);
+    // The key's server is the scope it fetched on (MA6).
+    expect((vi.mocked(getThread).mock.calls[0][0] as { id: string }).id).toBe("s1");
   });
 
   it("a skills enumerator plus a non-array projects body is a shape error, not a rail", async () => {
@@ -238,7 +244,7 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
   });
 
   it("no token is the only path that installs the stub catalogue", async () => {
-    vi.mocked(getToken).mockReturnValue("");
+    zen().setToken("");
     await useZenStore.getState().hydrateAgents();
     expect(useZenStore.getState().agentSource).toBe("stub");
     expect(useZenStore.getState().agents).toEqual(STUB_AGENTS);
@@ -248,7 +254,7 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
 describe("Workspace Resources ask only for this agent's own path", () => {
   beforeEach(() => {
     reset();
-    vi.mocked(getToken).mockReturnValue("tok");
+    zen().setToken("tok");
     vi.mocked(getWorkspaceResources).mockReset();
   });
 
@@ -294,7 +300,7 @@ describe("Workspace Resources ask only for this agent's own path", () => {
       dir("AGENTS.md", "/Users/Baden/Appa/AGENTS.md")
     );
     await useZenStore.getState().hydrateFiles("/Users/Baden/Appa");
-    expect(getWorkspaceResources).toHaveBeenCalledWith("/Users/Baden/Appa");
+    expect(getWorkspaceResources).toHaveBeenCalledWith(expect.anything(), "/Users/Baden/Appa");
     expect(useZenStore.getState().fileSource).toBe("live");
     expect(useZenStore.getState().files.map((f) => f.name)).toEqual(["AGENTS.md"]);
   });
@@ -303,7 +309,7 @@ describe("Workspace Resources ask only for this agent's own path", () => {
 describe("hydrateFiles generation token", () => {
   beforeEach(() => {
     reset();
-    vi.mocked(getToken).mockReturnValue("");
+    zen().setToken("");
     vi.mocked(getWorkspaceResources).mockReset();
   });
 
@@ -387,7 +393,7 @@ describe("hydrateFiles generation token", () => {
 describe("live failure never shows the stub catalog", () => {
   beforeEach(() => {
     reset();
-    vi.mocked(getToken).mockReturnValue("tok");
+    zen().setToken("tok");
     vi.mocked(getWorkspaceResources).mockReset();
     vi.mocked(getThread).mockReset();
     vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
@@ -490,7 +496,7 @@ describe("live failure never shows the stub catalog", () => {
   });
 
   it("no token still uses the labelled stub catalog", async () => {
-    vi.mocked(getToken).mockReturnValue("");
+    zen().setToken("");
     await useZenStore.getState().hydrateAgents();
     const s = useZenStore.getState();
     expect(s.agentSource).toBe("stub");
@@ -526,7 +532,7 @@ describe("hydrateThread", () => {
     expect(s.threadSource).toBe("live");
     expect(s.thread.map((m) => m.text)).toEqual(["hello"]);
     expect(s.threadConversationId).toBe("conv-skin-a");
-    expect(vi.mocked(getThread).mock.calls[0][0]).toBe("k2so-Skin-Test-A");
+    expect(vi.mocked(getThread).mock.calls[0][1]).toBe("k2so-Skin-Test-A");
   });
 
   it("thread fail is error + empty, never stub copy", async () => {
@@ -613,13 +619,12 @@ describe("hydrateThread", () => {
 describe("hydrateAgents stays off /cli/skin/agents until owner content is counted", () => {
   beforeEach(() => {
     reset();
-    vi.mocked(getToken).mockReturnValue("tok");
+    zen().setToken("tok");
     vi.mocked(getWorkspaceResources).mockReset();
     vi.mocked(getThread).mockReset();
     vi.mocked(getThread).mockResolvedValue({ ok: true, data: { items: [] } });
     vi.mocked(postThread).mockReset();
-    vi.mocked(getActiveServer).mockReset();
-    vi.mocked(getActiveServer).mockReturnValue(null);
+    zen().setUsername("");
     vi.mocked(getAllSessions).mockReset();
     vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [] });
     vi.mocked(spawnSidecarSession).mockReset();
@@ -651,7 +656,7 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
     expect(vi.mocked(getThread)).not.toHaveBeenCalled();
     expect(useZenStore.getState().threadError).toBe("Not chattable");
     useZenStore.getState().setAgent("skin-test-a");
-    expect(vi.mocked(getThread).mock.calls.map((c) => c[0])).toEqual(["skin-test-a"]);
+    expect(vi.mocked(getThread).mock.calls.map((c) => c[1])).toEqual(["skin-test-a"]);
   });
 
   it("a failed send leaves the thread unchanged and shows the wire reason", async () => {
@@ -687,13 +692,7 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
   });
 
   it("POSTs to a live room that is not a named test addr", async () => {
-    vi.mocked(getActiveServer).mockReturnValue({
-      id: "s",
-      nickname: "x",
-      url: "https://baden.k2.dev",
-      username: "baden",
-      rememberPassword: false,
-    });
+    zen().setId("s"); zen().setUsername("baden");
     useZenStore.setState({
       agentSource: "live",
       threadSource: "live",
@@ -720,7 +719,7 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
     });
     await useZenStore.getState().sendThread("hello");
     const s = useZenStore.getState();
-    expect(postThread).toHaveBeenCalledWith("appa", "hello");
+    expect(postThread).toHaveBeenCalledWith(expect.anything(), "appa", "hello");
     expect(s.sendError).toBeNull();
     expect(s.thread.map((m) => m.id)).toEqual(["n1"]);
     expect(s.sending).toBe(false);
@@ -825,13 +824,7 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
   });
 
   it("rejects the room agent even when the signed-in username is that handle", async () => {
-    vi.mocked(getActiveServer).mockReturnValue({
-      id: "s",
-      nickname: "x",
-      url: "https://baden.k2.dev",
-      username: "k2so-companion-qa",
-      rememberPassword: false,
-    });
+    zen().setId("s"); zen().setUsername("k2so-companion-qa");
     useZenStore.setState({
       agentSource: "live",
       threadSource: "live",
@@ -869,13 +862,7 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
   });
 
   it("accepts from= the signed-in username as owner authorship", async () => {
-    vi.mocked(getActiveServer).mockReturnValue({
-      id: "s",
-      nickname: "x",
-      url: "https://baden.k2.dev",
-      username: "baden",
-      rememberPassword: false,
-    });
+    zen().setId("s"); zen().setUsername("baden");
     useZenStore.setState({
       agentSource: "live",
       threadSource: "live",
@@ -974,12 +961,12 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
     });
     await useZenStore.getState().loadEarlier();
     expect(useZenStore.getState().thread.map((m) => m.id)).toEqual(["o", "n"]);
-    expect(vi.mocked(getThread).mock.calls[1][2]).toBe(10);
+    expect(vi.mocked(getThread).mock.calls[1][3]).toBe(10);
     expect(useZenStore.getState().threadHasMore).toBe(false);
   });
 
   it("stub setAgent still loads the stub thread", async () => {
-    vi.mocked(getToken).mockReturnValue("");
+    zen().setToken("");
     await useZenStore.getState().hydrateAgents();
     useZenStore.getState().setAgent(STUB_AGENTS[1].id);
     const s = useZenStore.getState();
@@ -1004,7 +991,7 @@ const GROUP_ROW = {
 describe("OPEN 8 project groups in hydrateAgents", () => {
   beforeEach(() => {
     reset();
-    vi.mocked(getToken).mockReturnValue("tok");
+    zen().setToken("tok");
     vi.mocked(getAgentList).mockReset();
     vi.mocked(getCliProjectsList).mockReset();
     vi.mocked(getAllSessions).mockReset();
@@ -1014,7 +1001,7 @@ describe("OPEN 8 project groups in hydrateAgents", () => {
     vi.mocked(fetchProjectGroupMessages).mockReset();
     vi.mocked(postProjectGroupMessage).mockReset();
     vi.mocked(postThread).mockReset();
-    vi.mocked(getActiveServer).mockReturnValue(null);
+    zen().setUsername("");
   });
 
   it("prepends project groups ahead of agent rows", async () => {
@@ -1055,13 +1042,7 @@ describe("OPEN 8 project groups in hydrateAgents", () => {
   });
 
   it("opening a project chat hydrates messages, shows no resources, and sends via project-group/msg", async () => {
-    vi.mocked(getActiveServer).mockReturnValue({
-      id: "s1",
-      nickname: "test",
-      url: "https://example.k2.dev",
-      username: "baden",
-      rememberPassword: false,
-    });
+    zen().setId("s1"); zen().setUsername("baden");
     vi.mocked(fetchProjectGroupMessages).mockResolvedValue({
       ok: true,
       data: {
@@ -1095,7 +1076,7 @@ describe("OPEN 8 project groups in hydrateAgents", () => {
     expect(useZenStore.getState().files).toEqual([]);
     expect(getWorkspaceResources).not.toHaveBeenCalled();
     await vi.waitFor(() => expect(useZenStore.getState().threadSource).toBe("live"));
-    expect(fetchProjectGroupMessages).toHaveBeenCalledWith("pg1", { limit: 50 });
+    expect(fetchProjectGroupMessages).toHaveBeenCalledWith(expect.anything(), "pg1", { limit: 50 });
     expect(useZenStore.getState().thread.map((m) => m.text)).toEqual(["hello"]);
     expect(useZenStore.getState().thread[0].mine).toBe(true);
     expect(useZenStore.getState().threadAddr).toBeNull();
@@ -1115,7 +1096,7 @@ describe("OPEN 8 project groups in hydrateAgents", () => {
     });
     await useZenStore.getState().sendThread("nope");
     expect(postThread).not.toHaveBeenCalled();
-    expect(postProjectGroupMessage).toHaveBeenCalledWith("pg1", "nope");
+    expect(postProjectGroupMessage).toHaveBeenCalledWith(expect.anything(), "pg1", "nope");
     expect(useZenStore.getState().sendError).toBeNull();
     expect(useZenStore.getState().thread.map((m) => m.text)).toEqual(["hello", "nope"]);
   });
@@ -1174,7 +1155,7 @@ describe("answerChoice", () => {
       ],
     });
     await useZenStore.getState().answerChoice("card-1", "Yes");
-    expect(answerThread).toHaveBeenCalledWith("appa", "card-1", "Yes");
+    expect(answerThread).toHaveBeenCalledWith(expect.anything(), "appa", "card-1", "Yes");
     const s = useZenStore.getState();
     expect(s.thread[0]?.choice?.answer).toBe("Yes");
     expect(s.answeringId).toBeNull();
@@ -1222,7 +1203,7 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
         mem.delete(k);
       },
     });
-    vi.mocked(getToken).mockReturnValue("tok");
+    zen().setToken("tok");
     vi.mocked(getAgentList).mockReset();
     vi.mocked(getCliProjectsList).mockReset();
     vi.mocked(getAllSessions).mockReset();
@@ -1380,8 +1361,8 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
       .getState()
       .renameSidecarTitle("/ws::skin-test-a/qa088", "Example Sidecar");
     expect(r).toEqual({ ok: true });
-    expect(setSessionLabel).toHaveBeenCalledWith("tid-qa088", "Example Sidecar");
-    expect(setTabTitle).toHaveBeenCalledWith("proj-skin", "tab-qa088", "Example Sidecar");
+    expect(setSessionLabel).toHaveBeenCalledWith(expect.anything(), "tid-qa088", "Example Sidecar");
+    expect(setTabTitle).toHaveBeenCalledWith(expect.anything(), "proj-skin", "tab-qa088", "Example Sidecar");
     expect(useZenStore.getState().agents[0]?.chatTitle).toBe("Example Sidecar");
   });
 
@@ -1470,7 +1451,7 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
     });
     const result = await useZenStore.getState().openSidecar("/ws");
     expect(result.ok).toBe(true);
-    expect(spawnSidecarSession).toHaveBeenCalledWith("/ws", "2", "2");
+    expect(spawnSidecarSession).toHaveBeenCalledWith(expect.anything(), "/ws", "2", "2");
     const s = useZenStore.getState();
     const side = s.agents.find((a) => a.addr === "appa/2");
     expect(side).toMatchObject({ name: "appa", addr: "appa/2", chatTitle: "2" });
@@ -1552,7 +1533,7 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
       addr: "appa/1",
       chatTitle: "1",
     });
-    expect(spawnSidecarSession).toHaveBeenCalledWith(
+    expect(spawnSidecarSession).toHaveBeenCalledWith(expect.anything(), 
       "/Users/Baden/Appa",
       "1",
       "1"
@@ -1615,7 +1596,7 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
       addr: "skin-test-a/qa088",
       chatTitle: "qa088",
     });
-    expect(spawnSidecarSession).toHaveBeenCalledWith(
+    expect(spawnSidecarSession).toHaveBeenCalledWith(expect.anything(), 
       "/Users/Baden/AI Projects/Skin Test A",
       "qa088",
       "qa088"
@@ -1690,7 +1671,7 @@ describe("openFileFromPath", () => {
     expect(useZenStore.getState().focusId).toBe("/Users/Baden/Appa/AGENTS.md");
     expect(useZenStore.getState().filesOpen).toBe(true);
     await Promise.resolve();
-    expect(getFsReadFile).toHaveBeenCalledWith("/Users/Baden/Appa/AGENTS.md");
+    expect(getFsReadFile).toHaveBeenCalledWith(expect.anything(), "/Users/Baden/Appa/AGENTS.md");
   });
 
   it("opens a nested path that is not in the current listing", async () => {
@@ -1718,7 +1699,7 @@ describe("openFileFromPath", () => {
     expect(useZenStore.getState().openFileIds).toEqual([id]);
     expect(useZenStore.getState().files.some((f) => f.id === id)).toBe(true);
     await Promise.resolve();
-    expect(getFsReadFile).toHaveBeenCalledWith(id);
+    expect(getFsReadFile).toHaveBeenCalledWith(expect.anything(), id);
   });
 
   it("does not open a path outside the workspace", () => {
@@ -1748,7 +1729,7 @@ describe("Workspace Resources in the Files pane", () => {
 
   beforeEach(() => {
     reset();
-    vi.mocked(getToken).mockReturnValue("tok");
+    zen().setToken("tok");
     vi.mocked(getWorkspaceResources).mockReset();
     vi.mocked(getFsReadFile).mockReset();
     vi.mocked(getFsReadFile).mockResolvedValue({
@@ -1840,7 +1821,7 @@ describe("Workspace Resources in the Files pane", () => {
     useZenStore.getState().openFile(`${WS}/docs/plan.md`);
     expect(useZenStore.getState().openFileIds).toEqual([`${WS}/docs/plan.md`]);
     expect(useZenStore.getState().focusId).toBe(`${WS}/docs/plan.md`);
-    expect(getFsReadFile).toHaveBeenCalledWith(`${WS}/docs/plan.md`);
+    expect(getFsReadFile).toHaveBeenCalledWith(expect.anything(), `${WS}/docs/plan.md`);
     await Promise.resolve();
     await Promise.resolve();
     expect(useZenStore.getState().files[0].body).toBe("body\n");
@@ -1854,7 +1835,7 @@ describe("Workspace Resources in the Files pane", () => {
       openFileIds: [],
     });
     useZenStore.getState().openFile("/Users/Baden/notes/brief.md");
-    expect(getFsReadFile).toHaveBeenCalledWith("/Users/Baden/notes/brief.md");
+    expect(getFsReadFile).toHaveBeenCalledWith(expect.anything(), "/Users/Baden/notes/brief.md");
   });
 
   it("a missing resource does not open", () => {
@@ -1880,7 +1861,7 @@ describe("Workspace Resources in the Files pane", () => {
     const id = `${WS}/src/zen/ThreadPane.tsx`;
     expect(useZenStore.getState().openFileIds).toEqual([id]);
     expect(useZenStore.getState().files.find((f) => f.id === id)?.linked).toBe(true);
-    expect(getFsReadFile).toHaveBeenCalledWith(id);
+    expect(getFsReadFile).toHaveBeenCalledWith(expect.anything(), id);
   });
 
   it("a chat link still opens after the resources read failed", () => {
@@ -1892,7 +1873,7 @@ describe("Workspace Resources in the Files pane", () => {
       openFileIds: [],
     });
     useZenStore.getState().openFileFromPath("AGENTS.md");
-    expect(getFsReadFile).toHaveBeenCalledWith(`${WS}/AGENTS.md`);
+    expect(getFsReadFile).toHaveBeenCalledWith(expect.anything(), `${WS}/AGENTS.md`);
   });
 
   it("opening the pane re-reads the list without dropping an open tab", async () => {
@@ -1912,7 +1893,7 @@ describe("Workspace Resources in the Files pane", () => {
     vi.mocked(getWorkspaceResources).mockImplementationOnce(() => pending.promise);
     useZenStore.getState().toggleFiles();
     expect(useZenStore.getState().filesOpen).toBe(true);
-    expect(getWorkspaceResources).toHaveBeenCalledWith(WS);
+    expect(getWorkspaceResources).toHaveBeenCalledWith(expect.anything(), WS);
     // Quiet refresh: the old list stays up while the GET is out.
     expect(useZenStore.getState().fileSource).toBe("live");
     expect(useZenStore.getState().files.map((f) => f.name)).toContain("old.md");

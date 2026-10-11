@@ -13,6 +13,7 @@ import {
   resolveFeedback,
 } from "./feedback";
 import { useServersStore } from "../stores/servers";
+import { activeScope } from "./scope";
 
 function reply(status: number, body: unknown) {
   const text = typeof body === "string" ? body : JSON.stringify(body);
@@ -45,7 +46,7 @@ afterEach(() => {
 describe("commentFeedback", () => {
   it("an option tap sends optionPick:true and no author", async () => {
     tauriFetch.mockResolvedValue(reply(200, { ok: true, id: "t1", status: "answered" }));
-    await commentFeedback("t1", "Pro", { optionPick: true });
+    await commentFeedback(activeScope(), "t1", "Pro", { optionPick: true });
     const { url, body } = lastCall();
     expect(url).toContain("/cli/feedback/comment");
     expect(body).toEqual({ id: "t1", body: "Pro", optionPick: true });
@@ -54,7 +55,7 @@ describe("commentFeedback", () => {
 
   it("free text is a plain comment: no optionPick, no author", async () => {
     tauriFetch.mockResolvedValue(reply(200, { ok: true, id: "t1", status: "needs_discussion" }));
-    await commentFeedback("t1", "Can we talk about it?");
+    await commentFeedback(activeScope(), "t1", "Can we talk about it?");
     expect(lastCall().body).toEqual({ id: "t1", body: "Can we talk about it?" });
   });
 });
@@ -62,9 +63,9 @@ describe("commentFeedback", () => {
 describe("fetchFeedbackShow", () => {
   it("adds brief=1 only when asked", async () => {
     tauriFetch.mockResolvedValue(reply(200, { ok: true, id: "t1", comments: [] }));
-    await fetchFeedbackShow("t1");
+    await fetchFeedbackShow(activeScope(), "t1");
     expect(lastCall().url).not.toContain("brief=1");
-    await fetchFeedbackShow("t1", { brief: true });
+    await fetchFeedbackShow(activeScope(), "t1", { brief: true });
     expect(lastCall().url).toContain("brief=1");
   });
 });
@@ -72,9 +73,9 @@ describe("fetchFeedbackShow", () => {
 describe("resolveFeedback", () => {
   it("answered carries the agreed answer; other statuses don't", async () => {
     tauriFetch.mockResolvedValue(reply(200, { ok: true }));
-    await resolveFeedback("t1", "answered", "Pro");
+    await resolveFeedback(activeScope(), "t1", "answered", "Pro");
     expect(lastCall().body).toEqual({ id: "t1", status: "answered", answer: "Pro" });
-    await resolveFeedback("t1", "planned");
+    await resolveFeedback(activeScope(), "t1", "planned");
     expect(lastCall().body).toEqual({ id: "t1", status: "planned" });
   });
 
@@ -82,7 +83,7 @@ describe("resolveFeedback", () => {
     tauriFetch.mockResolvedValue(
       reply(400, { ok: false, error: { code: "usage", hint: "bad status" } })
     );
-    await expect(resolveFeedback("t1", "waiting")).rejects.toThrow("bad status");
+    await expect(resolveFeedback(activeScope(), "t1", "waiting")).rejects.toThrow("bad status");
   });
 });
 
@@ -98,14 +99,14 @@ describe("fetchTicketUsers", () => {
         ],
       })
     );
-    expect(await fetchTicketUsers()).toEqual(["owner", "julie"]);
+    expect(await fetchTicketUsers(activeScope())).toEqual(["owner", "julie"]);
   });
 
   it("falls back to /cli/users on an older daemon", async () => {
     tauriFetch
       .mockResolvedValueOnce(reply(404, "route not found"))
       .mockResolvedValueOnce(reply(200, { users: [{ username: "julie" }] }));
-    expect(await fetchTicketUsers()).toEqual(["owner", "julie"]);
+    expect(await fetchTicketUsers(activeScope())).toEqual(["owner", "julie"]);
     expect(lastCall().url).toContain("/cli/users");
   });
 });
@@ -121,7 +122,7 @@ describe("fetchAllFeedback", () => {
         ],
       })
     );
-    const rows = await fetchAllFeedback([]);
+    const rows = await fetchAllFeedback(activeScope(), []);
     expect(lastCall().url).toContain("/cli/feedback/list-all");
     expect(rows.map((r) => [r.id, r.linked])).toEqual([
       ["b", false],
@@ -133,7 +134,7 @@ describe("fetchAllFeedback", () => {
     tauriFetch
       .mockResolvedValueOnce(reply(404, "route not found"))
       .mockResolvedValueOnce(reply(200, { ok: true, items: [{ id: "a", status: "waiting", createdAt: 1 }] }));
-    const rows = await fetchAllFeedback([{ name: "K2", path: "/k2" }]);
+    const rows = await fetchAllFeedback(activeScope(), [{ name: "K2", path: "/k2" }]);
     expect(lastCall().url).toContain("/cli/feedback/list?");
     expect(rows[0]).toMatchObject({ id: "a", projectName: "K2" });
   });

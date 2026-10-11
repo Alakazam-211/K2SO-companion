@@ -1,7 +1,7 @@
 // Grid-WS URL + attach policy.
 //
 // Two origins, do not smash them together:
-//   Connect / daemon (`getBaseUrl()` today) → `/cli/sessions/grid`
+//   Connect / daemon (the socket's `scope.httpBase()`) → `/cli/sessions/grid`
 //     with the Connect `/cli/auth/login` token.
 //   Companion tunnel (capabilities `gridProto:["k1"]` + a companion
 //     token) → `/companion/sessions/grid` with the `/companion/auth`

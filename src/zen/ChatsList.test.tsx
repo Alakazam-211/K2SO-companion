@@ -7,8 +7,6 @@ vi.mock("../api/client", () => ({
   inspectProjectsSummary: vi.fn(),
   getAgentList: vi.fn(),
   getCliProjectsList: vi.fn(),
-  getToken: vi.fn(() => ""),
-  getBaseUrl: vi.fn(() => ""),
   getProjects: vi.fn(),
   getWorkspaceResources: vi.fn(),
   getFsReadFile: vi.fn(),
@@ -679,7 +677,7 @@ describe("ChatsList", () => {
       pointerId: 1,
     });
     // Server pin: projects/update {id, pinned: 1}, then the drop spot.
-    expect(setProjectPinned).toHaveBeenCalledWith("pa", true);
+    expect(setProjectPinned).toHaveBeenCalledWith(expect.anything(), "pa", true);
     expect(useZenStore.getState().pinnedIds).toEqual(["/a"]);
     expect(screen.getByLabelText("Pinned alpha")).not.toBeNull();
     // Pinned: it moved into the grid, so its list row is gone.
@@ -724,7 +722,7 @@ describe("ChatsList", () => {
       clientY: 400,
       pointerId: 2,
     });
-    expect(setProjectPinned).toHaveBeenLastCalledWith("pa", false);
+    expect(setProjectPinned).toHaveBeenLastCalledWith(expect.anything(), "pa", false);
     expect(useZenStore.getState().pinnedIds).toEqual([]);
     expect(screen.queryByLabelText("Pinned alpha")).toBeNull();
     expect(screen.queryByTestId("chats-pins")).toBeNull();
@@ -791,7 +789,7 @@ describe("ChatsList", () => {
     });
     expect(useZenStore.getState().pinnedIds).toEqual([b.id, a.id]);
     // Pinned ids only, in the new order (desktop Sidebar parity).
-    expect(reorderProjects).toHaveBeenCalledWith(["pb", "pa"]);
+    expect(reorderProjects).toHaveBeenCalledWith(expect.anything(), ["pb", "pa"]);
     expect(setProjectPinned).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
@@ -819,7 +817,7 @@ describe("ChatsList", () => {
           kind: "agent",
         },
       ],
-      lastAtByKey: { "t:old": 10, "t:new": 50 },
+      lastAtByKey: { "s1|t:old": 10, "s1|t:new": 50 },
       agentError: null,
       screen: "list",
     });
@@ -846,7 +844,7 @@ describe("ChatsList", () => {
           live: true,
         },
       ],
-      lastAtByKey: { "t:appa": Date.now() / 1000 },
+      lastAtByKey: { "s1|t:appa": Date.now() / 1000 },
       agentError: null,
       screen: "list",
     });
@@ -1325,7 +1323,7 @@ describe("ChatsList", () => {
       vi.mocked(getFocusGroupsList).mockClear();
       openPicker(A);
       fireEvent.click(screen.getByTestId("group-pick-g2"));
-      expect(assignFocusGroup).toHaveBeenCalledWith("pa", "g2");
+      expect(assignFocusGroup).toHaveBeenCalledWith(expect.anything(), "pa", "g2");
       // Optimistic: membership changes before the server answers.
       expect(groupOf("pa")).toBe("g2");
       expect(screen.queryByTestId("group-picker")).toBeNull();
@@ -1346,7 +1344,7 @@ describe("ChatsList", () => {
       fireEvent.click(screen.getByTestId("group-pick-g2"));
       await flush();
       fireEvent.click(screen.getByTestId("group-toast-undo"));
-      expect(assignFocusGroup).toHaveBeenLastCalledWith("pa", "g1");
+      expect(assignFocusGroup).toHaveBeenLastCalledWith(expect.anything(), "pa", "g1");
       expect(groupOf("pa")).toBe("g1");
       expect(screen.queryByTestId("group-toast")).toBeNull();
       expect(screen.getByLabelText(A.name)).not.toBeNull();
@@ -1357,7 +1355,7 @@ describe("ChatsList", () => {
       setup();
       openPicker(A);
       fireEvent.click(screen.getByTestId("group-pick-none"));
-      expect(assignFocusGroup).toHaveBeenCalledWith("pa", null);
+      expect(assignFocusGroup).toHaveBeenCalledWith(expect.anything(), "pa", null);
       expect(groupOf("pa")).toBeNull();
       // Ungrouped shows in every group: alpha stays.
       expect(screen.getByLabelText(A.name)).not.toBeNull();
@@ -1388,8 +1386,8 @@ describe("ChatsList", () => {
       fireEvent.change(input, { target: { value: "  Ops " } });
       fireEvent.click(screen.getByTestId("group-new-add"));
       await flush();
-      expect(createFocusGroup).toHaveBeenCalledWith("Ops");
-      expect(assignFocusGroup).toHaveBeenCalledWith("pb", "g3");
+      expect(createFocusGroup).toHaveBeenCalledWith(expect.anything(), "Ops");
+      expect(assignFocusGroup).toHaveBeenCalledWith(expect.anything(), "pb", "g3");
       expect(vi.mocked(createFocusGroup).mock.invocationCallOrder[0]).toBeLessThan(
         vi.mocked(assignFocusGroup).mock.invocationCallOrder[0]
       );
@@ -1536,7 +1534,7 @@ describe("ChatsList", () => {
       drop.getBoundingClientRect = () =>
         ({ left: 0, right: 300, top: 0, bottom: 90, width: 300, height: 90, x: 0, y: 0, toJSON() { return {}; } }) as DOMRect;
       fireEvent.pointerUp(home(), { clientX: 40, clientY: 40, pointerId: 10 });
-      expect(setProjectPinned).toHaveBeenCalledWith("pb", true);
+      expect(setProjectPinned).toHaveBeenCalledWith(expect.anything(), "pb", true);
       expect(screen.getByLabelText(`Pinned ${B.name}`)).not.toBeNull();
       expect(assignFocusGroup).not.toHaveBeenCalled();
       expect(screen.queryByTestId("group-picker")).toBeNull();
@@ -1563,7 +1561,7 @@ describe("ChatsList", () => {
       fireEvent.pointerDown(unpin, { clientX: 0, clientY: 0, button: 0, pointerId: 5 });
       fireEvent.pointerUp(home(), { clientX: 0, clientY: 0, pointerId: 5 });
       fireEvent.click(unpin);
-      expect(setProjectPinned).toHaveBeenCalledWith("pa", false);
+      expect(setProjectPinned).toHaveBeenCalledWith(expect.anything(), "pa", false);
       expect(assignFocusGroup).not.toHaveBeenCalled();
     });
 
@@ -1576,7 +1574,7 @@ describe("ChatsList", () => {
   });
   describe("pin grid: one place per agent, long-press menu, activity", () => {
     // Newest first: bravo, alpha, charlie.
-    const LAST = { "t:alpha": 30, "t:bravo": 50, "t:charlie": 10 };
+    const LAST = { "s1|t:alpha": 30, "s1|t:bravo": 50, "s1|t:charlie": 10 };
     const listIds = () =>
       [...document.querySelectorAll("[data-pin-from='list']")].map((n) =>
         n.getAttribute("data-pin-id")
@@ -1677,7 +1675,7 @@ describe("ChatsList", () => {
       fireEvent.click(screen.getByTestId("pin-menu-unpin"));
       expect(setProjectPinned).not.toHaveBeenCalled();
       tap(screen.getByTestId("pin-menu-unpin"));
-      expect(setProjectPinned).toHaveBeenCalledWith("pa", false);
+      expect(setProjectPinned).toHaveBeenCalledWith(expect.anything(), "pa", false);
       expect(screen.queryByTestId("pin-menu")).toBeNull();
       expect(screen.queryByLabelText(`Pinned ${LA.name}`)).toBeNull();
       // alpha (30) sorts back between bravo's old place and charlie (10).
@@ -1716,7 +1714,7 @@ describe("ChatsList", () => {
       expect(screen.queryByTestId("pin-menu")).toBeNull();
       expect(screen.getByTestId("pin-ghost")).not.toBeNull();
       fireEvent.pointerUp(home(), { clientX: 40, clientY: 400, pointerId: 4 });
-      expect(setProjectPinned).toHaveBeenCalledWith("pa", false);
+      expect(setProjectPinned).toHaveBeenCalledWith(expect.anything(), "pa", false);
       expect(listIds()).toContain(LA.id);
     });
 

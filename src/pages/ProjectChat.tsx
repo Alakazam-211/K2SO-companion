@@ -51,6 +51,8 @@ import {
 import { displayAuthor, isMyAuthor } from "../lib/sessionAuthor";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
 
+import { activeScope } from "../api/scope";
+import { useActiveScope } from "../lib/useScope";
 /** The most recent post's delivery outcome, rendered under its bubble. */
 interface LastPost {
   messageId: string;
@@ -64,7 +66,7 @@ export function ProjectChat() {
   const activeServerId = useServersStore((s) => s.activeServerId);
   const revision = useProjectGroupsStore((s) => s.revision);
   const containerHeight = useViewportHeight();
-  const identity = useSessionIdentity();
+  const identity = useSessionIdentity(useActiveScope());
 
   const [show, setShow] = useState<ProjectGroupShow | null>(null);
   const [showError, setShowError] = useState<string | null>(null);
@@ -117,7 +119,7 @@ export function ProjectChat() {
   useEffect(() => {
     if (!groupId) return;
     let cancelled = false;
-    void fetchProjectGroupShow(groupId).then((r) => {
+    void fetchProjectGroupShow(activeScope(), groupId).then((r) => {
       if (cancelled) return;
       if (r.ok && r.data) {
         setShow(r.data);
@@ -134,7 +136,7 @@ export function ProjectChat() {
   const load = useCallback(
     async (lim: number): Promise<void> => {
       if (!groupId) return;
-      const r = await fetchProjectGroupMessages(groupId, { limit: lim });
+      const r = await fetchProjectGroupMessages(activeScope(), groupId, { limit: lim });
       if (r.ok && r.data) {
         const page = r.data;
         // Merge, don't replace: earlier-loaded history survives a live
@@ -203,7 +205,7 @@ export function ProjectChat() {
     setRefreshing(true);
     try {
       await load(limitRef.current);
-      const r = await fetchProjectGroupShow(groupId);
+      const r = await fetchProjectGroupShow(activeScope(), groupId);
       if (r.ok && r.data) {
         setShow(r.data);
         setShowError(null);
@@ -218,7 +220,7 @@ export function ProjectChat() {
     if (!text || busy || !groupId) return;
     setBusy(true);
     setSendError(null);
-    void postProjectGroupMessage(groupId, text).then((r) => {
+    void postProjectGroupMessage(activeScope(), groupId, text).then((r) => {
       setBusy(false);
       if (!r.ok || !r.data) {
         setSendError(r.error ?? "Failed to send");

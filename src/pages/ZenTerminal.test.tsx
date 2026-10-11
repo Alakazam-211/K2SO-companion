@@ -101,8 +101,6 @@ vi.mock("../api/sendMessage", () => ({
 }));
 
 vi.mock("../api/client", () => ({
-  getToken: vi.fn(() => ""),
-  getBaseUrl: vi.fn(() => ""),
   getProjects: vi.fn(),
   getAgentList: vi.fn(),
   getCliProjectsList: vi.fn(),
@@ -141,6 +139,15 @@ import { ThreadPane } from "../zen/ThreadPane";
 import { ChatSession } from "./ChatSession";
 import { Zen } from "./Zen";
 import { ZenTerminal } from "./ZenTerminal";
+
+/** MA21: the session token lives in the servers store (Zen reads it from
+ *  its scope), not a mocked `getToken`. "" = signed out (stub list). */
+function setSessionToken(token: string) {
+  useServersStore.setState((s) => ({
+    tokens: token ? { ...s.tokens, s1: token } : {},
+  }));
+}
+
 
 const AGENT: ZenTerminalAgent = {
   agentId: STUB_AGENTS[0].id,
@@ -182,6 +189,8 @@ beforeEach(() => {
     tokens: { s1: "t" },
     recovery: { s1: "connected" },
   });
+  // The old `getToken` mock defaulted to "" (signed out).
+  setSessionToken("");
   useWorkspacesStore.setState({ allSessions: [], projects: [] });
   useZenStore.setState({ agents: [], agentId: "", screen: "list" });
   rememberZenThread(null);
@@ -503,7 +512,7 @@ describe("ZenTerminal", () => {
     renderAt({ pathname: zenTerminalPath("t-old"), state: { agent: AGENT } });
     fireEvent.click(screen.getByRole("button", { name: "Reload session" }));
     await waitFor(() => expect(termProps[termProps.length - 1]?.terminalId).toBe("t-new"));
-    expect(ensurePinnedChat).toHaveBeenCalledWith("/ws/appa", { forceRespawn: true });
+    expect(ensurePinnedChat).toHaveBeenCalledWith(expect.anything(), "/ws/appa", { forceRespawn: true });
     expect(screen.getByTestId("zen-terminal-title").textContent).toBe("Appa");
   });
 
@@ -589,7 +598,7 @@ describe("ZenTerminal", () => {
     fireEvent.change(input, { target: { value: "line one\nline two" } });
     fireEvent.click(screen.getByRole("button", { name: "Send" }));
     await waitFor(() =>
-      expect(sendMessageToSession).toHaveBeenCalledWith("t1", "line one\nline two")
+      expect(sendMessageToSession).toHaveBeenCalledWith(expect.anything(), "t1", "line one\nline two")
     );
     await waitFor(() => expect((input as HTMLTextAreaElement).value).toBe(""));
   });
@@ -612,7 +621,7 @@ describe("ZenTerminal", () => {
       target: { files: [file] },
     });
     await waitFor(() => expect(input.value).toBe("read this\n/ws/appa/note.txt"));
-    expect(vi.mocked(uploadFsBinary).mock.calls[0].slice(0, 3)).toEqual([
+    expect(vi.mocked(uploadFsBinary).mock.calls[0].slice(1, 4)).toEqual([
       "appa",
       "/ws/appa",
       "note.txt",

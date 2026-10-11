@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from
 import { useServersStore, getActiveServer } from "./stores/servers";
 import { useWorkspacesStore } from "./stores/workspaces";
 import { ensureRegistered, attachPushNavigation } from "./lib/push";
+import { scopeFor } from "./api/scope";
 import { TabBar } from "./components/TabBar";
 import { ServerFooter } from "./components/ServerFooter";
 import { Login } from "./pages/Login";
@@ -113,7 +114,7 @@ function AppLayout() {
       // deviceId — absorbs token rotation). Gated internally on plugin
       // availability + the Settings toggle; never throws.
       const active = getActiveServer();
-      if (active) void ensureRegistered(active);
+      if (active) void ensureRegistered(scopeFor(active.id));
     }
     return startListening();
   }, [activeServerId]);

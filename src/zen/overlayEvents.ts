@@ -1,4 +1,5 @@
-import { getBaseUrl, getToken, type ThreadItem } from "../api/client";
+import type { ThreadItem } from "../api/client";
+import type { ServerScope } from "../api/scope";
 import { overlayEventsUrl } from "./threadLive";
 
 export const OVERLAY_POLL_MS = 2000;
@@ -8,8 +9,12 @@ export type OverlayLiveHandle = { stop: () => void };
 
 /** Skin live path: WS `/cli/overlay/events?conversation=`. Token query
  *  because WebSocket cannot set Authorization. After two handshake
- *  failures, poll GET every 2s and retry the socket once a minute. */
+ *  failures, poll GET every 2s and retry the socket once a minute.
+ *
+ *  Multi-server (MS6/MA5): opened on `scope`; every reopen rebuilds its URL
+ *  from that scope (fresh token), never from the active server. */
 export function connectOverlayEvents(opts: {
+  scope: ServerScope;
   conversationId: string;
   onItem: (raw: ThreadItem) => void;
   onNeedCatchUp: () => void;
@@ -54,11 +59,12 @@ export function connectOverlayEvents(opts: {
 
   function open() {
     if (stopped) return;
-    const url = overlayEventsUrl(
-      getBaseUrl(),
-      getToken(),
-      opts.conversationId
-    );
+    let url: string | null = null;
+    try {
+      url = overlayEventsUrl(opts.scope.httpBase(), opts.scope.token(), opts.conversationId);
+    } catch {
+      url = null; // ServerRemovedError: poll answers "removed" from its own scope
+    }
     if (!url) {
       startPoll();
       return;

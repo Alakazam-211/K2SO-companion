@@ -5,9 +5,8 @@
 // and the agent is framed `[from <username>]`. The phone must treat
 // "mine" as that session identity — not every `"owner"` row.
 
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { cliAuthHeaders } from "../api/cliAuth";
-import { getBaseUrl, getToken } from "../api/client";
+import { scopedFetch } from "../api/scopedFetch";
+import { serverMemory, type ServerScope } from "../api/scope";
 import { useServersStore } from "../stores/servers";
 
 export interface SessionIdentity {
@@ -19,8 +18,9 @@ export interface SessionIdentity {
   role?: string | null;
 }
 
-let cached: { serverId: string | null; identity: SessionIdentity } | null =
-  null;
+// One identity per server (MA6): a whoami for server B never answers for
+// server A. Dropped when a server is removed or re-keyed (MS3).
+const cached = serverMemory<{ identity: SessionIdentity | null }>(() => ({ identity: null }));
 const listeners = new Set<() => void>();
 
 function emit(): void {
@@ -32,8 +32,9 @@ export function subscribeIdentity(fn: () => void): () => void {
   return () => listeners.delete(fn);
 }
 
-export function getIdentity(): SessionIdentity | null {
-  return cached?.identity ?? null;
+/** The cached identity for `scope`'s server, or null before the first probe. */
+export function getIdentity(scope: ServerScope): SessionIdentity | null {
+  return cached.peek(scope.id)?.identity ?? null;
 }
 
 /** True when this row was posted by the signed-in session. */
@@ -54,48 +55,49 @@ export function displayAuthor(
   return isMyAuthor(author, identity) ? "You" : author;
 }
 
-/** Probe `/cli/auth/whoami` for the active server. Cached per server. */
-export async function ensureIdentity(): Promise<SessionIdentity | null> {
-  const serverId = useServersStore.getState().activeServerId;
-  if (cached && cached.serverId === serverId) return cached.identity;
-  const base = getBaseUrl();
-  const token = getToken();
+/** Probe `/cli/auth/whoami` on `scope`'s server. Cached per server. No
+ *  revive: an identity probe must not move recovery state. */
+export async function ensureIdentity(scope: ServerScope): Promise<SessionIdentity | null> {
+  const hit = cached.peek(scope.id)?.identity;
+  if (hit) return hit;
+  const entry = useServersStore.getState().servers.find((s) => s.id === scope.id);
   const fallback: SessionIdentity = {
-    username: useServersStore.getState().servers.find((s) => s.id === serverId)
-      ?.username ?? "owner",
+    username: entry?.username ?? "owner",
     owner: false,
   };
-  if (!base || !token) {
-    cached = { serverId, identity: fallback };
+  const remember = (identity: SessionIdentity): SessionIdentity => {
+    cached.get(scope.id).identity = identity;
     emit();
-    return fallback;
-  }
+    return identity;
+  };
+  let base = "";
+  let token = "";
   try {
-    const res = await tauriFetch(`${base}/cli/auth/whoami`, {
-      headers: cliAuthHeaders(token),
-    });
+    base = scope.httpBase();
+    token = scope.token();
+  } catch {
+    return remember(fallback);
+  }
+  if (!base || !token) return remember(fallback);
+  try {
+    const res = await scopedFetch(scope, "/cli/auth/whoami", { revive: false });
     if (!res.ok) throw new Error(String(res.status));
-    const j = (await res.json()) as {
+    const j = JSON.parse(res.text) as {
       username?: string | null;
       owner?: boolean;
       role?: string | null;
     };
-    const identity: SessionIdentity = {
+    return remember({
       username: (j.username && j.username.trim()) || fallback.username,
       owner: j.owner === true,
       role: typeof j.role === "string" && j.role.trim() ? j.role.trim() : null,
-    };
-    cached = { serverId, identity };
-    emit();
-    return identity;
+    });
   } catch {
-    cached = { serverId, identity: fallback };
-    emit();
-    return fallback;
+    return remember(fallback);
   }
 }
 
-/** Tests / server-switch. */
+/** Tests only. */
 export function __resetIdentityForTests(): void {
-  cached = null;
+  cached.clear();
 }

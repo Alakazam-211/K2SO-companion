@@ -31,6 +31,7 @@ import {
   rowFocusGroupId,
 } from "./serverPins";
 import { connectProjectEvents } from "./ticketEvents";
+import { useZenScope } from "./zenScope";
 import { mountainListWhen } from "./threadModel";
 import { usePinDrag } from "./usePinDrag";
 import { SWIPE_ACTION_W, swipeReveal, useRowSwipe } from "./useRowSwipe";
@@ -318,7 +319,9 @@ export function ChatsList() {
   const [newWorkspace, setNewWorkspace] = useState(false);
   // A created workspace that could not open straight into its chat.
   const [newRowPath, setNewRowPath] = useState<string | null>(null);
-  const identity = useSessionIdentity();
+  // The server this list talks to (MS4/MS5): today the active server.
+  const zen = useZenScope();
+  const identity = useSessionIdentity(zen);
   const canCreate = canCreateWorkspace(identity);
   useEffect(() => {
     if (!newRowPath) return;
@@ -350,7 +353,7 @@ export function ChatsList() {
   const filtered = sortChatsByRecency(
     searching ? visible : filterByFocus(visible, focus, serverProjects, pinnedIds),
     lastAtByKey,
-    lastAtKeyFor
+    (a) => lastAtKeyFor(zen.id, a)
   );
   // Each agent shows once: in the pin grid, or in the list. Search hides
   // the grid, so there every hit (pinned too) is a row.
@@ -396,12 +399,12 @@ export function ChatsList() {
       useZenStore.getState().refreshServerLists();
     };
     document.addEventListener("visibilitychange", onVis);
-    const events = connectProjectEvents(() => void useZenStore.getState().refreshPins());
+    const events = connectProjectEvents(zen, () => void useZenStore.getState().refreshPins());
     return () => {
       document.removeEventListener("visibilitychange", onVis);
       events.stop();
     };
-  }, [live, activeServerId]);
+  }, [live, zen]);
 
   useEffect(() => {
     if (!group) setGroupMenu(false);
@@ -436,7 +439,8 @@ export function ChatsList() {
   }, [q]);
 
   useEffect(() => {
-    useFeedbackStore.getState().ensureLive();
+    // MA9: Zen rides the server's one shared sessions/events socket.
+    useFeedbackStore.getState().ensureLive({ via: "hub" });
     const onVis = () => {
       if (document.visibilityState === "visible") {
         void useFeedbackStore.getState().refresh();
@@ -449,10 +453,10 @@ export function ChatsList() {
   useEffect(() => {
     if (source !== "live") return;
     for (const a of agents) {
-      const key = lastAtKeyFor(a);
+      const key = lastAtKeyFor(zen.id, a);
       if (key) ensureLastAt(key);
     }
-  }, [agents, source, ensureLastAt]);
+  }, [agents, source, ensureLastAt, zen]);
 
   useEffect(() => {
     if (source !== "live") return;
@@ -989,7 +993,7 @@ export function ChatsList() {
           </p>
         ) : null}
         {rows.map((a) => {
-          const lastKey = source === "live" ? lastAtKeyFor(a) ?? undefined : undefined;
+          const lastKey = source === "live" ? lastAtKeyFor(zen.id, a) ?? undefined : undefined;
           const when =
             lastKey && lastAtByKey[lastKey] != null
               ? mountainListWhen(lastAtByKey[lastKey] as number)

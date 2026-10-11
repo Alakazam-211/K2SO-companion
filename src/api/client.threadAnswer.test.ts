@@ -7,6 +7,7 @@ vi.mock("@tauri-apps/plugin-http", () => ({
 
 import { answerThread } from "./client";
 import { useServersStore } from "../stores/servers";
+import { activeScope } from "./scope";
 
 describe("answerThread", () => {
   beforeEach(() => {
@@ -40,7 +41,7 @@ describe("answerThread", () => {
       ok: true,
       text: async () => JSON.stringify({ ok: true }),
     });
-    const r = await answerThread("appa", "card-1", "Approve");
+    const r = await answerThread(activeScope(), "appa", "card-1", "Approve");
     expect(r.ok).toBe(true);
     expect(tauriFetch).toHaveBeenCalledTimes(1);
     const [url, opts] = tauriFetch.mock.calls[0] as [

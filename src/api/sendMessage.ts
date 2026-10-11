@@ -1,8 +1,5 @@
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { cliAuthHeaders } from "./cliAuth";
-import { getBaseUrl, getToken } from "./client";
-import { useServersStore } from "../stores/servers";
-import { isPossibleAuthFailure, reviveServerSession } from "../lib/revive";
+import { scopedFetch } from "./scopedFetch";
+import type { ServerScope } from "./scope";
 import { interpretSendResponse, type SendOutcome } from "../lib/sendMode";
 
 // T3 Safe send — `POST /cli/terminal/send-message` (Bearer) with body
@@ -15,11 +12,10 @@ import { interpretSendResponse, type SendOutcome } from "../lib/sendMode";
 // hint); a 403 is the capability gate. Mapping lives in sendMode.ts
 // (pure, Node-tested); this module is transport only.
 //
-// client.ts doesn't export its request wrapper, so this carries the same
-// minimal fetch with the SAME stale-session contract as feedback.ts:
-// auth-classified rejection → revive (single-flight whoami + silent
-// re-login) → replay ONCE only when a fresh token was actually minted.
-// That layer eats the stale-token 403; a 403 that survives it is the
+// Transport is the shared `scopedFetch` on the caller's scope (MS5/MA4):
+// auth-classified rejection → revive THAT server → replay ONCE on the same
+// scope only when a fresh token was minted. That layer eats the
+// stale-token 403; a 403 that survives it is the
 // remote-instruct decline, which interpretSendResponse surfaces as
 // "This workspace hasn't enabled remote instruction for your role."
 //
@@ -33,40 +29,16 @@ const SEND_TIMEOUT_MS = 30000;
  *  Never throws — every failure comes back as `{ok:false, message}`
  *  ready for the composer's accessory row. */
 export async function sendMessageToSession(
+  scope: ServerScope,
   sessionId: string,
   text: string
 ): Promise<SendOutcome> {
-  const attempt = async (): Promise<{ status: number; text: string }> => {
-    const base = getBaseUrl();
-    if (!base) throw new Error("Not connected");
-    const token = getToken();
-    const url = `${base}/cli/terminal/send-message`;
-    const res = await Promise.race([
-      tauriFetch(url, {
-        method: "POST",
-        headers: cliAuthHeaders(token),
-        body: JSON.stringify({ session_id: sessionId, text }),
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Request timed out")), SEND_TIMEOUT_MS)
-      ),
-    ]);
-    return { status: res.status, text: await res.text() };
-  };
-
   try {
-    let out = await attempt();
-    if (isPossibleAuthFailure(out.status, out.text)) {
-      const serverId = useServersStore.getState().activeServerId;
-      if (serverId) {
-        const outcome = await reviveServerSession(serverId);
-        // 'revived' = a NEW token was minted; replay once so a daemon
-        // restart doesn't surface as a phantom permission decline. Any
-        // other outcome keeps the original response (a still-valid
-        // token that 403s here is the real remote-instruct gate).
-        if (outcome === "revived") out = await attempt();
-      }
-    }
+    const out = await scopedFetch(scope, "/cli/terminal/send-message", {
+      method: "POST",
+      body: JSON.stringify({ session_id: sessionId, text }),
+      timeoutMs: SEND_TIMEOUT_MS,
+    });
     return interpretSendResponse(out.status, out.text);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";

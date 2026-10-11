@@ -4,8 +4,6 @@ import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-libra
 import { MemoryRouter } from "react-router-dom";
 
 vi.mock("../api/client", () => ({
-  getToken: vi.fn(() => ""),
-  getBaseUrl: vi.fn(() => ""),
   getProjects: vi.fn(),
   getAgentList: vi.fn(),
   getCliProjectsList: vi.fn(),
@@ -31,11 +29,20 @@ vi.mock("../api/projectGroups", () => ({
   postProjectGroupMessage: vi.fn(),
 }));
 
-import { getAgentList, getAllSessions, getCliProjectsList, getToken, setSessionLabel, setTabTitle } from "../api/client";
+import { getAgentList, getAllSessions, getCliProjectsList, setSessionLabel, setTabTitle } from "../api/client";
 import { useServersStore } from "../stores/servers";
 import { STUB_AGENTS, STUB_FILES } from "../zen/stubData";
 import { useZenStore } from "../zen/zenStore";
 import { Zen } from "./Zen";
+
+/** MA21: the session token lives in the servers store (Zen reads it from
+ *  its scope), not a mocked `getToken`. "" = signed out (stub list). */
+function setSessionToken(token: string) {
+  useServersStore.setState((s) => ({
+    tokens: token ? { ...s.tokens, s1: token } : {},
+  }));
+}
+
 
 afterEach(() => {
   cleanup();
@@ -58,6 +65,8 @@ beforeEach(() => {
     tokens: { s1: "t" },
     recovery: { s1: "connected" },
   });
+  // The old `getToken` mock defaulted to "" (signed out).
+  setSessionToken("");
 });
 
 describe("Zen keeps the chats list mounted", () => {
@@ -90,7 +99,7 @@ describe("Zen keeps the chats list mounted", () => {
   });
 
   it("a live chat header is the agent name, not a LIVE agents tagline", async () => {
-    vi.mocked(getToken).mockReturnValue("t");
+    setSessionToken("t");
     vi.mocked(getAgentList).mockResolvedValue({
       ok: true,
       data: {
@@ -136,7 +145,7 @@ describe("Zen keeps the chats list mounted", () => {
   });
 
   it("a stub chat header still says STUB", async () => {
-    vi.mocked(getToken).mockReturnValue("");
+    setSessionToken("");
     useZenStore.setState({
       agentSource: "stub",
       fileSource: "stub",
@@ -161,7 +170,7 @@ describe("Zen keeps the chats list mounted", () => {
   });
 
   it("thread header has Files and Terminal icons, no side View Files bar", async () => {
-    vi.mocked(getToken).mockReturnValue("");
+    setSessionToken("");
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
@@ -190,7 +199,7 @@ describe("Zen keeps the chats list mounted", () => {
   });
 
   it("?thread= opens that overlay chat after hydrate", async () => {
-    vi.mocked(getToken).mockReturnValue("");
+    setSessionToken("");
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
@@ -214,7 +223,7 @@ describe("Zen keeps the chats list mounted", () => {
   });
 
   it("Back from a ?thread= entry shows the chats list, not an empty thread", async () => {
-    vi.mocked(getToken).mockReturnValue("");
+    setSessionToken("");
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
@@ -255,7 +264,7 @@ describe("Zen keeps the chats list mounted", () => {
   });
 
   it("Back from a list-opened thread still shows the chats list", async () => {
-    vi.mocked(getToken).mockReturnValue("");
+    setSessionToken("");
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
@@ -283,7 +292,7 @@ describe("Zen keeps the chats list mounted", () => {
   });
 
   it("?thread= first paint is loading, not leftover bubbles", async () => {
-    vi.mocked(getToken).mockReturnValue("t");
+    setSessionToken("t");
     vi.mocked(getAgentList).mockReturnValue(new Promise(() => {}));
     vi.mocked(getCliProjectsList).mockResolvedValue({ ok: true, data: [] });
     useZenStore.setState({
@@ -329,7 +338,7 @@ describe("Zen keeps the chats list mounted", () => {
   });
 
   it("floats an iMessage header with the agent's avatar over a blurred, scrollable list", async () => {
-    vi.mocked(getToken).mockReturnValue("");
+    setSessionToken("");
     const withIcon = { ...STUB_AGENTS[0], color: "#123456", iconUrl: "https://example.k2.dev/icon.png" };
     useZenStore.setState({
       agentSource: "stub",
@@ -384,7 +393,7 @@ describe("Zen keeps the chats list mounted", () => {
   });
 
   it("falls back to the agent's coloured initial when there is no icon", async () => {
-    vi.mocked(getToken).mockReturnValue("");
+    setSessionToken("");
     const plain = { ...STUB_AGENTS[0], initial: "Q", color: "#654321", iconUrl: null };
     useZenStore.setState({
       agentSource: "stub",
@@ -410,7 +419,7 @@ describe("Zen keeps the chats list mounted", () => {
   });
 
   it("sizes the thread column to the visible height above the iOS keyboard", async () => {
-    vi.mocked(getToken).mockReturnValue("");
+    setSessionToken("");
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
@@ -452,7 +461,7 @@ describe("Zen keeps the chats list mounted", () => {
   });
 
   it("tapping the visible chat while a file is open closes the file pane", async () => {
-    vi.mocked(getToken).mockReturnValue("");
+    setSessionToken("");
     useZenStore.setState({
       agentSource: "stub",
       fileSource: "stub",
@@ -488,7 +497,7 @@ describe("Zen keeps the chats list mounted", () => {
   });
 
   it("an extra chat header is the workspace name with the sidecar title under it", async () => {
-    vi.mocked(getToken).mockReturnValue("");
+    setSessionToken("");
     const sess = {
       cwd: "/ws",
       workspaceName: "Skin Test A",
@@ -553,14 +562,14 @@ describe("Zen keeps the chats list mounted", () => {
     await waitFor(() => {
       expect(useZenStore.getState().agents[0]?.chatTitle).toBe("notes");
     });
-    expect(setSessionLabel).toHaveBeenCalledWith("tid-qa088", "notes");
-    expect(setTabTitle).toHaveBeenCalledWith("proj-skin", "tab-qa088", "notes");
+    expect(setSessionLabel).toHaveBeenCalledWith(expect.anything(), "tid-qa088", "notes");
+    expect(setTabTitle).toHaveBeenCalledWith(expect.anything(), "proj-skin", "tab-qa088", "notes");
     fireEvent.click(screen.getByTestId("chat-hide"));
     expect(useZenStore.getState().screen).toBe("list");
   });
 
   it("keeps the rename sheet open when K2 does not take the name", async () => {
-    vi.mocked(getToken).mockReturnValue("");
+    setSessionToken("");
     vi.mocked(getAllSessions).mockResolvedValue({
       ok: true,
       data: [
@@ -625,7 +634,7 @@ describe("Zen keeps the chats list mounted", () => {
   });
 
   it("main chat header is the workspace name with no Hide", async () => {
-    vi.mocked(getToken).mockReturnValue("");
+    setSessionToken("");
     render(
       <MemoryRouter>
         <Zen />
@@ -676,7 +685,7 @@ describe("Zen thread terminal button", () => {
         </div>
       );
     }
-    vi.mocked(getToken).mockReturnValue("");
+    setSessionToken("");
     const appa = { ...STUB_AGENTS[0], path: "/ws/appa", addr: "appa", color: "#123456" };
     vi.mocked(getAllSessions).mockResolvedValue({
       ok: true,

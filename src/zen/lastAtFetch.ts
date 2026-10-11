@@ -1,8 +1,15 @@
 import { getThread, type ThreadItem } from "../api/client";
 import { fetchProjectGroupMessages } from "../api/projectGroups";
+import { scopeFor, serverMemory, type ServerScope } from "../api/scope";
 import { normaliseThreadItem } from "./threadModel";
 
-/** Visible-row last-message time. Cap keeps a scroll from becoming a 61-GET. */
+// Multi-server (MA6): every key is `<serverId>|t:<addr>` or
+// `<serverId>|g:<groupId>`, so the same addr on two servers is two rows,
+// and the fetch for a key runs on THAT server's scope. The in-flight cap
+// applies per server.
+
+/** Visible-row last-message time, per server. Cap keeps a scroll from
+ *  becoming a 61-GET. */
 export const LAST_AT_CAP = 3;
 
 export type LastAtKind = "thread" | "group";
@@ -31,17 +38,36 @@ export function groupLastAt(
   return Number.isFinite(last.createdAt) ? last.createdAt : null;
 }
 
-export function lastAtKey(kind: LastAtKind, id: string): string {
-  return kind === "group" ? `g:${id}` : `t:${id}`;
+/** `<serverId>|t:<addr>` / `<serverId>|g:<groupId>`. */
+export function lastAtKey(serverId: string, kind: LastAtKind, id: string): string {
+  return `${serverId}|${kind === "group" ? `g:${id}` : `t:${id}`}`;
 }
 
-export function lastAtKeyFor(row: {
-  kind?: string | null;
-  groupId?: string | null;
-  addr?: string | null;
-}): string | null {
-  if (row.kind === "group" && row.groupId) return lastAtKey("group", row.groupId);
-  if (row.addr) return lastAtKey("thread", row.addr);
+/** Split a `lastAtKey` back into its server, kind and id. */
+export function parseLastAtKey(
+  key: string
+): { serverId: string; kind: LastAtKind; id: string } | null {
+  const bar = key.indexOf("|");
+  if (bar < 0) return null;
+  const serverId = key.slice(0, bar);
+  const local = key.slice(bar + 1);
+  const id = local.slice(2);
+  if (!id) return null;
+  if (local.startsWith("g:")) return { serverId, kind: "group", id };
+  if (local.startsWith("t:")) return { serverId, kind: "thread", id };
+  return null;
+}
+
+export function lastAtKeyFor(
+  serverId: string,
+  row: {
+    kind?: string | null;
+    groupId?: string | null;
+    addr?: string | null;
+  }
+): string | null {
+  if (row.kind === "group" && row.groupId) return lastAtKey(serverId, "group", row.groupId);
+  if (row.addr) return lastAtKey(serverId, "thread", row.addr);
   return null;
 }
 
@@ -61,54 +87,70 @@ export function sortChatsByRecency<T>(
     .map((x) => x.row);
 }
 
-const started = new Set<string>();
-let inflight = 0;
-const waiters: Array<() => void> = [];
+// Per server: which keys started, and that server's in-flight queue.
+// Dropped when the server is removed or re-keyed (MS3).
+const perServer = serverMemory(() => ({
+  started: new Set<string>(),
+  inflight: 0,
+  waiters: [] as Array<() => void>,
+}));
 
 /** First caller wins. Later observes of the same row no-op. */
 export function beginLastAt(key: string): boolean {
-  if (started.has(key)) return false;
-  started.add(key);
+  const serverId = parseLastAtKey(key)?.serverId ?? "";
+  const mem = perServer.get(serverId);
+  if (mem.started.has(key)) return false;
+  mem.started.add(key);
   return true;
 }
 
-async function acquire(): Promise<void> {
-  if (inflight >= LAST_AT_CAP) {
+async function acquire(serverId: string): Promise<void> {
+  const mem = perServer.get(serverId);
+  if (mem.inflight >= LAST_AT_CAP) {
     await new Promise<void>((resolve) => {
-      waiters.push(resolve);
+      mem.waiters.push(resolve);
     });
   }
-  inflight += 1;
+  mem.inflight += 1;
 }
 
-function release(): void {
-  inflight = Math.max(0, inflight - 1);
-  const next = waiters.shift();
+function release(serverId: string): void {
+  const mem = perServer.peek(serverId);
+  if (!mem) return;
+  mem.inflight = Math.max(0, mem.inflight - 1);
+  const next = mem.waiters.shift();
   if (next) next();
 }
 
+/** The newest message time for one row, on `scope`'s server. */
 export async function fetchLastAt(
+  scope: ServerScope,
   kind: LastAtKind,
   id: string
 ): Promise<number | null> {
-  await acquire();
+  await acquire(scope.id);
   try {
     if (kind === "group") {
-      const r = await fetchProjectGroupMessages(id, { limit: 1 });
+      const r = await fetchProjectGroupMessages(scope, id, { limit: 1 });
       if (!r.ok) return null;
       return groupLastAt(r.data?.messages);
     }
-    const r = await getThread(id, 1);
+    const r = await getThread(scope, id, 1);
     if (!r.ok) return null;
     return threadLastAt(r.data?.items);
   } finally {
-    release();
+    release(scope.id);
   }
+}
+
+/** `fetchLastAt` for a `lastAtKey` (its own server's scope). */
+export function fetchLastAtForKey(key: string): Promise<number | null> {
+  const parsed = parseLastAtKey(key);
+  if (!parsed) return Promise.resolve(null);
+  return fetchLastAt(scopeFor(parsed.serverId), parsed.kind, parsed.id);
 }
 
 /** Tests only. */
 export function resetLastAtQueue(): void {
-  inflight = 0;
-  waiters.length = 0;
-  started.clear();
+  perServer.clear();
 }

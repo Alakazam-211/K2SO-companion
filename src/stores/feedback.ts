@@ -1,8 +1,10 @@
 import { create } from "zustand";
-import { getBaseUrl, getToken, getProjects } from "../api/client";
+import { getProjects } from "../api/client";
+import { activeScope, scopeFor } from "../api/scope";
 import { useServersStore } from "../stores/servers";
 import { useWorkspacesStore } from "../stores/workspaces";
-import { reviveServerSession } from "../lib/revive";
+import { revive } from "../lib/revive";
+import { connectTicketEvents, type TicketEventsHandle } from "../zen/ticketEvents";
 import {
   fetchAllFeedback,
   fetchFeedbackShow,
@@ -14,8 +16,16 @@ import {
 } from "../api/feedback";
 
 // Feedback C3 — items for the ACTIVE server + the open thread + the live
-// `/events` subscription that keeps both (and the TabBar waiting badge)
-// fresh.
+// subscription that keeps both (and the TabBar waiting badge) fresh.
+// Tickets stay on the default (active) server in v1 (NG6): every action
+// captures `activeScope()` ONCE and uses it for the whole call.
+//
+// Two live transports (MA9):
+//   - Zen (`ensureLive({ via: "hub" })`): the server's ONE shared app socket
+//     `/cli/sessions/events?path=` (`zen/ticketEvents.ts`), the same socket
+//     the Agents list holds for `projects_changed`. No `/events` in Zen, so
+//     a ticket change refetches once, not twice.
+//   - Classic pages (default): the legacy `/events` socket below.
 //
 // The events WS is THIS store's own subscription (no shared events
 // module): `<base>/events?token=` (WebSocket cannot set Authorization;
@@ -58,9 +68,11 @@ interface FeedbackState {
   /** Ticket id → its brief (see BriefEntry). In memory for the session. */
   briefs: Record<string, BriefEntry>;
 
-  /** Idempotent per-server kick: first load + events WS for the active
-   *  server. Called from the TabBar badge and the pages on server switch. */
-  ensureLive: () => void;
+  /** Idempotent per-server kick: first load + live events for the active
+   *  server. Called from the TabBar badge and the pages on server switch.
+   *  `via: "hub"` (Zen) rides the shared sessions/events socket instead of
+   *  the legacy `/events` one (MA9). */
+  ensureLive: (opts?: { via?: "events" | "hub" }) => void;
   refresh: () => Promise<void>;
   /** `withBrief`: the row says `hasBrief`, so the first `show` asks for
    *  `brief=1` too (skipped when the brief is already cached). */
@@ -82,8 +94,9 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
   openError: null,
   briefs: {},
 
-  ensureLive: () => {
-    const serverId = useServersStore.getState().activeServerId;
+  ensureLive: (opts) => {
+    const scope = activeScope();
+    const serverId = scope.id;
     if (!serverId) return;
     if (get().loadedForServer !== serverId) {
       // Server switch: drop the old server's rows immediately (no stale
@@ -94,11 +107,18 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
     // to skip when loadedForServer already matched, so a desktop resolve
     // that missed /events left the waiting badge stuck.
     void get().refresh();
-    events.ensure(serverId);
+    if (opts?.via === "hub") {
+      events.stop();
+      hubLive.ensure(serverId);
+    } else {
+      hubLive.stop();
+      events.ensure(serverId);
+    }
   },
 
   refresh: async () => {
-    const serverId = useServersStore.getState().activeServerId;
+    const scope = activeScope();
+    const serverId = scope.id;
     if (!serverId) {
       set({ rows: [], waitingCount: 0, error: null, loadedForServer: null });
       return;
@@ -111,13 +131,19 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
       // deep-link before that load lands.
       let projects = useWorkspacesStore.getState().projects;
       if (projects.length === 0) {
-        const r = await getProjects();
+        const r = await getProjects(scope);
         if (r.ok && r.data) projects = r.data;
         else throw new Error(r.error || "Failed to load workspaces");
       }
       const rows = await fetchAllFeedback(
+        scope,
         projects.map((p) => ({ name: p.name, path: p.path }))
       );
+      // A switch while loading: these rows belong to the old server.
+      if (useServersStore.getState().activeServerId !== serverId) {
+        set({ isLoading: false });
+        return;
+      }
       set({
         rows,
         waitingCount: countWaiting(rows),
@@ -137,8 +163,9 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
     const wantBrief = opts.withBrief === true && briefMissing(get().briefs[id]);
     set({ openId: id, openItem: null, openError: null });
     if (wantBrief) setBrief(id, { state: "loading" });
+    const scope = activeScope();
     try {
-      const shown = await fetchFeedbackShow(id, { brief: wantBrief });
+      const shown = await fetchFeedbackShow(scope, id, { brief: wantBrief });
       if (wantBrief) setBrief(id, { state: "ready", brief: shown.brief ?? null });
       if (get().openId !== id) return; // navigated away mid-fetch
       set({ openItem: withoutBrief(shown), openError: null });
@@ -152,8 +179,9 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
   loadBrief: async (id) => {
     if (!briefMissing(get().briefs[id])) return;
     setBrief(id, { state: "loading" });
+    const scope = activeScope();
     try {
-      const shown = await fetchFeedbackShow(id, { brief: true });
+      const shown = await fetchFeedbackShow(scope, id, { brief: true });
       setBrief(id, { state: "ready", brief: shown.brief ?? null });
     } catch (err) {
       setBrief(id, { state: "error", error: errText(err) });
@@ -163,8 +191,9 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
   refetchOpen: async () => {
     const id = get().openId;
     if (!id) return;
+    const scope = activeScope();
     try {
-      const item = await fetchFeedbackShow(id);
+      const item = await fetchFeedbackShow(scope, id);
       if (get().openId !== id) return;
       set({ openItem: withoutBrief(item), openError: null });
     } catch {
@@ -271,8 +300,15 @@ class FeedbackEventsSocket {
   private buildUrl(): string | null {
     const active = useServersStore.getState().activeServerId;
     if (!this.serverId || active !== this.serverId) return null;
-    const base = getBaseUrl().replace(/^http/, "ws");
-    const token = getToken();
+    let base: string;
+    let token: string;
+    try {
+      const scope = scopeFor(this.serverId);
+      base = scope.wsBase();
+      token = scope.token();
+    } catch {
+      return null; // removed
+    }
     if (!base || !token) return null;
     return `${base}/events?token=${encodeURIComponent(token)}`;
   }
@@ -333,7 +369,7 @@ class FeedbackEventsSocket {
    *  restarts it. unreachable/cooldown reopen and land back here. */
   private async reviveThenReopen(): Promise<void> {
     if (this.serverId) {
-      const outcome = await reviveServerSession(this.serverId);
+      const outcome = await revive(scopeFor(this.serverId));
       if (!this.shouldReconnect) return;
       if (outcome === "signin-required" || outcome === "not-applicable") {
         this.shouldReconnect = false;
@@ -341,6 +377,12 @@ class FeedbackEventsSocket {
       }
     }
     if (this.shouldReconnect) this.open();
+  }
+
+  /** Close for good (Zen moved to the shared hub). */
+  stop(): void {
+    this.teardown();
+    this.serverId = null;
   }
 
   private teardown(): void {
@@ -355,3 +397,29 @@ class FeedbackEventsSocket {
 }
 
 const events = new FeedbackEventsSocket();
+
+// ─── Zen: the shared sessions/events hub (MA9) ───
+
+/** One hub subscription for the store, on the active server. Ticket frames
+ *  carry ids only: refetch the list and the open thread (debounced). */
+const hubLive = {
+  serverId: null as string | null,
+  handle: null as TicketEventsHandle | null,
+  ensure(serverId: string): void {
+    // Subscribe the new one BEFORE dropping the old: on the same server the
+    // shared socket keeps its other subscribers and never redials. A
+    // not-connected server returns a no-op handle; the next ensure retries.
+    const prev = this.handle;
+    this.serverId = serverId;
+    this.handle = connectTicketEvents(scopeFor(serverId), () => {
+      scheduleListRefresh();
+      scheduleThreadRefetch();
+    });
+    prev?.stop();
+  },
+  stop(): void {
+    this.handle?.stop();
+    this.handle = null;
+    this.serverId = null;
+  },
+};

@@ -1,8 +1,5 @@
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
-import { cliAuthHeaders } from "./cliAuth";
-import { getBaseUrl, getToken } from "./client";
-import { useServersStore } from "../stores/servers";
-import { isPossibleAuthFailure, reviveServerSession } from "../lib/revive";
+import { scopedFetch } from "./scopedFetch";
+import type { ServerScope } from "./scope";
 import {
   sortNewestFirst,
   type CommentResponse,
@@ -23,15 +20,15 @@ import {
 // (feedback-api.ts). Routes, statuses and answering rules: the K2 tickets
 // reference for the phone (2026-10-11).
 //
-// client.ts doesn't export its request wrapper (and C2/C3 must not edit
-// it), so this module carries its own minimal fetch with the SAME
-// stale-session contract: auth-classified rejection → revive (single-flight
-// whoami + silent re-login) → replay ONCE only when a fresh token was
-// actually minted. URL is rebuilt per attempt so the replay carries it.
+// Transport is the shared `scopedFetch` (MS5/MA4): every call takes the
+// scope it talks to, captured once; a stale-session rejection revives THAT
+// server and replays once on the same scope. Tickets stay on the default
+// server in v1 (NG6), so callers pass `activeScope()` / `zenScope()`.
 
-// ─── HTTP (cliFetch-parity: revive + replay-once on stale session) ───
+// ─── HTTP ───
 
 async function feedbackFetch<T>(
+  scope: ServerScope,
   path: string,
   opts: {
     method?: "GET" | "POST";
@@ -40,36 +37,12 @@ async function feedbackFetch<T>(
   } = {},
   timeoutMs = 15000
 ): Promise<T> {
-  const attempt = async (): Promise<{ status: number; ok: boolean; text: string }> => {
-    const base = getBaseUrl();
-    if (!base) throw new Error("Not connected");
-    const params: string[] = [];
-    for (const [k, v] of Object.entries(opts.params ?? {})) {
-      params.push(`${encodeURIComponent(k)}=${encodeURIComponent(v)}`);
-    }
-    const token = getToken();
-    const url = `${base}${path}${params.length ? `?${params.join("&")}` : ""}`;
-    const res = await Promise.race([
-      tauriFetch(url, {
-        method: opts.method ?? "GET",
-        headers: cliAuthHeaders(token),
-        body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
-      }),
-      new Promise<never>((_, reject) =>
-        setTimeout(() => reject(new Error("Request timed out")), timeoutMs)
-      ),
-    ]);
-    return { status: res.status, ok: res.ok, text: await res.text() };
-  };
-
-  let out = await attempt();
-  if (isPossibleAuthFailure(out.status, out.text)) {
-    const serverId = useServersStore.getState().activeServerId;
-    if (serverId) {
-      const outcome = await reviveServerSession(serverId);
-      if (outcome === "revived") out = await attempt();
-    }
-  }
+  const out = await scopedFetch(scope, path, {
+    method: opts.method ?? "GET",
+    query: opts.params,
+    body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined,
+    timeoutMs,
+  });
   if (!out.ok) {
     let msg = `HTTP ${out.status}`;
     try {
@@ -97,13 +70,14 @@ async function feedbackFetch<T>(
  *  (`linked:false`). An older daemon 404s there, so fall back to the
  *  per-workspace fan-out, where every row is linked. */
 export async function fetchAllFeedback(
+  scope: ServerScope,
   projects: FeedbackProjectRef[]
 ): Promise<FeedbackListRow[]> {
   try {
-    return await fetchHostFeedback();
+    return await fetchHostFeedback(scope);
   } catch (err) {
     console.warn("[feedback] list-all unavailable, fanning out", err);
-    return fetchFeedbackFanOut(projects);
+    return fetchFeedbackFanOut(scope, projects);
   }
 }
 
@@ -114,9 +88,8 @@ interface HostFeedbackWireRow extends FeedbackItem {
   linked: boolean;
 }
 
-async function fetchHostFeedback(): Promise<FeedbackListRow[]> {
-  const res = await feedbackFetch<{ ok: boolean; items?: HostFeedbackWireRow[] }>(
-    "/cli/feedback/list-all",
+async function fetchHostFeedback(scope: ServerScope): Promise<FeedbackListRow[]> {
+  const res = await feedbackFetch<{ ok: boolean; items?: HostFeedbackWireRow[] }>(scope, "/cli/feedback/list-all",
     { params: { all: "1" } }
   );
   if (!Array.isArray(res.items)) throw new Error("feedback/list-all: no items");
@@ -138,6 +111,7 @@ async function fetchHostFeedback(): Promise<FeedbackListRow[]> {
  *  fan-out throws so the page shows a real error instead of a fake
  *  empty. (Desktop fetchFeedbackFanOut semantics.) */
 async function fetchFeedbackFanOut(
+  scope: ServerScope,
   projects: FeedbackProjectRef[]
 ): Promise<FeedbackListRow[]> {
   if (projects.length === 0) return [];
@@ -146,8 +120,7 @@ async function fetchFeedbackFanOut(
   const results = await Promise.all(
     projects.map(async (p) => {
       try {
-        const res = await feedbackFetch<{ ok: boolean; items: FeedbackItem[] }>(
-          "/cli/feedback/list",
+        const res = await feedbackFetch<{ ok: boolean; items: FeedbackItem[] }>(scope, "/cli/feedback/list",
           { params: { project: p.path, all: "1" } }
         );
         return (res.items ?? []).map((item) => ({
@@ -175,12 +148,13 @@ async function fetchFeedbackFanOut(
  *  1 MiB of inline images), which callers do ONCE per ticket — the
  *  brief is immutable, so event refetches stay plain. */
 export function fetchFeedbackShow(
+  scope: ServerScope,
   id: string,
   opts: { brief?: boolean } = {}
 ): Promise<FeedbackShow> {
   const params: Record<string, string> = { id };
   if (opts.brief) params.brief = "1";
-  return feedbackFetch<FeedbackShow>("/cli/feedback/show", { params });
+  return feedbackFetch<FeedbackShow>(scope, "/cli/feedback/show", { params });
 }
 
 /** POST /cli/feedback/comment — a HUMAN comment (never send `author`:
@@ -192,13 +166,14 @@ export function fetchFeedbackShow(
  *      included), and the agent hears it.
  *  Returns the delivery receipt for the composer's status line. */
 export function commentFeedback(
+  scope: ServerScope,
   id: string,
   body: string,
   opts: { optionPick?: boolean } = {}
 ): Promise<CommentResponse> {
   const payload: { id: string; body: string; optionPick?: true } = { id, body };
   if (opts.optionPick === true) payload.optionPick = true;
-  return feedbackFetch<CommentResponse>("/cli/feedback/comment", {
+  return feedbackFetch<CommentResponse>(scope, "/cli/feedback/comment", {
     method: "POST",
     body: payload,
   });
@@ -207,7 +182,7 @@ export function commentFeedback(
 /** Who can be assigned. 0.45.4+ `GET /cli/tickets/settings` → `people`
  *  is Member-readable; else `GET /cli/users` (Admin floor, Members 403);
  *  else just `owner`. Always includes `owner` first. */
-export async function fetchTicketUsers(): Promise<string[]> {
+export async function fetchTicketUsers(scope: ServerScope): Promise<string[]> {
   const withOwner = (names: string[]) => [
     "owner",
     ...names.filter((n) => n && n !== "owner"),
@@ -215,7 +190,7 @@ export async function fetchTicketUsers(): Promise<string[]> {
   try {
     const res = await feedbackFetch<{
       people?: Array<{ value?: string; disabled?: boolean }>;
-    }>("/cli/tickets/settings");
+    }>(scope, "/cli/tickets/settings");
     if (Array.isArray(res.people)) {
       return withOwner(
         res.people
@@ -226,18 +201,18 @@ export async function fetchTicketUsers(): Promise<string[]> {
   } catch {
     /* pre-0.45.4 daemon: fall through to /cli/users */
   }
-  const res = await feedbackFetch<{ users?: Array<{ username?: string }> }>(
-    "/cli/users",
+  const res = await feedbackFetch<{ users?: Array<{ username?: string }> }>(scope, "/cli/users",
   );
   return withOwner((res.users ?? []).map((u) => (u.username ?? "").trim()));
 }
 
 /** POST /cli/feedback/assign — replace the assignee set. */
 export function assignFeedback(
+  scope: ServerScope,
   id: string,
   usernames: string[],
 ): Promise<{ assignees?: string[] }> {
-  return feedbackFetch<{ assignees?: string[] }>("/cli/feedback/assign", {
+  return feedbackFetch<{ assignees?: string[] }>(scope, "/cli/feedback/assign", {
     method: "POST",
     body: { id, usernames },
   });
@@ -247,13 +222,14 @@ export function assignFeedback(
  *  `answered` carries the agreed outcome as `answer`; it is recorded but
  *  NOT injected into the agent (an option pick is how to tell the agent). */
 export function resolveFeedback(
+  scope: ServerScope,
   id: string,
   status: FeedbackStatus,
   answer?: string
 ): Promise<void> {
   const body: { id: string; status: FeedbackStatus; answer?: string } = { id, status };
   if (status === "answered" && answer !== undefined) body.answer = answer;
-  return feedbackFetch<{ ok: boolean }>("/cli/feedback/resolve", {
+  return feedbackFetch<{ ok: boolean }>(scope, "/cli/feedback/resolve", {
     method: "POST",
     body,
   }).then(() => undefined);

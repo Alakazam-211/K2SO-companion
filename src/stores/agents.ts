@@ -1,3 +1,4 @@
+import { activeScope } from "../api/scope";
 import { create } from "zustand";
 import * as api from "../api/client";
 import { ws } from "../api/websocket";
@@ -20,12 +21,12 @@ export const useAgentsStore = create<AgentsState>((set, get) => ({
   isLoading: false,
 
   fetchAgents: async (project) => {
-    const r = await api.getAgents(project);
+    const r = await api.getAgents(activeScope(), project);
     if (r.ok && r.data) set({ agents: r.data });
   },
 
   fetchRunningTerminals: async (project) => {
-    const r = await api.getRunningTerminals(project);
+    const r = await api.getRunningTerminals(activeScope(), project);
     if (r.ok && r.data) {
       // Filter to only terminals whose cwd is within this workspace
       const filtered = r.data.filter((t) => t.cwd.startsWith(project));

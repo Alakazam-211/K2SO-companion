@@ -1,3 +1,10 @@
+import type { ServerScope } from "./scope";
+
+// Legacy `/companion/ws` RPC socket. Never connected today (no caller of
+// `connect`); kept for the dormant `ws.on(...)` listeners in the classic
+// stores. Multi-server (MS6): it is opened on a scope, and every (re)open
+// reads that scope's base + token — never the active server.
+
 export interface WsEvent {
   type: string;
   payload: unknown;
@@ -18,8 +25,7 @@ function nextId(): string {
 
 export class CompanionWebSocket {
   private ws: WebSocket | null = null;
-  private url = "";
-  private token = "";
+  private scope: ServerScope | null = null;
   private handlers = new Map<string, Set<EventHandler>>();
   private pending = new Map<string, PendingRequest>();
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -28,9 +34,8 @@ export class CompanionWebSocket {
   private shouldReconnect = false;
   private subscribedTerminals = new Set<string>();
 
-  connect(serverUrl: string, sessionToken: string) {
-    this.url = serverUrl.replace(/^http/, "ws");
-    this.token = sessionToken;
+  connect(scope: ServerScope) {
+    this.scope = scope;
     this.shouldReconnect = true;
     this.reconnectDelay = 3000;
     this.open();
@@ -92,8 +97,21 @@ export class CompanionWebSocket {
 
   private open() {
     this.ws?.close();
+    let base = "";
+    let token = "";
+    try {
+      base = this.scope?.wsBase() ?? "";
+      token = this.scope?.token() ?? "";
+    } catch {
+      base = ""; // removed server
+    }
+    if (!base) {
+      this.shouldReconnect = false;
+      this.ws = null;
+      return;
+    }
     // Query token: WebSocket cannot set Authorization. HTTP /cli uses Bearer.
-    this.ws = new WebSocket(`${this.url}/companion/ws?token=${encodeURIComponent(this.token)}`);
+    this.ws = new WebSocket(`${base}/companion/ws?token=${encodeURIComponent(token)}`);
 
     this.ws.onopen = () => {
       this.reconnectDelay = 3000;
