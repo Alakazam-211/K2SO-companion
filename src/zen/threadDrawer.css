@@ -1,0 +1,64 @@
+/* The Thread working drawer: a glass tile docked above the composer. It
+   slides up from behind the composer when a turn starts and back down when
+   it ends (a short spring); under reduced motion it fades. A tap grows it
+   upward to the full detail (height transition) and back. */
+@keyframes k2-drawer-slide-in {
+  from {
+    transform: translateY(calc(100% + 12px));
+  }
+  to {
+    transform: none;
+  }
+}
+@keyframes k2-drawer-slide-out {
+  from {
+    transform: none;
+  }
+  to {
+    transform: translateY(calc(100% + 12px));
+  }
+}
+@keyframes k2-drawer-fade-in {
+  from {
+    opacity: 0;
+  }
+}
+@keyframes k2-drawer-fade-out {
+  to {
+    opacity: 0;
+  }
+}
+.k2-drawer-slide-in {
+  animation: k2-drawer-slide-in 200ms cubic-bezier(0.2, 0.9, 0.3, 1.12) both;
+}
+.k2-drawer-slide-out {
+  animation: k2-drawer-slide-out 200ms cubic-bezier(0.4, 0, 0.8, 0.4) both;
+}
+.k2-drawer-fade-in {
+  animation: k2-drawer-fade-in 160ms ease-out both;
+}
+.k2-drawer-fade-out {
+  animation: k2-drawer-fade-out 160ms ease-in both;
+}
+.k2-drawer-tile {
+  -webkit-backdrop-filter: blur(20px) saturate(160%);
+  backdrop-filter: blur(20px) saturate(160%);
+  transition: height 200ms cubic-bezier(0.2, 0.9, 0.3, 1);
+  -webkit-tap-highlight-color: transparent;
+}
+/* The scroller's bottom padding follows the drawer's height. */
+.zen-thread-scroller {
+  transition: padding-bottom 200ms cubic-bezier(0.2, 0.9, 0.3, 1);
+}
+@media (prefers-reduced-motion: reduce) {
+  .k2-drawer-slide-in {
+    animation: k2-drawer-fade-in 160ms ease-out both;
+  }
+  .k2-drawer-slide-out {
+    animation: k2-drawer-fade-out 160ms ease-in both;
+  }
+  .k2-drawer-tile,
+  .zen-thread-scroller {
+    transition: none;
+  }
+}

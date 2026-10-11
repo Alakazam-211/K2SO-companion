@@ -30,7 +30,7 @@ import {
   isThreadFrame,
   type ThreadTurn,
 } from "./threadTurn";
-import { ThreadWorkingStrip } from "./ThreadWorkingStrip";
+import { DRAWER_MS, ThreadWorkingStrip } from "./ThreadWorkingStrip";
 import { isSendableAddr } from "./sendGate";
 import { sourceWord, useZenStore } from "./zenStore";
 import { SESSION_UNAVAILABLE } from "./sessionReturn";
@@ -193,6 +193,15 @@ export function threadTopPadding(topInset?: number): string | undefined {
   return `calc(env(safe-area-inset-top) + ${Math.ceil(topInset) + THREAD_TOP_GAP}px)`;
 }
 
+/** The scroller's own bottom padding (`py-3`). */
+const THREAD_BOTTOM_PAD = 12;
+
+/** Scroller bottom padding: its own, plus the working drawer's room. */
+export function threadBottomPadding(drawerSpace: number): string | undefined {
+  if (!Number.isFinite(drawerSpace) || drawerSpace <= 0) return undefined;
+  return `${THREAD_BOTTOM_PAD + Math.ceil(drawerSpace)}px`;
+}
+
 export function ThreadPane({
   viewportHeight,
   topInset,
@@ -279,8 +288,9 @@ export function ThreadPane({
   const prevFirst = useRef<string | null>(null);
   const prevLast = useRef<string | null>(null);
   // FOLLOWING: pinned to the newest. Remembered intent, not a distance
-  // measured at render time — the working strip growing, ending, and the
-  // reply landing in one layout change must not unpin the reader. On at
+  // measured at render time — the working drawer opening, growing,
+  // closing, and the reply landing in one layout change must not unpin
+  // the reader. On at
   // open, on Send, and whenever the reader scrolls back near the bottom;
   // off only when the reader scrolls up (or opens history / a push seq).
   const following = useRef(true);
@@ -290,6 +300,10 @@ export function ThreadPane({
   const ownTop = useRef<number | null>(null);
   const lastTop = useRef(0);
   const followRaf = useRef(0);
+  const drawerRaf = useRef(0);
+  // Room (px) the working drawer takes above the composer. It floats over
+  // the scroller, so the scroller pads its bottom by it (same 200ms ease).
+  const [drawerSpace, setDrawerSpace] = useState(0);
   const focusSeq = useZenStore((s) => s.threadFocusSeq);
   // The working strip's turn. The gate drops a catch-up answer that raced
   // an activity frame (the frame is newer) or a later catch-up (a late
@@ -333,6 +347,22 @@ export function ThreadPane({
       const cur = scrollerRef.current;
       if (cur && following.current && !pendingAnchor.current) stick(cur);
     });
+  }
+
+  /** follow(), then keep sticking every frame for `ms`: the scroller's
+   *  bottom padding is easing with the drawer. */
+  function followFor(ms: number) {
+    follow();
+    if (typeof requestAnimationFrame !== "function") return;
+    const until = Date.now() + ms;
+    const tick = () => {
+      const el = scrollerRef.current;
+      if (!el || !following.current || pendingAnchor.current) return;
+      stick(el);
+      if (Date.now() < until) drawerRaf.current = requestAnimationFrame(tick);
+    };
+    cancelAnimationFrame(drawerRaf.current);
+    drawerRaf.current = requestAnimationFrame(tick);
   }
 
   useLayoutEffect(() => {
@@ -381,9 +411,9 @@ export function ThreadPane({
     }
   }, [focusSeq]);
 
-  // Anything else that changes height while following — the working
-  // strip mounting, growing, ending; late markdown/images in the last
-  // bubbles; the keyboard or composer resizing the column — sticks.
+  // Anything else that changes height while following — late
+  // markdown/images in the last bubbles; the keyboard, composer or the
+  // drawer's padding resizing the column — sticks.
   useEffect(() => {
     const el = scrollerRef.current;
     const content = contentRef.current;
@@ -393,7 +423,10 @@ export function ThreadPane({
     ro.observe(el);
     return () => {
       ro.disconnect();
-      if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(followRaf.current);
+      if (typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(followRaf.current);
+        cancelAnimationFrame(drawerRaf.current);
+      }
     };
   }, []);
 
@@ -503,13 +536,19 @@ export function ThreadPane({
     follow();
   }, [topInset]);
 
-  // Outgoing bubbles and the working strip (mount, every frame, unmount)
-  // keep the newest in view while following — synchronously, before the
-  // ResizeObserver gets a say.
+  // Outgoing bubbles keep the newest in view while following —
+  // synchronously, before the ResizeObserver gets a say.
   const outgoingKey = outgoing.map((o) => `${o.localId}:${o.status}`).join(",");
   useLayoutEffect(() => {
     follow();
-  }, [outgoingKey, turn]);
+  }, [outgoingKey]);
+
+  // The working drawer opening, growing (tap), shrinking or closing
+  // changes the scroller's bottom padding, not its content: the tail
+  // moves by that much. Stick through the padding's ease.
+  useLayoutEffect(() => {
+    followFor(DRAWER_MS + 80);
+  }, [drawerSpace]);
 
   function queueFiles(files: File[]) {
     if (!files.length) return;
@@ -726,8 +765,13 @@ export function ThreadPane({
       <div
         ref={scrollerRef}
         data-testid="thread-scroller"
-        className="flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-2.5 py-3 flex flex-col"
-        style={{ overflowAnchor: "none", paddingTop: threadTopPadding(topInset) }}
+        data-drawer-space={drawerSpace}
+        className="zen-thread-scroller flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-2.5 py-3 flex flex-col"
+        style={{
+          overflowAnchor: "none",
+          paddingTop: threadTopPadding(topInset),
+          paddingBottom: threadBottomPadding(drawerSpace),
+        }}
         onScroll={(e) => {
           const el = e.currentTarget;
           const top = el.scrollTop;
@@ -894,16 +938,17 @@ export function ThreadPane({
                   </div>
                 );
               })}
-              {turn && !threadGroupId ? <ThreadWorkingStrip turn={turn} /> : null}
             </>
           )}
         </div>
       </div>
-      {/* Zero-height row: the pill floats just above the composer. */}
+      {/* Zero-height row: the pill floats just above the composer (and
+          above the working drawer while it shows). */}
       <div className="relative h-0 shrink-0">
         <div
           aria-live="polite"
-          className="absolute bottom-2 left-0 right-0 flex justify-center pointer-events-none"
+          className="absolute left-0 right-0 flex justify-center pointer-events-none"
+          style={{ bottom: 8 + drawerSpace }}
         >
           {newBelow ? (
             <button
@@ -917,6 +962,17 @@ export function ThreadPane({
             </button>
           ) : null}
         </div>
+      </div>
+      {/* Zero-height row: the working drawer docks on the composer's top
+          edge and floats over the scroller's padded bottom. */}
+      <div className="relative h-0 shrink-0" data-testid="thread-drawer-dock">
+        {!threadGroupId ? (
+          <ThreadWorkingStrip
+            key={`${agentId}|${conversationId ?? ""}`}
+            turn={turn}
+            onSpace={setDrawerSpace}
+          />
+        ) : null}
       </div>
       <GlassComposer
         value={draft}

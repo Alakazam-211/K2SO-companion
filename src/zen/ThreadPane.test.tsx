@@ -875,10 +875,13 @@ describe("ThreadPane", () => {
     });
     const strip = screen.getByTestId("thread-working-strip");
     expect(strip.getAttribute("data-tone")).toBe("working");
+    // Docked above the composer, not a row in the message list.
+    expect(screen.getByTestId("thread-scroller").contains(strip)).toBe(false);
+    expect(screen.getByTestId("thread-drawer-dock").contains(strip)).toBe(true);
     expect(screen.getByTestId("thread-strip-step-text").textContent).toBe("Running npm test");
-    expect(screen.getByTestId("thread-strip-tally").textContent).toBe(
-      "Read 2 files · ran 1 command · 1 subagent running"
-    );
+    expect(screen.getByTestId("thread-strip-count-subagents").textContent).toContain("🤖1");
+    expect(screen.getByTestId("thread-strip-count-read").textContent).toContain("📄2");
+    expect(screen.getByTestId("thread-strip-count-cmd").textContent).toContain("⌨️1");
     expect(useZenStore.getState().thread).toEqual([]);
     act(() => {
       opts.onItem({
@@ -898,7 +901,9 @@ describe("ThreadPane", () => {
         },
       } as never);
     });
-    expect(screen.queryByTestId("thread-working-strip")).toBeNull();
+    // Slides down behind the composer, then is gone.
+    expect(screen.getByTestId("thread-working-strip").getAttribute("data-leaving")).toBe("true");
+    await waitFor(() => expect(screen.queryByTestId("thread-working-strip")).toBeNull());
   });
 
   it("re-reads the live turn on every socket open", async () => {
@@ -935,7 +940,7 @@ describe("ThreadPane", () => {
     } as never);
     act(() => vi.mocked(connectOverlayEvents).mock.calls[0][0].onOpen?.());
     await waitFor(() => expect(screen.getByTestId("thread-working-strip")).not.toBeNull());
-    expect(screen.getByTestId("thread-strip-state").textContent).toBe("Needs you");
+    expect(screen.getByTestId("thread-working-strip").getAttribute("data-tone")).toBe("needs-you");
     expect(screen.getByTestId("thread-strip-step-text").textContent).toBe(
       "Stuck on a permission prompt"
     );
