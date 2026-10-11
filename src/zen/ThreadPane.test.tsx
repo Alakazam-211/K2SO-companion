@@ -383,6 +383,49 @@ describe("ThreadPane", () => {
     });
   });
 
+  it("keyboard resize re-sticks to the newest only when the reader was there", () => {
+    let height = 1800;
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.getAttribute?.("data-testid") === "thread-scroller" ? height : 0;
+      },
+    });
+    useZenStore.setState({
+      agentId: "appa",
+      threadSource: "live",
+      threadError: null,
+      threadHasMore: false,
+      thread: [
+        { id: "a", seq: 1, text: "one", from: "appa", at: 1, mine: false, kind: "text", choice: null },
+        { id: "b", seq: 2, text: "two", from: "appa", at: 2, mine: false, kind: "text", choice: null },
+      ],
+    });
+    const { rerender } = render(<ThreadPane viewportHeight={800} />);
+    const el = screen.getByTestId("thread-scroller");
+    expect(el.scrollTop).toBe(1800);
+
+    // Keyboard opens: the column shrinks, the reader was at the newest.
+    height = 2100;
+    rerender(<ThreadPane viewportHeight={464} />);
+    expect(el.scrollTop).toBe(2100);
+
+    // Reader scrolls up to history: a resize must not yank them down.
+    el.scrollTop = 200;
+    fireEvent.scroll(el);
+    height = 2400;
+    rerender(<ThreadPane viewportHeight={800} />);
+    expect(el.scrollTop).toBe(200);
+
+    expect(screen.getByTestId("composer-bar").className).toMatch(/zen-composer-bar/);
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return 0;
+      },
+    });
+  });
+
   it("outgoing bubbles shrink so a code block cannot clip the left edge", () => {
     useZenStore.setState({
       threadSource: "live",

@@ -328,6 +328,48 @@ describe("Zen keeps the chats list mounted", () => {
     expect(screen.queryByText("STALE BUBBLE")).toBeNull();
   });
 
+  it("sizes the thread column to the visible height above the iOS keyboard", async () => {
+    vi.mocked(getToken).mockReturnValue("");
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: STUB_AGENTS,
+      screen: "list",
+      agentError: null,
+    });
+    render(
+      <MemoryRouter initialEntries={[`/zen?thread=${STUB_AGENTS[0].id}`]}>
+        <Zen />
+      </MemoryRouter>
+    );
+    const home = screen.getByTestId("thread-home");
+    expect(home.style.position).toBe("fixed");
+    const column = screen.getByTestId("thread-column");
+    expect(column.style.height).toBe(`${window.innerHeight}px`);
+    expect(column.className).not.toMatch(/h-full/);
+    // Header and composer live inside the sized column.
+    expect(column.contains(screen.getByTestId("chat-header"))).toBe(true);
+    expect(column.contains(screen.getByTestId("composer-form"))).toBe(true);
+
+    const open = window.innerHeight - 336;
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("k2-viewport-resize", { detail: { height: open } })
+      );
+    });
+    expect(screen.getByTestId("thread-column").style.height).toBe(`${open}px`);
+
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent("k2-viewport-resize", {
+          detail: { height: window.innerHeight },
+        })
+      );
+    });
+    expect(screen.getByTestId("thread-column").style.height).toBe(
+      `${window.innerHeight}px`
+    );
+  });
+
   it("tapping the visible chat while a file is open closes the file pane", async () => {
     vi.mocked(getToken).mockReturnValue("");
     useZenStore.setState({
