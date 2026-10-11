@@ -8,8 +8,8 @@ import { zenTextPx } from "./zenFont";
  * The inside of one Agents-list row: glass-edged avatar with its activity
  * dot, the name over the status line (activity, else preview), and the
  * time + chevron. Shared by the Agents list and the Home list so both
- * look the same. `serverChip` names the row's server, shown only when it
- * is not the active one (Home rows from other servers).
+ * look the same. `serverChip` names the row's server (Home rows with several
+ * servers); it sits right after the name, not by the time.
  */
 export function AgentRowContent({
   name,
@@ -59,12 +59,34 @@ export function AgentRowContent({
       </span>
       <span className="flex-1 min-w-0">
         <span className="flex justify-between items-baseline gap-2">
-          <span
-            className="min-w-0 truncate font-semibold"
-            style={{ fontSize: zenTextPx(16), letterSpacing: "-0.2px" }}
-            data-testid="row-name"
-          >
-            {name}
+          {/* Name group (owner 2026-10): the server chip sits right after
+              the name, left-aligned; the time stays alone on the right. The
+              name truncates first; the chip keeps its own width (capped,
+              with its own ellipsis for long nicknames). */}
+          <span className="flex items-baseline min-w-0" style={{ gap: 6 }} data-testid="row-name-group">
+            <span
+              className="min-w-0 truncate font-semibold"
+              style={{ fontSize: zenTextPx(16), letterSpacing: "-0.2px" }}
+              data-testid="row-name"
+            >
+              {name}
+            </span>
+            {serverChip ? (
+              <span
+                className="zen-glass zen-glass-pill shrink-0 truncate"
+                style={{
+                  minWidth: 32,
+                  maxWidth: 96,
+                  padding: "1px 8px",
+                  fontSize: zenTextPx(12),
+                  color: "#d1d1d6",
+                  fontWeight: 400,
+                }}
+                data-testid="row-server-chip"
+              >
+                {serverChip}
+              </span>
+            ) : null}
           </span>
           {stub ? (
             <StubMark />
@@ -74,15 +96,6 @@ export function AgentRowContent({
               style={{ color: "#8e8e93", fontWeight: 400, fontSize: zenTextPx(14) }}
               data-testid="row-when"
             >
-              {serverChip ? (
-                <span
-                  className="zen-glass zen-glass-pill truncate"
-                  style={{ maxWidth: 96, padding: "1px 8px", fontSize: zenTextPx(12), color: "#d1d1d6" }}
-                  data-testid="row-server-chip"
-                >
-                  {serverChip}
-                </span>
-              ) : null}
               {when}
               {when ? " " : ""}
               ›
