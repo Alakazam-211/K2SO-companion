@@ -191,20 +191,29 @@ export function getCompanionToken(): string {
 // a 401/403 rejected the request before doing work, so the single replay
 // is side-effect-safe.
 
+/** Base URL + token of one saved server (the active one when `serverId`
+ *  is omitted). Read fresh per attempt so a revived token is picked up. */
+function credsFor(serverId?: string): { base: string; token: string } {
+  if (!serverId) return { base: getBaseUrl(), token: getToken() };
+  const s = useServersStore.getState();
+  const server = s.servers.find((x) => x.id === serverId);
+  return { base: server?.url ?? "", token: s.tokens[serverId] ?? "" };
+}
+
 async function httpRequest<T>(
   path: string,
-  options: { method?: string; body?: string; project?: string } = {},
+  options: { method?: string; body?: string; project?: string; serverId?: string } = {},
   timeoutMs = 15000,
   extraParams?: Record<string, string>
 ): Promise<ApiResponse<T>> {
-  if (!getBaseUrl()) return { ok: false, error: "Not connected" };
+  if (!credsFor(options.serverId).base) return { ok: false, error: "Not connected" };
 
-  // ONE attempt: resolve the ACTIVE server's base+token fresh, build the
-  // URL, fire, and read the body exactly once (both the auth-failure
-  // classifier and the parse below need it).
+  // ONE attempt: resolve the server's base+token fresh (the ACTIVE server
+  // unless `serverId` names another), build the URL, fire, and read the
+  // body exactly once (both the auth-failure classifier and the parse
+  // below need it).
   const attempt = async (): Promise<{ status: number; ok: boolean; text: string }> => {
-    const base = getBaseUrl();
-    const token = getToken();
+    const { base, token } = credsFor(options.serverId);
 
     // Build query: project + extra params. Auth is the Bearer header.
     let url = `${base}${path}`;
@@ -240,7 +249,7 @@ async function httpRequest<T>(
   try {
     let out = await attempt();
     if (isPossibleAuthFailure(out.status, out.text)) {
-      const serverId = useServersStore.getState().activeServerId;
+      const serverId = options.serverId ?? useServersStore.getState().activeServerId;
       if (serverId) {
         const outcome = await reviveServerSession(serverId);
         // 'revived' means the store now carries a NEW token — replay once so
@@ -864,3 +873,160 @@ export const getChatCustomNames = () =>
  *  Thread message per addr, or `{addr, error}` when K2 has no Thread for it. */
 export const getThreadLatest = (addrs: string[]) =>
   request<unknown>("thread.latest", "/cli/thread/latest", { addrs: addrs.join(",") });
+
+// ─── Boot status + feature keys (`GET /boot-status`, unauthenticated) ───
+
+export interface BootStatus {
+  /** Per-PROCESS daemon id: a restart mints a new one. */
+  instanceId: string | null;
+  /** Feature keys the version string cannot tell apart. Older daemons
+   *  omit the list; every key then reads as unsupported. */
+  features: string[];
+  version: string | null;
+}
+
+/** K2 0.45.5: Thread push prefs routes, trigger and payload are live. */
+export const FEATURE_THREAD_PUSH = "thread-push-v1";
+const BOOT_STATUS_TTL_MS = 60_000;
+const bootCache = new Map<string, { at: number; value: Promise<BootStatus | null> }>();
+
+/** Tests only: forget cached boot-status answers. */
+export function resetBootStatusCache(): void {
+  bootCache.clear();
+}
+
+export function parseBootStatus(raw: unknown): BootStatus | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const features = Array.isArray(o.features)
+    ? o.features.filter((f): f is string => typeof f === "string")
+    : [];
+  return {
+    instanceId: typeof o.instanceId === "string" && o.instanceId ? o.instanceId : null,
+    features,
+    version: typeof o.version === "string" ? o.version : null,
+  };
+}
+
+/** `GET /boot-status` for one saved server (the active one by default).
+ *  Cached per base URL for a minute; `fresh` skips the cache (a push tap
+ *  compares `instanceId`, which changes on every daemon restart). Null on
+ *  any failure. Never throws. */
+export function getBootStatus(
+  serverId?: string,
+  opts: { fresh?: boolean; timeoutMs?: number } = {}
+): Promise<BootStatus | null> {
+  const { base } = credsFor(serverId);
+  if (!base) return Promise.resolve(null);
+  const hit = bootCache.get(base);
+  if (!opts.fresh && hit && Date.now() - hit.at < BOOT_STATUS_TTL_MS) return hit.value;
+  const value = (async () => {
+    try {
+      const res = await Promise.race([
+        tauriFetch(`${base}/boot-status`, { method: "GET" }),
+        new Promise<never>((_, reject) =>
+          setTimeout(() => reject(new Error("timed out")), opts.timeoutMs ?? 8000)
+        ),
+      ]);
+      if (!res.ok) return null;
+      return parseBootStatus(JSON.parse(await res.text()));
+    } catch {
+      return null;
+    }
+  })();
+  bootCache.set(base, { at: Date.now(), value });
+  // A failed probe must not stick for the whole TTL.
+  void value.then((v) => {
+    if (!v && bootCache.get(base)?.value === value) bootCache.delete(base);
+  });
+  return value;
+}
+
+/** True when that server's `/boot-status` lists `key`. False when the
+ *  server is unreachable or predates the feature list. */
+export async function serverHasFeature(key: string, serverId?: string): Promise<boolean> {
+  const b = await getBootStatus(serverId);
+  return !!b && b.features.includes(key);
+}
+
+// ─── Thread push prefs (K2 0.45.5, `thread-push-v1`) ───
+
+export type NotifyPush = "ready" | "dormant" | "airgap";
+export type NotifySource = "user" | "default" | "fallback";
+
+export interface NotifyWorkspacePref {
+  projectId: string;
+  name: string;
+  handle: string | null;
+  threadPush: boolean;
+  source: NotifySource;
+  updatedBy?: string;
+  updatedAt?: number;
+}
+
+export interface NotifyPrefs {
+  principal: string;
+  server: { enabled: boolean; source: NotifySource };
+  default: boolean;
+  devices: number;
+  push: NotifyPush;
+  workspaces: NotifyWorkspacePref[];
+}
+
+export type NotifyPrefsWrite = {
+  server?: { enabled: boolean };
+  workspace?: { projectId: string; threadPush: boolean | null };
+};
+
+function asSource(v: unknown): NotifySource {
+  return v === "user" || v === "default" || v === "fallback" ? v : "fallback";
+}
+
+/** Defensive parse of the GET/POST `/cli/notify/prefs` body. Null when
+ *  the shape is unrecognised (no `server.enabled` boolean). */
+export function parseNotifyPrefs(raw: unknown): NotifyPrefs | null {
+  if (!raw || typeof raw !== "object") return null;
+  const o = raw as Record<string, unknown>;
+  const server = o.server as Record<string, unknown> | undefined;
+  if (!server || typeof server.enabled !== "boolean") return null;
+  const push: NotifyPush =
+    o.push === "dormant" || o.push === "airgap" || o.push === "ready" ? o.push : "ready";
+  const workspaces: NotifyWorkspacePref[] = [];
+  for (const w of Array.isArray(o.workspaces) ? o.workspaces : []) {
+    if (!w || typeof w !== "object") continue;
+    const r = w as Record<string, unknown>;
+    if (typeof r.projectId !== "string" || !r.projectId) continue;
+    workspaces.push({
+      projectId: r.projectId,
+      name: typeof r.name === "string" ? r.name : "",
+      handle: typeof r.handle === "string" && r.handle ? r.handle : null,
+      threadPush: r.threadPush !== false,
+      source: asSource(r.source),
+      ...(typeof r.updatedBy === "string" && r.updatedBy ? { updatedBy: r.updatedBy } : {}),
+      ...(typeof r.updatedAt === "number" ? { updatedAt: r.updatedAt } : {}),
+    });
+  }
+  return {
+    principal: typeof o.principal === "string" ? o.principal : "",
+    server: { enabled: server.enabled, source: asSource(server.source) },
+    default: o.default !== false,
+    devices: typeof o.devices === "number" ? o.devices : 0,
+    push,
+    workspaces,
+  };
+}
+
+/** `GET /cli/notify/prefs` (Member): the caller's own prefs on that server
+ *  (the active one by default). */
+export const getNotifyPrefs = (serverId?: string) =>
+  httpRequest<unknown>("/cli/notify/prefs", { serverId });
+
+/** `POST /cli/notify/prefs`: `{server:{enabled}}` and/or
+ *  `{workspace:{projectId, threadPush}}` (`null` = back to the default).
+ *  Answers with the same body as the GET. */
+export const setNotifyPrefs = (body: NotifyPrefsWrite, serverId?: string) =>
+  httpRequest<unknown>("/cli/notify/prefs", {
+    method: "POST",
+    body: JSON.stringify(body),
+    serverId,
+  });
