@@ -1708,7 +1708,7 @@ dependencies = [
 
 [[package]]
 name = "k2so-companion"
-version = "4.0.0"
+version = "4.0.1"
 dependencies = [
  "objc2",
  "reqwest 0.12.28",
