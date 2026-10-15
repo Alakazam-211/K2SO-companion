@@ -39,6 +39,7 @@ import { SESSION_UNAVAILABLE } from "./sessionReturn";
 import { zenTextPx } from "./zenFont";
 import { useZenScope, zenScope } from "./zenScope";
 import { useThreadFocusSeq } from "./threadFocus";
+import { recentSentKey, useRecentFirstStore } from "./recentFirst";
 import {
   outgoingBubble,
   sendInFlight,
@@ -764,6 +765,9 @@ export function ThreadPane({
       attachWorkspace: files.length ? attachWorkspace : null,
       attachDir: files.length ? attachDir : null,
     });
+    // "Recent agents first": this phone spoke to this agent just now.
+    // Project chats are not rows in the Agents or Home lists.
+    if (!groupId) useRecentFirstStore.getState().markSent(recentSentKey(zenServer, { addr: threadAddr }));
     const reduced = prefersReducedMotion();
     const canFly =
       !reduced &&

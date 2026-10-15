@@ -26,6 +26,7 @@ import { handleAndroidBack } from "../lib/androidBack";
 import { useServersStore } from "../stores/servers";
 import { LEAVE_ZEN_PATH, ZenSettings } from "./ZenSettings";
 import { MULTI_SERVER_KEY, readMultiServer, useMultiServerPrefs } from "./multi/prefs";
+import { RECENT_FIRST_KEY, useRecentFirstStore } from "./recentFirst";
 import {
   ZEN_FONT_ATTR,
   ZEN_FONT_STORAGE_KEY,
@@ -78,6 +79,21 @@ beforeEach(() => {
 afterEach(cleanup);
 
 describe("ZenSettings", () => {
+  it("Lists: 'Recent agents first' is off by default and saved on this phone only", () => {
+    useRecentFirstStore.getState().reload();
+    mount();
+    const group = within(screen.getByTestId("settings-lists"));
+    expect(group.getByText("Lists")).not.toBeNull();
+    const sw = screen.getByRole("switch", { name: "Recent agents first" });
+    expect(sw.getAttribute("aria-checked")).toBe("false");
+    fireEvent.click(sw);
+    expect(sw.getAttribute("aria-checked")).toBe("true");
+    expect(localStorage.getItem(RECENT_FIRST_KEY)).toBe("1");
+    expect(useRecentFirstStore.getState().on).toBe(true);
+    fireEvent.click(sw);
+    expect(localStorage.getItem(RECENT_FIRST_KEY)).toBe("0");
+  });
+
   it("Experimental: 'Show agents from all servers' is on by default (nothing stored)", () => {
     expect(localStorage.getItem(MULTI_SERVER_KEY)).toBe(null);
     expect(readMultiServer()).toBe(true);

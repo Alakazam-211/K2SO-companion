@@ -310,7 +310,7 @@ describe("Add Agent → Other servers (HM5, flag on)", () => {
     expect(sectionState("c")).toBe("signing-in");
   });
 
-  it("adding from B writes handle::bravo.k2.dev with B's workspace id; checked and deduped; search covers every section", async () => {
+  it("adding from B writes handle::bravo.k2.dev with B's workspace id; checked, unchecks to remove; search covers every section", async () => {
     seed([A, B, G], { a: "tok-a", b: "tok-b", g: "tok-g" });
     setFlag(true);
     mount();
@@ -321,6 +321,10 @@ describe("Add Agent → Other servers (HM5, flag on)", () => {
     fireEvent.click(docs);
     expect(storedRows()).toEqual([{ address: "docs::bravo.k2.dev", workspaceId: "pd", label: "docs" }]);
     expect(screen.getByTestId("add-agent-row-b:/srv/docs").getAttribute("aria-pressed")).toBe("true");
+    // Uncheck takes it off the Home; a re-tap adds it once again.
+    fireEvent.click(screen.getByTestId("add-agent-row-b:/srv/docs"));
+    expect(storedRows()).toEqual([]);
+    expect(screen.getByTestId("add-agent-row-b:/srv/docs").getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(screen.getByTestId("add-agent-row-b:/srv/docs"));
     expect(storedRows()).toHaveLength(1);
     // The sheet stays open; one search box over every section.

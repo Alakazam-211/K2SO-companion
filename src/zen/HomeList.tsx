@@ -94,6 +94,7 @@ export function HomeList({
   views,
   homeName,
   searching,
+  reorderable = true,
   onRemove,
   onMove,
   onOpenRemote,
@@ -106,6 +107,9 @@ export function HomeList({
   views: HomeRowView[];
   homeName: string;
   searching: boolean;
+  /** Menu Move up / Move down shown (off while "Recent agents first"
+   *  orders the list). */
+  reorderable?: boolean;
   onRemove: (address: string) => void;
   /** Reorder within the Home (menu Move up / Move down; not while searching). */
   onMove: (address: string, delta: -1 | 1) => void;
@@ -419,7 +423,7 @@ export function HomeList({
               color: "#fff",
             }}
           >
-            {!searching && menuIndex > 0 ? (
+            {reorderable && !searching && menuIndex > 0 ? (
               <button type="button" role="menuitem"
                 className="w-full flex items-center text-left bg-transparent border-0 text-[16px]"
                 style={{ padding: "10px 12px", minHeight: 44, borderRadius: 10, color: "#fff" }}
@@ -431,7 +435,7 @@ export function HomeList({
                 Move up
               </button>
             ) : null}
-            {!searching && menuIndex < views.length - 1 ? (
+            {reorderable && !searching && menuIndex < views.length - 1 ? (
               <button type="button" role="menuitem"
                 className="w-full flex items-center text-left bg-transparent border-0 text-[16px]"
                 style={{ padding: "10px 12px", minHeight: 44, borderRadius: 10, color: "#fff" }}
