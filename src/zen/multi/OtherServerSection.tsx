@@ -8,7 +8,8 @@
 // (`MAX_SERVER_LOADS`). The section shows loading, offline (Retry), sign
 // in (that server's sheet, no switch), no access, needs an update (the
 // floor) or failed (Retry). Tapping a row adds `{handle::hostKey,
-// workspaceId, label}` to the Home; it never creates a workspace.
+// workspaceId, label}` to the Home; tapping a checked row removes it. It
+// never creates a workspace.
 
 import { useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -81,6 +82,7 @@ export function OtherServerSection({
   home,
   signingIn,
   onAdd,
+  onRemove,
   onSignIn,
   onRetry,
 }: {
@@ -91,6 +93,8 @@ export function OtherServerSection({
   /** That server's own sign-in sheet is open. */
   signingIn: boolean;
   onAdd: (row: HomeRow) => void;
+  /** Uncheck: take this address off the Home. */
+  onRemove: (address: string) => void;
   /** Open sign-in for THIS server (no switch). */
   onSignIn: () => void;
   /** Re-check this server and re-read its lists. */
@@ -156,6 +160,9 @@ export function OtherServerSection({
             testId={`add-agent-row-${server.id}:${a.id}`}
             onAdd={() => {
               if (row) onAdd(row);
+            }}
+            onRemove={() => {
+              if (row) onRemove(row.address);
             }}
           />
         );

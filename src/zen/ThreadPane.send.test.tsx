@@ -34,6 +34,7 @@ import { getThread, postThread, uploadFsBinary } from "../api/client";
 import { postProjectGroupMessage } from "../api/projectGroups";
 import { ThreadPane } from "./ThreadPane";
 import { useZenStore } from "./zenStore";
+import { RECENT_SENT_KEY, useRecentFirstStore } from "./recentFirst";
 import { fakeScope } from "../test/fakeScope";
 import { setZenScope } from "../test/zenScopeMock";
 
@@ -389,5 +390,41 @@ describe("send animation (FLIP)", () => {
     act(() => anims[0].onfinish?.());
     expect(bubbles()).toHaveLength(1);
     expect(bubbles()[0].style.visibility).toBe("");
+  });
+});
+
+describe("Recent agents first: the send is recorded on this phone", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    useRecentFirstStore.getState().reload();
+  });
+
+  it("a send stamps <server>|t:<addr>, stored locally, setting on or off", () => {
+    vi.mocked(postThread).mockReturnValue(new Promise(() => {}));
+    vi.spyOn(Date, "now").mockReturnValue(1_234);
+    expect(useRecentFirstStore.getState().on).toBe(false);
+    render(<ThreadPane />);
+    type("hi");
+    send();
+    expect(useRecentFirstStore.getState().sent).toEqual({ "s1|t:appa": 1_234 });
+    expect(JSON.parse(localStorage.getItem(RECENT_SENT_KEY) || "{}")).toEqual({ "s1|t:appa": 1_234 });
+  });
+
+  it("an empty composer records nothing; a project chat is not recorded", () => {
+    vi.mocked(postProjectGroupMessage).mockReturnValue(new Promise(() => {}));
+    openRoom({
+      agentId: "group:pg1",
+      agents: [
+        { id: "group:pg1", name: "K2", initial: "K", kind: "group", groupId: "pg1", memberCount: 2, addr: null, joinMiss: null },
+      ],
+      threadAddr: null,
+      threadGroupId: "pg1",
+    });
+    render(<ThreadPane />);
+    send();
+    type("team");
+    send();
+    expect(screen.getByText("Sending…")).not.toBeNull();
+    expect(useRecentFirstStore.getState().sent).toEqual({});
   });
 });

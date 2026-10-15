@@ -51,6 +51,7 @@ import type { StubAgent } from "./stubData";
 import "./swipePin.css";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { ZenSettings } from "./ZenSettings";
+import { homeViewRecent, orderRecentFirst, recentSentKey, useRecentFirstStore } from "./recentFirst";
 import { useZenStore } from "./zenStore";
 import { FOCUS_OFF } from "./serverPins";
 import { labelOf, snapshotCapable, useMultiServerList, type ActiveSlice } from "./multi/useMultiServerList";
@@ -234,6 +235,9 @@ export function ChatsList() {
   const focusGroupsEnabled = useZenStore((s) => s.focusGroupsEnabled);
   const selectFocusGroup = useZenStore((s) => s.selectFocusGroup);
   const hiddenSidecarAddrs = useZenStore((s) => s.hiddenSidecarAddrs);
+  // "Recent agents first" (phone-only setting): re-sorts on every send.
+  const recentOn = useRecentFirstStore((s) => s.on);
+  const recentSent = useRecentFirstStore((s) => s.sent);
   const listRef = useRef<HTMLDivElement | null>(null);
   const pinsRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
@@ -473,6 +477,17 @@ export function ChatsList() {
     });
     return multi.on ? views : views.filter((v) => v.kind !== "remote");
   }, [home.rows, activeHostKey, agents, serverProjects, servers, multi.on, multi.byServer, tokens]);
+  // "Recent agents first": pinned rows, then this phone's latest sends,
+  // then the Home's own order. Off: the Home's own order.
+  const homeShown = useMemo(() => {
+    if (!recentOn) return homeViews;
+    const { keyOf, isPinned } = homeViewRecent({
+      activeServerId: zen.id,
+      activePinnedIds: pinnedIds,
+      remotePinnedIds: (sid) => multi.byServer[sid]?.pinnedIds,
+    });
+    return orderRecentFirst(homeViews, recentSent, keyOf, isPinned);
+  }, [recentOn, homeViews, recentSent, zen.id, pinnedIds, multi.byServer]);
   // Rename repair (flag on; desktop `repairFromList`): a row whose handle
   // left its server while its workspace id is still there follows the
   // rename. The active server's lists only while Zen is on it (a room on
@@ -533,11 +548,22 @@ export function ChatsList() {
   const showPins = !searching && pinItems.length > 0;
   const pinnedInGrid = new Set(showPins ? pinItems.map((p) => p.key) : []);
   const rows = showPins ? filtered.filter((a) => !pinnedInGrid.has(a.id)) : filtered;
-  const listItems: ListItem[] = multi.on
+  // "Recent agents first": below the pin grid, this phone's latest sends
+  // lead; the rest keep the last-message order.
+  const mergedRows = multi.on
     ? sortChatsByRecency(multi.merged.rows, lastAtByKey, (r) => lastAtKeyFor(r.serverId, r.agent))
         .filter((r) => !pinnedInGrid.has(r.key))
-        .map(toListItem)
-    : rows.map((a) => ({ active: true, key: a.id, agent: a }));
+    : [];
+  const listItems: ListItem[] = multi.on
+    ? (recentOn
+        ? orderRecentFirst(mergedRows, recentSent, (r) => recentSentKey(r.serverId, r.agent))
+        : mergedRows
+      ).map(toListItem)
+    : (recentOn ? orderRecentFirst(rows, recentSent, (a) => recentSentKey(zen.id, a)) : rows).map((a) => ({
+        active: true,
+        key: a.id,
+        agent: a,
+      }));
   const placeholders = multi.on ? multi.placeholders : [];
   const menuAgent = pinMenu ? pinned.find((a) => a.id === pinMenu.id) ?? null : null;
   const serverListsAt = useRef(Date.now());
@@ -1340,9 +1366,11 @@ export function ChatsList() {
       >
       {onHome ? (
         <HomeList
-          views={homeViews.filter((v) => homeRowMatches(v, q))}
+          views={homeShown.filter((v) => homeRowMatches(v, q))}
           homeName={home.name}
           searching={searching}
+          // Recent agents first sorts the Home itself: no Move up / down.
+          reorderable={!recentOn}
           inset={ZEN_LIST_CONTENT_INSET}
           previewFor={previewFor}
           onRemove={(address) => useHomesStore.getState().removeRow(home.id, address)}
@@ -1876,6 +1904,7 @@ export function ChatsList() {
                     home={home}
                     signingIn={multi.signInFor === sv.id}
                     onAdd={(row) => useHomesStore.getState().addRow(home.id, row)}
+                    onRemove={(address) => useHomesStore.getState().removeRow(home.id, address)}
                     onSignIn={() => multi.setSignInFor(sv.id)}
                     onRetry={() => {
                       retryServerNow(sv.id);
@@ -1886,6 +1915,7 @@ export function ChatsList() {
               : undefined
           }
           onAdd={(row) => useHomesStore.getState().addRow(home.id, row)}
+          onRemove={(address) => useHomesStore.getState().removeRow(home.id, address)}
           onClose={() => setAddAgent(false)}
         />
       ) : null}

@@ -43,8 +43,9 @@ function Check() {
 }
 
 /** One pickable agent (both segments): avatar, name, handle, and an
- *  empty ring or a check. Rows already on the Home stay checked and a tap
- *  does nothing; a row that cannot be addressed is disabled. */
+ *  empty ring or a check. A tap toggles: an empty ring adds the agent to
+ *  the Home, a check removes it again. A row that cannot be addressed is
+ *  disabled. */
 export function CandidateRow({
   agent: a,
   iconUrl,
@@ -53,6 +54,7 @@ export function CandidateRow({
   disabled,
   testId,
   onAdd,
+  onRemove,
 }: {
   agent: StubAgent;
   iconUrl?: string | null;
@@ -61,6 +63,7 @@ export function CandidateRow({
   disabled: boolean;
   testId: string;
   onAdd: () => void;
+  onRemove: () => void;
 }) {
   return (
     <button
@@ -68,13 +71,14 @@ export function CandidateRow({
       className="w-full flex items-center text-left bg-transparent border-0"
       style={{ gap: 12, padding: "8px 16px", minHeight: 56, color: "#fff", opacity: disabled ? 0.4 : 1 }}
       aria-pressed={added}
-      aria-label={added ? `${a.name}, on ${homeName}` : `Add ${a.name}`}
+      aria-label={added ? `Remove ${a.name} from ${homeName}` : `Add ${a.name} to ${homeName}`}
       disabled={disabled}
       data-testid={testId}
       data-added={added ? "1" : undefined}
       onClick={() => {
-        if (disabled || added) return;
-        onAdd();
+        if (disabled) return;
+        if (added) onRemove();
+        else onAdd();
       }}
     >
       <WorkspaceAvatar initial={a.initial} color={a.color} iconUrl={iconUrl ?? a.iconUrl} size={40} fontSize={15} />
@@ -134,8 +138,9 @@ export function OtherServersSections({
 /**
  * Home `+` (HM5): pick agents to add to the current Home. An evolution of
  * desktop `HomeAddPanels.tsx` + `SearchableAgentList`. Tapping a row adds
- * it (a local `k2.homes.v1` write); rows already on the Home stay checked
- * and a tap does nothing. The sheet stays open for more; Done closes it.
+ * it (a local `k2.homes.v1` write) and checks it; tapping a checked row
+ * removes it from the Home again (the same write as the Home row's
+ * Remove). The sheet stays open for more; Done closes it.
  * Never creates a workspace (desktop H7).
  */
 export function AddAgentSheet({
@@ -147,6 +152,7 @@ export function AddAgentSheet({
   otherServers,
   renderOtherBody,
   onAdd,
+  onRemove,
   onClose,
 }: {
   home: Home;
@@ -162,6 +168,8 @@ export function AddAgentSheet({
    *  This server / Other servers control — the active server's list only. */
   renderOtherBody?: (server: ServerEntry, q: string) => ReactNode;
   onAdd: (row: HomeRow) => void;
+  /** Uncheck: take this address off the Home. */
+  onRemove: (address: string) => void;
   onClose: () => void;
 }) {
   const [segmentPick, setSegment] = useState<AddAgentSegment>("this");
@@ -295,6 +303,9 @@ export function AddAgentSheet({
                         testId={`add-agent-row-${a.id}`}
                         onAdd={() => {
                           if (row) onAdd(row);
+                        }}
+                        onRemove={() => {
+                          if (row) onRemove(row.address);
                         }}
                       />
                     );

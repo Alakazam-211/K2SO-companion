@@ -4,6 +4,7 @@ import { ABOUT } from "../lib/about";
 import { usePushToggle } from "../lib/usePushToggle";
 import { ZEN_FONTS, ZEN_TEXT_SIZES, useZenFontStore } from "./zenFont";
 import { useMultiServerPrefs } from "./multi/prefs";
+import { useRecentFirstStore } from "./recentFirst";
 import { useBackHandler } from "../lib/androidBack";
 
 const MUTED = "#8e8e93";
@@ -18,7 +19,8 @@ export const LEAVE_ZEN_PATH = "/servers";
 
 /** Zen Settings sheet (opened by the Chats header cog). iOS grouped list
  *  of `.k2-tile` cards: Notifications (the same push toggle as the old
- *  Settings page), Appearance (Zen font + text size), About (the old
+ *  Settings page), Appearance (Zen font + text size), Lists (Recent
+ *  agents first, this phone only), About (the old
  *  page's values plus Terminal: Kessel), and Leave Zen Mode. */
 export function ZenSettings({ onClose }: { onClose: () => void }) {
   const navigate = useNavigate();
@@ -66,6 +68,14 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
         <Group label="Appearance" testId="settings-appearance">
           <FontRow />
           <TextSizeRow />
+        </Group>
+
+        <Group
+          label="Lists"
+          testId="settings-lists"
+          footnote="Below your pinned agents, the agents you last messaged from this phone come first, on Home and Agents. Only this phone."
+        >
+          <RecentFirstRow />
         </Group>
 
         <Group
@@ -216,6 +226,29 @@ function MultiServerRow() {
           disabled={false}
           onToggle={() => setOn(!on)}
           labelledBy="zen-multi-server-label"
+        />
+      </span>
+    </div>
+  );
+}
+
+/** "Recent agents first" (`recentFirst.ts`): a phone-only setting,
+ *  default off. Never sent to the server. */
+function RecentFirstRow() {
+  const on = useRecentFirstStore((s) => s.on);
+  const setOn = useRecentFirstStore((s) => s.setOn);
+  return (
+    <div
+      className="flex items-center justify-between text-[17px]"
+      style={{ minHeight: 44, padding: "6px 12px 6px 16px", gap: 12 }}
+    >
+      <span id="zen-recent-first-label">Recent agents first</span>
+      <span className="flex items-center shrink-0" data-testid="recent-first-switch">
+        <Switch
+          on={on}
+          disabled={false}
+          onToggle={() => setOn(!on)}
+          labelledBy="zen-recent-first-label"
         />
       </span>
     </div>
