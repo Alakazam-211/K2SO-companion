@@ -94,11 +94,17 @@ describe("scope", () => {
     row("other", "waiting", { assignees: ["bob"] }),
     row("unassigned", "waiting", { assignees: [] }),
     row("mine-unlinked", "waiting", { assignees: ["julie"], linked: false }),
+    row("mine-disc", "needs_discussion", { assignees: ["julie"] }),
+    row("other-disc", "needs_discussion", { assignees: ["bob"] }),
+    row("mine-disc-unlinked", "needs_discussion", { assignees: ["julie"], linked: false }),
   ];
   const me = myAssigneeNames({ owner: false, username: "julie" });
 
-  it("Waiting on me = mine and waiting (case-insensitive, linked only)", () => {
-    expect(filterByScope(rows, "waiting", me).map((r) => r.id)).toEqual(["mine-wait"]);
+  it("Waiting on me = mine and waiting or needs_discussion (case-insensitive, linked only)", () => {
+    expect(filterByScope(rows, "waiting", me).map((r) => r.id)).toEqual([
+      "mine-wait",
+      "mine-disc",
+    ]);
   });
 
   it("Mine = assigned to me; All = everything", () => {
@@ -106,8 +112,14 @@ describe("scope", () => {
       "mine-wait",
       "mine-ans",
       "mine-unlinked",
+      "mine-disc",
+      "mine-disc-unlinked",
     ]);
-    expect(filterByScope(rows, "all", me)).toHaveLength(5);
+    expect(filterByScope(rows, "all", me)).toHaveLength(8);
+  });
+
+  it("tab counts and the badge still count waiting only", () => {
+    expect(scopeWaitingCounts(rows, me)).toEqual({ waiting: 1, mine: 1, all: 3 });
   });
 
   it("the owner is `owner` plus the saved username", () => {

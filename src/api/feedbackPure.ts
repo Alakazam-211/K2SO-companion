@@ -388,15 +388,18 @@ export function isAssignedToMe(
   return (row.assignees ?? []).some((a) => me.includes(a.trim().toLowerCase()));
 }
 
-/** Mine = assigned to me; Waiting on me = mine AND waiting (unlinked rows
- *  never count as waiting); All = everything. */
+/** Mine = assigned to me; Waiting on me = mine AND (waiting or
+ *  needs_discussion), as desktop 0.46 (Rosson 2026-10-16; unlinked rows
+ *  never count); All = everything. */
 export function filterByScope<
   T extends { status: FeedbackStatus; assignees?: string[] | null; linked?: boolean },
 >(rows: T[], scope: TicketScope, me: readonly string[]): T[] {
   if (scope === "all") return rows;
   const mine = rows.filter((r) => isAssignedToMe(r, me));
   return scope === "waiting"
-    ? mine.filter((r) => r.status === "waiting" && !isUnlinked(r))
+    ? mine.filter(
+        (r) => (r.status === "waiting" || r.status === "needs_discussion") && !isUnlinked(r)
+      )
     : mine;
 }
 
@@ -409,7 +412,11 @@ export function filterByScope<
 export function scopeWaitingCounts<
   T extends { status: FeedbackStatus; assignees?: string[] | null; linked?: boolean },
 >(rows: T[], me: readonly string[]): Record<TicketScope, number> {
-  const mine = filterByScope(rows, "waiting", me).length;
+  // Still `waiting` only, like countWaiting and the server's waiting-count:
+  // whether the badge counts needs_discussion is undecided (K2 2026-10-16).
+  const mine = filterByScope(rows, "mine", me).filter(
+    (r) => r.status === "waiting" && !isUnlinked(r)
+  ).length;
   return { waiting: mine, mine, all: countWaiting(rows) };
 }
 
