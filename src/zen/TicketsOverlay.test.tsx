@@ -594,3 +594,38 @@ describe("Android Back", () => {
     expect(handleAndroidBack()).toBe(false);
   });
 });
+
+describe("Left-edge swipe", () => {
+  // jsdom: innerWidth 1024, so a drag past ~359px completes.
+  const at = (x: number) => ({
+    touches: [{ clientX: x, clientY: 300 }],
+    changedTouches: [{ clientX: x, clientY: 300 }],
+  });
+  const edgeSwipe = (el: HTMLElement) => {
+    fireEvent.touchStart(el, at(5));
+    fireEvent.touchMove(el, at(60));
+    fireEvent.touchMove(el, at(700));
+    fireEvent.touchEnd(el, { touches: [], changedTouches: [{ clientX: 700, clientY: 300 }] });
+  };
+
+  it("is the ‹ Tickets pill: back to the list, the overlay stays", async () => {
+    const onClose = vi.fn();
+    render(<TicketsOverlay onClose={onClose} />);
+    await openTicket("Which pricing tier for Acme?");
+    act(() => edgeSwipe(screen.getByTestId("ticket-view")));
+    expect(screen.queryByTestId("ticket-view")).toBeNull();
+    expect(screen.getByText("Which pricing tier for Acme?")).not.toBeNull();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("does nothing while the ⋯ menu is open over the ticket", async () => {
+    render(<TicketsOverlay onClose={() => {}} />);
+    await openTicket("Which pricing tier for Acme?");
+    fireEvent.click(screen.getByTestId("ticket-more"));
+    expect(screen.getByTestId("ticket-more-menu")).not.toBeNull();
+    const view = screen.getByTestId("ticket-view");
+    act(() => edgeSwipe(view));
+    expect(screen.getByTestId("ticket-view")).toBe(view);
+    expect(view.style.transform).toBe("");
+  });
+});
