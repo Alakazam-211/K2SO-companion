@@ -2,8 +2,12 @@
 // its outgoing bubble (FLIP). The real bubble is laid out at its final
 // spot but hidden; a clone of it starts over the composer text and
 // animates back to identity, then the real bubble is revealed. Only
-// transform, opacity, background-color and border-radius move (cheap on
-// iOS WebKit); nothing is measured while it runs.
+// transform, opacity, background-color and border-radius animate (cheap
+// on iOS WebKit). The clone's box follows the real bubble each frame (one
+// rect read), so a list that moves under it mid-flight (the glide, the
+// composer or the working drawer changing the bottom padding, the server's
+// copy landing) cannot leave it a few px off: at the end the clone sits
+// exactly on the bubble and the hand-off moves nothing.
 
 export type FlyRect = { left: number; top: number; width: number; height: number };
 
@@ -13,6 +17,8 @@ export type FlySource = { rect: FlyRect; fontPx: number };
 export const FLY_MS = 340;
 /** A little overshoot: the bubble settles like a spring. */
 export const FLY_EASING = "cubic-bezier(0.34, 1.32, 0.64, 1)";
+/** The list making room: no overshoot (the messages must not bounce). */
+export const GLIDE_EASING = "cubic-bezier(0.2, 0.9, 0.3, 1)";
 /** Bubble padding (Bubble's `px-3 py-2`). */
 const PAD_X = 12;
 const PAD_Y = 8;
@@ -67,24 +73,57 @@ export function flyKeyframes(
   ];
 }
 
+/** The list makes room for the new row: it was laid out (and stuck to
+ *  the newest) with the row in it, which moved the messages above up by
+ *  `dy` in one frame. Start them `dy` lower and glide them up while the
+ *  bubble flies in. Layout is untouched (a transform), so scrolling and
+ *  the bubble's final rect stay true. Returns a cancel. */
+export function glideList(content: HTMLElement | null, dy: number): () => void {
+  if (!content || !(dy >= 1) || typeof content.animate !== "function") return () => {};
+  const anim = content.animate(
+    [{ transform: `translateY(${Math.round(dy)}px)` }, { transform: "translateY(0px)" }],
+    { duration: FLY_MS, easing: GLIDE_EASING }
+  );
+  return () => {
+    try {
+      anim.cancel();
+    } catch {
+      /* already gone */
+    }
+  };
+}
+
 /** Fly a clone of `bubble` from `source` into place inside `root` (the
  *  pane: positioned, so the clone shares its CSS variables and is not
- *  thrown off by a transformed ancestor). Calls `done` once, after the
- *  motion — or at once when it cannot run. Returns a cancel. */
+ *  thrown off by a transformed ancestor). `target` finds the real bubble
+ *  each frame (default: `bubble`). Reveals it and calls `done` once,
+ *  after the motion — or at once when it cannot run. Returns a cancel. */
 export function runSendFly(opts: {
   root: HTMLElement;
   bubble: HTMLElement;
   source: FlySource;
   done: () => void;
+  target?: () => HTMLElement | null;
 }): () => void {
   const { root, bubble, source, done } = opts;
   let finished = false;
   let clone: HTMLElement | null = null;
   let timer: ReturnType<typeof setTimeout> | null = null;
+  let raf = 0;
+  const real = (): HTMLElement | null => {
+    const el = opts.target?.() ?? null;
+    if (el) return el;
+    return bubble.isConnected ? bubble : null;
+  };
   const finish = () => {
     if (finished) return;
     finished = true;
     if (timer) clearTimeout(timer);
+    if (raf && typeof cancelAnimationFrame === "function") cancelAnimationFrame(raf);
+    // Reveal the real bubble in the same frame the clone goes (React's own
+    // re-render to un-hide it can land a frame later: never a blank frame).
+    const el = real();
+    if (el) el.style.visibility = "";
     clone?.remove();
     clone = null;
     done();
@@ -117,6 +156,32 @@ export function runSendFly(opts: {
     willChange: "transform",
   } satisfies Partial<CSSStyleDeclaration>);
   root.appendChild(clone);
+  // Keep the clone's box on the real bubble's (rect read once a frame).
+  const flight = clone;
+  let at = { ...to, baseLeft: base.left, baseTop: base.top };
+  const track = () => {
+    raf = 0;
+    if (finished) return;
+    const el = real();
+    const r = rectOf(el);
+    const b = rectOf(root);
+    if (el && r && b && (r.width > 0 || r.height > 0)) {
+      const moved =
+        Math.abs(r.left - b.left - (at.left - at.baseLeft)) > 0.5 ||
+        Math.abs(r.top - b.top - (at.top - at.baseTop)) > 0.5;
+      if (moved) {
+        flight.style.left = `${r.left - b.left}px`;
+        flight.style.top = `${r.top - b.top}px`;
+      }
+      if (Math.abs(r.width - at.width) > 0.5) flight.style.width = `${r.width}px`;
+      if (Math.abs(r.height - at.height) > 0.5) flight.style.height = `${r.height}px`;
+      at = { ...r, baseLeft: b.left, baseTop: b.top };
+      // Delivered mid-flight: brighten with it (same transition).
+      if (el.style.opacity !== flight.style.opacity) flight.style.opacity = el.style.opacity;
+    }
+    raf = requestAnimationFrame(track);
+  };
+  if (typeof requestAnimationFrame === "function") raf = requestAnimationFrame(track);
   const anim = clone.animate(flyKeyframes(source.rect, to, scale), {
     duration: FLY_MS,
     easing: FLY_EASING,
