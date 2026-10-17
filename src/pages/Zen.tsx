@@ -508,6 +508,12 @@ export function Zen() {
               {/* Main chat: `<Agent>`. A separate session swaps in
                   `<Agent>/<sidecar>` plus the rename pencil; the text
                   truncates, the pencil never does. */}
+              {/* Agent name + its server in one glass bubble. */}
+              <span
+                data-testid="chat-header-name-pill"
+                className="flex flex-col items-center min-w-0 max-w-full zen-glass zen-glass-pill"
+                style={{ padding: "3px 12px 4px" }}
+              >
               <span
                 data-testid="chat-header-title-row"
                 className="flex items-center justify-center w-full min-w-0"
@@ -542,6 +548,7 @@ export function Zen() {
                 ) : null}
               </span>
               <ServerChip serverId={zen.id} testId="chat-header-server" />
+              </span>
               {extraChat && !drawerPicked ? (
                 <button
                   type="button"
