@@ -163,7 +163,7 @@ describe("Home list", () => {
     expect(screen.getByTestId("home-menu-down")).not.toBeNull();
   });
 
-  it("on: pinned first, then latest sends, then the Home's order; no Move up / down", () => {
+  it("on: latest sends first (a pinned agent too), then the Home's order; no Move up / down", () => {
     seedHome();
     useRecentFirstStore.getState().setOn(true);
     sent("s1", "charlie", 100);
@@ -171,10 +171,23 @@ describe("Home list", () => {
     sent("s2", "bravo", 999);
     mount();
     fireEvent.click(screen.getByTestId("list-tab-home"));
-    expect(homeRows()).toEqual(["alpha", "delta", "charlie", "bravo"]);
+    expect(homeRows()).toEqual(["delta", "charlie", "bravo", "alpha"]);
     fireEvent.contextMenu(screen.getByTestId("home-row-charlie"));
     expect(screen.queryByTestId("home-menu-down")).toBeNull();
     expect(screen.queryByTestId("home-menu-up")).toBeNull();
     expect(screen.getByTestId("home-menu-remove")).not.toBeNull();
+  });
+
+  it("turning it on re-sorts Home at once, a pinned row included", () => {
+    seedHome();
+    sent("s1", "alpha", 300);
+    sent("s1", "delta", 200);
+    mount();
+    fireEvent.click(screen.getByTestId("list-tab-home"));
+    expect(homeRows()).toEqual(["bravo", "charlie", "alpha", "delta"]);
+    act(() => useRecentFirstStore.getState().setOn(true));
+    expect(homeRows()).toEqual(["alpha", "delta", "bravo", "charlie"]);
+    act(() => sent("s1", "charlie", 400));
+    expect(homeRows()).toEqual(["charlie", "alpha", "delta", "bravo"]);
   });
 });

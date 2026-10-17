@@ -4,10 +4,11 @@ import type { HomeRowView } from "./homeView";
 import { lastAtKeyFor } from "./lastAtFetch";
 
 // "Recent agents first" (Zen Settings → Lists): a phone-only setting,
-// never sent to a server. Default OFF. On, the Agents and Home lists keep
-// pinned agents at the top, then put the agents this phone last sent a
-// message to, newest first; agents never messaged from this phone keep
-// the list's own order after them. Off, both lists are exactly as before.
+// never sent to a server. Default OFF. On, the Agents list (below its pin
+// grid) and the Home list put the agents this phone last sent a message
+// to, newest first; agents never messaged from this phone keep the list's
+// own order after them. Home has no pin grid, so its pinned agents sort
+// like any other. Off, both lists are exactly as before.
 //
 // "Spoke to" = a send from this phone's composer (ThreadPane `onSend`).
 // The time is kept per row in `k2.zen.recentSent.v1`, keyed like the
