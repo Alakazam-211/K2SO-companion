@@ -806,7 +806,7 @@ describe("ChatsList", () => {
     vi.useRealTimers();
   });
 
-  it("orders chats by last-message time, newest first", () => {
+  it("orders chats like desktop: the server's project list, not last-message time", () => {
     useZenStore.setState({
       agentSource: "live",
       agents: [
@@ -829,14 +829,20 @@ describe("ChatsList", () => {
           kind: "agent",
         },
       ],
+      // "newer chat" messaged last, but "older chat" is first in the
+      // server's project list: desktop's Agents view draws it first.
       lastAtByKey: { "s1|t:old": 10, "s1|t:new": 50 },
+      serverProjects: [
+        { id: "p-old", path: "/old", handle: "old", name: "older chat", pinned: false, tabOrder: 0, focusGroupId: null },
+        { id: "p-new", path: "/new", handle: "new", name: "newer chat", pinned: false, tabOrder: 1, focusGroupId: null },
+      ],
       agentError: null,
       screen: "list",
     });
     mount();
     const names = screen.getAllByRole("button").map((b) => b.getAttribute("aria-label"));
     const chats = names.filter((n) => n === "older chat" || n === "newer chat");
-    expect(chats).toEqual(["newer chat", "older chat"]);
+    expect(chats).toEqual(["older chat", "newer chat"]);
   });
 
   it("a joined live row describes what it is, with time and a chevron", () => {
@@ -1750,7 +1756,8 @@ describe("ChatsList", () => {
       fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "a" } });
       // "a" is in alpha, bravo and charlie; the grid is hidden.
       expect(screen.queryByTestId("chats-pins")).toBeNull();
-      expect(listIds()).toEqual([LB.id, LA.id, LC.id]);
+      // Project-list order (desktop's), pinned or not.
+      expect(listIds()).toEqual([LA.id, LB.id, LC.id]);
       // Groups off: the swipe offers nothing (it no longer pins).
       expect(screen.queryByTestId(`swipe-action-${LA.id}`)).toBeNull();
       expect(screen.queryByTestId(`swipe-action-${LC.id}`)).toBeNull();
