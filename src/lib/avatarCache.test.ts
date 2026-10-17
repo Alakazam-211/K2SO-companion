@@ -6,6 +6,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   }),
   isTauri: vi.fn(() => false),
 }));
+vi.mock("@tauri-apps/plugin-http", () => ({ fetch: vi.fn() }));
 vi.mock("../stores/servers", () => ({
   useServersStore: { getState: () => ({ servers: [], tokens: {}, activeServerId: null }) },
 }));
@@ -19,6 +20,7 @@ import {
   flushAvatarCache,
   iconRevFallback,
   isCacheableIcon,
+  missingAvatarSources,
   queueAvatar,
   queueServerAvatars,
   subdomainOfServerUrl,
@@ -53,6 +55,8 @@ function install(over: Record<string, unknown> = {}) {
     },
     serverUrl: (id) => urls[id] ?? null,
     flushMs: 10,
+    download: async () => null,
+    fillIn: () => {},
     ...over,
   });
 }
@@ -258,5 +262,44 @@ describe("no-op when unavailable", () => {
     __setAvatarCacheDepsForTests(null);
     queueServerAvatars("s1", rows({ id: "p1", iconUrl: PNG }));
     expect(__pendingAvatarKeysForTests()).toEqual([]);
+  });
+});
+
+describe("pictures that are not data: URLs", () => {
+  it("lists http(s) icons to download and empty icons to ask get-icon", () => {
+    const data = rows(
+      { id: "a", iconUrl: PNG },
+      { id: "b", iconUrl: "https://cdn.example.com/b.png", iconRev: "r9" },
+      { id: "c", iconUrl: "" },
+      { id: "d" },
+      { id: "e", iconUrl: "data:image/svg+xml;base64,PHN2Zz4=" }
+    );
+    expect(missingAvatarSources(data)).toEqual([
+      { projectId: "b", path: "/w1", url: "https://cdn.example.com/b.png", iconRev: "r9" },
+      { projectId: "c", path: "/w2", url: null, iconRev: null },
+      { projectId: "d", path: "/w3", url: null, iconRev: null },
+    ]);
+  });
+
+  it("asks get-icon for an empty icon and caches a downloaded one, once a day per URL", async () => {
+    const fillIn = vi.fn();
+    const download = vi.fn(async () => JPG);
+    install({ fillIn, download });
+    const data = rows({ id: "b", iconUrl: "https://cdn.example.com/b.png" }, { id: "c" });
+    let t = 1000;
+    queueServerAvatars("s1", data, () => t);
+    expect(fillIn).toHaveBeenCalledWith("s1", "c", "/w1");
+    expect(download).toHaveBeenCalledWith("https://cdn.example.com/b.png");
+    await vi.waitFor(() => expect(__pendingAvatarKeysForTests()).toContain(avatarKey("rosson", "b")));
+    t += 60_000;
+    queueServerAvatars("s1", data, () => t);
+    expect(download).toHaveBeenCalledTimes(1);
+  });
+
+  it("does nothing for a server off k2.dev", () => {
+    const fillIn = vi.fn();
+    install({ fillIn });
+    queueServerAvatars("lan", rows({ id: "c" }));
+    expect(fillIn).not.toHaveBeenCalled();
   });
 });
