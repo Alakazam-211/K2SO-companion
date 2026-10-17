@@ -983,6 +983,9 @@ export function ThreadPane({
                         {source === "stub" ? <StubMark /> : null}
                         {m.from}
                       </span>
+                      <span className="shrink-0" aria-hidden>
+                        •
+                      </span>
                       <span className="shrink-0" data-testid="thread-msg-time">
                         {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
                       </span>
