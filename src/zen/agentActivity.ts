@@ -170,7 +170,7 @@ function mainActivity(
 function sidecarActivity(
   row: { path?: string; terminalId?: string | null; addr?: string | null },
   snap: ActivitySnapshot
-): RowActivity | undefined {
+): SessionActivity | undefined {
   const byId = row.terminalId ? snap.bySession[row.terminalId] : undefined;
   if (byId) return byId;
   // terminalId is often null at list time (remembered sidecars, a PTY
@@ -184,6 +184,26 @@ function sidecarActivity(
       r.path === path &&
       (r.agentName === suffix || r.agentName === addr || !!r.agentName?.endsWith(`/${suffix}`))
   );
+}
+
+/** The LLM a chat row runs (its session's snapshot `harness`), busy or
+ *  idle. Main: the main-chat PTY, else the workspace's one non-sidecar
+ *  session. Null when unknown or ambiguous (several candidates). */
+export function harnessForRow(
+  row: { path?: string; terminalId?: string | null; addr?: string | null },
+  snap: ActivitySnapshot,
+  isExtra: boolean,
+  sessions: ChatSessions = NO_CHAT_SESSIONS
+): string | null {
+  if (isExtra) return sidecarActivity(row, snap)?.harness ?? null;
+  if (!row.path) return null;
+  const path = trimPath(row.path);
+  const here = Object.entries(snap.bySession).filter(([, r]) => r.path === path && !!r.harness);
+  const mainIds = sessions.mainByPath[path] ?? [];
+  let mine = here.filter(([id]) => mainIds.includes(id));
+  if (!mine.length) mine = here.filter(([id]) => !sessions.notMain[id]);
+  const kinds = new Set(mine.map(([, r]) => r.harness));
+  return kinds.size === 1 ? [...kinds][0]! : null;
 }
 
 /** The activity a Chats row shows, or null (idle or unknown). */

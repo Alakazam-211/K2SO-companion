@@ -2,7 +2,8 @@ import { hostLabel, useServersStore } from "../../stores/servers";
 import { showServerChips } from "../multi/merge";
 
 /** MS37: the room's server under a header name (chat, terminal, Sessions
- *  drawer), only when more than one server is saved (Q2). */
+ *  drawer), only when more than one server is saved (Q2). White like the
+ *  name above it: grey was unreadable over the header blur. */
 export function ServerChip({
   serverId,
   testId = "server-chip",
@@ -23,7 +24,7 @@ export function ServerChip({
       data-testid={testId}
       data-server-id={serverId}
       className="block truncate text-[11px] leading-tight"
-      style={{ color: "#8e8e93", textAlign: align, maxWidth: "100%" }}
+      style={{ color: "#fff", textAlign: align, maxWidth: "100%" }}
     >
       {label}
     </span>
