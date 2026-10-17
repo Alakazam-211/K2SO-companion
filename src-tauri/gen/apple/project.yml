@@ -68,8 +68,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 4.0.1
-        CFBundleVersion: "4.0.1"
+        CFBundleShortVersionString: 4.0.2
+        CFBundleVersion: "4.0.2"
     entitlements:
       path: k2so-companion_iOS/k2so-companion_iOS.entitlements
     scheme:
