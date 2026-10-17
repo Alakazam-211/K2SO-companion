@@ -2,7 +2,7 @@ import { invoke, addPluginListener } from "@tauri-apps/api/core";
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { load } from "@tauri-apps/plugin-store";
 import { cliAuthHeaders } from "../api/cliAuth";
-import { FEATURE_THREAD_PUSH, getBootStatus, serverHasFeature } from "../api/client";
+import { FEATURE_THREAD_PUSH, getBootStatus } from "../api/client";
 import { scopeFor, versionAtLeast, type ServerScope } from "../api/scope";
 import { useMultiServerPrefs } from "../zen/multi/prefs";
 import { PHONE_FLOOR } from "../zen/multi/rowStatus";
@@ -173,12 +173,15 @@ async function deviceRegistration(): Promise<DeviceReg | null> {
   return { deviceId: await getDeviceId(), platform: tok.platform, token: tok.token };
 }
 
-async function registerWith(scope: ServerScope, reg: DeviceReg): Promise<void> {
+/** True when the server took the registration. */
+async function registerWith(scope: ServerScope, reg: DeviceReg): Promise<boolean> {
   try {
     await postPush(scope, "/cli/push/register-device", reg);
+    return true;
   } catch (e) {
-    // Push is best-effort; the next launch/connect retries.
+    // Push is best-effort; the next foreground/launch/connect retries.
     console.warn("[push] register skipped:", e);
+    return false;
   }
 }
 
@@ -198,37 +201,87 @@ export async function ensureRegistered(scope: ServerScope): Promise<void> {
  *  older server's pushes carry no `subdomain`, so a tap could not find
  *  its way back to it. */
 export async function registrationTargets(): Promise<ServerEntry[]> {
+  return (await sortTargets()).targets;
+}
+
+/** `registrationTargets`, plus how many signed-in servers could not be
+ *  checked (boot-status unreadable: offline, tunnel timeout). Those are
+ *  misses to retry, unlike a server that answered without the feature. */
+async function sortTargets(): Promise<{ targets: ServerEntry[]; unknown: number }> {
   const s = useServersStore.getState();
   const signedIn = s.servers.filter((x) => s.tokens[x.id]);
   const keep = await Promise.all(
-    signedIn.map(async (x) =>
-      x.id === s.activeServerId
-        ? true
-        : serverHasFeature(scopeFor(x.id), FEATURE_THREAD_PUSH).catch(() => false)
-    )
+    signedIn.map(async (x): Promise<boolean | null> => {
+      if (x.id === s.activeServerId) return true;
+      const b = await getBootStatus(scopeFor(x.id)).catch(() => null);
+      return b ? b.features.includes(FEATURE_THREAD_PUSH) : null;
+    })
   );
-  return signedIn.filter((_, i) => keep[i]);
+  return {
+    targets: signedIn.filter((_, i) => keep[i] === true),
+    unknown: keep.filter((k) => k === null).length,
+  };
 }
+
+/** Re-register on foreground at most this often once every server took
+ *  it; after a miss, the next foreground retries straight away. */
+export const PUSH_REREGISTER_MS = 30 * 60_000;
+
+let allRun: Promise<void> | null = null;
+let lastAllAt = 0;
+let lastAllMissed = false;
 
 /** Register on every signed-in server (see `registrationTargets`): on
- *  launch, after a login, and when the toggle turns on. Never throws. */
-export async function registerAllSignedIn(): Promise<void> {
-  try {
-    const reg = await deviceRegistration();
-    if (!reg) return;
-    const targets = await registrationTargets();
-    await Promise.all(targets.map((x) => registerWith(scopeFor(x.id), reg)));
-  } catch (e) {
-    console.warn("[push] register skipped:", e);
-  }
+ *  launch, foreground, server switch, after a login, and when the toggle
+ *  turns on. Concurrent calls share one run. Never throws. */
+export function registerAllSignedIn(): Promise<void> {
+  allRun ??= (async () => {
+    try {
+      const reg = await deviceRegistration();
+      if (!reg) return;
+      // A server whose boot-status could not be read (tunnel down) is not
+      // a target this time; count it as missed so the next foreground
+      // tries again instead of waiting out the throttle.
+      const { targets, unknown } = await sortTargets();
+      const ok = await Promise.all(targets.map((x) => registerWith(scopeFor(x.id), reg)));
+      lastAllMissed = ok.includes(false) || unknown > 0;
+      lastAllAt = Date.now();
+    } catch (e) {
+      lastAllMissed = true;
+      console.warn("[push] register skipped:", e);
+    } finally {
+      allRun = null;
+    }
+  })();
+  return allRun;
 }
 
-/** Register now, then again whenever a server gains a new session token
- *  (any login or revive). Returns the unsubscribe. */
+/** Foreground re-register: a registration missed at launch (a server
+ *  offline, a tunnel timeout) heals the next time the app is opened. */
+export function registerOnForeground(now = Date.now()): Promise<void> | null {
+  if (!lastAllMissed && now - lastAllAt < PUSH_REREGISTER_MS) return null;
+  return registerAllSignedIn();
+}
+
+/** Test hook: forget the throttle state. */
+export function resetPushRegisterState(): void {
+  allRun = null;
+  lastAllAt = 0;
+  lastAllMissed = false;
+}
+
+/** Register now, again on foreground (throttled; see
+ *  `registerOnForeground`), and whenever a server gains a new session
+ *  token (any login or revive). Returns the unsubscribe. */
 export function watchPushRegistrations(): () => void {
   void registerAllSignedIn();
+  const onVisible = () => {
+    if (document.visibilityState === "visible") void registerOnForeground();
+  };
+  const doc = typeof document === "undefined" ? null : document;
+  doc?.addEventListener("visibilitychange", onVisible);
   let prev = useServersStore.getState().tokens;
-  return useServersStore.subscribe((state) => {
+  const stopTokens = useServersStore.subscribe((state) => {
     if (state.tokens === prev) return;
     const before = prev;
     prev = state.tokens;
@@ -249,6 +302,10 @@ export function watchPushRegistrations(): () => void {
       }
     })();
   });
+  return () => {
+    doc?.removeEventListener("visibilitychange", onVisible);
+    stopTokens();
+  };
 }
 
 /** Toggle-off: remove this device from a server's registry (blind). */

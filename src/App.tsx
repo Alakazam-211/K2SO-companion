@@ -1,9 +1,8 @@
 import { useEffect, useState } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
-import { useServersStore, getActiveServer } from "./stores/servers";
+import { useServersStore } from "./stores/servers";
 import { useWorkspacesStore } from "./stores/workspaces";
-import { ensureRegistered, attachPushNavigation, watchPushRegistrations } from "./lib/push";
-import { scopeFor } from "./api/scope";
+import { registerAllSignedIn, attachPushNavigation, watchPushRegistrations } from "./lib/push";
 import { setLifecycleEnabled } from "./lib/appLifecycle";
 import { useMultiServerPrefs } from "./zen/multi/prefs";
 import { TabBar } from "./components/TabBar";
@@ -117,11 +116,11 @@ function AppLayout() {
     const { refreshAll, startListening } = useWorkspacesStore.getState();
     if (activeServerId) {
       refreshAll();
-      // Push re-register on every launch/server-switch (upsert by stable
-      // deviceId — absorbs token rotation). Gated internally on plugin
-      // availability + the Settings toggle; never throws.
-      const active = getActiveServer();
-      if (active) void ensureRegistered(scopeFor(active.id));
+      // Push re-register on every launch/server-switch, on EVERY qualifying
+      // server, not just the active one (upsert by stable deviceId; joins a
+      // run already in flight). Gated internally on plugin availability +
+      // the Settings toggle; never throws.
+      void registerAllSignedIn();
     }
     return startListening();
   }, [activeServerId]);

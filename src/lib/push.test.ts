@@ -27,7 +27,6 @@ vi.mock("../stores/servers", () => ({
 vi.mock("../api/client", () => ({
   FEATURE_THREAD_PUSH: "thread-push-v1",
   getBootStatus: vi.fn(async () => null),
-  serverHasFeature: vi.fn(async () => false),
 }));
 vi.mock("./revive", () => ({ connectServer: vi.fn() }));
 
