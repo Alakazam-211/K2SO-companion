@@ -32,10 +32,9 @@ vi.mock("./revive", () => ({ connectServer: vi.fn() }));
 vi.mock("../api/client", () => ({
   FEATURE_THREAD_PUSH: "thread-push-v1",
   getBootStatus: vi.fn(),
-  serverHasFeature: vi.fn(),
 }));
 
-import { getBootStatus, serverHasFeature } from "../api/client";
+import { getBootStatus } from "../api/client";
 import { noteBootStatus, __resetScopesForTests } from "../api/scope";
 import { useMultiServerPrefs } from "../zen/multi/prefs";
 import { connectServer } from "./revive";
@@ -44,6 +43,9 @@ import {
   attachPushNavigation,
   matchTapServer,
   registerAllSignedIn,
+  registerOnForeground,
+  resetPushRegisterState,
+  PUSH_REREGISTER_MS,
   routeTap,
   tapPath,
   watchPushRegistrations,
@@ -84,6 +86,13 @@ const posts = () =>
     auth: JSON.stringify((o as { headers: unknown }).headers),
   }));
 
+/** Boot-status per server id: a feature list, or null (unreadable). */
+const boot = (byId: Record<string, string[] | null>) =>
+  vi.mocked(getBootStatus).mockImplementation(async (scope) => {
+    const f = byId[scope.id];
+    return f ? ({ features: f } as never) : null;
+  });
+
 const flush = async () => {
   for (let i = 0; i < 20; i++) await Promise.resolve();
 };
@@ -95,7 +104,7 @@ beforeEach(() => {
   tauriFetch.mockResolvedValue({ ok: true, status: 200, text: async () => "{}" });
   vi.mocked(connectServer).mockReset();
   vi.mocked(getBootStatus).mockReset();
-  vi.mocked(serverHasFeature).mockReset();
+  resetPushRegisterState();
   pushStore.enabled = true;
   useServersStore.setState({
     servers: [HOME, WORK, LAN],
@@ -310,7 +319,7 @@ describe("routeTap with rooms (flag on, MA23)", () => {
 
 describe("registration", () => {
   it("registers on the active server and every signed-in server with thread-push-v1", async () => {
-    vi.mocked(serverHasFeature).mockImplementation(async (scope) => scope.id === "s2");
+    boot({ s2: ["thread-push-v1"], s4: [] });
     await registerAllSignedIn();
     const urls = posts().map((p) => p.url).sort();
     expect(urls).toEqual([
@@ -319,18 +328,56 @@ describe("registration", () => {
     ]);
     expect(posts()[0].body).toEqual({ deviceId: "dev-1", platform: "apns", token: "apns-tok" });
     // A signed-out server is never asked.
-    expect(serverHasFeature).not.toHaveBeenCalledWith(expect.objectContaining({ id: "s3" }), "thread-push-v1");
+    expect(getBootStatus).not.toHaveBeenCalledWith(expect.objectContaining({ id: "s3" }));
+  });
+
+  it("foreground: no re-register within the throttle once every server took it", async () => {
+    boot({ s2: ["thread-push-v1"], s4: [] });
+    await registerAllSignedIn();
+    tauriFetch.mockClear();
+    expect(registerOnForeground(Date.now() + 60_000)).toBeNull();
+    await registerOnForeground(Date.now() + PUSH_REREGISTER_MS + 1);
+    expect(posts()).toHaveLength(2);
+  });
+
+  it("foreground retries at once after a server could not be reached", async () => {
+    boot({ s2: null, s4: [] });
+    await registerAllSignedIn();
+    expect(posts().map((p) => p.url)).toEqual(["https://rosson.k2.dev/cli/push/register-device"]);
+    tauriFetch.mockClear();
+    boot({ s2: ["thread-push-v1"], s4: [] });
+    await registerOnForeground(Date.now() + 1_000);
+    expect(posts().map((p) => p.url).sort()).toEqual([
+      "https://rosson.k2.dev/cli/push/register-device",
+      "https://work.k2.dev/cli/push/register-device",
+    ]);
+  });
+
+  it("foreground retries at once after a register POST failed", async () => {
+    boot({ s2: ["thread-push-v1"], s4: [] });
+    tauriFetch.mockResolvedValueOnce({ ok: false, status: 502, text: async () => "" });
+    await registerAllSignedIn();
+    tauriFetch.mockClear();
+    tauriFetch.mockResolvedValue({ ok: true, status: 200, text: async () => "{}" });
+    await registerOnForeground(Date.now() + 1_000);
+    expect(posts()).toHaveLength(2);
+  });
+
+  it("concurrent calls share one run", async () => {
+    boot({ s2: ["thread-push-v1"], s4: [] });
+    await Promise.all([registerAllSignedIn(), registerAllSignedIn()]);
+    expect(posts()).toHaveLength(2);
   });
 
   it("push off: nothing registers", async () => {
     pushStore.enabled = false;
-    vi.mocked(serverHasFeature).mockResolvedValue(true);
+    boot({ s2: ["thread-push-v1"], s4: ["thread-push-v1"] });
     await registerAllSignedIn();
     expect(tauriFetch).not.toHaveBeenCalled();
   });
 
   it("a login (new token) registers on that server", async () => {
-    vi.mocked(serverHasFeature).mockResolvedValue(true);
+    boot({ s2: ["thread-push-v1"], s3: ["thread-push-v1"], s4: ["thread-push-v1"] });
     const stop = watchPushRegistrations();
     await flush();
     tauriFetch.mockClear();
