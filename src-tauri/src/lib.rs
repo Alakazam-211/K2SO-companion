@@ -430,6 +430,21 @@ fn ios_strip_accessory_bar(webview: tauri::WebviewWindow) {
     let _ = webview;
 }
 
+/// The APNs environment this build's push token belongs to. Xcode Debug
+/// signs with the `.debug` entitlements (`aps-environment` development);
+/// Release / the App Store archive signs production. Tauri's Xcode build
+/// script compiles Rust with the matching cargo profile, so
+/// `debug_assertions` follows the Xcode configuration. Push registration
+/// sends it only to a daemon advertising `push-environment-v1`.
+#[tauri::command]
+fn aps_environment() -> &'static str {
+    if cfg!(debug_assertions) {
+        "development"
+    } else {
+        "production"
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -451,7 +466,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             ios_strip_accessory_bar,
-            open_external_url
+            open_external_url,
+            aps_environment
         ])
         .run(tauri::generate_context!())
         .expect("error while running K2 Companion");

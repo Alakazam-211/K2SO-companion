@@ -16,6 +16,13 @@ import {
 import { connectServer } from "./revive";
 import { zenProjectPath, zenTicketPath } from "../zen/terminalJump";
 import { pushAvailability, pushIsAvailable } from "./pushAvailability";
+import {
+  FEATURE_PUSH_ENVIRONMENT,
+  FEATURE_PUSH_PREVIEWS,
+  parseRegisterReply,
+  previewsPref,
+  usePushPreviewsStore,
+} from "../stores/pushPreviews";
 
 // Push glue — Companion C6 (prd-companion-v2 §4). Talks to the local
 // `tauri-plugin-k2-push` plugin and the daemon's `/cli/push/*` routes.
@@ -32,6 +39,15 @@ import { pushAvailability, pushIsAvailable } from "./pushAvailability";
 // plugin-store `push.json` — and re-sent on every app launch, which
 // absorbs APNs/FCM token rotation for free. `unregister-device`
 // `{deviceId}` on toggle-off (blind; removing a gone device is a no-op).
+//
+// Optional register-device fields, each sent ONLY to a server whose
+// `/boot-status` lists its key (an older daemon may reject an unknown
+// field; see `registrationBody`):
+//   - `previews` (K2 0.46.1 `push-previews-v1`): this phone's "Show
+//     message previews" pref for that server (stores/pushPreviews). The
+//     reply's `previews` / `previewsAllowed` are recorded there.
+//   - `environment` (`push-environment-v1`): the APNs environment this
+//     build's token belongs to, from the app's `aps_environment` command.
 
 const PLUGIN = "k2-push";
 const STORE_FILE = "push.json";
@@ -114,8 +130,8 @@ export async function setPushEnabled(enabled: boolean): Promise<void> {
 async function postPush(
   scope: ServerScope,
   path: string,
-  body: Record<string, string>
-): Promise<void> {
+  body: Record<string, unknown>
+): Promise<string> {
   if (!scope.token()) throw new Error("no session token");
   const res = await scopedFetch(scope, path, {
     method: "POST",
@@ -123,6 +139,7 @@ async function postPush(
     revive: false,
   });
   if (!res.ok) throw new Error(`${path} -> ${res.status}`);
+  return res.text;
 }
 
 /** POST with credentials captured BEFORE the store drops them (a server
@@ -158,16 +175,87 @@ async function deviceRegistration(): Promise<DeviceReg | null> {
   return { deviceId: await getDeviceId(), platform: tok.platform, token: tok.token };
 }
 
-/** True when the server took the registration. */
-async function registerWith(scope: ServerScope, reg: DeviceReg): Promise<boolean> {
+let apsEnv: Promise<string | null> | null = null;
+
+/** `"production"` (Release / App Store / TestFlight) or `"development"`
+ *  (Xcode Debug), from the app's `aps_environment` command; null when
+ *  the command is missing or answers anything else. Read once. */
+function apsEnvironment(): Promise<string | null> {
+  apsEnv ??= invoke<unknown>("aps_environment")
+    .then((v) => (v === "production" || v === "development" ? v : null))
+    .catch(() => null);
+  return apsEnv;
+}
+
+/** The register-device body for one server: the device registration,
+ *  plus `previews` when that server lists `push-previews-v1` and
+ *  `environment` (APNs only) when it lists `push-environment-v1`. An
+ *  unreadable boot-status adds neither. */
+export async function registrationBody(
+  scope: ServerScope,
+  reg: DeviceReg
+): Promise<Record<string, unknown>> {
+  const body: Record<string, unknown> = { ...reg };
+  const boot = await getBootStatus(scope).catch(() => null);
+  const features = boot?.features ?? [];
+  if (features.includes(FEATURE_PUSH_PREVIEWS)) body.previews = previewsPref(scope.id);
+  if (features.includes(FEATURE_PUSH_ENVIRONMENT) && reg.platform === "apns") {
+    const env = await apsEnvironment();
+    if (env) body.environment = env;
+  }
+  return body;
+}
+
+/** Register on one server; null when it took it, else the error. The
+ *  reply's previews fields are recorded (stores/pushPreviews). */
+async function registerOn(scope: ServerScope, reg: DeviceReg): Promise<string | null> {
   try {
-    await postPush(scope, "/cli/push/register-device", reg);
-    return true;
+    const body = await registrationBody(scope, reg);
+    const text = await postPush(scope, "/cli/push/register-device", body);
+    const sent = typeof body.previews === "boolean" ? body.previews : undefined;
+    usePushPreviewsStore.getState().noteReply(scope.id, sent, parseRegisterReply(text));
+    return null;
   } catch (e) {
     // Push is best-effort; the next foreground/launch/connect retries.
     console.warn("[push] register skipped:", e);
+    return e instanceof Error ? e.message : String(e);
+  }
+}
+
+/** True when the server took the registration. */
+async function registerWith(scope: ServerScope, reg: DeviceReg): Promise<boolean> {
+  return (await registerOn(scope, reg)) === null;
+}
+
+const previewGens = new Map<string, number>();
+
+/** Server settings → "Show message previews": save the pref at once
+ *  (optimistic), then re-register with that server only. On a failure
+ *  the pref goes back and the row shows an error. With no registration
+ *  on this phone (push off, permission denied, a dormant build) the pref
+ *  is just saved; the next registration carries it. True when saved. */
+export async function setServerPreviews(serverId: string, on: boolean): Promise<boolean> {
+  const store = usePushPreviewsStore.getState();
+  const before = previewsPref(serverId);
+  const gen = (previewGens.get(serverId) ?? 0) + 1;
+  previewGens.set(serverId, gen);
+  store.setPref(serverId, on);
+  store.setError(serverId, null);
+  let error: string | null = null;
+  try {
+    const reg = await deviceRegistration();
+    if (reg) error = await registerOn(scopeFor(serverId), reg);
+  } catch (e) {
+    error = e instanceof Error ? e.message : String(e);
+  }
+  // A newer toggle owns the row now.
+  if (previewGens.get(serverId) !== gen) return !error;
+  if (error) {
+    store.setPref(serverId, before);
+    store.setError(serverId, "Could not save. Try again.");
     return false;
   }
+  return true;
 }
 
 /** Register this device on one server (upsert by stable deviceId).
@@ -251,6 +339,8 @@ export function registerOnForeground(now = Date.now()): Promise<void> | null {
 /** Test hook: forget the throttle state. */
 export function resetPushRegisterState(): void {
   allRun = null;
+  apsEnv = null;
+  previewGens.clear();
   lastAllAt = 0;
   lastAllMissed = false;
 }
