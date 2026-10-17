@@ -333,14 +333,6 @@ describe("routeTap with rooms (flag on, MA23)", () => {
     expect(navigate).toHaveBeenCalledWith("/zen?addr=k2%2Freviewer&seq=418");
   });
 
-  it("a project tap from another server opens it as a room there: Home stays, no switch", async () => {
-    const navigate = vi.fn();
-    await routeTap({ kind: "project", groupId: "g1", subdomain: "work" }, navigate, { zen: true });
-    expect(navigate).toHaveBeenCalledWith("/zen?project=g1&server=work.k2.dev");
-    expect(connectServer).not.toHaveBeenCalled();
-    expect(useServersStore.getState().activeServerId).toBe("s1");
-  });
-
   it("a ticket tap from another server makes it the default first (Tickets stay on the default)", async () => {
     vi.mocked(connectServer).mockResolvedValue("still-valid");
     const navigate = vi.fn();

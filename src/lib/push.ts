@@ -661,9 +661,8 @@ function belowFloor(serverId: string): boolean {
  *  they open on the current server (as before). Flag on, a ticket whose
  *  `subdomain` names another saved server makes that server the default
  *  first (the user's tap is the explicit choice); no match keeps the
- *  default. Project taps follow the push's server (a project chat exists
- *  on one server only): flag on, a room there (`&server=`, Home stays);
- *  flag off, switch first. No match keeps the current server. */
+ *  default. Project taps switch to the push's server first (a project
+ *  chat exists on one server only); no match keeps the current one. */
 export async function routeTap(
   tap: TapPayload | null | undefined,
   navigate: (path: string) => void,
@@ -676,22 +675,14 @@ export async function routeTap(
     if (!path) return;
     // Tickets (flag on) and project chats follow the push's server: a
     // project chat lives on one server only, so opening it on another
-    // shows the wrong project (or none). With the multi-server flag a
-    // project chat opens as a ROOM there, like a Thread tap: the user
-    // stays in their Home and the active server never changes.
-    const multi = useMultiServerPrefs.getState().multiServer;
-    const followServer = (TICKET_KINDS.has(kind) && multi) || kind === "project";
+    // shows the wrong project (or none).
+    const followServer =
+      (TICKET_KINDS.has(kind) && useMultiServerPrefs.getState().multiServer) || kind === "project";
     if (followServer && str(tap.subdomain)) {
       try {
         const server = await resolveTapServer(tap);
         const active = useServersStore.getState().activeServerId;
-        if (server && server.id !== active) {
-          if (kind === "project" && multi && opts.zen !== false && !belowFloor(server.id)) {
-            navigate(withServerParam(path, server.id));
-            return;
-          }
-          if (!(await switchToServer(server.id))) return;
-        }
+        if (server && server.id !== active && !(await switchToServer(server.id))) return;
       } catch (e) {
         console.warn("[push] tap server check failed:", e);
       }
