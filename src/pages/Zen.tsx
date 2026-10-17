@@ -62,6 +62,8 @@ const HEADER_BTN: CSSProperties = {
 const HEADER_AVATAR_PX = 42;
 /** Resting header content height (below the safe area): avatar + name. */
 export const CHAT_HEADER_PX = 84;
+/** Soft shadow under the header avatar, over the name bubble. */
+const AVATAR_LIFT = "drop-shadow(0 3px 8px rgba(0, 0, 0, 0.55))";
 /** Buttons centre on the avatar. */
 const HEADER_BTN_TOP = (HEADER_AVATAR_PX - 36) / 2;
 
@@ -446,7 +448,9 @@ export function Zen() {
             </button>
             )}
             <div className="min-w-0 flex flex-col items-center justify-center zen-header-text">
-              <span className="relative flex">
+              {/* The avatar overlaps the name bubble's top edge; the shadow
+                  lifts it off the glass. */}
+              <span className="relative flex" style={{ zIndex: 2 }}>
               {headerHarness ? (
                 <span
                   data-testid="chat-header-llm"
@@ -461,8 +465,8 @@ export function Zen() {
                 <button
                   type="button"
                   data-testid="chat-header-avatar"
-                  className="flex mb-1 bg-transparent border-0 p-0"
-                  style={{ borderRadius: "50%", pointerEvents: "auto" }}
+                  className="flex bg-transparent border-0 p-0"
+                  style={{ borderRadius: "50%", pointerEvents: "auto", filter: AVATAR_LIFT }}
                   aria-label={`Change icon for ${headerTitle}`}
                   onClick={(e) => {
                     e.stopPropagation();
@@ -481,7 +485,7 @@ export function Zen() {
                   />
                 </button>
               ) : (
-                <span data-testid="chat-header-avatar" className="flex mb-1">
+                <span data-testid="chat-header-avatar" className="flex" style={{ filter: AVATAR_LIFT }}>
                   {groupChat && agent?.groupId ? (
                     // The project's own image from its settings, else its
                     // colour + initial (the Projects sheet row's avatar).
@@ -512,7 +516,7 @@ export function Zen() {
               <span
                 data-testid="chat-header-name-pill"
                 className="flex flex-col items-center min-w-0 max-w-full zen-glass zen-glass-pill"
-                style={{ padding: "3px 12px 4px" }}
+                style={{ position: "relative", zIndex: 1, marginTop: -8, padding: "10px 16px 7px" }}
               >
               <span
                 data-testid="chat-header-title-row"
