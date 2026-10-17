@@ -5,8 +5,9 @@ describe("isMyAuthor", () => {
   const owner: SessionIdentity = { username: "rosson", owner: true };
   const julie: SessionIdentity = { username: "julie", owner: false };
 
-  it("owner token only owns 'owner' rows", () => {
+  it("owner token owns 'owner' rows and its linked username's (K2 0.46.0 stamp)", () => {
     expect(isMyAuthor("owner", owner)).toBe(true);
+    expect(isMyAuthor("rosson", owner)).toBe(true);
     expect(isMyAuthor("julie", owner)).toBe(false);
     expect(isMyAuthor("scout", owner)).toBe(false);
   });

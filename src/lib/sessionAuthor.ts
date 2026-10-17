@@ -44,7 +44,9 @@ export function isMyAuthor(
 ): boolean {
   if (!author) return false;
   if (!identity) return author === "owner";
-  if (identity.owner) return author === "owner";
+  // K2 0.46.0 stamps the owner token as its linked username when one is
+  // linked, else `owner`.
+  if (identity.owner) return author === "owner" || author === identity.username;
   return author === identity.username;
 }
 
