@@ -1,4 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
+import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { useServersStore } from "../stores/servers";
 import { iconRevOf, parseCliProjects } from "../zen/agentRow";
 import { PUSH_PLUGIN, pushAvailability } from "./pushAvailability";
@@ -18,9 +19,14 @@ import { PUSH_PLUGIN, pushAvailability } from "./pushAvailability";
 // subdomain, so they are skipped. `rev` = the row's `iconRev` when K2
 // sends it, else a hash of the icon string.
 //
-// Only `data:image/…` icons are sent. http(s) icon URLs are skipped for
-// now (the extension makes no network calls; fetching them here would
-// need the Tauri HTTP path and auth) — those workspaces get initials.
+// Every workspace gets a picture when one exists:
+// - a `data:image/…` iconUrl goes as is;
+// - an http(s) iconUrl is downloaded here (Tauri HTTP, no auth, raster
+//   only, at most 2 MB) and sent as a data URL;
+// - an empty iconUrl asks the server's `GET /cli/projects/get-icon`
+//   (`ensureRemoteIcon`: once a day per server + project), which feeds
+//   `queueAvatar` with its `dataUrl`.
+// The extension itself never touches the network.
 //
 // Best-effort and quiet: coalesced on a short timer, no-op unless the
 // push plugin is available on iOS, and nothing here throws into callers.
@@ -47,7 +53,28 @@ type Deps = {
   call: (items: AvatarItem[]) => Promise<CacheResult>;
   serverUrl: (serverId: string) => string | null;
   flushMs: number;
+  /** An http(s) icon → a raster data URL, or null. */
+  download: (url: string) => Promise<string | null>;
+  /** A workspace with no iconUrl: ask its server (`get-icon`). */
+  fillIn: (serverId: string, projectId: string, path: string) => void;
 };
+
+/** Largest downloaded icon accepted. */
+export const AVATAR_DOWNLOAD_MAX = 2 * 1024 * 1024;
+
+async function downloadIcon(url: string): Promise<string | null> {
+  const r = await tauriFetch(url, { method: "GET" });
+  if (!r.ok) return null;
+  const type = (r.headers.get("content-type") || "").split(";")[0].trim().toLowerCase();
+  if (!type.startsWith("image/") || type.includes("svg")) return null;
+  const buf = new Uint8Array(await r.arrayBuffer());
+  if (!buf.length || buf.length > AVATAR_DOWNLOAD_MAX) return null;
+  let bin = "";
+  for (let i = 0; i < buf.length; i += 0x8000) {
+    bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  }
+  return `data:${type};base64,${btoa(bin)}`;
+}
 
 const defaultDeps: Deps = {
   enabled: () => {
@@ -62,6 +89,13 @@ const defaultDeps: Deps = {
   serverUrl: (serverId) =>
     useServersStore.getState().servers.find((x) => x.id === serverId)?.url ?? null,
   flushMs: AVATAR_FLUSH_MS,
+  download: downloadIcon,
+  // Lazy: remoteIcons imports this module.
+  fillIn: (serverId, projectId, path) => {
+    void import("../zen/multi/remoteIcons")
+      .then((m) => m.ensureRemoteIcon(serverId, projectId, path))
+      .catch(() => {});
+  },
 };
 
 let deps: Deps = defaultDeps;
@@ -72,6 +106,9 @@ const pending = new Map<string, AvatarItem>();
 const sent = new Map<string, string>();
 /** key → the icon string its fallback rev was hashed from. */
 const revMemo = new Map<string, { url: string; rev: string }>();
+/** http(s) icon URL → the time it was last tried (once a day each). */
+const downloadedAt = new Map<string, number>();
+export const AVATAR_DOWNLOAD_EVERY_MS = 24 * 60 * 60 * 1000;
 let timer: ReturnType<typeof setTimeout> | null = null;
 let flushing: Promise<void> | null = null;
 /** Native said no (no App Group entitlement, not iOS): stop for the session. */
@@ -158,13 +195,50 @@ function enqueue(items: AvatarItem[]): void {
   }
 }
 
+/** Rows whose picture is not a data: URL: an http(s) URL to download, or
+ *  nothing (ask `get-icon`). Pure. */
+export function missingAvatarSources(
+  data: unknown
+): { projectId: string; path: string; url: string | null; iconRev: string | null }[] {
+  const rows = parseCliProjects(data);
+  if (!rows) return [];
+  const out: { projectId: string; path: string; url: string | null; iconRev: string | null }[] = [];
+  for (const raw of rows) {
+    const r = raw as Record<string, unknown>;
+    const id = typeof r.id === "string" ? r.id.trim() : typeof r.id === "number" ? String(r.id) : "";
+    if (!id || isCacheableIcon(r.iconUrl)) continue;
+    const icon = typeof r.iconUrl === "string" ? r.iconUrl.trim() : "";
+    const path = typeof r.path === "string" ? r.path.trim() : "";
+    if (/^https?:\/\//i.test(icon)) out.push({ projectId: id, path, url: icon, iconRev: iconRevOf(r.iconRev) });
+    else if (!icon && path) out.push({ projectId: id, path, url: null, iconRev: null });
+  }
+  return out;
+}
+
 /** After a server's `/cli/projects/list` loaded. Never throws. */
-export function queueServerAvatars(serverId: string, projectsData: unknown): void {
+export function queueServerAvatars(serverId: string, projectsData: unknown, now: () => number = Date.now): void {
   try {
     if (disabled || !deps.enabled()) return;
     const sub = subdomainOfServerUrl(deps.serverUrl(serverId));
     if (!sub) return;
     enqueue(avatarItemsFromProjects(sub, projectsData));
+    for (const m of missingAvatarSources(projectsData)) {
+      if (!m.url) {
+        deps.fillIn(serverId, m.projectId, m.path);
+        continue;
+      }
+      const url = m.url;
+      const last = downloadedAt.get(url);
+      if (last !== undefined && now() - last < AVATAR_DOWNLOAD_EVERY_MS) continue;
+      downloadedAt.set(url, now());
+      void deps
+        .download(url)
+        .then((dataUrl) => {
+          // The rev follows the URL (or K2's iconRev), not the bytes.
+          if (dataUrl) queueAvatar(serverId, m.projectId, dataUrl, m.iconRev ?? iconRevFallback(url));
+        })
+        .catch(() => {});
+    }
   } catch (e) {
     console.warn("[avatars] queue skipped:", e);
   }
@@ -243,6 +317,7 @@ export function __setAvatarCacheDepsForTests(next: Partial<Deps> | null): void {
   pending.clear();
   sent.clear();
   revMemo.clear();
+  downloadedAt.clear();
   deps = next ? { ...defaultDeps, ...next } : defaultDeps;
 }
 
