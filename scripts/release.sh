@@ -234,8 +234,9 @@ git add package.json src-tauri/tauri.conf.json src-tauri/gen/apple/k2so-companio
   src-tauri/gen/apple/K2NotificationService/Info.plist \
   src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/gen/apple/project.yml
 git commit -m "v${VERSION} — App Store ${VERSION}, release build ${BUILD_NUMBER}"
-# This worktree may be on an execute-plan branch; always land on GitHub main.
-git push origin HEAD:main
+# This worktree may be on an execute-plan branch; land on GitHub main,
+# or on RELEASE_BRANCH for a hotfix build cut from an older release.
+git push origin "HEAD:refs/heads/${RELEASE_BRANCH:-main}"
 # A replacement build under the same marketing version keeps the first
 # build's tag (Android may already ship from it); tag the build instead.
 if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
