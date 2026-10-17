@@ -1,9 +1,11 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { scopeFor } from "../api/scope";
 import { useBackHandler } from "../lib/androidBack";
+import { setServerPreviews } from "../lib/push";
 import { useSwipeBack } from "../lib/useSwipeBack";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { serverBellStatus, useNotifyPrefsStore } from "../stores/notifyPrefs";
+import { usePushPreviewsStore } from "../stores/pushPreviews";
 import { hostLabel, signOutServer, useServersStore, type RecoveryState } from "../stores/servers";
 import { RECOVERY_DOT, STATE_LABEL } from "./serverList";
 import { ServerUpdateSection } from "./ServerUpdateSection";
@@ -300,6 +302,10 @@ function ShortcutsGroup({
   const pushOn = useNotifyPrefsStore((s) => s.threadPush[serverId] === true);
   const prefs = useNotifyPrefsStore((s) => s.prefs[serverId]);
   const error = useNotifyPrefsStore((s) => s.errors[serverId] ?? null);
+  const previewsFeature = usePushPreviewsStore((s) => s.feature[serverId] === true);
+  useEffect(() => {
+    if (pushOn) void usePushPreviewsStore.getState().probe(serverId);
+  }, [serverId, pushOn]);
   const showBell = pushOn && !!prefs;
   if (!showBell && !hasToken) return null;
   const labelId = `server-settings-notify-label-${serverId}`;
@@ -335,6 +341,9 @@ function ShortcutsGroup({
           />
         </div>
       ) : null}
+      {showBell && prefs?.server.enabled && previewsFeature ? (
+        <PreviewsRow serverId={serverId} />
+      ) : null}
       {hasToken ? (
         <button
           type="button"
@@ -355,6 +364,48 @@ function ShortcutsGroup({
         </button>
       ) : null}
     </Group>
+  );
+}
+
+/** Notifications sub-row (K2 0.46.1 `push-previews-v1`): this phone's
+ *  "Show message previews" pref for the server. Toggling re-registers
+ *  with the server (`setServerPreviews`). The owner's master switch
+ *  (`previewsAllowed` false) locks it off. */
+function PreviewsRow({ serverId }: { serverId: string }) {
+  const pref = usePushPreviewsStore((s) => s.previews[serverId] ?? true);
+  const allowed = usePushPreviewsStore((s) => s.allowed[serverId] !== false);
+  const error = usePushPreviewsStore((s) => s.errors[serverId] ?? null);
+  const labelId = `server-settings-previews-label-${serverId}`;
+  const status =
+    error ??
+    (allowed
+      ? "Show the first lines of new messages in notifications."
+      : "Turned off by the server owner");
+  return (
+    <div
+      className="flex items-center justify-between"
+      style={{ minHeight: 44, padding: "6px 12px 6px 16px", gap: 12, borderTop: HAIRLINE }}
+      data-testid="server-settings-previews"
+    >
+      <span className="min-w-0 flex flex-col">
+        <span className="text-[17px]" id={labelId}>
+          Show message previews
+        </span>
+        <span
+          className="text-[13px]"
+          style={{ color: error ? RED : MUTED, lineHeight: 1.35 }}
+          data-testid="server-settings-previews-status"
+        >
+          {status}
+        </span>
+      </span>
+      <Switch
+        on={allowed && pref}
+        disabled={!allowed}
+        labelledBy={labelId}
+        onToggle={() => void setServerPreviews(serverId, !pref)}
+      />
+    </div>
   );
 }
 

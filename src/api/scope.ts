@@ -57,6 +57,10 @@ export const DAEMON_FEATURES = [
   // K2 0.45.5: Thread push prefs routes + payload (`notify/prefs`,
   // viewing frames). Read by push registration and the bells.
   "thread-push-v1",
+  // K2 0.46.1: register-device takes `previews` / `environment`. Read by
+  // push registration (lib/push `registrationBody`) and Server settings.
+  "push-previews-v1",
+  "push-environment-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];

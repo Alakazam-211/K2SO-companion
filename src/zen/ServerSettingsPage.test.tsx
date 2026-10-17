@@ -23,6 +23,7 @@ import { handleAndroidBack } from "../lib/androidBack";
 import { __resetIdentityForTests } from "../lib/sessionAuthor";
 import { useServersStore } from "../stores/servers";
 import { useNotifyPrefsStore } from "../stores/notifyPrefs";
+import { usePushPreviewsStore } from "../stores/pushPreviews";
 import { OverlayServers } from "./OverlayServers";
 import { __resetServerUpdateForTests, useServerUpdateStore } from "./serverUpdateStore";
 import { listBody } from "../test/llmTokensFixture";
@@ -72,6 +73,7 @@ beforeEach(() => {
   vi.mocked(serverHasFeature).mockResolvedValue(false);
   vi.mocked(getNotifyPrefs).mockReset();
   useNotifyPrefsStore.setState({ threadPush: {}, prefs: {}, errors: {} });
+  usePushPreviewsStore.setState({ previews: {}, allowed: {}, feature: {}, errors: {} });
   useServersStore.setState({
     servers: [
       { id: "s1", nickname: "Home", url: "https://home.k2.dev", username: "baden", rememberPassword: false },
@@ -191,8 +193,85 @@ describe("Servers sheet gear → Server settings", () => {
     expect(within(page2).getByTestId("server-settings-notify-status").textContent).toBe(
       "Notifications on"
     );
-    fireEvent.click(within(page2).getByRole("switch"));
+    fireEvent.click(within(within(page2).getByTestId("server-settings-notify")).getByRole("switch"));
     expect(setServerEnabled).toHaveBeenCalledWith("s1", false);
+  });
+
+  describe("Show message previews", () => {
+    /** Thread push on; `push-previews-v1` only when `previews`. */
+    const features = (previews: boolean) =>
+      vi
+        .mocked(serverHasFeature)
+        .mockImplementation(async (_s, key) => key !== "push-previews-v1" || previews);
+
+    async function openHome() {
+      render(<OverlayServers onClose={() => {}} />);
+      const pinned = screen.getByTestId("servers-pinned");
+      await within(pinned).findByTestId("server-bell");
+      fireEvent.click(within(pinned).getByTestId("server-settings"));
+      const page = await screen.findByTestId("server-settings-page");
+      await within(page).findByTestId("server-settings-notify");
+      return page;
+    }
+
+    it("is hidden when the server lacks push-previews-v1", async () => {
+      features(false);
+      vi.mocked(getNotifyPrefs).mockResolvedValue(prefsOn(true));
+      const page = await openHome();
+      await waitFor(() => expect(usePushPreviewsStore.getState().feature.s1).toBe(false));
+      expect(within(page).queryByTestId("server-settings-previews")).toBeNull();
+      expect(within(page).queryByText("Show message previews")).toBeNull();
+    });
+
+    it("is hidden while notifications are off for the server", async () => {
+      features(true);
+      vi.mocked(getNotifyPrefs).mockResolvedValue(prefsOn(false));
+      const page = await openHome();
+      await waitFor(() => expect(usePushPreviewsStore.getState().feature.s1).toBe(true));
+      expect(within(page).queryByTestId("server-settings-previews")).toBeNull();
+    });
+
+    it("shows under Notifications with the key: on by default, helper text, toggles", async () => {
+      features(true);
+      vi.mocked(getNotifyPrefs).mockResolvedValue(prefsOn(true));
+      const page = await openHome();
+      const row = await within(page).findByTestId("server-settings-previews");
+      expect(within(page).getByTestId("server-settings-notify").nextElementSibling).toBe(row);
+      expect(within(row).getByText("Show message previews")).toBeTruthy();
+      expect(within(row).getByTestId("server-settings-previews-status").textContent).toBe(
+        "Show the first lines of new messages in notifications."
+      );
+      const sw = within(row).getByRole("switch");
+      expect(sw.getAttribute("aria-checked")).toBe("true");
+      expect((sw as HTMLButtonElement).disabled).toBe(false);
+      // No push in this test runtime: the pref is just saved.
+      fireEvent.click(sw);
+      await waitFor(() => expect(sw.getAttribute("aria-checked")).toBe("false"));
+      expect(usePushPreviewsStore.getState().previews.s1).toBe(false);
+    });
+
+    it("shows a failed save inline", async () => {
+      features(true);
+      vi.mocked(getNotifyPrefs).mockResolvedValue(prefsOn(true));
+      usePushPreviewsStore.setState({ errors: { s1: "Could not save. Try again." } });
+      const page = await openHome();
+      const status = await within(page).findByTestId("server-settings-previews-status");
+      expect(status.textContent).toBe("Could not save. Try again.");
+    });
+
+    it("the owner's master switch locks it off", async () => {
+      features(true);
+      vi.mocked(getNotifyPrefs).mockResolvedValue(prefsOn(true));
+      usePushPreviewsStore.setState({ allowed: { s1: false } });
+      const page = await openHome();
+      const row = await within(page).findByTestId("server-settings-previews");
+      const sw = within(row).getByRole("switch") as HTMLButtonElement;
+      expect(sw.disabled).toBe(true);
+      expect(sw.getAttribute("aria-checked")).toBe("false");
+      expect(within(row).getByTestId("server-settings-previews-status").textContent).toBe(
+        "Turned off by the server owner"
+      );
+    });
   });
 
   it("renames the server in place", async () => {

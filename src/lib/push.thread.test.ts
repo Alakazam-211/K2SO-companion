@@ -94,7 +94,7 @@ const boot = (byId: Record<string, string[] | null>) =>
   });
 
 const flush = async () => {
-  for (let i = 0; i < 20; i++) await Promise.resolve();
+  for (let i = 0; i < 60; i++) await Promise.resolve();
 };
 
 beforeEach(() => {
