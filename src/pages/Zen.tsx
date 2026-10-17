@@ -282,7 +282,18 @@ export function Zen() {
   // Android Back on the open chat: the header's Done (drawer-picked) or
   // Back, the same as the edge swipe. Layers over the chat (drawers,
   // sheets, the file viewer) register on their own, later, so they win.
-  useBackHandler(wantThread, drawerPicked ? returnToDrawerOrigin : backToChats);
+  // The edge swipe asks the same stack: it arms only while the chat is
+  // the topmost layer (rename, icon sheet, sign-in, drawers all register).
+  const threadOnTop = useBackHandler(wantThread, drawerPicked ? returnToDrawerOrigin : backToChats);
+  /** The chats list peeks from under a back-chevron swipe (it is where
+   *  Back lands); Done returns to another chat, so that drag shows black. */
+  const chatsLayerRef = useRef<HTMLDivElement>(null);
+  const peekChats = (on: boolean) => {
+    const el = chatsLayerRef.current;
+    if (!el) return;
+    if (on) el.setAttribute("data-peek", "1");
+    else el.removeAttribute("data-peek");
+  };
 
   const closeRename = () => {
     if (renameBusy) return;
@@ -315,7 +326,8 @@ export function Zen() {
   return (
     <div className="relative h-full min-h-0 zen-font" style={{ background: "#000" }}>
       <div
-        className="h-full min-h-0"
+        ref={chatsLayerRef}
+        className="h-full min-h-0 zen-chats-layer"
         data-testid="chats-layer"
         style={
           wantThread
@@ -323,6 +335,9 @@ export function Zen() {
                 visibility: "hidden",
                 position: "absolute",
                 inset: 0,
+                // Own stacking context: its sheets (Projects z 6…) stay
+                // under the thread when the list peeks during a swipe.
+                zIndex: 0,
                 pointerEvents: "none",
               }
             : undefined
@@ -338,7 +353,8 @@ export function Zen() {
         // bottom sits directly above the keyboard.
         <ThreadHome
           onSwipeBack={drawerPicked ? returnToDrawerOrigin : backToChats}
-          swipeEnabled={(drawerPicked || fromProjects) && !filesPaneOpen && !sessionsOpen}
+          swipeEnabled={() => !filesPaneOpen && !sessionsOpen && threadOnTop()}
+          onSwipeDrag={drawerPicked ? undefined : peekChats}
           top={viewportTop}
         >
         <div
@@ -806,22 +822,26 @@ export function Zen() {
   );
 }
 
-/** Fixed thread backdrop. A left-edge swipe acts like Done while the chat
+/** Fixed thread backdrop. A left-edge swipe acts like the header's top-left
+ *  control: Back (to the chats list or Projects), or Done while the chat
  *  was picked from the Sessions drawer (own component so the swipe hook
  *  binds when the thread mounts, not when Zen does). */
 function ThreadHome({
   children,
   onSwipeBack,
   swipeEnabled,
+  onSwipeDrag,
   top = 0,
 }: {
   children: ReactNode;
   onSwipeBack: () => void;
-  swipeEnabled: boolean;
+  /** Read at each touch start. */
+  swipeEnabled: () => boolean;
+  onSwipeDrag?: (dragging: boolean) => void;
   /** visualViewport.offsetTop left after the scroll reset (0 normally). */
   top?: number;
 }) {
-  const swipeRef = useSwipeBack(onSwipeBack, { enabled: swipeEnabled });
+  const swipeRef = useSwipeBack(onSwipeBack, { enabled: swipeEnabled, onDragChange: onSwipeDrag });
   return (
     <div
       ref={swipeRef}

@@ -172,6 +172,12 @@ html, body, #root {
   font-family: var(--zen-font);
 }
 
+/* Zen chats list under an open thread: hidden inline, shown while a
+   left-edge swipe drags the thread aside (pages/Zen.tsx peekChats). */
+.zen-chats-layer[data-peek] {
+  visibility: visible !important;
+}
+
 /* Zen Settings → Text Size slider: a native range input over a glass
    track with three ticks. The input's own track is transparent; the
    white knob snaps to 0 / 1 / 2. */

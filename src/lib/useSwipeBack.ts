@@ -20,7 +20,13 @@
 //     sliver of wide dashboards' own panning.)
 //   - Bottom sheets: screens pass `enabled: false` while one is open
 //     (FeedbackThread's TicketSheet) so a sheet drag can't drag the
-//     thread behind it.
+//     thread behind it. `enabled` may also be a getter, read at each
+//     touch start — Zen's thread and open ticket pass their androidBack
+//     "am I the topmost layer?" so any sheet, drawer or menu above the
+//     screen wins.
+//   - `onDragChange(true)` fires when the screen starts following the
+//     finger and `(false)` once it has settled (sprung home, or just
+//     before `onBack`) — Zen uses it to show the list underneath.
 //
 // Usage: `const swipeRef = useSwipeBack(onBack, { enabled })`, attached
 // to the screen's OUTER fixed-overlay div (the `fixed inset-0` root
@@ -43,15 +49,20 @@ const MAX_SAMPLES = 20;
 
 export function useSwipeBack(
   onBack: () => void,
-  opts: { enabled?: boolean } = {}
+  opts: {
+    enabled?: boolean | (() => boolean);
+    onDragChange?: (dragging: boolean) => void;
+  } = {}
 ): RefObject<HTMLDivElement | null> {
   const ref = useRef<HTMLDivElement>(null);
-  // Latest callback/flag in refs so the touch listeners bind ONCE — a
+  // Latest callbacks/flag in refs so the touch listeners bind ONCE — a
   // mid-gesture re-render (live refetches) can't tear the gesture down.
   const onBackRef = useRef(onBack);
   onBackRef.current = onBack;
-  const enabledRef = useRef(opts.enabled !== false);
-  enabledRef.current = opts.enabled !== false;
+  const enabledRef = useRef(opts.enabled);
+  enabledRef.current = opts.enabled;
+  const onDragRef = useRef(opts.onDragChange);
+  onDragRef.current = opts.onDragChange;
 
   useEffect(() => {
     const el = ref.current;
@@ -62,6 +73,21 @@ export function useSwipeBack(
     let startX = 0;
     let startY = 0;
     let samples: Array<{ t: number; x: number }> = [];
+    // Whether onDragChange(true) is outstanding (spring-back clears it
+    // after its transition; unmount clears it too).
+    let dragging = false;
+    let settleTimer: number | undefined;
+    const settle = (): void => {
+      window.clearTimeout(settleTimer);
+      settleTimer = undefined;
+      if (!dragging) return;
+      dragging = false;
+      onDragRef.current?.(false);
+    };
+    const isEnabled = (): boolean => {
+      const e = enabledRef.current;
+      return typeof e === "function" ? e() : e !== false;
+    };
 
     const setDrag = (px: number): void => {
       el.style.transition = "";
@@ -78,8 +104,9 @@ export function useSwipeBack(
       el.style.transition = "transform 200ms ease-out, box-shadow 200ms ease-out";
       el.style.transform = "";
       el.style.boxShadow = "";
-      window.setTimeout(() => {
+      settleTimer = window.setTimeout(() => {
         el.style.transition = "";
+        settle();
       }, 250);
     };
 
@@ -89,7 +116,7 @@ export function useSwipeBack(
         return;
       }
       const t = e.touches[0];
-      phase = canArm(t.clientX, enabledRef.current) ? "armed" : null;
+      phase = canArm(t.clientX, isEnabled()) ? "armed" : null;
       if (phase === null) return;
       startX = t.clientX;
       startY = t.clientY;
@@ -105,6 +132,11 @@ export function useSwipeBack(
       // Ours now: stop the inner scrollers/selection for the rest of
       // the touch (listener is passive: false for exactly this).
       e.preventDefault();
+      window.clearTimeout(settleTimer); // re-grabbed mid spring-back
+      if (!dragging) {
+        dragging = true;
+        onDragRef.current?.(true);
+      }
       samples.push({ t: e.timeStamp, x: t.clientX });
       if (samples.length > MAX_SAMPLES) samples.shift();
       setDrag(dragOffset(dx));
@@ -120,6 +152,7 @@ export function useSwipeBack(
         // Keyboard must not survive the pop.
         (document.activeElement as HTMLElement | null)?.blur?.();
         resetDrag(); // the docs viewer stays mounted (openDoc close)
+        settle();
         onBackRef.current();
       } else {
         springBack();
@@ -141,6 +174,7 @@ export function useSwipeBack(
       el.removeEventListener("touchend", onTouchEnd);
       el.removeEventListener("touchcancel", onTouchCancel);
       resetDrag();
+      settle();
     };
   }, []);
 

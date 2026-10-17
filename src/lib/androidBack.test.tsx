@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
 import { renderHook } from "@testing-library/react";
-import { backHandlerCount, handleAndroidBack, pushBackHandler, useBackHandler } from "./androidBack";
+import {
+  backHandlerCount,
+  handleAndroidBack,
+  pushBackHandler,
+  pushBackLayer,
+  useBackHandler,
+} from "./androidBack";
 
 describe("androidBack", () => {
   it("returns false with nothing registered (native falls through)", () => {
@@ -40,5 +46,37 @@ describe("androidBack", () => {
     rerender({ active: false, fn: second });
     expect(handleAndroidBack()).toBe(false);
     unmount();
+  });
+
+  it("isTop is true only while nothing registered later is still open", () => {
+    const screenLayer = pushBackLayer(() => {});
+    expect(screenLayer.isTop()).toBe(true);
+    const sheet = pushBackLayer(() => {});
+    expect(screenLayer.isTop()).toBe(false);
+    expect(sheet.isTop()).toBe(true);
+    sheet.remove();
+    expect(screenLayer.isTop()).toBe(true);
+    screenLayer.remove();
+    expect(screenLayer.isTop()).toBe(false);
+    expect(backHandlerCount()).toBe(0);
+  });
+
+  it("useBackHandler's getter tracks the topmost layer and is stable", () => {
+    const { result, rerender, unmount } = renderHook(
+      ({ active }) => useBackHandler(active, () => {}),
+      { initialProps: { active: false } },
+    );
+    const isTop = result.current;
+    expect(isTop()).toBe(false); // not registered
+    rerender({ active: true });
+    expect(result.current).toBe(isTop);
+    expect(isTop()).toBe(true);
+    const off = pushBackHandler(() => {}); // a sheet opens over it
+    expect(isTop()).toBe(false);
+    off();
+    expect(isTop()).toBe(true);
+    unmount();
+    expect(isTop()).toBe(false);
+    expect(backHandlerCount()).toBe(0);
   });
 });

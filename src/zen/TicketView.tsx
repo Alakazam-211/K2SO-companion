@@ -25,6 +25,7 @@ import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeade
 import { zenTextPx } from "./zenFont";
 import { ticketsScope, useTicketsScope } from "./zenScope";
 import { useBackHandler } from "../lib/androidBack";
+import { useSwipeBack } from "../lib/useSwipeBack";
 
 // Zen open ticket — Layout A (Rosson, 2026-10-11). Full-screen inside the
 // Chats column, below the notch, the ThreadPane look:
@@ -420,7 +421,11 @@ export function TicketView({
   const [scrolled, setScrolled] = useState(false);
   // Android Back = the header's back chevron. Menus, sheets and the
   // brief reader open later and register on top.
-  useBackHandler(true, onBack);
+  const onTop = useBackHandler(true, onBack);
+  // The left-edge swipe is that chevron too, only while nothing (menu,
+  // sheet, brief reader) sits over the ticket. The root is a clean
+  // transform target; the Tickets list shows underneath during the drag.
+  const swipeRef = useSwipeBack(onBack, { enabled: onTop });
 
   const brief = entry?.state === "ready" ? entry.brief : null;
   const doc = useBriefDoc(brief);
@@ -526,6 +531,7 @@ export function TicketView({
 
   return (
     <div
+      ref={swipeRef}
       className="absolute inset-0 flex flex-col min-w-0 overflow-x-hidden"
       style={{
         background: "#000",

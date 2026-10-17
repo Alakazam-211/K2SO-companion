@@ -14,6 +14,7 @@ vi.mock("../api/client", () => ({
   answerThread: vi.fn(async () => ({ ok: true, data: {} })),
   inspectProjectsSummary: vi.fn(),
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
+  getActivePresets: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),
   uploadFsBinary: vi.fn(),
   setTabTitle: vi.fn(async () => ({ ok: true, data: { success: true } })),
@@ -30,6 +31,7 @@ vi.mock("../api/projectGroups", () => ({
 }));
 
 import { getAgentList, getAllSessions, getCliProjectsList, setSessionLabel, setTabTitle } from "../api/client";
+import { backHandlerCount, pushBackHandler } from "../lib/androidBack";
 import { useServersStore } from "../stores/servers";
 import { STUB_AGENTS, STUB_FILES } from "../zen/stubData";
 import { useZenStore } from "../zen/zenStore";
@@ -742,5 +744,169 @@ describe("Zen thread terminal button", () => {
     );
     expect(readZenThread()).toBe(appa.id);
     vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [] } as never);
+  });
+});
+
+describe("Zen thread left-edge swipe", () => {
+  // jsdom: innerWidth 1024, so a drag past ~359px completes.
+  const at = (x: number) => ({
+    touches: [{ clientX: x, clientY: 300 }],
+    changedTouches: [{ clientX: x, clientY: 300 }],
+  });
+  const dragTo = (el: HTMLElement, x: number) => {
+    fireEvent.touchStart(el, at(5));
+    fireEvent.touchMove(el, at(60));
+    fireEvent.touchMove(el, at(x));
+  };
+  const release = (el: HTMLElement, x: number) =>
+    fireEvent.touchEnd(el, { touches: [], changedTouches: [{ clientX: x, clientY: 300 }] });
+
+  async function openStubThread() {
+    setSessionToken("");
+    useZenStore.setState({
+      agentSource: "stub",
+      agents: STUB_AGENTS,
+      screen: "list",
+      agentError: null,
+      filesOpen: false,
+      openFileIds: [],
+    });
+    render(
+      <MemoryRouter>
+        <Zen />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(useZenStore.getState().agentSource).toBe("stub"));
+    act(() => {
+      useZenStore.getState().setAgent(STUB_AGENTS[0].id);
+    });
+    expect(screen.getByTestId("chat-back")).not.toBeNull();
+    return screen.getByTestId("thread-home");
+  }
+
+  it("is the back chevron: the chats list peeks during the drag, release goes back", async () => {
+    const home = await openStubThread();
+    dragTo(home, 700);
+    expect(home.style.transform).toBe("translateX(695px)");
+    // The list under the thread shows while it is dragged aside.
+    expect(screen.getByTestId("chats-layer").hasAttribute("data-peek")).toBe(true);
+    act(() => {
+      release(home, 700);
+    });
+    expect(useZenStore.getState().screen).toBe("list");
+    expect(screen.queryByTestId("thread-home")).toBeNull();
+    const chats = screen.getByTestId("chats-layer");
+    expect(chats.hasAttribute("data-peek")).toBe(false);
+    expect(chats.getAttribute("aria-hidden")).not.toBe("true");
+    expect(chats.style.visibility).toBe("");
+  });
+
+  it("a short drag springs home and hides the list again", async () => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
+    try {
+      const home = await openStubThread();
+      dragTo(home, 80);
+      release(home, 80);
+      expect(useZenStore.getState().screen).toBe("thread");
+      act(() => {
+        vi.advanceTimersByTime(300);
+      });
+      expect(screen.getByTestId("chats-layer").hasAttribute("data-peek")).toBe(false);
+      expect(screen.getByTestId("chats-layer").style.visibility).toBe("hidden");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("is still Done on a drawer-picked chat, over black (no list peek)", async () => {
+    const home = await openStubThread();
+    act(() => {
+      useZenStore.setState({ drawerOrigin: STUB_AGENTS[1].id });
+    });
+    expect(screen.getByTestId("chat-done")).not.toBeNull();
+    dragTo(home, 700);
+    expect(screen.getByTestId("chats-layer").hasAttribute("data-peek")).toBe(false);
+    act(() => {
+      release(home, 700);
+    });
+    expect(useZenStore.getState().screen).toBe("thread");
+    expect(useZenStore.getState().agentId).toBe(STUB_AGENTS[1].id);
+    expect(useZenStore.getState().drawerOrigin).toBeNull();
+  });
+
+  it("does nothing while the Sessions drawer is open", async () => {
+    const home = await openStubThread();
+    fireEvent.click(screen.getByTestId("chat-sessions"));
+    await waitFor(() => screen.getByTestId("sessions-pane"));
+    dragTo(home, 700);
+    release(home, 700);
+    expect(home.style.transform).toBe("");
+    expect(useZenStore.getState().screen).toBe("thread");
+  });
+
+  it("does nothing while the Files drawer is open", async () => {
+    const home = await openStubThread();
+    fireEvent.click(screen.getByRole("button", { name: "Files" }));
+    expect(useZenStore.getState().filesOpen).toBe(true);
+    dragTo(home, 700);
+    release(home, 700);
+    expect(useZenStore.getState().screen).toBe("thread");
+  });
+
+  it("does nothing while any other layer is registered above the chat", async () => {
+    const home = await openStubThread();
+    const off = pushBackHandler(() => {}); // a sheet / menu / overlay
+    dragTo(home, 700);
+    release(home, 700);
+    expect(home.style.transform).toBe("");
+    expect(useZenStore.getState().screen).toBe("thread");
+    off();
+    act(() => {
+      dragTo(home, 700);
+      release(home, 700);
+    });
+    expect(useZenStore.getState().screen).toBe("list");
+    expect(backHandlerCount()).toBe(0);
+  });
+
+  it("does nothing while the rename sheet is open", async () => {
+    setSessionToken("");
+    const extra = {
+      id: "/ws::skin-test-a/qa088",
+      name: "Skin Test A",
+      initial: "ST",
+      path: "/ws",
+      addr: "skin-test-a/qa088",
+      chatTitle: "Example Sidecar",
+      joinMiss: null,
+      kind: "agent" as const,
+      tabId: "tab-qa088",
+      projectId: "proj-skin",
+      terminalId: "tid-qa088",
+    };
+    render(
+      <MemoryRouter>
+        <Zen />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(useZenStore.getState().agentSource).toBe("stub"));
+    act(() => {
+      useZenStore.setState({
+        agentSource: "live",
+        agents: [extra],
+        screen: "thread",
+        agentId: extra.id,
+        agentError: null,
+        thread: [],
+        threadSource: "live",
+      });
+    });
+    fireEvent.click(screen.getByTestId("chat-rename-open"));
+    expect(screen.getByTestId("chat-rename")).not.toBeNull();
+    const home = screen.getByTestId("thread-home");
+    dragTo(home, 700);
+    release(home, 700);
+    expect(useZenStore.getState().screen).toBe("thread");
+    expect(screen.getByTestId("chat-rename")).not.toBeNull();
   });
 });
