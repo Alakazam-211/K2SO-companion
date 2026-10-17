@@ -40,6 +40,7 @@ import { zenTextPx } from "./zenFont";
 import { useZenScope, zenScope } from "./zenScope";
 import { useThreadFocusSeq } from "./threadFocus";
 import { recentSentKey, useRecentFirstStore } from "./recentFirst";
+import { composerDraftKey, composerDraftOf, useComposerDrafts } from "./composerDrafts";
 import {
   outgoingBubble,
   sendInFlight,
@@ -310,7 +311,14 @@ export function ThreadPane({
       : { name: agent?.name, addr: threadAddr || agent?.addr }
   );
   const canAttach = canSend && Boolean(attachWorkspace) && Boolean(attachDir);
-  const [draft, setDraft] = useState("");
+  // The composer's text, kept per room (composerDrafts): leaving the chat
+  // or relaunching the app and coming back puts an unsent draft back.
+  const draftKey = composerDraftKey(zenServer, threadGroupId, threadAddr);
+  const [draft, setDraftText] = useState(() => composerDraftOf(draftKey));
+  function setDraft(text: string) {
+    setDraftText(text);
+    useComposerDrafts.getState().setDraft(draftKey, text);
+  }
   const [attachments, setAttachments] = useState<File[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   // Optimistic sends (iMessage): this room's bubbles not yet confirmed.
@@ -530,7 +538,26 @@ export function ThreadPane({
   const highlightSeq = useThreadFocusSeq(scrollerRef);
 
   useLayoutEffect(() => {
-    setDraft("");
+    setDraftText(composerDraftOf(draftKey));
+  }, [draftKey]);
+
+  // Typing is written to storage after a short quiet; leaving the chat or
+  // the app going to the background writes it now.
+  useEffect(() => {
+    const flush = () => useComposerDrafts.getState().flush();
+    const onVis = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, []);
+
+  useLayoutEffect(() => {
     setAttachments([]);
     setAttachError(null);
     setFly(null);
