@@ -40,7 +40,7 @@ vi.mock("../api/client", () => ({
 import { getBootStatus } from "../api/client";
 import { useServersStore, type ServerEntry } from "../stores/servers";
 import { PUSH_PREVIEWS_KEY, usePushPreviewsStore } from "../stores/pushPreviews";
-import { registerAllSignedIn, resetPushRegisterState, setServerPreviews } from "./push";
+import { readBackPreviews, registerAllSignedIn, resetPushRegisterState, setServerPreviews } from "./push";
 
 const srv = (id: string, url: string): ServerEntry => ({
   id,
@@ -231,5 +231,29 @@ describe("setServerPreviews (the Server settings toggle)", () => {
     await expect(setServerPreviews("s2", false)).resolves.toBe(true);
     expect(tauriFetch).not.toHaveBeenCalled();
     expect(usePushPreviewsStore.getState().previews.s2).toBe(false);
+  });
+});
+
+describe("read-back (GET /cli/push/device)", () => {
+  it("takes the server's stored choice and the owner switch", async () => {
+    vi.mocked((await import("../api/client")).serverHasFeature).mockResolvedValue(true);
+    tauriFetch.mockResolvedValue(reply({ ok: true, previews: false, previewsAllowed: false }));
+    await readBackPreviews("s2");
+    const [url, o] = tauriFetch.mock.calls[0] as [string, { method: string }];
+    expect(url).toBe("https://work.k2.dev/cli/push/device?deviceId=dev-1");
+    expect(o.method).toBe("GET");
+    expect(usePushPreviewsStore.getState().previews.s2).toBe(false);
+    expect(usePushPreviewsStore.getState().allowed.s2).toBe(false);
+  });
+
+  it("does nothing without the feature or on a 404", async () => {
+    const client = await import("../api/client");
+    vi.mocked(client.serverHasFeature).mockResolvedValue(false);
+    await readBackPreviews("s2");
+    expect(tauriFetch).not.toHaveBeenCalled();
+    vi.mocked(client.serverHasFeature).mockResolvedValue(true);
+    tauriFetch.mockResolvedValue({ ok: false, status: 404, text: async () => "{}" });
+    await readBackPreviews("s2");
+    expect(usePushPreviewsStore.getState().previews.s2).toBeUndefined();
   });
 });
