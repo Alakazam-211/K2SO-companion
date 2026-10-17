@@ -14,6 +14,8 @@ import {
   type ServerEntry,
 } from "../stores/servers";
 import { connectServer } from "./revive";
+import { parseHomeAddress, selectedHome, useHomesStore } from "../zen/homes";
+import { serverHostKey } from "../stores/servers";
 import { zenProjectPath, zenTicketPath } from "../zen/terminalJump";
 import { pushAvailability, pushIsAvailable } from "./pushAvailability";
 import {
@@ -643,6 +645,19 @@ async function switchToServer(serverId: string): Promise<boolean> {
   return true;
 }
 
+/** Is the Thread's agent a row of the Home on screen? `addr` may be a
+ *  sidecar (`handle/sidecar`): its workspace's handle is what Home holds. */
+export function agentInSelectedHome(server: Pick<ServerEntry, "url">, addr: string): boolean {
+  const handle = addr.trim().toLowerCase().split("/")[0];
+  if (!handle) return false;
+  const host = serverHostKey(server).toLowerCase();
+  const home = selectedHome(useHomesStore.getState());
+  return home.rows.some((r) => {
+    const a = parseHomeAddress(r.address);
+    return !!a && a.handle === handle && a.host === host;
+  });
+}
+
 /** A known version below the phone floor cannot hold a room (MS30). */
 function belowFloor(serverId: string): boolean {
   const v = scopeFor(serverId).version();
@@ -653,9 +668,10 @@ function belowFloor(serverId: string): boolean {
  *
  *  Thread taps resolve their server first and are dropped when no saved
  *  server matches. With the multi-server flag on (MA23, MS21) a tap from
- *  another server opens a ROOM there — `/zen?addr=&seq=&server=` — and the
- *  active server never changes (a server below the phone floor still
- *  switches, the old way). Flag off: switch, then open (as before).
+ *  another server whose agent is on the Home on screen opens a ROOM there
+ *  — `/zen?addr=&seq=&server=` — and the active server never changes. An
+ *  agent not on that Home (or a server below the phone floor) switches
+ *  first. Flag off: switch, then open (as before).
  *
  *  Ticket taps: Tickets live on the DEFAULT server (NG6, MA34). Flag off,
  *  they open on the current server (as before). Flag on, a ticket whose
@@ -696,7 +712,15 @@ export async function routeTap(
     const server = await resolveTapServer(tap);
     if (!server) return;
     const active = useServersStore.getState().activeServerId;
-    if (server.id !== active && useMultiServerPrefs.getState().multiServer && !belowFloor(server.id)) {
+    // An agent on the Home on screen opens there, as a room on its server
+    // (Home stays, the active server never changes). Any other agent:
+    // switch to its server first (Rosson, 2026-10-17).
+    if (
+      server.id !== active &&
+      useMultiServerPrefs.getState().multiServer &&
+      !belowFloor(server.id) &&
+      agentInSelectedHome(server, str(tap.addr))
+    ) {
       navigate(withServerParam(path, server.id));
       return;
     }

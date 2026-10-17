@@ -38,6 +38,7 @@ import { getBootStatus } from "../api/client";
 import { noteBootStatus, __resetScopesForTests } from "../api/scope";
 import { useMultiServerPrefs } from "../zen/multi/prefs";
 import { connectServer } from "./revive";
+import { useHomesStore } from "../zen/homes";
 import { signOutServer, useServersStore, type ServerEntry } from "../stores/servers";
 import {
   attachPushNavigation,
@@ -47,6 +48,7 @@ import {
   resetPushRegisterState,
   PUSH_REREGISTER_MS,
   routeTap,
+  agentInSelectedHome,
   tapPath,
   watchPushRegistrations,
 } from "./push";
@@ -308,6 +310,13 @@ describe("routeTap", () => {
   });
 });
 
+function homeWith(...addresses: string[]) {
+  useHomesStore.setState({
+    homes: [{ id: "h1", name: "Home", rows: addresses.map((address) => ({ address, workspaceId: null, label: address })) }],
+    selectedId: "h1",
+  });
+}
+
 describe("routeTap with rooms (flag on, MA23)", () => {
   beforeEach(() => {
     __resetScopesForTests();
@@ -315,7 +324,8 @@ describe("routeTap with rooms (flag on, MA23)", () => {
   });
   afterEach(() => useMultiServerPrefs.setState({ multiServer: false }));
 
-  it("a thread tap from another server opens a room there: no switch, no connect", async () => {
+  it("a thread tap from another server opens a room there when the agent is on the Home: no switch, no connect", async () => {
+    homeWith("k2::work.k2.dev");
     const navigate = vi.fn();
     await routeTap(THREAD, navigate);
     expect(navigate).toHaveBeenCalledWith("/zen?addr=k2%2Freviewer&seq=418&server=work.k2.dev");
@@ -323,7 +333,24 @@ describe("routeTap with rooms (flag on, MA23)", () => {
     expect(useServersStore.getState().activeServerId).toBe("s1");
   });
 
+  it("an agent not on the Home on screen switches to its server first", async () => {
+    homeWith("other::work.k2.dev", "k2::rosson.k2.dev");
+    vi.mocked(connectServer).mockResolvedValue("still-valid");
+    const navigate = vi.fn();
+    await routeTap(THREAD, navigate);
+    expect(connectServer).toHaveBeenCalledWith("s2");
+    expect(useServersStore.getState().activeServerId).toBe("s2");
+    expect(navigate).toHaveBeenCalledWith("/zen?addr=k2%2Freviewer&seq=418");
+  });
+
+  it("a sidecar's workspace on the Home counts (k2/reviewer → k2)", () => {
+    homeWith("k2::work.k2.dev");
+    expect(agentInSelectedHome({ url: "https://work.k2.dev" }, "K2/reviewer")).toBe(true);
+    expect(agentInSelectedHome({ url: "https://rosson.k2.dev" }, "k2/reviewer")).toBe(false);
+  });
+
   it("a server known to be below the floor (0.41.6) still switches, the old way", async () => {
+    homeWith("k2::work.k2.dev");
     noteBootStatus("s2", { version: "0.41.5" });
     vi.mocked(connectServer).mockResolvedValue("still-valid");
     const navigate = vi.fn();
