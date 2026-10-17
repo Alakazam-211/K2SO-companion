@@ -240,7 +240,7 @@ describe("Thread follows the newest", () => {
     const bubble = await screen.findByText("Hello there.");
     const row = bubble.closest("[data-thread-msg]") as HTMLElement;
     const meta = row.querySelector('[data-testid="thread-msg-meta"]') as HTMLElement;
-    expect(meta.textContent).toMatch(/^appa.*\d{1,2}:\d{2} [AP]M$/);
+    expect(meta.textContent).toMatch(/^appa•.*\d{1,2}:\d{2} [AP]M$/);
     // Meta first, then the bubble; no time line under it.
     expect(row.firstElementChild).toBe(meta);
     expect(row.lastElementChild?.getAttribute("data-testid")).toBe("thread-bubble");
