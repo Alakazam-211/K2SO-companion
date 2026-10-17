@@ -48,3 +48,23 @@ export function splitPinnedServer<T extends { id: string }>(
   );
   return { pinned, others };
 }
+
+// ─── Connection status (server cards + Server settings) ───
+
+type RecoveryKey = "connected" | "reconnecting" | "reauthenticating" | "signin-required";
+
+/** Dot color per recovery state. */
+export const RECOVERY_DOT: Record<RecoveryKey, string> = {
+  connected: "#22c55e",
+  reconnecting: "#f59e0b",
+  reauthenticating: "#f59e0b",
+  "signin-required": "#ef4444",
+};
+
+/** Lower-case state word under a server row. */
+export const STATE_LABEL: Record<RecoveryKey, string> = {
+  connected: "connected",
+  reconnecting: "reconnecting…",
+  reauthenticating: "re-authenticating…",
+  "signin-required": "sign-in required",
+};

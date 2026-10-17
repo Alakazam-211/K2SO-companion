@@ -382,7 +382,7 @@ function TextSizeRow() {
 /** Knob diameter; matches .zen-text-slider's thumb. */
 const SLIDER_KNOB = 28;
 
-function Switch({
+export function Switch({
   on,
   disabled,
   onToggle,

@@ -3,7 +3,7 @@ import { connectServer } from "../lib/revive";
 import { hostLabel, useServersStore, type RecoveryState, type ServerEntry } from "../stores/servers";
 import { GlassSearchBar } from "./GlassSearchBar";
 import { OverlayAddServer } from "./OverlayAddServer";
-import { filterServers, splitPinnedServer } from "./serverList";
+import { filterServers, RECOVERY_DOT, splitPinnedServer, STATE_LABEL } from "./serverList";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 import { useZenStore } from "./zenStore";
 import { useMultiServerPrefs } from "./multi/prefs";
@@ -12,22 +12,9 @@ import { serverBadge } from "./multi/rowStatus";
 import { serverBellStatus, useNotifyPrefsStore } from "../stores/notifyPrefs";
 import { BellIcon, useNotifyPrefsLive } from "./NotifyBell";
 import { useBackHandler } from "../lib/androidBack";
-import { GaugeIcon } from "./icons";
+import { CogIcon, GaugeIcon } from "./icons";
 import { UsagePage } from "./UsagePage";
-
-const RECOVERY_DOT: Record<RecoveryState, string> = {
-  connected: "#22c55e",
-  reconnecting: "#f59e0b",
-  reauthenticating: "#f59e0b",
-  "signin-required": "#ef4444",
-};
-
-const STATE_LABEL: Record<RecoveryState, string> = {
-  connected: "connected",
-  reconnecting: "reconnecting…",
-  reauthenticating: "re-authenticating…",
-  "signin-required": "sign-in required",
-};
+import { ServerSettingsPage } from "./ServerSettingsPage";
 
 const labelOf = (server: ServerEntry) => server.nickname || hostLabel(server.url);
 
@@ -143,6 +130,27 @@ function ServerUsageButton({ label, onOpen }: { label: string; onOpen: () => voi
   );
 }
 
+/** Opens that server's Server settings page (identity, K2 version,
+ *  shortcuts, sign out / remove). Right of the bell and the usage gauge,
+ *  on every saved server's card. */
+function ServerSettingsButton({ label, onOpen }: { label: string; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      className="shrink-0 flex items-center justify-center k2-tile"
+      style={{ width: 34, height: 34, borderRadius: 17, color: "#fff", pointerEvents: "auto" }}
+      aria-label={`Settings for ${label}`}
+      data-testid="server-settings"
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen();
+      }}
+    >
+      <CogIcon size={18} />
+    </button>
+  );
+}
+
 /** In-overlay server list. Tap switches the active server. Sign-in
  *  required opens OverlayAddServer. Never navigates to `/servers`.
  *  The active server is pinned in its own card under the title, inside
@@ -170,6 +178,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [usageId, setUsageId] = useState<string | null>(null);
+  const [settingsId, setSettingsId] = useState<string | null>(null);
   const rowRefs = useRef(new Map<string, HTMLElement>());
   const pinnedRef = useRef<HTMLDivElement | null>(null);
   const flipFrom = useRef<{ id: string; rect: DOMRect | null } | null>(null);
@@ -429,6 +438,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
             {tokens[pinned.id] ? (
               <ServerUsageButton label={labelOf(pinned)} onOpen={() => setUsageId(pinned.id)} />
             ) : null}
+            <ServerSettingsButton label={labelOf(pinned)} onOpen={() => setSettingsId(pinned.id)} />
             <button
               type="button"
               className="shrink-0 text-[17px] k2-tile"
@@ -544,6 +554,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                   </span>
                 </button>
                 <ServerBell serverId={server.id} label={label} />
+                <ServerSettingsButton label={label} onOpen={() => setSettingsId(server.id)} />
                 <button
                   type="button"
                   className="shrink-0 text-[17px] k2-tile"
@@ -574,6 +585,13 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
         inputTestId="overlay-servers-search"
         plusTestId="overlay-servers-add"
       />
+      {settingsId ? (
+        <ServerSettingsPage
+          serverId={settingsId}
+          onBack={() => setSettingsId(null)}
+          onOpenUsage={() => setUsageId(settingsId)}
+        />
+      ) : null}
       {usageId ? <UsagePage serverId={usageId} onBack={() => setUsageId(null)} /> : null}
     </div>
   );
