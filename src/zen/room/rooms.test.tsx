@@ -86,6 +86,7 @@ import { FilePane } from "../FilePane";
 import { ZenTerminal } from "../../pages/ZenTerminal";
 import { useMultiServerPrefs } from "../multi/prefs";
 import { routeTap } from "../../lib/push";
+import { useHomesStore } from "../homes";
 import { resolveServerRef, serverRefFor, withServerParam } from "./serverRef";
 
 class MockWS {
@@ -290,7 +291,11 @@ describe("rooms on any server (MS21–MS23)", () => {
 describe("push taps (MA23): a room on the matched server, no switch", () => {
   const THREAD = { kind: "thread", subdomain: "bravo", addr: "docs", seq: "7" };
 
-  it("flag on: navigates to the room on B; the active server stays A; nothing goes to A", async () => {
+  it("flag on, the agent on the Home: navigates to the room on B; the active server stays A; nothing goes to A", async () => {
+    useHomesStore.setState({
+      homes: [{ id: "h1", name: "Home", rows: [{ address: "docs::bravo.k2.dev", workspaceId: null, label: "docs" }] }],
+      selectedId: "h1",
+    });
     const navigate = vi.fn();
     await routeTap(THREAD, navigate);
     expect(navigate).toHaveBeenCalledWith("/zen?addr=docs&seq=7&server=bravo.k2.dev");
