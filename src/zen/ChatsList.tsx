@@ -25,10 +25,11 @@ import { TicketsOverlay, useTicketWaitingCounts } from "./TicketsOverlay";
 import { ProjectsOverlay } from "./ProjectsOverlay";
 import { isProjectGroupsChangedFrame, unreadGroupCount } from "./projectChats";
 import { ZEN_TICKET_PARAM } from "./terminalJump";
-import { lastAtKeyFor, sortChatsByRecency } from "./lastAtFetch";
+import { lastAtKeyFor } from "./lastAtFetch";
 import {
   currentFocusGroup,
   filterByFocus,
+  sortByProjectOrder,
   listTitle,
   pinProjectIdForRow,
   rowFocusGroupId,
@@ -527,13 +528,19 @@ export function ChatsList() {
     source === "stub" ? "STUB" : <RowSnippet preview={rowPreviewOf(a)} />;
 
   const searching = q.trim().length > 0;
+  /** A server's project list: the active one's from the store, another's
+   *  from its multi-server read. */
+  const projectsForServer = (sid: string | undefined) =>
+    !sid || sid === zen.id ? serverProjects : multi.byServer[sid]?.serverProjects ?? [];
   // Search ignores the focus group so any agent can still be found.
   // Project chats live behind the Projects button, never in this list.
   const visible = visibleOverlayAgents(chatRows, q, hiddenSidecarAddrs);
-  const filtered = sortChatsByRecency(
+  // Desktop's order (its Agents view): the server's project list, not
+  // last-message recency. "Recent agents first" lifts this phone's sends.
+  const filtered = sortByProjectOrder(
     searching ? visible : filterByFocus(visible, focus, serverProjects, pinnedIds),
-    lastAtByKey,
-    (a) => lastAtKeyFor(zen.id, a)
+    serverProjects,
+    (a) => a
   );
   // Each agent shows once: in the pin grid, or in the list. Search hides
   // the grid, so there every hit (pinned too) is a row.
@@ -549,9 +556,10 @@ export function ChatsList() {
   const pinnedInGrid = new Set(showPins ? pinItems.map((p) => p.key) : []);
   const rows = showPins ? filtered.filter((a) => !pinnedInGrid.has(a.id)) : filtered;
   // "Recent agents first": below the pin grid, this phone's latest sends
-  // lead; the rest keep the last-message order.
+  // lead; the rest keep desktop's (project-list) order. The merged list is
+  // one selected server's rows.
   const mergedRows = multi.on
-    ? sortChatsByRecency(multi.merged.rows, lastAtByKey, (r) => lastAtKeyFor(r.serverId, r.agent))
+    ? sortByProjectOrder(multi.merged.rows, projectsForServer(multi.merged.rows[0]?.serverId), (r) => r.agent)
         .filter((r) => !pinnedInGrid.has(r.key))
     : [];
   const listItems: ListItem[] = multi.on

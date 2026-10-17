@@ -98,6 +98,30 @@ export function pinProjectIdForRow(
 }
 
 /** Pinned project ids in server order: `tabOrder`, then name. */
+/** Rows in the server's project-list order: the order desktop's Agents
+ *  view draws (`zen-data.ts` `workspaceRows`, Rosson 2026-10-17). Rows
+ *  with no project keep their relative order after the rest. */
+export function sortByProjectOrder<T>(
+  rows: T[],
+  projects: ServerProject[],
+  rowOf: (row: T) => ScopedRow | null | undefined
+): T[] {
+  // `tabOrder` first (the sidebar's order; the daemon lists by it too),
+  // then list position.
+  const ranked = projects
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => a.p.tabOrder - b.p.tabOrder || a.i - b.i);
+  const at = new Map(ranked.map(({ p }, i) => [p.id, i]));
+  return rows
+    .map((row, index) => {
+      const id = pinProjectIdForRow(rowOf(row), projects);
+      const pos = id != null ? at.get(id) : undefined;
+      return { row, index, pos: pos ?? Number.POSITIVE_INFINITY };
+    })
+    .sort((a, b) => a.pos - b.pos || a.index - b.index)
+    .map((x) => x.row);
+}
+
 export function pinnedProjectOrder(projects: ServerProject[]): string[] {
   return projects
     .filter((p) => p.pinned)

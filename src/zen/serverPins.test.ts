@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
+import { sortByProjectOrder, type ServerProject,
   FOCUS_OFF,
   derivePinnedIds,
   filterByFocus,
@@ -66,5 +66,30 @@ describe("serverPins", () => {
     expect(filterByFocus(rows, focus, PROJECTS, []).map((r) => r.id)).toEqual(["/a", "/b", "g"]);
     expect(filterByFocus(rows, focus, PROJECTS, ["/c"]).map((r) => r.id)).toEqual(["/a", "/b", "/c", "g"]);
     expect(filterByFocus(rows, FOCUS_OFF, PROJECTS, [])).toHaveLength(5);
+  });
+});
+
+describe("sortByProjectOrder (desktop's Agents order)", () => {
+  const proj = (id: string, handle: string, tabOrder: number): ServerProject => ({
+    id,
+    name: handle,
+    path: `/w/${handle}`,
+    handle,
+    pinned: false,
+    tabOrder,
+    focusGroupId: null,
+  });
+  const row = (addr: string) => ({ id: addr, addr, path: `/w/${addr}`, kind: "agent" as const });
+
+  it("orders by tabOrder, then list position; unknown rows keep their order last", () => {
+    const projects = [proj("p1", "b", 2), proj("p2", "a", 1), proj("p3", "c", 2)];
+    const rows = [row("zz"), row("c"), row("b"), row("a"), row("yy")];
+    expect(sortByProjectOrder(rows, projects, (r) => r).map((r) => r.addr)).toEqual([
+      "a",
+      "b",
+      "c",
+      "zz",
+      "yy",
+    ]);
   });
 });
