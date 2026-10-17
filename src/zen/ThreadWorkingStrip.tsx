@@ -215,6 +215,16 @@ export function counterBudget(width: number, clock: string): number {
 
 type Phase = "hidden" | "in" | "out";
 
+/** A message you send while the agent works ends the turn on screen
+ *  (`superseded`) at once; the daemon opens the next turn only after it
+ *  has delivered your message to the agent (~0.5–1s later). The drawer
+ *  holds the last working line up that long, so a send never hides and
+ *  re-shows it; the next turn then swaps in place. Nothing by then: it goes. */
+export const SUPERSEDE_HOLD_MS = STOPPED_LINGER_MS;
+
+/** The turn your message superseded, still on screen while the next opens. */
+type Hold = { endedId: string; live: ThreadTurn; done: boolean };
+
 export function ThreadWorkingStrip({
   turn,
   onSpace,
@@ -224,9 +234,36 @@ export function ThreadWorkingStrip({
    *  hidden or leaving. The Thread pads its scroller by what it covers. */
   onSpace?: (px: number) => void;
 }) {
-  const now = useStripNow(turn);
-  const line = turn ? threadDrawerLine(turn, now) : null;
+  const [hold, setHold] = useState<Hold | null>(null);
+  const held = hold && !hold.done ? hold.live : null;
+  const now = useStripNow(held ?? turn);
+  const own = turn ? threadDrawerLine(turn, now) : null;
+  // The last live turn shown: what a supersede holds up.
+  const lastLive = useRef<ThreadTurn | null>(null);
+  if (own && turn && turn.end === null) lastLive.current = turn;
+  const holdFrom =
+    !own &&
+    turn?.end?.reason === "superseded" &&
+    lastLive.current?.turnId === turn.turnId &&
+    hold?.endedId !== turn.turnId
+      ? lastLive.current
+      : null;
+  if (holdFrom && turn) setHold({ endedId: turn.turnId, live: holdFrom, done: false });
+  // The next turn is on screen (or anything of its own): the hold is over.
+  if (own && hold) setHold(null);
+  const holding = own ? null : holdFrom ?? held;
+  const shownTurn = own ? turn : holding;
+  const line = own ?? (holding ? threadDrawerLine(holding, now) : null);
   const shown = line !== null;
+  useEffect(() => {
+    if (!hold || hold.done) return;
+    const id = hold.endedId;
+    const t = setTimeout(
+      () => setHold((h) => (h && h.endedId === id ? { ...h, done: true } : h)),
+      SUPERSEDE_HOLD_MS
+    );
+    return () => clearTimeout(t);
+  }, [hold]);
   const last = useRef<ThreadDrawerLine | null>(line);
   if (line) last.current = line;
 
@@ -328,7 +365,7 @@ export function ThreadWorkingStrip({
       role="status"
       data-testid="thread-working-strip"
       data-tone={display.tone}
-      data-phase={turn?.phase}
+      data-phase={shownTurn?.phase}
       data-leaving={phase === "out" ? "true" : undefined}
       data-expanded={expanded ? "true" : "false"}
       className={anim}
