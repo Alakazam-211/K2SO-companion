@@ -11,7 +11,8 @@ set -euo pipefail
 # timestamp build id only. Do not pass a second "internal" tag version.
 #
 # What it does:
-#   1. Bumps version in package.json, tauri.conf.json, Info.plist
+#   1. Bumps version in package.json, tauri.conf.json, Info.plist,
+#      Cargo.toml and project.yml
 #   2. Stamps a unique timestamp build number
 #   3. Builds frontend + iOS archive
 #   4. Exports App Store IPA
@@ -98,7 +99,14 @@ sed -i '' "/<key>CFBundleShortVersionString<\/key>/{ n; s/<string>[^<]*<\/string
 # Info.plist — CFBundleVersion (build number)
 sed -i '' "/<key>CFBundleVersion<\/key>/{ n; s/<string>[^<]*<\/string>/<string>$BUILD_NUMBER<\/string>/; }" "$INFO_PLIST"
 
-echo "  ✓ package.json, tauri.conf.json, Info.plist updated"
+# Cargo.toml (package version) and the XcodeGen spec, which regenerates
+# Info.plist during `tauri ios build` and so must agree with it.
+CARGO_TOML="$PROJECT_DIR/src-tauri/Cargo.toml"
+PROJECT_YML="$PROJECT_DIR/src-tauri/gen/apple/project.yml"
+sed -i '' "1,/^version = /s/^version = \"[^\"]*\"/version = \"$VERSION\"/" "$CARGO_TOML"
+sed -i '' "s/CFBundleShortVersionString: .*/CFBundleShortVersionString: $VERSION/; s/CFBundleVersion: .*/CFBundleVersion: \"$VERSION\"/" "$PROJECT_YML"
+
+echo "  ✓ package.json, tauri.conf.json, Info.plist, Cargo.toml, project.yml updated"
 
 # ─── Step 2: Build ───
 
@@ -191,7 +199,8 @@ echo "  ✓ Uploaded to App Store Connect"
 
 echo "→ Committing and tagging..."
 cd "$PROJECT_DIR"
-git add package.json src-tauri/tauri.conf.json src-tauri/gen/apple/k2so-companion_iOS/Info.plist
+git add package.json src-tauri/tauri.conf.json src-tauri/gen/apple/k2so-companion_iOS/Info.plist \
+  src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/gen/apple/project.yml
 git commit -m "v${VERSION} — App Store ${VERSION}, release build ${BUILD_NUMBER}"
 git tag -a "v${VERSION}" -m "v${VERSION} (App Store ${VERSION})"
 # This worktree may be on an execute-plan branch; always land on GitHub main.
