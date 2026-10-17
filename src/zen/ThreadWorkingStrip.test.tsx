@@ -9,6 +9,7 @@ import {
   STRIP_ICON,
   TAG_H_PX,
   TAG_PAD_X_PX,
+  SUPERSEDE_HOLD_MS,
   ThreadWorkingStrip,
   counterTagWidthPx,
 } from "./ThreadWorkingStrip";
@@ -456,5 +457,96 @@ describe("ThreadWorkingStrip drawer", () => {
     fireEvent.click(toggle());
     expect(toggle().getAttribute("aria-expanded")).toBe("true");
     vi.restoreAllMocks();
+  });
+});
+
+describe("ThreadWorkingStrip across your sends", () => {
+  // What K2 sends when you post while the agent works: the turn on screen
+  // ends `superseded` (state stopped) at once, and the next turn's first
+  // frame follows once your message is delivered (~0.5-1s).
+  const superseded = (over: Partial<ThreadTurn> = {}) =>
+    busy({ state: "stopped", end: { reason: "superseded", detail: null, at: T0 + 72_000 }, rev: 2, ...over });
+  const next = (over: Partial<ThreadTurn> = {}) =>
+    turn({ turnId: "t2", startedAt: T0 + 72_000, phaseSince: T0 + 72_000, rev: 1, ...over });
+
+  it("a send while working never hides it: held through the supersede, the next turn swaps in place", () => {
+    const space = vi.fn();
+    const { rerender } = render(<ThreadWorkingStrip turn={busy()} onSpace={space} />);
+    const el = strip();
+    rerender(<ThreadWorkingStrip turn={superseded()} onSpace={space} />);
+    expect(strip()).toBe(el);
+    expect(strip().getAttribute("data-leaving")).toBeNull();
+    expect(strip().className).toBe("k2-drawer-slide-in");
+    expect(screen.getByTestId("thread-strip-step-text").textContent).toBe("Running npm test");
+    expect(space).toHaveBeenLastCalledWith(32);
+    // The clock keeps counting while held.
+    act(() => vi.advanceTimersByTime(1_000));
+    expect(screen.getByTestId("thread-strip-since").textContent).toBe("1:13");
+    rerender(<ThreadWorkingStrip turn={next()} onSpace={space} />);
+    expect(strip()).toBe(el);
+    expect(strip().getAttribute("data-leaving")).toBeNull();
+    expect(strip().className).toBe("k2-drawer-slide-in");
+    expect(screen.getByTestId("thread-strip-step-text").textContent).toBe("Working");
+    expect(screen.getByTestId("thread-strip-since").textContent).toBe("0:01");
+    expect(space).not.toHaveBeenCalledWith(0);
+    // Past the hold it is just the new turn: nothing left to time out.
+    act(() => vi.advanceTimersByTime(SUPERSEDE_HOLD_MS + 500));
+    expect(strip()).toBe(el);
+    expect(strip().getAttribute("data-leaving")).toBeNull();
+  });
+
+  it("a {turn:null} catch-up during the hold does not take it down early", () => {
+    const { rerender } = render(<ThreadWorkingStrip turn={busy()} />);
+    rerender(<ThreadWorkingStrip turn={superseded()} />);
+    rerender(<ThreadWorkingStrip turn={null} />);
+    expect(strip().getAttribute("data-leaving")).toBeNull();
+    rerender(<ThreadWorkingStrip turn={next()} />);
+    expect(strip().getAttribute("data-leaving")).toBeNull();
+  });
+
+  it("a new turnId while working swaps content without hiding", () => {
+    const { rerender } = render(<ThreadWorkingStrip turn={busy()} />);
+    const el = strip();
+    rerender(<ThreadWorkingStrip turn={next({ phase: "thinking" })} />);
+    expect(strip()).toBe(el);
+    expect(strip().className).toBe("k2-drawer-slide-in");
+    expect(strip().getAttribute("data-leaving")).toBeNull();
+    expect(screen.getByTestId("thread-strip-step-text").textContent).toMatch(/^Thinking/);
+  });
+
+  it("no next turn within the hold: it slides away then", () => {
+    const space = vi.fn();
+    const { rerender } = render(<ThreadWorkingStrip turn={busy()} onSpace={space} />);
+    rerender(<ThreadWorkingStrip turn={superseded()} onSpace={space} />);
+    act(() => vi.advanceTimersByTime(SUPERSEDE_HOLD_MS - 100));
+    expect(strip().getAttribute("data-leaving")).toBeNull();
+    act(() => vi.advanceTimersByTime(200));
+    expect(strip().getAttribute("data-leaving")).toBe("true");
+    expect(space).toHaveBeenLastCalledWith(0);
+    act(() => vi.advanceTimersByTime(DRAWER_MS + 100));
+    expect(screen.queryByTestId("thread-working-strip")).toBeNull();
+    // The same ended turn re-rendered does not hold again.
+    rerender(<ThreadWorkingStrip turn={superseded({ rev: 3 })} onSpace={space} />);
+    expect(screen.queryByTestId("thread-working-strip")).toBeNull();
+  });
+
+  it("a real end still hides at once; an interrupt still shows Stopped for the linger", () => {
+    const { rerender } = render(<ThreadWorkingStrip turn={busy()} />);
+    rerender(<ThreadWorkingStrip turn={busy({ state: "idle", end: { reason: "done", detail: null, at: T0 + 72_000 }, rev: 2 })} />);
+    expect(strip().getAttribute("data-leaving")).toBe("true");
+    act(() => vi.advanceTimersByTime(DRAWER_MS + 100));
+    expect(screen.queryByTestId("thread-working-strip")).toBeNull();
+
+    rerender(<ThreadWorkingStrip turn={busy({ turnId: "t3", rev: 1 })} />);
+    rerender(<ThreadWorkingStrip turn={busy({ turnId: "t3", state: "stopped", end: { reason: "interrupted", detail: null, at: T0 + 72_000 }, rev: 2 })} />);
+    expect(screen.getByTestId("thread-strip-step-text").textContent).toBe("Stopped");
+    act(() => vi.advanceTimersByTime(3_100));
+    expect(strip().getAttribute("data-leaving")).toBe("true");
+  });
+
+  it("a supersede of a turn never shown holds nothing", () => {
+    const { rerender } = render(<ThreadWorkingStrip turn={null} />);
+    rerender(<ThreadWorkingStrip turn={superseded()} />);
+    expect(screen.queryByTestId("thread-working-strip")).toBeNull();
   });
 });
