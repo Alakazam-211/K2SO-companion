@@ -159,6 +159,20 @@ class K2PushPlugin(private val activity: Activity) : Plugin(activity) {
     invoke.resolve(res)
   }
 
+  /** iOS-only feature (Communication Notifications avatar cache). The
+   *  command exists so the shared JS/Rust surface resolves everywhere;
+   *  Android answers unavailable and stores nothing. */
+  @Command
+  fun cacheAvatars(invoke: Invoke) {
+    val res = JSObject()
+    res.put("available", false)
+    res.put("written", 0)
+    res.put("skipped", 0)
+    res.put("failed", 0)
+    res.put("reason", "notification avatars are iOS-only")
+    invoke.resolve(res)
+  }
+
   // ── Helpers ──────────────────────────────────────────────────────────
 
   /** The dormancy gate: no initialized default FirebaseApp (no

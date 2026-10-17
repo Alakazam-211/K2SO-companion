@@ -1,7 +1,8 @@
 ## Default Permission
 
 Default permissions for the k2-push plugin: availability probe,
-permission request, token fetch, launch-tap read, and the event
+permission request, token fetch, launch-tap read, the notification
+avatar cache (Communication Notifications), and the event
 listener plumbing for `tap`/`tokenRefresh`.
 
 #### This default permission set includes the following:
@@ -10,6 +11,7 @@ listener plumbing for `tap`/`tokenRefresh`.
 - `allow-request-permission`
 - `allow-get-token`
 - `allow-get-launch-tap`
+- `allow-cache-avatars`
 - `allow-register-listener`
 - `allow-remove-listener`
 
@@ -21,6 +23,32 @@ listener plumbing for `tap`/`tokenRefresh`.
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`k2-push:allow-cache-avatars`
+
+</td>
+<td>
+
+Enables the cache_avatars command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:deny-cache-avatars`
+
+</td>
+<td>
+
+Denies the cache_avatars command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>

@@ -37,4 +37,14 @@ impl<R: Runtime> K2Push<R> {
     pub fn get_launch_tap(&self) -> crate::Result<LaunchTapResponse> {
         Ok(LaunchTapResponse { tap: None })
     }
+
+    pub fn cache_avatars(&self, _req: CacheAvatarsRequest) -> crate::Result<CacheAvatarsResponse> {
+        Ok(CacheAvatarsResponse {
+            available: false,
+            written: 0,
+            skipped: 0,
+            failed: 0,
+            reason: Some("notification avatars are iOS-only".into()),
+        })
+    }
 }

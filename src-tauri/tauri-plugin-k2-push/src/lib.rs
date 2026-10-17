@@ -25,6 +25,12 @@
 //! - `tap` `{kind, feedbackId?|groupId?, subdomain?}` — the user tapped
 //!   a push notification; JS navigates. Taps that launched the app cold
 //!   are buffered natively and drained via `get_launch_tap()`.
+//!
+//! Avatars (`cache_avatars`): iOS Communication Notifications. JS hands
+//! over each workspace's icon (`{key, rev, dataUrl}`); Swift writes a
+//! 128px PNG into the App Group container where the Notification
+//! Service Extension (`gen/apple/K2NotificationService`) reads it. No
+//! App Group entitlement → the command answers `available: false`.
 
 use tauri::{
     plugin::{Builder, TauriPlugin},
@@ -67,6 +73,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::request_permission,
             commands::get_token,
             commands::get_launch_tap,
+            commands::cache_avatars,
         ])
         .setup(|app, api| {
             #[cfg(mobile)]

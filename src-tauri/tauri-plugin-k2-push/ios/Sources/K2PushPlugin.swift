@@ -29,6 +29,13 @@
 // running triggers the `tap` event; every tap is ALSO buffered so a
 // cold-start tap (delegate set after the system delivered the response)
 // can be drained by JS via `getLaunchTap`.
+//
+// Avatars: `cacheAvatars` writes each workspace's icon as a 128px PNG
+// into the App Group container (`K2AvatarStore` below). The Notification
+// Service Extension (gen/apple/K2NotificationService) reads it to show
+// the agent's picture on a Thread push (Communication Notifications).
+// Without the App Group entitlement the container is nil and the command
+// answers `available: false` — dormant, like the rest of this file.
 
 import SwiftRs
 import Tauri
@@ -133,6 +140,31 @@ class K2PushPlugin: Plugin {
       } else {
         invoke.resolve(["tap": NSNull()])
       }
+    }
+  }
+
+  /// Store workspace avatars for the Notification Service Extension.
+  /// Args `{items: [{key, rev, dataUrl}]}`. Decoding/scaling runs off
+  /// the main thread on a serial queue. Never rejects for bad items
+  /// (they count as `failed`); rejects only for unparseable args.
+  @objc public func cacheAvatars(_ invoke: Invoke) {
+    let args: CacheAvatarsArgs
+    do {
+      args = try invoke.parseArgs(CacheAvatarsArgs.self)
+    } catch {
+      invoke.reject("cacheAvatars: invalid args (\(error.localizedDescription))")
+      return
+    }
+    K2AvatarStore.queue.async {
+      let outcome = K2AvatarStore.store(args.items)
+      var res: JsonObject = [
+        "available": outcome.available,
+        "written": outcome.written,
+        "skipped": outcome.skipped,
+        "failed": outcome.failed,
+      ]
+      if let reason = outcome.reason { res["reason"] = reason }
+      invoke.resolve(res)
     }
   }
 
@@ -357,6 +389,186 @@ private class K2PushTapDelegate: NSObject, UNUserNotificationCenterDelegate {
   ) {
     plugin?.handleTap(response.notification.request.content.userInfo)
     completionHandler()
+  }
+}
+
+// ── Notification avatar cache (App Group) ─────────────────────────────
+
+private struct CacheAvatarsArgs: Decodable {
+  let items: [AvatarItemArg]
+}
+
+private struct AvatarItemArg: Decodable {
+  let key: String
+  let rev: String
+  let dataUrl: String
+}
+
+/// Layout shared with the Notification Service Extension (keep in sync
+/// with gen/apple/K2NotificationService/NotificationService.swift):
+///   <AppGroup>/avatars/index.json
+///     {"version":1,"entries":{"<subdomain>|<projectid>":{"rev","file","at"}}}
+///   <AppGroup>/avatars/<file>.png   — 128x128 PNG, aspect-fill, square
+/// Keys are lowercased. `at` = last time the app saw the entry (seconds
+/// since 1970); the oldest entries are dropped past `maxEntries`.
+enum K2AvatarStore {
+  static let appGroupId = "group.com.alakazamlabs.k2so.companion"
+  static let maxEntries = 300
+  static let side: CGFloat = 128
+  static let queue = DispatchQueue(label: "com.alakazamlabs.k2so.companion.avatars", qos: .utility)
+
+  struct Entry: Codable {
+    var rev: String
+    var file: String
+    var at: Double
+  }
+
+  struct Index: Codable {
+    var version: Int
+    var entries: [String: Entry]
+  }
+
+  struct Outcome {
+    var available = true
+    var written = 0
+    var skipped = 0
+    var failed = 0
+    var reason: String?
+  }
+
+  static func directory() -> URL? {
+    guard
+      let container = FileManager.default.containerURL(
+        forSecurityApplicationGroupIdentifier: appGroupId)
+    else { return nil }
+    return container.appendingPathComponent("avatars", isDirectory: true)
+  }
+
+  /// Serial-queue only.
+  fileprivate static func store(_ items: [AvatarItemArg]) -> Outcome {
+    var out = Outcome()
+    guard let dir = directory() else {
+      out.available = false
+      out.reason = "no App Group container (\(appGroupId) entitlement missing)"
+      return out
+    }
+    let fm = FileManager.default
+    do {
+      try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    } catch {
+      out.available = false
+      out.reason = "avatars directory: \(error.localizedDescription)"
+      return out
+    }
+    var index = loadIndex(dir) ?? Index(version: 1, entries: [:])
+    let now = Date().timeIntervalSince1970
+    for item in items {
+      let key = item.key.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+      let rev = item.rev.trimmingCharacters(in: .whitespacesAndNewlines)
+      guard !key.isEmpty, !rev.isEmpty else {
+        out.failed += 1
+        continue
+      }
+      if var entry = index.entries[key], entry.rev == rev,
+        fm.fileExists(atPath: dir.appendingPathComponent(entry.file).path)
+      {
+        entry.at = now
+        index.entries[key] = entry
+        out.skipped += 1
+        continue
+      }
+      guard let data = decodeDataUrl(item.dataUrl),
+        let image = UIImage(data: data),
+        let png = squarePNG(image)
+      else {
+        out.failed += 1
+        continue
+      }
+      let file = fileName(for: key)
+      do {
+        try png.write(
+          to: dir.appendingPathComponent(file),
+          options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+      } catch {
+        out.failed += 1
+        continue
+      }
+      index.entries[key] = Entry(rev: rev, file: file, at: now)
+      out.written += 1
+    }
+    prune(&index, dir: dir)
+    if let json = try? JSONEncoder().encode(index) {
+      try? json.write(
+        to: dir.appendingPathComponent("index.json"),
+        options: [.atomic, .completeFileProtectionUntilFirstUserAuthentication])
+    }
+    return out
+  }
+
+  private static func loadIndex(_ dir: URL) -> Index? {
+    guard let data = try? Data(contentsOf: dir.appendingPathComponent("index.json")) else {
+      return nil
+    }
+    return try? JSONDecoder().decode(Index.self, from: data)
+  }
+
+  /// Drop the least-recently-seen entries (and their files) past the cap.
+  private static func prune(_ index: inout Index, dir: URL) {
+    let extra = index.entries.count - maxEntries
+    guard extra > 0 else { return }
+    let oldest = index.entries.sorted { $0.value.at < $1.value.at }.prefix(extra)
+    for (key, entry) in oldest {
+      index.entries[key] = nil
+      // Another key never shares a file name (the name embeds a hash of
+      // the key), so deleting is safe.
+      try? FileManager.default.removeItem(at: dir.appendingPathComponent(entry.file))
+    }
+  }
+
+  /// `data:image/<type>[;base64],<payload>` → bytes. SVG is refused
+  /// (UIImage cannot decode it).
+  static func decodeDataUrl(_ url: String) -> Data? {
+    let trimmed = url.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard trimmed.lowercased().hasPrefix("data:image/"),
+      let comma = trimmed.firstIndex(of: ",")
+    else { return nil }
+    let header = trimmed[..<comma].lowercased()
+    if header.contains("svg") { return nil }
+    let payload = String(trimmed[trimmed.index(after: comma)...])
+    if header.hasSuffix(";base64") {
+      return Data(base64Encoded: payload, options: .ignoreUnknownCharacters)
+    }
+    return payload.removingPercentEncoding?.data(using: .utf8)
+  }
+
+  /// Aspect-fill into a `side`x`side` square at scale 1 (128 px).
+  static func squarePNG(_ image: UIImage) -> Data? {
+    let size = image.size
+    guard size.width > 0, size.height > 0 else { return nil }
+    let format = UIGraphicsImageRendererFormat.default()
+    format.scale = 1
+    format.opaque = false
+    let renderer = UIGraphicsImageRenderer(
+      size: CGSize(width: side, height: side), format: format)
+    let scale = max(side / size.width, side / size.height)
+    let w = size.width * scale
+    let h = size.height * scale
+    return renderer.pngData { _ in
+      image.draw(in: CGRect(x: (side - w) / 2, y: (side - h) / 2, width: w, height: h))
+    }
+  }
+
+  /// Filesystem-safe, collision-free name: a readable prefix of the key
+  /// plus a 64-bit FNV-1a hash of the whole key.
+  static func fileName(for key: String) -> String {
+    var hash: UInt64 = 0xcbf2_9ce4_8422_2325
+    for byte in key.utf8 {
+      hash ^= UInt64(byte)
+      hash = hash &* 0x0000_0100_0000_01b3
+    }
+    let allowed = Set("abcdefghijklmnopqrstuvwxyz0123456789-_.")
+    let readable = String(key.map { allowed.contains($0) ? $0 : "_" }.prefix(60))
+    return "\(readable)-\(String(format: "%016llx", hash)).png"
   }
 }
 

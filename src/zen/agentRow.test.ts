@@ -6,6 +6,7 @@ import {
   JOIN_NO_PATH,
   JOIN_NO_PROJECT,
   cliProjectOf,
+  iconRevOf,
   joinAgentsWithProjects,
   ownerAgentOf,
   parseCliProjects,
@@ -108,6 +109,7 @@ describe("parseCliProjects / cliProjectOf", () => {
       handle: "k2so-companion-qa",
       color: null,
       iconUrl: null,
+      iconRev: null,
     });
     expect(mapped[3]?.handle).toBe("manager-2");
   });
@@ -120,6 +122,18 @@ describe("parseCliProjects / cliProjectOf", () => {
 
   it("rejects a skills enumerator — no handle+path on the rows", () => {
     expect(parseCliProjects([{ name: "k2-cli", agentType: "skill" }])).toBeNull();
+  });
+
+  it("reads iconRev when K2 sends it (string or number), else null", () => {
+    const rows = parseCliProjects([
+      { name: "a", handle: "a", path: "/a", iconUrl: "data:image/png;base64,AA==", iconRev: " r7 " },
+      { name: "b", handle: "b", path: "/b", iconRev: 42 },
+      { name: "c", handle: "c", path: "/c", iconRev: "" },
+      { name: "d", handle: "d", path: "/d" },
+    ])!;
+    expect(rows.map((r) => cliProjectOf(r)?.iconRev)).toEqual(["r7", "42", null, null]);
+    expect(iconRevOf(Number.NaN)).toBeNull();
+    expect(iconRevOf({})).toBeNull();
   });
 });
 

@@ -38,6 +38,7 @@ import { onServerForget, useServersStore } from "../stores/servers";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { sidecarRowId } from "./agentRow";
 import { buildServerRows, groupAgentRow, overlaySidecarAgent } from "./serverRows";
+import { queueServerAvatars } from "../lib/avatarCache";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
 import {
   beginLastAt,
@@ -1096,6 +1097,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
         fetchProjectGroups(scope),
         getAllSessions(scope),
       ]);
+      // Notification avatars (iOS Communication Notifications): this
+      // server's workspace icons go to the App Group cache. Coalesced,
+      // no-op off iOS / without push, never throws.
+      if (rProjects.ok) queueServerAvatars(scope.id, rProjects.data);
       // Zen moved to another server (a room opened or closed) meanwhile:
       // this answer is not for what is on screen.
       if (zenId() !== scope.id) return;

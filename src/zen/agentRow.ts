@@ -104,7 +104,17 @@ export type CliProjectRow = {
   path?: unknown;
   color?: unknown;
   iconUrl?: unknown;
+  /** Changes when the icon does (K2 adds it; absent on older daemons). */
+  iconRev?: unknown;
 };
+
+/** `iconRev` as a non-empty string (a number is accepted), else null. */
+export function iconRevOf(v: unknown): string | null {
+  if (typeof v === "number" && Number.isFinite(v)) return String(v);
+  if (typeof v !== "string") return null;
+  const s = v.trim();
+  return s || null;
+}
 
 export function parseCliProjects(data: unknown): CliProjectRow[] | null {
   if (!Array.isArray(data)) return null;
@@ -132,6 +142,7 @@ export function cliProjectOf(
   handle: string | null;
   color: string | null;
   iconUrl: string | null;
+  iconRev: string | null;
 } | null {
   const name = typeof a.name === "string" ? a.name.trim() : "";
   if (!name) return null;
@@ -143,6 +154,7 @@ export function cliProjectOf(
     handle: handle || null,
     color: workspaceColorOf(a.color),
     iconUrl: workspaceIconOf(a.iconUrl),
+    iconRev: iconRevOf(a.iconRev),
   };
 }
 

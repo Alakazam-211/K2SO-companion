@@ -16,6 +16,7 @@ import {
 } from "./workspaceIcon";
 import { useZenStore } from "./zenStore";
 import { zenScope } from "./zenScope";
+import { queueServerAvatars } from "../lib/avatarCache";
 
 /** The `projects/update` body fields for `before` → `next`. Icon `""` clears. */
 export function lookUpdateBody(
@@ -60,6 +61,7 @@ export async function saveWorkspaceLook(
   try {
     const list = await getCliProjectsList(scope);
     if (list.ok && Array.isArray(list.data)) {
+      queueServerAvatars(scope.id, list.data);
       const raw = (list.data as Record<string, unknown>[]).find(
         (p) => p && typeof p === "object" && p.id === target.projectId
       );

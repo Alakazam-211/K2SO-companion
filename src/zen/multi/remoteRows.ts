@@ -47,6 +47,7 @@ import {
   type ServerProject,
 } from "../serverPins";
 import { buildServerRows } from "../serverRows";
+import { queueServerAvatars } from "../../lib/avatarCache";
 import { readRememberedSidecars, writeRememberedSidecars } from "../sidecarRows";
 import type { StubAgent } from "../stubData";
 
@@ -187,6 +188,8 @@ export function loadServerRows(serverId: string, now: () => number = Date.now): 
         fetchProjectGroups(scope),
         getAllSessions(scope),
       ]);
+      // Notification avatars for this server's workspaces (see avatarCache).
+      if (rProjects.ok) queueServerAvatars(serverId, rProjects.data);
       if ((gens.get(serverId) ?? 0) !== gen) return;
       const built = buildServerRows({
         rAgents,
