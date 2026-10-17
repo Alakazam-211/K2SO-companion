@@ -91,8 +91,9 @@ import {
 import { isMine, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import { mergeThreadMessages } from "./threadLive";
 import {
-  hasLanded,
+  landedId,
   newLocalId,
+  rememberLanded,
   threadRoomKey,
   type OutgoingMessage,
 } from "./outbox";
@@ -216,6 +217,10 @@ type ZenState = {
   /** Optimistic outgoing bubbles, every room (`OutgoingMessage.roomKey`).
    *  In memory only; a failed one stays until retried or put back. */
   outbox: OutgoingMessage[];
+  /** Sends that landed after their outbox entry went: `landedKey(room,
+   *  server id)` → the send's `localId`. ThreadPane keys the delivered
+   *  row by it, so the bubble is the same element from tap to delivered. */
+  landedKeys: Record<string, string>;
   /** Add a "Sending…" bubble for the open room; returns its temp id. */
   queueOutgoing: (input: {
     text: string;
@@ -640,6 +645,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   sending: false,
   sendError: null,
   outbox: [],
+  landedKeys: {},
   answeringId: null,
   answerError: null,
   answerErrorId: null,
@@ -1540,8 +1546,14 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const fail = (id: string, error: string): boolean => {
       const entry = get().outbox.find((o) => o.localId === id);
       const here = get().threadGen === gen;
-      if (entry && here && hasLanded(entry, get().thread)) {
-        set({ sending: false, sendError: null, outbox: outboxWithout(id) });
+      const landed = entry && here ? landedId(entry, get().thread) : null;
+      if (entry && landed) {
+        set({
+          sending: false,
+          sendError: null,
+          outbox: outboxWithout(id),
+          landedKeys: rememberLanded(get().landedKeys, entry.roomKey, landed, id),
+        });
         return true;
       }
       get().patchOutgoing(id, { status: "failed", error });
@@ -1577,6 +1589,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       get().patchOutgoing(localId, { body: trimmed });
     }
     const id = localId;
+    const room = threadRoomKey(scope.id, groupId, addr);
     if (groupId) {
       set({ sending: true, sendError: null });
       try {
@@ -1607,6 +1620,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
           sending: false,
           sendError: null,
           outbox: outboxWithout(id),
+          landedKeys: rememberLanded(get().landedKeys, room, msg?.id, id),
           thread: msg && !seen.has(msg.id) ? [...get().thread, msg] : get().thread,
           lastAtByKey: {
             ...get().lastAtByKey,
@@ -1666,6 +1680,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         sending: false,
         sendError: null,
         outbox: outboxWithout(id),
+        landedKeys: rememberLanded(get().landedKeys, room, onWire.id, id),
         thread: items,
         threadConversationId:
           (reread.data.conversation_id || "").trim() ||
