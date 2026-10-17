@@ -6,6 +6,7 @@ import {
   CheckIcon,
   CogIcon,
   FileIcon,
+  GaugeIcon,
   HomeIcon,
   PencilIcon,
   SearchIcon,
@@ -39,6 +40,7 @@ const ALL = {
   file: FileIcon,
   search: SearchIcon,
   check: CheckIcon,
+  gauge: GaugeIcon,
 };
 
 describe("shared icons", () => {

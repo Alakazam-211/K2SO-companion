@@ -12,6 +12,8 @@ import { serverBadge } from "./multi/rowStatus";
 import { serverBellStatus, useNotifyPrefsStore } from "../stores/notifyPrefs";
 import { BellIcon, useNotifyPrefsLive } from "./NotifyBell";
 import { useBackHandler } from "../lib/androidBack";
+import { GaugeIcon } from "./icons";
+import { UsagePage } from "./UsagePage";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -120,6 +122,27 @@ function ServerBell({ serverId, label }: { serverId: string; label: string }) {
   );
 }
 
+/** Opens the server's Usage page (subscriptions + usage + switching).
+ *  Sits right of the bell on the active server's card; shown whenever
+ *  that server has a session token (the page says when its K2 is too old). */
+function ServerUsageButton({ label, onOpen }: { label: string; onOpen: () => void }) {
+  return (
+    <button
+      type="button"
+      className="shrink-0 flex items-center justify-center k2-tile"
+      style={{ width: 34, height: 34, borderRadius: 17, color: "#fff", pointerEvents: "auto" }}
+      aria-label={`Usage on ${label}`}
+      data-testid="server-usage"
+      onClick={(e) => {
+        e.stopPropagation();
+        onOpen();
+      }}
+    >
+      <GaugeIcon size={18} />
+    </button>
+  );
+}
+
 /** In-overlay server list. Tap switches the active server. Sign-in
  *  required opens OverlayAddServer. Never navigates to `/servers`.
  *  The active server is pinned in its own card under the title, inside
@@ -146,6 +169,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
   const [adding, setAdding] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+  const [usageId, setUsageId] = useState<string | null>(null);
   const rowRefs = useRef(new Map<string, HTMLElement>());
   const pinnedRef = useRef<HTMLDivElement | null>(null);
   const flipFrom = useRef<{ id: string; rect: DOMRect | null } | null>(null);
@@ -402,6 +426,9 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
               </span>
             </button>
             <ServerBell serverId={pinned.id} label={labelOf(pinned)} />
+            {tokens[pinned.id] ? (
+              <ServerUsageButton label={labelOf(pinned)} onOpen={() => setUsageId(pinned.id)} />
+            ) : null}
             <button
               type="button"
               className="shrink-0 text-[17px] k2-tile"
@@ -547,6 +574,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
         inputTestId="overlay-servers-search"
         plusTestId="overlay-servers-add"
       />
+      {usageId ? <UsagePage serverId={usageId} onBack={() => setUsageId(null)} /> : null}
     </div>
   );
 }

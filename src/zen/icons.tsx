@@ -20,7 +20,8 @@ export type IconName =
   | "pencil"
   | "file"
   | "search"
-  | "check";
+  | "check"
+  | "gauge";
 
 function Icon({
   name,
@@ -130,6 +131,18 @@ export function CheckIcon(props: IconProps) {
   return (
     <Icon name="check" {...props}>
       <path d="M20 6 9 17l-5-5" />
+    </Icon>
+  );
+}
+
+/** Speedometer gauge: the Servers card's Usage button (subscription
+ *  usage + switching, UsagePage). */
+export function GaugeIcon(props: IconProps) {
+  return (
+    <Icon name="gauge" {...props}>
+      <path d="M4.5 18.5a9 9 0 1 1 15 0" />
+      <path d="m12 13.5 4-4.5" />
+      <circle cx="12" cy="14.5" r="1.25" />
     </Icon>
   );
 }
