@@ -233,6 +233,19 @@ describe("Thread follows the newest", () => {
     expect(scroller().scrollTop).toBe(1560);
   });
 
+  it("an agent message shows its name and time on one line above the bubble", async () => {
+    render(<ThreadPane />);
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+    act(() => socket().onItem(threadFrame("r9", 40, "Hello there.") as never));
+    const bubble = await screen.findByText("Hello there.");
+    const row = bubble.closest("[data-thread-msg]") as HTMLElement;
+    const meta = row.querySelector('[data-testid="thread-msg-meta"]') as HTMLElement;
+    expect(meta.textContent).toMatch(/^appa.*\d{1,2}:\d{2} [AP]M$/);
+    // Meta first, then the bubble; no time line under it.
+    expect(row.firstElementChild).toBe(meta);
+    expect(row.lastElementChild?.getAttribute("data-testid")).toBe("thread-bubble");
+  });
+
   it("the pill keeps the keyboard up and finishes a glide the WebView dropped", async () => {
     // A smooth scroll that never arrives (WKWebView interrupted it).
     const scrollTo = vi.fn();
