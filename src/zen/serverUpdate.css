@@ -1,0 +1,35 @@
+/* Server settings → update: indeterminate progress (the daemon's progress
+   jumps 0 → 1, so there is nothing to fill). */
+@keyframes k2-update-indeterminate {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(250%);
+  }
+}
+.k2-update-bar {
+  position: relative;
+  height: 4px;
+  border-radius: 2px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.12);
+}
+.k2-update-bar::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 40%;
+  border-radius: 2px;
+  background: #0a84ff;
+  animation: k2-update-indeterminate 1.4s ease-in-out infinite;
+}
+@media (prefers-reduced-motion: reduce) {
+  .k2-update-bar::after {
+    width: 100%;
+    animation: none;
+    opacity: 0.6;
+  }
+}

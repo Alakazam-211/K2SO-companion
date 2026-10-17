@@ -15,6 +15,7 @@ import { useBackHandler } from "../lib/androidBack";
 import { CogIcon, GaugeIcon } from "./icons";
 import { UsagePage } from "./UsagePage";
 import { ServerSettingsPage } from "./ServerSettingsPage";
+import { useUpdateAvailable } from "./serverUpdateStore";
 
 const labelOf = (server: ServerEntry) => server.nickname || hostLabel(server.url);
 
@@ -132,14 +133,24 @@ function ServerUsageButton({ label, onOpen }: { label: string; onOpen: () => voi
 
 /** Opens that server's Server settings page (identity, K2 version,
  *  shortcuts, sign out / remove). Right of the bell and the usage gauge,
- *  on every saved server's card. */
-function ServerSettingsButton({ label, onOpen }: { label: string; onOpen: () => void }) {
+ *  on every saved server's card. A blue dot when the last STORED update
+ *  check said an update is available (the card never checks by itself). */
+function ServerSettingsButton({
+  serverId,
+  label,
+  onOpen,
+}: {
+  serverId: string;
+  label: string;
+  onOpen: () => void;
+}) {
+  const updateAvailable = useUpdateAvailable(serverId);
   return (
     <button
       type="button"
-      className="shrink-0 flex items-center justify-center k2-tile"
+      className="relative shrink-0 flex items-center justify-center k2-tile"
       style={{ width: 34, height: 34, borderRadius: 17, color: "#fff", pointerEvents: "auto" }}
-      aria-label={`Settings for ${label}`}
+      aria-label={updateAvailable ? `Settings for ${label}, update available` : `Settings for ${label}`}
       data-testid="server-settings"
       onClick={(e) => {
         e.stopPropagation();
@@ -147,6 +158,22 @@ function ServerSettingsButton({ label, onOpen }: { label: string; onOpen: () => 
       }}
     >
       <CogIcon size={18} />
+      {updateAvailable ? (
+        <span
+          aria-hidden
+          data-testid="server-settings-update-dot"
+          className="absolute"
+          style={{
+            top: 1,
+            right: 1,
+            width: 9,
+            height: 9,
+            borderRadius: "50%",
+            background: "#0a84ff",
+            boxShadow: "0 0 0 1.5px #000",
+          }}
+        />
+      ) : null}
     </button>
   );
 }
@@ -438,7 +465,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
             {tokens[pinned.id] ? (
               <ServerUsageButton label={labelOf(pinned)} onOpen={() => setUsageId(pinned.id)} />
             ) : null}
-            <ServerSettingsButton label={labelOf(pinned)} onOpen={() => setSettingsId(pinned.id)} />
+            <ServerSettingsButton serverId={pinned.id} label={labelOf(pinned)} onOpen={() => setSettingsId(pinned.id)} />
             <button
               type="button"
               className="shrink-0 text-[17px] k2-tile"
@@ -554,7 +581,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                   </span>
                 </button>
                 <ServerBell serverId={server.id} label={label} />
-                <ServerSettingsButton label={label} onOpen={() => setSettingsId(server.id)} />
+                <ServerSettingsButton serverId={server.id} label={label} onOpen={() => setSettingsId(server.id)} />
                 <button
                   type="button"
                   className="shrink-0 text-[17px] k2-tile"
