@@ -971,10 +971,21 @@ export function ThreadPane({
                       : undefined
                   }
                 >
+                  {/* Theirs: name and time on one line above the bubble.
+                      Mine: no name; the time (or Sending… / Not sent) stays
+                      below, where the outgoing status and its actions sit. */}
                   {!m.mine ? (
-                    <span className="text-[11px] text-[var(--text-muted)] px-3 mb-0.5">
-                      {source === "stub" ? <StubMark /> : null}
-                      {m.from}
+                    <span
+                      className="flex items-baseline gap-1.5 text-[11px] text-[var(--text-muted)] px-3 mb-0.5 min-w-0 max-w-full"
+                      data-testid="thread-msg-meta"
+                    >
+                      <span className="truncate min-w-0">
+                        {source === "stub" ? <StubMark /> : null}
+                        {m.from}
+                      </span>
+                      <span className="shrink-0" data-testid="thread-msg-time">
+                        {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
+                      </span>
                     </span>
                   ) : null}
                   <Bubble
@@ -991,9 +1002,11 @@ export function ThreadPane({
                     flying={flyThreadId === m.id && !fly?.fade}
                     fadeIn={flyThreadId === m.id && fly?.fade}
                   />
-                  <span className="text-[11px] text-[var(--text-muted)] px-2 mt-0.5">
-                    {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
-                  </span>
+                  {m.mine ? (
+                    <span className="text-[11px] text-[var(--text-muted)] px-2 mt-0.5" data-testid="thread-msg-time">
+                      {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
+                    </span>
+                  ) : null}
                 </div>
               ))}
               {outgoing.map((o) => {
