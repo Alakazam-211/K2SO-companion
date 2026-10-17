@@ -51,7 +51,14 @@ vi.mock("@tauri-apps/plugin-http", () => ({
             : [{ id: "pa", name: "Alpha", handle: "alpha", path: "/a", pinned: 0, tab_order: 0 }]
         );
       case "/cli/project-group/list":
-        return body({ ok: true, groups: [] });
+        return body({
+          ok: true,
+          groups: host.startsWith("bravo")
+            ? [{ id: "g1", name: "Bravo Crew", pocWorkspaceId: "pd", pinned: false, color: null, sortOrder: 0, createdAt: 1, updatedAt: 1, memberCount: 1 }]
+            : [],
+        });
+      case "/cli/project-group/messages":
+        return body({ ok: true, messages: [], truncated: false });
       case "/cli/companion/sessions":
         return body([]);
       case "/cli/thread":
@@ -141,6 +148,16 @@ afterEach(() => {
 });
 
 describe("Zen rooms (flag on)", () => {
+  it("?project=&server= (a project push tap) opens that project chat as a room on B; no Projects sheet", async () => {
+    renderAt("/zen?project=g1&server=bravo.k2.dev");
+    await waitFor(() => expect(useZenStore.getState().agentId).toBe("group:g1"));
+    expect(roomServerId()).toBe("b");
+    expect(useServersStore.getState().activeServerId).toBe("a");
+    expect(useZenStore.getState().projectsOpen).toBe(false);
+    await waitFor(() => expect(callsTo("bravo.k2.dev").some((c) => c.includes("/cli/project-group/list"))).toBe(true));
+    expect(callsTo("alpha.k2.dev").some((c) => c.includes("/cli/project-group/messages"))).toBe(false);
+  });
+
   it("?addr=&server= opens a room on B: B's thread, B's chip, the active server stays A", async () => {
     renderAt("/zen?addr=docs&seq=1&server=bravo.k2.dev");
     await waitFor(() => expect(useZenStore.getState().threadSource).toBe("live"));
