@@ -478,16 +478,17 @@ export function ChatsList() {
     });
     return multi.on ? views : views.filter((v) => v.kind !== "remote");
   }, [home.rows, activeHostKey, agents, serverProjects, servers, multi.on, multi.byServer, tokens]);
-  // "Recent agents first": pinned rows, then this phone's latest sends,
-  // then the Home's own order. Off: the Home's own order.
+  // "Recent agents first": this phone's latest sends, then the Home's own
+  // order. Home has no pin grid, so pins are not held at the top (they
+  // would look frozen). Off: the Home's own order.
   const homeShown = useMemo(() => {
     if (!recentOn) return homeViews;
-    const { keyOf, isPinned } = homeViewRecent({
+    const { keyOf } = homeViewRecent({
       activeServerId: zen.id,
       activePinnedIds: pinnedIds,
       remotePinnedIds: (sid) => multi.byServer[sid]?.pinnedIds,
     });
-    return orderRecentFirst(homeViews, recentSent, keyOf, isPinned);
+    return orderRecentFirst(homeViews, recentSent, keyOf);
   }, [recentOn, homeViews, recentSent, zen.id, pinnedIds, multi.byServer]);
   // Rename repair (flag on; desktop `repairFromList`): a row whose handle
   // left its server while its workspace id is still there follows the
