@@ -295,6 +295,18 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the cache_avatars command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-cache-avatars",
+          "markdownDescription": "Enables the cache_avatars command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the cache_avatars command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-cache-avatars",
+          "markdownDescription": "Denies the cache_avatars command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_launch_tap command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-launch-tap",
@@ -367,10 +379,10 @@
           "markdownDescription": "Denies the request_permission command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, and the event\nlistener plumbing for `tap`/`tokenRefresh`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), and the event\nlistener plumbing for `tap`/`tokenRefresh`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, and the event\nlistener plumbing for `tap`/`tokenRefresh`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), and the event\nlistener plumbing for `tap`/`tokenRefresh`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }

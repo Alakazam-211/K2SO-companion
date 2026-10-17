@@ -15,6 +15,7 @@ import {
 } from "../stores/servers";
 import { connectServer } from "./revive";
 import { zenProjectPath, zenTicketPath } from "../zen/terminalJump";
+import { pushAvailability, pushIsAvailable } from "./pushAvailability";
 
 // Push glue — Companion C6 (prd-companion-v2 §4). Talks to the local
 // `tauri-plugin-k2-push` plugin and the daemon's `/cli/push/*` routes.
@@ -34,12 +35,6 @@ import { zenProjectPath, zenTicketPath } from "../zen/terminalJump";
 
 const PLUGIN = "k2-push";
 const STORE_FILE = "push.json";
-
-interface Availability {
-  available: boolean;
-  platform: string;
-  reason?: string | null;
-}
 
 export interface TapPayload {
   /** `"ticket"` (daemon since 2026-07-23), legacy `"feedback"`, or
@@ -68,26 +63,16 @@ export interface TapPayload {
   /** The recipient's person key (TP28): `"owner"` or a Connect username.
    *  Picks between saved accounts on the same host (`matchTapServer`). */
   principal?: string;
+  /** Communication Notifications (read by the iOS Notification Service
+   *  Extension, not by tap routing): hash of the agent's current avatar,
+   *  and the agent's colour (hex) for the initials fallback. */
+  avatarRev?: string;
+  agentColor?: string;
 }
 
-// ─── Availability (session-cached probe) ───
+// ─── Availability (session-cached probe; see ./pushAvailability) ───
 
-let availabilityPromise: Promise<Availability> | null = null;
-
-/** Full probe result (Settings shows the reason in the dormant state). */
-export function pushAvailability(): Promise<Availability> {
-  if (!availabilityPromise) {
-    availabilityPromise = invoke<Availability>(`plugin:${PLUGIN}|is_available`).catch(
-      // No tauri runtime (browser dev) or plugin rejection — unavailable.
-      (e) => ({ available: false, platform: "unknown", reason: String(e) })
-    );
-  }
-  return availabilityPromise;
-}
-
-export async function pushIsAvailable(): Promise<boolean> {
-  return (await pushAvailability()).available;
-}
+export { pushAvailability, pushIsAvailable };
 
 // ─── Persisted state (deviceId + the Settings toggle) ───
 

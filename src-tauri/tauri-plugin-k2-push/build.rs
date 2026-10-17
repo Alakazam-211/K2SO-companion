@@ -6,6 +6,7 @@ const COMMANDS: &[&str] = &[
     "request_permission",
     "get_token",
     "get_launch_tap",
+    "cache_avatars",
     "register_listener",
     "remove_listener",
 ];

@@ -38,3 +38,39 @@ pub struct LaunchTapResponse {
     #[serde(default)]
     pub tap: Option<serde_json::Value>,
 }
+
+/// One workspace avatar for the notification avatar cache (iOS
+/// Communication Notifications). `key` = `<subdomain>|<projectId>`
+/// lowercased; `rev` changes when the picture does; `dataUrl` is a
+/// `data:image/...;base64,` URL.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AvatarItem {
+    pub key: String,
+    pub rev: String,
+    pub data_url: String,
+}
+
+/// `cache_avatars()` request body (forwarded to the native layer as-is).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheAvatarsRequest {
+    pub items: Vec<AvatarItem>,
+}
+
+/// `cache_avatars()` response. `available` false = no App Group
+/// container (entitlement missing) or a platform without the cache
+/// (Android, desktop); `reason` says which.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CacheAvatarsResponse {
+    pub available: bool,
+    #[serde(default)]
+    pub written: u32,
+    #[serde(default)]
+    pub skipped: u32,
+    #[serde(default)]
+    pub failed: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+}

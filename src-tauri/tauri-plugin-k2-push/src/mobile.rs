@@ -67,4 +67,10 @@ impl<R: Runtime> K2Push<R> {
             .run_mobile_plugin::<LaunchTapResponse>("getLaunchTap", ())
             .map_err(Into::into)
     }
+
+    pub fn cache_avatars(&self, req: CacheAvatarsRequest) -> crate::Result<CacheAvatarsResponse> {
+        self.0
+            .run_mobile_plugin::<CacheAvatarsResponse>("cacheAvatars", req)
+            .map_err(Into::into)
+    }
 }

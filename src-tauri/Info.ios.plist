@@ -6,6 +6,13 @@
 	     when the system is in Light mode. Mirrored in gen/apple/project.yml. -->
 	<key>UIUserInterfaceStyle</key>
 	<string>Dark</string>
+	<!-- Communication Notifications: the app declares the intent its
+	     Notification Service Extension (gen/apple/K2NotificationService)
+	     donates. Mirrored in gen/apple/project.yml. -->
+	<key>NSUserActivityTypes</key>
+	<array>
+		<string>INSendMessageIntent</string>
+	</array>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<!-- MUST stay true. tao 0.35.3 only registers the scene delegate

@@ -8,7 +8,8 @@ set -euo pipefail
 # One marketing version. package.json, tauri.conf.json, Info.plist
 # CFBundleShortVersionString, the git tag (vX.Y.Z), and the App Store
 # Connect version string are the same number. CFBundleVersion is a
-# timestamp build id only. Do not pass a second "internal" tag version.
+# timestamp build id only (so a marketing version can be re-uploaded).
+# Do not pass a second "internal" tag version.
 #
 # What it does:
 #   1. Bumps version in package.json, tauri.conf.json, Info.plist,
@@ -35,6 +36,9 @@ API_KEY_PATH="$HOME/private_keys/AuthKey_${API_KEY}.p8"
 TAURI_CONF="$PROJECT_DIR/src-tauri/tauri.conf.json"
 PACKAGE_JSON="$PROJECT_DIR/package.json"
 INFO_PLIST="$PROJECT_DIR/src-tauri/gen/apple/k2so-companion_iOS/Info.plist"
+# Notification Service Extension (Communication Notifications). Its
+# versions must equal the app's or App Store Connect flags the upload.
+NSE_INFO_PLIST="$PROJECT_DIR/src-tauri/gen/apple/K2NotificationService/Info.plist"
 ARCHIVE_PATH="$PROJECT_DIR/src-tauri/gen/apple/build/k2so-companion_iOS.xcarchive"
 EXPORT_DIR="$PROJECT_DIR/src-tauri/gen/apple/build/appstore"
 EXPORT_PLIST="$PROJECT_DIR/src-tauri/gen/apple/build/AppStoreExport.plist"
@@ -92,6 +96,18 @@ sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$PACKAGE_JSON"
 
 # tauri.conf.json
 sed -i '' "s/\"version\": \"[^\"]*\"/\"version\": \"$VERSION\"/" "$TAURI_CONF"
+# tauri.conf.json bundle.iOS.bundleVersion = the build number. `tauri ios
+# build` rewrites the app Info.plist CFBundleVersion from this (default:
+# the marketing version), so this is what actually reaches the binary.
+node -e '
+  const fs = require("fs");
+  const [file, build] = process.argv.slice(1);
+  const conf = JSON.parse(fs.readFileSync(file, "utf8"));
+  conf.bundle = conf.bundle || {};
+  conf.bundle.iOS = conf.bundle.iOS || {};
+  conf.bundle.iOS.bundleVersion = build;
+  fs.writeFileSync(file, JSON.stringify(conf, null, 2) + "\n");
+' "$TAURI_CONF" "$BUILD_NUMBER"
 
 # Info.plist — CFBundleShortVersionString
 sed -i '' "/<key>CFBundleShortVersionString<\/key>/{ n; s/<string>[^<]*<\/string>/<string>$VERSION<\/string>/; }" "$INFO_PLIST"
@@ -99,14 +115,22 @@ sed -i '' "/<key>CFBundleShortVersionString<\/key>/{ n; s/<string>[^<]*<\/string
 # Info.plist — CFBundleVersion (build number)
 sed -i '' "/<key>CFBundleVersion<\/key>/{ n; s/<string>[^<]*<\/string>/<string>$BUILD_NUMBER<\/string>/; }" "$INFO_PLIST"
 
+# Extension Info.plist — same values as the app (VERSION + BUILD_NUMBER);
+# App Store Connect rejects an extension whose versions differ.
+if [ -f "$NSE_INFO_PLIST" ]; then
+  sed -i '' "/<key>CFBundleShortVersionString<\/key>/{ n; s/<string>[^<]*<\/string>/<string>$VERSION<\/string>/; }" "$NSE_INFO_PLIST"
+  sed -i '' "/<key>CFBundleVersion<\/key>/{ n; s/<string>[^<]*<\/string>/<string>$BUILD_NUMBER<\/string>/; }" "$NSE_INFO_PLIST"
+fi
+
 # Cargo.toml (package version) and the XcodeGen spec, which regenerates
 # Info.plist during `tauri ios build` and so must agree with it.
 CARGO_TOML="$PROJECT_DIR/src-tauri/Cargo.toml"
 PROJECT_YML="$PROJECT_DIR/src-tauri/gen/apple/project.yml"
 sed -i '' "1,/^version = /s/^version = \"[^\"]*\"/version = \"$VERSION\"/" "$CARGO_TOML"
-sed -i '' "s/CFBundleShortVersionString: .*/CFBundleShortVersionString: $VERSION/; s/CFBundleVersion: .*/CFBundleVersion: \"$VERSION\"/" "$PROJECT_YML"
+# Both targets (app + NSE) in one pass: same VERSION, same BUILD_NUMBER.
+sed -i '' "s/CFBundleShortVersionString: .*/CFBundleShortVersionString: $VERSION/; s/CFBundleVersion: .*/CFBundleVersion: \"$BUILD_NUMBER\"/" "$PROJECT_YML"
 
-echo "  ✓ package.json, tauri.conf.json, Info.plist, Cargo.toml, project.yml updated"
+echo "  ✓ package.json, tauri.conf.json, Info.plist (app + NSE), Cargo.toml, project.yml updated"
 
 # ─── Step 2: Build ───
 
@@ -131,9 +155,14 @@ echo "→ Exporting for App Store..."
 # Automatic "Team Store" cloud signing cannot add Push to the Xcode-managed
 # profile (API key is not an Admin Apple ID). Use the ASC-created
 # "K2 Companion App Store Push" profile + local Apple Distribution cert.
+# The Notification Service Extension uses its own ASC-created profile,
+# "K2 Companion NSE App Store" (App Group capability). The app profile
+# must also carry the App Group + Communication Notifications
+# capabilities. Only the APP entitlements hold aps-environment; the
+# extension's entitlements (App Group only) are not touched here.
 ENTITLEMENTS="$PROJECT_DIR/src-tauri/gen/apple/k2so-companion_iOS/k2so-companion_iOS.entitlements"
 if [ -f "$ENTITLEMENTS" ]; then
-  sed -i '' 's/<string>development<\/string>/<string>production<\/string>/' "$ENTITLEMENTS"
+  sed -i '' '/<key>aps-environment<\/key>/{ n; s/<string>development<\/string>/<string>production<\/string>/; }' "$ENTITLEMENTS"
 fi
 
 cat > "$EXPORT_PLIST" << PLIST
@@ -153,6 +182,8 @@ cat > "$EXPORT_PLIST" << PLIST
     <dict>
         <key>com.alakazamlabs.k2so.companion</key>
         <string>K2 Companion App Store Push</string>
+        <key>com.alakazamlabs.k2so.companion.NotificationService</key>
+        <string>K2 Companion NSE App Store</string>
     </dict>
     <key>uploadSymbols</key>
     <true/>
@@ -200,6 +231,7 @@ echo "  ✓ Uploaded to App Store Connect"
 echo "→ Committing and tagging..."
 cd "$PROJECT_DIR"
 git add package.json src-tauri/tauri.conf.json src-tauri/gen/apple/k2so-companion_iOS/Info.plist \
+  src-tauri/gen/apple/K2NotificationService/Info.plist \
   src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/gen/apple/project.yml
 git commit -m "v${VERSION} — App Store ${VERSION}, release build ${BUILD_NUMBER}"
 git tag -a "v${VERSION}" -m "v${VERSION} (App Store ${VERSION})"

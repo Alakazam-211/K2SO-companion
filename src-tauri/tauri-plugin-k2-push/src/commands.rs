@@ -25,3 +25,11 @@ pub(crate) async fn get_token<R: Runtime>(app: AppHandle<R>) -> Result<TokenResp
 pub(crate) async fn get_launch_tap<R: Runtime>(app: AppHandle<R>) -> Result<LaunchTapResponse> {
     app.k2_push().get_launch_tap()
 }
+
+#[command]
+pub(crate) async fn cache_avatars<R: Runtime>(
+    app: AppHandle<R>,
+    items: Vec<AvatarItem>,
+) -> Result<CacheAvatarsResponse> {
+    app.k2_push().cache_avatars(CacheAvatarsRequest { items })
+}

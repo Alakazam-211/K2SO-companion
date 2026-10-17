@@ -13,6 +13,7 @@ import { create } from "zustand";
 import { getProjectIcon } from "../../api/client";
 import { scopeFor } from "../../api/scope";
 import { onServerForget } from "../../stores/servers";
+import { queueAvatar } from "../../lib/avatarCache";
 
 export const ICON_REFRESH_MS = 24 * 60 * 60 * 1000;
 export const ICON_FAILURE_BACKOFF_MS = 60_000;
@@ -57,6 +58,8 @@ export async function ensureRemoteIcon(
     const d = r.data;
     const dataUrl = d && d.found === true && isImageDataUrl(d.dataUrl) ? d.dataUrl : null;
     failedAt.delete(key);
+    // The same picture feeds the notification avatar cache.
+    if (dataUrl) queueAvatar(serverId, projectId, dataUrl);
     useRemoteIcons.setState((s) => ({ icons: { ...s.icons, [key]: { dataUrl, at: now() } } }));
   } catch {
     failedAt.set(key, now());
