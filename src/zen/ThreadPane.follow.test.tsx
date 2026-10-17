@@ -29,7 +29,7 @@ vi.mock("../stores/notifyPrefs", () => ({
 
 import { postThread } from "../api/client";
 import { connectOverlayEvents } from "./overlayEvents";
-import { ThreadPane } from "./ThreadPane";
+import { NEW_BELOW_SETTLE_MS, ThreadPane } from "./ThreadPane";
 import type { ThreadMessage } from "./threadModel";
 import { useZenStore } from "./zenStore";
 import { fakeScope } from "../test/fakeScope";
@@ -231,6 +231,30 @@ describe("Thread follows the newest", () => {
     height = 2160;
     flushRaf();
     expect(scroller().scrollTop).toBe(1560);
+  });
+
+  it("the pill keeps the keyboard up and finishes a glide the WebView dropped", async () => {
+    // A smooth scroll that never arrives (WKWebView interrupted it).
+    const scrollTo = vi.fn();
+    (HTMLElement.prototype as unknown as { scrollTo: unknown }).scrollTo = scrollTo;
+    render(<ThreadPane />);
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+
+    userScrollTo(300);
+    height = 1900;
+    act(() => socket().onItem(threadFrame("r2", 30, "Done.") as never));
+    fireResize();
+    flushRaf();
+    const pill = screen.getByTestId("thread-new-message");
+    // No blur: the tap must not take focus from the composer.
+    expect(fireEvent.pointerDown(pill)).toBe(false);
+    expect(fireEvent.mouseDown(pill)).toBe(false);
+
+    fireEvent.click(pill);
+    expect(scrollTo).toHaveBeenCalled();
+    expect(scroller().scrollTop).toBe(300);
+    await act(() => new Promise((r) => setTimeout(r, NEW_BELOW_SETTLE_MS + 20)));
+    expect(scroller().scrollTop).toBe(bottom());
   });
 
   it("scrolling up stops following; an incoming message shows the pill, the pill scrolls and resumes", async () => {

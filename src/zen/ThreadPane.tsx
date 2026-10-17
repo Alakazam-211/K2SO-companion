@@ -63,6 +63,8 @@ export { COMPOSER_MAX_PX, composerHeight } from "./GlassComposer";
 
 /** `.chat-markdown`'s 14px, scaled by Settings → Text Size. */
 const BUBBLE_TEXT_PX = 14;
+/** How long the "New message ↓" glide gets before a jump finishes it. */
+export const NEW_BELOW_SETTLE_MS = 450;
 
 function Bubble({
   m,
@@ -787,13 +789,19 @@ export function ThreadPane({
     void deliver(localId);
   }
 
-  /** "New message ↓": glide to the newest and follow again. */
+  /** "New message ↓": glide to the newest and follow again. WKWebView can
+   *  drop a smooth scroll that a layout change interrupts, so if it has
+   *  not reached the newest after the glide, jump the rest. */
   function onNewBelow() {
     const el = scrollerRef.current;
     setFollowing(true);
     if (!el) return;
     if (typeof el.scrollTo === "function" && !prefersReducedMotion()) {
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      window.setTimeout(() => {
+        const cur = scrollerRef.current;
+        if (cur && following.current && !nearNewest(cur)) stick(cur);
+      }, NEW_BELOW_SETTLE_MS);
     } else {
       stick(el);
     }
@@ -1074,6 +1082,11 @@ export function ThreadPane({
                 data-testid="thread-new-message"
                 className="pointer-events-auto zen-glass zen-glass-pill text-[13px]"
                 style={{ minHeight: 32, padding: "0 14px", color: "#fff" }}
+                // Keep focus in the textarea so the iOS keyboard stays up:
+                // a blur drops the keyboard, the pill moves with the
+                // composer, and the tap misses it (send button pattern).
+                onPointerDown={(e) => e.preventDefault()}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={onNewBelow}
               >
                 New message <span aria-hidden="true">↓</span>
