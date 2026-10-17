@@ -549,7 +549,8 @@ function belowFloor(serverId: string): boolean {
  *  they open on the current server (as before). Flag on, a ticket whose
  *  `subdomain` names another saved server makes that server the default
  *  first (the user's tap is the explicit choice); no match keeps the
- *  default. Project taps keep the current server. */
+ *  default. Project taps switch to the push's server first (a project
+ *  chat exists on one server only); no match keeps the current one. */
 export async function routeTap(
   tap: TapPayload | null | undefined,
   navigate: (path: string) => void,
@@ -560,13 +561,18 @@ export async function routeTap(
   if (kind !== "thread") {
     const path = tapPath(tap, opts);
     if (!path) return;
-    if (TICKET_KINDS.has(kind) && useMultiServerPrefs.getState().multiServer && str(tap.subdomain)) {
+    // Tickets (flag on) and project chats follow the push's server: a
+    // project chat lives on one server only, so opening it on another
+    // shows the wrong project (or none).
+    const followServer =
+      (TICKET_KINDS.has(kind) && useMultiServerPrefs.getState().multiServer) || kind === "project";
+    if (followServer && str(tap.subdomain)) {
       try {
         const server = await resolveTapServer(tap);
         const active = useServersStore.getState().activeServerId;
         if (server && server.id !== active && !(await switchToServer(server.id))) return;
       } catch (e) {
-        console.warn("[push] ticket tap server check failed:", e);
+        console.warn("[push] tap server check failed:", e);
       }
     }
     navigate(path);
