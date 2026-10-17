@@ -976,6 +976,42 @@ export async function serverHasFeature(scope: ServerScope, key: string): Promise
   return !!b && b.features.includes(key);
 }
 
+// ─── Remote daemon update (K2 0.46.0, Owner / Admin) ───
+//
+// Same HTTP core as every `/cli/*` route (`httpRequest` → `scopedFetch`):
+// the token goes as `Authorization: Bearer`, which the daemon's dispatcher
+// folds into the effective `?token=` query before any route runs
+// (`effective_auth_query`, Bearer > ?token= > cookie), so the update
+// routes' `require_owner_or_admin(query)` sees it. Bodies are raw JSON.
+
+/** `POST /cli/daemon/update/check` (fetches GitHub on every call: the
+ *  caller throttles). Up to 60 s; the daemon allows itself 300 s. */
+export const checkDaemonUpdate = (scope: ServerScope) =>
+  httpRequest<unknown>(scope, "/cli/daemon/update/check", { method: "POST", body: "{}" }, 60_000);
+
+/** `POST /cli/daemon/update/start {}` → `{job_id}`. */
+export const startDaemonUpdate = (scope: ServerScope) =>
+  httpRequest<{ job_id?: string }>(
+    scope,
+    "/cli/daemon/update/start",
+    { method: "POST", body: "{}" },
+    30_000
+  );
+
+/** `GET /cli/daemon/update/status?job_id=`. */
+export const getDaemonUpdateStatus = (scope: ServerScope, jobId: string) =>
+  httpRequest<unknown>(scope, "/cli/daemon/update/status", {}, 10_000, { job_id: jobId });
+
+/** `POST /cli/daemon/update/apply {job_id}`: standalone hosts only, once,
+ *  after `staged`. Never on a bundled-app host. */
+export const applyDaemonUpdate = (scope: ServerScope, jobId: string) =>
+  httpRequest<unknown>(
+    scope,
+    "/cli/daemon/update/apply",
+    { method: "POST", body: JSON.stringify({ job_id: jobId }) },
+    30_000
+  );
+
 // ─── Thread push prefs (K2 0.45.5, `thread-push-v1`) ───
 
 export type NotifyPush = "ready" | "dormant" | "airgap";

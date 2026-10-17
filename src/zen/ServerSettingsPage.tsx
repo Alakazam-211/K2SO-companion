@@ -30,8 +30,8 @@ export function identityRole(
 
 /** Server settings (Servers card → gear): one saved server's nickname,
  *  address, who this phone is signed in as and with which role, its
- *  connection state, its K2 version (`ServerUpdateSection`, where server
- *  updates will land), shortcuts to its notifications and Usage, and
+ *  connection state, its K2 version and remote update (`ServerUpdateSection`,
+ *  Owner / Admin), shortcuts to its notifications and Usage, and
  *  sign out / remove. A full page over the Servers sheet like Usage: the
  *  glass back chevron, Android Back and the left-edge swipe all go back. */
 export function ServerSettingsPage({

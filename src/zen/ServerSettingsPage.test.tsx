@@ -24,6 +24,7 @@ import { __resetIdentityForTests } from "../lib/sessionAuthor";
 import { useServersStore } from "../stores/servers";
 import { useNotifyPrefsStore } from "../stores/notifyPrefs";
 import { OverlayServers } from "./OverlayServers";
+import { __resetServerUpdateForTests, useServerUpdateStore } from "./serverUpdateStore";
 import { listBody } from "../test/llmTokensFixture";
 
 const ok = (body: unknown) => ({
@@ -55,6 +56,7 @@ function prefsOn(enabled = true) {
 }
 
 beforeEach(() => {
+  __resetServerUpdateForTests();
   __resetScopesForTests();
   __resetIdentityForTests();
   tauriFetch.mockReset();
@@ -231,5 +233,25 @@ describe("Servers sheet gear → Server settings", () => {
     expect(s.tokens).toEqual({ s1: "t1" });
     expect(s.recovery.s2).toBe("signin-required");
     await waitFor(() => expect(screen.queryByTestId("server-settings-page")).toBeNull());
+  });
+  it("the gear shows an update dot only from a stored 'available' check", async () => {
+    useServerUpdateStore.setState({
+      stored: {
+        s2: {
+          at: Date.now(),
+          result: { kind: "available", current: "0.46.0", latest: "0.46.1", installKind: "standalone", platform: "linux-x86_64" },
+        },
+        s1: { at: Date.now(), result: { kind: "up-to-date", current: "0.47.1" } },
+      },
+    });
+    render(<OverlayServers onClose={() => {}} />);
+    const list = screen.getByTestId("overlay-servers-list");
+    const rowGear = within(list).getByTestId("server-settings");
+    expect(within(rowGear).getByTestId("server-settings-update-dot")).toBeTruthy();
+    expect(rowGear.getAttribute("aria-label")).toBe("Settings for Other, update available");
+    const pinnedGear = within(screen.getByTestId("servers-pinned")).getByTestId("server-settings");
+    expect(within(pinnedGear).queryByTestId("server-settings-update-dot")).toBeNull();
+    // The card never checks by itself.
+    expect(tauriFetch.mock.calls.some(([u]) => String(u).includes("/cli/daemon/update/"))).toBe(false);
   });
 });

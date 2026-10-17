@@ -102,6 +102,10 @@ export interface BootInfo {
   features: ReadonlySet<string> | null;
   instanceId: string | null;
   phase: string | null;
+  /** `airgap.enabled` (hide-UI only; the daemon refuses by itself). */
+  airgap?: boolean;
+  /** `standalone` | `bundled-app` | `unknown`, or null when absent. */
+  installKind?: string | null;
   at: number;
 }
 
@@ -118,6 +122,11 @@ export function noteBootStatus(serverId: string, body: unknown): BootInfo {
       : null,
     instanceId: typeof b.instanceId === "string" ? b.instanceId : null,
     phase: typeof b.phase === "string" ? b.phase : null,
+    airgap:
+      !!b.airgap &&
+      typeof b.airgap === "object" &&
+      (b.airgap as Record<string, unknown>).enabled === true,
+    installKind: typeof b.installKind === "string" ? b.installKind : null,
     at: Date.now(),
   };
   bootInfo.set(serverId, info);

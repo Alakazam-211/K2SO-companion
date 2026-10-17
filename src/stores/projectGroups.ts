@@ -37,6 +37,7 @@ import {
 import { onServerForget, useServersStore } from "./servers";
 import { revive } from "../lib/revive";
 import { scopeFor } from "../api/scope";
+import { eventsHeld, onEventsHold } from "../api/eventsHold";
 import { iconCacheKey, pocLabel } from "../lib/projectChat";
 
 // ── Per-server last-seen cursors (localStorage; advisory) ──────────────
@@ -296,6 +297,8 @@ function handleWireEvent(frame: WireEvent): void {
  *  reconnecting with the old one would just be kicked again). */
 function buildEventsUrl(): string | null {
   if (!eventsServerId) return null;
+  // A bundled-app update is running there (`api/eventsHold.ts`).
+  if (eventsHeld(eventsServerId)) return null;
   try {
     // The socket's own server (captured on retarget), never "whatever is
     // active at reconnect time" (MS6).
@@ -410,6 +413,14 @@ export function startEvents(): () => void {
     }
   };
 }
+
+// Remote update on a bundled-app host: close `/events` for it while held,
+// reopen for the pages still subscribed when released.
+onEventsHold((serverId, held) => {
+  if (eventsServerId !== serverId) return;
+  if (held) closeEvents();
+  else if (eventsRefs > 0 && !eventsWs) openEvents();
+});
 
 // A removed or re-keyed server (MS3 / MA2): drop its cached group icons —
 // the same group id on a different daemon is a different group.

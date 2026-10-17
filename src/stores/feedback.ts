@@ -4,6 +4,7 @@ import { activeScope, scopeFor } from "../api/scope";
 import { useServersStore } from "../stores/servers";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { revive } from "../lib/revive";
+import { eventsHeld, onEventsHold } from "../api/eventsHold";
 import { connectTicketEvents, type TicketEventsHandle } from "../zen/ticketEvents";
 import {
   fetchAllFeedback,
@@ -300,6 +301,8 @@ class FeedbackEventsSocket {
   private buildUrl(): string | null {
     const active = useServersStore.getState().activeServerId;
     if (!this.serverId || active !== this.serverId) return null;
+    // A bundled-app update is running there (`api/eventsHold.ts`).
+    if (eventsHeld(this.serverId)) return null;
     let base: string;
     let token: string;
     try {
@@ -379,6 +382,11 @@ class FeedbackEventsSocket {
     if (this.shouldReconnect) this.open();
   }
 
+  /** The server this socket streams from (null when stopped). */
+  get target(): string | null {
+    return this.serverId;
+  }
+
   /** Close for good (Zen moved to the shared hub). */
   stop(): void {
     this.teardown();
@@ -397,6 +405,21 @@ class FeedbackEventsSocket {
 }
 
 const events = new FeedbackEventsSocket();
+
+// Remote update on a bundled-app host: off `/events` until it ends, then
+// back on (only if this socket was live for that server).
+let heldTarget: string | null = null;
+onEventsHold((serverId, held) => {
+  if (held) {
+    if (events.target === serverId) {
+      events.stop();
+      heldTarget = serverId;
+    }
+  } else if (heldTarget === serverId) {
+    heldTarget = null;
+    if (events.target === null) events.ensure(serverId);
+  }
+});
 
 // ─── Zen: the shared sessions/events hub (MA9) ───
 
