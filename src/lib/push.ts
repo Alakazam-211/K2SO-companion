@@ -258,6 +258,28 @@ export async function setServerPreviews(serverId: string, on: boolean): Promise<
   return true;
 }
 
+/** Server settings opened: read this device's stored previews choice and
+ *  the owner's switch back from the server (`GET /cli/push/device`, K2
+ *  0.46.1 `push-previews-v1`). Quiet on any failure (404 = this device
+ *  is not registered there yet). Skipped while a toggle is in flight. */
+export async function readBackPreviews(serverId: string): Promise<void> {
+  try {
+    const store = usePushPreviewsStore.getState();
+    if (!(await store.probe(serverId))) return;
+    const scope = scopeFor(serverId);
+    if (!scope.token()) return;
+    const gen = previewGens.get(serverId) ?? 0;
+    const res = await scopedFetch(scope, "/cli/push/device", {
+      query: { deviceId: await getDeviceId() },
+      revive: false,
+    });
+    if (!res.ok || (previewGens.get(serverId) ?? 0) !== gen) return;
+    store.noteReadBack(serverId, parseRegisterReply(res.text));
+  } catch (e) {
+    console.warn("[push] previews read-back skipped:", e);
+  }
+}
+
 /** Register this device on one server (upsert by stable deviceId).
  *  Never throws. */
 export async function ensureRegistered(scope: ServerScope): Promise<void> {

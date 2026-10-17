@@ -91,6 +91,9 @@ interface PushPreviewsState extends Persisted {
   /** Record a register-device reply. `sent` is the `previews` value the
    *  request carried (undefined when it carried none). */
   noteReply: (serverId: string, sent: boolean | undefined, reply: RegisterReply) => void;
+  /** Record a read-back (`GET /cli/push/device`): the server's stored
+   *  values win, e.g. after a change made elsewhere. */
+  noteReadBack: (serverId: string, reply: RegisterReply) => void;
   forget: (serverId: string) => void;
 }
 
@@ -135,6 +138,15 @@ export const usePushPreviewsStore = create<PushPreviewsState>((set, get) => {
         changed = true;
       }
       if (changed) save();
+    },
+
+    noteReadBack: (serverId, reply) => {
+      const previews = { ...get().previews };
+      const allowed = { ...get().allowed };
+      if (reply.previews !== null) previews[serverId] = reply.previews;
+      if (reply.previewsAllowed !== null) allowed[serverId] = reply.previewsAllowed;
+      set({ previews, allowed });
+      save();
     },
 
     forget: (serverId) => {

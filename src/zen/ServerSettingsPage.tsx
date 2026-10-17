@@ -1,7 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { scopeFor } from "../api/scope";
 import { useBackHandler } from "../lib/androidBack";
-import { setServerPreviews } from "../lib/push";
+import { readBackPreviews, setServerPreviews } from "../lib/push";
 import { useSwipeBack } from "../lib/useSwipeBack";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { serverBellStatus, useNotifyPrefsStore } from "../stores/notifyPrefs";
@@ -304,7 +304,7 @@ function ShortcutsGroup({
   const error = useNotifyPrefsStore((s) => s.errors[serverId] ?? null);
   const previewsFeature = usePushPreviewsStore((s) => s.feature[serverId] === true);
   useEffect(() => {
-    if (pushOn) void usePushPreviewsStore.getState().probe(serverId);
+    if (pushOn) void readBackPreviews(serverId);
   }, [serverId, pushOn]);
   const showBell = pushOn && !!prefs;
   if (!showBell && !hasToken) return null;
