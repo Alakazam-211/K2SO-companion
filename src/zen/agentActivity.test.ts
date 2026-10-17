@@ -4,6 +4,7 @@ import {
   activityRowText,
   chatSessionsOf,
   countsText,
+  harnessForRow,
   parseActivitySnapshot,
   sameActivity,
 } from "./agentActivity";
@@ -155,5 +156,33 @@ describe("row text", () => {
     );
     expect(countsText({ subagents: 0, tools: 1, commands: 0 })).toBe("1 tool");
     expect(countsText(null)).toBeNull();
+  });
+});
+
+describe("harnessForRow", () => {
+  const snap = parseActivitySnapshot({
+    rows: [
+      { sessionId: "m", agentName: "a", display: "idle", workspacePath: "/w/app", harness: "codex" },
+      { sessionId: "s", agentName: "tab-a", display: "working", workspacePath: "/w/app", harness: "grok" },
+      { sessionId: "x", agentName: "b", display: "idle", workspacePath: "/w/two", harness: "claude" },
+      { sessionId: "y", agentName: "c", display: "idle", workspacePath: "/w/two", harness: "gemini" },
+    ],
+  });
+  const sessions = chatSessionsOf([
+    { terminalId: "m", isMainChat: true, cwd: "/w/app" },
+    { terminalId: "s", isMainChat: false, cwd: "/w/app" },
+  ]);
+
+  it("reads the main chat's session even when idle", () => {
+    expect(harnessForRow({ path: "/w/app/" }, snap, false, sessions)).toBe("codex");
+  });
+
+  it("reads a sidecar by its addr suffix", () => {
+    expect(harnessForRow({ path: "/w/app", addr: "app/tab-a" }, snap, true, sessions)).toBe("grok");
+  });
+
+  it("is null when the workspace's sessions disagree or are missing", () => {
+    expect(harnessForRow({ path: "/w/two" }, snap, false)).toBeNull();
+    expect(harnessForRow({ path: "/w/none" }, snap, false)).toBeNull();
   });
 });

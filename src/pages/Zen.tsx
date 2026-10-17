@@ -48,6 +48,9 @@ import { ZEN_SERVER_PARAM, resolveServerRef, withServerParam } from "../zen/room
 import { OverlayAddServer } from "../zen/OverlayAddServer";
 import { pool } from "../zen/multi/pool";
 import { FileIcon, TerminalIcon } from "../zen/icons";
+import { LlmIcon } from "../zen/LlmIcon";
+import { harnessForRow } from "../zen/agentActivity";
+import { normalizeHarness } from "../zen/llmHarness";
 
 const HEADER_BTN: CSSProperties = {
   width: 36,
@@ -115,6 +118,14 @@ export function Zen() {
   /** Centre title: `<Agent>`, or `<Agent>/<sidecar>` on a separate session. */
   const centreTitle =
     extraChat || drawerPicked ? threadSessionHeaderTitle(agent, drawerPicked) : headerTitle;
+  /** The chat's LLM, left of the header avatar (none for a project chat
+   *  or when the snapshot cannot tell). */
+  const headerHarness = useZenStore((s) =>
+    !agent || groupChat
+      ? null
+      : normalizeHarness(harnessForRow(agent, s.activity, extraChat, s.chatSessions)) ??
+        normalizeHarness(agent.launch?.command)
+  );
   const headerRef = useRef<HTMLDivElement>(null);
   const [headerPx, setHeaderPx] = useState(CHAT_HEADER_PX);
   const [renameOpen, setRenameOpen] = useState(false);
@@ -435,6 +446,17 @@ export function Zen() {
             </button>
             )}
             <div className="min-w-0 flex flex-col items-center justify-center zen-header-text">
+              <span className="relative flex">
+              {headerHarness ? (
+                <span
+                  data-testid="chat-header-llm"
+                  data-llm={headerHarness}
+                  className="absolute flex items-center"
+                  style={{ right: "100%", marginRight: 8, top: 0, height: HEADER_AVATAR_PX }}
+                >
+                  <LlmIcon harness={headerHarness} size={18} />
+                </span>
+              ) : null}
               {iconTarget ? (
                 <button
                   type="button"
@@ -482,6 +504,7 @@ export function Zen() {
                   )}
                 </span>
               )}
+              </span>
               {/* Main chat: `<Agent>`. A separate session swaps in
                   `<Agent>/<sidecar>` plus the rename pencil; the text
                   truncates, the pencil never does. */}

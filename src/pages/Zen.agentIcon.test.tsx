@@ -236,3 +236,21 @@ describe("Zen header avatar → Change icon", () => {
     expect(screen.queryByTestId("agent-icon-sheet")).toBeNull();
   });
 });
+
+describe("Zen header LLM icon", () => {
+  it("shows the chat's LLM left of the avatar, none when unknown", async () => {
+    await openChat(main.id);
+    expect(screen.queryByTestId("chat-header-llm")).toBeNull();
+    act(() => {
+      useZenStore.setState({
+        activity: {
+          byPath: {},
+          bySession: {
+            t1: { display: "idle", counts: { subagents: 0, tools: 0, commands: 0 }, path: "/w/alpha", harness: "codex" },
+          },
+        },
+      });
+    });
+    expect(screen.getByTestId("chat-header-llm").getAttribute("data-llm")).toBe("codex");
+  });
+});
