@@ -234,16 +234,23 @@ git add package.json src-tauri/tauri.conf.json src-tauri/gen/apple/k2so-companio
   src-tauri/gen/apple/K2NotificationService/Info.plist \
   src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/gen/apple/project.yml
 git commit -m "v${VERSION} — App Store ${VERSION}, release build ${BUILD_NUMBER}"
-git tag -a "v${VERSION}" -m "v${VERSION} (App Store ${VERSION})"
 # This worktree may be on an execute-plan branch; always land on GitHub main.
 git push origin HEAD:main
-git push origin "v${VERSION}"
+# A replacement build under the same marketing version keeps the first
+# build's tag (Android may already ship from it); tag the build instead.
+if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+  TAG="v${VERSION}+${BUILD_NUMBER}"
+else
+  TAG="v${VERSION}"
+fi
+git tag -a "$TAG" -m "$TAG (App Store ${VERSION}, build ${BUILD_NUMBER})"
+git push origin "$TAG"
 
 echo ""
 echo "═══════════════════════════════════════"
 echo "  ✓ K2 v${VERSION} released (App Store ${VERSION})!"
 echo ""
 echo "  App Store Connect: ${VERSION} build ${BUILD_NUMBER}"
-echo "  GitHub: v${VERSION} tag pushed to main"
+echo "  GitHub: ${TAG} tag pushed, main updated"
 echo "═══════════════════════════════════════"
 echo ""
