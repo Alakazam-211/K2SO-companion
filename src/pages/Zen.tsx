@@ -211,7 +211,9 @@ export function Zen() {
   // (navigate from an effect: the router ignores one during mount layout.)
   useEffect(() => {
     if (!projectParam) return;
-    useZenStore.getState().setProjectsOpen(true);
+    // A room on another server (push tap, `&server=`): the chat alone;
+    // the Projects sheet underneath would list the active server's.
+    if (!serverRef) useZenStore.getState().setProjectsOpen(true);
     setParams(
       (prev) => {
         const next = new URLSearchParams(prev);
@@ -223,7 +225,7 @@ export function Zen() {
       },
       { replace: true }
     );
-  }, [projectParam, setParams]);
+  }, [projectParam, serverRef, setParams]);
 
   // Chat return (`?thread=`) must first-paint LOADING, never leftover bubbles.
   // hydrateAgents is useEffect (after paint); this runs before paint.
