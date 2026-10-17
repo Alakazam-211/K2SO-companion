@@ -46,17 +46,73 @@ export function newLocalId(): string {
   return `local-${Date.now().toString(36)}-${nextLocal}`;
 }
 
-/** Has this send already shown up in the server's thread (POST answer,
- *  socket echo or a re-read)? By server id when known, else a new
- *  message of mine with the same body. */
-export function hasLanded(o: OutgoingMessage, thread: ThreadMessage[]): boolean {
-  if (o.serverId && thread.some((m) => m.id === o.serverId)) return true;
+/** The server message this send became, once it shows up in the thread
+ *  (POST answer, socket echo or a re-read): by server id when known, else
+ *  a new message of mine with the same body. Null = not landed yet. */
+export function landedId(o: OutgoingMessage, thread: ThreadMessage[]): string | null {
+  if (o.serverId && thread.some((m) => m.id === o.serverId)) return o.serverId;
   const body = (o.body || "").trim();
-  if (!body) return false;
+  if (!body) return null;
   const before = new Set(o.beforeIds);
-  return thread.some(
+  const hit = thread.find(
     (m) => m.mine && !before.has(m.id) && (m.text || "").trim() === body
   );
+  return hit ? hit.id : null;
+}
+
+/** Has this send already shown up in the server's thread? */
+export function hasLanded(o: OutgoingMessage, thread: ThreadMessage[]): boolean {
+  return landedId(o, thread) != null;
+}
+
+/** `landedKeys` key: a server message id within its room. */
+export function landedKey(roomKey: string, messageId: string): string {
+  return `${roomKey}\n${messageId}`;
+}
+
+/** How many landed sends keep their row key (only the recent ones matter:
+ *  the swap happens once, right after Send). */
+export const LANDED_KEYS_MAX = 64;
+
+/** Remember that `messageId` in `roomKey` is the send `localId`, so its row
+ *  keeps the optimistic bubble's React key (and DOM node) after the
+ *  outbox entry is gone. Oldest entries fall off past the cap. */
+export function rememberLanded(
+  keys: Record<string, string>,
+  roomKey: string,
+  messageId: string | null | undefined,
+  localId: string
+): Record<string, string> {
+  if (!messageId) return keys;
+  const k = landedKey(roomKey, messageId);
+  if (keys[k] === localId) return keys;
+  const entries = Object.entries(keys).filter(([key]) => key !== k);
+  entries.push([k, localId]);
+  return Object.fromEntries(entries.slice(-LANDED_KEYS_MAX));
+}
+
+/** Row keys for the thread's messages that began as a send in this room:
+ *  server id → the send's `localId`. Covers an echo that landed while its
+ *  outbox entry is still there and one whose entry was already dropped
+ *  (`landed`). A send's bubble is then one element from tap to delivered:
+ *  no remount, never two of it, never none. */
+export function landedRowKeys(
+  outbox: OutgoingMessage[],
+  thread: ThreadMessage[],
+  roomKey: string,
+  landed: Record<string, string>
+): Map<string, string> {
+  const keys = new Map<string, string>();
+  for (const m of thread) {
+    const local = m.id ? landed[landedKey(roomKey, m.id)] : undefined;
+    if (local) keys.set(m.id, local);
+  }
+  for (const o of outbox) {
+    if (o.roomKey !== roomKey) continue;
+    const id = landedId(o, thread);
+    if (id) keys.set(id, o.localId);
+  }
+  return keys;
 }
 
 /** The optimistic bubbles to draw in this room: its own, minus any the
