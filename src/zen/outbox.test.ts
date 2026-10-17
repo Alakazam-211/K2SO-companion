@@ -7,7 +7,17 @@ vi.mock("../api/client", async (importOriginal) => {
 });
 
 import { getThread, postThread } from "../api/client";
-import { hasLanded, threadRoomKey, visibleOutgoing, type OutgoingMessage } from "./outbox";
+import {
+  LANDED_KEYS_MAX,
+  hasLanded,
+  landedId,
+  landedKey,
+  landedRowKeys,
+  rememberLanded,
+  threadRoomKey,
+  visibleOutgoing,
+  type OutgoingMessage,
+} from "./outbox";
 import type { ThreadMessage } from "./threadModel";
 import { useZenStore } from "./zenStore";
 import { fakeScope } from "../test/fakeScope";
@@ -54,6 +64,38 @@ describe("outbox helpers", () => {
     expect(hasLanded(out(), [msg("n2", "hi", false)])).toBe(false);
     expect(hasLanded(out(), [msg("n2", " hi ")])).toBe(true);
     expect(hasLanded(out({ body: null }), [msg("n2", "hi")])).toBe(false);
+  });
+
+  it("landedId names the server message the send became", () => {
+    expect(landedId(out({ serverId: "n1" }), [msg("n1", "other")])).toBe("n1");
+    expect(landedId(out(), [msg("old", "hi"), msg("n2", "hi")])).toBe("n2");
+    expect(landedId(out(), [msg("old", "hi")])).toBeNull();
+  });
+
+  it("rememberLanded keys by room + message id and keeps only the recent ones", () => {
+    const room = threadRoomKey("s1", null, "appa");
+    const one = rememberLanded({}, room, "n1", "local-1");
+    expect(one).toEqual({ [landedKey(room, "n1")]: "local-1" });
+    expect(rememberLanded(one, room, "n1", "local-1")).toBe(one);
+    expect(rememberLanded(one, room, null, "local-2")).toBe(one);
+    let many: Record<string, string> = {};
+    for (let i = 0; i < LANDED_KEYS_MAX + 5; i++) many = rememberLanded(many, room, `n${i}`, `local-${i}`);
+    expect(Object.keys(many)).toHaveLength(LANDED_KEYS_MAX);
+    expect(many[landedKey(room, "n0")]).toBeUndefined();
+    expect(many[landedKey(room, `n${LANDED_KEYS_MAX + 4}`)]).toBe(`local-${LANDED_KEYS_MAX + 4}`);
+  });
+
+  it("landedRowKeys gives a landed send its localId (echo with entry, or remembered)", () => {
+    const room = threadRoomKey("s1", null, "appa");
+    const thread = [msg("old", "x"), msg("n2", "hi"), msg("n3", "later")];
+    // Echo landed while the entry is still in the outbox.
+    expect(landedRowKeys([out()], thread, room, {})).toEqual(new Map([["n2", "local-1"]]));
+    // Entry gone; the store remembered it.
+    const keys = landedRowKeys([], thread, room, { [landedKey(room, "n3")]: "local-9" });
+    expect(keys).toEqual(new Map([["n3", "local-9"]]));
+    // Another room's entry or memory never re-keys this room's messages.
+    const other = threadRoomKey("s2", null, "appa");
+    expect(landedRowKeys([out({ roomKey: other })], thread, room, { [landedKey(other, "n3")]: "x" }).size).toBe(0);
   });
 
   it("shows only this room's bubbles that have not landed", () => {

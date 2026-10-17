@@ -42,6 +42,7 @@ import { useThreadFocusSeq } from "./threadFocus";
 import { recentSentKey, useRecentFirstStore } from "./recentFirst";
 import { composerDraftKey, composerDraftOf, useComposerDrafts } from "./composerDrafts";
 import {
+  landedRowKeys,
   outgoingBubble,
   sendInFlight,
   threadRoomKey,
@@ -50,6 +51,7 @@ import {
 } from "./outbox";
 import {
   fontPxOf,
+  glideList,
   prefersReducedMotion,
   rectOf,
   runSendFly,
@@ -107,7 +109,9 @@ function Bubble({
         borderRadius: 18,
         background: m.mine ? "#0a84ff" : "#3a3a3c",
         color: "#fff",
+        // Sending: dimmed. Delivered: it only brightens (nothing moves).
         opacity: m.pending ? 0.7 : 1,
+        transition: "opacity 240ms ease-out",
       }}
     >
       {choice ? (
@@ -273,6 +277,7 @@ export function ThreadPane({
   const conversationId = useZenStore((s) => s.threadConversationId);
   const agents = useZenStore((s) => s.agents);
   const outbox = useZenStore((s) => s.outbox);
+  const landedKeys = useZenStore((s) => s.landedKeys);
   const sendError = useZenStore((s) => s.sendError);
   const openFileFromPath = useZenStore((s) => s.openFileFromPath);
   const roomBlocked = Boolean(roomBanner);
@@ -332,15 +337,18 @@ export function ThreadPane({
   const rootRef = useRef<HTMLDivElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
   // The send animation: which bubble is flying in, and from where.
+  // The row keeps this key (the send's localId) once the server's copy
+  // replaces the outbox entry, so the same element flies and lands.
   const [fly, setFly] = useState<{
     localId: string;
-    /** The typed text, to find the bubble once the server's copy replaced it. */
-    text: string;
-    beforeIds: Set<string>;
     source: FlySource | null;
     /** Reduced motion / no Web Animations: fade instead of fly. */
     fade: boolean;
+    /** The newest message's row and its top before Send: how far the
+     *  list moves to make room (the glide). */
+    anchor: MessageAnchor | null;
   } | null>(null);
+  const stopGlide = useRef<() => void>(() => {});
   const contentRef = useRef<HTMLDivElement>(null);
   const pendingAnchor = useRef<MessageAnchor | null>(null);
   const prevAgent = useRef<string>("");
@@ -561,6 +569,7 @@ export function ThreadPane({
     setAttachments([]);
     setAttachError(null);
     setFly(null);
+    stopGlide.current();
   }, [agentId]);
 
   useEffect(() => {
@@ -785,6 +794,11 @@ export function ThreadPane({
     const fontPx = text.trim()
       ? fontPxOf(composerRef.current)
       : fontPxOf(chipsRef.current?.firstElementChild);
+    // The newest row's top now: after the new row is in, how far it moved.
+    const rowsNow = scrollerRef.current?.querySelectorAll<HTMLElement>("[data-thread-msg]");
+    const lastRow = rowsNow && rowsNow.length ? rowsNow[rowsNow.length - 1] : null;
+    const anchorRect = rectOf(lastRow);
+    const anchor = lastRow && anchorRect ? { el: lastRow, top: anchorRect.top } : null;
     setDraft("");
     setAttachments([]);
     setAttachError(null);
@@ -805,10 +819,9 @@ export function ThreadPane({
       typeof Element.prototype.animate === "function";
     setFly({
       localId,
-      text: text.trim(),
-      beforeIds: new Set(st.thread.map((m) => m.id)),
       source: canFly ? { rect, fontPx: Number.isFinite(fontPx) ? fontPx : 17 } : null,
       fade: !canFly,
+      anchor: canFly ? anchor : null,
     });
     // The reader just spoke: the agent's reply must come into view.
     setFollowing(true);
@@ -849,43 +862,62 @@ export function ThreadPane({
     composerRef.current?.focus({ preventScroll: true });
   }
 
-  // The flying bubble: its optimistic copy, or the server's copy if that
-  // already replaced it (fast echo) — never both on screen.
-  const flyOutgoing = fly ? outgoing.find((o) => o.localId === fly.localId) : undefined;
-  let flyThreadId: string | null = null;
-  if (fly && !flyOutgoing) {
-    for (let i = thread.length - 1; i >= 0; i--) {
-      const m = thread[i];
-      if (m.mine && !fly.beforeIds.has(m.id) && (m.text || "").trim().startsWith(fly.text)) {
-        flyThreadId = m.id;
-        break;
-      }
-    }
-  }
   const flyKey = fly ? fly.localId : "";
 
-  // FLIP "last/invert/play": the bubble is laid out (hidden) at its final
-  // spot; scroll it into view, then fly a clone there from the composer.
+  // FLIP "last/invert/play". The row is in its final slot (hidden while it
+  // flies); the composer has already shrunk back to one empty line.
   useLayoutEffect(() => {
     if (!fly) return;
     const id = fly.localId;
     const clear = () => setFly((cur) => (cur?.localId === id ? null : cur));
     setFollowing(true);
     const el = scrollerRef.current;
+    const root = rootRef.current;
+    // The cleared field (and gone chips / label) shrank the composer in
+    // this same commit, but its ResizeObserver reports a frame later and
+    // the padding would then ease down under a bubble already aimed. Take
+    // the new height now, unanimated, so the slot is final before paint.
+    const bar = root?.querySelector<HTMLElement>('[data-testid="composer-bar"]');
+    if (el && bar && bar.offsetHeight > 0 && bar.offsetHeight !== composerPxRef.current) {
+      const px = bar.offsetHeight;
+      el.style.transition = "none";
+      el.style.paddingBottom = threadBottomPadding(px, drawerCover);
+      void el.offsetHeight;
+      el.style.transition = "";
+      composerResized(px);
+    }
     if (el) stick(el);
     if (fly.fade || !fly.source) {
       const t = setTimeout(clear, 220);
       return () => clearTimeout(t);
     }
-    const root = rootRef.current;
-    const bubble = root?.querySelector<HTMLElement>('[data-fly-target="true"]');
+    const target = () => root?.querySelector<HTMLElement>('[data-fly-target="true"]') ?? null;
+    const bubble = target();
     if (!root || !bubble) {
       clear();
       return;
     }
-    return runSendFly({ root, bubble, source: fly.source, done: clear });
+    // The list makes room as the bubble comes in, rather than jumping.
+    const a = fly.anchor;
+    const now = a && a.el.isConnected ? rectOf(a.el) : null;
+    const dy = a && now ? a.top - now.top : 0;
+    stopGlide.current();
+    stopGlide.current =
+      el && dy >= 1 && dy <= el.clientHeight ? glideList(contentRef.current, dy) : () => {};
+    return runSendFly({ root, bubble, target, source: fly.source, done: clear });
     // Once per send: a re-render mid-flight must not restart it.
   }, [flyKey]);
+
+  useEffect(() => () => stopGlide.current(), []);
+
+  // One list, one key per message: a send's row is keyed by its localId
+  // from tap to delivered (the server's copy inherits it), so it is the
+  // same element throughout — no remount, never two, never none.
+  const rowKeys = landedRowKeys(outbox, thread, roomKey, landedKeys);
+  const rows: { key: string; m: ThreadMessage; out: OutgoingMessage | null }[] = thread.map(
+    (m, i) => ({ key: rowKeys.get(m.id) ?? (m.id || `seq-${m.seq ?? i}`), m, out: null })
+  );
+  for (const o of outgoing) rows.push({ key: o.localId, m: outgoingBubble(o), out: o });
 
   const empty =
     (source === "live" || source === "stub") &&
@@ -985,112 +1017,101 @@ export function ThreadPane({
                   {loadingEarlier ? "Loading…" : "Load earlier messages"}
                 </button>
               ) : null}
-              {thread.map((m, i) => (
-                <div
-                  key={m.id || `seq-${m.seq ?? i}`}
-                  data-thread-msg=""
-                  data-seq={m.seq ?? undefined}
-                  data-highlight={highlightSeq != null && m.seq === highlightSeq ? "true" : undefined}
-                  className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}`}
-                  style={
-                    highlightSeq != null && m.seq === highlightSeq
-                      ? { borderRadius: 20, boxShadow: "0 0 0 2px rgba(10,132,255,.85)", transition: "box-shadow .4s" }
-                      : undefined
-                  }
-                >
-                  {/* Theirs: name and time on one line above the bubble.
-                      Mine: no name; the time (or Sending… / Not sent) stays
-                      below, where the outgoing status and its actions sit. */}
-                  {!m.mine ? (
-                    <span
-                      className="flex items-baseline gap-1.5 text-[11px] text-[var(--text-muted)] px-3 mb-0.5 min-w-0 max-w-full"
-                      data-testid="thread-msg-meta"
-                    >
-                      <span className="truncate min-w-0">
-                        {source === "stub" ? <StubMark /> : null}
-                        {m.from}
-                      </span>
-                      <span className="shrink-0" aria-hidden>
-                        •
-                      </span>
-                      <span className="shrink-0" data-testid="thread-msg-time">
-                        {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
-                      </span>
-                    </span>
-                  ) : null}
-                  <Bubble
-                    m={m}
-                    onFileLink={openFileFromPath}
-                    canAnswer={
-                      canSend &&
-                      !threadGroupId &&
-                      (source === "live" || source === "error")
-                    }
-                    answering={answeringId === m.id}
-                    answerError={answerErrorId === m.id ? answerError : null}
-                    onAnswer={(option) => void answerChoice(m.id, option)}
-                    flying={flyThreadId === m.id && !fly?.fade}
-                    fadeIn={flyThreadId === m.id && fly?.fade}
-                  />
-                  {m.mine ? (
-                    <span className="text-[11px] text-[var(--text-muted)] px-2 mt-0.5" data-testid="thread-msg-time">
-                      {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
-                    </span>
-                  ) : null}
-                </div>
-              ))}
-              {outgoing.map((o) => {
-                const m = outgoingBubble(o);
-                const flying = fly?.localId === o.localId;
+              {rows.map(({ key, m, out }) => {
+                const flying = fly?.localId === key;
+                const highlighted = highlightSeq != null && m.seq != null && m.seq === highlightSeq;
                 return (
                   <div
-                    key={o.localId}
+                    key={key}
                     data-thread-msg=""
-                    data-outgoing={o.status}
-                    className="flex flex-col max-w-[78%] min-w-0 self-end items-end"
+                    data-seq={m.seq ?? undefined}
+                    data-outgoing={out?.status}
+                    data-highlight={highlighted ? "true" : undefined}
+                    className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}`}
+                    style={
+                      highlighted
+                        ? { borderRadius: 20, boxShadow: "0 0 0 2px rgba(10,132,255,.85)", transition: "box-shadow .4s" }
+                        : undefined
+                    }
                   >
+                    {/* Theirs: name and time on one line above the bubble.
+                        Mine: no name; the time (or Sending… / Not sent) stays
+                        below, where the outgoing status and its actions sit. */}
+                    {!m.mine ? (
+                      <span
+                        className="flex items-baseline gap-1.5 text-[11px] text-[var(--text-muted)] px-3 mb-0.5 min-w-0 max-w-full"
+                        data-testid="thread-msg-meta"
+                      >
+                        <span className="truncate min-w-0">
+                          {source === "stub" ? <StubMark /> : null}
+                          {m.from}
+                        </span>
+                        <span className="shrink-0" aria-hidden>
+                          •
+                        </span>
+                        <span className="shrink-0" data-testid="thread-msg-time">
+                          {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
+                        </span>
+                      </span>
+                    ) : null}
                     <Bubble
                       m={m}
                       onFileLink={openFileFromPath}
-                      canAnswer={false}
-                      answering={false}
-                      answerError={null}
-                      onAnswer={() => {}}
-                      attachments={o.files.map(uploadFilename)}
+                      canAnswer={
+                        !out &&
+                        canSend &&
+                        !threadGroupId &&
+                        (source === "live" || source === "error")
+                      }
+                      answering={!out && answeringId === m.id}
+                      answerError={!out && answerErrorId === m.id ? answerError : null}
+                      onAnswer={(option) => void answerChoice(m.id, option)}
+                      attachments={out?.files.length ? out.files.map(uploadFilename) : undefined}
                       flying={flying && !fly?.fade}
                       fadeIn={flying && fly?.fade}
                     />
-                    {o.status === "failed" ? (
+                    {m.mine ? (
+                      // One box from Send to delivered: "Sending…", then the
+                      // time (or "Not sent · Retry"). Fixed height, so the
+                      // swap never moves the bubble or the rows around it.
                       <span
-                        className="flex items-center gap-2 text-[11px] px-2 mt-0.5"
-                        data-testid="outgoing-failed"
+                        className="flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] text-[var(--text-muted)] px-2 mt-0.5"
+                        data-testid="thread-msg-time"
+                        data-status={out?.status ?? (m.failed ? "failed" : m.pending ? "sending" : "sent")}
                       >
-                        <button
-                          type="button"
-                          className="text-[var(--warning)]"
-                          data-testid="outgoing-retry"
-                          aria-label="Not sent. Tap to retry"
-                          title={o.error || undefined}
-                          onClick={() => onRetry(o.localId)}
-                        >
-                          Not sent · Retry
-                        </button>
-                        {!draft.trim() && !attachments.length ? (
-                          <button
-                            type="button"
-                            className="text-[var(--text-muted)]"
-                            data-testid="outgoing-restore"
-                            onClick={() => onRestore(o)}
-                          >
-                            Edit
-                          </button>
-                        ) : null}
+                        {out?.status === "failed" ? (
+                          <span className="contents" data-testid="outgoing-failed">
+                            <button
+                              type="button"
+                              className="text-[var(--warning)]"
+                              data-testid="outgoing-retry"
+                              aria-label="Not sent. Tap to retry"
+                              title={out.error || undefined}
+                              onClick={() => onRetry(out.localId)}
+                            >
+                              Not sent · Retry
+                            </button>
+                            {!draft.trim() && !attachments.length ? (
+                              <button
+                                type="button"
+                                data-testid="outgoing-restore"
+                                onClick={() => onRestore(out)}
+                              >
+                                Edit
+                              </button>
+                            ) : null}
+                          </span>
+                        ) : out ? (
+                          "Sending…"
+                        ) : m.failed ? (
+                          "Not sent"
+                        ) : m.pending ? (
+                          "Sending…"
+                        ) : (
+                          mountainTime(m.at)
+                        )}
                       </span>
-                    ) : (
-                      <span className="text-[11px] text-[var(--text-muted)] px-2 mt-0.5">
-                        Sending…
-                      </span>
-                    )}
+                    ) : null}
                   </div>
                 );
               })}
