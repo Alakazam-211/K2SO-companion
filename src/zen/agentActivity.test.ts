@@ -181,8 +181,20 @@ describe("harnessForRow", () => {
     expect(harnessForRow({ path: "/w/app", addr: "app/tab-a" }, snap, true, sessions)).toBe("grok");
   });
 
-  it("is null when the workspace's sessions disagree or are missing", () => {
-    expect(harnessForRow({ path: "/w/two" }, snap, false)).toBeNull();
+  it("is null when no session is there", () => {
     expect(harnessForRow({ path: "/w/none" }, snap, false)).toBeNull();
+  });
+
+  it("two LLMs on a workspace: the most recent one; heartbeats never count", () => {
+    const two = parseActivitySnapshot({
+      rows: [
+        { sessionId: "x", agentName: "b", display: "idle", workspacePath: "/w/two", harness: "claude", evidenceAt: 200 },
+        { sessionId: "y", agentName: "c", display: "idle", workspacePath: "/w/two", harness: "gemini", lead: { since: 100 } },
+        { sessionId: "h", agentName: "uuid:hb:lead-watch", display: "working", workspacePath: "/w/hb", harness: "grok", evidenceAt: 900 },
+        { sessionId: "c", agentName: "uuid", display: "idle", workspacePath: "/w/hb", harness: "claude", evidenceAt: 50 },
+      ],
+    });
+    expect(harnessForRow({ path: "/w/two" }, two, false)).toBe("claude");
+    expect(harnessForRow({ path: "/w/hb" }, two, false)).toBe("claude");
   });
 });
