@@ -50,6 +50,7 @@ import { pool } from "../zen/multi/pool";
 import { FileIcon, TerminalIcon } from "../zen/icons";
 import { LlmIcon } from "../zen/LlmIcon";
 import { harnessKey, recallHarness, rememberHarness } from "../zen/harnessMemory";
+import { useThreadHarness } from "../zen/threadHarness";
 import { harnessForRow } from "../zen/agentActivity";
 import { normalizeHarness } from "../zen/llmHarness";
 import { readListTab } from "../zen/homes";
@@ -145,11 +146,19 @@ export function Zen() {
   useEffect(() => {
     if (liveHarness) rememberHarness(harnessAt, liveHarness);
   }, [harnessAt, liveHarness]);
-  const headerHarness = liveHarness ?? (harnessAt ? recallHarness(harnessAt) : null);
   // Unread counts (K2 0.46.1 `thread-read-v1`): summaries, frames, badge.
   useUnreadSync();
   const openAddr = useZenStore((s) => s.threadAddr);
   const openConv = useZenStore((s) => s.threadConversationId);
+  // The Thread's own session first (its conversation's provider), then
+  // the live snapshot / launch command, then the last one seen here.
+  const threadHarness = useThreadHarness(
+    !agent || groupChat ? null : zen,
+    agent?.path,
+    openConv
+  );
+  const headerHarness =
+    threadHarness ?? liveHarness ?? (harnessAt ? recallHarness(harnessAt) : null);
   const openGroup = useZenStore((s) => (s.threadGroupId || "").trim());
   // Back's count: the list it returns to, the open chat left out. The
   // Agents / Home pick cannot change while a chat is open.
