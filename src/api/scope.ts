@@ -31,6 +31,7 @@ import {
   type ServerEntry,
 } from "../stores/servers";
 import { isConnectionLevelError } from "../lib/netRetry";
+import { tryHostKey } from "../lib/hostKey";
 
 /** Every key the daemon reports in `/boot-status` `features` (K2 0.45.5,
  *  `boot_status.rs` `features()`). Phone consumers today:
@@ -122,6 +123,9 @@ export interface BootInfo {
    *  unlike the host key ("local" on the laptop, "rosson.k2.dev" here).
    *  Null from an older daemon. */
   serverId?: string | null;
+  /** K2 0.46.1: the box's public tunnel host (`rosson.k2.dev`), lowercase;
+   *  null when absent. Optional; Homes sync maps it to `serverId`. */
+  publicHost?: string | null;
   at: number;
 }
 
@@ -132,6 +136,12 @@ export function parseBoxServerId(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim().toLowerCase();
   return /^[0-9a-f]{16}$/.test(t) ? t : null;
+}
+
+/** `publicHost` in host-key form (`rosson.k2.dev`); null when absent or
+ *  not a host. */
+export function parsePublicHost(v: unknown): string | null {
+  return typeof v === "string" && v.trim() ? tryHostKey(v) : null;
 }
 
 type BootListener = (savedServerId: string, info: BootInfo) => void;
@@ -162,6 +172,7 @@ export function noteBootStatus(serverId: string, body: unknown): BootInfo {
       (b.airgap as Record<string, unknown>).enabled === true,
     installKind: typeof b.installKind === "string" ? b.installKind : null,
     serverId: parseBoxServerId(b.serverId),
+    publicHost: parsePublicHost(b.publicHost),
     at: Date.now(),
   };
   bootInfo.set(serverId, info);

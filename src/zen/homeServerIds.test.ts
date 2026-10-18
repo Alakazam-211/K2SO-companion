@@ -40,7 +40,7 @@ beforeEach(() => {
   useServersStore.setState({ servers: [A, B], activeServerId: "a", tokens: { a: "t", b: "t" }, hydrated: true });
 });
 afterEach(() => {
-  useHomeServerIds.setState({ bySaved: {}, hostByBox: {} });
+  useHomeServerIds.setState({ bySaved: {}, hostByBox: {}, hinted: {} });
 });
 
 describe("box ids from /boot-status", () => {
@@ -136,5 +136,39 @@ describe("resolution reads both forms", () => {
       label: "docs2",
     });
     expect(repair({ address: "docs::bravo.k2.dev", workspaceId: "pd", label: "docs" })?.address).toBe(`docs2::${BOX_B}`);
+  });
+});
+
+describe("hints: the pull's servers map and /boot-status publicHost (K2 0.46.1 final)", () => {
+  const BOX_C = "cccccccccccccccc";
+
+  it("servers{hostKey: serverId} fills saved servers with no box id; never overrides /boot-status", () => {
+    noteBootStatus("a", { serverId: BOX_A });
+    useHomeServerIds.getState().hint({ "alpha.k2.dev": BOX_C, "Bravo.K2.dev": BOX_B.toUpperCase(), "peer.k2.dev": BOX_C, junk: "nope" });
+    expect(boxIdForSaved("a")).toBe(BOX_A); // its own /boot-status wins
+    expect(boxIdForSaved("b")).toBe(BOX_B);
+    expect(homeHostFor(B)).toBe(BOX_B);
+    expect(canonicalHomeHost("bravo.k2.dev")).toBe(BOX_B);
+    // An unsaved peer: its rows still get the box id; labels fall back.
+    expect(canonicalHomeHost("peer.k2.dev")).toBe(BOX_C);
+    expect(homeHostLabel(BOX_C)).toBe("alpha.k2.dev");
+    expect(JSON.parse(localStorage.getItem(HOME_SERVER_IDS_KEY)!).hinted).toMatchObject({ "bravo.k2.dev": BOX_B, "peer.k2.dev": BOX_C });
+    // A later /boot-status is the truth.
+    noteBootStatus("b", { serverId: BOX_C });
+    expect(boxIdForSaved("b")).toBe(BOX_C);
+  });
+
+  it("rows migrate from a hint alone (no /boot-status read)", () => {
+    const s = useHomesStore.getState();
+    s.addRow(s.selectedId, { address: "docs::bravo.k2.dev", workspaceId: null, label: "docs" });
+    useHomeServerIds.getState().hint({ "bravo.k2.dev": BOX_B });
+    expect(useHomesStore.getState().migrateAddresses()).toBe(true);
+    expect(useHomesStore.getState().homes[0].rows.map((r) => r.address)).toEqual([`docs::${BOX_B}`]);
+  });
+
+  it("/boot-status publicHost names the box too", () => {
+    noteBootStatus("a", { serverId: BOX_A, publicHost: "https://Rosson.k2.dev/" });
+    expect(useHomeServerIds.getState().hinted["rosson.k2.dev"]).toBe(BOX_A);
+    expect(canonicalHomeHost("rosson.k2.dev")).toBe(BOX_A);
   });
 });

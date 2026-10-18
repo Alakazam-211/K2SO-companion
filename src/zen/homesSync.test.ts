@@ -16,9 +16,12 @@ import { selectedHome, useHomesStore } from "./homes";
 import {
   FRAME_DEBOUNCE_MS,
   HOMES_OUTBOX_KEY,
+  HOMES_SYNC_META_KEY,
   HOMES_SYNC_SERVER_KEY,
   PUSH_DEBOUNCE_MS,
   RETRY_BASE_MS,
+  __homesSyncCursor,
+  __homesSyncRegistered,
   __resetHomesSyncForTests,
   disableHomesSync,
   enableHomesSync,
@@ -73,10 +76,10 @@ function local() {
 
 function desktopSeed(srv: FakeHomesServer) {
   srv.seed([
-    { kind: "home", id: "srv-home", name: "Home", order: "a0", updatedAt: 100 },
-    { kind: "row", homeId: "srv-home", address: "docs::0123456789abcdef", label: "docs", workspaceId: "pd", order: "a0", updatedAt: 100 },
-    { kind: "home", id: "srv-work", name: "Work", order: "a1", updatedAt: 100 },
-    { kind: "row", homeId: "srv-work", address: "ops::0123456789abcdef", label: "ops", workspaceId: null, order: "a0", updatedAt: 100 },
+    { kind: "home", id: "srv-home", name: "Home", order: "V", updatedAt: 100 },
+    { kind: "row", homeId: "srv-home", address: "docs::0123456789abcdef", label: "docs", workspaceId: "pd", order: "V", updatedAt: 100 },
+    { kind: "home", id: "srv-work", name: "Work", order: "l", updatedAt: 100 },
+    { kind: "row", homeId: "srv-work", address: "ops::0123456789abcdef", label: "ops", workspaceId: null, order: "V", updatedAt: 100 },
   ]);
 }
 
@@ -108,7 +111,7 @@ beforeEach(() => {
 
 afterEach(() => {
   __resetHomesSyncForTests({ deviceId: PHONE });
-  useHomeServerIds.setState({ bySaved: {}, hostByBox: {} });
+  useHomeServerIds.setState({ bySaved: {}, hostByBox: {}, hinted: {} });
   vi.unstubAllGlobals();
   vi.useRealTimers();
 });
@@ -263,7 +266,7 @@ describe("steady state", () => {
     expect(hub).toBeTruthy();
     hub!.onopen?.();
     const id = useHomesStore.getState().selectedId;
-    A.seed([{ kind: "row", homeId: id, address: "fromdesk::0123456789abcdef", label: "desk", workspaceId: null, order: "a5", updatedAt: Date.now() + 5 }]);
+    A.seed([{ kind: "row", homeId: id, address: "fromdesk::0123456789abcdef", label: "desk", workspaceId: null, order: "x", updatedAt: Date.now() + 5 }]);
     hub!.deliver({ kind: "homes_changed" });
     await flush(FRAME_DEBOUNCE_MS + 10);
     expect(local()[0].rows).toContain("fromdesk::0123456789abcdef");
@@ -351,12 +354,215 @@ describe("steady state", () => {
   });
 
   it("rows for a Home this phone never saw trigger a full re-pull", async () => {
-    A.seed([{ kind: "row", homeId: "ghost", address: "g::x", label: "g", workspaceId: null, order: "a0", updatedAt: 5 }]);
+    A.seed([{ kind: "row", homeId: "ghost", address: "g::x", label: "g", workspaceId: null, order: "V", updatedAt: 5 }]);
     A.calls.length = 0;
     await syncHomesNow();
     const pulls = A.calls.filter((c) => c.path === "/cli/me/homes");
     expect(pulls.length).toBe(2);
     expect(pulls[1].query.since).toBeUndefined();
+  });
+});
+
+describe("K2 0.46.1 final contract", () => {
+  const pulls = () => A.calls.filter((c) => c.path === "/cli/me/homes");
+  const pushes = () => A.calls.filter((c) => c.path === "/cli/me/homes/push");
+
+  beforeEach(async () => {
+    useHomesStore.getState().ensureSeeded();
+    await enableHomesSync("s1");
+    A.calls.length = 0;
+  });
+
+  it("the cursor is an integer: stored as a number, sent back as since", async () => {
+    const at = __homesSyncCursor();
+    expect(typeof at).toBe("number");
+    expect(at).toBe(A.cursor());
+    expect(JSON.parse(localStorage.getItem(HOMES_SYNC_META_KEY)!)).toMatchObject({ serverId: "s1", cursor: at, registered: true });
+    await syncHomesNow();
+    expect(pulls()[0].query.since).toBe(String(at));
+    // A cursor saved by the earlier build (a numeric string) still reads.
+    localStorage.setItem(HOMES_SYNC_META_KEY, JSON.stringify({ serverId: "s1", cursor: "3", lastSyncAt: 1 }));
+    __resetHomesSyncForTests({ deviceId: PHONE });
+    expect(__homesSyncCursor()).toBe(3);
+    expect(__homesSyncRegistered()).toBe(true);
+  });
+
+  it("superseded items leave the outbox (not an error) and a full re-pull brings the newer version", async () => {
+    const id = useHomesStore.getState().selectedId;
+    // Another device renamed this Home later than the phone's clock says.
+    A.seed([{ kind: "home", id, name: "Desk name", order: "V", updatedAt: Date.now() + 60_000, deviceId: "desk-1" }]);
+    const before = A.cursor();
+    useHomesStore.getState().renameHome(id, "Phone name");
+    await syncHomesNow();
+    await flush(0);
+    expect(useHomesSyncStore.getState().status).toBe("synced");
+    expect(useHomesSyncStore.getState().outbox).toEqual([]);
+    expect(pushes()).toHaveLength(1);
+    const pull = pulls()[0];
+    expect(pull.query.since).toBeUndefined();
+    expect(A.cursor()).toBe(before);
+    expect(selectedHome(useHomesStore.getState()).name).toBe("Desk name");
+  });
+
+  it("full:true (a since below the floor) is merged per item: nothing local is deleted", async () => {
+    const h = useHomesStore.getState();
+    const id = h.selectedId;
+    // A row this phone holds that the server's live set lacks.
+    h.applySynced({
+      ...h.syncState(),
+      homes: h.homes.map((x) => (x.id === id ? { ...x, rows: [...x.rows, { address: "only::here", workspaceId: null, label: "only", order: "x", updatedAt: 1 }] } : x)),
+    });
+    A.seed([{ kind: "row", homeId: id, address: "srv::0123456789abcdef", label: "srv", workspaceId: null, order: "t", updatedAt: Date.now() }]);
+    A.floor = A.cursor() + 100; // our since is now stale
+    await syncHomesNow();
+    expect(pulls()[0].query.since).toBeTruthy();
+    expect(local()[0].rows.sort()).toEqual(["only::here", "srv::0123456789abcdef"]);
+    expect(__homesSyncCursor()).toBe(A.cursor());
+    // An ahead cursor (a wiped server) also answers full and converges.
+    A.floor = 0;
+    localStorage.setItem(HOMES_SYNC_META_KEY, JSON.stringify({ serverId: "s1", cursor: 999, lastSyncAt: 1, registered: true }));
+    __resetHomesSyncForTests({ deviceId: PHONE });
+    startHomesSync();
+    await flush(0);
+    expect(__homesSyncCursor()).toBe(A.cursor());
+    expect(local()[0].rows).toContain("only::here");
+  });
+
+  it("pull redirects: the local Home folds into the new id; selection and queued rows follow", async () => {
+    const oldId = useHomesStore.getState().selectedId;
+    A.down = true;
+    useHomesStore.getState().addRow(oldId, { address: "queued::0123456789abcdef", workspaceId: null, label: "q" });
+    await flush(PUSH_DEBOUNCE_MS + 10);
+    expect(readOutbox("s1").some((c) => c.kind === "row" && c.homeId === oldId)).toBe(true);
+    // Meanwhile the desktop merged this Home into h1.
+    A.seed([
+      { kind: "home", id: "h1", name: "Home", order: "V", updatedAt: Date.now(), deviceId: "desk-1" },
+      { kind: "row", homeId: "h1", address: "desk::0123456789abcdef", label: "desk", workspaceId: null, order: "V", updatedAt: Date.now(), deviceId: "desk-1" },
+    ]);
+    A.redirects = { [oldId]: "h1" };
+    A.down = false;
+    // Pull first (an empty-outbox run would push; drive it explicitly).
+    emitServerSignal("s1", "recovered");
+    await flush(0);
+    await flush(0);
+    const h = useHomesStore.getState();
+    expect(h.redirects[oldId]).toBe("h1");
+    expect(h.selectedId).toBe("h1");
+    expect(h.homes.map((x) => x.id)).toEqual(["h1"]);
+    h.selectHome(oldId);
+    expect(useHomesStore.getState().selectedId).toBe("h1");
+    // The queued row went out (or will) under h1, never the old id.
+    expect(useHomesSyncStore.getState().outbox.every((c) => c.kind !== "row" || c.homeId === "h1")).toBe(true);
+    await syncHomesNow();
+    expect(A.items().some((i) => i.homeId === "h1" && i.address === "queued::0123456789abcdef")).toBe(true);
+    expect(local()[0].rows.sort()).toEqual(["desk::0123456789abcdef", "queued::0123456789abcdef"]);
+  });
+
+  it("a Home tombstone with mergedInto moves rows and selection to that Home", async () => {
+    const oldId = useHomesStore.getState().selectedId;
+    useHomesStore.getState().addRow(oldId, { address: "mine::0123456789abcdef", workspaceId: null, label: "mine" });
+    await flush(PUSH_DEBOUNCE_MS + 10);
+    A.seed([
+      { kind: "home", id: "h1", name: "Home", order: "V", updatedAt: Date.now() + 10, deviceId: "desk-1" },
+      { kind: "home", id: oldId, name: "", order: "", updatedAt: Date.now() + 10, deviceId: "desk-1", deleted: true, mergedInto: "h1" },
+    ]);
+    await syncHomesNow();
+    const h = useHomesStore.getState();
+    expect(h.homes.map((x) => x.id)).toEqual(["h1"]);
+    expect(h.selectedId).toBe("h1");
+    expect(h.redirects).toEqual({ [oldId]: "h1" });
+    expect(local()).toEqual([{ name: "Home", rows: ["mine::0123456789abcdef"] }]);
+  });
+
+  it("the pull's servers map migrates rows for a server whose /boot-status was never read", async () => {
+    A.servers = { "home.k2.dev": "0123456789abcdef", "work.k2.dev": "fedcba9876543210" };
+    const s = useHomesStore.getState();
+    s.addRow(s.selectedId, { address: "docs::work.k2.dev", workspaceId: null, label: "docs" });
+    await flush(PUSH_DEBOUNCE_MS + 10);
+    await flush(PUSH_DEBOUNCE_MS + 10);
+    expect(B.calls.filter((c) => c.path === "/boot-status")).toEqual([]);
+    expect(local()[0].rows).toEqual(["docs::fedcba9876543210"]);
+    expect(useHomeServerIds.getState().bySaved.s2).toBe("fedcba9876543210");
+    await syncHomesNow();
+    expect(A.items().some((i) => i.address === "docs::fedcba9876543210" && !i.deleted)).toBe(true);
+  });
+
+  it("push 409 device_not_registered: register, then retry the push once", async () => {
+    A.forgetDevices();
+    const s = useHomesStore.getState();
+    s.addRow(s.selectedId, { address: "r::0123456789abcdef", workspaceId: null, label: "r" });
+    await flush(PUSH_DEBOUNCE_MS + 10);
+    expect(A.calls.map((c) => c.path).filter((p) => p !== "/boot-status")).toEqual([
+      "/cli/me/homes/push",
+      "/cli/me/homes/devices/register",
+      "/cli/me/homes/push",
+      "/cli/me/homes",
+    ]);
+    expect(A.devices.has(PHONE)).toBe(true);
+    expect(useHomesSyncStore.getState()).toMatchObject({ serverId: "s1", status: "synced", outbox: [] });
+    expect(A.items().some((i) => i.address === "r::0123456789abcdef")).toBe(true);
+  });
+
+  it("syncing:false (not registered yet) is not a removal: the phone registers and keeps syncing", async () => {
+    A.forgetDevices();
+    await syncHomesNow();
+    const st = useHomesSyncStore.getState();
+    expect(st.serverId).toBe("s1");
+    expect(st.notice).toBeNull();
+    expect(localStorage.getItem(HOMES_SYNC_SERVER_KEY)).toBe("s1");
+    // The next run registered it again.
+    expect(A.calls.map((c) => c.path)).toContain("/cli/me/homes/devices/register");
+    expect(A.devices.has(PHONE)).toBe(true);
+    expect(__homesSyncRegistered()).toBe(true);
+  });
+
+  it("a removed frame for this phone before it registered is ignored; after, it stops sync", async () => {
+    const hub = MockWS.instances.find((w) => w.url.startsWith("wss://home.k2.dev"))!;
+    hub.onopen?.();
+    // Unregistered: the server reports syncing:false and is unreachable
+    // for the register that would follow.
+    A.forgetDevices();
+    const realFetch = A.fetch;
+    A.fetch = async (url, init) => (new URL(url).pathname === "/cli/me/homes/devices/register" ? Promise.reject(new Error("offline")) : realFetch(url, init));
+    await syncHomesNow();
+    expect(__homesSyncRegistered()).toBe(false);
+    hub.deliver({ kind: "homes_device_removed", deviceId: PHONE });
+    await flush(0);
+    expect(useHomesSyncStore.getState().serverId).toBe("s1");
+    expect(useHomesSyncStore.getState().notice).toBeNull();
+    // Registered again, then removed: now it stops.
+    A.fetch = realFetch;
+    await flush(RETRY_BASE_MS * 4);
+    expect(__homesSyncRegistered()).toBe(true);
+    hub.deliver({ kind: "homes_device_removed", deviceId: PHONE });
+    await flush(0);
+    expect(useHomesSyncStore.getState().serverId).toBeNull();
+    expect(useHomesSyncStore.getState().notice?.label).toBe("Home box");
+  });
+
+  it("homes_changed with a cursor at or below ours skips the pull; a newer one pulls", async () => {
+    const hub = MockWS.instances.find((w) => w.url.startsWith("wss://home.k2.dev"))!;
+    hub.onopen?.();
+    const at = __homesSyncCursor()!;
+    hub.deliver({ kind: "homes_changed", cursor: at });
+    hub.deliver({ kind: "homes_changed", cursor: at - 1 });
+    await flush(FRAME_DEBOUNCE_MS + 10);
+    expect(pulls()).toHaveLength(0);
+    A.seed([{ kind: "home", id: "new", name: "New", order: "x", updatedAt: Date.now(), deviceId: "desk-1" }]);
+    hub.deliver({ kind: "homes_changed", cursor: A.cursor() });
+    await flush(FRAME_DEBOUNCE_MS + 10);
+    expect(pulls()).toHaveLength(1);
+    expect(local().map((h) => h.name)).toContain("New");
+    expect(__homesSyncCursor()).toBe(A.cursor());
+  });
+
+  it("the device list arrives wrapped ({ok, devices}) and still marks this phone", async () => {
+    A.devices.set("desk-1", { deviceId: "desk-1", name: "MacBook", platform: "macos", lastSyncAt: 5 });
+    await loadHomesDevices("s1");
+    expect(useHomesSyncStore.getState().devices.s1!.map((d) => [d.deviceId, d.current])).toEqual([
+      [PHONE, true],
+      ["desk-1", false],
+    ]);
   });
 });
 

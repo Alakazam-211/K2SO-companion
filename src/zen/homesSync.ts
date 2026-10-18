@@ -4,11 +4,13 @@ import {
   FEATURE_HOMES_SYNC,
   listHomesDevices,
   onHomesFrame,
+  parseCursor,
   pullHomes,
   pushHomes,
   registerHomesDevice,
   removeHomesDevice,
   type SyncDevice,
+  type SyncResult,
   type SyncFailure,
 } from "../api/homesSync";
 import { scopeFor } from "../api/scope";
@@ -22,6 +24,7 @@ import {
   changeKey,
   coalesceOutbox,
   firstSyncMerge,
+  redirectOutbox,
   settleOutbox,
   type ChangeItem,
 } from "./homesMerge";
@@ -38,20 +41,33 @@ import { subscribeAppEvents, type TicketEventsHandle } from "./ticketEvents";
 // (`k2.homes.syncServer.v1` = the saved server's id). Nothing goes to K2
 // Web.
 //
-// Flow:
+// Flow (K2 0.46.1's final contract, `api/homesSync.ts`):
 //   - every local edit (homes.ts `commit`) hands its stamped changes here;
 //     they join the outbox (`k2.homes.outbox.v1`, one item per key, the
 //     latest write wins) and are pushed shortly after;
-//   - a sync run = push the outbox (if any), then pull since the cursor
-//     and merge last-writer-wins (`./homesMerge`). Rejected items leave
-//     the outbox (logged) and the pull converges;
-//   - runs on: a local edit, a `homes_changed` frame, the app coming to
-//     the foreground, the server coming back (`recovered` / `reopened` /
-//     `lagged`), and a backoff retry (2 s doubling to 60 s) after a
-//     failure;
-//   - 410 `device_removed`, a `homes_device_removed` frame for this phone,
-//     or `device.syncing:false` on a pull: syncing stops, the Homes stay,
-//     and a one-time notice says so. Re-sync = turn the switch on again.
+//   - a sync run = (register if the server said this phone is not
+//     registered) → push the outbox (if any) → pull since the integer
+//     cursor and merge last-writer-wins (`./homesMerge`).
+//       · push 409 `device_not_registered`: register, retry the push once;
+//       · `superseded` (the server held newer versions) and `rejected`
+//         items leave the outbox (rejections logged); the pull after them
+//         is a full one so the server's versions come back;
+//       · a `full:true` pull (no / stale / ahead cursor) is merged per
+//         item like any other: nothing local goes without a tombstone;
+//       · the pull's `redirects` and `mergedInto` tombstones move rows,
+//         the selection and queued outbox items to the surviving Home;
+//       · the pull's `servers{hostKey: serverId}` fills the box-id map
+//         (`./homeServerIds`) so rows migrate for servers this phone has
+//         not read `/boot-status` from;
+//   - runs on: a local edit, a `homes_changed` frame with a cursor past
+//     ours, the app coming to the foreground, the server coming back
+//     (`recovered` / `reopened` / `lagged`), and a backoff retry (2 s
+//     doubling to 60 s) after a failure;
+//   - `device.syncing:false` on a pull only means "not registered (yet)":
+//     the next run registers. Removal is ONLY 410 `device_removed` or a
+//     `homes_device_removed` frame naming this phone after it registered:
+//     syncing stops, the Homes stay, and a one-time notice says so.
+//     Re-sync = turn the switch on again.
 //
 // Gate: the sync server's `/boot-status` must list `homes-sync-v1`. An
 // unreachable server is "offline", not "unsupported".
@@ -109,18 +125,30 @@ function readSyncServer(): string | null {
   return v && v.trim() ? v.trim() : null;
 }
 
-/** `{serverId, cursor, lastSyncAt}` — the cursor belongs to one server. */
-function readMeta(serverId: string | null): { cursor: string | null; lastSyncAt: number | null } {
+interface Meta {
+  /** The server's integer cursor this phone has caught up to. */
+  cursor: number | null;
+  lastSyncAt: number | null;
+  /** The server knows this phone (registered, not since reported
+   *  `syncing:false` / 409). Absent in older meta: true (it was written
+   *  after turning sync on, which registers). */
+  registered: boolean;
+}
+
+/** `{serverId, cursor, lastSyncAt, registered}` — for one server. */
+function readMeta(serverId: string | null): Meta {
   const j = readJson(HOMES_SYNC_META_KEY);
-  if (!j || !serverId || j.serverId !== serverId) return { cursor: null, lastSyncAt: null };
+  if (!j || !serverId || j.serverId !== serverId) return { cursor: null, lastSyncAt: null, registered: false };
   return {
-    cursor: typeof j.cursor === "string" ? j.cursor : null,
+    // A cursor saved before the final contract may be a numeric string.
+    cursor: parseCursor(j.cursor),
     lastSyncAt: typeof j.lastSyncAt === "number" ? j.lastSyncAt : null,
+    registered: j.registered !== false,
   };
 }
 
-function writeMeta(serverId: string | null, cursor: string | null, lastSyncAt: number | null): void {
-  lsSet(HOMES_SYNC_META_KEY, serverId ? JSON.stringify({ serverId, cursor, lastSyncAt }) : null);
+function writeMeta(serverId: string | null, meta: Meta | null): void {
+  lsSet(HOMES_SYNC_META_KEY, serverId && meta ? JSON.stringify({ serverId, ...meta }) : null);
 }
 
 function isChange(v: unknown): v is ChangeItem {
@@ -240,7 +268,8 @@ export const useHomesSyncStore = create<HomesSyncState>(() => initialState());
 const st = () => useHomesSyncStore.getState();
 const put = (p: Partial<HomesSyncState>) => useHomesSyncStore.setState(p);
 
-let cursor: string | null = readMeta(readSyncServer()).cursor;
+let cursor: number | null = readMeta(readSyncServer()).cursor;
+let registered = readMeta(readSyncServer()).registered;
 /** Bumped by every enable / disable / removal: a run from before stops. */
 let gen = 0;
 
@@ -254,9 +283,19 @@ function setOutbox(items: ChangeItem[]): void {
   writeOutbox(st().serverId, items);
 }
 
-function setCursor(next: string | null, lastSyncAt = st().lastSyncAt): void {
+function saveMeta(lastSyncAt = st().lastSyncAt): void {
+  writeMeta(st().serverId, { cursor, lastSyncAt, registered });
+}
+
+function setCursor(next: number | null, lastSyncAt = st().lastSyncAt): void {
   cursor = next;
-  writeMeta(st().serverId, cursor, lastSyncAt);
+  saveMeta(lastSyncAt);
+}
+
+function setRegistered(next: boolean): void {
+  if (registered === next) return;
+  registered = next;
+  saveMeta();
 }
 
 // ─── Retry ───
@@ -314,14 +353,15 @@ function stopLocally(status: HomesSyncStatus = "off"): void {
   clearTimers();
   disconnectHub();
   writeOutbox(null, []);
-  writeMeta(null, null, null);
+  writeMeta(null, null);
   lsSet(HOMES_SYNC_SERVER_KEY, null);
   cursor = null;
+  registered = false;
   retryAttempt = 0;
   put({ serverId: null, status, error: null, outbox: [], lastSyncAt: null });
 }
 
-/** 410 / removed frame / `syncing:false`: stop, keep Homes, say so once. */
+/** 410 / a removed frame for this phone: stop, keep Homes, say so once. */
 function handleRemoved(serverId: string): void {
   if (st().serverId !== serverId) return;
   const notice = { serverId, label: labelOf(serverId) };
@@ -341,6 +381,7 @@ function noteFailure(serverId: string, f: SyncFailure): void {
     handleRemoved(serverId);
     return;
   }
+  if (f.kind === "not_registered") setRegistered(false);
   if (f.kind === "offline") put({ status: "offline", error: null });
   else if (f.kind === "auth") put({ status: "error", error: `Sign in to ${labelOf(serverId)} to sync` });
   else put({ status: "error", error: f.error });
@@ -385,10 +426,44 @@ async function runOnce(): Promise<void> {
   if (!live()) return;
   put({ status: "syncing", error: null });
 
+  // Register first when the server said it does not know this phone
+  // (never on a guess: registering again would undo a removal).
+  let registeredNow = false;
+  const register = async (): Promise<SyncResult<unknown>> => {
+    const r = await registerHomesDevice(scope, { deviceId, ...homesDeviceInfo() });
+    if (r.ok && live()) {
+      registeredNow = true;
+      setRegistered(true);
+    }
+    return r;
+  };
+  if (!registered) {
+    const r = await register();
+    if (!live()) return;
+    if (!r.ok) {
+      noteFailure(serverId, r);
+      return;
+    }
+  }
+
+  let fullNext = false;
   const sent = st().outbox;
   if (sent.length > 0) {
-    const r = await pushHomes(scope, deviceId, sent);
+    let r = await pushHomes(scope, deviceId, sent);
     if (!live()) return;
+    if (!r.ok && r.kind === "not_registered" && !registeredNow) {
+      // 409 device_not_registered (a wiped server, or never registered):
+      // register, then retry the push once.
+      setRegistered(false);
+      const reg = await register();
+      if (!live()) return;
+      if (!reg.ok) {
+        noteFailure(serverId, reg);
+        return;
+      }
+      r = await pushHomes(scope, deviceId, sent);
+      if (!live()) return;
+    }
     if (!r.ok) {
       noteFailure(serverId, r);
       return;
@@ -398,43 +473,62 @@ async function runOnce(): Promise<void> {
       if (rj.item) rejectedKeys.push(changeKey(rj.item));
       console.warn("[homes-sync] server rejected", rj.item, rj.reason);
     }
+    // Sent items leave the outbox, superseded ones included (the server's
+    // newer version is not an error); a full pull brings the server's
+    // versions of superseded / rejected items back.
     setOutbox(settleOutbox(st().outbox, sent, rejectedKeys));
+    if (r.data.superseded > 0 || r.data.rejected.length > 0) fullNext = true;
     if (r.data.changes.length > 0) mergeIn(r.data.changes);
   }
 
-  const pulled = await pullHomes(scope, deviceId, cursor);
+  const since = fullNext ? null : cursor;
+  const pulled = await pullHomes(scope, deviceId, since);
   if (!live()) return;
   if (!pulled.ok) {
     noteFailure(serverId, pulled);
     return;
   }
-  if (pulled.data.syncing === false) {
-    handleRemoved(serverId);
-    return;
+  const reply = pulled.data;
+  // Hosts the server vouches for: rows migrate to their box ids.
+  if (Object.keys(reply.servers).length > 0) useHomeServerIds.getState().hint(reply.servers);
+  if (reply.syncing === false) {
+    // Not registered (yet) — never "removed". Register on the next run
+    // (once: a server that still says false after we registered waits).
+    setRegistered(false);
+    if (!registeredNow) again = true;
   }
-  const orphans = mergeIn(pulled.data.changes);
+  const orphans = mergeIn(reply.changes, reply.redirects);
   const now = Date.now();
-  if (orphans > 0 && cursor !== null) {
+  if (orphans > 0 && since !== null && !reply.full) {
     // Rows for a Home we never saw: re-pull the full set.
     setCursor(null, now);
     again = true;
   } else {
-    setCursor(pulled.data.cursor ?? cursor, now);
+    setCursor(reply.cursor ?? cursor, now);
   }
   retryAttempt = 0;
   if (retryTimer) clearTimeout(retryTimer);
   retryTimer = null;
   put({ status: "synced", error: null, lastSyncAt: now });
-  writeMeta(serverId, cursor, now);
+  saveMeta(now);
   if (st().outbox.length > 0) again = true;
 }
 
-/** Merge pulled changes into the local Homes. Returns the orphan count. */
-function mergeIn(changes: ChangeItem[]): number {
-  if (changes.length === 0) return 0;
+/** Merge pulled changes (and the pull's redirects) into the local Homes;
+ *  queued items naming a merged-away Home follow it. Returns the orphan
+ *  count. */
+function mergeIn(changes: ChangeItem[], redirects: Record<string, string> = {}): number {
+  if (changes.length === 0 && Object.keys(redirects).length === 0) return 0;
   const homes = useHomesStore.getState();
-  const res = applyRemote(homes.syncState(), changes);
-  if (res.changed) homes.applySynced(res.state);
+  const res = applyRemote(homes.syncState(), changes, { redirects });
+  if (res.changed) {
+    homes.applySynced(res.state);
+    const box = st().outbox;
+    let next = redirectOutbox(box, res.state.redirects);
+    // Rows a redirect moved: the server must hold them on the new Home.
+    if (res.moved.length > 0) next = coalesceOutbox(next, res.moved);
+    if (next !== box) setOutbox(next);
+  }
   return res.orphans;
 }
 
@@ -525,16 +619,25 @@ export async function enableHomesSync(serverId: string): Promise<boolean> {
       put({ error: full.kind === "offline" ? `Could not reach ${labelOf(serverId)}` : full.error });
       return false;
     }
+    if (Object.keys(full.data.servers).length > 0) {
+      useHomeServerIds.getState().hint(full.data.servers);
+      migrateRows();
+    }
     // The switch: stop the old server's runs, then merge locally.
     gen += 1;
     clearTimers();
     const homes = useHomesStore.getState();
-    const merged = firstSyncMerge(homes.syncState(), full.data.changes, { now: Date.now(), by: deviceId });
+    const merged = firstSyncMerge(homes.syncState(), full.data.changes, {
+      now: Date.now(),
+      by: deviceId,
+      redirects: full.data.redirects,
+    });
     homes.applySynced(merged.state);
     lsSet(HOMES_SYNC_SERVER_KEY, serverId);
     lsSet(HOMES_SYNC_NOTICE_KEY, null);
     retryAttempt = 0;
     put({ serverId, status: "syncing", notice: null, outbox: [] });
+    registered = true;
     setCursor(full.data.cursor, null);
     setOutbox(coalesceOutbox([], merged.changes));
     connectHub();
@@ -636,6 +739,8 @@ export function startHomesSync(): () => void {
     onHomesFrame((serverId, frame) => {
       if (serverId !== st().serverId) return;
       if (frame.type === "changed") {
+        // Already caught up to (or past) that change: no pull.
+        if (frame.cursor !== null && cursor !== null && frame.cursor <= cursor) return;
         if (frameTimer) clearTimeout(frameTimer);
         frameTimer = setTimeout(() => {
           frameTimer = null;
@@ -644,8 +749,14 @@ export function startHomesSync(): () => void {
         return;
       }
       void homesDeviceId().then((mine) => {
-        if (!frame.deviceId || frame.deviceId === mine) handleRemoved(serverId);
-        else if (st().devices[serverId]) void loadHomesDevices(serverId);
+        if (frame.deviceId === mine) {
+          // Removal only counts once this phone had registered.
+          if (registered) handleRemoved(serverId);
+          return;
+        }
+        // No device named: a run finds out (410 if it was this phone).
+        if (!frame.deviceId) void syncHomesNow();
+        if (st().devices[serverId]) void loadHomesDevices(serverId);
       });
     })
   );
@@ -675,7 +786,9 @@ export function startHomesSync(): () => void {
   );
 
   // hostKey → box id: migrate rows whenever a new box id is learnt.
-  stops.push(useHomeServerIds.subscribe((s, p) => (s.bySaved !== p.bySaved ? migrateRows() : undefined)));
+  stops.push(
+    useHomeServerIds.subscribe((s, p) => (s.bySaved !== p.bySaved || s.hinted !== p.hinted ? migrateRows() : undefined))
+  );
   stops.push(
     useServersStore.subscribe((s, p) => {
       if (s.servers !== p.servers || s.hydrated !== p.hydrated) migrateRows();
@@ -748,10 +861,16 @@ export function __resetHomesSyncForTests(opts: { deviceId?: string } = {}): void
   deviceIdPromise = null;
   deviceIdSource = opts.deviceId ? async () => opts.deviceId as string : defaultDeviceId;
   cursor = readMeta(readSyncServer()).cursor;
+  registered = readMeta(readSyncServer()).registered;
   useHomesSyncStore.setState(initialState(), true);
 }
 
 /** Tests only: the in-memory pull cursor. */
-export function __homesSyncCursor(): string | null {
+export function __homesSyncCursor(): number | null {
   return cursor;
+}
+
+/** Tests only: does this phone believe the server knows it? */
+export function __homesSyncRegistered(): boolean {
+  return registered;
 }

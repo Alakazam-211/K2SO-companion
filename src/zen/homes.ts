@@ -70,7 +70,7 @@ export interface Home {
 export interface HomesDoc {
   version: 1;
   homes: Home[];
-  /** Deleted Homes / rows, kept 30 days (sync). */
+  /** Deleted Homes / rows, kept 90 days (sync). */
   tombstones?: Tombstone[];
   /** Local Home id → server id after a first-sync merge. */
   redirects?: Record<string, string>;
@@ -333,7 +333,7 @@ export interface HomesState {
   selectedId: string;
   /** True once `k2.homes.v1` holds our doc (read, or the seed written). */
   stored: boolean;
-  /** Deleted Homes / rows (sync), younger than 30 days. */
+  /** Deleted Homes / rows (sync), younger than 90 days. */
   tombstones: Tombstone[];
   /** Local Home id → server id (first-sync merges). */
   redirects: Record<string, string>;

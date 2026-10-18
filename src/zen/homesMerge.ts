@@ -4,12 +4,18 @@
 // The local Homes copy is always the working copy. Every item — a Home or
 // a row — carries `updatedAt` (client epoch ms), `by` (the device that
 // wrote it) and `order` (a fractional-index string, `./fracIndex`).
-// Deleting leaves a tombstone, kept at least 30 days.
+// Deleting leaves a tombstone, kept 90 days (the server's window); a Home
+// tombstone that names `mergedInto` is kept for good, like the server's.
 //
 // Rules:
 //   - Last writer wins per item by `updatedAt`; an exact tie goes to the
-//     larger device id (plain string compare). A tombstone beats an older
-//     edit, and wins an exact tie.
+//     larger device id (plain string compare; pulled items carry the
+//     writer's `deviceId` as `by`). A tombstone beats an older edit, and
+//     wins an exact tie.
+//   - Home redirects (`oldId → newId`, from a first-sync merge here or the
+//     pull's `redirects`) and Home tombstones with `mergedInto`: the old
+//     Home's rows and the selection move to the new Home. Live items for an
+//     old id land on the new one; a tombstone always means its own id.
 //   - A Home is keyed by `id`; a row by `(homeId, address)`.
 //   - Lists sort by `order` (string compare), ties by id / address, so two
 //     devices that reorder at once both converge on the same order.
@@ -21,7 +27,7 @@
 
 import { compareOrder, normalizeOrder } from "./fracIndex";
 
-export const TOMBSTONE_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
+export const TOMBSTONE_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
 
 export interface Stamp {
   /** Client epoch ms of the last write. Missing on rows saved before sync
@@ -46,7 +52,7 @@ export interface MergeHome extends Stamp {
 }
 
 export type Tombstone =
-  | { kind: "home"; id: string; updatedAt: number; by?: string }
+  | { kind: "home"; id: string; updatedAt: number; by?: string; mergedInto?: string }
   | { kind: "row"; homeId: string; address: string; updatedAt: number; by?: string };
 
 export interface HomeChange {
@@ -57,6 +63,8 @@ export interface HomeChange {
   updatedAt: number;
   by?: string;
   deleted?: boolean;
+  /** A Home tombstone only: the Home it was merged into. */
+  mergedInto?: string;
 }
 
 export interface RowChange {
@@ -184,6 +192,7 @@ function tombstoneChange(t: Tombstone): ChangeItem {
   if (t.kind === "home") {
     const c: HomeChange = { kind: "home", id: t.id, name: "", order: "", updatedAt: t.updatedAt, deleted: true };
     if (t.by) c.by = t.by;
+    if (t.mergedInto) c.mergedInto = t.mergedInto;
     return c;
   }
   const c: RowChange = {
@@ -280,9 +289,10 @@ export function withTombstones(list: Tombstone[], add: Tombstone[], drop: string
   return [...map.values()];
 }
 
-/** Tombstones younger than 30 days (the server keeps at least that long). */
+/** Tombstones younger than 90 days (the server keeps them that long). A
+ *  `mergedInto` Home tombstone stays (the server never drops those). */
 export function pruneTombstones(list: Tombstone[], now: number, maxAgeMs = TOMBSTONE_MAX_AGE_MS): Tombstone[] {
-  const kept = list.filter((t) => now - t.updatedAt <= maxAgeMs);
+  const kept = list.filter((t) => (t.kind === "home" && !!t.mergedInto) || now - t.updatedAt <= maxAgeMs);
   return kept.length === list.length ? list : kept;
 }
 
@@ -294,40 +304,107 @@ export interface ApplyResult {
   /** Rows for a Home this phone does not have (and has not deleted):
    *  the caller re-pulls the full set. */
   orphans: number;
+  /** Rows a redirect moved onto their new Home (they keep their stamps):
+   *  the caller queues them so the server holds them there too. */
+  moved: RowChange[];
 }
 
-/** Apply pulled changes with last-writer-wins per item. */
-export function applyRemote(state: SyncState, items: ChangeItem[]): ApplyResult {
+export interface ApplyOptions {
+  /** The pull's `redirects` (old Home id → the Home it went into). */
+  redirects?: Record<string, string>;
+}
+
+/** Add redirects; true when one was new. A self-redirect is ignored. */
+function addRedirect(redirects: Record<string, string>, from: string, to: string): boolean {
+  if (!from || !to || from === to || redirects[from] === to) return false;
+  // Never close a loop (to → … → from).
+  if (resolveHomeId(redirects, to) === from) return false;
+  redirects[from] = to;
+  return true;
+}
+
+/**
+ * Apply pulled changes with last-writer-wins per item. Nothing local is
+ * deleted unless a tombstone that wins says so (a `full` answer is applied
+ * the same way). Redirects — the pull's, and every Home tombstone's
+ * `mergedInto` — are recorded, and a local Home they name folds into its
+ * new Home: its rows move there (rows the new Home already has stay as
+ * they are), or, when this phone does not have the new Home yet, the Home
+ * itself takes the new id (unstamped, so the server's version wins).
+ */
+export function applyRemote(state: SyncState, items: ChangeItem[], opts: ApplyOptions = {}): ApplyResult {
   let homes = state.homes.map((h) => ({ ...h, rows: h.rows.slice() }));
   const tombs = new Map(state.tombstones.map((t) => [changeKey(t), t]));
+  const redirects = { ...state.redirects };
   let changed = false;
   let orphans = 0;
+  const movedRows: { homeId: string; row: MergeRow }[] = [];
+  for (const [from, to] of Object.entries(opts.redirects ?? {})) {
+    if (typeof to === "string" && addRedirect(redirects, from, to)) changed = true;
+  }
 
   for (const it of items) {
     if (it.kind !== "home") continue;
-    const id = resolveHomeId(state.redirects, it.id);
+    if (it.deleted) {
+      // A tombstone names its own id (never follows a redirect).
+      const id = it.id;
+      if (it.mergedInto && addRedirect(redirects, id, it.mergedInto)) changed = true;
+      const local = homes.find((h) => h.id === id) ?? null;
+      const tomb = tombs.get(homeKey(id));
+      const held = local ?? (tomb ? { ...tomb, deleted: true } : null);
+      if (!incomingWins(it, held)) continue;
+      changed = true;
+      // A merged Home's rows move in the fold below.
+      if (resolveHomeId(redirects, id) === id) homes = homes.filter((h) => h.id !== id);
+      tombs.set(homeKey(id), {
+        kind: "home",
+        id,
+        updatedAt: it.updatedAt,
+        ...(it.by ? { by: it.by } : {}),
+        ...(it.mergedInto ? { mergedInto: it.mergedInto } : {}),
+      });
+      continue;
+    }
+    const id = resolveHomeId(redirects, it.id);
+    // A live write to a Home that was merged away: the merge stands.
+    if (id !== it.id) continue;
     const local = homes.find((h) => h.id === id) ?? null;
     const held = local ?? (tombs.get(homeKey(id)) ? { ...tombs.get(homeKey(id))!, deleted: true } : null);
     if (!incomingWins(it, held)) continue;
-    if (local && !it.deleted && local.name === it.name && local.order === it.order && compareStamp(it, local) === 0) continue;
+    if (local && local.name === it.name && local.order === it.order && compareStamp(it, local) === 0) continue;
     changed = true;
-    if (it.deleted) {
-      homes = homes.filter((h) => h.id !== id);
-      tombs.set(homeKey(id), { kind: "home", id, updatedAt: it.updatedAt, ...(it.by ? { by: it.by } : {}) });
-      continue;
-    }
     tombs.delete(homeKey(id));
     const fields = { name: it.name, order: it.order || undefined, updatedAt: it.updatedAt, by: it.by };
     if (local) homes = homes.map((h) => (h.id === id ? { ...h, ...fields } : h));
     else homes.push({ id, rows: [], ...fields });
   }
 
+  // Fold every local Home a redirect names into the Home it went to.
+  for (const h of homes.slice()) {
+    const target = resolveHomeId(redirects, h.id);
+    if (target === h.id) continue;
+    changed = true;
+    homes = homes.filter((x) => x !== h);
+    const into = homes.find((x) => x.id === target);
+    if (into) {
+      const have = new Set(into.rows.map((r) => r.address));
+      const add = h.rows.filter((r) => !have.has(r.address));
+      into.rows = [...into.rows, ...add];
+      for (const row of add) movedRows.push({ homeId: target, row });
+    } else if (!tombs.has(homeKey(target))) {
+      homes.push({ ...h, id: target, updatedAt: 0, by: undefined });
+      for (const row of h.rows) movedRows.push({ homeId: target, row });
+    }
+  }
+
   for (const it of items) {
     if (it.kind !== "row") continue;
-    const homeId = resolveHomeId(state.redirects, it.homeId);
+    // A live row for a merged-away Home lands on its new Home; a row
+    // tombstone only ever means the Home it names.
+    const homeId = it.deleted ? it.homeId : resolveHomeId(redirects, it.homeId);
     const home = homes.find((h) => h.id === homeId);
     if (!home) {
-      if (!tombs.has(homeKey(homeId))) orphans += 1;
+      if (!it.deleted && !tombs.has(homeKey(homeId))) orphans += 1;
       continue;
     }
     const local = home.rows.find((r) => r.address === it.address) ?? null;
@@ -362,12 +439,46 @@ export function applyRemote(state: SyncState, items: ChangeItem[]): ApplyResult 
     home.rows = local ? home.rows.map((r) => (r.address === it.address ? row : r)) : [...home.rows, row];
   }
 
-  if (!changed) return { state, changed: false, orphans };
+  if (!changed) return { state, changed: false, orphans, moved: [] };
+  // A moved row the pull itself then deleted or rewrote is not re-sent.
+  const moved: RowChange[] = [];
+  for (const { homeId, row } of movedRows) {
+    const now = homes.find((h) => h.id === homeId)?.rows.find((r) => r.address === row.address);
+    if (now === row) moved.push(rowChange(homeId, row));
+  }
   return {
-    state: { homes: sortHomes(homes), tombstones: [...tombs.values()], redirects: state.redirects },
+    state: { homes: sortHomes(homes), tombstones: [...tombs.values()], redirects },
     changed: true,
     orphans,
+    moved,
   };
+}
+
+/** Outbox items still naming a Home that was merged away: rows move to
+ *  the Home it went into; a live write to the old Home itself is dropped
+ *  (the merge stands); a tombstone stays as it is. Same array when
+ *  nothing changed. */
+export function redirectOutbox(outbox: ChangeItem[], redirects: Record<string, string>): ChangeItem[] {
+  let changed = false;
+  const out: ChangeItem[] = [];
+  for (const c of outbox) {
+    if (c.kind === "home") {
+      if (!c.deleted && resolveHomeId(redirects, c.id) !== c.id) {
+        changed = true;
+        continue;
+      }
+      out.push(c);
+      continue;
+    }
+    const homeId = resolveHomeId(redirects, c.homeId);
+    if (homeId === c.homeId) {
+      out.push(c);
+      continue;
+    }
+    changed = true;
+    out.push({ ...c, homeId });
+  }
+  return changed ? coalesceOutbox([], out) : outbox;
 }
 
 // ─── First sync: union, never delete ───
@@ -397,15 +508,21 @@ export interface FirstSyncResult {
  * deleted on either side. Same-name Homes merge into the server's id
  * (`redirects` records local id → server id).
  */
-export function firstSyncMerge(local: SyncState, remote: ChangeItem[], ctx: { now: number; by: string }): FirstSyncResult {
+export function firstSyncMerge(
+  local: SyncState,
+  remote: ChangeItem[],
+  ctx: { now: number; by: string; redirects?: Record<string, string> }
+): FirstSyncResult {
   const stamp = (): Stamp => (ctx.by ? { updatedAt: ctx.now, by: ctx.by } : { updatedAt: ctx.now });
-  // The server's state, built from its change items.
-  const server = applyRemote({ homes: [], tombstones: [], redirects: {} }, remote).state;
+  // The server's state, built from its change items (and its redirects:
+  // a Home this phone had before that was merged away since).
+  const server = applyRemote({ homes: [], tombstones: [], redirects: {} }, remote, { redirects: ctx.redirects }).state;
   const serverHomes = server.homes;
   const serverTombs = new Map(server.tombstones.map((t) => [changeKey(t), t]));
   const serverById = new Map(serverHomes.map((h) => [h.id, h]));
   const used = new Set<string>();
   const redirects = { ...local.redirects };
+  for (const [from, to] of Object.entries(server.redirects)) addRedirect(redirects, from, to);
 
   // Fresh stamp for a local item the server would otherwise drop (its
   // tombstone is newer) or that never had one.
@@ -417,7 +534,8 @@ export function firstSyncMerge(local: SyncState, remote: ChangeItem[], ctx: { no
 
   const merged: MergeHome[] = [];
   for (const l of local.homes) {
-    let s = serverById.get(l.id) && !used.has(l.id) ? serverById.get(l.id)! : null;
+    const sid = resolveHomeId(redirects, l.id);
+    let s = serverById.get(sid) && !used.has(sid) ? serverById.get(sid)! : null;
     if (!s) s = serverHomes.find((h) => !used.has(h.id) && sameName(h.name, l.name)) ?? null;
     if (!s) {
       const home = keepAlive(l, homeKey(l.id));
