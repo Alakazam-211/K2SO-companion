@@ -3,8 +3,8 @@
 export function RowChevron() {
   return (
     <svg
-      width="17"
-      height="17"
+      width="18"
+      height="18"
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
