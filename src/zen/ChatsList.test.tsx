@@ -1941,6 +1941,39 @@ describe("ChatsList", () => {
       expect(listIds()).toEqual(["/a", "/c", "/d"]);
     });
 
+    it("pins drag at once (no hold) in Rearrange, inside the lit grid outline", () => {
+      useZenStore.setState({
+        serverProjects: ORDERED.map((p) => (p.id === "pa" ? { ...p, pinned: true } : p)),
+        pinnedIds: ["/a", "/b"],
+      });
+      holdOpen(screen.getByLabelText("charlie"));
+      tapItem(screen.getByTestId("menu-rearrange"));
+      const grid = screen.getByTestId("chats-pins");
+      expect(grid.style.outline).toContain("dashed rgba(10,132,255");
+      grid.getBoundingClientRect = () =>
+        ({ left: 0, right: 300, top: 0, bottom: 100, width: 300, height: 100, x: 0, y: 0, toJSON() { return {}; } }) as DOMRect;
+      const cell = (name: string, left: number) => {
+        screen.getByLabelText(`Pinned ${name}`).getBoundingClientRect = () =>
+          ({ left, right: left + 80, top: 0, bottom: 80, width: 80, height: 80, x: left, y: 0, toJSON() { return {}; } }) as DOMRect;
+      };
+      cell("alpha", 0);
+      cell("bravo", 100);
+      const home = screen.getByTestId("chats-home");
+      fireEvent.pointerDown(screen.getByLabelText("Pinned bravo"), { clientX: 140, clientY: 40, pointerId: 9 });
+      fireEvent.pointerMove(home, { clientX: 120, clientY: 40, pointerId: 9 });
+      // Lifted straight away: no menu, a ghost, and alpha slides right.
+      expect(screen.queryByTestId("pin-menu")).toBeNull();
+      expect(screen.getByTestId("pin-ghost")).not.toBeNull();
+      fireEvent.pointerMove(home, { clientX: 30, clientY: 40, pointerId: 9 });
+      expect(screen.getByLabelText("Pinned alpha").style.transform).toBe("translate(100px, 0px)");
+      fireEvent.pointerUp(home, { clientX: 30, clientY: 40, pointerId: 9 });
+      expect(reorderProjects).toHaveBeenLastCalledWith(expect.anything(), ["pb", "pa"]);
+      expect(useZenStore.getState().pinnedIds).toEqual(["/b", "/a"]);
+      // Still rearranging, and the grid stays lit.
+      expect(screen.getByTestId("rearrange-done")).not.toBeNull();
+      expect(screen.getByTestId("chats-pins").style.outline).toContain("dashed rgba(10,132,255");
+    });
+
     it("a drop back on its own slot writes nothing", () => {
       enter();
       dragGrip(screen.getByTestId("chats-list"), 1, 1);

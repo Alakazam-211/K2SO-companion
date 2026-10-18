@@ -223,8 +223,10 @@ export function ChatsList() {
   const rearrangeRef = useRef(rearrangeTab);
   rearrangeRef.current = rearrangeTab;
   // The pin grid: a still hold is the agent menu, hold-and-drag reorders
-  // the pins. Off while rearranging the list.
-  const pinDrag = usePinDrag(pinsRef, () => rearrangeRef.current === null);
+  // the pins. Rearranging Agents: a pin drags straight away (no hold).
+  const pinDrag = usePinDrag(pinsRef, () =>
+    rearrangeRef.current === null ? "hold" : rearrangeRef.current === "agents" ? "drag" : "off"
+  );
   const { ghost, hot, onPinClick, menu: pinMenu, closeMenu } = pinDrag;
   // List rows: press and hold for the same agent menu.
   const rowHold = useHoldMenu();
@@ -562,7 +564,9 @@ export function ChatsList() {
     (it): it is Extract<ListItem, { active: true }> => it.active && canPin(it.agent.id)
   );
   const reorderIds = new Set(reorderItems.map((it) => it.agent.id));
-  const agentsCanRearrange = !recentOn && !searching && reorderItems.length > 1;
+  // Rows or pins (the pins rearrange in the same mode).
+  const agentsCanRearrange =
+    !recentOn && !searching && (reorderItems.length > 1 || pinned.length > 1);
   const agentsRearranging = !onHome && rearrangeTab === "agents";
   const homeRearranging = onHome && rearrangeTab === "home";
   const rearranging = agentsRearranging || homeRearranging;
@@ -611,7 +615,7 @@ export function ChatsList() {
         onSelect: () => openGroupPicker(a.id),
       });
     }
-    if (!inGrid && agentsCanRearrange && reorderIds.has(a.id)) {
+    if (agentsCanRearrange && (inGrid ? pinned.length > 1 : reorderIds.has(a.id))) {
       entries.push({
         key: "rearrange",
         label: "Rearrange",
@@ -1508,8 +1512,10 @@ export function ChatsList() {
           minHeight: 96,
           margin: `10px ${ZEN_LIST_EDGE_INSET}px 0`,
           borderRadius: 16,
-          background: hot ? "rgba(10,132,255,.12)" : "transparent",
-          outline: hot ? "1.5px dashed rgba(10,132,255,.5)" : "1.5px dashed transparent",
+          // Lit while a pin is lifted, and all through Agents Rearrange.
+          background: hot || agentsRearranging ? "rgba(10,132,255,.12)" : "transparent",
+          outline:
+            hot || agentsRearranging ? "1.5px dashed rgba(10,132,255,.5)" : "1.5px dashed transparent",
         }}
         data-testid="chats-pins"
       >
