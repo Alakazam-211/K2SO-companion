@@ -33,6 +33,9 @@ export interface FakeHomesServer {
   items: () => Item[];
   /** Seed items as another device would have pushed them (no checks). */
   seed: (items: Item[]) => void;
+  /** Drop items outright by key (`h|id` / `r|homeId|address`): a
+   *  deletion whose tombstone aged out — the server holds nothing. */
+  forget: (keys: string[]) => void;
   /** The current cursor (the last change's sequence number). */
   cursor: () => number;
   calls: { method: string; path: string; body: unknown; query: Record<string, string> }[];
@@ -110,6 +113,9 @@ export function fakeHomesServer(
     cursor: () => seq,
     seed: (items) => {
       for (const it of items) put(it, typeof it.deviceId === "string" ? it.deviceId : "other-device");
+    },
+    forget: (keys) => {
+      for (const k of keys) latest.delete(k);
     },
     forgetDevices: () => {
       srv.devices.clear();

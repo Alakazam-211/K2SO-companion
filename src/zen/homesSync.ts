@@ -24,6 +24,7 @@ import {
   changeKey,
   coalesceOutbox,
   firstSyncMerge,
+  reconcileFull,
   redirectOutbox,
   settleOutbox,
   type ChangeItem,
@@ -53,7 +54,14 @@ import { subscribeAppEvents, type TicketEventsHandle } from "./ticketEvents";
 //         items leave the outbox (rejections logged); the pull after them
 //         is a full one so the server's versions come back;
 //       · a `full:true` pull (no / stale / ahead cursor) is merged per
-//         item like any other: nothing local goes without a tombstone;
+//         item like any other, then compared with what this phone holds
+//         (`reconcileFull`, K2's rule, as on desktop): an item the server
+//         had seen (`synced`: pulled, or pushed and not rejected) but no
+//         longer holds was deleted elsewhere and its tombstone aged out
+//         (90 days) — it is dropped with no tombstone; an item that never
+//         reached the server is kept and pushed. Not when the server
+//         looks wiped (its cursor went back, or it does not know this
+//         phone): then nothing is dropped;
 //       · the pull's `redirects` and `mergedInto` tombstones move rows,
 //         the selection and queued outbox items to the surviving Home;
 //       · the pull's `servers{hostKey: serverId}` fills the box-id map
@@ -269,6 +277,10 @@ const st = () => useHomesSyncStore.getState();
 const put = (p: Partial<HomesSyncState>) => useHomesSyncStore.setState(p);
 
 let cursor: number | null = readMeta(readSyncServer()).cursor;
+/** Items the server rejected (key → stamp), this session: a full resync
+ *  does not queue the same write again (it would be rejected again). */
+const rejectedStamps = new Map<string, string>();
+const stampSig = (c: ChangeItem) => `${c.updatedAt}|${c.by ?? ""}`;
 let registered = readMeta(readSyncServer()).registered;
 /** Bumped by every enable / disable / removal: a run from before stops. */
 let gen = 0;
@@ -358,6 +370,7 @@ function stopLocally(status: HomesSyncStatus = "off"): void {
   cursor = null;
   registered = false;
   retryAttempt = 0;
+  rejectedStamps.clear();
   put({ serverId: null, status, error: null, outbox: [], lastSyncAt: null });
 }
 
@@ -470,13 +483,24 @@ async function runOnce(): Promise<void> {
     }
     const rejectedKeys: string[] = [];
     for (const rj of r.data.rejected) {
-      if (rj.item) rejectedKeys.push(changeKey(rj.item));
+      if (rj.item) {
+        const k = changeKey(rj.item);
+        rejectedKeys.push(k);
+        // Our own copy (the echo may not carry `by`).
+        const mine = sent.find((c) => changeKey(c) === k);
+        if (mine) rejectedStamps.set(k, stampSig(mine));
+      }
       console.warn("[homes-sync] server rejected", rj.item, rj.reason);
     }
     // Sent items leave the outbox, superseded ones included (the server's
     // newer version is not an error); a full pull brings the server's
     // versions of superseded / rejected items back.
     setOutbox(settleOutbox(st().outbox, sent, rejectedKeys));
+    // The server has now seen every live item it did not reject (applied
+    // or superseded alike).
+    const rejected = new Set(rejectedKeys);
+    const accepted = sent.filter((c) => !c.deleted && !rejected.has(changeKey(c))).map(changeKey);
+    useHomesStore.getState().markSynced(accepted);
     if (r.data.superseded > 0 || r.data.rejected.length > 0) fullNext = true;
     if (r.data.changes.length > 0) mergeIn(r.data.changes);
   }
@@ -498,6 +522,10 @@ async function runOnce(): Promise<void> {
     if (!registeredNow) again = true;
   }
   const orphans = mergeIn(reply.changes, reply.redirects);
+  // A full answer: drop what the server no longer holds (synced items),
+  // queue what it never had. Never against a server that looks wiped.
+  const wiped = reply.syncing === false || (cursor !== null && reply.cursor !== null && reply.cursor < cursor);
+  if (reply.full && !wiped) resyncFull(reply.changes);
   const now = Date.now();
   if (orphans > 0 && since !== null && !reply.full) {
     // Rows for a Home we never saw: re-pull the full set.
@@ -530,6 +558,23 @@ function mergeIn(changes: ChangeItem[], redirects: Record<string, string> = {}):
     if (next !== box) setOutbox(next);
   }
   return res.orphans;
+}
+
+/** After a full pull was merged: drop synced items the full set lacks
+ *  (and their queued writes), queue local-only items it lacks. */
+function resyncFull(full: ChangeItem[]): void {
+  const homes = useHomesStore.getState();
+  const res = reconcileFull(homes.syncState(), full);
+  if (res.changed) homes.applySynced(res.state);
+  const box = st().outbox;
+  let next = box;
+  if (res.dropped.length > 0) {
+    const dropped = new Set(res.dropped);
+    next = next.filter((c) => !dropped.has(changeKey(c)));
+  }
+  const push = res.push.filter((c) => rejectedStamps.get(changeKey(c)) !== stampSig(c));
+  if (push.length > 0) next = coalesceOutbox(next, push);
+  if (next !== box && (next.length !== box.length || next.some((c, i) => c !== box[i]))) setOutbox(next);
 }
 
 /** Push the outbox, then pull. Single-flight; a call during a run makes
@@ -858,6 +903,7 @@ export function __resetHomesSyncForTests(opts: { deviceId?: string } = {}): void
   running = null;
   again = false;
   retryAttempt = 0;
+  rejectedStamps.clear();
   deviceIdPromise = null;
   deviceIdSource = opts.deviceId ? async () => opts.deviceId as string : defaultDeviceId;
   cursor = readMeta(readSyncServer()).cursor;

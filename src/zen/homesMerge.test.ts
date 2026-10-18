@@ -7,8 +7,10 @@ import {
   diffLocal,
   firstSyncMerge,
   incomingWins,
+  markSyncedKeys,
   migrateHomeAddresses,
   pruneTombstones,
+  reconcileFull,
   redirectOutbox,
   resolveHomeId,
   settleOutbox,
@@ -109,7 +111,10 @@ describe("diffLocal (every local edit is stamped and queued)", () => {
 });
 
 describe("applyRemote (steady state)", () => {
-  const local = state([home("h1", "Home", [row("a::s", { order: "V", updatedAt: 10 })], { order: "V", updatedAt: 10 })]);
+  // A phone that has synced: the server has seen both items.
+  const local = state([
+    home("h1", "Home", [{ ...row("a::s", { order: "V", updatedAt: 10 }), synced: true }], { order: "V", updatedAt: 10, synced: true }),
+  ]);
 
   it("newer remote edits win; older ones lose", () => {
     const r1 = applyRemote(local, [hc("h1", "Office", "V", 20)]);
@@ -286,7 +291,14 @@ describe("K2 0.46.1 final contract", () => {
   });
 
   it("tie-break: same updatedAt → the larger deviceId wins; a full tie → the tombstone", () => {
-    const mine = state([home("h1", "Mine", [row("a::s", { order: "V", updatedAt: 10, by: "phone-1" })], { order: "V", updatedAt: 10, by: "phone-1" })]);
+    const mine = state([
+      home("h1", "Mine", [{ ...row("a::s", { order: "V", updatedAt: 10, by: "phone-1" }), synced: true }], {
+        order: "V",
+        updatedAt: 10,
+        by: "phone-1",
+        synced: true,
+      }),
+    ]);
     // `desk-1` < `phone-1`: the phone's version stands.
     expect(applyRemote(mine, [hc("h1", "Desk", "V", 10, { by: "desk-1" })]).changed).toBe(false);
     // `zz-tablet` > `phone-1`: the tablet wins.
@@ -378,5 +390,84 @@ describe("K2 0.46.1 final contract", () => {
     expect(r.state.homes.map((h) => [h.id, h.rows.map((x) => x.address)])).toEqual([["h1", ["a::s"]]]);
     expect(r.state.redirects).toEqual({ "h-old": "h1" });
     expect(r.changes).toEqual([expect.objectContaining({ kind: "row", homeId: "h1", address: "a::s" })]);
+  });
+});
+
+describe("synced mark + full resync (reconcileFull)", () => {
+  const S = { synced: true };
+  const synced = state([
+    home("h1", "Home", [{ ...row("a::s", { order: "V", updatedAt: 1 }), ...S }, row("new::s", { order: "x", updatedAt: 2 })], {
+      order: "V",
+      updatedAt: 1,
+      ...S,
+    }),
+    home("h2", "Old", [{ ...row("b::s", { order: "V", updatedAt: 1 }), ...S }], { order: "l", updatedAt: 1, ...S }),
+    home("h3", "Mixed", [{ ...row("c::s", { order: "V", updatedAt: 1 }), ...S }, row("d::s", { order: "l", updatedAt: 3 })], {
+      order: "t",
+      updatedAt: 1,
+      ...S,
+    }),
+    home("h4", "Offline", [row("e::s", { order: "V", updatedAt: 4 })], { order: "x", updatedAt: 4 }),
+  ]);
+
+  it("applyRemote marks what the server sent, including an echo or a losing write", () => {
+    const plain = state([home("h1", "Home", [row("a::s", { order: "V", updatedAt: 10 })], { order: "V", updatedAt: 10 })]);
+    const echo = applyRemote(plain, [hc("h1", "Home", "V", 10, { by: undefined }), { ...rc("h1", "a::s", "V", 10), by: undefined }]);
+    expect(echo.state.homes[0].synced).toBe(true);
+    expect(echo.state.homes[0].rows[0].synced).toBe(true);
+    const lost = applyRemote(plain, [hc("h1", "Old", "V", 5)]);
+    expect(lost.state.homes[0]).toMatchObject({ name: "Home", synced: true });
+    expect(applyRemote(plain, [hc("h9", "New", "l", 5)]).state.homes.find((h) => h.id === "h9")?.synced).toBe(true);
+  });
+
+  it("drops synced items the full set lacks; keeps + pushes local-only ones; a Home with local-only rows stays", () => {
+    // The server's full set holds only h1 + a::s.
+    const full: ChangeItem[] = [hc("h1", "Home", "V", 1), rc("h1", "a::s", "V", 1)];
+    const r = reconcileFull(synced, full);
+    expect(r.changed).toBe(true);
+    expect(r.state.homes.map((h) => [h.id, h.rows.map((x) => x.address)])).toEqual([
+      ["h1", ["a::s", "new::s"]],
+      ["h3", ["d::s"]],
+      ["h4", ["e::s"]],
+    ]);
+    expect(r.dropped.sort()).toEqual(["h|h2", "r|h2|b::s", "r|h3|c::s"]);
+    expect(r.push.map((c) => (c.kind === "home" ? `h|${c.id}` : `r|${c.homeId}|${c.address}`))).toEqual([
+      "r|h1|new::s",
+      "h|h3",
+      "r|h3|d::s",
+      "h|h4",
+      "r|h4|e::s",
+    ]);
+    // No tombstones for what was dropped.
+    expect(r.state.tombstones).toEqual([]);
+  });
+
+  it("unmarked (legacy) items are never dropped", () => {
+    const legacy = state([home("h1", "Home", [row("a::s", { order: "V", updatedAt: 0 })], { order: "V" })]);
+    const r = reconcileFull(legacy, []);
+    expect(r.changed).toBe(false);
+    expect(r.state).toBe(legacy);
+    expect(r.push).toHaveLength(2);
+  });
+
+  it("markSyncedKeys marks only the named items (null when nothing changes)", () => {
+    const next = markSyncedKeys(synced.homes, ["r|h1|new::s", "h|h4"])!;
+    expect(next[0].rows[1].synced).toBe(true);
+    expect(next[3].synced).toBe(true);
+    expect(next[3].rows[0].synced).toBeUndefined();
+    expect(markSyncedKeys(next, ["r|h1|new::s"])).toBeNull();
+  });
+
+  it("first sync clears marks from another server and marks what this server holds", () => {
+    const local = state([
+      home("mine", "Home", [{ ...row("a::s", { order: "V", updatedAt: 1 }), ...S }], { order: "V", updatedAt: 1, ...S }),
+      home("solo", "Solo", [], { order: "l", updatedAt: 1, ...S }),
+    ]);
+    const r = firstSyncMerge(local, [hc("srv", "Home", "V", 5), rc("srv", "b::s", "V", 5)], { now: 100, by: ME });
+    const srv = r.state.homes.find((h) => h.id === "srv")!;
+    expect(srv.synced).toBe(true);
+    expect(srv.rows.find((x) => x.address === "b::s")?.synced).toBe(true);
+    expect(srv.rows.find((x) => x.address === "a::s")?.synced).toBeUndefined();
+    expect(r.state.homes.find((h) => h.id === "solo")?.synced).toBeUndefined();
   });
 });
