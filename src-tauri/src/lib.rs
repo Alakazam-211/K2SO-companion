@@ -199,6 +199,11 @@ mod ios_keyboard {
         static UIApplicationDidBecomeActiveNotification: *const AnyObject;
     }
 
+    #[link(name = "Foundation", kind = "framework")]
+    extern "C" {
+        static NSRunLoopCommonModes: *const AnyObject;
+    }
+
     /// Scroll the WKWebView's (disabled) scroll view back to the origin.
     fn reset_content_offset(wk: *mut AnyObject) {
         unsafe {
@@ -321,6 +326,16 @@ mod ios_keyboard {
             .map(|d| d.as_millis())
             .unwrap_or(0);
         let show = !hiding && overlap > 0.0;
+        // The keyboard moves on its own now: the frame tracker stands down
+        // until it lands (then re-bases on wherever that is).
+        TRACK.with(|t| {
+            t.borrow_mut().anim_until =
+                Some(Instant::now() + Duration::from_millis(duration_ms as u64 + 40));
+        });
+        if show {
+            set_interactive_dismiss(wk);
+            start_tracking();
+        }
         let js = format!(
             "window.__k2KeyboardWill && window.__k2KeyboardWill({{height:{:.1},duration:{:.0},curve:{},show:{},at:{}}});",
             overlap, duration_ms, curve, show, at
@@ -336,6 +351,355 @@ mod ios_keyboard {
         keyboard_will(note, true);
     }
 
+    // ── Interactive dismiss (iMessage) ───────────────────────────────
+    //
+    // The Thread's list is an overflow:auto div, which WebKit backs with a
+    // native child UIScrollView (WKChildScrollView). With
+    // keyboardDismissMode = .interactive, dragging it down into the
+    // keyboard moves the keyboard with the finger. UIKit posts no
+    // notifications while the finger drags it, so while the keyboard is
+    // up a CADisplayLink reads its top every frame and, when it moved
+    // with no Will* animation in flight, tells the page
+    // (`window.__k2KeyboardTrack(overlap)`): the composer rides it. On
+    // release UIKit posts WillHide / WillShow with the rest of the
+    // animation, which takes over (keyboard_will).
+    //
+    // Keyboard top: UIKeyboardLayoutGuide (public, iOS 15+) first. If it
+    // sits still while the keyboard's host view moves (it did not follow
+    // the interactive drag), the host view's frame is used: found by
+    // class name in the scene's windows, only its public geometry read.
+    // Absent views / selectors just mean no tracking.
+
+    const UI_SCROLL_VIEW_KEYBOARD_DISMISS_MODE_INTERACTIVE: isize = 2;
+    /// Re-apply the dismiss mode every this many frames (WebKit creates
+    /// child scroll views lazily, and recreates them on re-layering).
+    const REAPPLY_TICKS: u32 = 45;
+    /// A track call never answered (page busy / navigating) stops
+    /// blocking after this long.
+    const IN_FLIGHT_TIMEOUT: Duration = Duration::from_millis(150);
+
+    use std::cell::RefCell;
+    use std::sync::atomic::AtomicBool;
+    use std::time::{Duration, Instant};
+
+    static OBSERVER: AtomicPtr<AnyObject> = AtomicPtr::new(std::ptr::null_mut());
+    static LINK: AtomicPtr<AnyObject> = AtomicPtr::new(std::ptr::null_mut());
+    static TRACK_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
+
+    #[derive(Clone, Copy, PartialEq)]
+    enum TrackSource {
+        Guide,
+        Host,
+    }
+
+    struct Track {
+        /// A Will* animation owns the keyboard until then.
+        anim_until: Option<Instant>,
+        /// Next tick takes the current values as the baseline, sends nothing.
+        rebase: bool,
+        prev_guide: f64,
+        prev_host: f64,
+        sent: f64,
+        source: TrackSource,
+        ticks: u32,
+        sent_at: Option<Instant>,
+        guide_configured: bool,
+    }
+
+    thread_local! {
+        // Main thread only (notifications + display link).
+        static TRACK: RefCell<Track> = RefCell::new(Track {
+            anim_until: None,
+            rebase: true,
+            prev_guide: 0.0,
+            prev_host: 0.0,
+            sent: 0.0,
+            source: TrackSource::Guide,
+            ticks: 0,
+            sent_at: None,
+            guide_configured: false,
+        });
+    }
+
+    /// `keyboardDismissMode = .interactive` on every UIScrollView inside
+    /// the web view except its own (disabled) top-level scroll view.
+    fn set_interactive_dismiss(wk: *mut AnyObject) {
+        unsafe {
+            let Some(scroll_class) = AnyClass::get(c"UIScrollView") else {
+                return;
+            };
+            let top: *mut AnyObject = msg_send![wk, scrollView];
+            let mut budget = 5000usize;
+            walk_scroll_views(wk, top, scroll_class, 0, &mut budget);
+        }
+    }
+
+    unsafe fn walk_scroll_views(
+        view: *mut AnyObject,
+        top: *mut AnyObject,
+        scroll_class: &AnyClass,
+        depth: u32,
+        budget: &mut usize,
+    ) {
+        if view.is_null() || depth > 64 || *budget == 0 {
+            return;
+        }
+        *budget -= 1;
+        if view != top {
+            let is_scroll: bool = msg_send![view, isKindOfClass: scroll_class];
+            if is_scroll {
+                let mode: isize = msg_send![view, keyboardDismissMode];
+                if mode != UI_SCROLL_VIEW_KEYBOARD_DISMISS_MODE_INTERACTIVE {
+                    let _: () = msg_send![view, setKeyboardDismissMode: UI_SCROLL_VIEW_KEYBOARD_DISMISS_MODE_INTERACTIVE];
+                }
+            }
+        }
+        let subviews: *mut AnyObject = msg_send![view, subviews];
+        if subviews.is_null() {
+            return;
+        }
+        let n: usize = msg_send![subviews, count];
+        for i in 0..n {
+            let sv: *mut AnyObject = msg_send![subviews, objectAtIndex: i];
+            walk_scroll_views(sv, top, scroll_class, depth + 1, budget);
+        }
+    }
+
+    /// Keyboard overlap of the web view per its keyboardLayoutGuide.
+    fn guide_overlap(wk: *mut AnyObject, configure: bool) -> Option<f64> {
+        unsafe {
+            let has: bool = msg_send![wk, respondsToSelector: sel!(keyboardLayoutGuide)];
+            if !has {
+                return None;
+            }
+            let guide: *mut AnyObject = msg_send![wk, keyboardLayoutGuide];
+            if guide.is_null() {
+                return None;
+            }
+            if configure {
+                // Docked keyboard only; and reach the real bottom edge, not
+                // the home-indicator inset, when it is down (iOS 17+).
+                let can: bool = msg_send![guide, respondsToSelector: sel!(setFollowsUndockedKeyboard:)];
+                if can {
+                    let _: () = msg_send![guide, setFollowsUndockedKeyboard: false];
+                }
+                let can: bool = msg_send![guide, respondsToSelector: sel!(setUsesBottomSafeArea:)];
+                if can {
+                    let _: () = msg_send![guide, setUsesBottomSafeArea: false];
+                }
+            }
+            let f: CGRect = msg_send![guide, layoutFrame];
+            if f.origin.y <= 0.0 && f.size.height <= 0.0 {
+                return None; // not laid out yet
+            }
+            let b: CGRect = msg_send![wk, bounds];
+            let bottom = b.origin.y + b.size.height;
+            Some((bottom - f.origin.y).clamp(0.0, b.size.height.max(0.0)))
+        }
+    }
+
+    unsafe fn find_view_named(
+        view: *mut AnyObject,
+        name: &[u8],
+        depth: u32,
+    ) -> Option<*mut AnyObject> {
+        if view.is_null() || depth > 5 {
+            return None;
+        }
+        if (*view).class().name().to_bytes() == name {
+            let b: CGRect = msg_send![view, bounds];
+            if b.size.height > 0.0 {
+                return Some(view);
+            }
+        }
+        let subviews: *mut AnyObject = msg_send![view, subviews];
+        if subviews.is_null() {
+            return None;
+        }
+        let n: usize = msg_send![subviews, count];
+        for i in 0..n {
+            let sv: *mut AnyObject = msg_send![subviews, objectAtIndex: i];
+            if let Some(found) = find_view_named(sv, name, depth + 1) {
+                return Some(found);
+            }
+        }
+        None
+    }
+
+    /// Keyboard overlap of the web view per the keyboard's host view.
+    fn host_overlap(wk: *mut AnyObject) -> Option<f64> {
+        unsafe {
+            let window: *mut AnyObject = msg_send![wk, window];
+            if window.is_null() {
+                return None;
+            }
+            let scene: *mut AnyObject = msg_send![window, windowScene];
+            if scene.is_null() {
+                return None;
+            }
+            let windows: *mut AnyObject = msg_send![scene, windows];
+            if windows.is_null() {
+                return None;
+            }
+            let n: usize = msg_send![windows, count];
+            for i in 0..n {
+                let w: *mut AnyObject = msg_send![windows, objectAtIndex: i];
+                if w.is_null() || w == window {
+                    continue;
+                }
+                let Some(host) = find_view_named(w, b"UIInputSetHostView", 0) else {
+                    continue;
+                };
+                let hb: CGRect = msg_send![host, bounds];
+                let in_window: CGRect =
+                    msg_send![host, convertRect: hb, toView: std::ptr::null_mut::<AnyObject>()];
+                let screen: *mut AnyObject = msg_send![w, screen];
+                if screen.is_null() {
+                    continue;
+                }
+                let space: *mut AnyObject = msg_send![screen, coordinateSpace];
+                if space.is_null() {
+                    continue;
+                }
+                let on_screen: CGRect =
+                    msg_send![w, convertRect: in_window, toCoordinateSpace: space];
+                return Some(keyboard_overlap(wk, on_screen));
+            }
+            None
+        }
+    }
+
+    fn send_track(wk: *mut AnyObject, overlap: f64) {
+        let js = format!(
+            "window.__k2KeyboardTrack && window.__k2KeyboardTrack({:.1});",
+            overlap
+        );
+        let Ok(c) = std::ffi::CString::new(js) else {
+            return;
+        };
+        unsafe {
+            let s: *mut AnyObject = msg_send![class!(NSString), stringWithUTF8String: c.as_ptr()];
+            if s.is_null() {
+                return;
+            }
+            let done = block2::RcBlock::new(|_result: *mut AnyObject, _error: *mut AnyObject| {
+                TRACK_IN_FLIGHT.store(false, Ordering::Release);
+            });
+            TRACK_IN_FLIGHT.store(true, Ordering::Release);
+            let _: () = msg_send![wk, evaluateJavaScript: s, completionHandler: &*done];
+        }
+    }
+
+    extern "C-unwind" fn on_keyboard_tick(_this: &AnyObject, _cmd: Sel, _link: *mut AnyObject) {
+        let Some(wk) = live_webview() else {
+            return;
+        };
+        let now = Instant::now();
+        let (reapply, configure) = TRACK.with(|t| {
+            let mut t = t.borrow_mut();
+            t.ticks = t.ticks.wrapping_add(1);
+            let configure = !t.guide_configured;
+            t.guide_configured = true;
+            (t.ticks % REAPPLY_TICKS == 0, configure)
+        });
+        if reapply {
+            set_interactive_dismiss(wk);
+        }
+        let guide = guide_overlap(wk, configure);
+        let host = host_overlap(wk);
+        let send = TRACK.with(|t| {
+            let mut t = t.borrow_mut();
+            let animating = t.anim_until.map_or(false, |until| now < until);
+            if animating || t.rebase {
+                if !animating {
+                    t.anim_until = None;
+                    t.rebase = false;
+                } else {
+                    t.rebase = true;
+                }
+                if let Some(g) = guide {
+                    t.prev_guide = g;
+                }
+                if let Some(h) = host {
+                    t.prev_host = h;
+                }
+                t.sent = guide.or(host).unwrap_or(t.sent);
+                t.source = TrackSource::Guide;
+                return None;
+            }
+            let guide_moved = guide.map_or(false, |g| (g - t.prev_guide).abs() >= 0.5);
+            let host_moved = host.map_or(false, |h| (h - t.prev_host).abs() >= 0.5);
+            if let Some(g) = guide {
+                t.prev_guide = g;
+            }
+            if let Some(h) = host {
+                t.prev_host = h;
+            }
+            if guide_moved {
+                t.source = TrackSource::Guide;
+            } else if host_moved {
+                t.source = TrackSource::Host;
+            }
+            let cur = match t.source {
+                TrackSource::Guide => guide.or(host),
+                TrackSource::Host => host.or(guide),
+            }?;
+            if (cur - t.sent).abs() < 0.5 {
+                return None;
+            }
+            let busy = TRACK_IN_FLIGHT.load(Ordering::Acquire)
+                && t.sent_at.map_or(false, |at| now.duration_since(at) < IN_FLIGHT_TIMEOUT);
+            if busy {
+                return None; // the next frame sends the latest
+            }
+            t.sent = cur;
+            t.sent_at = Some(now);
+            Some(cur)
+        });
+        if let Some(overlap) = send {
+            send_track(wk, overlap);
+        }
+    }
+
+    /// Start the per-frame keyboard tracker (idempotent).
+    fn start_tracking() {
+        if !LINK.load(Ordering::Acquire).is_null() {
+            return;
+        }
+        let observer = OBSERVER.load(Ordering::Acquire);
+        if observer.is_null() {
+            return;
+        }
+        let Some(link_class) = AnyClass::get(c"CADisplayLink") else {
+            return;
+        };
+        unsafe {
+            let link: *mut AnyObject = msg_send![link_class, displayLinkWithTarget: observer, selector: sel!(k2KeyboardTick:)];
+            if link.is_null() {
+                return;
+            }
+            let run_loop: *mut AnyObject = msg_send![class!(NSRunLoop), mainRunLoop];
+            if run_loop.is_null() {
+                return;
+            }
+            // Common modes: keep ticking while a scroll view is tracking.
+            let _: () = msg_send![link, addToRunLoop: run_loop, forMode: NSRunLoopCommonModes];
+            LINK.store(link, Ordering::Release);
+        }
+        TRACK.with(|t| t.borrow_mut().rebase = true);
+    }
+
+    fn stop_tracking() {
+        let link = LINK.swap(std::ptr::null_mut(), Ordering::AcqRel);
+        if !link.is_null() {
+            // The run loop held the only reference: invalidate releases it.
+            unsafe {
+                let _: () = msg_send![link, invalidate];
+            }
+        }
+        TRACK_IN_FLIGHT.store(false, Ordering::Release);
+    }
+
     fn live_webview() -> Option<*mut AnyObject> {
         let wk = WEBVIEW.load(Ordering::Acquire);
         if wk.is_null() {
@@ -347,6 +711,21 @@ mod ios_keyboard {
 
     extern "C-unwind" fn on_keyboard_did_show(_this: &AnyObject, _cmd: Sel, _note: *mut AnyObject) {
         if let Some(wk) = live_webview() {
+            set_interactive_dismiss(wk);
+            TRACK.with(|t| {
+                let mut t = t.borrow_mut();
+                t.anim_until = None;
+                t.rebase = true;
+            });
+            start_tracking();
+            ping_page(wk);
+        }
+    }
+
+    extern "C-unwind" fn on_keyboard_did_hide(_this: &AnyObject, _cmd: Sel, _note: *mut AnyObject) {
+        stop_tracking();
+        if let Some(wk) = live_webview() {
+            reset_content_offset(wk);
             ping_page(wk);
         }
     }
@@ -374,6 +753,14 @@ mod ios_keyboard {
             );
             builder.add_method(sel!(k2ResetViewport:), on_reset as extern "C-unwind" fn(_, _, _));
             builder.add_method(
+                sel!(k2KeyboardDidHide:),
+                on_keyboard_did_hide as extern "C-unwind" fn(_, _, _),
+            );
+            builder.add_method(
+                sel!(k2KeyboardTick:),
+                on_keyboard_tick as extern "C-unwind" fn(_, _, _),
+            );
+            builder.add_method(
                 sel!(k2KeyboardWillChange:),
                 on_keyboard_will_change as extern "C-unwind" fn(_, _, _),
             );
@@ -390,13 +777,14 @@ mod ios_keyboard {
             if observer.is_null() {
                 return;
             }
+            OBSERVER.store(observer, Ordering::Release);
             let center: *mut AnyObject = msg_send![class!(NSNotificationCenter), defaultCenter];
             if center.is_null() {
                 return;
             }
             let none = std::ptr::null::<AnyObject>();
             let _: () = msg_send![center, addObserver: observer, selector: sel!(k2KeyboardDidShow:), name: UIKeyboardDidShowNotification, object: none];
-            let _: () = msg_send![center, addObserver: observer, selector: sel!(k2ResetViewport:), name: UIKeyboardDidHideNotification, object: none];
+            let _: () = msg_send![center, addObserver: observer, selector: sel!(k2KeyboardDidHide:), name: UIKeyboardDidHideNotification, object: none];
             let _: () = msg_send![center, addObserver: observer, selector: sel!(k2ResetViewport:), name: UIApplicationDidBecomeActiveNotification, object: none];
             let _: () = msg_send![center, addObserver: observer, selector: sel!(k2KeyboardWillChange:), name: UIKeyboardWillShowNotification, object: none];
             let _: () = msg_send![center, addObserver: observer, selector: sel!(k2KeyboardWillChange:), name: UIKeyboardWillChangeFrameNotification, object: none];
@@ -444,6 +832,14 @@ mod ios_keyboard {
                     // Native ping (keyboard did show/hide, app did become
                     // active): always re-send the height, then ask the page
                     // to re-measure + reset any pan (useViewportHeight).
+                    // Native per-frame keyboard top during an interactive
+                    // dismiss (overlap px).
+                    if (typeof window.__k2KeyboardTrack !== 'function') {
+                        window.__k2KeyboardTrack = function(h) {
+                            window.dispatchEvent(new CustomEvent('k2-keyboard-track', { detail: { height: h } }));
+                        };
+                    }
+
                     window.__k2ViewportPing = function() {
                         var vv = window.visualViewport;
                         lastHeight = vv ? vv.height : window.innerHeight;
