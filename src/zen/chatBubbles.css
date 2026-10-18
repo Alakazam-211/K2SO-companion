@@ -25,9 +25,9 @@
   height: 20px;
   background: var(--k2-bubble, #0a84ff);
   pointer-events: none;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M0 0H14V8C14 13 16 17 20 19.6C15.5 20.2 11.5 18.6 9 16.2C7 18.5 3.5 20 0 20Z'/%3E%3C/svg%3E")
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M0 0H14V8C14 13 16 17 20 19.6C15.2 20.3 11.2 18 9 14.4C7 18.3 3.5 20 0 20Z'/%3E%3C/svg%3E")
     center / 100% 100% no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M0 0H14V8C14 13 16 17 20 19.6C15.5 20.2 11.5 18.6 9 16.2C7 18.5 3.5 20 0 20Z'/%3E%3C/svg%3E")
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M0 0H14V8C14 13 16 17 20 19.6C15.2 20.3 11.2 18 9 14.4C7 18.3 3.5 20 0 20Z'/%3E%3C/svg%3E")
     center / 100% 100% no-repeat;
 }
 /* The bubble's corner under the tail is nearly square (iMessage): its
@@ -40,13 +40,15 @@
 .zen-tail[data-tail="theirs"] {
   border-bottom-left-radius: 4px !important;
 }
+/* -8px puts the notch's deepest point just past the bubble's edge, so it
+   reads as a cut-in (the squared corner filled it in at -6px). */
 .zen-tail[data-tail="mine"]::after,
 .zen-tail-solo[data-tail="mine"] {
-  right: -6px;
+  right: -8px;
 }
 .zen-tail[data-tail="theirs"]::after,
 .zen-tail-solo[data-tail="theirs"] {
-  left: -6px;
+  left: -8px;
   transform: scaleX(-1);
 }
 
