@@ -456,6 +456,7 @@ describe("interactive keyboard dismiss (drag start / release hand-off)", () => {
   let standInBottom: number | null = null;
   const handler = {
     keyboardMoved: vi.fn(),
+    keyboardSample: vi.fn(),
     draggedBottom: vi.fn(() => standInBottom),
     detach: vi.fn(),
   };
@@ -465,6 +466,7 @@ describe("interactive keyboard dismiss (drag start / release hand-off)", () => {
     reduce = false;
     standInBottom = null;
     handler.keyboardMoved.mockClear();
+    handler.keyboardSample.mockClear();
     handler.draggedBottom.mockClear();
     handler.detach.mockClear();
     window.matchMedia = vi.fn((q: string) => ({
@@ -530,6 +532,35 @@ describe("interactive keyboard dismiss (drag start / release hand-off)", () => {
     begin();
     signal(KEYBOARD - 60);
     expect(handler.keyboardMoved).toHaveBeenCalledTimes(1);
+  });
+
+  it("the shell's dismiss samples reach the handler (and nothing else moves)", () => {
+    render(<Column />);
+    keyboardShown();
+    setKeyboardDragHandler(handler);
+    act(() => {
+      (window as unknown as { __k2KeyboardSample: (s: unknown) => void }).__k2KeyboardSample({
+        top: 520.5,
+        scrollY: 1234.25,
+        t: 99,
+      });
+    });
+    expect(handler.keyboardSample).toHaveBeenCalledWith({ top: 520.5, scrollY: 1234.25, t: 99 });
+    act(() => {
+      (window as unknown as { __k2KeyboardSample: (s: unknown) => void }).__k2KeyboardSample({
+        top: 530,
+        scrollY: null,
+        t: 120,
+      });
+      // Malformed: ignored.
+      (window as unknown as { __k2KeyboardSample: (s: unknown) => void }).__k2KeyboardSample({
+        top: "x",
+      });
+    });
+    expect(handler.keyboardSample).toHaveBeenCalledTimes(2);
+    expect(handler.keyboardSample).toHaveBeenLastCalledWith({ top: 530, scrollY: null, t: 120 });
+    expect(seen?.interactive).toBe(false);
+    expect(el("col").style.height).toBe(`${FULL - KEYBOARD}px`);
   });
 
   it("release to close: the column takes the stand-in's bottom, unanimated, then eases", () => {
