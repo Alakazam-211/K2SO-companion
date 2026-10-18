@@ -269,7 +269,13 @@ describe("keyboard motion (native UIKeyboardWill*)", () => {
 
     will({ height: 0, duration: 250, curve: 7, show: false });
     expect(read().h).toBe(FULL);
-    expect(seen).toEqual({ ms: 250, easing: KEYBOARD_EASING, elapsed: 0 });
+    expect(seen).toEqual({
+      ms: 250,
+      easing: KEYBOARD_EASING,
+      elapsed: 0,
+      from: FULL - KEYBOARD,
+      to: FULL,
+    });
 
     // WebKit's visualViewport and the native ping still report the
     // keyboard mid-slide: they must not fight the glide.
@@ -411,8 +417,8 @@ describe("keyboard motion (native UIKeyboardWill*)", () => {
     expect(keyboardEasing(3)).toBe("linear");
     expect(keyboardEasing(2)).toBe("ease-out");
     expect(viewportTransition(null)).toBeUndefined();
-    expect(viewportTransition({ ms: 250, easing: "linear", elapsed: 0 })).toBe("height 250ms linear");
-    expect(viewportTransition({ ms: 250, easing: "linear", elapsed: 12.4 }, "top")).toBe(
+    expect(viewportTransition({ ms: 250, easing: "linear", elapsed: 0, from: 500, to: 844 })).toBe("height 250ms linear");
+    expect(viewportTransition({ ms: 250, easing: "linear", elapsed: 12.4, from: 500, to: 844 }, "top")).toBe(
       "top 250ms linear -12ms"
     );
   });
@@ -429,7 +435,15 @@ describe("interactive keyboard dismiss (drag start / release hand-off)", () => {
     renders++;
     seen = { h: height, interactive, motion };
     return (
-      <div data-testid="col" ref={ref} style={{ height, transition: viewportTransition(motion) }}>
+      // Zen's thread column: no height transition; held at `from` while
+      // the keyboard rises (ThreadPane plays it by FLIP).
+      <div
+        data-testid="col"
+        ref={ref}
+        style={{
+          height: interactive ? FULL : motion && motion.to < motion.from ? motion.from : height,
+        }}
+      >
         <div data-testid="pad" ref={pad} />
       </div>
     );
@@ -563,37 +577,29 @@ describe("interactive keyboard dismiss (drag start / release hand-off)", () => {
     expect(el("col").style.height).toBe(`${FULL - KEYBOARD}px`);
   });
 
-  it("release to close: the column takes the stand-in's bottom, unanimated, then eases", () => {
+  it("release to close: the column goes final at once; the motion starts at the stand-in's bottom (FLIP)", () => {
     render(<Column />);
     keyboardShown();
     setKeyboardDragHandler(handler);
     begin();
     standInBottom = FULL - KEYBOARD + 150;
     const col = el("col");
-    const seenAtLayout: string[] = [];
-    Object.defineProperty(col, "offsetHeight", {
-      configurable: true,
-      get() {
-        seenAtLayout.push(`${col.style.height}|${col.style.transition}|${el("pad").style.height}`);
-        return 0;
-      },
-    });
     will({ height: 0, duration: 180, curve: 7, show: false });
     expect(handler.detach).toHaveBeenCalledTimes(1);
-    expect(seenAtLayout).toEqual([`${FULL - KEYBOARD + 150}px|none|`]);
     expect(seen?.interactive).toBe(false);
     expect(seen?.h).toBe(FULL);
-    expect(seen?.motion?.ms).toBe(180);
+    expect(seen?.motion).toMatchObject({ ms: 180, from: FULL - KEYBOARD + 150, to: FULL });
+    // Final layout, no height transition (no per-frame layout).
     expect(col.style.height).toBe(`${FULL}px`);
-    expect(col.style.transition).toBe(`height 180ms ${KEYBOARD_EASING}`);
+    expect(col.style.transition).toBe("");
+    expect(el("pad").style.height).toBe("");
     vv.height = FULL;
     flush();
     expect(seen?.motion).toBeNull();
-    expect(col.style.transition).toBe("");
-    delete (col as unknown as Record<string, unknown>).offsetHeight;
+    expect(col.style.height).toBe(`${FULL}px`);
   });
 
-  it("spring back: WillShow to the old height still eases from where the stand-in is", () => {
+  it("spring back: the column holds the dragged height while the keyboard rises", () => {
     render(<Column />);
     keyboardShown();
     setKeyboardDragHandler(handler);
@@ -603,28 +609,31 @@ describe("interactive keyboard dismiss (drag start / release hand-off)", () => {
     expect(handler.detach).toHaveBeenCalled();
     expect(seen?.interactive).toBe(false);
     expect(seen?.h).toBe(FULL - KEYBOARD);
-    expect(seen?.motion?.ms).toBe(200);
-    expect(el("col").style.height).toBe(`${FULL - KEYBOARD}px`);
-    expect(el("col").style.transition).toBe(`height 200ms ${KEYBOARD_EASING}`);
+    expect(seen?.motion).toMatchObject({ ms: 200, from: FULL - KEYBOARD + 100, to: FULL - KEYBOARD });
+    expect(el("col").style.height).toBe(`${FULL - KEYBOARD + 100}px`);
+    expect(el("col").style.transition).toBe("");
   });
 
-  it("no handler: the release falls back to the signalled overlap", () => {
+  it("spring back under reduced motion: final at once", () => {
+    reduce = true;
+    render(<Column />);
+    keyboardShown();
+    setKeyboardDragHandler(handler);
+    begin();
+    standInBottom = FULL - KEYBOARD + 100;
+    will({ height: KEYBOARD, duration: 200, curve: 7, show: true });
+    expect(seen?.motion).toBeNull();
+    expect(el("col").style.height).toBe(`${FULL - KEYBOARD}px`);
+  });
+
+  it("no handler: the release starts from the signalled overlap", () => {
     render(<Column />);
     keyboardShown();
     begin();
     signal(KEYBOARD - 90);
-    const col = el("col");
-    const at: string[] = [];
-    Object.defineProperty(col, "offsetHeight", {
-      configurable: true,
-      get() {
-        at.push(col.style.height);
-        return 0;
-      },
-    });
     will({ height: 0, duration: 200, curve: 7, show: false });
-    expect(at).toEqual([`${FULL - KEYBOARD + 90}px`]);
-    delete (col as unknown as Record<string, unknown>).offsetHeight;
+    expect(seen?.motion).toMatchObject({ from: FULL - KEYBOARD + 90, to: FULL });
+    expect(el("col").style.height).toBe(`${FULL}px`);
   });
 
   it("endKeyboardDrag / a Did* resync hand everything back, unanimated", () => {

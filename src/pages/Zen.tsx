@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { useViewport, useViewportTrackRef, viewportTransition } from "../lib/useViewportHeight";
+import { fullViewportHeight, useViewport, useViewportTrackRef } from "../lib/useViewportHeight";
 import { WorkspaceAvatar } from "../zen/WorkspaceAvatar";
 import { GroupChatAvatar } from "../zen/GroupChatAvatar";
 import { useWorkspacesStore } from "../stores/workspaces";
@@ -422,7 +422,18 @@ export function Zen() {
           className="relative flex flex-col min-h-0 overflow-x-hidden"
           data-testid="thread-column"
           ref={threadColumnRef}
-          style={{ height: containerHeight, transition: viewportTransition(viewportMotion) }}
+          // Keyboard motion plays on the compositor (ThreadPane's FLIP): no
+          // height transition. While the keyboard rises the column stays
+          // at its old height (nothing clipped) and takes the new one as
+          // the motion clears. During an interactive dismiss it is full
+          // height (as beginKeyboardDrag set it).
+          style={{
+            height: viewportInteractive
+              ? fullViewportHeight()
+              : viewportMotion && viewportMotion.to < viewportMotion.from
+                ? viewportMotion.from
+                : containerHeight,
+          }}
           onClick={
             filesPaneOpen || sessionsOpen
               ? () => {
@@ -745,9 +756,7 @@ export function Zen() {
             <ThreadPane
               viewportHeight={containerHeight}
               viewportInteractive={viewportInteractive}
-              viewportMotionMs={
-                viewportMotion ? Math.max(0, viewportMotion.ms - viewportMotion.elapsed) : 0
-              }
+              viewportMotion={viewportMotion}
               topInset={headerPx}
               covered={viewingFile}
               roomBanner={

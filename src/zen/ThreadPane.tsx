@@ -15,8 +15,10 @@ import { loadGroupPoc, type GroupPoc } from "./groupPoc";
 import { GlassComposer, composerBlockHeight, composerPlaceholder } from "./GlassComposer";
 import {
   fullViewportHeight,
+  keyboardFlipTransition,
   keyboardMotionMs,
   useViewportPadRef,
+  type ViewportMotion,
 } from "../lib/useViewportHeight";
 import {
   installKeyboardDragDock,
@@ -296,7 +298,7 @@ export const COMPOSER_FOCUSED_ATTR = "data-composer-focused";
 
 export function ThreadPane({
   viewportHeight,
-  viewportMotionMs = 0,
+  viewportMotion = null,
   viewportInteractive = false,
   topInset,
   covered = false,
@@ -305,9 +307,9 @@ export function ThreadPane({
   onComposerInput,
 }: {
   viewportHeight?: number;
-  /** The keyboard is easing `viewportHeight` over this many ms (iOS,
-   *  useViewport().motion): keep the newest pinned every frame of it. */
-  viewportMotionMs?: number;
+  /** The keyboard is moving (iOS, useViewport().motion): the composer
+   *  (and the list, if it moves) play it by a FLIP transform. */
+  viewportMotion?: ViewportMotion | null;
   /** The keyboard follows a finger dragging the list (interactive
    *  dismiss): the column grows under it; never re-pin mid-drag. */
   viewportInteractive?: boolean;
@@ -898,21 +900,73 @@ export function ThreadPane({
     };
   }, [viewingAllowed, covered, source, conversationId, threadGroupId, zenServer]);
 
-  // Keyboard open/close: Zen sizes the column to the visual viewport, so
-  // the scroller shrinks with scrollTop unchanged and the newest message
-  // would slide under the composer. Re-stick if the reader was there —
-  // every frame while the column eases with the keyboard (iOS).
+  // Keyboard open/close, on the compositor (FLIP), with no per-frame
+  // layout or scroll writes:
+  //   - hide: the column is already at its final height. Re-stick if the
+  //     reader was at the newest; then the dock (composer + blur) and,
+  //     if the commit moved the list (re-stick / clamp), the list's
+  //     children start translated back to where they were drawn and
+  //     play to 0 on the keyboard's duration + curve;
+  //   - show: Zen holds the column at its old height; the dock (and the
+  //     list, if the reader is at the newest) play up to where the new
+  //     layout will put them; when the motion clears the column takes
+  //     its height and the transforms go in the same commit (re-stuck).
+  // After an interactive drag the finger owns the scroll: the list is
+  // never moved or re-stuck, only the composer plays.
+  const flipList = useRef(0);
+  // The running motion is a drag's release (its end must not re-stick).
+  const dragMotion = useRef(false);
   useLayoutEffect(() => {
-    if (viewportHeight == null) return;
-    if (afterDrag.current && !viewportInteractive) {
-      // Released from an interactive dismiss: the finger scrolled where
-      // it wanted and momentum carries on — no re-pin over it.
-      afterDrag.current = false;
+    const el = scrollerRef.current;
+    const dock = dockRef.current;
+    if (viewportHeight == null || !el || !dock) return;
+    const listEls = () => Array.from(el.children) as HTMLElement[];
+    const setT = (els: HTMLElement[], y: number, transition: string) => {
+      for (const x of els) {
+        x.style.transition = transition;
+        x.style.transform = y ? `translate3d(0, ${y}px, 0)` : "";
+      }
+    };
+    const m = viewportMotion;
+    const dragged = (afterDrag.current && !viewportInteractive) || (!!m && dragMotion.current);
+    if (!m) {
+      // No motion / the motion is over: final layout, no transforms.
+      const moved = flipList.current !== 0;
+      setT([dock], 0, "none");
+      if (moved) setT(listEls(), 0, "none");
+      flipList.current = 0;
+      if (dragged || dragMotion.current) {
+        afterDrag.current = false;
+        dragMotion.current = false;
+      } else if (moved || following.current) follow();
       return;
     }
-    if (viewportMotionMs > 0) followFor(viewportMotionMs + 80);
-    else follow();
-  }, [viewportHeight]);
+    dragMotion.current = dragged;
+    const play = keyboardFlipTransition(m);
+    if (m.to > m.from) {
+      // Hide (FLIP): layout is final; invert, then play to 0.
+      const before = lastTop.current;
+      if (!dragged) follow();
+      const shift = before - el.scrollTop; // the list moved down by this
+      setT([dock], m.from - m.to, "none");
+      flipList.current = !dragged && Math.abs(shift) >= 0.5 ? -shift : 0;
+      if (flipList.current) setT(listEls(), flipList.current, "none");
+      void dock.getBoundingClientRect(); // flush: start from the inverted spot
+      setT([dock], 0, play);
+      if (flipList.current) setT(listEls(), 0, play);
+      return;
+    }
+    // Show: play forward to the layout the motion's end will commit.
+    const growth = m.from - m.to; // the list's viewport shrinks by this
+    const maxNow = el.scrollHeight - el.clientHeight;
+    const rise =
+      !dragged && following.current && !pendingAnchor.current
+        ? Math.max(0, Math.min(growth, maxNow + growth - el.scrollTop))
+        : 0;
+    setT([dock], m.to - m.from, play);
+    flipList.current = rise ? -rise : 0;
+    if (rise) setT(listEls(), -rise, play);
+  }, [viewportHeight, viewportMotion]);
   // A drag that ended without a height change (spring back): done too.
   useLayoutEffect(() => {
     if (!viewportInteractive) afterDrag.current = false;
