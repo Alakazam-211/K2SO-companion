@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as pinChats from "./pinChats";
 
-const { LEGACY_PIN_STORAGE_KEY, clearLegacyPinStore, dropIsPins, insertPinned, isListPan } = pinChats;
+const { LEGACY_PIN_STORAGE_KEY, clearLegacyPinStore, dropIsPins, insertPinned } = pinChats;
 
 describe("pinChats", () => {
   it("the per-device pin store is gone: no read/write, and the old key is cleared", () => {
@@ -34,15 +34,28 @@ describe("pinChats", () => {
     expect(dropIsPins(-1, 40, r)).toBe(false);
   });
 
-  it("a mostly-vertical move is a list pan, not a lift", () => {
-    expect(isListPan(2, 20)).toBe(true);
-    expect(isListPan(20, 2)).toBe(false);
-  });
-
   it("reorders a pin before another, or to the end", () => {
     expect(insertPinned(["a", "b", "c"], "c", "a")).toEqual(["c", "a", "b"]);
     expect(insertPinned(["a", "b", "c"], "a", "c")).toEqual(["b", "a", "c"]);
     expect(insertPinned(["a", "b"], "a", null)).toEqual(["b", "a"]);
     expect(insertPinned(["a"], "b", "a")).toEqual(["b", "a"]);
+  });
+});
+
+describe("pin drag preview", () => {
+  // Three cells in a row, 100px apart.
+  const slots = ["a", "b", "c"].map((id, i) => ({ id, left: i * 100, top: 0, width: 80, height: 80 }));
+
+  it("moves the lifted pin to the nearest cell; off the grid keeps the order", () => {
+    expect(pinChats.pinPreviewOrder(slots, "a", 240, 40, true)).toEqual(["b", "c", "a"]);
+    expect(pinChats.pinPreviewOrder(slots, "c", 30, 40, true)).toEqual(["c", "a", "b"]);
+    expect(pinChats.pinPreviewOrder(slots, "a", 240, 40, false)).toEqual(["a", "b", "c"]);
+  });
+
+  it("slides the others into the cells they make room in", () => {
+    const order = pinChats.pinPreviewOrder(slots, "a", 240, 40, true);
+    expect(pinChats.pinSlotOffset(slots, order, "b")).toEqual({ dx: -100, dy: 0 });
+    expect(pinChats.pinSlotOffset(slots, order, "a")).toEqual({ dx: 200, dy: 0 });
+    expect(pinChats.pinSlotOffset(slots, ["a", "b", "c"], "b")).toBeNull();
   });
 });

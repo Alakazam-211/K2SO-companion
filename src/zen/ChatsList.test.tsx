@@ -85,7 +85,9 @@ import { SEARCH_BAR_REST_BOTTOM } from "./GlassSearchBar";
 import { JOIN_NO_PROJECT } from "./agentRow";
 import { STUB_AGENTS } from "./stubData";
 import { OWNER_LIST_HOLD, useZenStore } from "./zenStore";
+import { dragGrip, holdOpen, menuLabels, tap as tapItem } from "../test/rearrangeDrag";
 import { FOCUS_OFF, type ServerProject } from "./serverPins";
+import { useRecentFirstStore } from "./recentFirst";
 
 /** Two workspaces the server can pin, and one sidecar of the first. */
 const LA = { id: "/a", name: "alpha", initial: "A", path: "/a", addr: "alpha", kind: "agent" as const };
@@ -639,8 +641,11 @@ describe("ChatsList", () => {
     expect(refreshActivity).toHaveBeenCalledTimes(1);
   });
 
-  it("hold-drag a chat onto the pin grid pins it, drag a pin down unpins", () => {
+  it("press and hold a row: its menu pins it; a pin dragged out of the grid stays pinned", () => {
     vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
+    });
     Element.prototype.setPointerCapture = () => {};
     Element.prototype.releasePointerCapture = () => {};
     Element.prototype.hasPointerCapture = () => true;
@@ -650,97 +655,93 @@ describe("ChatsList", () => {
       serverProjects: PROJECTS,
       agentError: null,
       screen: "list",
+      agentId: "",
       pinnedIds: [],
     });
     mount();
     expect(screen.queryByTestId("chats-pins")).toBeNull();
-    expect(screen.queryByTestId("chats-pin-drop")).toBeNull();
     const row = screen.getByLabelText("alpha");
-    fireEvent.pointerDown(row, { clientX: 20, clientY: 200, button: 0, pointerId: 1 });
-    act(() => {
-      vi.advanceTimersByTime(300);
-    });
-    // No pins yet: the hold-drag gets a temporary glass drop strip.
-    const drop = screen.getByTestId("chats-pin-drop");
-    expect(drop.className).toMatch(/k2-pin-drop/);
-    expect(drop.textContent).toMatch(/Drop to pin/);
-    // Same width as the pinned avatars it stands in for.
-    expect(drop.style.left).toBe(cssLen(ZEN_LIST_CONTENT_INSET));
-    expect(drop.style.right).toBe(cssLen(ZEN_LIST_CONTENT_INSET));
-    drop.getBoundingClientRect = () =>
-      ({
-        left: 0,
-        right: 300,
-        top: 0,
-        bottom: 90,
-        width: 300,
-        height: 90,
-        x: 0,
-        y: 0,
-        toJSON() {
-          return {};
-        },
-      }) as DOMRect;
-    expect(screen.getByTestId("chats-list").style.overflowY).toBe("hidden");
-    expect(screen.getByTestId("chats-list").style.touchAction).toBe("none");
-    fireEvent.pointerUp(screen.getByTestId("chats-home"), {
-      clientX: 40,
-      clientY: 40,
-      pointerId: 1,
-    });
-    // Server pin: projects/update {id, pinned: 1}, then the drop spot.
+    // Long-press must not select text.
+    expect(row.style.userSelect).toBe("none");
+    holdOpen(row);
+    // The hold's own click did not open the chat.
+    expect(useZenStore.getState().screen).toBe("list");
+    const menu = screen.getByTestId("row-menu");
+    expect(menu.className).toMatch(/zen-glass/);
+    expect(menu.getAttribute("role")).toBe("menu");
+    // Groups off, no read state: Open, Pin, Rearrange.
+    expect(menuLabels(menu)).toEqual(["Open", "Pin", "Rearrange"]);
+    // Nothing lifts: no ghost, no drop strip, the list still scrolls.
+    expect(screen.queryByTestId("pin-ghost")).toBeNull();
+    expect(screen.queryByTestId("chats-pin-drop")).toBeNull();
+    expect(screen.getByTestId("chats-list").style.touchAction).toBe("");
+    tapItem(screen.getByTestId("menu-pin"));
+    expect(screen.queryByTestId("row-menu")).toBeNull();
+    // Server pin: projects/update {id, pinned: 1}.
     expect(setProjectPinned).toHaveBeenCalledWith(expect.anything(), "pa", true);
+    expect(reorderProjects).not.toHaveBeenCalled();
     expect(useZenStore.getState().pinnedIds).toEqual(["/a"]);
     expect(screen.getByLabelText("Pinned alpha")).not.toBeNull();
-    // Pinned: it moved into the grid, so its list row is gone.
     expect(screen.queryByLabelText("alpha")).toBeNull();
-    // The strip goes with the drag; the real grid takes over.
-    expect(screen.queryByTestId("chats-pin-drop")).toBeNull();
-    expect(screen.getByTestId("chats-pins")).not.toBeNull();
-    screen.getByTestId("chats-pins").getBoundingClientRect = () =>
-      ({
-        left: 0,
-        right: 300,
-        top: 0,
-        bottom: 90,
-        width: 300,
-        height: 90,
-        x: 0,
-        y: 0,
-        toJSON() {
-          return {};
-        },
-      }) as DOMRect;
 
-    fireEvent.pointerDown(screen.getByLabelText("Pinned alpha"), {
-      clientX: 40,
-      clientY: 40,
-      button: 0,
-      pointerId: 2,
-    });
-    act(() => {
-      vi.advanceTimersByTime(300);
-    });
-    // A pin lifts on movement (a still hold is its menu).
-    expect(screen.queryByTestId("pin-ghost")).toBeNull();
-    fireEvent.pointerMove(screen.getByTestId("chats-home"), {
-      clientX: 40,
-      clientY: 400,
-      pointerId: 2,
-    });
+    // A pin dragged below the grid snaps back: Unpin is in its menu.
+    screen.getByTestId("chats-pins").getBoundingClientRect = () =>
+      ({ left: 0, right: 300, top: 0, bottom: 90, width: 300, height: 90, x: 0, y: 0, toJSON() { return {}; } }) as DOMRect;
+    fireEvent.pointerDown(screen.getByLabelText("Pinned alpha"), { clientX: 40, clientY: 40, button: 0, pointerId: 2 });
+    fireEvent.pointerMove(screen.getByTestId("chats-home"), { clientX: 40, clientY: 400, pointerId: 2 });
     expect(screen.getByTestId("pin-ghost")).not.toBeNull();
-    fireEvent.pointerUp(screen.getByTestId("chats-home"), {
-      clientX: 40,
-      clientY: 400,
-      pointerId: 2,
+    fireEvent.pointerUp(screen.getByTestId("chats-home"), { clientX: 40, clientY: 400, pointerId: 2 });
+    expect(screen.queryByTestId("pin-ghost")).toBeNull();
+    expect(setProjectPinned).toHaveBeenCalledTimes(1);
+    expect(useZenStore.getState().pinnedIds).toEqual(["/a"]);
+  });
+
+  it("no swipe and no hold-drag on rows: a sideways drag or a moved hold does nothing", () => {
+    vi.useFakeTimers();
+    onTestFinished(() => {
+      vi.useRealTimers();
     });
-    expect(setProjectPinned).toHaveBeenLastCalledWith(expect.anything(), "pa", false);
-    expect(useZenStore.getState().pinnedIds).toEqual([]);
-    expect(screen.queryByLabelText("Pinned alpha")).toBeNull();
-    expect(screen.queryByTestId("chats-pins")).toBeNull();
-    // Back in the list.
-    expect(screen.getByLabelText("alpha")).not.toBeNull();
-    vi.useRealTimers();
+    useZenStore.setState({
+      agentSource: "live",
+      agents: LIVE_ROWS,
+      serverProjects: PROJECTS,
+      agentError: null,
+      screen: "list",
+      agentId: "",
+      pinnedIds: [],
+    });
+    mount();
+    const row = screen.getByLabelText("alpha");
+    expect(document.querySelector("[data-swipe-" + "row]")).toBeNull();
+    expect(document.querySelector("[data-swipe-action]")).toBeNull();
+    // Sideways: no reveal, no transform.
+    fireEvent.pointerDown(row, { clientX: 20, clientY: 200, button: 0, pointerId: 3 });
+    fireEvent.pointerMove(row, { clientX: 140, clientY: 202, pointerId: 3 });
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
+    fireEvent.pointerUp(row, { clientX: 140, clientY: 202, pointerId: 3 });
+    expect(row.style.transform).toBe("");
+    // The move dropped the hold: no menu.
+    expect(screen.queryByTestId("row-menu")).toBeNull();
+    // A vertical pan (the list scrolling) drops it too.
+    fireEvent.pointerDown(row, { clientX: 20, clientY: 200, button: 0, pointerId: 4 });
+    fireEvent.pointerMove(row, { clientX: 22, clientY: 240, pointerId: 4 });
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
+    expect(screen.queryByTestId("row-menu")).toBeNull();
+    // The browser taking the touch for a scroll (pointercancel) as well.
+    fireEvent.pointerDown(row, { clientX: 20, clientY: 200, button: 0, pointerId: 5 });
+    fireEvent.pointerCancel(row, { pointerId: 5 });
+    act(() => {
+      vi.advanceTimersByTime(700);
+    });
+    expect(screen.queryByTestId("row-menu")).toBeNull();
+    expect(setProjectPinned).not.toHaveBeenCalled();
+    // A plain tap still opens the chat.
+    fireEvent.click(row);
+    expect(useZenStore.getState().agentId).toBe("/a");
   });
 
   it("hold-drag a pin onto another pin reorders", () => {
@@ -1265,10 +1266,9 @@ describe("ChatsList", () => {
     expect(serversBar.dataset.bottom).toBe("8px");
   });
 
-  describe("swipe right to group", () => {
+  describe("agent menu: Move to group…", () => {
     const A = LA;
     const B = LB;
-    const ROW_W = 375;
     const SERVER_GROUPS = [
       { id: "g1", name: "Work", color: "#ff0000", tabOrder: 0, createdAt: 0 },
       { id: "g2", name: "Home", color: null, tabOrder: 1, createdAt: 0 },
@@ -1280,6 +1280,7 @@ describe("ChatsList", () => {
     let serverGroups: unknown[] = SERVER_GROUPS;
 
     afterEach(() => {
+      vi.useRealTimers();
       serverGroups = SERVER_GROUPS;
       vi.mocked(getAppSettings).mockImplementation(async () => ({ ok: true, data: {} }));
       vi.mocked(getFocusGroupsList).mockImplementation(async () => ({ ok: true, data: [] }));
@@ -1317,107 +1318,39 @@ describe("ChatsList", () => {
         focusGroupsEnabled: groups,
       });
       mount();
-      sizeRows();
-    }
-    function sizeRows() {
-      for (const a of LIVE_ROWS) {
-        const wrap = document.querySelector(`[data-swipe-row="${a.id}"]`) as HTMLElement | null;
-        if (!wrap) continue; // pinned: in the grid, not the list
-        wrap.getBoundingClientRect = () =>
-          ({ left: 0, right: ROW_W, top: 0, bottom: 70, width: ROW_W, height: 70, x: 0, y: 0, toJSON() { return {}; } }) as DOMRect;
-      }
     }
     type Row = (typeof LIVE_ROWS)[number];
     const row = (a: Row) => screen.getByLabelText(a.name);
-    const action = (a: Row) => screen.getByTestId(`swipe-action-${a.id}`);
-    const home = () => screen.getByTestId("chats-home");
     const groupOf = (pid: string) =>
       useZenStore.getState().serverProjects.find((p) => p.id === pid)?.focusGroupId ?? null;
     const flush = () => act(async () => {
       await new Promise((r) => setTimeout(r, 0));
     });
-
-    /** Pointer down on the row, move through the points, release. */
-    function drag(a: Row, points: [number, number][], up = true) {
-      fireEvent.pointerDown(row(a), { clientX: 20, clientY: 200, button: 0, pointerId: 7 });
-      for (const [x, y] of points) {
-        fireEvent.pointerMove(home(), { clientX: x, clientY: y, pointerId: 7 });
-      }
-      if (up) {
-        const [x, y] = points[points.length - 1] ?? [20, 200];
-        fireEvent.pointerUp(home(), { clientX: x, clientY: y, pointerId: 7 });
-      }
+    /** Hold a row (or pin) for its menu. */
+    function openMenu(el: HTMLElement) {
+      vi.useFakeTimers();
+      holdOpen(el);
+      vi.useRealTimers();
     }
-    /** Swipe the row open and tap its Group button. */
+    /** Hold the row, then Move to group…. */
     function openPicker(a: Row) {
-      drag(a, [[34, 200], [110, 200]]);
-      fireEvent.pointerDown(action(a), { clientX: 30, clientY: 200, button: 0, pointerId: 8 });
-      fireEvent.pointerUp(home(), { clientX: 30, clientY: 200, pointerId: 8 });
-      fireEvent.click(action(a));
+      openMenu(row(a));
+      tapItem(screen.getByTestId("menu-group"));
       return screen.getByTestId("group-picker");
     }
 
-    it("a swipe right reveals a round glass Group button, not Pin", () => {
+    it("a row's menu has Move to group…, in its group's colour", () => {
       setup();
-      drag(B, [[34, 201], [70, 202], [110, 203]]);
-      const btn = action(B);
-      expect(btn.style.width).toBe("76px");
-      // The revealed strip is clear, not a slab.
-      expect(btn.style.background).toBe("transparent");
-      const glass = btn.querySelector("[data-testid='swipe-action-glass']") as HTMLElement;
-      expect(glass.className).toMatch(/k2-swipe-pin/);
-      expect(glass.className).toMatch(/k2-swipe-group/);
-      // Ungrouped: white glyph, "Group" label.
-      expect(glass.style.color).toBe("rgb(255, 255, 255)");
-      expect(glass.style.transform).toBe("scale(1)");
-      expect(
-        (btn.querySelector("[data-testid='swipe-action-reveal']") as HTMLElement).style.opacity
-      ).toBe("1");
-      expect(btn.getAttribute("aria-label")).toBe(`Group ${B.name}`);
-      expect(btn.textContent).toBe("Group");
-      expect(glass.querySelector("[data-testid='group-glyph']")).not.toBeNull();
-      expect(btn.querySelector("[data-testid='pin-glyph'], [data-testid='unpin-glyph']")).toBeNull();
-      expect(row(B).style.transform).toBe("translateX(76px)");
-      // The swipe's click does not open the chat.
-      fireEvent.click(row(B));
-      expect(useZenStore.getState().screen).toBe("list");
+      openMenu(row(A));
+      expect(menuLabels(screen.getByTestId("row-menu"))).toEqual(["Open", "Pin", "Move to group…", "Rearrange"]);
+      const glyph = screen.getByTestId("menu-group").querySelector("[data-testid='group-glyph']")!;
+      expect((glyph.parentElement as HTMLElement).style.color).toBe("rgb(255, 0, 0)");
     });
 
-    it("a grouped agent's action shows its group's colour and name", () => {
-      setup();
-      const btn = action(A);
-      const glass = btn.querySelector("[data-testid='swipe-action-glass']") as HTMLElement;
-      expect(glass.style.color).toBe("rgb(255, 0, 0)");
-      expect(screen.getAllByTestId("swipe-action-label")[0].className).toMatch(/truncate/);
-      expect(btn.textContent).toBe("Work");
-      expect(btn.getAttribute("aria-label")).toBe(`Group ${A.name}, in Work`);
-    });
-
-    it("the glass button scales and fades in with the drag", () => {
-      setup();
-      const glass = () =>
-        action(A).querySelector("[data-testid='swipe-action-glass']") as HTMLElement;
-      const reveal = () =>
-        action(A).querySelector("[data-testid='swipe-action-reveal']") as HTMLElement;
-      expect(reveal().style.opacity).toBe("0");
-      expect(glass().style.transform).toBe("scale(0.6)");
-      // 30px of a 60px open threshold: halfway in.
-      drag(A, [[50, 200]], false);
-      expect(action(A).style.width).toBe("30px");
-      expect(reveal().style.opacity).toBe("0.5");
-      expect(glass().style.transform).toBe("scale(0.8)");
-      expect(glass().style.transition).toBe("none");
-      fireEvent.pointerMove(home(), { clientX: 80, clientY: 200, pointerId: 7 });
-      expect(reveal().style.opacity).toBe("1");
-      expect(glass().style.transform).toBe("scale(1)");
-      expect(glass().dataset.armed).toBeUndefined();
-      fireEvent.pointerUp(home(), { clientX: 80, clientY: 200, pointerId: 7 });
-    });
-
-    it("tapping Group opens the picker: groups in order, the current one checked", () => {
+    it("tapping Move to group… opens the picker: groups in order, the current one checked", () => {
       setup();
       const picker = openPicker(A);
-      expect(row(A).style.transform).toBe("translateX(0px)");
+      expect(screen.queryByTestId("row-menu")).toBeNull();
       const sheet = picker.querySelector("[role='dialog']") as HTMLElement;
       expect(sheet.className).toMatch(/k2-tile k2-tile-sheet/);
       expect(screen.getByTestId("group-picker-title").textContent).toBe(`Add ${A.name} to a group`);
@@ -1546,153 +1479,47 @@ describe("ChatsList", () => {
       expect(screen.queryByTestId("group-toast")).toBeNull();
     });
 
-    it("a full swipe opens the picker and assigns nothing", () => {
-      setup();
-      drag(A, [[34, 200], [150, 200], [240, 200]], false);
-      expect(action(A).style.width).toBe("220px");
-      expect(
-        (action(A).querySelector("[data-testid='swipe-action-glyph']") as HTMLElement).style.transform
-      ).toBe("scale(1.2)");
-      expect(
-        (action(A).querySelector("[data-testid='swipe-action-glass']") as HTMLElement).dataset.armed
-      ).toBe("1");
-      fireEvent.pointerUp(home(), { clientX: 240, clientY: 200, pointerId: 7 });
-      expect(screen.getByTestId("group-picker")).not.toBeNull();
-      expect(row(A).style.transform).toBe("translateX(0px)");
-      expect(assignFocusGroup).not.toHaveBeenCalled();
-      expect(setProjectPinned).not.toHaveBeenCalled();
-      expect(useZenStore.getState().pinnedIds).toEqual([]);
-    });
-
-    it("groups off: no swipe action on any row, and the hint does not mention it", () => {
+    it("groups off: no Move to group… item, and the hint does not mention groups", () => {
       setup([], { groups: false });
-      for (const a of LIVE_ROWS) expect(screen.queryByTestId(`swipe-action-${a.id}`)).toBeNull();
-      drag(A, [[34, 200], [110, 200]]);
-      expect(row(A).style.transform).toBe("translateX(0px)");
-      drag(A, [[34, 200], [150, 200], [240, 200]]);
+      openMenu(row(A));
+      expect(screen.queryByTestId("menu-group")).toBeNull();
       expect(screen.queryByTestId("group-picker")).toBeNull();
-      expect(setProjectPinned).not.toHaveBeenCalled();
       const hint = document.getElementById(row(A).getAttribute("aria-describedby")!)!;
-      expect(hint.textContent).not.toMatch(/Swipe/);
+      expect(hint.textContent).not.toMatch(/Swipe|group/i);
       expect(hint.textContent).toMatch(/press and hold/i);
     });
 
-    it("a short swipe springs back", () => {
-      setup();
-      drag(A, [[34, 200], [60, 200]]);
-      expect(action(A).style.width).toBe("0px");
-      expect(row(A).style.transform).toBe("translateX(0px)");
-      expect(screen.queryByTestId("group-picker")).toBeNull();
-    });
-
-    it("a vertical drag does not open the row", () => {
-      setup();
-      drag(A, [[24, 215], [28, 260], [30, 320]]);
-      expect(action(A).style.width).toBe("0px");
-      expect(row(A).style.transform).toBe("translateX(0px)");
-      expect(screen.queryByTestId("pin-ghost")).toBeNull();
-    });
-
-    it("only one row is open at a time", () => {
-      setup();
-      drag(A, [[34, 200], [110, 200]]);
-      expect(row(A).style.transform).toBe("translateX(76px)");
-      drag(B, [[34, 200], [110, 200]]);
-      expect(row(B).style.transform).toBe("translateX(76px)");
-      expect(row(A).style.transform).toBe("translateX(0px)");
-    });
-
-    it("a tap elsewhere closes the open row without opening a chat", () => {
-      setup();
-      drag(A, [[34, 200], [110, 200]]);
-      fireEvent.pointerDown(row(B), { clientX: 20, clientY: 260, button: 0, pointerId: 9 });
-      fireEvent.pointerUp(home(), { clientX: 20, clientY: 260, pointerId: 9 });
-      fireEvent.click(row(B));
-      expect(row(A).style.transform).toBe("translateX(0px)");
-      expect(useZenStore.getState().screen).toBe("list");
-    });
-
-    it("scrolling the list closes the open row", () => {
-      setup();
-      drag(A, [[34, 200], [110, 200]]);
-      fireEvent.scroll(screen.getByTestId("chats-list"));
-      expect(row(A).style.transform).toBe("translateX(0px)");
-    });
-
-    it("search: a pinned agent's row gets Group like everyone else, not Unpin", () => {
+    it("search: a pinned agent's row offers Unpin and Move to group…", () => {
       setup([A.id]);
       expect(screen.getByLabelText(`Pinned ${A.name}`)).not.toBeNull();
       expect(screen.queryByLabelText(A.name)).toBeNull();
       fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: A.name } });
       expect(screen.queryByTestId("chats-pins")).toBeNull();
-      sizeRows();
-      openPicker(A);
+      openMenu(row(A));
+      // Searching: no Rearrange.
+      expect(menuLabels(screen.getByTestId("row-menu"))).toEqual(["Open", "Unpin", "Move to group…"]);
+      tapItem(screen.getByTestId("menu-group"));
       expect(screen.getByTestId("group-picker-title").textContent).toBe(`Add ${A.name} to a group`);
       expect(setProjectPinned).not.toHaveBeenCalled();
       expect(useZenStore.getState().pinnedIds).toEqual([A.id]);
     });
 
-    it("a committed swipe cancels the hold timer; hold-drag still pins", () => {
-      vi.useFakeTimers();
-      onTestFinished(() => {
-        vi.useRealTimers();
-      });
-      setup();
-      drag(A, [[34, 200]], false);
-      act(() => {
-        vi.advanceTimersByTime(400);
-      });
-      expect(screen.queryByTestId("pin-ghost")).toBeNull();
-      fireEvent.pointerUp(home(), { clientX: 34, clientY: 200, pointerId: 7 });
-
-      // Hold first: the swipe no longer starts and the ghost drags as before.
-      fireEvent.pointerDown(row(B), { clientX: 20, clientY: 260, button: 0, pointerId: 10 });
-      act(() => {
-        vi.advanceTimersByTime(300);
-      });
-      fireEvent.pointerMove(home(), { clientX: 120, clientY: 262, pointerId: 10 });
-      expect(screen.getByTestId("pin-ghost")).not.toBeNull();
-      expect(row(B).style.transform).toBe("translateX(0px)");
-      const drop = screen.getByTestId("chats-pin-drop");
-      drop.getBoundingClientRect = () =>
-        ({ left: 0, right: 300, top: 0, bottom: 90, width: 300, height: 90, x: 0, y: 0, toJSON() { return {}; } }) as DOMRect;
-      fireEvent.pointerUp(home(), { clientX: 40, clientY: 40, pointerId: 10 });
-      expect(setProjectPinned).toHaveBeenCalledWith(expect.anything(), "pb", true);
-      expect(screen.getByLabelText(`Pinned ${B.name}`)).not.toBeNull();
-      expect(assignFocusGroup).not.toHaveBeenCalled();
-      expect(screen.queryByTestId("group-picker")).toBeNull();
-    });
-
-    it("groups on: the pin menu still offers Open and Unpin", () => {
-      vi.useFakeTimers();
-      onTestFinished(() => {
-        vi.useRealTimers();
-      });
+    it("groups on: the pin menu offers Open, Unpin and Move to group…", () => {
       setup([A.id]);
-      fireEvent.pointerDown(screen.getByLabelText(`Pinned ${A.name}`), {
-        clientX: 40,
-        clientY: 40,
-        button: 0,
-        pointerId: 4,
-      });
-      act(() => {
-        vi.advanceTimersByTime(600);
-      });
-      fireEvent.pointerUp(home(), { clientX: 40, clientY: 40, pointerId: 4 });
-      expect(screen.getByTestId("pin-menu-open")).not.toBeNull();
-      const unpin = screen.getByTestId("pin-menu-unpin");
-      fireEvent.pointerDown(unpin, { clientX: 0, clientY: 0, button: 0, pointerId: 5 });
-      fireEvent.pointerUp(home(), { clientX: 0, clientY: 0, pointerId: 5 });
-      fireEvent.click(unpin);
+      openMenu(screen.getByLabelText(`Pinned ${A.name}`));
+      const menu = screen.getByTestId("pin-menu");
+      expect(menuLabels(menu)).toEqual(["Open", "Unpin", "Move to group…"]);
+      tapItem(screen.getByTestId("menu-unpin"));
       expect(setProjectPinned).toHaveBeenCalledWith(expect.anything(), "pa", false);
       expect(assignFocusGroup).not.toHaveBeenCalled();
     });
 
-    it("rows point at the swipe hint for assistive tech", () => {
-      setup();
+    it("rows and pins point at the hold hint for assistive tech", () => {
+      setup([B.id]);
       const hint = document.getElementById(row(A).getAttribute("aria-describedby")!)!;
-      expect(hint.textContent).toMatch(/Swipe right to add to a focus group/);
-      expect(hint.textContent).toMatch(/drag to the top to pin/);
+      expect(hint.textContent).toMatch(/Press and hold an agent for options/);
+      expect(hint.textContent).toMatch(/drag a pinned agent to reorder/);
+      expect(screen.getByLabelText(`Pinned ${B.name}`).getAttribute("aria-describedby")).toBe(hint.id);
     });
   });
   describe("pin grid: one place per agent, long-press menu, activity", () => {
@@ -1758,9 +1585,6 @@ describe("ChatsList", () => {
       expect(screen.queryByTestId("chats-pins")).toBeNull();
       // Project-list order (desktop's), pinned or not.
       expect(listIds()).toEqual([LA.id, LB.id, LC.id]);
-      // Groups off: the swipe offers nothing (it no longer pins).
-      expect(screen.queryByTestId(`swipe-action-${LA.id}`)).toBeNull();
-      expect(screen.queryByTestId(`swipe-action-${LC.id}`)).toBeNull();
     });
 
     it("pinning moves the row into the grid", () => {
@@ -1796,9 +1620,9 @@ describe("ChatsList", () => {
       fireEvent.click(screen.getByLabelText(`Pinned ${LA.name}`));
       expect(useZenStore.getState().screen).toBe("list");
       // The hold's own release / synthetic click cannot hit an item.
-      fireEvent.click(screen.getByTestId("pin-menu-unpin"));
+      fireEvent.click(screen.getByTestId("menu-unpin"));
       expect(setProjectPinned).not.toHaveBeenCalled();
-      tap(screen.getByTestId("pin-menu-unpin"));
+      tap(screen.getByTestId("menu-unpin"));
       expect(setProjectPinned).toHaveBeenCalledWith(expect.anything(), "pa", false);
       expect(screen.queryByTestId("pin-menu")).toBeNull();
       expect(screen.queryByLabelText(`Pinned ${LA.name}`)).toBeNull();
@@ -1819,12 +1643,12 @@ describe("ChatsList", () => {
       expect(useZenStore.getState().screen).toBe("list");
       hold(LA.name, 600);
       release();
-      tap(screen.getByTestId("pin-menu-open"));
+      tap(screen.getByTestId("menu-open"));
       expect(useZenStore.getState().agentId).toBe(LA.id);
       expect(setProjectPinned).not.toHaveBeenCalled();
     });
 
-    it("hold past the menu then move: the menu yields to the drag", () => {
+    it("hold past the menu then move: the menu yields to the drag; off the grid it snaps back", () => {
       vi.useFakeTimers();
       onTestFinished(() => {
         vi.useRealTimers();
@@ -1838,8 +1662,11 @@ describe("ChatsList", () => {
       expect(screen.queryByTestId("pin-menu")).toBeNull();
       expect(screen.getByTestId("pin-ghost")).not.toBeNull();
       fireEvent.pointerUp(home(), { clientX: 40, clientY: 400, pointerId: 4 });
-      expect(setProjectPinned).toHaveBeenCalledWith(expect.anything(), "pa", false);
-      expect(listIds()).toContain(LA.id);
+      // Unpin is a menu item now: a drop below the grid changes nothing.
+      expect(setProjectPinned).not.toHaveBeenCalled();
+      expect(reorderProjects).not.toHaveBeenCalled();
+      expect(listIds()).not.toContain(LA.id);
+      expect(screen.getByLabelText(`Pinned ${LA.name}`)).not.toBeNull();
     });
 
     it("a working pin shows a pulsing badge and a short status; an idle one neither", () => {
@@ -1897,7 +1724,7 @@ describe("ChatsList", () => {
       expect(screen.queryByTestId("chats-pins")).toBeNull();
       const list = screen.getByTestId("chats-list");
       expect(list.style.paddingTop).toMatch(/64px/);
-      const first = list.querySelector<HTMLElement>("[data-swipe-row]")!;
+      const first = list.querySelector<HTMLElement>("[data-agent-row]")!;
       expect(first.style.marginTop).toBe("");
     });
 
@@ -1974,10 +1801,10 @@ describe("ChatsList", () => {
     it("list rows are full width with content confined to the pinned avatars", () => {
       setup([LA.id]);
       const inset = cssLen(ZEN_LIST_CONTENT_INSET);
-      const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-swipe-row]"));
+      const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-agent-row]"));
       expect(rows.length).toBeGreaterThan(0);
       for (const wrap of rows) {
-        // Tap / swipe target spans the whole line.
+        // Tap / hold target spans the whole line.
         expect(wrap.style.marginLeft).toBe("");
         expect(wrap.style.marginRight).toBe("");
         const row = wrap.querySelector<HTMLElement>("[data-pin-from='list']")!;
@@ -2013,6 +1840,196 @@ describe("ChatsList", () => {
       expect(row.style.paddingRight).toBe(cssLen(ZEN_LIST_CONTENT_INSET));
       expect(row.style.paddingTop).toBe("12px");
       expect(row.style.paddingBottom).toBe("12px");
+    });
+  });
+
+  describe("Rearrange (Agents)", () => {
+    const LD = { id: "/d", name: "delta", initial: "D", path: "/d", addr: "delta", kind: "agent" as const };
+    const ORDERED: ServerProject[] = [
+      project("pa", "alpha", { tabOrder: 0 }),
+      project("pb", "bravo", { tabOrder: 1, pinned: true }),
+      project("pc", "charlie", { tabOrder: 2 }),
+      { ...project("pd", "delta", { tabOrder: 3 }), path: "/d" },
+    ];
+    const listIds = () =>
+      [...document.querySelectorAll("[data-pin-from='list']")].map((n) => n.getAttribute("data-pin-id"));
+    const grips = () => screen.queryAllByTestId("rearrange-grip");
+
+    beforeEach(() => {
+      vi.useFakeTimers();
+      Element.prototype.setPointerCapture = () => {};
+      Element.prototype.releasePointerCapture = () => {};
+      Element.prototype.hasPointerCapture = () => true;
+      useRecentFirstStore.getState().setOn(false);
+      useZenStore.setState({
+        agentSource: "live",
+        agents: [...LIVE_ROWS, LD],
+        serverProjects: ORDERED,
+        agentError: null,
+        screen: "list",
+        agentId: "",
+        pinnedIds: ["/b"],
+        lastAtByKey: {},
+      });
+      mount();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      useRecentFirstStore.getState().setOn(false);
+    });
+
+    function enter() {
+      holdOpen(screen.getByLabelText("alpha"));
+      tapItem(screen.getByTestId("menu-rearrange"));
+    }
+
+    it("grips left of the avatars and a blue Done above the search bar; taps and holds are off until Done", () => {
+      expect(grips()).toHaveLength(0);
+      expect(screen.queryByTestId("rearrange-done")).toBeNull();
+      enter();
+      expect(screen.queryByTestId("row-menu")).toBeNull();
+      // The list's rows (the pinned bravo stays in the grid).
+      expect(listIds()).toEqual(["/a", "/c", "/d"]);
+      expect(grips()).toHaveLength(3);
+      expect(grips().map((g) => g.getAttribute("aria-label"))).toEqual([
+        "Reorder alpha",
+        "Reorder charlie",
+        "Reorder delta",
+      ]);
+      // The grip sits before the row (left of the avatar), which makes room.
+      const alpha = screen.getByLabelText("alpha");
+      expect(grips()[0].nextElementSibling).toBe(alpha);
+      expect(grips()[0].style.touchAction).toBe("none");
+      expect(alpha.style.paddingLeft).toBe(cssLen(`calc(${ZEN_LIST_CONTENT_INSET} + 40px)`));
+      const done = screen.getByTestId("rearrange-done");
+      expect(done.textContent).toBe("Done");
+      expect(done.className).toContain("k2-tile");
+      expect(done.style.background).toBe("rgb(10, 132, 255)");
+      expect(done.style.right).toBe("16px");
+      expect(done.style.bottom).toContain(SEARCH_BAR_REST_BOTTOM);
+      // A tap does not open the chat; a hold opens no menu.
+      fireEvent.click(alpha);
+      expect(useZenStore.getState().screen).toBe("list");
+      holdOpen(alpha);
+      expect(screen.queryByTestId("row-menu")).toBeNull();
+      // Pins rest too.
+      holdOpen(screen.getByLabelText("Pinned bravo"));
+      expect(screen.queryByTestId("pin-menu")).toBeNull();
+      fireEvent.click(screen.getByLabelText("Pinned bravo"));
+      expect(useZenStore.getState().screen).toBe("list");
+      fireEvent.click(done);
+      expect(grips()).toHaveLength(0);
+      expect(screen.queryByTestId("rearrange-done")).toBeNull();
+      expect(alpha.style.paddingLeft).toBe(cssLen(ZEN_LIST_CONTENT_INSET));
+      fireEvent.click(alpha);
+      expect(useZenStore.getState().agentId).toBe("/a");
+    });
+
+    it("a grip drag reorders at once and writes the full server order; pins keep their slots", () => {
+      enter();
+      dragGrip(screen.getByTestId("chats-list"), 2, 0);
+      // delta to the top: a, c, d hold slots 0, 2, 3 of the server order.
+      expect(reorderProjects).toHaveBeenCalledTimes(1);
+      expect(reorderProjects).toHaveBeenCalledWith(expect.anything(), ["pd", "pb", "pa", "pc"]);
+      expect(setProjectPinned).not.toHaveBeenCalled();
+      expect(listIds()).toEqual(["/d", "/a", "/c"]);
+      expect(useZenStore.getState().pinnedIds).toEqual(["/b"]);
+      // Still rearranging until Done.
+      expect(grips()).toHaveLength(3);
+      dragGrip(screen.getByTestId("chats-list"), 0, 2);
+      expect(reorderProjects).toHaveBeenLastCalledWith(expect.anything(), ["pa", "pb", "pc", "pd"]);
+      expect(listIds()).toEqual(["/a", "/c", "/d"]);
+    });
+
+    it("pins drag at once (no hold) in Rearrange, inside the lit grid outline", () => {
+      useZenStore.setState({
+        serverProjects: ORDERED.map((p) => (p.id === "pa" ? { ...p, pinned: true } : p)),
+        pinnedIds: ["/a", "/b"],
+      });
+      holdOpen(screen.getByLabelText("charlie"));
+      tapItem(screen.getByTestId("menu-rearrange"));
+      const grid = screen.getByTestId("chats-pins");
+      expect(grid.style.outline).toContain("dashed rgba(10,132,255");
+      grid.getBoundingClientRect = () =>
+        ({ left: 0, right: 300, top: 0, bottom: 100, width: 300, height: 100, x: 0, y: 0, toJSON() { return {}; } }) as DOMRect;
+      const cell = (name: string, left: number) => {
+        screen.getByLabelText(`Pinned ${name}`).getBoundingClientRect = () =>
+          ({ left, right: left + 80, top: 0, bottom: 80, width: 80, height: 80, x: left, y: 0, toJSON() { return {}; } }) as DOMRect;
+      };
+      cell("alpha", 0);
+      cell("bravo", 100);
+      const home = screen.getByTestId("chats-home");
+      fireEvent.pointerDown(screen.getByLabelText("Pinned bravo"), { clientX: 140, clientY: 40, pointerId: 9 });
+      fireEvent.pointerMove(home, { clientX: 120, clientY: 40, pointerId: 9 });
+      // Lifted straight away: no menu, a ghost, and alpha slides right.
+      expect(screen.queryByTestId("pin-menu")).toBeNull();
+      expect(screen.getByTestId("pin-ghost")).not.toBeNull();
+      fireEvent.pointerMove(home, { clientX: 30, clientY: 40, pointerId: 9 });
+      expect(screen.getByLabelText("Pinned alpha").style.transform).toBe("translate(100px, 0px)");
+      fireEvent.pointerUp(home, { clientX: 30, clientY: 40, pointerId: 9 });
+      expect(reorderProjects).toHaveBeenLastCalledWith(expect.anything(), ["pb", "pa"]);
+      expect(useZenStore.getState().pinnedIds).toEqual(["/b", "/a"]);
+      // Still rearranging, and the grid stays lit.
+      expect(screen.getByTestId("rearrange-done")).not.toBeNull();
+      expect(screen.getByTestId("chats-pins").style.outline).toContain("dashed rgba(10,132,255");
+    });
+
+    it("a drop back on its own slot writes nothing", () => {
+      enter();
+      dragGrip(screen.getByTestId("chats-list"), 1, 1);
+      expect(reorderProjects).not.toHaveBeenCalled();
+      expect(listIds()).toEqual(["/a", "/c", "/d"]);
+    });
+
+    it("while dragging, the rows in between slide to make room", () => {
+      enter();
+      const list = screen.getByTestId("chats-list");
+      const keyed = () => [...list.querySelectorAll<HTMLElement>("[data-rearrange-key]")];
+      // Lay out, press delta's grip, move it over alpha's slot, hold there.
+      // (dragGrip releases; this checks the mid-drag frame.)
+      keyed().forEach((n, i) => {
+        n.getBoundingClientRect = () =>
+          ({ left: 0, right: 375, top: i * 70, bottom: i * 70 + 70, width: 375, height: 70, x: 0, y: i * 70, toJSON() { return {}; } }) as DOMRect;
+      });
+      list.getBoundingClientRect = () =>
+        ({ left: 0, right: 375, top: 0, bottom: 2000, width: 375, height: 2000, x: 0, y: 0, toJSON() { return {}; } }) as DOMRect;
+      const grip = grips()[2];
+      fireEvent.pointerDown(grip, { clientX: 10, clientY: 175, button: 0, pointerId: 9 });
+      fireEvent.pointerMove(grip, { clientX: 10, clientY: 30, pointerId: 9 });
+      const [a, c, d] = keyed();
+      expect(d.dataset.dragging).toBe("1");
+      expect(d.style.transform).toBe("translateY(-145px)");
+      expect(a.style.transform).toBe("translateY(70px)");
+      expect(c.style.transform).toBe("translateY(70px)");
+      expect(a.style.transition).toMatch(/transform 200ms/);
+      fireEvent.pointerCancel(grip, { pointerId: 9 });
+      expect(a.style.transform).toBe("");
+      expect(reorderProjects).not.toHaveBeenCalled();
+    });
+
+    it("only with Recent agents first off and no search; turning it on or typing a search ends it", () => {
+      act(() => useRecentFirstStore.getState().setOn(true));
+      holdOpen(screen.getByLabelText("alpha"));
+      expect(screen.queryByTestId("menu-rearrange")).toBeNull();
+      tapItem(screen.getByTestId("row-menu-backdrop"));
+      act(() => useRecentFirstStore.getState().setOn(false));
+      enter();
+      expect(grips()).toHaveLength(3);
+      act(() => useRecentFirstStore.getState().setOn(true));
+      expect(grips()).toHaveLength(0);
+      expect(screen.queryByTestId("rearrange-done")).toBeNull();
+      act(() => useRecentFirstStore.getState().setOn(false));
+      enter();
+      fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "a" } });
+      expect(grips()).toHaveLength(0);
+      expect(screen.queryByTestId("rearrange-done")).toBeNull();
+      holdOpen(screen.getByLabelText("alpha"));
+      expect(screen.queryByTestId("menu-rearrange")).toBeNull();
+    });
+
+    it("a pinned avatar's menu has no Rearrange (pins reorder by hold and drag)", () => {
+      holdOpen(screen.getByLabelText("Pinned bravo"));
+      expect(menuLabels(screen.getByTestId("pin-menu"))).toEqual(["Open", "Unpin"]);
     });
   });
 
@@ -2061,22 +2078,7 @@ describe("ChatsList", () => {
         n.getAttribute("data-pin-id")
       );
 
-    it("a sidecar row has no Group action and does not swipe", () => {
-      live({ focus: { enabled: true, currentId: "g1", groups: GROUPS } });
-      mount();
-      expect(screen.queryByTestId(`swipe-action-${SIDE.id}`)).toBeNull();
-      expect(screen.getByTestId(`swipe-action-${LA.id}`)).not.toBeNull();
-      const side = document.querySelector(`[data-swipe-row="${SIDE.id}"] [data-pin-from='list']`) as HTMLElement;
-      const home = screen.getByTestId("chats-home");
-      fireEvent.pointerDown(side, { clientX: 20, clientY: 300, button: 0, pointerId: 3 });
-      fireEvent.pointerMove(home, { clientX: 60, clientY: 300, pointerId: 3 });
-      fireEvent.pointerMove(home, { clientX: 140, clientY: 300, pointerId: 3 });
-      fireEvent.pointerUp(home, { clientX: 140, clientY: 300, pointerId: 3 });
-      expect(side.style.transform).toBe("translateX(0px)");
-      expect(screen.queryByTestId("group-picker")).toBeNull();
-    });
-
-    it("a sidecar row cannot be hold-dragged into the pins", () => {
+    it("a sidecar row's menu is Open (and Mute): no Pin, Move to group… or grip", () => {
       vi.useFakeTimers();
       onTestFinished(() => {
         vi.useRealTimers();
@@ -2084,15 +2086,17 @@ describe("ChatsList", () => {
       Element.prototype.setPointerCapture = () => {};
       Element.prototype.releasePointerCapture = () => {};
       Element.prototype.hasPointerCapture = () => true;
-      live();
+      live({ focus: { enabled: true, currentId: "g1", groups: GROUPS } });
       mount();
-      const side = document.querySelector(`[data-pin-id="${SIDE.id}"][data-pin-from='list']`)!;
-      fireEvent.pointerDown(side, { clientX: 20, clientY: 300, button: 0, pointerId: 3 });
-      act(() => {
-        vi.advanceTimersByTime(400);
-      });
+      const side = document.querySelector(`[data-pin-id="${SIDE.id}"][data-pin-from='list']`) as HTMLElement;
+      holdOpen(side);
       expect(screen.queryByTestId("pin-ghost")).toBeNull();
-      fireEvent.pointerUp(screen.getByTestId("chats-home"), { clientX: 40, clientY: 40, pointerId: 3 });
+      expect(menuLabels(screen.getByTestId("row-menu"))).toEqual(["Open"]);
+      tapItem(screen.getByTestId("row-menu-backdrop"));
+      expect(screen.queryByTestId("row-menu")).toBeNull();
+      // A workspace row in the same list has the full set.
+      holdOpen(screen.getByLabelText(LA.name));
+      expect(menuLabels(screen.getByTestId("row-menu"))).toEqual(["Open", "Pin", "Move to group…", "Rearrange"]);
       expect(setProjectPinned).not.toHaveBeenCalled();
     });
 

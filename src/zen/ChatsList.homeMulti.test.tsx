@@ -102,6 +102,7 @@ import { __resetRemoteIconsForTests } from "./multi/remoteIcons";
 import { __resetRemoteRowsForTests, useRemoteRows } from "./multi/remoteRows";
 import { resetRowPreviewMemo } from "./rowPreviewCache";
 import { FOCUS_OFF } from "./serverPins";
+import { dragGrip } from "../test/rearrangeDrag";
 import { roomServerId } from "./zenScope";
 import { resetThreadPreviewQueue, useZenStore } from "./zenStore";
 
@@ -521,10 +522,12 @@ describe("Home list across servers (HM3, flag on)", () => {
     goHome();
     fireEvent.contextMenu(screen.getByTestId("home-row-docs"));
     net.calls = [];
-    fireEvent.click(screen.getByTestId("home-menu-down"));
+    fireEvent.click(screen.getByTestId("menu-rearrange"));
+    dragGrip(screen.getByTestId("chats-list"), 0, 1);
     expect(storedRows().map((r) => r.address)).toEqual(["alpha::alpha.k2.dev", "docs::bravo.k2.dev"]);
+    fireEvent.click(screen.getByTestId("rearrange-done"));
     fireEvent.contextMenu(screen.getByTestId("home-row-docs"));
-    fireEvent.click(screen.getByTestId("home-menu-remove"));
+    fireEvent.click(screen.getByTestId("menu-remove"));
     expect(storedRows().map((r) => r.address)).toEqual(["alpha::alpha.k2.dev"]);
     // Nothing about either edit went to a server.
     expect(net.calls.filter((c) => c.method !== "GET")).toEqual([]);

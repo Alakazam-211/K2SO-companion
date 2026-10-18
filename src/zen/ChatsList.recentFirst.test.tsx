@@ -129,6 +129,17 @@ describe("Agents list", () => {
     expect(agentRows()).toEqual(["/b", "/c", "/d"]);
   });
 
+  it("off: a row's menu offers Rearrange; on: it does not", () => {
+    mount();
+    fireEvent.contextMenu(screen.getByLabelText("STUB bravo"));
+    expect(screen.getByTestId("menu-rearrange")).not.toBeNull();
+    fireEvent.click(screen.getByTestId("row-menu-backdrop"));
+    act(() => useRecentFirstStore.getState().setOn(true));
+    fireEvent.contextMenu(screen.getByLabelText("STUB bravo"));
+    expect(screen.getByTestId("row-menu")).not.toBeNull();
+    expect(screen.queryByTestId("menu-rearrange")).toBeNull();
+  });
+
   it("on: pins stay in the grid; latest sends lead; the rest keep their order; live re-sort", () => {
     useRecentFirstStore.getState().setOn(true);
     sent("s1", "charlie", 100);
@@ -153,17 +164,17 @@ describe("Home list", () => {
     }
   }
 
-  it("off: the Home's own order; Move up / down in the menu", () => {
+  it("off: the Home's own order; Rearrange in the menu", () => {
     seedHome();
     sent("s1", "delta", 200);
     mount();
     fireEvent.click(screen.getByTestId("list-tab-home"));
     expect(homeRows()).toEqual(["bravo", "charlie", "alpha", "delta"]);
     fireEvent.contextMenu(screen.getByTestId("home-row-charlie"));
-    expect(screen.getByTestId("home-menu-down")).not.toBeNull();
+    expect(screen.getByTestId("menu-rearrange")).not.toBeNull();
   });
 
-  it("on: latest sends first (a pinned agent too), then the Home's order; no Move up / down", () => {
+  it("on: latest sends first (a pinned agent too), then the Home's order; no Rearrange", () => {
     seedHome();
     useRecentFirstStore.getState().setOn(true);
     sent("s1", "charlie", 100);
@@ -173,9 +184,8 @@ describe("Home list", () => {
     fireEvent.click(screen.getByTestId("list-tab-home"));
     expect(homeRows()).toEqual(["delta", "charlie", "bravo", "alpha"]);
     fireEvent.contextMenu(screen.getByTestId("home-row-charlie"));
-    expect(screen.queryByTestId("home-menu-down")).toBeNull();
-    expect(screen.queryByTestId("home-menu-up")).toBeNull();
-    expect(screen.getByTestId("home-menu-remove")).not.toBeNull();
+    expect(screen.queryByTestId("menu-rearrange")).toBeNull();
+    expect(screen.getByTestId("menu-remove")).not.toBeNull();
   });
 
   it("turning it on re-sorts Home at once, a pinned row included", () => {
