@@ -395,7 +395,7 @@ describe("keyboard motion (native UIKeyboardWill*)", () => {
     expect(seen!.elapsed).toBeGreaterThanOrEqual(40);
     expect(seen!.elapsed).toBeLessThan(80);
     expect(viewportTransition(seen)).toMatch(
-      new RegExp(`^height 250ms ${KEYBOARD_EASING.replace(/[()]/g, "\\$&")} -\\d+ms$`)
+      new RegExp(`^height 250ms ${KEYBOARD_EASING.replace(/[()]/g, "\\$&")} -[\\d.]+ms$`)
     );
   });
 
@@ -419,7 +419,7 @@ describe("keyboard motion (native UIKeyboardWill*)", () => {
     expect(viewportTransition(null)).toBeUndefined();
     expect(viewportTransition({ ms: 250, easing: "linear", elapsed: 0, from: 500, to: 844 })).toBe("height 250ms linear");
     expect(viewportTransition({ ms: 250, easing: "linear", elapsed: 12.4, from: 500, to: 844 }, "top")).toBe(
-      "top 250ms linear -12ms"
+      "top 250ms linear -12.4ms"
     );
   });
 });
