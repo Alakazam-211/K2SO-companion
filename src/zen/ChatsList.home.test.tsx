@@ -54,6 +54,7 @@ import { HOME_EMPTY_BODY, HOME_EMPTY_TITLE } from "./HomeList";
 import { HOMES_STORAGE_KEY, LIST_TAB_KEY, homeAddress, parseHomesDoc, useHomesStore } from "./homes";
 import { FOCUS_OFF, type ServerProject } from "./serverPins";
 import { useZenStore } from "./zenStore";
+import { dragGrip, holdOpen, menuLabels, tap } from "../test/rearrangeDrag";
 
 const LA = { id: "/a", name: "alpha", initial: "A", path: "/a", addr: "alpha", kind: "agent" as const };
 const LB = { id: "/b", name: "bravo", initial: "B", path: "/b", addr: "bravo", kind: "agent" as const };
@@ -343,20 +344,25 @@ describe("+ on Home: Add Agent (HM5)", () => {
   });
 });
 
-describe("Remove from Home (HM6)", () => {
+describe("Home row menu and Rearrange (HM6)", () => {
   beforeEach(() => {
     const h = useHomesStore.getState();
     h.addRow(h.selectedId, { address: homeAddress("alpha", HOST), workspaceId: "pa", label: "alpha" });
     h.addRow(h.selectedId, { address: homeAddress("bravo", HOST), workspaceId: "pb", label: "bravo" });
   });
+  afterEach(() => vi.useRealTimers());
 
-  it("long-press opens Remove from Home; it only touches local storage", () => {
+  it("right-click / long-press opens the menu: Open, Rearrange, Remove from Home; Remove only touches local storage", () => {
     mount();
     goHome();
     fireEvent.contextMenu(screen.getByTestId("home-row-alpha"));
     const menu = screen.getByTestId("home-row-menu");
     expect(menu.className).toMatch(/zen-glass/);
-    fireEvent.click(screen.getByTestId("home-menu-remove"));
+    expect(menuLabels(menu)).toEqual(["Open", "Rearrange", "Remove from Home"]);
+    // No Move up / Move down any more.
+    expect(screen.queryByTestId("home-menu-up")).toBeNull();
+    expect(screen.queryByTestId("home-menu-down")).toBeNull();
+    fireEvent.click(screen.getByTestId("menu-remove"));
     expect(screen.queryByTestId("home-row-alpha")).toBeNull();
     expect(storedRows().map((r) => r.label)).toEqual(["bravo"]);
     // The agent is still on the Agents list.
@@ -364,48 +370,84 @@ describe("Remove from Home (HM6)", () => {
     expect(screen.getByLabelText("Pinned alpha")).not.toBeNull();
   });
 
-  it("a held press opens the same menu; Move down reorders", () => {
+  it("a held press opens the same menu; its release cannot hit an item; Open opens the chat", () => {
     vi.useFakeTimers();
-    try {
-      mount();
-      goHome();
-      fireEvent.pointerDown(screen.getByTestId("home-row-alpha"), { clientX: 100, clientY: 200, button: 0, pointerId: 1 });
-      act(() => {
-        vi.advanceTimersByTime(600);
-      });
-      fireEvent.click(screen.getByTestId("home-menu-down"));
-      expect(storedRows().map((r) => r.label)).toEqual(["bravo", "alpha"]);
-    } finally {
-      vi.useRealTimers();
-    }
+    mount();
+    goHome();
+    holdOpen(screen.getByTestId("home-row-alpha"));
+    expect(useZenStore.getState().screen).toBe("list");
+    expect(screen.getByTestId("home-row-menu")).not.toBeNull();
+    // A click with no fresh press (the hold's own) is ignored.
+    fireEvent.click(screen.getByTestId("menu-remove"));
+    expect(storedRows().map((r) => r.label)).toEqual(["alpha", "bravo"]);
+    tap(screen.getByTestId("menu-open"));
+    expect(screen.queryByTestId("home-row-menu")).toBeNull();
+    expect(useZenStore.getState().agentId).toBe("/a");
   });
 
-  it("flag off: Move down steps past a hidden other-server row", () => {
+  it("Rearrange: grips and Done; a drag reorders the Home (synced write); taps are off until Done", () => {
+    vi.useFakeTimers();
+    mount();
+    goHome();
+    holdOpen(screen.getByTestId("home-row-alpha"));
+    tap(screen.getByTestId("menu-rearrange"));
+    const grips = () => screen.queryAllByTestId("rearrange-grip");
+    expect(grips().map((g) => g.getAttribute("aria-label"))).toEqual(["Reorder alpha", "Reorder bravo"]);
+    expect(screen.getByTestId("rearrange-done")).not.toBeNull();
+    fireEvent.click(screen.getByTestId("home-row-alpha"));
+    expect(useZenStore.getState().screen).toBe("list");
+    holdOpen(screen.getByTestId("home-row-bravo"));
+    expect(screen.queryByTestId("home-row-menu")).toBeNull();
+    const before = useHomesStore.getState().homes[0].rows.map((r) => `${r.order}@${r.updatedAt}`);
+    dragGrip(screen.getByTestId("chats-list"), 0, 1);
+    expect(storedRows().map((r) => r.label)).toEqual(["bravo", "alpha"]);
+    expect(screen.getAllByTestId("row-name").map((n) => n.textContent)).toEqual(["bravo", "alpha"]);
+    // The same Home write as any edit: new order key and stamp for Homes sync.
+    expect(useHomesStore.getState().homes[0].rows.map((r) => `${r.order}@${r.updatedAt}`)).not.toEqual(before);
+    fireEvent.click(screen.getByTestId("rearrange-done"));
+    expect(grips()).toHaveLength(0);
+    expect(screen.queryByTestId("rearrange-done")).toBeNull();
+    fireEvent.click(screen.getByTestId("home-row-alpha"));
+    expect(useZenStore.getState().agentId).toBe("/a");
+  });
+
+  it("switching tabs ends Rearrange", () => {
+    mount();
+    goHome();
+    fireEvent.contextMenu(screen.getByTestId("home-row-alpha"));
+    fireEvent.click(screen.getByTestId("menu-rearrange"));
+    expect(screen.getByTestId("rearrange-done")).not.toBeNull();
+    fireEvent.click(screen.getByTestId("list-tab-agents"));
+    expect(screen.queryByTestId("rearrange-done")).toBeNull();
+    goHome();
+    expect(screen.queryAllByTestId("rearrange-grip")).toHaveLength(0);
+  });
+
+  it("flag off: a drag steps past a hidden other-server row (it keeps its place in storage)", () => {
     const h = useHomesStore.getState();
     h.addRow(h.selectedId, { address: homeAddress("lab", "192.168.1.20:38471"), workspaceId: null, label: "Lab" });
     h.moveRow(h.selectedId, 2, 1); // alpha, Lab (hidden), bravo
     mount();
     goHome();
     fireEvent.contextMenu(screen.getByTestId("home-row-alpha"));
-    fireEvent.click(screen.getByTestId("home-menu-down"));
+    fireEvent.click(screen.getByTestId("menu-rearrange"));
+    dragGrip(screen.getByTestId("chats-list"), 0, 1);
     expect(storedRows().map((r) => r.label)).toEqual(["Lab", "bravo", "alpha"]);
     expect(screen.getAllByTestId("row-name").map((n) => n.textContent)).toEqual(["bravo", "alpha"]);
   });
 
-  it("swipe left reveals Remove; swipe right does nothing on Home rows", () => {
+  it("no swipe: a sideways drag on a Home row reveals nothing", () => {
     mount();
     goHome();
     const row = screen.getByTestId("home-row-bravo");
-    fireEvent.pointerDown(row, { clientX: 200, clientY: 200, button: 0, pointerId: 2 });
-    fireEvent.pointerMove(row, { clientX: 260, clientY: 200, pointerId: 2 });
-    fireEvent.pointerUp(row, { clientX: 260, clientY: 200, pointerId: 2 });
-    expect(row.style.transform).toBe("translateX(0px)");
     fireEvent.pointerDown(row, { clientX: 200, clientY: 200, button: 0, pointerId: 3 });
     fireEvent.pointerMove(row, { clientX: 100, clientY: 202, pointerId: 3 });
     fireEvent.pointerUp(row, { clientX: 100, clientY: 202, pointerId: 3 });
-    expect(row.style.transform).toBe("translateX(-96px)");
-    fireEvent.click(screen.getByTestId("home-remove-bravo"));
-    expect(storedRows().map((r) => r.label)).toEqual(["alpha"]);
-    expect(screen.queryByTestId("home-row-bravo")).toBeNull();
+    expect(row.style.transform).toBe("");
+    expect(screen.queryByTestId("home-remove-bravo")).toBeNull();
+    expect(storedRows().map((r) => r.label)).toEqual(["alpha", "bravo"]);
+    const hint = document.getElementById(row.getAttribute("aria-describedby")!)!;
+    expect(hint.textContent).not.toMatch(/Swipe/);
+    expect(hint.textContent).toMatch(/Press and hold/);
   });
 });

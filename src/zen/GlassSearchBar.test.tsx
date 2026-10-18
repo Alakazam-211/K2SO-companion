@@ -104,10 +104,10 @@ describe("GlassSearchBar + button", () => {
     expect(glyph).not.toBeNull();
     expect(plus.textContent).toBe(PLUS_GLYPH);
     expect(glyph.style.fontSize).toBe(`${PLUS_GLYPH_PX}px`);
-    expect(glyph.style.color).toBe("var(--text-muted)");
+    expect(glyph.style.color).toBe("rgb(255, 255, 255)");
   });
 
-  it("matches the composer's attach plus exactly", () => {
+  it("uses the composer's attach glyph, brighter", () => {
     const { plus } = mount();
     render(
       <GlassComposer
@@ -124,6 +124,35 @@ describe("GlassSearchBar + button", () => {
     const a = attach.querySelector('[data-testid="plus-glyph"]') as HTMLElement;
     const b = plus.querySelector('[data-testid="plus-glyph"]') as HTMLElement;
     expect(attach.textContent).toBe(PLUS_GLYPH);
-    expect(a.outerHTML).toBe(b.outerHTML);
+    // Same glyph and size; the bar's plus is white like the header icons.
+    expect(a.textContent).toBe(b.textContent);
+    expect(a.style.fontSize).toBe(b.style.fontSize);
+    expect(b.style.color).toBe("rgb(255, 255, 255)");
+    expect(a.style.color).toBe("var(--text-muted)");
+  });
+});
+
+describe("GlassSearchBar clear", () => {
+  it("shows a glass X at the field's right end once there is text; it clears without blurring", () => {
+    window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
+    const onQuery = vi.fn();
+    const { rerender } = render(<GlassSearchBar query="" onQuery={onQuery} inputTestId="q" />);
+    expect(screen.queryByTestId("q-clear")).toBeNull();
+    rerender(<GlassSearchBar query="alp" onQuery={onQuery} inputTestId="q" />);
+    const clear = screen.getByTestId("q-clear");
+    expect(clear.className).toContain("zen-glass");
+    // Last in the field, after the input: right-justified.
+    expect(clear.previousElementSibling).toBe(screen.getByTestId("q"));
+    expect(fireEvent.pointerDown(clear)).toBe(false);
+    fireEvent.click(clear);
+    expect(onQuery).toHaveBeenCalledWith("");
+  });
+});
+
+describe("HomeTabToggle", () => {
+  it("draws the selected thumb in blue glass", async () => {
+    const { HomeTabToggle } = await import("./HomeTabToggle");
+    render(<HomeTabToggle tab="agents" onTab={() => {}} />);
+    expect(screen.getByTestId("list-tab-thumb").className).toContain("zen-seg-thumb-blue");
   });
 });

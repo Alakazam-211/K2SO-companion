@@ -110,6 +110,24 @@ export function GlassSearchBar({
           aria-label={searchLabel}
           data-testid={inputTestId}
         />
+        {query ? (
+          <button
+            type="button"
+            className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
+            style={{ width: 24, height: 24, margin: "-2px -6px -2px 0", color: "#fff" }}
+            // Keep focus in the field so the iOS keyboard stays up.
+            onPointerDown={(e) => e.preventDefault()}
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onQuery("")}
+            aria-label="Clear search"
+            data-testid={inputTestId ? `${inputTestId}-clear` : "search-clear"}
+          >
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" aria-hidden>
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        ) : null}
       </label>
       {blocked && noteUp ? (
         <div
@@ -147,7 +165,7 @@ export function GlassSearchBar({
         }}
         data-testid={plusTestId}
       >
-        <PlusGlyph />
+        <PlusGlyph bright />
       </button>
       ) : null}
     </div>

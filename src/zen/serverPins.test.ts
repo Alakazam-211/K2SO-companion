@@ -5,7 +5,9 @@ import { sortByProjectOrder, type ServerProject,
   filterByFocus,
   focusGroupsOf,
   focusSettingsOf,
+  fullProjectOrder,
   listTitle,
+  slotOrder,
   pinProjectIdForRow,
   resolveFocus,
   serverProjectsOf,
@@ -91,5 +93,41 @@ describe("sortByProjectOrder (desktop's Agents order)", () => {
       "zz",
       "yy",
     ]);
+  });
+});
+
+describe("Rearrange order (desktop's full projects/reorder)", () => {
+  const P = (id: string, tabOrder: number, pinned = false): ServerProject => ({
+    id,
+    name: id,
+    path: `/${id}`,
+    handle: id,
+    pinned,
+    tabOrder,
+    focusGroupId: null,
+  });
+
+  it("slotOrder: the subset takes its own slots, in its new order; the rest stay put", () => {
+    expect(slotOrder(["a", "b", "c", "d"], ["d", "a", "c"])).toEqual(["d", "b", "a", "c"]);
+    expect(slotOrder(["a", "b", "c"], [])).toEqual(["a", "b", "c"]);
+    // Unknown and repeated ids are ignored.
+    expect(slotOrder(["a", "b", "c"], ["c", "x", "a", "c"])).toEqual(["c", "b", "a"]);
+  });
+
+  it("fullProjectOrder: every project, pins and hidden rows keep their slots", () => {
+    // Server: u1, p1 (pin), u2, p2 (pin), g (another focus group, not shown).
+    const projects = [P("u1", 0), P("p1", 1, true), P("u2", 2), P("p2", 3, true), P("g", 4)];
+    expect(fullProjectOrder(projects, [])).toEqual(["u1", "p1", "u2", "p2", "g"]);
+    expect(fullProjectOrder(projects, ["u2", "u1"])).toEqual(["u2", "p1", "u1", "p2", "g"]);
+  });
+
+  it("fullProjectOrder: ties in tabOrder (a pinned-only reorder) resolve by list position, pins by their own order", () => {
+    // Pins were reordered alone (tab_order 0, 1) and collide with unpinned rows.
+    const projects = [P("u1", 0), P("u2", 1), P("p2", 0, true), P("p1", 1, true)];
+    const full = fullProjectOrder(projects, []);
+    expect(full).toHaveLength(4);
+    expect(full.filter((id) => id.startsWith("p"))).toEqual(["p2", "p1"]);
+    expect(full.filter((id) => id.startsWith("u"))).toEqual(["u1", "u2"]);
+    expect(fullProjectOrder(projects, ["u2", "u1"]).filter((id) => id.startsWith("u"))).toEqual(["u2", "u1"]);
   });
 });

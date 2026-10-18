@@ -937,6 +937,14 @@ button, a, nav {
   pointer-events: none;
   z-index: 0;
 }
+/* Home | Agents: the selected thumb is blue glass (the Send button's
+   blue, with the same sheen). */
+.zen-seg-thumb-blue {
+  background: rgba(10, 132, 255, 0.92);
+  box-shadow:
+    inset 0 0.5px 0 rgba(255, 255, 255, 0.45),
+    0 1px 4px rgba(10, 132, 255, 0.35);
+}
 .zen-seg-btn {
   position: relative;
   z-index: 1;
@@ -1103,4 +1111,10 @@ button, a, nav {
    side also forces UIUserInterfaceStyle=Dark (Info.ios.plist + lib.rs). */
 :root {
   color-scheme: dark;
+}
+
+/* Search fields draw their own glass clear button (GlassSearchBar). */
+input[type="search"]::-webkit-search-cancel-button {
+  -webkit-appearance: none;
+  appearance: none;
 }

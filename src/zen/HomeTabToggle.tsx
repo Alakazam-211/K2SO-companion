@@ -16,7 +16,8 @@ const THUMB_R = TAB_SEG_H / 2 - TAB_SEG_PAD;
 /**
  * Home | Agents, left of the Agents search field (HM1). Same inset-thumb
  * segmented style as the terminal Viewer/Claimer control (a6acec2): the
- * selected highlight sits inside the glass pill, clipped by it.
+ * selected highlight sits inside the glass pill, clipped by it, in blue
+ * glass (Rosson 2026-10-18).
  */
 export function HomeTabToggle({ tab, onTab }: { tab: ListTab; onTab: (tab: ListTab) => void }) {
   const home = tab === "home";
@@ -38,7 +39,7 @@ export function HomeTabToggle({ tab, onTab }: { tab: ListTab; onTab: (tab: ListT
       }}
     >
       <span
-        className="zen-seg-thumb"
+        className="zen-seg-thumb zen-seg-thumb-blue"
         aria-hidden
         data-testid="list-tab-thumb"
         style={{
