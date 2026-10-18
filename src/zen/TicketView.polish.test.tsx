@@ -617,3 +617,35 @@ describe("Ticket: close the keyboard, then tap the field (TestFlight 1446)", () 
     }
   });
 });
+
+describe("Ticket content: top-aligned, always filling the view (no jump when the keyboard's room goes)", () => {
+  afterEach(() => {
+    __resetViewportForTests();
+  });
+  it("the content carries the kit class, stays top-aligned, and a hide does not move it", () => {
+    open();
+    const content = screen.getByTestId("ticket-content");
+    expect(content.className).toMatch(/\bmchat-content\b/);
+    expect(content.className).not.toMatch(/justify-end/);
+    // A short ticket: the content fills the view (700px), its rows 300px.
+    const scroller = screen.getByTestId("ticket-scroller");
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 700 });
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 700 });
+    Object.defineProperty(content, "offsetHeight", { configurable: true, value: 700 });
+    const kids = Array.from(content.children) as HTMLElement[];
+    kids[0].getBoundingClientRect = () => ({ top: 0, bottom: 10 }) as DOMRect;
+    kids[kids.length - 1].getBoundingClientRect = () => ({ top: 280, bottom: 300 }) as DOMRect;
+    act(() => {
+      (window as unknown as { __k2KeyboardWill: (d: unknown) => void }).__k2KeyboardWill({
+        height: 336,
+        duration: 250,
+        curve: 7,
+        show: true,
+      });
+    });
+    // Short ticket: nothing to scroll, so the brief does not rise with the
+    // composer; only the dock moves.
+    expect(content.style.transform).toBe("");
+    expect(screen.getByTestId("ticket-footer-dock").style.transform).toBe("translate3d(0, -336px, 0)");
+  });
+});

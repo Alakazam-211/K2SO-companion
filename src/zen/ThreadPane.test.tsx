@@ -619,6 +619,87 @@ describe("ThreadPane", () => {
     expect(el.scrollTop).toBe(1664);
   });
 
+  it("a short chat: keyboard hide is ONE glide to its top-aligned rest — the scroll room goes in the same motion, nothing snaps later", () => {
+    seedThread();
+    (window as unknown as { __k2KeyboardSetup?: boolean }).__k2KeyboardSetup = true;
+    const full = window.innerHeight;
+    const up = full - 336;
+    let vh = up;
+    try {
+      const { rerender } = render(<ThreadPane viewportHeight={vh} />);
+      const el = screen.getByTestId("thread-scroller");
+      const room = screen.getByTestId("thread-kb-top-room");
+      const content = screen.getByTestId("thread-content");
+      const natural = 450; // fits the full view, not the keyboard-up one
+      const client = () => vh - 64;
+      const roomH = () => parseFloat(room.style.height) || 0;
+      const contentH = () => Math.max(natural, client()); // .mchat-content fills
+      Object.defineProperty(content, "offsetTop", { configurable: true, get: roomH });
+      clampingScroller(el, () => roomH() + contentH(), client);
+      // Typing, at the newest: the bottom of the stack sits above the composer.
+      el.scrollTop = 99999;
+      fireEvent.scroll(el);
+      const stuck = el.scrollTop;
+      expect(roomH()).toBeGreaterThan(0);
+      const drawnBefore = roomH() - stuck; // content top, viewport-relative
+      const dock = screen.getByTestId("thread-composer-dock");
+      let atFlush: string[] = [];
+      dock.getBoundingClientRect = () => {
+        atFlush = [content.style.transform, room.style.height];
+        return new DOMRect();
+      };
+      vh = full;
+      rerender(<ThreadPane viewportHeight={vh} viewportMotion={motion(up, full)} />);
+      // The room is gone in this commit, the stack is at its rest (top)…
+      expect(room.style.height).toBe("");
+      expect(el.scrollTop).toBe(0);
+      // …and drawn where it was at the flush, gliding there on the
+      // keyboard's curve: one motion.
+      expect(atFlush).toEqual([`translate3d(0, ${drawnBefore}px, 0)`, ""]);
+      expect(content.style.transform).toBe("");
+      expect(content.style.transition).toBe(`transform 250ms ${EASE}`);
+      // Later (the motion clears): nothing left to move.
+      rerender(<ThreadPane viewportHeight={vh} viewportMotion={null} />);
+      expect(el.scrollTop).toBe(0);
+      expect(content.style.transform).toBe("");
+    } finally {
+      delete (window as unknown as { __k2KeyboardSetup?: boolean }).__k2KeyboardSetup;
+    }
+  });
+
+  it("a short chat on keyboard show: stays at the top if it still fits, rises only by its overflow if not — while the keyboard rises", () => {
+    for (const [natural, rise] of [
+      [300, 0],
+      [450, 450 - 364],
+    ] as const) {
+      seedThread();
+      const full = 764;
+      const { rerender, unmount } = render(<ThreadPane viewportHeight={full} />);
+      const el = screen.getByTestId("thread-scroller");
+      const content = screen.getByTestId("thread-content");
+      let client = 700;
+      const contentH = () => Math.max(natural, client);
+      Object.defineProperty(content, "offsetHeight", { configurable: true, get: contentH });
+      const kids = Array.from(content.children) as HTMLElement[];
+      // The stack's rows span 0…natural.
+      kids[0].getBoundingClientRect = () => ({ top: 0, bottom: kids.length === 1 ? natural : 10 }) as DOMRect;
+      if (kids.length > 1) {
+        kids[kids.length - 1].getBoundingClientRect = () => ({ top: natural - 20, bottom: natural }) as DOMRect;
+      }
+      clampingScroller(el, contentH, () => client);
+      el.scrollTop = 0;
+      fireEvent.scroll(el);
+      rerender(<ThreadPane viewportHeight={full - 336} viewportMotion={motion(full, full - 336)} />);
+      expect(content.style.transform).toBe(rise ? `translate3d(0, ${-rise}px, 0)` : "");
+      // The motion clears: the column takes its height; same picture.
+      client = 364;
+      rerender(<ThreadPane viewportHeight={full - 336} viewportMotion={null} />);
+      expect(content.style.transform).toBe("");
+      expect(el.scrollTop).toBe(rise);
+      unmount();
+    }
+  });
+
   it("keyboard hide while reading history: only the composer plays; the list stays put", () => {
     seedThread();
     let client = 400;
@@ -770,7 +851,9 @@ describe("ThreadPane", () => {
       const inset = 336;
       rerender(<ThreadPane viewportHeight={full - inset} />);
       expect(room.style.height).toBe(`${inset + 48}px`);
-      expect(content.style.minHeight).toBe("100%");
+      // The content always fills the view (CSS .mchat-content), room or not.
+      expect(content.className).toMatch(/\bmchat-content\b/);
+      expect(content.style.minHeight).toBe("");
       // jsdom does not clamp: the compensation is the whole room.
       expect(el.scrollTop).toBeGreaterThanOrEqual(inset + 48);
       // The drag layer sits in the scrolled content.

@@ -176,3 +176,108 @@ describe("keyboardColumnHeight", () => {
     expect(keyboardColumnHeight({ height: 508, motion: null, interactive: false }, 844)).toBe(508);
   });
 });
+
+// ── Short lists: show prediction, idle room drop ─────────────────────
+
+import { finalScrollTop } from "./useKeyboardFlip";
+import { useScrollRoom } from "./useScrollRoom";
+import { __resetViewportForTests } from "../../lib/useViewportHeight";
+
+function box(el: HTMLElement, o: { sh?: number; ch?: number; oh?: number; top?: number; bottom?: number }) {
+  if (o.sh != null) Object.defineProperty(el, "scrollHeight", { configurable: true, value: o.sh });
+  if (o.ch != null) Object.defineProperty(el, "clientHeight", { configurable: true, value: o.ch });
+  if (o.oh != null) Object.defineProperty(el, "offsetHeight", { configurable: true, value: o.oh });
+  if (o.top != null)
+    el.getBoundingClientRect = () => ({ top: o.top!, bottom: o.bottom!, height: o.bottom! - o.top! }) as DOMRect;
+}
+
+describe("finalScrollTop (show: where a following list re-sticks)", () => {
+  function list(natural: number, view: number, rest = 0) {
+    const el = document.createElement("div");
+    const content = document.createElement("div");
+    const row = document.createElement("div");
+    content.appendChild(row);
+    el.appendChild(content);
+    const fill = Math.max(natural, view);
+    box(content, { oh: fill });
+    box(row, { top: 0, bottom: natural });
+    box(el, { sh: rest + fill, ch: view });
+    return { el, content };
+  }
+  it("a short list that still fits does not scroll; one that no longer fits rises by its overflow only", () => {
+    const a = list(300, 700);
+    expect(finalScrollTop(a.el, a.content, 336)).toBe(0); // 300 fits 364
+    const b = list(450, 700);
+    expect(finalScrollTop(b.el, b.content, 336)).toBe(450 - 364);
+  });
+  it("a long list gains the whole growth", () => {
+    const c = list(3000, 700);
+    expect(finalScrollTop(c.el, c.content, 336)).toBe(3000 - 364);
+  });
+});
+
+function Room({ vh, lastScrollAt }: { vh: number; lastScrollAt: () => number }) {
+  const scroller = useRef<HTMLDivElement>(null);
+  const room = useRef<HTMLDivElement>(null);
+  const content = useRef<HTMLDivElement>(null);
+  useScrollRoom({
+    viewportHeight: vh,
+    scroller: () => scroller.current,
+    room: () => room.current,
+    content: () => content.current,
+    lastScrollAt,
+  });
+  return (
+    <div ref={scroller} data-testid="scroller">
+      <div ref={room} data-testid="room" />
+      <div ref={content} data-testid="content" />
+    </div>
+  );
+}
+
+describe("useScrollRoom idle drop", () => {
+  afterEach(() => {
+    delete (window as unknown as { __k2KeyboardSetup?: boolean }).__k2KeyboardSetup;
+    __resetViewportForTests();
+    vi.useRealTimers();
+  });
+  it("a drop that would move visible content (scrollTop clamps) plays over 250ms instead of snapping; one that does not, moves nothing", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    (window as unknown as { __k2KeyboardSetup?: boolean }).__k2KeyboardSetup = true;
+    const full = window.innerHeight;
+    const { rerender } = render(<Room vh={full - 336} lastScrollAt={() => 0} />);
+    const el = screen.getByTestId("scroller");
+    const room = screen.getByTestId("room");
+    const content = screen.getByTestId("content");
+    const roomH = () => parseFloat(room.style.height) || 0;
+    Object.defineProperty(content, "offsetTop", { configurable: true, get: roomH });
+    let top = 0;
+    Object.defineProperty(el, "scrollTop", {
+      configurable: true,
+      get: () => top,
+      set: (v: number) => {
+        top = Math.max(0, v);
+      },
+    });
+    // jsdom: the room was added at mount with scrollTop compensated.
+    expect(roomH()).toBe(336 + 48);
+    // The reader scrolled up into the room (100px of it showing).
+    top = roomH() - 100;
+    let flushed = "";
+    el.getBoundingClientRect = () => {
+      flushed = content.style.transform;
+      return new DOMRect();
+    };
+    rerender(<Room vh={full} lastScrollAt={() => 0} />);
+    act(() => {
+      vi.advanceTimersByTime(300);
+    });
+    expect(roomH()).toBe(0);
+    expect(top).toBe(0);
+    // The content moved up 100px by layout; it was drawn back where it was
+    // and eases to its rest.
+    expect(flushed).toBe("translate3d(0, 100px, 0)");
+    expect(content.style.transform).toBe("");
+    expect(content.style.transition).toBe("transform 250ms cubic-bezier(0.2, 0.8, 0.2, 1)");
+  });
+});

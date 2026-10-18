@@ -24,7 +24,7 @@ export {
 // Screen hooks:
 export { useKeyboardFlip, keyboardColumnHeight, type FlipList, type KeyboardFlipOptions } from "./useKeyboardFlip";
 export { useComposerFocusGap, COMPOSER_FOCUSED_ATTR } from "./useComposerFocusGap";
-export { useScrollRoom, TOP_ROOM_IDLE_MS } from "./useScrollRoom";
+export { useScrollRoom, TOP_ROOM_IDLE_MS, CHAT_CONTENT_CLASS } from "./useScrollRoom";
 export { useKeyboardDrag } from "./useKeyboardDrag";
 export { useKeyboardForwardPlay } from "./useKeyboardForwardPlay";
 export { useTapToDismiss, isDismissTap, NO_DISMISS_SELECTOR } from "./useTapToDismiss";

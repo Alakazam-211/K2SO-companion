@@ -28,6 +28,18 @@ export type FlipList = {
   stick(): void;
   /** Hold the list still (an anchor is being restored). */
   held?(): boolean;
+  /** Its content sits at the bottom (.mchat-content + flex-end): while
+   *  following, the newest moves exactly with the composer even when the
+   *  list does not scroll. (K2's lists are top-aligned at rest.) */
+  bottomAnchored?: boolean;
+  /** The list's content block (.mchat-content): lets the FLIP measure how
+   *  far the content itself moved (scroll AND spacers above it) and predict
+   *  a short list's layout. */
+  content?(): HTMLElement | null;
+  /** On a keyboard hide (not a drag release): drop transient spacers above
+   *  the content now (the scroll room), so the content goes to its resting
+   *  place in this one motion instead of snapping later. */
+  beforeHide?(): void;
 };
 
 export type KeyboardFlipOptions = {
@@ -50,6 +62,26 @@ function setT(els: HTMLElement[], y: number, transition: string): void {
     x.style.transition = transition;
     x.style.transform = y ? `translate3d(0, ${y}px, 0)` : "";
   }
+}
+
+/** The scrollTop a following list re-sticks to once its viewport has
+ *  shrunk by `growth`. A content block that fills the view (.mchat-content)
+ *  shrinks with it down to its children's natural height, so a short list
+ *  may not scroll at all; a long one gains `growth` of range. */
+export function finalScrollTop(el: HTMLElement, content: HTMLElement | null, growth: number): number {
+  let sh = el.scrollHeight;
+  if (content) {
+    const kids = Array.from(content.children) as HTMLElement[];
+    let natural = 0;
+    if (kids.length) {
+      const first = kids[0].getBoundingClientRect();
+      const last = kids[kids.length - 1].getBoundingClientRect();
+      natural = Math.max(0, last.bottom - first.top);
+    }
+    const fill = content.offsetHeight;
+    sh = sh - fill + Math.max(natural, fill - growth);
+  }
+  return Math.max(0, sh - (el.clientHeight - growth));
 }
 
 export function useKeyboardFlip(o: KeyboardFlipOptions): void {
@@ -89,11 +121,25 @@ export function useKeyboardFlip(o: KeyboardFlipOptions): void {
     const play = keyboardFlipTransition(m);
     if (m.to > m.from) {
       // Hide: layout is final; invert, then play to 0.
-      const before = list ? list.lastScrollTop() : el.scrollTop;
-      if (list && !dragged) list.stick();
-      const shift = before - el.scrollTop; // the list moved down by this
+      const content = list?.content?.() ?? null;
+      const top = () => (content ? content.offsetTop : 0);
+      // Where the content was drawn (its offset in the scroller − scroll).
+      const before = top() - (list ? list.lastScrollTop() : el.scrollTop);
+      if (list && !dragged) {
+        list.beforeHide?.(); // the scroll room goes now, in this motion
+        list.stick();
+      }
+      const after = top() - el.scrollTop;
       setT(ds, m.from - m.to, "none");
-      flipList.current = list && !dragged && Math.abs(shift) >= 0.5 ? -shift : 0;
+      // How far the content moved in this commit: re-stick / clamp / the
+      // room leaving (a short chat goes back to its top-aligned rest in
+      // this one glide). Bottom-anchored and following: it rides the
+      // composer (moved by the column's growth).
+      const moved =
+        list && !dragged && list.bottomAnchored && list.isFollowing()
+          ? m.to - m.from
+          : after - before;
+      flipList.current = list && !dragged && Math.abs(moved) >= 0.5 ? -moved : 0;
       if (flipList.current) setT(listEls(), flipList.current, "none");
       void dock.getBoundingClientRect(); // flush: start from the inverted spot
       setT(ds, 0, play);
@@ -102,10 +148,11 @@ export function useKeyboardFlip(o: KeyboardFlipOptions): void {
     }
     // Show: play forward to the layout the motion's end will commit.
     const growth = m.from - m.to; // the list's viewport shrinks by this
-    const maxNow = el.scrollHeight - el.clientHeight;
     const rise =
       list && !dragged && list.isFollowing() && !list.held?.()
-        ? Math.max(0, Math.min(growth, maxNow + growth - el.scrollTop))
+        ? list.bottomAnchored
+          ? growth
+          : Math.max(0, Math.min(growth, finalScrollTop(el, list.content?.() ?? null, growth) - el.scrollTop))
         : 0;
     setT(ds, m.to - m.from, play);
     flipList.current = rise ? -rise : 0;

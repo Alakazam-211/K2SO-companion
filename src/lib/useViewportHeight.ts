@@ -308,6 +308,10 @@ export function beginKeyboardDrag(): boolean {
   for (const el of trackEls) {
     el.style.transition = "none";
     el.style.height = `${full}px`;
+    // A list's content keeps min-height 100% minus this (the kit's
+    // CHAT_CONTENT_MIN_HEIGHT), so a short list does not move.
+    el.style.setProperty("--mchat-drag-pad", `${k}px`);
+    el.style.setProperty("--mchat-content-ms", "0ms");
   }
   for (const el of padEls) el.style.height = `${k}px`;
   set({ ...state, motion: null, interactive: true });
@@ -342,6 +346,14 @@ function finishDrag(
     ) ?? null;
   const bottom = drawn ?? known;
   for (const el of padEls) el.style.height = "";
+  // The pad goes unanimated; the content's gap ease comes back next frame.
+  for (const el of trackEls) el.style.removeProperty("--mchat-drag-pad");
+  const eased = [...trackEls];
+  const restoreEase = () => {
+    for (const el of eased) el.style.removeProperty("--mchat-content-ms");
+  };
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(restoreEase);
+  else restoreEase();
   let from: number | null = null;
   for (const el of trackEls) {
     const top = el.getBoundingClientRect().top;
