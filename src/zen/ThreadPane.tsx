@@ -76,11 +76,17 @@ export { COMPOSER_MAX_PX, composerHeight } from "./GlassComposer";
 const BUBBLE_TEXT_PX = 14;
 /** How long the "New message ↓" glide gets before a jump finishes it. */
 export const NEW_BELOW_SETTLE_MS = 450;
+/** Progressive first paint: a chat that opens with more than this many
+ *  messages draws its newest `PROGRESSIVE_FIRST` first and the rest on the
+ *  next idle frame (prepended above, the view pinned to the bottom). */
+export const PROGRESSIVE_MIN = 30;
+export const PROGRESSIVE_FIRST = 15;
 
 function Bubble({
   m,
   onFileLink,
   canAnswer,
+  answerHeld,
   answering,
   answerError,
   onAnswer,
@@ -92,6 +98,9 @@ function Bubble({
   m: ThreadMessage;
   onFileLink?: (ref: string) => void;
   canAnswer: boolean;
+  /** A cached copy not yet confirmed: options look as usual but wait for
+   *  the server's copy (the card may already be answered). */
+  answerHeld?: boolean;
   answering: boolean;
   answerError: string | null;
   onAnswer: (option: string) => void;
@@ -143,7 +152,8 @@ function Bubble({
             <div className="mt-2 flex flex-wrap gap-1.5">
               {choice.options.map((o) => {
                 const picked = answered && choice.answer === o;
-                const tappable = canAnswer && !answered && !answering && Boolean(m.id);
+                const open = canAnswer && !answered && !answering && Boolean(m.id);
+                const tappable = open && !answerHeld;
                 return (
                   <button
                     key={o}
@@ -156,7 +166,7 @@ function Bubble({
                       borderColor: picked ? "#fff" : "rgba(255,255,255,0.4)",
                       background: picked ? "#fff" : "transparent",
                       color: picked ? "#1c1c1e" : "#fff",
-                      opacity: tappable || picked ? 1 : 0.55,
+                      opacity: open || picked ? 1 : 0.55,
                     }}
                   >
                     {o}
@@ -278,6 +288,9 @@ export function ThreadPane({
 } = {}) {
   const thread = useZenStore((s) => s.thread);
   const source = useZenStore((s) => s.threadSource);
+  // A cached copy not yet confirmed by the server (stale-while-revalidate):
+  // drawn as is, but nothing is marked read and no card is answered from it.
+  const cachedOnly = useZenStore((s) => s.threadCached);
   const error = useZenStore((s) => s.threadError);
   const agentId = useZenStore((s) => s.agentId);
   // Done mode (drawer-picked session): a Thread that won't open offers the main chat.
@@ -415,6 +428,17 @@ export function ThreadPane({
   const rowsAboveField = roomBlocked || composerLabel !== "" || attachments.length > 0;
   const drawerCover = drawerOverScroller(drawerSpace, rowsAboveField);
   const focusSeq = useZenStore((s) => s.threadFocusSeq);
+  // Progressive first paint (see PROGRESSIVE_MIN): decided on the render
+  // where this chat first has messages; widened after that frame.
+  const filledFor = useRef<string | null>(null);
+  const limitedFor = useRef<string | null>(null);
+  const [expandedFor, setExpandedFor] = useState<string | null>(null);
+  if (thread.length > 0 && filledFor.current !== agentId) {
+    filledFor.current = agentId;
+    limitedFor.current = thread.length > PROGRESSIVE_MIN && focusSeq == null ? agentId : null;
+  }
+  const limited =
+    limitedFor.current === agentId && expandedFor !== agentId && focusSeq == null && thread.length > PROGRESSIVE_FIRST;
   // The working strip's turn. The gate drops a catch-up answer that raced
   // an activity frame (the frame is newer) or a later catch-up (a late
   // `{turn:null}` must not clear a live strip).
@@ -577,6 +601,53 @@ export function ThreadPane({
     };
   }, []);
 
+  // Progressive first paint: the rest of the messages on the next idle
+  // frame. Pinned to the bottom it stays there; a reader who already
+  // scrolled keeps the message under their eye.
+  useEffect(() => {
+    if (!limited) return;
+    const id = agentId;
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const widen = () => {
+      const el = scrollerRef.current;
+      if (el && !following.current && !pendingAnchor.current) {
+        pendingAnchor.current = captureTopMessage(
+          el,
+          Array.from(el.querySelectorAll<HTMLElement>("[data-thread-msg]"))
+        );
+      }
+      setExpandedFor(id);
+    };
+    const raf =
+      typeof requestAnimationFrame === "function"
+        ? requestAnimationFrame(() => {
+            t = setTimeout(widen, 0);
+          })
+        : null;
+    if (raf == null) t = setTimeout(widen, 0);
+    return () => {
+      if (raf != null && typeof cancelAnimationFrame === "function") cancelAnimationFrame(raf);
+      if (t) clearTimeout(t);
+    };
+  }, [limited, agentId]);
+  const wasLimited = useRef(false);
+  useLayoutEffect(() => {
+    const was = wasLimited.current;
+    wasLimited.current = limited;
+    if (!was || limited) return;
+    const el = scrollerRef.current;
+    if (!el) return;
+    if (pendingAnchor.current) {
+      restoreTopMessage(el, pendingAnchor.current);
+      ownTop.current = el.scrollTop;
+      lastTop.current = el.scrollTop;
+      pendingAnchor.current = null;
+    } else if (following.current) {
+      stick(el);
+      follow();
+    }
+  }, [limited]);
+
   // Push tap `?seq=`: land on that message (after the stick above).
   const highlightSeq = useThreadFocusSeq(scrollerRef);
 
@@ -686,7 +757,7 @@ export function ThreadPane({
     serverId: zenServer || null,
     rowRef: readRef,
     newestSeq: newestSeenSeq(thread, groupId ? "project" : "thread"),
-    viewing: source === "live" && !covered && atNewest && focusSeq == null,
+    viewing: source === "live" && !cachedOnly && !covered && atNewest && focusSeq == null,
   });
 
   // Viewing frames (K2 0.45.5 `thread-push-v1` only): while this Thread is
@@ -987,9 +1058,12 @@ export function ThreadPane({
   // from tap to delivered (the server's copy inherits it), so it is the
   // same element throughout — no remount, never two, never none.
   const rowKeys = landedRowKeys(outbox, thread, roomKey, landedKeys);
-  const rows: { key: string; m: ThreadMessage; out: OutgoingMessage | null }[] = thread.map(
-    (m, i) => ({ key: rowKeys.get(m.id) ?? (m.id || `seq-${m.seq ?? i}`), m, out: null })
-  );
+  const firstShown = limited ? thread.length - PROGRESSIVE_FIRST : 0;
+  const rows: { key: string; m: ThreadMessage; out: OutgoingMessage | null }[] = [];
+  for (let i = firstShown; i < thread.length; i++) {
+    const m = thread[i];
+    rows.push({ key: rowKeys.get(m.id) ?? (m.id || `seq-${m.seq ?? i}`), m, out: null });
+  }
   for (const o of outgoing) rows.push({ key: o.localId, m: outgoingBubble(o), out: o });
 
   const empty =
@@ -1080,7 +1154,7 @@ export function ThreadPane({
                   No messages yet
                 </span>
               ) : null}
-              {hasMore && source === "live" ? (
+              {hasMore && source === "live" && !limited ? (
                 <button
                   type="button"
                   data-testid="load-earlier"
@@ -1145,6 +1219,7 @@ export function ThreadPane({
                           !threadGroupId &&
                           (source === "live" || source === "error")
                         }
+                        answerHeld={cachedOnly}
                         answering={!out && answeringId === m.id}
                         answerError={!out && answerErrorId === m.id ? answerError : null}
                         onAnswer={(option) => void answerChoice(m.id, option)}

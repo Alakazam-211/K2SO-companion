@@ -30,7 +30,6 @@ import {
   fetchProjectGroups,
   postProjectGroupMessage,
   type ProjectGroup,
-  type ProjectGroupMessage,
 } from "../api/projectGroups";
 import { ensureBootStatus, scopeFor, serverMemory, type ServerScope } from "../api/scope";
 import { roomServerId, setRoomServer, zenScope } from "./zenScope";
@@ -91,8 +90,19 @@ import {
   writeRememberedSidecars,
   type OverlaySidecar,
 } from "./sidecarRows";
-import { isMine, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
+import { groupMessagesToThread, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import { mergeThreadMessages } from "./threadLive";
+import { mergeServerPage, shareUnchanged } from "./threadCacheMerge";
+import { chatCache } from "./chatCache";
+import type { CachedChat } from "./chatCacheBackend";
+import { installChatCacheWiring } from "./chatCacheWiring";
+import {
+  approxBytes,
+  beginChatOpen,
+  noteCachedPaint,
+  notePaintAfterResponse,
+  noteResponse,
+} from "./chatTiming";
 import {
   landedId,
   newLocalId,
@@ -168,6 +178,10 @@ type ZenState = {
   threadSource: DataSource;
   threadError: string | null;
   thread: ThreadMessage[];
+  /** The Thread on screen is this phone's cached copy, not yet confirmed
+   *  by a server read (stale-while-revalidate). Read marking and card
+   *  answers wait for the server's copy. */
+  threadCached: boolean;
   threadGen: number;
   threadAddr: string | null;
   threadGroupId: string | null;
@@ -401,23 +415,6 @@ function mergeResources(
   return [...listed, ...keepOpenFiles(s).filter((f) => !ids.has(f.id))];
 }
 
-function groupMessagesToThread(
-  messages: ProjectGroupMessage[],
-  username: string
-): ThreadMessage[] {
-  return messages.map((m, i) => ({
-    id: m.id,
-    seq: i,
-    text: m.body,
-    from: m.author,
-    at: m.createdAt,
-    mine: isMine(m.author, username),
-    kind: "text",
-    choice: null,
-    ...(typeof m.seq === "number" && Number.isFinite(m.seq) ? { readSeq: m.seq } : null),
-  }));
-}
-
 function oldestSeqOf(items: ThreadMessage[]): number | null {
   return items.reduce<number | null>((m, it) => {
     if (it.seq == null) return m;
@@ -566,35 +563,80 @@ type ListSlice = Pick<
 >;
 let listSlice: { serverId: string; state: ListSlice } | null = null;
 
-// Auto reconnect: the last Thread read per room (server + addr), in memory.
-// Only used while that server is DOWN, so a chat opened there shows what was
-// cached instead of an empty room (its banner says it is reconnecting).
-const THREAD_CACHE_MAX = 40;
-const threadCache = new Map<string, ThreadMessage[]>();
+// The chat cache (`chatCache`, stale-while-revalidate): the newest
+// messages of every chat this phone read, per room (server + addr / group),
+// in memory and on the device. Opening a chat paints its cached copy at
+// once (memory synchronously, else the device store as soon as it
+// answers), then the server read is merged over it. A chat on a server
+// that is down keeps showing it (auto reconnect; the banner says why).
+installChatCacheWiring();
 
-function rememberThread(roomKey: string, thread: ThreadMessage[]): void {
-  if (!thread.length) return;
-  threadCache.delete(roomKey);
-  threadCache.set(roomKey, thread);
-  while (threadCache.size > THREAD_CACHE_MAX) {
-    const oldest = threadCache.keys().next().value;
-    if (oldest === undefined) break;
-    threadCache.delete(oldest);
-  }
+// Live frames that land while a Thread read runs: newer than that read's
+// page, they stay when it is merged (everything else newer is gone).
+const liveWatches = new Set<Set<string>>();
+
+/** Collect the ids of live frames from now until `stop`. */
+function watchLive(): { ids: Set<string>; stop: () => void } {
+  const ids = new Set<string>();
+  liveWatches.add(ids);
+  return { ids, stop: () => void liveWatches.delete(ids) };
+}
+
+/** The pool already counts this server as down (auto reconnect). */
+function knownDown(serverId: string): boolean {
+  return !!serverId && serverDown(serverId, pool.entry(serverId));
+}
+
+/** The cached copy of a room, from memory (synchronous). */
+function cachedRoom(key: string): CachedChat | null {
+  return chatCache().peek(key);
 }
 
 /** A Thread read failed: when the server did not answer, its cached copy
  *  (the banner says it is reconnecting), else nothing. */
 function unreachableFallback(serverId: string, addr: string, error: string | null): ThreadMessage[] {
   if (!looksUnreachable(error)) return [];
-  return threadCache.get(threadRoomKey(serverId, null, addr.trim())) ?? [];
+  return cachedRoom(threadRoomKey(serverId, null, addr))?.messages ?? [];
 }
 
-/** The cached Thread for `addr` on a server that is down, else null. */
-function cachedThreadWhileDown(serverId: string, addr: string | null | undefined): ThreadMessage[] | null {
-  const a = (addr || "").trim();
-  if (!serverId || !a || !serverDown(serverId, pool.entry(serverId))) return null;
-  return threadCache.get(threadRoomKey(serverId, null, a)) ?? null;
+/** The room key a resumed chat (`hydrateAgents({resumeId})`) opens. */
+function resumeRoomKey(serverId: string, row: StubAgent | undefined, resumeId: string): string {
+  if (row?.kind === "group" && row.groupId) return threadRoomKey(serverId, row.groupId, null);
+  if (row?.addr) return threadRoomKey(serverId, null, row.addr);
+  if (resumeId.startsWith("group:")) return threadRoomKey(serverId, resumeId.slice(6), null);
+  return threadRoomKey(serverId, null, resumeId);
+}
+
+/** What a cached paint puts on screen. */
+function cachedPatch(e: CachedChat): Partial<ZenState> {
+  return {
+    thread: e.messages,
+    threadCached: true,
+    threadSource: "live",
+    threadError: null,
+    threadConversationId: e.conversationId,
+    threadHasMore: e.hasMore,
+    threadOldestSeq: oldestSeqOf(e.messages),
+  };
+}
+
+/** Nothing cached in memory: ask the device store, and paint its copy if
+ *  this open is still loading when it answers. */
+function paintFromDevice(key: string, gen: number, timing: number): void {
+  void chatCache()
+    .read(key)
+    .then((hit) => {
+      const { getState: get, setState: set } = useZenStore;
+      if (!hit || get().threadGen !== gen) return;
+      const st = get();
+      // Still loading — or the read already failed for want of a server
+      // (nothing on screen): the cached copy is better than nothing.
+      const down = st.threadSource === "error" && !st.thread.length && looksUnreachable(st.threadError);
+      if (st.threadSource !== "loading" && !down) return;
+      set(cachedPatch(hit.entry));
+      noteCachedPaint(timing, hit.from, hit.entry.messages.length);
+    })
+    .catch(() => undefined);
 }
 
 function captureList(s: ZenState): ListSlice {
@@ -639,7 +681,6 @@ onServerForget((id) => {
   // another server's data (MS7).
   if (roomServerId() === id) useZenStore.getState().closeChat();
   if (listSlice?.serverId === id) listSlice = null;
-  for (const k of [...threadCache.keys()]) if (k.startsWith(`${id}|`)) threadCache.delete(k);
 });
 
 // The active server changed under an open room: the parked list is stale,
@@ -676,6 +717,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   threadSource: "loading",
   threadError: null,
   thread: [],
+  threadCached: false,
   threadGen: 0,
   threadAddr: null,
   threadGroupId: null,
@@ -1108,6 +1150,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadSource: "error",
         threadError: `Sign in to ${scope.label}`,
         thread: [],
+        threadCached: false,
         threadGroupId: null,
       });
       return;
@@ -1134,13 +1177,30 @@ export const useZenStore = create<ZenState>((set, get) => ({
     // lists (features, version) gates routes and verbs on its scope.
     // Public, single-flight, re-read at most every few minutes.
     void ensureBootStatus(scope);
-    // A chat resumed on a server that is down shows its cached Thread at
-    // once (auto reconnect); the reads below may take a while to fail.
+    // A resumed chat (a room on another server, a cold launch into a
+    // chat) shows its cached copy at once — the list reads below come
+    // first and may take a while (or fail: auto reconnect).
     const resumeRow = resumeId
       ? get().agents.find((a) => a.id === resumeId) ?? get().agents.find((a) => a.addr === resumeId)
       : undefined;
-    const cached = resumeRow ? cachedThreadWhileDown(scope.id, resumeRow.addr) : null;
-    const cachedAddr = cached ? { threadAddr: (resumeRow?.addr || "").trim() } : {};
+    const resumeKey = resumeId ? resumeRoomKey(scope.id, resumeRow, resumeId) : "";
+    const resumeGroup = resumeKey.includes("|g:") ? resumeKey.slice(resumeKey.indexOf("|g:") + 3) : null;
+    const resumeAddr = resumeKey && !resumeGroup ? resumeKey.slice(resumeKey.indexOf("|t:") + 3) : null;
+    const resumeTiming = resumeKey
+      ? beginChatOpen(scope.id, resumeKey, resumeGroup ? "project" : "thread")
+      : 0;
+    const cachedEntry = resumeKey ? cachedRoom(resumeKey) : null;
+    const cached = cachedEntry?.messages ?? null;
+    const cachedAddr = cachedEntry
+      ? {
+          threadAddr: resumeAddr,
+          threadGroupId: resumeGroup,
+          threadConversationId: cachedEntry.conversationId,
+          threadHasMore: cachedEntry.hasMore,
+          threadOldestSeq: oldestSeqOf(cachedEntry.messages),
+        }
+      : {};
+    const resumeGen = resumeKey ? get().threadGen + 1 : get().threadGen;
     // Session exists: stub is unreachable. Owner fleet is GET /cli/agent/list
     // (singular). Address book is GET /cli/projects/list. Join on path.
     // Plural /cli/agents/list is the skills enumerator.
@@ -1158,10 +1218,14 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadSource: cached ? "live" : "loading",
       threadError: null,
       thread: cached ?? [],
+      threadCached: !!cached,
+      threadGen: resumeGen,
       threadGroupId: null,
       threadConversationId: null,
       ...cachedAddr,
     });
+    if (cachedEntry) noteCachedPaint(resumeTiming, "memory", cachedEntry.messages.length);
+    else if (resumeKey) paintFromDevice(resumeKey, resumeGen, resumeTiming);
     try {
       const [rAgents, rProjects, rGroups, rSessions] = await Promise.all([
         getAgentList(scope),
@@ -1195,6 +1259,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
             threadSource: cached ? "live" : "error",
             threadError: cached ? null : msg,
             thread: cached ?? [],
+            threadCached: !!cached,
             threadAddr: resumeRow.addr.trim(),
           });
           return;
@@ -1209,6 +1274,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
           threadSource: "error",
           threadError: msg,
           thread: [],
+          threadCached: false,
         });
         return;
       }
@@ -1226,9 +1292,11 @@ export const useZenStore = create<ZenState>((set, get) => ({
         fileSource: resumeId ? get().fileSource : "live",
         files: resumeId ? get().files : [],
         fileError: resumeId ? get().fileError : null,
-        threadSource: resumeId ? "loading" : "live",
-        threadError: null,
-        thread: [],
+        // Resuming: the chat's own read (setAgent, next) owns the Thread;
+        // a cached copy already on screen stays until it lands.
+        ...(resumeId
+          ? {}
+          : { threadSource: "live" as DataSource, threadError: null, thread: [], threadCached: false }),
         screen: resumeId ? "thread" : "list",
         agentId: resumeId || "",
       });
@@ -1252,6 +1320,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadSource: cached ? "live" : resumeId ? "loading" : "error",
         threadError: resumeId ? null : msg,
         thread: cached ?? [],
+        threadCached: !!cached,
         screen: resumeId ? "thread" : "list",
         agentId: resumeId || "",
         ...cachedAddr,
@@ -1427,9 +1496,16 @@ export const useZenStore = create<ZenState>((set, get) => ({
 
   hydrateGroup: async (groupId) => {
     const gen = get().threadGen + 1;
+    const scope = zenScope();
+    const key = threadRoomKey(scope.id, groupId, null);
+    const timing = beginChatOpen(scope.id, key, "project");
+    // Its cached copy at once (stale-while-revalidate); the read below
+    // replaces it.
+    const hit = cachedRoom(key);
     set({
       threadGen: gen,
       thread: [],
+      threadCached: false,
       threadError: null,
       threadSource: "loading",
       threadAddr: null,
@@ -1437,38 +1513,56 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadConversationId: null,
       threadHasMore: false,
       threadOldestSeq: null,
+      ...(hit ? { ...cachedPatch(hit), threadConversationId: null } : null),
     });
-    const scope = zenScope();
+    if (hit) noteCachedPaint(timing, "memory", hit.messages.length);
+    else paintFromDevice(key, gen, timing);
     const username = scope.username();
+    const failed = (msg: string) => {
+      if (get().threadCached) {
+        // The cached copy stays readable. A server already known to be
+        // down: the banner says why. Otherwise the failure is reported
+        // (recovery watches for it) with the copy still on screen.
+        if (!knownDown(scope.id)) set({ threadSource: "error", threadError: msg });
+        return;
+      }
+      set({ threadSource: "error", thread: [], threadCached: false, threadError: msg });
+    };
     try {
       const r = await fetchProjectGroupMessages(scope, groupId, { limit: 50 });
       if (get().threadGen !== gen) return;
+      noteResponse(timing, {
+        ok: r.ok,
+        items: r.ok ? r.data?.messages?.length ?? 0 : null,
+        bytes: r.ok ? approxBytes(r.data) : null,
+        error: r.ok ? null : r.error || "project chat failed",
+      });
       if (!r.ok) {
-        set({
-          threadSource: "error",
-          thread: [],
-          threadError: r.error || "project chat failed",
-        });
+        failed(r.error || "project chat failed");
         return;
       }
-      const items = groupMessagesToThread(r.data?.messages ?? [], username);
+      // Project chat lines carry list positions as `seq`: the server's
+      // page replaces the cached copy whole (unchanged lines keep their
+      // objects).
+      const items = shareUnchanged(get().thread, groupMessagesToThread(r.data?.messages ?? [], username));
       const lastAt = items[items.length - 1]?.at ?? null;
+      if (!items.length) chatCache().remember({ key, serverId: scope.id, messages: [], conversationId: null, hasMore: false });
       set({
         threadSource: "live",
         thread: items,
+        threadCached: false,
         threadError: null,
         threadHasMore: !!r.data?.truncated,
         threadOldestSeq: items.length ? 0 : null,
         lastAtByKey: { ...get().lastAtByKey, [lastAtKey(scope.id, "group", groupId)]: lastAt },
       });
+      notePaintAfterResponse(timing);
       get().markGroupSeen(groupId, lastAt);
     } catch (e) {
       if (get().threadGen !== gen) return;
-      set({
-        threadSource: "error",
-        thread: [],
-        threadError: e instanceof Error ? e.message : String(e),
-      });
+      const msg = e instanceof Error ? e.message : String(e);
+      noteResponse(timing, { ok: false, error: msg });
+      failed(msg);
     }
   },
 
@@ -1478,6 +1572,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadSource: "stub",
         threadError: null,
         thread: stubThread(addr),
+        threadCached: false,
         threadAddr: addr,
         threadGroupId: null,
         threadConversationId: null,
@@ -1488,61 +1583,92 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
     const gen = get().threadGen + 1;
     const scope = zenScope();
-    // Its server is down: the cached Thread, at once (auto reconnect).
-    const cached = cachedThreadWhileDown(scope.id, addr);
+    const key = threadRoomKey(scope.id, null, addr);
+    const timing = beginChatOpen(scope.id, key, "thread");
+    // Its cached copy at once (stale-while-revalidate): from memory now,
+    // else from the device store when it answers. The read below is
+    // merged over it (and a server that is down leaves it on screen).
+    const hit = cachedRoom(key);
     set({
       threadGen: gen,
-      thread: cached ?? [],
+      thread: [],
+      threadCached: false,
       threadError: null,
-      threadSource: cached ? "live" : "loading",
+      threadSource: "loading",
       threadAddr: addr,
       threadGroupId: null,
       threadConversationId: null,
       threadHasMore: false,
-      threadOldestSeq: cached ? oldestSeqOf(cached) : null,
+      threadOldestSeq: null,
+      ...(hit ? cachedPatch(hit) : null),
     });
+    if (hit) noteCachedPaint(timing, "memory", hit.messages.length);
+    else paintFromDevice(key, gen, timing);
     const username = scope.username();
-    try {
-      const r = await getThread(scope, addr);
-      if (get().threadGen !== gen) return;
-      if (cached && (!r.ok || !r.data || !Array.isArray(r.data.items))) return; // keep the cached copy
-      if (!r.ok || !r.data || !Array.isArray(r.data.items)) {
-        set({
-          threadSource: "error",
-          // The server did not answer: what was read before stays readable.
-          thread: unreachableFallback(scope.id, addr, typeof r.error === "string" ? r.error : null),
-          threadError:
-            typeof r.error === "string" && r.error
-              ? r.error
-              : r.error
-                ? JSON.stringify(r.error)
-                : "thread failed",
-        });
+    const failed = (msg: string) => {
+      if (get().threadCached) {
+        // The cached copy stays readable. A server already known to be
+        // down: the banner says why. Otherwise the failure is reported
+        // (recovery watches for it) with the copy still on screen.
+        if (!knownDown(scope.id)) set({ threadSource: "error", threadError: msg });
         return;
       }
-      const items = r.data.items
-        .map((it) => normaliseThreadItem(it, username))
-        .filter((m): m is ThreadMessage => !!m)
-        .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0));
-      const last = items[items.length - 1];
-      set({
-        threadSource: "live",
-        thread: items,
-        threadError: null,
-        threadConversationId: (r.data.conversation_id || "").trim() || null,
-        threadHasMore: !!r.data.has_more,
-        threadOldestSeq: oldestSeqOf(items),
-        ...threadRowPatch(get(), scope, addr, last),
-      });
-    } catch (e) {
-      if (get().threadGen !== gen) return;
-      if (cached) return; // keep the cached copy; the banner says why
-      const msg = e instanceof Error ? e.message : String(e);
       set({
         threadSource: "error",
+        // The server did not answer: what was read before stays readable.
         thread: unreachableFallback(scope.id, addr, msg),
         threadError: msg,
       });
+    };
+    const live = watchLive();
+    try {
+      const r = await Promise.resolve(getThread(scope, addr)).finally(live.stop);
+      if (get().threadGen !== gen) return;
+      if (!r.ok || !r.data || !Array.isArray(r.data.items)) {
+        const msg =
+          typeof r.error === "string" && r.error
+            ? r.error
+            : r.error
+              ? JSON.stringify(r.error)
+              : "thread failed";
+        noteResponse(timing, { ok: false, error: msg });
+        failed(msg);
+        return;
+      }
+      noteResponse(timing, { ok: true, items: r.data.items.length, bytes: approxBytes(r.data) });
+      const page = r.data.items
+        .map((it) => normaliseThreadItem(it, username))
+        .filter((m): m is ThreadMessage => !!m);
+      const conv = (r.data.conversation_id || "").trim() || null;
+      const hasMore = !!r.data.has_more;
+      const cur = get();
+      // Over the cached copy (and any live frame that landed meanwhile):
+      // the server's copy wins inside its window.
+      const thread = mergeServerPage(cur.thread, page, {
+        hasMore,
+        sameConversation: !cur.threadConversationId || !conv || cur.threadConversationId === conv,
+        arrivedLive: live.ids,
+      });
+      if (!thread.length) {
+        chatCache().remember({ key, serverId: scope.id, messages: [], conversationId: conv, hasMore: false });
+      }
+      const last = thread[thread.length - 1];
+      set({
+        threadSource: "live",
+        thread,
+        threadCached: false,
+        threadError: null,
+        threadConversationId: conv,
+        threadHasMore: hasMore,
+        threadOldestSeq: oldestSeqOf(thread),
+        ...threadRowPatch(get(), scope, addr, last),
+      });
+      notePaintAfterResponse(timing);
+    } catch (e) {
+      if (get().threadGen !== gen) return;
+      const msg = e instanceof Error ? e.message : String(e);
+      noteResponse(timing, { ok: false, error: msg });
+      failed(msg);
     }
   },
 
@@ -1739,7 +1865,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
         get().dropOutgoing(id);
         return true;
       }
-      const reread = await getThread(scope, addr as string);
+      const live = watchLive();
+      const reread = await Promise.resolve(getThread(scope, addr as string)).finally(live.stop);
       if (get().threadGen !== gen) {
         get().dropOutgoing(id);
         return true;
@@ -1763,17 +1890,23 @@ export const useZenStore = create<ZenState>((set, get) => ({
       if (!isOwnerAuthored(onWire.from, username, addr as string)) {
         return fail(id, `sent but the speaker was wrong (from='${onWire.from}')`);
       }
+      // Older messages already on screen (cached, or paged in) stay.
+      const merged = mergeServerPage(get().thread, items, {
+        hasMore: !!reread.data.has_more,
+        arrivedLive: live.ids,
+      });
       set({
         sending: false,
         sendError: null,
         outbox: outboxWithout(id),
         landedKeys: rememberLanded(get().landedKeys, room, onWire.id, id),
-        thread: items,
+        thread: merged,
+        threadCached: false,
         threadConversationId:
           (reread.data.conversation_id || "").trim() ||
           get().threadConversationId,
         threadHasMore: !!reread.data.has_more,
-        threadOldestSeq: oldestSeqOf(items),
+        threadOldestSeq: oldestSeqOf(merged),
         // The row shows this send at once ("You: …").
         ...threadRowPatch(get(), scope, addr as string, { ...onWire, at: onWire.at ?? Date.now() / 1000 }),
       });
@@ -1842,6 +1975,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const username = scope.username();
     const msg = normaliseThreadItem(raw, username);
     if (!msg) return;
+    if (msg.id) for (const w of liveWatches) w.add(msg.id);
     const thread = mergeThreadMessages(get().thread, [msg]);
     if (thread === get().thread) return;
     const last = thread[thread.length - 1];
@@ -1866,15 +2000,13 @@ export const useZenStore = create<ZenState>((set, get) => ({
         const r = await fetchProjectGroupMessages(scope, groupId, { limit: 50 });
         if (get().threadGen !== gen || get().threadGroupId !== groupId) return;
         if (!r.ok) return;
-        const incoming = groupMessagesToThread(r.data?.messages ?? [], username);
         const cur = get().thread;
-        const same =
-          cur.length === incoming.length &&
-          cur.every((m, i) => m.id === incoming[i]?.id);
-        if (same) return;
+        const incoming = shareUnchanged(cur, groupMessagesToThread(r.data?.messages ?? [], username));
+        if (incoming === cur && !get().threadCached) return;
         const last = incoming[incoming.length - 1];
         set({
           thread: incoming,
+          threadCached: false,
           threadSource: "live",
           threadError: null,
           lastAtByKey: {
@@ -1891,24 +2023,33 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
     const addr = get().threadAddr;
     if (!addr) return;
+    const live = watchLive();
     try {
-      const r = await getThread(scope, addr);
+      const r = await Promise.resolve(getThread(scope, addr)).finally(live.stop);
       if (get().threadGen !== gen || get().threadAddr !== addr) return;
       if (!r.ok || !r.data || !Array.isArray(r.data.items)) return;
       const incoming = r.data.items
         .map((it) => normaliseThreadItem(it, username))
         .filter((m): m is ThreadMessage => !!m);
-      const thread = mergeThreadMessages(get().thread, incoming, { refreshFiles: true });
+      // A full newest-page read: the server's copy wins inside its window
+      // (answered / voided cards, file states), older pages stay.
       const conv =
         (r.data.conversation_id || "").trim() || get().threadConversationId;
-      if (thread === get().thread && conv === get().threadConversationId) return;
+      const prevConv = get().threadConversationId;
+      const thread = mergeServerPage(get().thread, incoming, {
+        hasMore: !!r.data.has_more,
+        sameConversation: !prevConv || !conv || prevConv === conv,
+        arrivedLive: live.ids,
+      });
+      if (thread === get().thread && conv === prevConv && !get().threadCached) return;
       const last = thread[thread.length - 1];
       set({
         thread,
+        threadCached: false,
         threadSource: "live",
         threadError: null,
         threadConversationId: conv,
-        threadOldestSeq: get().threadOldestSeq ?? oldestSeqOf(thread),
+        threadOldestSeq: oldestSeqOf(thread) ?? get().threadOldestSeq,
         ...threadRowPatch(get(), scope, addr, last),
       });
     } catch {
@@ -1952,6 +2093,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       set({
         threadSource: "error",
         thread: [],
+        threadCached: false,
         threadError: row?.joinMiss || "Not chattable",
         threadGroupId: null,
         threadConversationId: null,
@@ -2239,6 +2381,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       openFileIds: [],
       focusId: null,
       thread: [],
+      threadCached: false,
       threadError: null,
       threadAddr: null,
       threadGroupId: null,
@@ -2282,6 +2425,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         sending: false,
         sendError: null,
         thread: [],
+        threadCached: false,
         threadAddr: null,
         threadGroupId: null,
         threadConversationId: null,
@@ -2424,12 +2568,27 @@ export const useZenStore = create<ZenState>((set, get) => ({
   focusFile: (id) => set({ focusId: id }),
 }));
 
-// Every Thread read that landed is the room's cached copy (auto reconnect).
+// Every confirmed Thread / project chat on screen (a read that landed, a
+// live frame, a send) is the room's cached copy: memory now, the device
+// store written behind. A cached paint is not re-saved; an empty list is
+// never saved from here (list loads clear the Thread) — an empty server
+// read drops the entry itself.
 useZenStore.subscribe((s, p) => {
-  if (s.thread === p.thread || s.threadSource !== "live") return;
+  if (s.thread === p.thread && s.threadCached === p.threadCached) return;
+  if (s.threadSource !== "live" || s.threadCached || !s.thread.length) return;
+  if (s.agentSource === "stub") return;
+  const server = zenId();
+  if (!server) return;
+  const groupId = (s.threadGroupId || "").trim();
   const addr = (s.threadAddr || "").trim();
-  if (!addr || (s.threadGroupId || "").trim()) return;
-  rememberThread(threadRoomKey(zenId(), null, addr), s.thread);
+  if (!groupId && !addr) return;
+  chatCache().remember({
+    key: threadRoomKey(server, groupId || null, groupId ? null : addr),
+    serverId: server,
+    messages: s.thread,
+    conversationId: groupId ? null : s.threadConversationId,
+    hasMore: s.threadHasMore,
+  });
 });
 
 /** The header's short error line (pins and groups). Clears itself. */

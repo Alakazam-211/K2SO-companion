@@ -74,6 +74,10 @@ export const DAEMON_FEATURES = [
   // `GET /cli/thread/attachment`, `attachmentCount` on thread/latest).
   // Read by the Thread's file chips; absent → no chips.
   "thread-attachments-v1",
+  // K2 0.46.1 (provisional): delta reads — `after_seq=N` on `GET
+  // /cli/thread` and the project chat messages route. Read by
+  // `api/threadDelta` (chat prefetch); absent → full newest-page reads.
+  "thread-delta-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];

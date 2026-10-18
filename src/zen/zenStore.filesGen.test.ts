@@ -55,10 +55,12 @@ import { resetThreadPreviewQueue, useZenStore } from "./zenStore";
 import { NO_WORKSPACE_PATH, PATH_NOT_OWNED } from "./workspacePath";
 import { fakeScope } from "../test/fakeScope";
 import { setZenScope, zen } from "../test/zenScopeMock";
+import { setChatCacheForTests } from "./chatCache";
 
 // A fresh fake server per test (was: getActiveServer / getToken mocks).
 beforeEach(() => {
   setZenScope(fakeScope({ id: "s1", username: "", token: "" }));
+  setChatCacheForTests(null);
 });
 
 

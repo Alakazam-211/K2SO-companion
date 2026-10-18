@@ -8,6 +8,7 @@ import { serverBellStatus, useNotifyPrefsStore } from "../stores/notifyPrefs";
 import { usePushPreviewsStore } from "../stores/pushPreviews";
 import { hostLabel, signOutServer, useServersStore, type RecoveryState } from "../stores/servers";
 import { BadgeDiagnosticsRow } from "./BadgeDiagnostics";
+import { ChatTimingRow } from "./ChatTimingDiagnostics";
 import { HomeSyncSection } from "./HomeSyncSection";
 import { RECOVERY_DOT, STATE_LABEL } from "./serverList";
 import { ServerUpdateSection } from "./ServerUpdateSection";
@@ -174,6 +175,10 @@ export function ServerSettingsPage({
         <ShortcutsGroup serverId={serverId} label={label} hasToken={!!token} onOpenUsage={onOpenUsage} />
 
         <HomeSyncSection serverId={serverId} label={label} />
+
+        <Group label="Diagnostics" testId="server-settings-diagnostics">
+          <ChatTimingRow serverId={serverId} />
+        </Group>
 
         <Group label="Danger zone" testId="server-settings-danger">
           {token ? (

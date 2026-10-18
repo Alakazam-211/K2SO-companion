@@ -53,6 +53,7 @@ import { useWorkspacesStore } from "../stores/workspaces";
 import { FOCUS_MAX_PAGES, zenFocusSeq } from "../zen/threadFocus";
 import { useZenStore } from "../zen/zenStore";
 import { Zen } from "./Zen";
+import { setChatCacheForTests } from "../zen/chatCache";
 
 const base = { workspaceName: "K2", workspaceId: "k2", workspaceColor: "#000" };
 const SESSIONS = [
@@ -92,6 +93,7 @@ const highlighted = () =>
   Array.from(document.querySelectorAll("[data-highlight='true']")).map((el) => el.getAttribute("data-seq"));
 
 beforeEach(() => {
+  setChatCacheForTests(null);
   // Flag-off parity: `zen.multiServer` now defaults on; pin it off.
   useMultiServerPrefs.setState({ multiServer: false });
   endless = false;
