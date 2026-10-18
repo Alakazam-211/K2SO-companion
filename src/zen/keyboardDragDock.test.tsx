@@ -447,3 +447,28 @@ describe("installKeyboardDragDock", () => {
     expect(standIn()).toBeNull();
   });
 });
+
+describe("orphaned stand-in (TestFlight 1446 hardening)", () => {
+  it("a focus or a keyboard show with no drag in the store drops it; mid-drag it stays", () => {
+    mount();
+    touch("touchstart", 300);
+    touch("touchmove", TOP - DOCK_H - 1);
+    touch("touchmove", TOP - DOCK_H + 2);
+    expect(standIn()).not.toBeNull();
+    // Mid-drag (interactive): a focus does not drop it.
+    act(() => {
+      el("dock").querySelector("textarea")!.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    expect(standIn()).not.toBeNull();
+    // The store loses the drag without a hand-off (an orphan): next focus drops it.
+    act(() => {
+      __resetViewportForTests();
+    });
+    act(() => {
+      el("dock").querySelector("textarea")!.dispatchEvent(new FocusEvent("focusin", { bubbles: true }));
+    });
+    expect(standIn()).toBeNull();
+    expect(el("dock").style.opacity).toBe("");
+    expect(el("dock").style.pointerEvents).toBe("");
+  });
+});

@@ -554,3 +554,66 @@ describe("Ticket keyboard — the mobile chat kit (the Thread's behaviour)", () 
     expect(document.activeElement).not.toBe(field);
   });
 });
+
+describe("Ticket: close the keyboard, then tap the field (TestFlight 1446)", () => {
+  afterEach(() => {
+    __resetViewportForTests();
+  });
+  it("the field takes focus and keeps it; the gap attribute only while focused; no blur loop; no hidden dock", () => {
+    open();
+    const root = screen.getByTestId("ticket-view");
+    const field = input();
+    const dock = screen.getByTestId("ticket-footer-dock");
+    let now = 1000;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const will = (show: boolean) =>
+      act(() => {
+        (window as unknown as { __k2KeyboardWill: (d: unknown) => void }).__k2KeyboardWill({
+          show,
+          height: show ? 336 : 0,
+          duration: 250,
+          curve: 7,
+        });
+      });
+    const tap = (el: Element) => {
+      for (const [type, t] of [
+        ["pointerdown", 100],
+        ["pointerup", 160],
+      ] as const) {
+        const e = new Event(type, { bubbles: true });
+        Object.defineProperty(e, "pointerId", { value: 1 });
+        Object.defineProperty(e, "clientX", { value: 5 });
+        Object.defineProperty(e, "clientY", { value: 5 });
+        Object.defineProperty(e, "timeStamp", { value: t });
+        act(() => {
+          el.dispatchEvent(e);
+        });
+      }
+    };
+    try {
+      act(() => field.focus());
+      will(true);
+      expect(root.hasAttribute("data-composer-focused")).toBe(true);
+      now += 2000;
+      tap(screen.getByTestId("ticket-scroller"));
+      will(false);
+      expect(document.activeElement).not.toBe(field);
+      expect(root.hasAttribute("data-composer-focused")).toBe(false);
+      // The real dock is visible and takes taps (no stand-in left over).
+      expect(dock.style.opacity).toBe("");
+      expect(dock.style.pointerEvents).toBe("");
+      expect(screen.queryByTestId("thread-composer-standin")).toBeNull();
+      // Tap the field again; stale / late hides must not undo it.
+      now += 2000;
+      act(() => field.focus());
+      will(false);
+      will(true);
+      now += 50;
+      will(false);
+      expect(document.activeElement).toBe(field);
+      expect(root.hasAttribute("data-composer-focused")).toBe(true);
+    } finally {
+      clock.mockRestore();
+    }
+  });
+});

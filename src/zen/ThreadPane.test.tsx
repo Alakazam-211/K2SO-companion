@@ -844,14 +844,36 @@ describe("ThreadPane", () => {
     expect(root.hasAttribute("data-composer-focused")).toBe(false);
     // The keyboard hiding on its own (a drag-dismiss) while the field is
     // still focused: blur it and take the resting gap.
-    ta.focus();
-    fireEvent.focusIn(ta);
-    expect(root.hasAttribute("data-composer-focused")).toBe(true);
-    act(() => {
-      window.dispatchEvent(new CustomEvent("k2-keyboard-will", { detail: { show: false, height: 0, duration: 250 } }));
-    });
-    expect(document.activeElement).not.toBe(ta);
-    expect(root.hasAttribute("data-composer-focused")).toBe(false);
+    let now = 1000;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const will = (show: boolean) =>
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent("k2-keyboard-will", { detail: { show, height: show ? 336 : 0, duration: 250 } })
+        );
+      });
+    try {
+      ta.focus();
+      fireEvent.focusIn(ta);
+      will(true);
+      expect(root.hasAttribute("data-composer-focused")).toBe(true);
+      now += 2000;
+      will(false);
+      expect(root.hasAttribute("data-composer-focused")).toBe(false);
+
+      // Then the reader taps the field again (TestFlight 1446): a stale
+      // hide (the keyboard is not up yet) must not undo that tap…
+      fireEvent.focusIn(ta);
+      will(false);
+      expect(root.hasAttribute("data-composer-focused")).toBe(true);
+      // …nor a hide right after the keyboard starts back up.
+      will(true);
+      now += 100;
+      will(false);
+      expect(root.hasAttribute("data-composer-focused")).toBe(true);
+    } finally {
+      clock.mockRestore();
+    }
   });
 
   it("pads the scroller under a floating header and keeps the newest in view when it grows", () => {
@@ -1512,5 +1534,70 @@ describe("ThreadPane tap-to-dismiss (mobile chat kit)", () => {
     ev(scroller, "pointermove", 140);
     ev(scroller, "pointerup", 150);
     expect(document.activeElement).not.toBe(field);
+  });
+});
+
+describe("ThreadPane: close the keyboard, then tap the field (TestFlight 1446)", () => {
+  it("the field takes focus and keeps it; the gap attribute only while focused; no blur loop", () => {
+    useZenStore.setState({
+      agentId: "appa",
+      threadAddr: "appa",
+      threadSource: "live",
+      threadError: null,
+      thread: [],
+    });
+    render(<ThreadPane viewportHeight={464} />);
+    const root = screen.getByTestId("thread-scroller").parentElement as HTMLElement;
+    const ta = screen.getByTestId("composer-bar").querySelector("textarea")!;
+    expect(ta.disabled).toBe(false);
+    let now = 1000;
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => now);
+    const will = (show: boolean) =>
+      act(() => {
+        window.dispatchEvent(
+          new CustomEvent("k2-keyboard-will", { detail: { show, height: show ? 336 : 0, duration: 250 } })
+        );
+      });
+    const tap = (el: Element) => {
+      const ev = (type: string, t: number) => {
+        const e = new Event(type, { bubbles: true });
+        Object.defineProperty(e, "pointerId", { value: 1 });
+        Object.defineProperty(e, "clientX", { value: 5 });
+        Object.defineProperty(e, "clientY", { value: 5 });
+        Object.defineProperty(e, "timeStamp", { value: t });
+        act(() => {
+          el.dispatchEvent(e);
+        });
+      };
+      ev("pointerdown", 100);
+      ev("pointerup", 160);
+    };
+    try {
+      act(() => ta.focus());
+      will(true);
+      expect(root.hasAttribute("data-composer-focused")).toBe(true);
+      now += 2000;
+      // Dismiss by a tap on the conversation; the keyboard hides.
+      tap(screen.getByTestId("thread-scroller"));
+      will(false);
+      expect(document.activeElement).not.toBe(ta);
+      expect(root.hasAttribute("data-composer-focused")).toBe(false);
+      // Tap the field again; late hide notifications must not undo it.
+      now += 2000;
+      act(() => ta.focus());
+      will(false);
+      will(true);
+      now += 50;
+      will(false);
+      expect(document.activeElement).toBe(ta);
+      expect(root.hasAttribute("data-composer-focused")).toBe(true);
+      // A real hide later (the keyboard was up, the focus is not fresh).
+      now += 2000;
+      will(false);
+      expect(document.activeElement).not.toBe(ta);
+      expect(root.hasAttribute("data-composer-focused")).toBe(false);
+    } finally {
+      clock.mockRestore();
+    }
   });
 });

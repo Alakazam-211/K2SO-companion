@@ -636,6 +636,15 @@ describe("interactive keyboard dismiss (drag start / release hand-off)", () => {
     expect(el("col").style.height).toBe(`${FULL}px`);
   });
 
+  it("endKeyboardDrag with no drag in the store still drops an orphaned stand-in", () => {
+    render(<Column />);
+    keyboardShown();
+    setKeyboardDragHandler(handler);
+    act(() => endKeyboardDrag());
+    expect(handler.detach).toHaveBeenCalledTimes(1);
+    expect(seen?.interactive).toBe(false);
+  });
+
   it("endKeyboardDrag / a Did* resync hand everything back, unanimated", () => {
     render(<Column />);
     keyboardShown();

@@ -278,6 +278,11 @@ export function setKeyboardDragHandler(h: KeyboardDragHandler | null): void {
   dragHandler = h;
 }
 
+/** An interactive dismiss drag is in progress. */
+export function viewportInteractiveNow(): boolean {
+  return state.interactive;
+}
+
 /** The keyboard's top (viewport px) while it is up, else null. */
 export function keyboardTopNow(): number | null {
   const full = fullHeight();
@@ -365,7 +370,11 @@ function finishDrag(
 /** The finger went back above the keyboard (it is fully up again) or
  *  let go without a Will*: hand everything back, unanimated. */
 export function endKeyboardDrag(): void {
-  if (!state.interactive) return;
+  if (!state.interactive) {
+    // An orphaned stand-in (no drag in the store): show the real composer.
+    dragHandler?.detach();
+    return;
+  }
   finishDrag(state.height);
   set({ ...state, interactive: false });
 }

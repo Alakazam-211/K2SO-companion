@@ -10,11 +10,18 @@
 // backgrounding can hide the keyboard while WebKit keeps the field focused
 // — the bar would keep the 8px typing gap and a tap would not bring the
 // keyboard back. On a Will*Hide the field is blurred, as UIKit resigns
-// the first responder.
+// the first responder (the shell also resigns WebKit's content view on
+// DidHide). Only for a keyboard this screen saw come up, and never a field
+// focused moments ago: a late / stale hide (UIKit can post a WillChangeFrame
+// with the old, hidden frame as the keyboard comes back) must not undo the
+// tap that is bringing the keyboard back.
 
 import { useEffect, useRef } from "react";
+import { keyboardTopNow } from "../../lib/useViewportHeight";
 
 export const COMPOSER_FOCUSED_ATTR = "data-composer-focused";
+/** A field focused this recently (ms) is never blurred by a Will*Hide. */
+export const FRESH_FOCUS_MS = 400;
 
 export function useComposerFocusGap(opts: {
   root: () => HTMLElement | null;
@@ -38,11 +45,27 @@ export function useComposerFocusGap(opts: {
       return Boolean(b && n instanceof Node && b.contains(n));
     };
     apply(inBar(document.activeElement));
-    const onIn = (e: FocusEvent) => apply(inBar(e.target));
+    // The keyboard as this screen saw it (Will* show / hide), and when the
+    // composer last took focus.
+    let keyboardUp = keyboardTopNow() != null;
+    let focusedAt = Number.NEGATIVE_INFINITY;
+    const onIn = (e: FocusEvent) => {
+      if (inBar(e.target)) focusedAt = performance.now();
+      apply(inBar(e.target));
+    };
     const onOut = (e: FocusEvent) => apply(inBar(e.relatedTarget));
     const onKeyboardWill = (e: Event) => {
       const d = (e as CustomEvent<{ show?: boolean }>).detail;
-      if (!d || d.show !== false) return;
+      if (!d) return;
+      if (d.show !== false) {
+        keyboardUp = true;
+        return;
+      }
+      // Just tapped: the keyboard is coming back; this hide predates it.
+      if (performance.now() - focusedAt < FRESH_FOCUS_MS) return;
+      const wasUp = keyboardUp;
+      keyboardUp = false;
+      if (!wasUp) return; // a hide for a keyboard that is not up: stale
       const el = document.activeElement;
       if (el instanceof HTMLElement && inBar(el)) el.blur();
       apply(false);
