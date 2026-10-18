@@ -239,7 +239,20 @@ export function replayTrace(trace: KbTrace, opts: ReplayOptions = {}): ReplayRes
         els.scroller!.dispatchEvent(e);
       });
     };
-    const standIn = () => els.layer!.querySelector<HTMLElement>('[data-testid="thread-composer-standin"]');
+    const standIn = () => {
+      const s = els.layer!.querySelector<HTMLElement>('[data-testid="thread-composer-standin"]');
+      // As the page sees it: content position − the page's (late) scroll
+      // + its correction transform now.
+      if (s && !(s as unknown as { __mocked?: boolean }).__mocked) {
+        (s as unknown as { __mocked?: boolean }).__mocked = true;
+        s.getBoundingClientRect = () =>
+          rectOf(
+            parseFloat(s.style.top) - pageScroll + valueAt(transformSeg, now),
+            parseFloat(s.style.height)
+          );
+      }
+      return s;
+    };
     const noteTransform = () => {
       const s = standIn();
       if (!s) return;
@@ -299,7 +312,9 @@ export function replayTrace(trace: KbTrace, opts: ReplayOptions = {}): ReplayRes
       // The Will* arriving now: the hand-off.
       if (will && willAt != null && !willDone && willAt <= tt + 1e-6) {
         willDone = true;
-        const fromTop = kbAt(will.t);
+        const fromTop = will.fromTop ?? kbAt(will.t);
+        const willIdx = samples.findIndex((x) => x[0] >= will.t - 1e-6);
+        const willScroll = willIdx >= 0 ? samples[willIdx][2] : null;
         const wasAttached = attached;
         act(() => {
           (w.__k2KeyboardWill as (d: unknown) => void)({
@@ -309,6 +324,7 @@ export function replayTrace(trace: KbTrace, opts: ReplayOptions = {}): ReplayRes
             show: will.show,
             at: BASE + t0 + will.t,
             fromTop,
+            scrollY: willScroll,
           });
         });
         if (wasAttached) {

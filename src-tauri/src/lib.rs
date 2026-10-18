@@ -492,6 +492,14 @@ mod ios_keyboard {
         // hide): any dismiss sampling is over — unless the drag recorder
         // is on and a drag was being sampled: it records the release
         // animation too, then stops.
+        // The dragged list's offset now (same frame as this Will*): the page
+        // places the real composer exactly where its copy is drawn.
+        let pan_scroll: Option<f64> = TRACK.with(|t| {
+            t.borrow().pan_view.as_ref().map(|v| unsafe {
+                let p: CGPoint = msg_send![&**v, contentOffset];
+                p.y
+            })
+        });
         if !rec_tail(duration_ms) {
             stop_sampling();
         }
@@ -503,9 +511,13 @@ mod ios_keyboard {
             Some(v) if v.is_finite() => format!("{:.2}", v),
             _ => "null".to_string(),
         };
+        let scroll = match pan_scroll {
+            Some(v) if v.is_finite() => format!("{:.2}", v),
+            _ => "null".to_string(),
+        };
         let js = format!(
-            "window.__k2KeyboardWill && window.__k2KeyboardWill({{height:{:.1},duration:{:.0},curve:{},show:{},at:{:.2},fromTop:{}}});",
-            overlap, duration_ms, curve, show, at, from
+            "window.__k2KeyboardWill && window.__k2KeyboardWill({{height:{:.1},duration:{:.0},curve:{},show:{},at:{:.2},fromTop:{},scrollY:{}}});",
+            overlap, duration_ms, curve, show, at, from, scroll
         );
         eval_js(wk, &js);
     }

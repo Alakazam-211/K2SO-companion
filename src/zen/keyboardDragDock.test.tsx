@@ -370,20 +370,45 @@ describe("installKeyboardDragDock", () => {
     expect(standIn()!.style.transition).toBe("none");
   });
 
-  it("release: the motion starts at the keyboard's begin frame (true geometry), the correction dropped", () => {
+  it("release: starts where the stand-in is drawn (at the Will's native scroll), not iOS's begin frame", () => {
     mount();
     touch("touchstart", 300);
     touch("touchmove", TOP - DOCK_H - 1);
     touch("touchmove", TOP - DOCK_H + 2);
     const s = standIn()!;
     Object.defineProperty(el("scroller"), "scrollTop", { configurable: true, value: scroll });
-    sample(TOP + 16, scroll - 10, 0);
-    // Mid-ease the stand-in's rect is somewhere in between.
-    s.getBoundingClientRect = () => rect(TOP + 120 - DOCK_H + 3, DOCK_H);
-    will({ height: 0, duration: 200, curve: 7, show: false, fromTop: TOP + 126 });
-    expect(el("col").dataset.from).toBe(`${TOP + 126}`);
+    sample(TOP + 16, scroll - 10, 0); // correction: +6
+    // Content-space bottom = TOP + scroll; at the Will the list is at
+    // scroll − 130 natively → drawn at TOP + 130 + 6. iOS reports the
+    // keyboard-UP frame as the begin frame (TestFlight 1320): ignored.
+    will({ height: 0, duration: 200, curve: 7, show: false, fromTop: TOP, scrollY: scroll - 130 });
+    expect(el("col").dataset.from).toBe(`${TOP + 136}`);
     expect(standIn()).toBeNull();
-    expect(el("col").style.transition).toBe("");
+    expect(s.isConnected).toBe(false);
+  });
+
+  it("release: the real composer is translated onto the stand-in BEFORE it is shown (no frame at its layout spot)", () => {
+    mount();
+    touch("touchstart", 300);
+    touch("touchmove", TOP - DOCK_H - 1);
+    touch("touchmove", TOP - DOCK_H + 2);
+    Object.defineProperty(el("scroller"), "scrollTop", { configurable: true, value: scroll });
+    const dock = el("dock");
+    const seenAtShow: string[] = [];
+    const style = dock.style;
+    const proto = Object.getPrototypeOf(style);
+    const desc = Object.getOwnPropertyDescriptor(proto, "opacity")!;
+    Object.defineProperty(style, "opacity", {
+      configurable: true,
+      get: () => desc.get!.call(style),
+      set: (v: string) => {
+        if (v === "") seenAtShow.push(style.transform);
+        desc.set!.call(style, v);
+      },
+    });
+    will({ height: 0, duration: 200, curve: 7, show: false, scrollY: scroll - 100 });
+    // Layout bottom FULL (column final); drawn at TOP + 100.
+    expect(seenAtShow).toEqual([`translate3d(0, ${TOP + 100 - FULL}px, 0)`]);
   });
 
   it("samples before the attach are not used; a sample with no stand-in attaches (fallback)", () => {
