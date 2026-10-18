@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 const tauriFetch = vi.fn();
 vi.mock("@tauri-apps/plugin-http", () => ({ fetch: (...a: unknown[]) => tauriFetch(...a) }));
@@ -20,6 +20,7 @@ vi.mock("./ticketEvents", async (importOriginal) => {
 import { getNotifyPrefs, serverHasFeature } from "../api/client";
 import { __resetScopesForTests } from "../api/scope";
 import { handleAndroidBack } from "../lib/androidBack";
+import { __setBadgeTotalsDepsForTests } from "../lib/badgeTotals";
 import { __resetIdentityForTests } from "../lib/sessionAuthor";
 import { useServersStore } from "../stores/servers";
 import { useNotifyPrefsStore } from "../stores/notifyPrefs";
@@ -195,6 +196,45 @@ describe("Servers sheet gear → Server settings", () => {
     );
     fireEvent.click(within(within(page2).getByTestId("server-settings-notify")).getByRole("switch"));
     expect(setServerEnabled).toHaveBeenCalledWith("s1", false);
+  });
+
+  it("Notifications has a collapsed Diagnostics disclosure only where badge totals work (iOS push)", async () => {
+    vi.mocked(serverHasFeature).mockResolvedValue(true);
+    vi.mocked(getNotifyPrefs).mockResolvedValue(prefsOn(true));
+    // Default deps: not Tauri → no disclosure.
+    render(<OverlayServers onClose={() => {}} />);
+    await within(screen.getByTestId("servers-pinned")).findByTestId("server-bell");
+    fireEvent.click(within(screen.getByTestId("servers-pinned")).getByTestId("server-settings"));
+    const page = await screen.findByTestId("server-settings-page");
+    await within(page).findByTestId("server-settings-notify");
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(within(page).queryByTestId("server-settings-badge-diagnostics")).toBeNull();
+    cleanup();
+
+    __setBadgeTotalsDepsForTests({
+      enabled: () => true,
+      availability: async () => ({ available: true, platform: "ios" }),
+      call: (async () => ({ available: true, version: 1, days: {} })) as never,
+      servers: () => useServersStore.getState().servers,
+    });
+    try {
+      render(<OverlayServers onClose={() => {}} />);
+      await within(screen.getByTestId("servers-pinned")).findByTestId("server-bell");
+      fireEvent.click(within(screen.getByTestId("servers-pinned")).getByTestId("server-settings"));
+      const page2 = await screen.findByTestId("server-settings-page");
+      const toggle = await within(page2).findByTestId("server-settings-badge-diagnostics-toggle");
+      expect(within(page2).getByTestId("server-settings-shortcuts").contains(toggle)).toBe(true);
+      expect(toggle.getAttribute("aria-expanded")).toBe("false");
+      fireEvent.click(toggle);
+      await waitFor(() =>
+        expect(within(page2).getByTestId("badge-diag-today").textContent).toBe("0 silent · 0 alert")
+      );
+      expect(within(page2).getByTestId("badge-diag-last").textContent).toBe("Never");
+    } finally {
+      __setBadgeTotalsDepsForTests(null);
+    }
   });
 
   describe("Show message previews", () => {

@@ -7,6 +7,7 @@ import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { serverBellStatus, useNotifyPrefsStore } from "../stores/notifyPrefs";
 import { usePushPreviewsStore } from "../stores/pushPreviews";
 import { hostLabel, signOutServer, useServersStore, type RecoveryState } from "../stores/servers";
+import { BadgeDiagnosticsRow } from "./BadgeDiagnostics";
 import { RECOVERY_DOT, STATE_LABEL } from "./serverList";
 import { ServerUpdateSection } from "./ServerUpdateSection";
 import { Switch } from "./ZenSettings";
@@ -344,6 +345,9 @@ function ShortcutsGroup({
       {showBell && prefs?.server.enabled && previewsFeature ? (
         <PreviewsRow serverId={serverId} />
       ) : null}
+      {/* Badge-push delivery counts; renders only where badge totals work
+          (push available on iOS) — see BadgeDiagnostics.tsx. */}
+      {showBell ? <BadgeDiagnosticsRow serverId={serverId} /> : null}
       {hasToken ? (
         <button
           type="button"

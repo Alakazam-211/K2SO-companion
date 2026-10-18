@@ -74,6 +74,9 @@ targets:
         # Notification Service Extension donates. Durable copy also in
         # src-tauri/Info.ios.plist (tauri merges it on every build).
         NSUserActivityTypes: [INSendMessageIntent]
+        # Silent `{kind:"badge"}` pushes update the app-icon badge in the
+        # background. Durable copy also in src-tauri/Info.ios.plist.
+        UIBackgroundModes: [remote-notification]
     # Entitlements are two hand-kept, committed files (no `entitlements:`
     # key: XcodeGen would force one file onto every config):
     #   k2so-companion_iOS.entitlements        release (aps production)
@@ -143,6 +146,9 @@ targets:
     deploymentTarget: "15.0"
     sources:
       - path: K2NotificationService
+      # The app-icon badge store, ONE source shared with the app's k2-push
+      # plugin (Swift package). Foundation-only.
+      - path: ../../tauri-plugin-k2-push/ios/Sources/K2BadgeStore.swift
     info:
       path: K2NotificationService/Info.plist
       properties:

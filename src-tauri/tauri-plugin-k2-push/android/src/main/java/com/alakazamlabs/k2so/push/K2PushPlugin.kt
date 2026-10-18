@@ -173,6 +173,49 @@ class K2PushPlugin(private val activity: Activity) : Plugin(activity) {
     invoke.resolve(res)
   }
 
+  // ── App-icon badge totals (iOS-only for now) ─────────────────────────
+  // TODO(Jeremie): Android launcher badge counts. iOS keeps per-server
+  // totals in the App Group (K2BadgeStore.swift) and sets the icon badge
+  // to the sum of `unread`; the FCM data carries the same `unreadTotal` /
+  // `waitingTotal` / `subdomain`, and silent `{kind:"badge"}` pushes. These
+  // stubs resolve (never reject) so the shared JS/Rust surface works.
+
+  private fun badgeUnavailable(): JSObject {
+    val res = JSObject()
+    res.put("available", false)
+    res.put("sum", 0)
+    res.put("reason", "app-icon badge totals are iOS-only")
+    return res
+  }
+
+  @Command
+  fun setServerTotals(invoke: Invoke) {
+    invoke.resolve(badgeUnavailable())
+  }
+
+  @Command
+  fun clearServerTotals(invoke: Invoke) {
+    invoke.resolve(badgeUnavailable())
+  }
+
+  @Command
+  fun getBadgeTotals(invoke: Invoke) {
+    val res = badgeUnavailable()
+    res.put("version", 1)
+    res.put("servers", JSObject())
+    invoke.resolve(res)
+  }
+
+  @Command
+  fun getBadgeDiagnostics(invoke: Invoke) {
+    val res = JSObject()
+    res.put("available", false)
+    res.put("version", 1)
+    res.put("days", JSObject())
+    res.put("reason", "app-icon badge totals are iOS-only")
+    invoke.resolve(res)
+  }
+
   // ── Helpers ──────────────────────────────────────────────────────────
 
   /** The dormancy gate: no initialized default FirebaseApp (no

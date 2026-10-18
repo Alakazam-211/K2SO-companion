@@ -31,6 +31,13 @@
 //! 128px PNG into the App Group container where the Notification
 //! Service Extension (`gen/apple/K2NotificationService`) reads it. No
 //! App Group entitlement → the command answers `available: false`.
+//!
+//! Badge (`set_server_totals`, `clear_server_totals`, `get_badge_totals`,
+//! `get_badge_diagnostics`): iOS app-icon badge = the sum of each server's
+//! unread total, kept in the App Group (`K2BadgeStore.swift`, shared with
+//! the NSE). Event `badgeTotals` `{subdomain, unread, waiting?, sum}` when
+//! a silent `{kind:"badge"}` push (or a foreground alert push) brings new
+//! totals. Android/desktop: stubs that answer `available: false`.
 
 use tauri::{
     plugin::{Builder, TauriPlugin},
@@ -74,6 +81,10 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::get_token,
             commands::get_launch_tap,
             commands::cache_avatars,
+            commands::set_server_totals,
+            commands::clear_server_totals,
+            commands::get_badge_totals,
+            commands::get_badge_diagnostics,
         ])
         .setup(|app, api| {
             #[cfg(mobile)]

@@ -18,9 +18,17 @@
 // `avatarRev`, we use it anyway: a stale picture beats initials. On a
 // miss we draw the first letter of the title on `agentColor`.
 //
+// Badge (K2 0.46.1): Thread and project-chat pushes carry the
+// recipient's totals on that server: `unreadTotal`, `waitingTotal`
+// (strings holding integers) plus `subdomain`. We store them in the App
+// Group badge store (K2BadgeStore.swift — the SAME source file as the
+// app's k2-push plugin, added to this target by project.yml) and set the
+// delivered content's `badge` to the sum across servers. No totals = the
+// badge is left alone. Servers never send `aps.badge`.
+//
 // Rules: no network. Any error or a missing title/addr delivers the
-// original content unchanged. Without mutable-content (today's relay)
-// this extension never runs.
+// original content unchanged (apart from the badge). Without
+// mutable-content (today's relay) this extension never runs.
 
 import Intents
 import UIKit
@@ -40,20 +48,24 @@ final class NotificationService: UNNotificationServiceExtension {
     _ request: UNNotificationRequest,
     withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
   ) {
+    // Badge first, so even the fallback paths carry it.
+    let badge = Self.applyBadgeTotals(request.content.userInfo)
+    let base = Self.withBadge(request.content, badge)
+
     lock.lock()
     self.contentHandler = contentHandler
-    self.original = request.content
+    self.original = base
     lock.unlock()
 
     guard let built = Self.communicationIntent(for: request.content) else {
-      deliver(request.content)
+      deliver(base)
       return
     }
     let updated: UNNotificationContent
     do {
-      updated = try request.content.updating(from: built)
+      updated = Self.withBadge(try request.content.updating(from: built), badge)
     } catch {
-      deliver(request.content)
+      deliver(base)
       return
     }
     lock.lock()
@@ -85,6 +97,24 @@ final class NotificationService: UNNotificationServiceExtension {
     delivered = true
     lock.unlock()
     handler(content)
+  }
+
+  // ── Badge (App Group, K2BadgeStore) ─────────────────────────────────
+
+  /// Store this push's totals and count it as an alert delivery. Returns
+  /// the new badge sum, or nil when the push has no numeric
+  /// `unreadTotal` + `subdomain` (or there is no App Group).
+  static func applyBadgeTotals(_ info: [AnyHashable: Any]) -> Int? {
+    K2BadgeStore.apply(push: info, source: .alert)?.sum
+  }
+
+  /// `content` with `badge` set; unchanged when `badge` is nil.
+  static func withBadge(_ content: UNNotificationContent, _ badge: Int?) -> UNNotificationContent {
+    guard let badge = badge,
+      let mutable = content.mutableCopy() as? UNMutableNotificationContent
+    else { return content }
+    mutable.badge = NSNumber(value: badge)
+    return mutable
   }
 
   // ── Intent ──────────────────────────────────────────────────────────

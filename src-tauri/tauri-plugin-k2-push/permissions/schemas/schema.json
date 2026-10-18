@@ -307,6 +307,42 @@
           "markdownDescription": "Denies the cache_avatars command without any pre-configured scope."
         },
         {
+          "description": "Enables the clear_server_totals command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-clear-server-totals",
+          "markdownDescription": "Enables the clear_server_totals command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the clear_server_totals command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-clear-server-totals",
+          "markdownDescription": "Denies the clear_server_totals command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_badge_diagnostics command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-badge-diagnostics",
+          "markdownDescription": "Enables the get_badge_diagnostics command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_badge_diagnostics command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-badge-diagnostics",
+          "markdownDescription": "Denies the get_badge_diagnostics command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the get_badge_totals command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-get-badge-totals",
+          "markdownDescription": "Enables the get_badge_totals command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the get_badge_totals command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-get-badge-totals",
+          "markdownDescription": "Denies the get_badge_totals command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_launch_tap command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-launch-tap",
@@ -379,10 +415,22 @@
           "markdownDescription": "Denies the request_permission command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), and the event\nlistener plumbing for `tap`/`tokenRefresh`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Enables the set_server_totals command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-set-server-totals",
+          "markdownDescription": "Enables the set_server_totals command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the set_server_totals command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-set-server-totals",
+          "markdownDescription": "Denies the set_server_totals command without any pre-configured scope."
+        },
+        {
+          "description": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), the app-icon badge\ntotals and their delivery diagnostics, and the event listener\nplumbing for `tap`/`tokenRefresh`/`badgeTotals`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-set-server-totals`\n- `allow-clear-server-totals`\n- `allow-get-badge-totals`\n- `allow-get-badge-diagnostics`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), and the event\nlistener plumbing for `tap`/`tokenRefresh`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), the app-icon badge\ntotals and their delivery diagnostics, and the event listener\nplumbing for `tap`/`tokenRefresh`/`badgeTotals`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-set-server-totals`\n- `allow-clear-server-totals`\n- `allow-get-badge-totals`\n- `allow-get-badge-diagnostics`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }

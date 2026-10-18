@@ -47,4 +47,25 @@ impl<R: Runtime> K2Push<R> {
             reason: Some("notification avatars are iOS-only".into()),
         })
     }
+
+    pub fn set_server_totals(&self, _req: ServerTotalsRequest) -> crate::Result<BadgeSumResponse> {
+        Ok(BadgeSumResponse::unavailable(BADGE_IOS_ONLY))
+    }
+
+    pub fn clear_server_totals(
+        &self,
+        _req: ClearServerTotalsRequest,
+    ) -> crate::Result<BadgeSumResponse> {
+        Ok(BadgeSumResponse::unavailable(BADGE_IOS_ONLY))
+    }
+
+    pub fn get_badge_totals(&self) -> crate::Result<BadgeTotalsResponse> {
+        Ok(BadgeTotalsResponse::unavailable(BADGE_IOS_ONLY))
+    }
+
+    pub fn get_badge_diagnostics(&self) -> crate::Result<BadgeDiagnosticsResponse> {
+        Ok(BadgeDiagnosticsResponse::unavailable(BADGE_IOS_ONLY))
+    }
 }
+
+const BADGE_IOS_ONLY: &str = "app-icon badge totals are iOS-only";
