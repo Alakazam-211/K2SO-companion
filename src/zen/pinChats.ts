@@ -67,3 +67,45 @@ export function dropIsPins(
   if (!r) return false;
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom + 12;
 }
+
+/** A pinned avatar's cell, measured when a pin lifts. */
+export type PinSlot = { id: string; left: number; top: number; width: number; height: number };
+
+/** The pin order while a lifted pin hovers: `dragId` moves to the slot
+ *  whose centre is nearest the pointer. Off the grid = the start order. */
+export function pinPreviewOrder(
+  slots: PinSlot[],
+  dragId: string,
+  x: number,
+  y: number,
+  overGrid: boolean
+): string[] {
+  const ids = slots.map((s) => s.id);
+  const from = ids.indexOf(dragId);
+  if (from < 0 || !overGrid) return ids;
+  let to = from;
+  let bestD = Infinity;
+  slots.forEach((s, i) => {
+    const d = Math.hypot(x - (s.left + s.width / 2), y - (s.top + s.height / 2));
+    if (d < bestD) {
+      bestD = d;
+      to = i;
+    }
+  });
+  const next = ids.filter((id) => id !== dragId);
+  next.splice(to, 0, dragId);
+  return next;
+}
+
+/** How far `id` sits from its own cell in `order` (the cells keep their
+ *  measured positions; pins slide between them). */
+export function pinSlotOffset(
+  slots: PinSlot[],
+  order: string[],
+  id: string
+): { dx: number; dy: number } | null {
+  const from = slots.findIndex((s) => s.id === id);
+  const to = order.indexOf(id);
+  if (from < 0 || to < 0 || from === to) return null;
+  return { dx: slots[to].left - slots[from].left, dy: slots[to].top - slots[from].top };
+}

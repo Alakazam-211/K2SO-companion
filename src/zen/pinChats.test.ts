@@ -41,3 +41,21 @@ describe("pinChats", () => {
     expect(insertPinned(["a"], "b", "a")).toEqual(["b", "a"]);
   });
 });
+
+describe("pin drag preview", () => {
+  // Three cells in a row, 100px apart.
+  const slots = ["a", "b", "c"].map((id, i) => ({ id, left: i * 100, top: 0, width: 80, height: 80 }));
+
+  it("moves the lifted pin to the nearest cell; off the grid keeps the order", () => {
+    expect(pinChats.pinPreviewOrder(slots, "a", 240, 40, true)).toEqual(["b", "c", "a"]);
+    expect(pinChats.pinPreviewOrder(slots, "c", 30, 40, true)).toEqual(["c", "a", "b"]);
+    expect(pinChats.pinPreviewOrder(slots, "a", 240, 40, false)).toEqual(["a", "b", "c"]);
+  });
+
+  it("slides the others into the cells they make room in", () => {
+    const order = pinChats.pinPreviewOrder(slots, "a", 240, 40, true);
+    expect(pinChats.pinSlotOffset(slots, order, "b")).toEqual({ dx: -100, dy: 0 });
+    expect(pinChats.pinSlotOffset(slots, order, "a")).toEqual({ dx: 200, dy: 0 });
+    expect(pinChats.pinSlotOffset(slots, ["a", "b", "c"], "b")).toBeNull();
+  });
+});
