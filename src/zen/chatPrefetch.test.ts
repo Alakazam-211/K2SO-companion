@@ -9,10 +9,16 @@ import { memoryBackend } from "./chatCacheBackend";
 import {
   PREFETCH_TOP,
   createPrefetcher,
+  installUnreadPrefetch,
   prefetchTargets,
+  unreadMovedTargets,
   type PrefetchDeps,
   type PrefetchTarget,
+  type Prefetcher,
 } from "./chatPrefetch";
+import { blankEntry, type ServerUnread, type UnreadEntry } from "./unread";
+import { __resetUnreadStoreForTests, useUnreadStore } from "./unreadStore";
+import { useZenStore } from "./zenStore";
 import type { ThreadMessage } from "./threadModel";
 
 const t = (serverId: string, addr: string): PrefetchTarget => ({ serverId, ref: { kind: "thread", addr } });
@@ -229,5 +235,93 @@ describe("prefetcher", () => {
     pendingReads.shift()?.();
     await settle();
     expect(cache.peek("s1|t:a")).toBeNull();
+  });
+});
+
+describe("unread-driven prefetch", () => {
+  const entry = (kind: "thread" | "project", id: string, lastSeq: number, unread = 1): UnreadEntry => ({
+    ...blankEntry(kind, id),
+    lastSeq,
+    unread,
+  });
+  const slice = (entries: UnreadEntry[], loaded = true): ServerUnread => ({
+    byKey: Object.fromEntries(entries.map((e) => [`${e.kind}:${e.id}`, e])),
+    total: entries.reduce((n, e) => n + e.unread, 0),
+    waitingTotal: 0,
+    loaded,
+  });
+
+  it("a forced request skips the two-minute gap; one forced while running runs again after it", async () => {
+    const p = createPrefetcher(deps);
+    p.request([t("s1", "a")]);
+    await settle();
+    p.request([t("s1", "a")], { force: true });
+    await settle();
+    expect(deps.getThread).toHaveBeenCalledTimes(2);
+
+    deps.getThread = vi.fn(
+      () => new Promise((resolve) => pendingReads.push(() => resolve(page([item(1)]) as never)))
+    ) as never;
+    p.request([t("s1", "b")], { force: true });
+    await settle();
+    p.request([t("s1", "b")], { force: true });
+    await settle();
+    expect(deps.getThread).toHaveBeenCalledTimes(1);
+    pendingReads.shift()?.();
+    await settle();
+    expect(deps.getThread).toHaveBeenCalledTimes(2);
+  });
+
+  it("forced still never reads the open chat, a server that is down, or in the background", async () => {
+    const p = createPrefetcher(deps);
+    open = "s1|t:a";
+    down.add("s2");
+    p.request([t("s1", "a"), t("s2", "b")], { force: true });
+    fg = false;
+    p.request([t("s1", "c")], { force: true });
+    await settle();
+    expect(deps.getThread).not.toHaveBeenCalled();
+  });
+
+  it("which chats moved: lastSeq / unread / waiting up, or newly unread — not the first load, not a read", () => {
+    const addrs = { appa: "c1", momo: "c2" };
+    const prev = slice([entry("thread", "c1", 5), entry("thread", "c2", 3, 2)]);
+    const next = slice([
+      entry("thread", "c1", 6), // a new message
+      entry("thread", "c2", 3, 0), // read here: not a change to fetch
+      entry("project", "grp", 9), // newly unread
+      entry("thread", "c9", 4), // no addr known for it
+    ]);
+    expect(unreadMovedTargets("s1", prev, next, addrs, (a) => a.toUpperCase())).toEqual([
+      { serverId: "s1", ref: { kind: "thread", addr: "APPA", conversationId: "c1" } },
+      { serverId: "s1", ref: { kind: "project", groupId: "grp" } },
+    ]);
+    expect(unreadMovedTargets("s1", slice([], false), next, addrs)).toEqual([]);
+    expect(unreadMovedTargets("s1", undefined, next, addrs)).toEqual([]);
+    expect(unreadMovedTargets("s1", prev, prev, addrs)).toEqual([]);
+  });
+
+  it("a frame moving a chat prefetches it at once, with the list hidden, from inside another chat", () => {
+    __resetUnreadStoreForTests();
+    useZenStore.setState({
+      screen: "thread",
+      threadAddr: "momo",
+      previewByKey: { "s1|t:Appa": { at: 1, seq: 5, mine: false, kind: "text", text: "x" } },
+    });
+    useUnreadStore.setState({ servers: { s1: slice([entry("thread", "c1", 5)]) }, addrs: { s1: { appa: "c1" } } });
+    const request = vi.fn();
+    const stop = installUnreadPrefetch(() => ({ request }) as unknown as Prefetcher);
+    useUnreadStore.setState({ servers: { s1: slice([entry("thread", "c1", 6, 2)]) } });
+    expect(request).toHaveBeenCalledTimes(1);
+    expect(request).toHaveBeenCalledWith(
+      [{ serverId: "s1", ref: { kind: "thread", addr: "Appa", conversationId: "c1" } }],
+      { force: true }
+    );
+    // Nothing moved (a mute toggle elsewhere): no request.
+    useUnreadStore.setState({ addrs: { s1: { appa: "c1", momo: "c2" } } });
+    expect(request).toHaveBeenCalledTimes(1);
+    stop();
+    useUnreadStore.setState({ servers: { s1: slice([entry("thread", "c1", 7, 3)]) } });
+    expect(request).toHaveBeenCalledTimes(1);
   });
 });

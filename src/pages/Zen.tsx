@@ -56,6 +56,7 @@ import { normalizeHarness } from "../zen/llmHarness";
 import { readListTab } from "../zen/homes";
 import { BackUnreadPill, useBackUnreadCount } from "../zen/UnreadMarks";
 import { useUnreadSync } from "../zen/unreadSync";
+import { useUnreadPrefetch } from "../zen/chatPrefetch";
 
 const HEADER_BTN: CSSProperties = {
   width: 36,
@@ -157,6 +158,8 @@ export function Zen() {
   }, [harnessAt, liveHarness]);
   // Unread counts (K2 0.46.1 `thread-read-v1`): summaries, frames, badge.
   useUnreadSync();
+  // A chat whose unread state moves is prefetched (fresh when opened).
+  useUnreadPrefetch();
   const openAddr = useZenStore((s) => s.threadAddr);
   const openConv = useZenStore((s) => s.threadConversationId);
   // The Thread's own session first (its conversation's provider), then
