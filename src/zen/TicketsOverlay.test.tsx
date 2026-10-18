@@ -136,6 +136,8 @@ beforeEach(() => {
     openItem: null,
     openError: null,
     briefs: {},
+    commentOutbox: [],
+    commentLandedKeys: {},
   });
   setRows([ROW]);
   serve(ROW);
@@ -361,7 +363,7 @@ describe("Open ticket — answering", () => {
 
     const input = screen.getByTestId("ticket-composer-input");
     fireEvent.change(input, { target: { value: "Let's talk first" } });
-    fireEvent.submit(screen.getByTestId("ticket-composer"));
+    fireEvent.submit(screen.getByTestId("ticket-composer-form"));
     await waitFor(() => {
       expect(commentFeedback).toHaveBeenLastCalledWith(expect.anything(), "t-wait", "Let's talk first");
     });
@@ -390,13 +392,19 @@ describe("Open ticket — answering", () => {
     });
   });
 
-  it("comments render as You on the right, others with their name", async () => {
+  it("comments render mine on the right (time below), others with name • time above", async () => {
     render(<TicketsOverlay onClose={() => {}} />);
     await openTicket("Which pricing tier for Acme?");
     const bubbles = screen.getAllByTestId("ticket-comment");
     expect(bubbles.map((b) => b.getAttribute("data-mine"))).toEqual(["0", "1"]);
-    expect(bubbles[0].textContent).toContain("sales");
-    expect(bubbles[1].textContent).toContain("You");
+    const meta = within(bubbles[0]).getByTestId("ticket-comment-meta");
+    expect(meta.textContent).toMatch(/^sales•.+/);
+    // Above the bubble.
+    expect(meta.nextElementSibling).toBe(within(bubbles[0]).getByTestId("ticket-bubble"));
+    expect(within(bubbles[1]).queryByTestId("ticket-comment-meta")).toBeNull();
+    const status = within(bubbles[1]).getByTestId("ticket-comment-status");
+    expect(status.getAttribute("data-status")).toBe("sent");
+    expect(status.textContent).not.toBe("");
   });
 
   it("the status menu sets planned, and Answered asks what was agreed", async () => {
@@ -511,7 +519,7 @@ describe("Open ticket — unlinked workspace", () => {
     fireEvent.click(screen.getByTestId("scope-all"));
     await openTicket("Which pricing tier for Acme?");
     expect(screen.getByTestId("ticket-unlinked-footer")).not.toBeNull();
-    expect(screen.queryByTestId("ticket-composer")).toBeNull();
+    expect(screen.queryByTestId("ticket-composer-bar")).toBeNull();
     expect(screen.queryByTestId("answer-card")).toBeNull();
 
     fireEvent.click(screen.getByTestId("ticket-status"));

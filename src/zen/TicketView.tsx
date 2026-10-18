@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import {
   assignFeedback,
   commentFeedback,
@@ -10,6 +10,7 @@ import {
   SETTABLE_STATUSES,
   statusColor,
   statusLabel,
+  type FeedbackComment,
   type FeedbackShow,
   type FeedbackStatus,
 } from "../api/feedback";
@@ -20,10 +21,36 @@ import { isMyAuthor } from "../lib/sessionAuthor";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { useFeedbackStore } from "../stores/feedback";
 import { BriefCard, BriefReader, useBriefDoc } from "./TicketBrief";
-import { composerHeight, COMPOSER_MAX_PX } from "./ThreadPane";
-import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
+import { GlassComposer } from "./GlassComposer";
+import { NEW_BELOW_SETTLE_MS, threadBottomPadding } from "./ThreadPane";
+import {
+  FOOTER_BLUR_FADE_PX,
+  underHeaderPadding,
+  useMeasuredHeight,
+  ZenFooterBlur,
+  ZenHeaderBlur,
+} from "./ZenHeaderBlur";
 import { zenTextPx } from "./zenFont";
 import { ticketsScope, useTicketsScope } from "./zenScope";
+import { mountainTime } from "./threadModel";
+import { nearNewest, stickToNewest, type MessageAnchor } from "./threadScroll";
+import {
+  fontPxOf,
+  glideList,
+  prefersReducedMotion,
+  rectOf,
+  runSendFly,
+  type FlySource,
+} from "./sendFly";
+import "./sendFly.css";
+import {
+  commentInFlight,
+  commentRowId,
+  ticketRoomKey,
+  ticketRows,
+  type OutgoingComment,
+} from "./ticketOutbox";
+import { composerDraftOf, ticketDraftKey, useComposerDrafts } from "./composerDrafts";
 import { useBackHandler } from "../lib/androidBack";
 import { useSwipeBack } from "../lib/useSwipeBack";
 
@@ -35,8 +62,17 @@ import { useSwipeBack } from "../lib/useSwipeBack";
 //            status chip (a menu) · P# · agent → assignees · age
 //   scroll   brief card (TicketBrief) → answer card (quick-answer pills)
 //            → comments as iMessage bubbles
-//   bottom   ThreadPane's composer (no attach) — or, for a ticket whose
-//            workspace was removed, a Resolve / Dismiss footer
+//   bottom   ThreadPane's GlassComposer (no attach) — or, for a ticket
+//            whose workspace was removed, a Resolve / Dismiss footer —
+//            floating over the scroll on the footer blur (7cbf584): the
+//            conversation passes under it and softens
+//
+// A typed comment is optimistic, the Thread's send (9e6694e): the bubble
+// takes its final slot at once (dimmed, "Sending…"), the text flies into
+// it from the composer (sendFly), the list glides up once, and the
+// server's copy keeps the same row (ticketOutbox), which only brightens.
+// A failed send stays as "Not sent · Retry / Edit". The draft is kept per
+// ticket (composerDrafts `<server>|ticket:<id>`).
 //
 // Answering (0.43.2+): a pill sends `comment {id, body, optionPick:true}`
 // (→ answered, the agent hears it); typed text sends `comment {id, body}`
@@ -389,6 +425,19 @@ function AnswerPills({
   );
 }
 
+const NO_COMMENTS: FeedbackComment[] = [];
+
+/** One row of the ticket's conversation: a server comment, or a send the
+ *  server has not shown back yet (`out`). */
+type CommentRow = {
+  key: string;
+  author: string;
+  body: string;
+  at: number;
+  mine: boolean;
+  out: OutgoingComment | null;
+};
+
 export function TicketView({
   id,
   linked,
@@ -402,12 +451,21 @@ export function TicketView({
   const item = useFeedbackStore((s) => (s.openId === id ? s.openItem : null));
   const openError = useFeedbackStore((s) => (s.openId === id ? s.openError : null));
   const entry = useFeedbackStore((s) => s.briefs[id]);
-  const identity = useSessionIdentity(useTicketsScope());
+  const outbox = useFeedbackStore((s) => s.commentOutbox);
+  const landedKeys = useFeedbackStore((s) => s.commentLandedKeys);
+  const scope = useTicketsScope();
+  const identity = useSessionIdentity(scope);
   const [menu, setMenu] = useState<"status" | "more" | null>(null);
   const [sheet, setSheet] = useState<"reassign" | "agreed" | null>(null);
   const [reader, setReader] = useState(false);
-  const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
+  // The comment composer's text, kept per ticket (composerDrafts): going
+  // back to the list or relaunching and coming back puts it back.
+  const draftKey = ticketDraftKey(scope.id, id);
+  const [draft, setDraftText] = useState(() => composerDraftOf(draftKey));
+  function setDraft(text: string) {
+    setDraftText(text);
+    useComposerDrafts.getState().setDraft(draftKey, text);
+  }
   const [picking, setPicking] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -415,6 +473,8 @@ export function TicketView({
   const [receipt, setReceipt] = useState<{ from: "pick" | "text"; line: string } | null>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const scrollerRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  const dockRef = useRef<HTMLDivElement>(null);
   const [headerRef, headerPx] = useMeasuredHeight(TICKET_HEADER_PX);
   // At rest the brief card sits just under the header and stays sharp;
   // the heavy blur's strip below the header waits for a scroll.
@@ -427,6 +487,31 @@ export function TicketView({
   // transform target; the Tickets list shows underneath during the drag.
   const swipeRef = useSwipeBack(onBack, { enabled: onTop });
 
+  // The floating dock's height (composer block or the unlinked footer,
+  // safe area / keyboard gap included): the scroller pads its bottom by
+  // it, so the newest comment can rest right above the field.
+  const [dockPx, setDockPx] = useState(0);
+  const dockPxRef = useRef<number | null>(null);
+  // FOLLOWING the newest comment: null until the reader scrolls (a fresh
+  // ticket opens on the brief, not the tail); true at the bottom or after
+  // Send; false once they scroll up.
+  const following = useRef<boolean | null>(null);
+  const lastTop = useRef(0);
+  // Not following and someone else commented: the "New comment ↓" pill.
+  const [newBelow, setNewBelow] = useState(false);
+  // The send animation: which bubble is flying in, and from where (the
+  // Thread's, 9e6694e). The row keeps this key once the server's copy
+  // lands, so the same element flies, waits and brightens.
+  const [fly, setFly] = useState<{
+    localId: string;
+    source: FlySource | null;
+    /** Reduced motion / no Web Animations: fade instead of fly. */
+    fade: boolean;
+    /** The newest row and its top before Send: how far the list moves. */
+    anchor: MessageAnchor | null;
+  } | null>(null);
+  const stopGlide = useRef<() => void>(() => {});
+
   const brief = entry?.state === "ready" ? entry.brief : null;
   const doc = useBriefDoc(brief);
   const hasBrief = item?.hasBrief === true;
@@ -438,27 +523,126 @@ export function TicketView({
   }, [item, entry]);
 
   useLayoutEffect(() => {
-    const el = composerRef.current;
-    if (!el) return;
-    el.style.height = "auto";
-    el.style.height = `${composerHeight(el.scrollHeight)}px`;
-  }, [draft]);
+    setDraftText(composerDraftOf(draftKey));
+  }, [draftKey]);
 
-  // New comments keep the newest in view when the reader is at the tail.
-  const commentCount = item?.comments.length ?? 0;
-  const prevCount = useRef<number | null>(null);
+  // Typing is written to storage after a short quiet; leaving the ticket
+  // or the app going to the background writes it now.
+  useEffect(() => {
+    const flush = () => useComposerDrafts.getState().flush();
+    const onVis = () => {
+      if (document.visibilityState === "hidden") flush();
+    };
+    document.addEventListener("visibilitychange", onVis);
+    window.addEventListener("pagehide", flush);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      window.removeEventListener("pagehide", flush);
+      flush();
+    };
+  }, []);
+
+  // One list, one key per comment: a send's row is keyed by its localId
+  // from tap to delivered (the server's copy inherits it).
+  const roomKey = ticketRoomKey(scope.id, id);
+  const comments = item?.comments ?? NO_COMMENTS;
+  const isMine = (author: string) => isMyAuthor(author, identity);
+  const { keys: rowKeys, landedNow, visible: outgoing } = ticketRows(
+    outbox,
+    comments,
+    roomKey,
+    landedKeys,
+    isMine
+  );
+  const rows: CommentRow[] = comments.map((c, i) => ({
+    key: rowKeys.get(i) ?? `c:${commentRowId(c, i)}`,
+    author: c.author,
+    body: c.body,
+    at: c.at,
+    mine: rowKeys.has(i) || isMine(c.author),
+    out: null,
+  }));
+  for (const o of outgoing) {
+    rows.push({ key: o.localId, author: "", body: o.text, at: o.at, mine: true, out: o });
+  }
+  const inFlight = commentInFlight(outbox, roomKey);
+
+  // A send that showed up in `show`: remember its row key, drop the entry.
+  const landedSig = landedNow.map((l) => `${l.localId}>${l.rowId}`).join(",");
+  useEffect(() => {
+    for (const l of landedNow) useFeedbackStore.getState().settleComment(l.localId, l.rowId);
+    // landedNow is derived from the store each render; its signature is enough.
+  }, [landedSig]);
+
+  function setFollowing(on: boolean) {
+    following.current = on;
+    if (on) setNewBelow(false);
+  }
+
+  // New comments: keep the newest in view while following (or, before the
+  // reader has scrolled, when near the tail); otherwise offer the pill.
+  const commentCount = comments.length;
+  const prevCount = useRef<{ id: string; count: number } | null>(null);
   useLayoutEffect(() => {
     const el = scrollerRef.current;
-    if (!el || prevCount.current === null) {
-      prevCount.current = commentCount;
+    if (!el || !item) {
+      prevCount.current = null;
       return;
     }
-    if (commentCount > prevCount.current) {
-      const near = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
-      if (near) el.scrollTop = el.scrollHeight;
+    const prev = prevCount.current;
+    prevCount.current = { id, count: commentCount };
+    if (!prev || prev.id !== id || commentCount <= prev.count) return;
+    const follow =
+      following.current ?? el.scrollHeight - el.scrollTop - el.clientHeight < 160;
+    if (follow) {
+      following.current = true;
+      stickToNewest(el);
+      return;
     }
-    prevCount.current = commentCount;
-  }, [commentCount]);
+    const newestIdx = commentCount - 1;
+    const newestMine = rowKeys.has(newestIdx) || isMine(comments[newestIdx].author);
+    if (!newestMine) setNewBelow(true);
+  }, [commentCount, id, item != null]);
+
+  // The dock floats over the scroller's bottom: measure it (it grows with
+  // the field's lines, the label line, the keyboard gap).
+  const hasDock = item != null;
+  useLayoutEffect(() => {
+    const dock = dockRef.current;
+    if (!dock) return;
+    const read = () => {
+      const px = dock.offsetHeight;
+      if (px === dockPxRef.current) return;
+      dockPxRef.current = px;
+      setDockPx(px);
+    };
+    read();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(read);
+    ro.observe(dock);
+    return () => ro.disconnect();
+  }, [hasDock, linked]);
+
+  // The new bottom padding is in the DOM: keep the newest above the field.
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    if (el && following.current) stickToNewest(el);
+  }, [dockPx]);
+
+  // The keyboard opening/closing resizes the column (and the scroller):
+  // re-stick when following.
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    if (!el || typeof ResizeObserver === "undefined") return;
+    let h = el.clientHeight;
+    const ro = new ResizeObserver(() => {
+      if (el.clientHeight === h) return;
+      h = el.clientHeight;
+      if (following.current) stickToNewest(el);
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const status = item?.status ?? "waiting";
   const closed = isClosedStatus(status);
@@ -484,24 +668,142 @@ export function TicketView({
     }
   };
 
-  const send = async () => {
-    const body = draft.trim();
-    if (!item || !body || sending) return;
-    setSending(true);
+  /** POST an outgoing comment. A failure leaves its bubble "Not sent". */
+  async function deliver(localId: string) {
+    const store = useFeedbackStore.getState;
+    const o = store().commentOutbox.find((x) => x.localId === localId);
+    if (!o) return;
+    store().patchComment(localId, { status: "sending", error: null });
     setError(null);
-    setReceipt(null);
     try {
-      const res = await commentFeedback(ticketsScope(), item.id, body);
-      setDraft("");
+      const res = await commentFeedback(ticketsScope(), id, o.text);
+      store().patchComment(localId, { status: "sent", author: res.author || null });
       const miss = deliveryMissLine(res);
       if (miss) setReceipt({ from: "text", line: miss });
-      await refetchAll();
     } catch (e) {
-      setError(errText(e));
-    } finally {
-      setSending(false);
+      const msg = errText(e);
+      store().patchComment(localId, { status: "failed", error: msg });
+      setError(msg);
+      return;
     }
-  };
+    await refetchAll();
+  }
+
+  /** Send tap: clear the field at once (focus and keyboard stay), show the
+   *  bubble "Sending…", fly the text into it, POST behind it. */
+  function onSend() {
+    if (!item || !linked) return;
+    const body = draft.trim();
+    if (!body) return;
+    const st = useFeedbackStore.getState();
+    if (commentInFlight(st.commentOutbox, roomKey)) return;
+    // Where the text sits now, before it is cleared (the FLIP "first").
+    const field = composerRef.current;
+    const rect = rectOf(field);
+    const fontPx = fontPxOf(field);
+    // The newest row's top now: after the new row is in, how far it moved.
+    const rowsNow = scrollerRef.current?.querySelectorAll<HTMLElement>("[data-ticket-msg]");
+    const lastRow =
+      rowsNow && rowsNow.length
+        ? rowsNow[rowsNow.length - 1]
+        : (contentRef.current?.lastElementChild as HTMLElement | null | undefined) ?? null;
+    const anchorRect = rectOf(lastRow);
+    const anchor = lastRow && anchorRect ? { el: lastRow, top: anchorRect.top } : null;
+    setDraft("");
+    setError(null);
+    setReceipt(null);
+    const localId = st.queueComment({ roomKey, text: body, beforeCount: comments.length });
+    const canFly =
+      !prefersReducedMotion() &&
+      rect != null &&
+      typeof Element !== "undefined" &&
+      typeof Element.prototype.animate === "function";
+    setFly({
+      localId,
+      source: canFly ? { rect, fontPx: Number.isFinite(fontPx) ? fontPx : 17 } : null,
+      fade: !canFly,
+      anchor: canFly ? anchor : null,
+    });
+    // The reader just spoke: the reply must come into view.
+    setFollowing(true);
+    composerRef.current?.focus({ preventScroll: true });
+    void deliver(localId);
+  }
+
+  function onRetry(localId: string) {
+    if (commentInFlight(useFeedbackStore.getState().commentOutbox, roomKey)) return;
+    void deliver(localId);
+  }
+
+  /** "Not sent" → back into an empty composer (the bubble goes). */
+  function onRestore(o: OutgoingComment) {
+    if (draft.trim()) return;
+    setDraft(o.text);
+    setError(null);
+    useFeedbackStore.getState().dropComment(o.localId);
+    composerRef.current?.focus({ preventScroll: true });
+  }
+
+  /** "New comment ↓": glide to the newest and follow again (the Thread's
+   *  pill); jump the rest if WKWebView dropped the smooth scroll. */
+  function onNewBelow() {
+    const el = scrollerRef.current;
+    setFollowing(true);
+    if (!el) return;
+    if (typeof el.scrollTo === "function" && !prefersReducedMotion()) {
+      el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
+      window.setTimeout(() => {
+        const cur = scrollerRef.current;
+        if (cur && following.current && !nearNewest(cur)) stickToNewest(cur);
+      }, NEW_BELOW_SETTLE_MS);
+    } else {
+      stickToNewest(el);
+    }
+  }
+
+  const flyKey = fly ? fly.localId : "";
+
+  // FLIP "last/invert/play". The row is in its final slot (hidden while it
+  // flies); the composer has already shrunk back to one empty line.
+  useLayoutEffect(() => {
+    if (!fly) return;
+    const lid = fly.localId;
+    const clear = () => setFly((cur) => (cur?.localId === lid ? null : cur));
+    setFollowing(true);
+    const el = scrollerRef.current;
+    const root = swipeRef.current;
+    // The cleared field shrank the dock in this commit, but its
+    // ResizeObserver reports a frame later: take the new height now so the
+    // slot is final before the bubble is aimed.
+    const dock = dockRef.current;
+    if (el && dock && dock.offsetHeight > 0 && dock.offsetHeight !== dockPxRef.current) {
+      dockPxRef.current = dock.offsetHeight;
+      el.style.paddingBottom = threadBottomPadding(dock.offsetHeight, 0);
+      setDockPx(dock.offsetHeight);
+    }
+    if (el) stickToNewest(el);
+    if (fly.fade || !fly.source) {
+      const t = setTimeout(clear, 220);
+      return () => clearTimeout(t);
+    }
+    const target = () => root?.querySelector<HTMLElement>('[data-fly-target="true"]') ?? null;
+    const bubble = target();
+    if (!root || !bubble) {
+      clear();
+      return;
+    }
+    // The list makes room as the bubble comes in, rather than jumping.
+    const a = fly.anchor;
+    const now = a && a.el.isConnected ? rectOf(a.el) : null;
+    const dy = a && now ? a.top - now.top : 0;
+    stopGlide.current();
+    stopGlide.current =
+      el && dy >= 1 && dy <= el.clientHeight ? glideList(contentRef.current, dy) : () => {};
+    return runSendFly({ root, bubble, target, source: fly.source, done: clear });
+    // Once per send: a re-render mid-flight must not restart it.
+  }, [flyKey]);
+
+  useEffect(() => () => stopGlide.current(), []);
 
   const setStatus = async (next: FeedbackStatus) => {
     setMenu(null);
@@ -527,7 +829,8 @@ export function TicketView({
   const menuStatuses: readonly FeedbackStatus[] = linked
     ? SETTABLE_STATUSES
     : ["resolved", "dismissed"];
-  const sendReady = Boolean(draft.trim()) && !sending;
+  const sendReady = Boolean(draft.trim()) && !inFlight;
+  const composerLabel = error ?? (receipt?.from === "text" ? receipt.line : null);
 
   return (
     <div
@@ -666,16 +969,30 @@ export function TicketView({
 
       <div
         ref={scrollerRef}
-        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3 pb-3 flex flex-col gap-3"
+        className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden px-3"
         data-testid="ticket-scroller"
-        onScroll={(e) => setScrolled(e.currentTarget.scrollTop > 0)}
+        data-bottom-inset={dockPx}
+        onScroll={(e) => {
+          const el = e.currentTarget;
+          const top = el.scrollTop;
+          setScrolled(top > 0);
+          const prev = lastTop.current;
+          lastTop.current = top;
+          if (nearNewest(el)) setFollowing(true);
+          else if (top < prev - 1) following.current = false;
+        }}
         style={{
+          overflowAnchor: "none",
           // Starts under the floating header; the conversation scrolls up
           // behind it.
           paddingTop: underHeaderPadding(headerPx, TICKET_TOP_GAP),
+          // And on under the floating composer: its block plus 12px of air,
+          // so the newest comment rests right above the field.
+          paddingBottom: threadBottomPadding(dockPx, 0),
           WebkitOverflowScrolling: "touch",
         }}
       >
+        <div ref={contentRef} className="min-w-0 flex flex-col gap-3" data-testid="ticket-content">
         {openError && !item ? (
           <div className="flex flex-col items-center gap-3 py-10">
             <p className="text-[14px] text-center" style={{ color: "var(--warning)" }}>
@@ -735,42 +1052,102 @@ export function TicketView({
               </section>
             ) : null}
 
-            {item.comments.length > 0 ? (
+            {rows.length > 0 ? (
               <div className="flex flex-col gap-1 pt-1" data-testid="ticket-comments">
-                {item.comments.map((c, i) => {
-                  const mine = isMyAuthor(c.author, identity);
+                {rows.map((r) => {
+                  const out = r.out;
+                  const flying = fly?.localId === r.key;
+                  const hidden = flying && !fly?.fade;
                   return (
                     <div
-                      key={`${c.at}-${i}`}
+                      key={r.key}
+                      data-ticket-msg=""
                       data-testid="ticket-comment"
-                      data-mine={mine ? "1" : "0"}
-                      className={`flex flex-col max-w-[82%] min-w-0 ${mine ? "self-end items-end" : "self-start items-start"}`}
+                      data-mine={r.mine ? "1" : "0"}
+                      data-outgoing={out?.status}
+                      className={`flex flex-col max-w-[82%] min-w-0 ${r.mine ? "self-end items-end" : "self-start items-start"}`}
                     >
-                      {!mine ? (
-                        <span className="text-[11px] px-3 mb-0.5" style={{ color: "#8e8e93" }}>
-                          {c.author}
+                      {/* Theirs: name • time above the bubble (the Thread's
+                          meta line). Mine: the status line below. */}
+                      {!r.mine ? (
+                        <span
+                          className="flex items-baseline gap-1.5 text-[11px] px-3 mb-0.5 min-w-0 max-w-full"
+                          style={{ color: "#8e8e93" }}
+                          data-testid="ticket-comment-meta"
+                        >
+                          <span className="truncate min-w-0">{r.author}</span>
+                          <span className="shrink-0" aria-hidden>
+                            •
+                          </span>
+                          <span className="shrink-0" data-testid="ticket-comment-time">
+                            {mountainTime(r.at)}
+                          </span>
                         </span>
                       ) : null}
                       <div
-                        className="px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden"
+                        className={`px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden${flying && fly?.fade ? " zen-bubble-fade" : ""}`}
+                        data-testid="ticket-bubble"
+                        data-fly-target={hidden ? "true" : undefined}
                         style={{
+                          visibility: hidden ? "hidden" : undefined,
                           // Settings → Text Size.
                           fontSize: zenTextPx(17),
                           borderRadius: 18,
-                          background: mine ? "#0a84ff" : "#3a3a3c",
+                          background: r.mine ? "#0a84ff" : "#3a3a3c",
                           color: "#fff",
+                          // Sending: dimmed. Delivered: it only brightens.
+                          opacity: out?.status === "sending" ? 0.7 : 1,
+                          transition: "opacity 240ms ease-out",
                         }}
                       >
                         <ChatMessageBody
-                          text={c.body}
+                          text={r.body}
                           className="!p-0 text-white"
                           style={{ color: "#fff", fontSize: zenTextPx(14) }}
                         />
                       </div>
-                      <span className="text-[11px] px-2 mt-0.5" style={{ color: "#8e8e93" }}>
-                        {mine ? "You · " : ""}
-                        {ago(c.at)}
-                      </span>
+                      {r.mine ? (
+                        // One box from Send to delivered: "Sending…", then the
+                        // time (or "Not sent · Retry"). Fixed height, so the
+                        // swap never moves the bubble or the rows around it.
+                        <span
+                          className="flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] px-2 mt-0.5"
+                          style={{ color: "#8e8e93" }}
+                          data-testid="ticket-comment-status"
+                          data-status={out?.status ?? "sent"}
+                        >
+                          {out?.status === "failed" ? (
+                            <span className="contents" data-testid="comment-failed">
+                              <button
+                                type="button"
+                                className="bg-transparent border-0 p-0"
+                                style={{ color: "var(--warning)" }}
+                                data-testid="comment-retry"
+                                aria-label="Not sent. Tap to retry"
+                                title={out.error || undefined}
+                                onClick={() => onRetry(out.localId)}
+                              >
+                                Not sent · Retry
+                              </button>
+                              {!draft.trim() ? (
+                                <button
+                                  type="button"
+                                  className="bg-transparent border-0 p-0"
+                                  style={{ color: "#8e8e93" }}
+                                  data-testid="comment-restore"
+                                  onClick={() => onRestore(out)}
+                                >
+                                  Edit
+                                </button>
+                              ) : null}
+                            </span>
+                          ) : out?.status === "sending" ? (
+                            "Sending…"
+                          ) : (
+                            mountainTime(r.at)
+                          )}
+                        </span>
+                      ) : null}
                     </div>
                   );
                 })}
@@ -778,122 +1155,115 @@ export function TicketView({
             ) : null}
           </>
         )}
+        </div>
       </div>
 
-      {!item ? null : linked ? (
-        // .zen-composer-bar: the home-indicator inset collapses while typing
-        // (the Chats column is already sized to the visual viewport).
-        <div className="shrink-0 min-w-0 w-full overflow-hidden px-3 pt-2 zen-composer-bar">
-          {error || sending || receipt?.from === "text" ? (
-            <p
-              className="text-[11px] leading-snug break-words mb-1.5"
-              style={{ color: error || receipt ? "var(--warning)" : "var(--text-muted)" }}
-              data-testid="ticket-composer-label"
-              role={error ? "alert" : undefined}
-            >
-              {error ? error : sending ? "Sending…" : receipt?.line}
-            </p>
-          ) : null}
-          <form
-            className="flex items-end min-w-0"
-            data-testid="ticket-composer"
-            onSubmit={(e: FormEvent) => {
-              e.preventDefault();
-              void send();
-            }}
-          >
+      {!item ? null : (
+        // Floats over the scroller's bottom on the header's blur stack
+        // flipped (the Thread's dock): comments pass under it and soften.
+        // The column is sized to the visual viewport, so bottom 0 is the
+        // keyboard's top while typing.
+        <div
+          ref={dockRef}
+          className="absolute left-0 right-0 bottom-0"
+          style={{ zIndex: 2 }}
+          data-testid="ticket-footer-dock"
+        >
+          <ZenFooterBlur
+            testId="ticket-footer-blur"
+            style={{ left: 0, right: 0, bottom: 0, top: -FOOTER_BLUR_FADE_PX }}
+          />
+          {/* Zero-height row: the pill floats just above the composer. */}
+          <div className="relative h-0 shrink-0" style={{ zIndex: 1 }}>
             <div
-              className="flex-1 min-w-0 overflow-hidden flex items-end gap-1 rounded-[20px] pl-3 pr-1 py-1 k2-tile"
+              aria-live="polite"
+              className="absolute left-0 right-0 flex justify-center pointer-events-none"
+              style={{ bottom: 8 }}
             >
-              <textarea
-                ref={composerRef}
+              {newBelow ? (
+                <button
+                  type="button"
+                  data-testid="ticket-new-comment"
+                  className="pointer-events-auto zen-glass zen-glass-pill text-[13px]"
+                  style={{ minHeight: 32, padding: "0 14px", color: "#fff" }}
+                  // Keep the keyboard up (send button pattern).
+                  onPointerDown={(e) => e.preventDefault()}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={onNewBelow}
+                >
+                  New comment <span aria-hidden="true">↓</span>
+                </button>
+              ) : null}
+            </div>
+          </div>
+          {/* Above the blur (positioned, z 0): its own stacking layer. */}
+          <div className="relative" style={{ zIndex: 1 }}>
+            {linked ? (
+              <GlassComposer
                 value={draft}
-                rows={1}
-                disabled={sending}
-                onChange={(e) => setDraft(e.target.value)}
+                onChange={setDraft}
+                onSubmit={onSend}
                 placeholder="Pick an option to answer, or write a message to start a discussion"
-                aria-label="Message"
-                data-testid="ticket-composer-input"
-                className="flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--text)] outline-none py-1"
-                style={{
-                  maxHeight: COMPOSER_MAX_PX,
-                  fontSize: zenTextPx(17),
-                  lineHeight: zenTextPx(22),
-                }}
-              />
-              <button
-                type="submit"
-                aria-label="Send"
-                data-testid="ticket-composer-send"
-                disabled={!sendReady}
-                onPointerDown={(e) => e.preventDefault()}
-                onMouseDown={(e) => e.preventDefault()}
-                className={`shrink-0 flex items-center justify-center k2-tile ${
-                  sendReady ? "text-white" : "k2-tile-raised text-[var(--text-muted)] opacity-60"
-                }`}
-                style={{
-                  width: 30,
-                  height: 30,
-                  borderRadius: "50%",
-                  ...(sendReady ? { background: "#0a84ff", borderColor: "#0a84ff" } : {}),
+                ariaLabel="Message"
+                canSend
+                attach={false}
+                sendReady={sendReady}
+                textareaRef={composerRef}
+                testIdPrefix="ticket-composer"
+                onFocus={() => {
+                  const el = scrollerRef.current;
+                  if (el && following.current) stickToNewest(el);
                 }}
               >
-                <svg
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2.75"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  aria-hidden="true"
-                >
-                  <path d="M12 19V5" />
-                  <path d="M5 12l7-7 7 7" />
-                </svg>
-              </button>
-            </div>
-          </form>
-        </div>
-      ) : (
-        <div
-          className="shrink-0 px-3 pt-3"
-          style={{
-            paddingBottom: "max(10px, var(--safe-bottom))",
-            borderTop: "0.5px solid rgba(255,255,255,0.12)",
-          }}
-          data-testid="ticket-unlinked-footer"
-        >
-          <p className="text-[13px] mb-2" style={{ color: "#8e8e93" }}>
-            This ticket's workspace was removed. It's read-only.
-          </p>
-          {error ? (
-            <p className="text-[12px] mb-2" style={{ color: "var(--warning)" }} role="alert">
-              {error}
-            </p>
-          ) : null}
-          <div className="flex gap-2">
-            <button
-              type="button"
-              data-testid="ticket-resolve"
-              disabled={busy || status === "resolved"}
-              onClick={() => void setStatus("resolved")}
-              className="flex-1 text-[16px] k2-tile disabled:opacity-50"
-              style={{ height: 40, borderRadius: 20, color: "#fff" }}
-            >
-              Resolve
-            </button>
-            <button
-              type="button"
-              data-testid="ticket-dismiss"
-              disabled={busy || status === "dismissed"}
-              onClick={() => void setStatus("dismissed")}
-              className="flex-1 text-[16px] k2-tile disabled:opacity-50"
-              style={{ height: 40, borderRadius: 20, color: "#8e8e93" }}
-            >
-              Dismiss
-            </button>
+                {composerLabel ? (
+                  <p
+                    className="text-[11px] leading-snug break-words mb-1.5"
+                    style={{ color: "var(--warning)" }}
+                    data-testid="ticket-composer-label"
+                    role={error ? "alert" : undefined}
+                  >
+                    {composerLabel}
+                  </p>
+                ) : null}
+              </GlassComposer>
+            ) : (
+              <div
+                className="px-3 pt-3"
+                style={{ paddingBottom: "max(10px, var(--safe-bottom))" }}
+                data-testid="ticket-unlinked-footer"
+              >
+                <p className="text-[13px] mb-2" style={{ color: "#8e8e93" }}>
+                  This ticket's workspace was removed. It's read-only.
+                </p>
+                {error ? (
+                  <p className="text-[12px] mb-2" style={{ color: "var(--warning)" }} role="alert">
+                    {error}
+                  </p>
+                ) : null}
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    data-testid="ticket-resolve"
+                    disabled={busy || status === "resolved"}
+                    onClick={() => void setStatus("resolved")}
+                    className="flex-1 text-[16px] k2-tile disabled:opacity-50"
+                    style={{ height: 40, borderRadius: 20, color: "#fff" }}
+                  >
+                    Resolve
+                  </button>
+                  <button
+                    type="button"
+                    data-testid="ticket-dismiss"
+                    disabled={busy || status === "dismissed"}
+                    onClick={() => void setStatus("dismissed")}
+                    className="flex-1 text-[16px] k2-tile disabled:opacity-50"
+                    style={{ height: 40, borderRadius: 20, color: "#8e8e93" }}
+                  >
+                    Dismiss
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </div>
       )}

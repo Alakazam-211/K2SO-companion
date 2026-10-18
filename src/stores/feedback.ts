@@ -6,6 +6,8 @@ import { useWorkspacesStore } from "../stores/workspaces";
 import { revive } from "../lib/revive";
 import { eventsHeld, onEventsHold } from "../api/eventsHold";
 import { connectTicketEvents, type TicketEventsHandle } from "../zen/ticketEvents";
+import { newLocalId, rememberLanded } from "../zen/outbox";
+import type { OutgoingComment } from "../zen/ticketOutbox";
 import {
   fetchAllFeedback,
   fetchFeedbackShow,
@@ -82,6 +84,19 @@ interface FeedbackState {
   /** Fetch `show?brief=1` once for `id` (no-op when cached or in flight). */
   loadBrief: (id: string) => Promise<void>;
   closeThread: () => void;
+
+  /** Ticket comments sent but not shown back by `show` yet (optimistic
+   *  bubbles; `zen/ticketOutbox.ts`). In memory: they outlive leaving the
+   *  ticket, so a send in flight or "Not sent" is there on return. */
+  commentOutbox: OutgoingComment[];
+  /** `landedKey(roomKey, commentRowId)` → the send's `localId`: a landed
+   *  comment keeps its optimistic row's React key (no remount). */
+  commentLandedKeys: Record<string, string>;
+  queueComment: (input: { roomKey: string; text: string; beforeCount: number }) => string;
+  patchComment: (localId: string, patch: Partial<OutgoingComment>) => void;
+  dropComment: (localId: string) => void;
+  /** The send showed up as the comment `rowId`: remember its key, drop it. */
+  settleComment: (localId: string, rowId: string) => void;
 }
 
 export const useFeedbackStore = create<FeedbackState>((set, get) => ({
@@ -203,6 +218,42 @@ export const useFeedbackStore = create<FeedbackState>((set, get) => ({
   },
 
   closeThread: () => set({ openId: null, openItem: null, openError: null }),
+
+  commentOutbox: [],
+  commentLandedKeys: {},
+  queueComment: ({ roomKey, text, beforeCount }) => {
+    const localId = newLocalId();
+    const entry: OutgoingComment = {
+      localId,
+      roomKey,
+      text: text.trim(),
+      at: Math.floor(Date.now() / 1000),
+      beforeCount,
+      status: "sending",
+      error: null,
+      author: null,
+    };
+    set({ commentOutbox: [...get().commentOutbox, entry] });
+    return localId;
+  },
+  patchComment: (localId, patch) => {
+    const outbox = get().commentOutbox;
+    if (!outbox.some((o) => o.localId === localId)) return;
+    set({ commentOutbox: outbox.map((o) => (o.localId === localId ? { ...o, ...patch } : o)) });
+  },
+  dropComment: (localId) => {
+    const outbox = get().commentOutbox;
+    if (!outbox.some((o) => o.localId === localId)) return;
+    set({ commentOutbox: outbox.filter((o) => o.localId !== localId) });
+  },
+  settleComment: (localId, rowId) => {
+    const entry = get().commentOutbox.find((o) => o.localId === localId);
+    if (!entry) return;
+    set({
+      commentOutbox: get().commentOutbox.filter((o) => o.localId !== localId),
+      commentLandedKeys: rememberLanded(get().commentLandedKeys, entry.roomKey, rowId, localId),
+    });
+  },
 }));
 
 // ─── Brief cache ───
