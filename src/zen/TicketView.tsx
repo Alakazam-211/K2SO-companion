@@ -687,6 +687,7 @@ export function TicketView({
     stickToNewest(el);
     lastTop.current = el.scrollTop;
   };
+  const scrollRoom = useRef<{ dropNow(): void } | null>(null);
   // Keyboard show / hide on the compositor (FLIP).
   useKeyboardFlip({
     viewportHeight: viewport.height,
@@ -701,12 +702,14 @@ export function TicketView({
       },
       lastScrollTop: () => lastTop.current,
       stick: stickIfFollowing,
+      content: () => contentRef.current,
+      beforeHide: () => scrollRoom.current?.dropNow(),
     },
     enabled: item != null,
   });
   // Real scroll range above while the keyboard is up (the drag is a 1:1
   // scroll).
-  useScrollRoom({
+  scrollRoom.current = useScrollRoom({
     viewportHeight: viewport.height,
     scroller: () => scrollerRef.current,
     room: () => topRoomRef.current,

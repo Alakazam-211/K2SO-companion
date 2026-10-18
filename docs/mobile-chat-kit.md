@@ -139,31 +139,28 @@ transitions (no keyboard timing from the shell).
   stop momentum).
 - **Short lists** (`CHAT_CONTENT_CLASS`, `.mchat-content`): the list's
   content block ALWAYS has `min-height: calc(100% − gap − drag pad)`,
-  easing with the gap spacer. A short list fills the view exactly (no
-  phantom scroll range), the room is reachable above it, and the room
-  coming and going never moves it. A chat list adds
-  `justify-content: flex-end` so a short conversation sits at the bottom,
-  right above the composer, keyboard up or down (iMessage), and tells the
-  FLIP it is `bottomAnchored` (the newest then rides the composer on
-  show / hide even when nothing scrolls). A document-like list (a ticket:
-  brief and answers lead) stays top-aligned. Dead end: a `min-height`
-  that came and went with the room — a short chat dropped back to its
-  natural top-aligned layout ~200ms after the keyboard closed (the snap
-  up).
-- **Exact placement — one eased correction:** the shell samples the
-  keyboard only during the drag (see native), each sample carrying the
-  keyboard top **and the panning scroll view's `contentOffset.y` from the
-  same native frame**. JS knows the copy's content-space bottom, so
-  `diff = sample.top − (copyBottomContent − sample.scrollY)` is exact,
-  independent of when the page last saw the scroll. The copy eases to it
-  by a transform transition (80–220ms by size, ease-out, either sign); one
-  confirmation ~100ms later eases a second correction only if off by >2px.
-- **Release hand-off:** on Will*Hide / Will*Show the copy's on-screen
-  bottom (its content bottom at the Will's own `scrollY`) is where the
-  real composer starts: the column goes final (hide) or is held (spring
-  back), and the real dock is translated onto the copy **before** it is
-  un-hidden, in the same style commit. Then the FLIP plays it on.
-- Mid-drag the list's `onScroll` sets no React state.
+  easing with the gap spacer, so a short list fills the view exactly (no
+  phantom scroll range) and the room above it is reachable. A short list
+  rests TOP-aligned with the keyboard down, and every move into or out of
+  that rest is animated:
+  - **hide** (not a drag release): the FLIP drops the scroll room in the
+    same commit (`FlipList.beforeHide` → `useScrollRoom().dropNow`),
+    measures how far the content itself moved (its offset in the scroller
+    minus scroll, before vs after: re-stick, clamp, room) and plays that as
+    one glide on the keyboard's curve — from where the newest sat above the
+    composer to the top-aligned rest;
+  - **show**: the content stays at the top if it still fits the smaller
+    view; if not, it rises only by its overflow (`finalScrollTop` predicts
+    the re-stick), during the keyboard's rise;
+  - **after a drag release** the room waits for scroll idle (momentum); if
+    dropping it must move visible content (the reader scrolled into the
+    room), the move plays over 250ms instead of snapping.
+  Dead ends: a `min-height` that came and went with the room (the short
+  chat dropped to its natural layout ~200ms after the keyboard closed — a
+  snap); always pushing a short chat to the bottom (iMessage-like, but
+  Rosson prefers few messages to rest at the top).
+  A list may still opt into `bottomAnchored` (flex-end) — it then rides
+  the composer on show / hide.
 
 ### 5. Tap to dismiss (`useTapToDismiss`, option `dismissOnTap`, default on)
 
@@ -256,7 +253,7 @@ const columnRef = useViewportTrackRef();        // the fixed column (drag sizes 
     <div ref={scroller} style={{ overflowY: "auto" }}>
       <div ref={room} />                         {/* useScrollRoom */}
       <div ref={layer} style={{ position: "relative", height: 0, zIndex: 3 }} /> {/* drag layer */}
-      <div ref={content} className="mchat-content" /* + justify-end for a chat */>…messages…</div>
+      <div ref={content} className="mchat-content">…messages…</div>
       <div className="mchat-gap" />              {/* focus gap spacer */}
       <div ref={useViewportPadRef()} />          {/* drag pad */}
     </div>
@@ -275,7 +272,9 @@ useTapToDismiss({ area: scroller, composer: bar /*, dismissOnTap, canDismiss */ 
 The list contract: `isFollowing()` (at the newest), `lastScrollTop()`
 (scrollTop before this commit, from onScroll / own writes), `stick()`
 (re-stick if following), `held()` (an anchor is being restored),
-`bottomAnchored` (content pushed to the bottom — a chat). Pause
+`content()` (the .mchat-content block, to measure / predict short
+lists), `beforeHide()` (drop the scroll room in the hide's commit:
+`useScrollRoom` returns `{dropNow}`), `bottomAnchored` (optional). Pause
 your own "stick to newest" while `vp.interactive`.
 
 ## Timing constants and curves
