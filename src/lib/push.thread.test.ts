@@ -467,11 +467,13 @@ describe("registration", () => {
   it("remove unregisters first, with the token it is about to drop", async () => {
     useServersStore.getState().removeServer("s2");
     await flush();
+    // Unregister first (live token), then the session revoke.
     expect(posts()).toEqual([
       expect.objectContaining({
         url: "https://work.k2.dev/cli/push/unregister-device",
         body: { deviceId: "dev-1" },
       }),
+      expect.objectContaining({ url: "https://work.k2.dev/cli/auth/logout" }),
     ]);
     expect(posts()[0].auth).toContain("t2");
     expect(useServersStore.getState().tokens.s2).toBeUndefined();
@@ -480,7 +482,10 @@ describe("registration", () => {
   it("sign-out unregisters too; a server with no token is not called", async () => {
     signOutServer("s1");
     await flush();
-    expect(posts().map((p) => p.url)).toEqual(["https://rosson.k2.dev/cli/push/unregister-device"]);
+    expect(posts().map((p) => p.url)).toEqual([
+      "https://rosson.k2.dev/cli/push/unregister-device",
+      "https://rosson.k2.dev/cli/auth/logout",
+    ]);
     expect(posts()[0].auth).toContain("t1");
     tauriFetch.mockClear();
     signOutServer("s1");

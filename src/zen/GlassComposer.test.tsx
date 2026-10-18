@@ -283,3 +283,17 @@ describe("smoothClear: a send's clear eases the field shut", () => {
     }
   });
 });
+
+describe("GlassComposer send press", () => {
+  it("brightens the send pill while pressed, only when it can send", () => {
+    render(
+      <GlassComposer value="hi" onChange={() => {}} onSubmit={() => {}} canSend sendReady testIdPrefix="p" />
+    );
+    const send = screen.getByTestId("p-send");
+    expect(send.style.filter).toBe("");
+    fireEvent.pointerDown(send);
+    expect(send.style.filter).toBe("brightness(1.25)");
+    fireEvent.pointerUp(send);
+    expect(send.style.filter).toBe("");
+  });
+});
