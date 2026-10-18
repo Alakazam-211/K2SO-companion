@@ -12,7 +12,8 @@ import {
   workspaceHandleOf,
 } from "./composerAttach";
 import { loadGroupPoc, type GroupPoc } from "./groupPoc";
-import { GlassComposer, composerPlaceholder, settledHeight } from "./GlassComposer";
+import { GlassComposer, composerBlockHeight, composerPlaceholder } from "./GlassComposer";
+import { keyboardMotionMs } from "../lib/useViewportHeight";
 import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
 import { StubMark } from "./StubMark";
 import { mountainTime, type ThreadMessage } from "./threadModel";
@@ -247,10 +248,11 @@ export function drawerOverScroller(drawerSpace: number, rowsAboveField: boolean)
   return Math.max(0, drawerSpace - COMPOSER_FIELD_TOP_PX);
 }
 
-/** How far (px) the newest message rests above the pane's bottom: the
- *  composer block floating over the scroller's bottom (rows above the
- *  field, the field, the safe-area / keyboard gap) plus what the working
- *  drawer covers above the bar. */
+/** How far (px) the newest message rests above the pane's bottom, less
+ *  the bar's safe-area / keyboard gap (the scroller's `.zen-composer-gap`
+ *  spacer adds that, easing with the keyboard): the composer block
+ *  floating over the scroller's bottom (rows above the field, the field)
+ *  plus what the working drawer covers above the bar. */
 export function threadBottomInset(composerPx: number, drawerCover: number): number {
   const block = Number.isFinite(composerPx) && composerPx > 0 ? Math.ceil(composerPx) : 0;
   const cover = Number.isFinite(drawerCover) && drawerCover > 0 ? Math.ceil(drawerCover) : 0;
@@ -264,8 +266,14 @@ export function threadBottomPadding(composerPx: number, drawerCover: number): st
   return `${THREAD_BOTTOM_PAD + threadBottomInset(composerPx, drawerCover)}px`;
 }
 
+/** Set on the pane root while focus is in the composer bar: the bar's
+ *  bottom gap and the scroller's matching spacer collapse together
+ *  (index.css `.zen-thread-pane`). */
+export const COMPOSER_FOCUSED_ATTR = "data-composer-focused";
+
 export function ThreadPane({
   viewportHeight,
+  viewportMotionMs = 0,
   topInset,
   covered = false,
   roomBanner = null,
@@ -273,6 +281,9 @@ export function ThreadPane({
   onComposerInput,
 }: {
   viewportHeight?: number;
+  /** The keyboard is easing `viewportHeight` over this many ms (iOS,
+   *  useViewport().motion): keep the newest pinned every frame of it. */
+  viewportMotionMs?: number;
   /** Height (px, below the safe area) of a header floating over the list. */
   topInset?: number;
   /** A full-screen overlay (file viewer) hides the Thread: not "viewing". */
@@ -402,6 +413,8 @@ export function ThreadPane({
   const lastTop = useRef(0);
   const followRaf = useRef(0);
   const drawerRaf = useRef(0);
+  // Until when (Date.now()) followFor keeps sticking every frame.
+  const followUntil = useRef(0);
   // Height (px) the working drawer stands on the composer field. The part
   // above the bar floats over the scroller, which pads its bottom by it
   // (same 200ms ease).
@@ -496,12 +509,15 @@ export function ThreadPane({
     });
   }
 
-  /** follow(), then keep sticking every frame for `ms`: the scroller's
-   *  bottom padding is easing with the drawer. */
+  /** follow(), then keep sticking every frame for `ms` (or longer, if a
+   *  loop already running goes on past that): the scroller's bottom
+   *  padding is easing with the drawer, or the column / composer gap with
+   *  the keyboard. */
   function followFor(ms: number) {
     follow();
     if (typeof requestAnimationFrame !== "function") return;
-    const until = Date.now() + ms;
+    const until = Math.max(followUntil.current, Date.now() + ms);
+    followUntil.current = until;
     const tick = () => {
       const el = scrollerRef.current;
       if (!el || !following.current || pendingAnchor.current) return;
@@ -777,11 +793,43 @@ export function ThreadPane({
 
   // Keyboard open/close: Zen sizes the column to the visual viewport, so
   // the scroller shrinks with scrollTop unchanged and the newest message
-  // would slide under the composer. Re-stick if the reader was there.
+  // would slide under the composer. Re-stick if the reader was there —
+  // every frame while the column eases with the keyboard (iOS).
   useLayoutEffect(() => {
     if (viewportHeight == null) return;
-    follow();
+    if (viewportMotionMs > 0) followFor(viewportMotionMs + 80);
+    else follow();
   }, [viewportHeight]);
+
+  // Focus into / out of the composer: the bar's bottom gap (home
+  // indicator at rest, 8px over the keyboard) and the scroller's spacer
+  // ease together on the keyboard's timing. Flip the root attribute in
+  // the focus event itself, so both start in the same style pass as the
+  // bar's :focus-within, and stick through the ease.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    const bar = () => root.querySelector<HTMLElement>('[data-testid="composer-bar"]');
+    const apply = (on: boolean) => {
+      if (root.hasAttribute(COMPOSER_FOCUSED_ATTR) === on) return;
+      if (on) root.setAttribute(COMPOSER_FOCUSED_ATTR, "");
+      else root.removeAttribute(COMPOSER_FOCUSED_ATTR);
+      followFor(keyboardMotionMs() + 80);
+    };
+    const inBar = (n: EventTarget | null) => {
+      const b = bar();
+      return Boolean(b && n instanceof Node && b.contains(n));
+    };
+    apply(inBar(document.activeElement));
+    const onIn = (e: FocusEvent) => apply(inBar(e.target));
+    const onOut = (e: FocusEvent) => apply(inBar(e.relatedTarget));
+    root.addEventListener("focusin", onIn);
+    root.addEventListener("focusout", onOut);
+    return () => {
+      root.removeEventListener("focusin", onIn);
+      root.removeEventListener("focusout", onOut);
+    };
+  }, []);
 
   // The floating header growing (sidecar line, banner) adds top padding,
   // which pushes the tail down by the same amount. Keep the newest in view.
@@ -1020,7 +1068,7 @@ export function ThreadPane({
     // A multi-line field eases shut over the flight (smoothClear): pad for
     // where it ends, so the bubble is aimed at its final slot.
     const bar = root?.querySelector<HTMLElement>('[data-testid="composer-bar"]');
-    const barPx = bar ? settledHeight(bar) : 0;
+    const barPx = bar ? composerBlockHeight(bar) : 0;
     if (el && bar && barPx > 0 && barPx !== composerPxRef.current) {
       const px = barPx;
       el.style.transition = "none";
@@ -1075,7 +1123,7 @@ export function ThreadPane({
   return (
     <div
       ref={rootRef}
-      className="relative flex flex-col flex-1 min-h-0 min-w-0 overflow-x-hidden"
+      className="zen-thread-pane relative flex flex-col flex-1 min-h-0 min-w-0 overflow-x-hidden"
       style={{ fontFamily: "var(--zen-font)" }}
     >
       <div
@@ -1287,6 +1335,15 @@ export function ThreadPane({
             </>
           )}
         </div>
+        {/* Room for the composer bar's bottom gap (home indicator at
+            rest, 8px over the keyboard): eases with the bar's padding on
+            the keyboard's timing (index.css). Outside the content, so the
+            content ResizeObserver does not fire through the ease. */}
+        <div
+          aria-hidden="true"
+          className="zen-composer-gap shrink-0"
+          data-testid="thread-composer-gap"
+        />
       </div>
       {/* The composer floats over the scroller's bottom, on the header's
           blur stack flipped: messages pass under it and soften instead of

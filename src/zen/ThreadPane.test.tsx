@@ -549,6 +549,101 @@ describe("ThreadPane", () => {
     });
   });
 
+  it("keyboard motion: the newest stays pinned every frame of the column's ease", () => {
+    const frames: FrameRequestCallback[] = [];
+    const raf = globalThis.requestAnimationFrame;
+    const caf = globalThis.cancelAnimationFrame;
+    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+      frames.push(cb);
+      return frames.length;
+    }) as typeof requestAnimationFrame;
+    globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
+    let now = 10_000;
+    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+    const runFrames = () => {
+      for (const f of frames.splice(0)) f(0);
+    };
+    let height = 1800;
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.getAttribute?.("data-testid") === "thread-scroller" ? height : 0;
+      },
+    });
+    try {
+      useZenStore.setState({
+        agentId: "appa",
+        threadSource: "live",
+        threadError: null,
+        threadHasMore: false,
+        thread: [
+          { id: "a", seq: 1, text: "one", from: "appa", at: 1, mine: false, kind: "text", choice: null },
+        ],
+      });
+      const { rerender } = render(<ThreadPane viewportHeight={464} />);
+      // Let mount's own sticking loops (drawer padding) run out first.
+      now += 1000;
+      runFrames();
+      runFrames();
+      expect(frames).toHaveLength(0);
+      const el = screen.getByTestId("thread-scroller");
+      // Keyboard hides: the column eases to full height over 250ms.
+      rerender(<ThreadPane viewportHeight={800} viewportMotionMs={250} />);
+      for (let i = 0; i < 4; i++) {
+        height += 25; // the ease moves the layout each frame
+        now += 50;
+        runFrames();
+        expect(el.scrollTop).toBe(height);
+      }
+      // Past the ease (+80ms slack): the per-frame loop has stopped.
+      now += 400;
+      runFrames();
+      height += 25;
+      runFrames();
+      expect(el.scrollTop).toBe(height - 25);
+    } finally {
+      globalThis.requestAnimationFrame = raf;
+      globalThis.cancelAnimationFrame = caf;
+      clock.mockRestore();
+      Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+        configurable: true,
+        get() {
+          return 0;
+        },
+      });
+    }
+  });
+
+  it("composer focus flips the pane's gap attribute in the focus event, and the scroller ends in the gap spacer", () => {
+    useZenStore.setState({
+      agentId: "appa",
+      threadSource: "live",
+      threadError: null,
+      threadHasMore: false,
+      thread: [],
+    });
+    render(<ThreadPane viewportHeight={800} />);
+    const scroller = screen.getByTestId("thread-scroller");
+    const root = scroller.parentElement as HTMLElement;
+    expect(root.className).toMatch(/\bzen-thread-pane\b/);
+    const gap = screen.getByTestId("thread-composer-gap");
+    expect(gap.parentElement).toBe(scroller);
+    expect(gap.className).toMatch(/\bzen-composer-gap\b/);
+    const ta = screen.getByTestId("composer-bar").querySelector("textarea")!;
+    expect(root.hasAttribute("data-composer-focused")).toBe(false);
+    fireEvent.focusIn(ta);
+    expect(root.hasAttribute("data-composer-focused")).toBe(true);
+    // Focus moving within the bar keeps it.
+    const other = screen.getByTestId("composer-bar").querySelector("button");
+    if (other) {
+      fireEvent.focusOut(ta, { relatedTarget: other });
+      expect(root.hasAttribute("data-composer-focused")).toBe(true);
+    }
+    // Keyboard dismissed (focus leaves to nothing).
+    fireEvent.focusOut(ta, { relatedTarget: null });
+    expect(root.hasAttribute("data-composer-focused")).toBe(false);
+  });
+
   it("pads the scroller under a floating header and keeps the newest in view when it grows", () => {
     expect(threadTopPadding(undefined)).toBeUndefined();
     expect(threadTopPadding(0)).toBeUndefined();

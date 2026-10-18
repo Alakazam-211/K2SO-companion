@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { useViewport } from "../lib/useViewportHeight";
+import { useViewport, viewportTransition } from "../lib/useViewportHeight";
 import { WorkspaceAvatar } from "../zen/WorkspaceAvatar";
 import { GroupChatAvatar } from "../zen/GroupChatAvatar";
 import { useWorkspacesStore } from "../stores/workspaces";
@@ -76,7 +76,13 @@ export function Zen() {
   const navigate = useNavigate();
   // offsetTop: an iOS pan the scroll reset could not undo (resume with
   // the composer focused, IMG_0844) — the fixed home follows it down.
-  const { height: containerHeight, offsetTop: viewportTop } = useViewport();
+  // motion: the iOS keyboard is easing the height (UIKeyboardWill*): the
+  // column glides on its curve and the Thread pins the newest throughout.
+  const {
+    height: containerHeight,
+    offsetTop: viewportTop,
+    motion: viewportMotion,
+  } = useViewport();
   const [params, setParams] = useSearchParams();
   const threadParam = params.get("thread");
   // Push tap on a project chat: `/zen?project=<groupId>`.
@@ -409,7 +415,7 @@ export function Zen() {
         <div
           className="relative flex flex-col min-h-0 overflow-x-hidden"
           data-testid="thread-column"
-          style={{ height: containerHeight }}
+          style={{ height: containerHeight, transition: viewportTransition(viewportMotion) }}
           onClick={
             filesPaneOpen || sessionsOpen
               ? () => {
@@ -731,6 +737,9 @@ export function Zen() {
           <PaneErrorBoundary name="thread">
             <ThreadPane
               viewportHeight={containerHeight}
+              viewportMotionMs={
+                viewportMotion ? Math.max(0, viewportMotion.ms - viewportMotion.elapsed) : 0
+              }
               topInset={headerPx}
               covered={viewingFile}
               roomBanner={
