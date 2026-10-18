@@ -525,7 +525,12 @@ export function Zen() {
                   data-testid="chat-header-llm"
                   data-llm={headerHarness}
                   className="absolute flex items-center"
-                  style={{ right: "100%", marginRight: 8, top: 0, height: HEADER_AVATAR_PX }}
+                  // Tucked under the avatar's lower-left edge and over the
+                  // name bubble's top (Rosson 2026-10-18; easy to revert:
+                  // was right 100%, marginRight 8, top 0, height = avatar).
+                  // zIndex -1 stays inside the avatar's stacking layer
+                  // (z 2): under the picture, still over the bubble (z 1).
+                  style={{ right: "100%", marginRight: -7, top: HEADER_AVATAR_PX - 15, zIndex: -1 }}
                 >
                   <LlmIcon harness={headerHarness} size={18} />
                 </span>
