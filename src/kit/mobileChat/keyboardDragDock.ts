@@ -43,6 +43,7 @@ import {
   endKeyboardDrag,
   keyboardTopNow,
   setKeyboardDragHandler,
+  viewportInteractiveNow,
   type KeyboardDragHandler,
   type KeyboardSample,
 } from "../../lib/useViewportHeight";
@@ -425,6 +426,19 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
     }, RELEASE_GRACE_MS);
   };
 
+  // Never leave the real composer hidden: a focus into it, or a keyboard
+  // showing, with no drag in progress drops any stand-in (the tap must
+  // reach — and see — the real field).
+  const orphanCheck = () => {
+    if (standIn && !viewportInteractiveNow()) detach();
+  };
+  const onWillShow = (e: Event) => {
+    const d = (e as CustomEvent<{ show?: boolean }>).detail;
+    if (d && d.show) orphanCheck();
+  };
+  window.addEventListener("focusin", orphanCheck);
+  window.addEventListener("k2-keyboard-will", onWillShow);
+
   const scroller = parts.scroller();
   const opts: AddEventListenerOptions = { passive: true };
   scroller?.addEventListener("touchstart", onStart, opts);
@@ -436,6 +450,8 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
     scroller?.removeEventListener("touchmove", onMove);
     scroller?.removeEventListener("touchend", onEnd);
     scroller?.removeEventListener("touchcancel", onEnd);
+    window.removeEventListener("focusin", orphanCheck);
+    window.removeEventListener("k2-keyboard-will", onWillShow);
     if (standIn) endKeyboardDrag();
     detach();
     if (currentHandler === handler) {
