@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useViewport } from "../lib/useViewportHeight";
+import { useViewport, useViewportTrackRef, viewportTransition } from "../lib/useViewportHeight";
 import { useFeedbackStore } from "../stores/feedback";
 import { ticketsAriaLabel, ticketsBadge } from "../api/feedbackPure";
 import { hostLabel, serverHostKey, useServersStore, type RecoveryState } from "../stores/servers";
@@ -181,7 +181,12 @@ type ListItem =
 const PIN_SHIFT_TRANSITION = "transform 220ms cubic-bezier(.2,.8,.2,1)";
 
 export function ChatsList() {
-  const { height: containerHeight, offsetTop: viewportTop } = useViewport();
+  const {
+    height: containerHeight,
+    offsetTop: viewportTop,
+    motion: viewportMotion,
+  } = useViewport();
+  const columnTrackRef = useViewportTrackRef();
   const agents = useZenStore((s) => s.agents);
   const chatRows = useMemo(() => agents.filter((a) => a.kind !== "group"), [agents]);
   const source = useZenStore((s) => s.agentSource);
@@ -1013,7 +1018,15 @@ export function ChatsList() {
     >
       <div
         className="flex flex-col relative overflow-hidden"
-        style={{ height: containerHeight }}
+        // On screen (not under an open Thread): Search rides the keyboard —
+        // eased with Will*, per frame under an interactive dismiss. Hidden
+        // under the Thread it just takes the final height (no hidden
+        // per-frame layout).
+        ref={zenScreen !== "thread" ? columnTrackRef : undefined}
+        style={{
+          height: containerHeight,
+          transition: zenScreen !== "thread" ? viewportTransition(viewportMotion) : undefined,
+        }}
         data-testid="chats-column"
       >
       {/* Floats over the list from y=0 (under the status bar) with the

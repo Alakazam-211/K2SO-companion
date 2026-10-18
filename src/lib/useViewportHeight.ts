@@ -43,8 +43,22 @@
 // glide); once it has, a normal re-measure settles it. Reduced motion:
 // the same final height at once, no motion. Android never sends the
 // event: the visualViewport path is unchanged there.
+//
+// Interactive dismiss (iOS, iMessage-style): dragging a native-scrolling
+// list down into the keyboard moves it with the finger. The shell tracks
+// the keyboard's top every frame and calls `window.__k2KeyboardTrack(
+// overlap)` (→ `k2-keyboard-track`). That is too often for a React render
+// (the Thread re-renders every message), so the store writes the height
+// straight onto the columns registered with `useViewportTrackRef`, with
+// no transition, and only flips `interactive` (one render at the start)
+// so the Thread stops re-pinning under the finger. Everyone else keeps
+// the held height (the terminal does not re-fit every frame). On release
+// iOS posts WillHide / WillShow with the rest of the animation: the store
+// writes that target + transition onto the same columns (so it starts
+// from the dragged height, also when the target equals the old height —
+// a spring back) and publishes it as usual.
 
-import { useSyncExternalStore } from "react";
+import { useRef, useSyncExternalStore } from "react";
 
 /** The iOS keyboard is animating `height` to its current value. */
 export type ViewportMotion = {
@@ -65,6 +79,9 @@ export type ViewportState = {
   offsetTop: number;
   /** Set while the keyboard animates the height (iOS). */
   motion: ViewportMotion | null;
+  /** The keyboard follows a finger (interactive dismiss, iOS). `height`
+   *  holds its pre-drag value; tracked columns are sized directly. */
+  interactive: boolean;
 };
 
 /** What the native shell sends on UIKeyboardWill{Show,Hide,ChangeFrame}. */
@@ -162,6 +179,7 @@ let state: ViewportState = {
   height: typeof window !== "undefined" ? window.innerHeight : 0,
   offsetTop: 0,
   motion: null,
+  interactive: false,
 };
 const subscribers = new Set<() => void>();
 let teardown: (() => void) | null = null;
@@ -172,6 +190,37 @@ let animating = false;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
 /** Last keyboard duration the shell reported (ms). */
 let keyboardMs = KEYBOARD_MS;
+/** Columns sized per frame during an interactive dismiss. */
+const trackEls = new Set<HTMLElement>();
+/** The height last written onto them while interactive. */
+let trackedHeight = 0;
+
+function writeTracked(height: number, transition: string): void {
+  for (const el of trackEls) {
+    el.style.transition = transition;
+    el.style.height = `${height}px`;
+  }
+}
+
+/** Callback ref for a viewport-sized column that should follow the
+ *  keyboard under the finger (interactive dismiss) without re-rendering.
+ *  Stable across renders. */
+export function trackViewportElement(el: HTMLElement | null, prev: HTMLElement | null): void {
+  if (prev && prev !== el) trackEls.delete(prev);
+  if (el) trackEls.add(el);
+}
+
+export function useViewportTrackRef(): (el: HTMLElement | null) => void {
+  const cb = useRef<((el: HTMLElement | null) => void) | null>(null);
+  if (!cb.current) {
+    let current: HTMLElement | null = null;
+    cb.current = (el) => {
+      trackViewportElement(el, current);
+      current = el;
+    };
+  }
+  return cb.current;
+}
 
 /** Duration (ms) of the keyboard's animation, as last reported. Screens
  *  easing something with the keyboard (the composer's bottom gap) use it. */
@@ -183,7 +232,8 @@ function set(next: ViewportState): void {
   if (
     next.height === state.height &&
     next.offsetTop === state.offsetTop &&
-    next.motion === state.motion
+    next.motion === state.motion &&
+    next.interactive === state.interactive
   ) {
     return;
   }
@@ -198,11 +248,33 @@ function measure(): void {
   const vv = window.visualViewport;
   const visible = vv ? vv.height : window.innerHeight;
   const offsetTop = vv ? Math.max(0, Math.round(vv.offsetTop || 0)) : 0;
-  if (animating) {
-    set({ height: state.height, offsetTop, motion: state.motion });
+  if (animating || state.interactive) {
+    set({ ...state, offsetTop });
     return;
   }
-  set({ height: heightFor(visible), offsetTop, motion: null });
+  set({ height: heightFor(visible), offsetTop, motion: null, interactive: false });
+}
+
+/** The keyboard's top under the finger (interactive dismiss): size the
+ *  tracked columns now, unanimated; no React render per frame. */
+function keyboardTrack(overlap: number): void {
+  if (!Number.isFinite(overlap)) return;
+  const full = fullHeight();
+  // No KEYBOARD_SLOP here: the finger moves it continuously to 0.
+  const h = Math.round(full - Math.min(full, Math.max(0, overlap)));
+  clearSettle();
+  animating = false;
+  trackedHeight = h;
+  writeTracked(h, "none");
+  if (!state.interactive) set({ ...state, motion: null, interactive: true });
+}
+
+/** A native resync (keyboard did show / hide) with no Will* after a drag:
+ *  hand the columns back to the published height. */
+function endInteractive(): void {
+  if (!state.interactive) return;
+  writeTracked(state.height, "");
+  set({ ...state, interactive: false });
 }
 
 function clearSettle(): void {
@@ -230,13 +302,16 @@ function keyboardWill(will: KeyboardWill): void {
   }
   // WillChangeFrame + WillShow/Hide both arrive for one animation.
   if (animating && target === state.height) return;
+  // After a drag the columns sit at the tracked height, not state.height.
+  const wasInteractive = state.interactive;
+  const from = wasInteractive ? trackedHeight : state.height;
   const lag =
     typeof will.at === "number" && Number.isFinite(will.at)
       ? Math.min(ms, Math.max(0, Date.now() - will.at))
       : 0;
   const remaining = ms - lag;
   const motion: ViewportMotion | null =
-    remaining > 0 && target !== state.height && !reducedMotion()
+    remaining > 0 && target !== from && !reducedMotion()
       ? { ms, easing: keyboardEasing(will.curve), elapsed: lag }
       : null;
   resetScroll();
@@ -247,7 +322,10 @@ function keyboardWill(will: KeyboardWill): void {
     animating = false;
     measure();
   }, remaining + SETTLE_SLOP_MS);
-  set({ height: target, offsetTop: state.offsetTop, motion });
+  // Released: finish from where the finger left it (also a spring back
+  // to the old height, which React alone would not rewrite).
+  if (wasInteractive) writeTracked(target, viewportTransition(motion) ?? "");
+  set({ height: target, offsetTop: state.offsetTop, motion, interactive: false });
 }
 
 /** Coalesce bursts (keyboard animation fires resize + scroll per frame). */
@@ -281,16 +359,24 @@ function install(): () => void {
     const h = (e as CustomEvent).detail?.height;
     // The native height is authoritative now (unless the keyboard is
     // still animating to a known one); still re-pin the scroll.
-    if (typeof h === "number" && !animating) {
-      set({ height: heightFor(h), offsetTop: state.offsetTop, motion: null });
+    if (typeof h === "number" && !animating && !state.interactive) {
+      set({ height: heightFor(h), offsetTop: state.offsetTop, motion: null, interactive: false });
     }
     schedule();
+  };
+  const onTrack = (e: Event) => {
+    const h = (e as CustomEvent<{ height?: number }>).detail?.height;
+    if (typeof h === "number") keyboardTrack(h);
   };
   const onWill = (e: Event) => {
     const d = (e as CustomEvent<KeyboardWill>).detail;
     if (d && typeof d === "object") keyboardWill(d);
   };
-  const onResync = () => scheduleAfter(RESUME_DELAYS);
+  // Native Did* / app-active pings (and pageshow / focus).
+  const onResync = () => {
+    endInteractive();
+    scheduleAfter(RESUME_DELAYS);
+  };
   const onVisibility = () => {
     if (document.visibilityState !== "hidden") scheduleAfter(RESUME_DELAYS);
   };
@@ -299,6 +385,7 @@ function install(): () => void {
 
   window.addEventListener("k2-viewport-resize", onCustom);
   window.addEventListener("k2-keyboard-will", onWill);
+  window.addEventListener("k2-keyboard-track", onTrack);
   window.addEventListener("k2-viewport-resync", onResync);
   window.addEventListener("pageshow", onResync);
   window.addEventListener("focus", onResync);
@@ -312,6 +399,7 @@ function install(): () => void {
   return () => {
     window.removeEventListener("k2-viewport-resize", onCustom);
     window.removeEventListener("k2-keyboard-will", onWill);
+    window.removeEventListener("k2-keyboard-track", onTrack);
     window.removeEventListener("k2-viewport-resync", onResync);
     window.removeEventListener("pageshow", onResync);
     window.removeEventListener("focus", onResync);
@@ -354,10 +442,18 @@ function getSnapshot(): ViewportState {
 
 // The shell's hook (lib.rs also injects it; this survives a page reload).
 if (typeof window !== "undefined") {
-  const w = window as unknown as { __k2KeyboardWill?: (d: KeyboardWill) => void };
+  const w = window as unknown as {
+    __k2KeyboardWill?: (d: KeyboardWill) => void;
+    __k2KeyboardTrack?: (overlap: number) => void;
+  };
   if (typeof w.__k2KeyboardWill !== "function") {
     w.__k2KeyboardWill = (d: KeyboardWill) => {
       window.dispatchEvent(new CustomEvent("k2-keyboard-will", { detail: d }));
+    };
+  }
+  if (typeof w.__k2KeyboardTrack !== "function") {
+    w.__k2KeyboardTrack = (overlap: number) => {
+      window.dispatchEvent(new CustomEvent("k2-keyboard-track", { detail: { height: overlap } }));
     };
   }
 }
@@ -380,5 +476,7 @@ export function __resetViewportForTests(): void {
   clearSettle();
   animating = false;
   keyboardMs = KEYBOARD_MS;
-  state = { height: window.innerHeight, offsetTop: 0, motion: null };
+  trackEls.clear();
+  trackedHeight = 0;
+  state = { height: window.innerHeight, offsetTop: 0, motion: null, interactive: false };
 }

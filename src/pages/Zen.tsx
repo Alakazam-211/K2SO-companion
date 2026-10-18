@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
-import { useViewport, viewportTransition } from "../lib/useViewportHeight";
+import { useViewport, useViewportTrackRef, viewportTransition } from "../lib/useViewportHeight";
 import { WorkspaceAvatar } from "../zen/WorkspaceAvatar";
 import { GroupChatAvatar } from "../zen/GroupChatAvatar";
 import { useWorkspacesStore } from "../stores/workspaces";
@@ -82,7 +82,10 @@ export function Zen() {
     height: containerHeight,
     offsetTop: viewportTop,
     motion: viewportMotion,
+    interactive: viewportInteractive,
   } = useViewport();
+  // Interactive keyboard dismiss: the store sizes the column per frame.
+  const threadColumnRef = useViewportTrackRef();
   const [params, setParams] = useSearchParams();
   const threadParam = params.get("thread");
   // Push tap on a project chat: `/zen?project=<groupId>`.
@@ -415,6 +418,7 @@ export function Zen() {
         <div
           className="relative flex flex-col min-h-0 overflow-x-hidden"
           data-testid="thread-column"
+          ref={threadColumnRef}
           style={{ height: containerHeight, transition: viewportTransition(viewportMotion) }}
           onClick={
             filesPaneOpen || sessionsOpen
@@ -737,6 +741,7 @@ export function Zen() {
           <PaneErrorBoundary name="thread">
             <ThreadPane
               viewportHeight={containerHeight}
+              viewportInteractive={viewportInteractive}
               viewportMotionMs={
                 viewportMotion ? Math.max(0, viewportMotion.ms - viewportMotion.elapsed) : 0
               }

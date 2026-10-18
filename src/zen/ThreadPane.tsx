@@ -261,6 +261,7 @@ export const COMPOSER_FOCUSED_ATTR = "data-composer-focused";
 export function ThreadPane({
   viewportHeight,
   viewportMotionMs = 0,
+  viewportInteractive = false,
   topInset,
   covered = false,
   roomBanner = null,
@@ -271,6 +272,9 @@ export function ThreadPane({
   /** The keyboard is easing `viewportHeight` over this many ms (iOS,
    *  useViewport().motion): keep the newest pinned every frame of it. */
   viewportMotionMs?: number;
+  /** The keyboard follows a finger dragging the list (interactive
+   *  dismiss): the column grows under it; never re-pin mid-drag. */
+  viewportInteractive?: boolean;
   /** Height (px, below the safe area) of a header floating over the list. */
   topInset?: number;
   /** A full-screen overlay (file viewer) hides the Thread: not "viewing". */
@@ -399,6 +403,10 @@ export function ThreadPane({
   const drawerRaf = useRef(0);
   // Until when (Date.now()) followFor keeps sticking every frame.
   const followUntil = useRef(0);
+  // Interactive keyboard dismiss in progress: the reader's finger owns
+  // the scroll (iMessage) — no automatic sticking of any kind.
+  const interactiveRef = useRef(viewportInteractive);
+  interactiveRef.current = viewportInteractive;
   // Height (px) the working drawer stands on the composer field. The part
   // above the bar floats over the scroller, which pads its bottom by it
   // (same 200ms ease).
@@ -459,13 +467,15 @@ export function ThreadPane({
    *  from the ResizeObserver set up on mount. */
   function follow() {
     const el = scrollerRef.current;
-    if (!el || !following.current || pendingAnchor.current) return;
+    if (!el || !following.current || pendingAnchor.current || interactiveRef.current) return;
     stick(el);
     if (typeof requestAnimationFrame !== "function") return;
     cancelAnimationFrame(followRaf.current);
     followRaf.current = requestAnimationFrame(() => {
       const cur = scrollerRef.current;
-      if (cur && following.current && !pendingAnchor.current) stick(cur);
+      if (cur && following.current && !pendingAnchor.current && !interactiveRef.current) {
+        stick(cur);
+      }
     });
   }
 
@@ -480,7 +490,7 @@ export function ThreadPane({
     followUntil.current = until;
     const tick = () => {
       const el = scrollerRef.current;
-      if (!el || !following.current || pendingAnchor.current) return;
+      if (!el || !following.current || pendingAnchor.current || interactiveRef.current) return;
       stick(el);
       if (Date.now() < until) drawerRaf.current = requestAnimationFrame(tick);
     };
