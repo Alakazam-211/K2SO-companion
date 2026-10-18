@@ -619,6 +619,41 @@ describe("ThreadPane", () => {
     expect(el.scrollTop).toBe(1664);
   });
 
+  it("a short chat sits at the bottom (iMessage) and rides the composer on hide / show though it cannot scroll", () => {
+    seedThread();
+    let client = 400;
+    const { rerender } = render(<ThreadPane viewportHeight={464} />);
+    const el = screen.getByTestId("thread-scroller");
+    // Fits: scrollHeight = clientHeight (the content fills the view).
+    clampingScroller(el, () => client, () => client);
+    fireEvent.scroll(el);
+    const content = screen.getByTestId("thread-content");
+    expect(content.className).toMatch(/\bmchat-content\b/);
+    expect(content.className).toMatch(/\bjustify-end\b/);
+    const dock = screen.getByTestId("thread-composer-dock");
+    let inverted: string[] = [];
+    dock.getBoundingClientRect = () => {
+      inverted = [dock.style.transform, content.style.transform];
+      return new DOMRect();
+    };
+    // Hide: no scroll moved (scrollTop stays 0), but the newest is at the
+    // bottom: it is drawn back with the composer and glides down with it.
+    client = 736;
+    rerender(<ThreadPane viewportHeight={800} viewportMotion={motion(464, 800)} />);
+    expect(el.scrollTop).toBe(0);
+    expect(inverted).toEqual(["translate3d(0, -336px, 0)", "translate3d(0, -336px, 0)"]);
+    expect(content.style.transition).toBe(`transform 250ms ${EASE}`);
+    rerender(<ThreadPane viewportHeight={800} viewportMotion={null} />);
+    expect(content.style.transform).toBe("");
+    // Show: it rises with the composer, then the layout commits.
+    rerender(<ThreadPane viewportHeight={464} viewportMotion={motion(800, 464)} />);
+    expect(content.style.transform).toBe("translate3d(0, -336px, 0)");
+    client = 400;
+    rerender(<ThreadPane viewportHeight={464} viewportMotion={null} />);
+    expect(content.style.transform).toBe("");
+    expect(el.scrollTop).toBe(0);
+  });
+
   it("keyboard hide while reading history: only the composer plays; the list stays put", () => {
     seedThread();
     let client = 400;
@@ -770,7 +805,9 @@ describe("ThreadPane", () => {
       const inset = 336;
       rerender(<ThreadPane viewportHeight={full - inset} />);
       expect(room.style.height).toBe(`${inset + 48}px`);
-      expect(content.style.minHeight).toBe("100%");
+      // The content always fills the view (CSS .mchat-content), room or not.
+      expect(content.className).toMatch(/\bmchat-content\b/);
+      expect(content.style.minHeight).toBe("");
       // jsdom does not clamp: the compensation is the whole room.
       expect(el.scrollTop).toBeGreaterThanOrEqual(inset + 48);
       // The drag layer sits in the scrolled content.

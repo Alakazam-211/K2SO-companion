@@ -28,6 +28,10 @@ export type FlipList = {
   stick(): void;
   /** Hold the list still (an anchor is being restored). */
   held?(): boolean;
+  /** Its content sits at the bottom (CHAT_CONTENT_MIN_HEIGHT + flex-end):
+   *  while following, the newest moves exactly with the composer even when
+   *  the list does not scroll (a short chat). */
+  bottomAnchored?: boolean;
 };
 
 export type KeyboardFlipOptions = {
@@ -93,7 +97,12 @@ export function useKeyboardFlip(o: KeyboardFlipOptions): void {
       if (list && !dragged) list.stick();
       const shift = before - el.scrollTop; // the list moved down by this
       setT(ds, m.from - m.to, "none");
-      flipList.current = list && !dragged && Math.abs(shift) >= 0.5 ? -shift : 0;
+      // Bottom-anchored and following: the newest rides the composer, so
+      // the list moved by the column's growth (short chat: by layout, no
+      // scroll). Else by the scroll the commit made (re-stick / clamp).
+      const moved =
+        list && !dragged && list.bottomAnchored && list.isFollowing() ? m.to - m.from : shift;
+      flipList.current = list && !dragged && Math.abs(moved) >= 0.5 ? -moved : 0;
       if (flipList.current) setT(listEls(), flipList.current, "none");
       void dock.getBoundingClientRect(); // flush: start from the inverted spot
       setT(ds, 0, play);
@@ -105,7 +114,11 @@ export function useKeyboardFlip(o: KeyboardFlipOptions): void {
     const maxNow = el.scrollHeight - el.clientHeight;
     const rise =
       list && !dragged && list.isFollowing() && !list.held?.()
-        ? Math.max(0, Math.min(growth, maxNow + growth - el.scrollTop))
+        ? list.bottomAnchored
+          ? growth
+          : maxNow <= 1
+            ? 0 // fits (content fills the view): a top-aligned list stays put
+            : Math.max(0, Math.min(growth, maxNow + growth - el.scrollTop))
         : 0;
     setT(ds, m.to - m.from, play);
     flipList.current = rise ? -rise : 0;

@@ -617,3 +617,27 @@ describe("Ticket: close the keyboard, then tap the field (TestFlight 1446)", () 
     }
   });
 });
+
+describe("Ticket content: top-aligned, always filling the view (no jump when the keyboard's room goes)", () => {
+  afterEach(() => {
+    __resetViewportForTests();
+  });
+  it("the content carries the kit class, stays top-aligned, and a hide does not move it", () => {
+    open();
+    const content = screen.getByTestId("ticket-content");
+    expect(content.className).toMatch(/\bmchat-content\b/);
+    expect(content.className).not.toMatch(/justify-end/);
+    act(() => {
+      (window as unknown as { __k2KeyboardWill: (d: unknown) => void }).__k2KeyboardWill({
+        height: 336,
+        duration: 250,
+        curve: 7,
+        show: true,
+      });
+    });
+    // Short ticket: nothing to scroll, so the brief does not rise with the
+    // composer; only the dock moves.
+    expect(content.style.transform).toBe("");
+    expect(screen.getByTestId("ticket-footer-dock").style.transform).toBe("translate3d(0, -336px, 0)");
+  });
+});

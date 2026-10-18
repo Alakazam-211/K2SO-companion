@@ -636,6 +636,22 @@ describe("interactive keyboard dismiss (drag start / release hand-off)", () => {
     expect(el("col").style.height).toBe(`${FULL}px`);
   });
 
+  it("a drag sets the content's drag pad (no ease) on the column; the release drops it at once, the ease next frame", () => {
+    render(<Column />);
+    keyboardShown();
+    begin();
+    const col = el("col");
+    expect(col.style.getPropertyValue("--mchat-drag-pad")).toBe(`${KEYBOARD}px`);
+    expect(col.style.getPropertyValue("--mchat-content-ms")).toBe("0ms");
+    will({ height: 0, duration: 200, curve: 7, show: false });
+    expect(col.style.getPropertyValue("--mchat-drag-pad")).toBe("");
+    expect(col.style.getPropertyValue("--mchat-content-ms")).toBe("0ms");
+    act(() => {
+      vi.advanceTimersToNextFrame();
+    });
+    expect(col.style.getPropertyValue("--mchat-content-ms")).toBe("");
+  });
+
   it("endKeyboardDrag with no drag in the store still drops an orphaned stand-in", () => {
     render(<Column />);
     keyboardShown();

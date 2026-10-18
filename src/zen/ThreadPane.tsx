@@ -16,7 +16,7 @@ import { GlassComposer, composerBlockHeight, composerPlaceholder } from "./Glass
 import { keyboardMotionMs, useViewportPadRef, type ViewportMotion } from "../lib/useViewportHeight";
 import { useKeyboardFlip } from "../kit/mobileChat/useKeyboardFlip";
 import { COMPOSER_FOCUSED_ATTR, useComposerFocusGap } from "../kit/mobileChat/useComposerFocusGap";
-import { useScrollRoom } from "../kit/mobileChat/useScrollRoom";
+import { CHAT_CONTENT_CLASS, useScrollRoom } from "../kit/mobileChat/useScrollRoom";
 import { useKeyboardDrag } from "../kit/mobileChat/useKeyboardDrag";
 import { useTapToDismiss } from "../kit/mobileChat/useTapToDismiss";
 import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
@@ -898,6 +898,7 @@ export function ThreadPane({
       lastScrollTop: () => lastTop.current,
       stick: () => follow(),
       held: () => !!pendingAnchor.current,
+      bottomAnchored: true,
     },
   });
 
@@ -1322,7 +1323,10 @@ export function ThreadPane({
         <div
           ref={contentRef}
           data-testid="thread-content"
-          className="shrink-0 min-w-0 flex flex-col gap-1"
+          // iMessage: a short chat sits at the bottom, right above the
+          // composer, keyboard up or down; the scroll room coming and
+          // going never moves it (mobile chat kit, useScrollRoom).
+          className={`${CHAT_CONTENT_CLASS} shrink-0 min-w-0 flex flex-col justify-end gap-1`}
         >
           {source === "loading" && holding ? null : source === "loading" ? (
             <span
