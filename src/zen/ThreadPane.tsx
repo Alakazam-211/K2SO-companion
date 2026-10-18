@@ -34,7 +34,7 @@ import {
   isThreadFrame,
   type ThreadTurn,
 } from "./threadTurn";
-import { DRAWER_MS, ThreadWorkingStrip } from "./ThreadWorkingStrip";
+import { ThreadWorkingStrip } from "./ThreadWorkingStrip";
 import { isSendableAddr } from "./sendGate";
 import { sourceWord, useZenStore } from "./zenStore";
 import { SESSION_UNAVAILABLE } from "./sessionReturn";
@@ -57,8 +57,19 @@ import {
   prefersReducedMotion,
   rectOf,
   runSendFly,
+  type FlyMotion,
   type FlySource,
 } from "./sendFly";
+import {
+  ARRIVAL_RECENT_MS,
+  REPLY_FOLD_MS,
+  arrivedRows,
+  createListGlider,
+  drawerMotion,
+  fadeInRows,
+  incomingMotion,
+  type ListGlider,
+} from "./listGlide";
 import { queueSend, requeueIfUnreachable, shouldQueueSend, useQueuedSendFlush } from "./sendQueue";
 import "./sendFly.css";
 import { newestSeenSeq, type RowRef } from "./unread";
@@ -306,6 +317,9 @@ export function ThreadPane({
   // A cached copy not yet confirmed by the server (stale-while-revalidate):
   // drawn as is, but nothing is marked read and no card is answered from it.
   const cachedOnly = useZenStore((s) => s.threadCached);
+  // Opening a chat whose cache is known to be behind: the first paint
+  // waits (briefly) for the read — nothing drawn meanwhile, no "Loading".
+  const holding = useZenStore((s) => s.threadHolding);
   const error = useZenStore((s) => s.threadError);
   const agentId = useZenStore((s) => s.agentId);
   // Done mode (drawer-picked session): a Thread that won't open offers the main chat.
@@ -396,6 +410,15 @@ export function ThreadPane({
     anchor: MessageAnchor | null;
   } | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
+  // One owner for the list's transform (listGlide): sends, arrivals and
+  // the working drawer all glide through it, so they fold into one motion.
+  const gliderRef = useRef<ListGlider | null>(null);
+  if (!gliderRef.current) gliderRef.current = createListGlider(() => contentRef.current);
+  const glider = gliderRef.current;
+  // The rows the last commit drew (this chat): what is new is an arrival.
+  const committedRows = useRef<{ agent: string; keys: Set<string> } | null>(null);
+  // When (Date.now()) an agent message last arrived while following.
+  const lastArrivalAt = useRef(0);
   const pendingAnchor = useRef<MessageAnchor | null>(null);
   const prevAgent = useRef<string>("");
   const prevFirst = useRef<string | null>(null);
@@ -538,6 +561,30 @@ export function ThreadPane({
     drawerRaf.current = requestAnimationFrame(tick);
   }
 
+  /** Agent messages arrived while following (a live frame, a read, a
+   *  delta, a catch-up): rather than snap, the list stays where it was and
+   *  glides up by what came in, as each new row fades in and rises
+   *  (iMessage). Reduced motion: just the newest, in place. */
+  function arrive(el: HTMLElement, keys: string[]) {
+    lastArrivalAt.current = Date.now();
+    const before = el.scrollTop;
+    follow();
+    if (prefersReducedMotion() || interactiveRef.current || pendingAnchor.current) return;
+    const moved = el.scrollTop - before;
+    // A big batch: at most a screenful of travel (still one smooth move).
+    const cap = Math.max(el.clientHeight, 1);
+    const dy = Math.max(-cap, Math.min(cap, moved));
+    if (Math.abs(dy) >= 1) glider.shift(dy, { motion: incomingMotion() });
+    const want = new Set(keys);
+    const content = contentRef.current;
+    if (!content) return;
+    fadeInRows(
+      Array.from(content.querySelectorAll<HTMLElement>("[data-thread-msg]")).filter((r) =>
+        want.has(r.getAttribute("data-row-key") ?? "")
+      )
+    );
+  }
+
   useLayoutEffect(() => {
     const el = scrollerRef.current;
     if (!el) return;
@@ -556,15 +603,32 @@ export function ThreadPane({
     } else if (opened) {
       // A push-tap seq lands after this (useThreadFocusSeq): no following
       // over it until the reader comes back to the bottom.
+      glider.cancel();
       setNewBelow(false);
       following.current = focusSeq == null;
       setAtNewest(true);
       stick(el);
       follow();
     } else if (following.current) {
-      follow();
-    } else if (lastMsg && last !== prevLast.current && !lastMsg.mine && !lastMsg.pending) {
-      // Reading history: never yank. Offer the jump instead.
+      const before = committedRows.current;
+      const fresh =
+        before && before.agent === agentId
+          ? arrivedRows(
+              rows.map((r) => ({ key: r.key, own: r.out != null })),
+              before.keys
+            )
+          : [];
+      if (fresh.length) arrive(el, fresh.map((r) => r.key));
+      else follow();
+    } else if (
+      lastMsg &&
+      last !== prevLast.current &&
+      !lastMsg.mine &&
+      !lastMsg.pending &&
+      focusSeq == null
+    ) {
+      // Reading history: never yank. Offer the jump instead. (A push tap
+      // still looking for its message: that arrival is where it lands.)
       setNewBelow(true);
     }
     prevAgent.current = agentId;
@@ -675,7 +739,13 @@ export function ThreadPane({
   }, [limited]);
 
   // Push tap `?seq=`: land on that message (after the stick above).
-  const highlightSeq = useThreadFocusSeq(scrollerRef);
+  // Not found (or never came): back to the newest, following again.
+  const highlightSeq = useThreadFocusSeq(scrollerRef, () => {
+    const el = scrollerRef.current;
+    if (!el || pendingAnchor.current) return;
+    setFollowing(true);
+    stick(el);
+  });
 
   useLayoutEffect(() => {
     setDraftText(composerDraftOf(draftKey));
@@ -701,6 +771,7 @@ export function ThreadPane({
     setAttachments([]);
     setAttachError(null);
     setFly(null);
+    glider.cancel();
   }, [agentId]);
 
   useEffect(() => {
@@ -861,11 +932,30 @@ export function ThreadPane({
   }, [composerPx]);
 
   // The working drawer opening, growing (tap), shrinking or closing
-  // changes the scroller's bottom padding, not its content: the tail
-  // moves by that much. Stick through the padding's ease.
+  // changes the scroller's bottom padding (at once, not eased), not its
+  // content: following, the tail sticks and the list glides the
+  // difference (listGlide). Folding away with no reply yet, the list
+  // holds still briefly for it, so the reply's glide takes both in one
+  // motion (no jump up, drift down); a glide already running takes it in.
+  const coverRef = useRef(drawerCover);
   useLayoutEffect(() => {
-    followFor(DRAWER_MS + 80);
-  }, [drawerSpace, drawerCover]);
+    const prev = coverRef.current;
+    coverRef.current = drawerCover;
+    const el = scrollerRef.current;
+    if (!el || prev === drawerCover) return;
+    if (!following.current || pendingAnchor.current || interactiveRef.current) return;
+    const before = lastTop.current;
+    follow();
+    const dy = el.scrollTop - before;
+    if (prefersReducedMotion() || !(Math.abs(dy) >= 1)) return;
+    if (glider.moving()) {
+      glider.shift(dy, { motion: incomingMotion() });
+    } else if (dy < 0 && Date.now() - lastArrivalAt.current > ARRIVAL_RECENT_MS) {
+      glider.shift(dy, { motion: drawerMotion(), holdMs: REPLY_FOLD_MS });
+    } else {
+      glider.shift(dy, { motion: drawerMotion() });
+    }
+  }, [drawerCover]);
 
   function queueFiles(files: File[]) {
     if (!files.length) return;
@@ -1104,9 +1194,18 @@ export function ThreadPane({
     const a = fly.anchor;
     const now = a && a.el.isConnected ? rectOf(a.el) : null;
     const dy = a && now ? a.top - now.top : 0;
+    // Through the list's glide controller: an agent message arriving
+    // mid-flight folds into this glide instead of fighting it.
     const glide =
       el && Math.abs(dy) >= 1 && Math.abs(dy) <= el.clientHeight
-        ? { content: contentRef.current, dy }
+        ? {
+            content: contentRef.current,
+            dy,
+            run: (d: number, motion: FlyMotion) => {
+              glider.shift(d, { motion });
+              return () => {};
+            },
+          }
         : undefined;
     return runSendFly({ root, bubble, target, source: fly.source, done: clear, glide });
     // Once per send: a re-render mid-flight must not restart it.
@@ -1123,6 +1222,12 @@ export function ThreadPane({
     rows.push({ key: rowKeys.get(m.id) ?? (m.id || `seq-${m.seq ?? i}`), m, out: null });
   }
   for (const o of outgoing) rows.push({ key: o.localId, m: outgoingBubble(o), out: o });
+
+  // Last of the layout effects: what this commit drew, for the next one's
+  // arrival check.
+  useLayoutEffect(() => {
+    committedRows.current = { agent: agentId, keys: new Set(rows.map((r) => r.key)) };
+  });
 
   const empty =
     (source === "live" || source === "stub") &&
@@ -1171,7 +1276,7 @@ export function ThreadPane({
           data-testid="thread-content"
           className="shrink-0 min-w-0 flex flex-col gap-1"
         >
-          {source === "loading" ? (
+          {source === "loading" && holding ? null : source === "loading" ? (
             <span
               className="text-[11px] text-[var(--text-muted)] tracking-widest uppercase px-2"
               data-testid="thread-loading"
@@ -1237,6 +1342,7 @@ export function ThreadPane({
                   <div
                     key={key}
                     data-thread-msg=""
+                    data-row-key={key}
                     data-seq={m.seq ?? undefined}
                     data-outgoing={out?.status}
                     data-highlight={highlighted ? "true" : undefined}
@@ -1380,7 +1486,7 @@ export function ThreadPane({
               <button
                 type="button"
                 data-testid="thread-new-message"
-                className="pointer-events-auto zen-glass zen-glass-pill text-[13px]"
+                className="pointer-events-auto zen-glass zen-glass-pill zen-pill-in text-[13px]"
                 style={{ minHeight: 32, padding: "0 14px", color: "#fff" }}
                 // Keep focus in the textarea so the iOS keyboard stays up:
                 // a blur drops the keyboard, the pill moves with the

@@ -50,6 +50,7 @@ beforeEach(() => {
     threadError: null,
     threadFocusSeq: null,
     threadCached: false,
+    threadHolding: false,
     thread: [],
     outbox: [],
   });
@@ -76,6 +77,17 @@ describe("ThreadPane over a cached copy", () => {
     expect(yes.style.opacity).toBe("1"); // calm: not dimmed while it refreshes
     act(() => useZenStore.setState({ threadCached: false }));
     expect((screen.getByRole("button", { name: "Yes" }) as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("a first paint held for the read (returnHold): nothing drawn, no 'Loading' line, nothing marked read", () => {
+    useZenStore.setState({ thread: [], threadSource: "loading", threadHolding: true });
+    render(<ThreadPane />);
+    expect(screen.queryByTestId("thread-loading")).toBeNull();
+    expect(screen.queryAllByTestId("thread-bubble")).toHaveLength(0);
+    expect(marks.every((m) => !m.viewing)).toBe(true);
+    // Not held: the usual line.
+    act(() => useZenStore.setState({ threadHolding: false }));
+    expect(screen.getByTestId("thread-loading")).not.toBeNull();
   });
 
   it("no 'Loading' line over a cached paint", () => {

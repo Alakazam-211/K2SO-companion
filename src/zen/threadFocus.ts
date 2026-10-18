@@ -7,6 +7,9 @@ export const ZEN_SEQ_PARAM = "seq";
 export const FOCUS_MAX_PAGES = 4;
 /** How long the landed message stays highlighted. */
 export const FOCUS_HIGHLIGHT_MS = 2000;
+/** A target missing from the cached (unconfirmed) copy waits at most this
+ *  long for the server's read before it is given up on. */
+export const FOCUS_WAIT_MS = 5000;
 
 /** A positive integer seq from the query, or null. */
 export function zenFocusSeq(raw: string | null | undefined): number | null {
@@ -17,26 +20,53 @@ export function zenFocusSeq(raw: string | null | undefined): number | null {
 }
 
 /** Find `threadFocusSeq` in the open Thread: scroll it into the middle and
- *  highlight it briefly. Not loaded yet and older than the oldest row →
- *  `loadEarlier` page by page (capped). Gone or newer than the tail →
- *  give up quietly and stay at the newest. Returns the highlighted seq. */
-export function useThreadFocusSeq(scrollerRef: RefObject<HTMLElement | null>): number | null {
+ *  highlight it briefly. Missing from a cached copy the server has not
+ *  confirmed yet (a push for a message newer than the cache) → wait for
+ *  the read (or delta) to land, up to `FOCUS_WAIT_MS`. Not loaded yet and
+ *  older than the oldest row → `loadEarlier` page by page (capped). Gone
+ *  or newer than the tail → give up quietly (`onGiveUp`: back to the
+ *  newest). Returns the highlighted seq. */
+export function useThreadFocusSeq(
+  scrollerRef: RefObject<HTMLElement | null>,
+  onGiveUp?: () => void
+): number | null {
   const focusSeq = useZenStore((s) => s.threadFocusSeq);
   const thread = useZenStore((s) => s.thread);
   const source = useZenStore((s) => s.threadSource);
+  const cached = useZenStore((s) => s.threadCached);
   const hasMore = useZenStore((s) => s.threadHasMore);
   const loadingEarlier = useZenStore((s) => s.threadLoadingEarlier);
   const [highlight, setHighlight] = useState<number | null>(null);
+  // The seq whose wait for a confirmed copy ran out.
+  const [expired, setExpired] = useState<number | null>(null);
   const pages = useRef(0);
+  const giveUpRef = useRef(onGiveUp);
+  giveUpRef.current = onGiveUp;
 
   useEffect(() => {
     pages.current = 0;
   }, [focusSeq]);
 
+  // Waiting on an unconfirmed copy: bounded.
+  const waiting = focusSeq != null && cached && expired !== focusSeq;
+  useEffect(() => {
+    if (!waiting || focusSeq == null) return;
+    const seq = focusSeq;
+    const t = setTimeout(() => setExpired(seq), FOCUS_WAIT_MS);
+    return () => clearTimeout(t);
+  }, [waiting, focusSeq]);
+
   // Layout effect, declared after ThreadPane's stick-to-newest, so it wins.
   useLayoutEffect(() => {
-    if (focusSeq == null || source !== "live" || loadingEarlier) return;
+    if (focusSeq == null || loadingEarlier) return;
+    // Loading (or the first paint held for the read): wait. A failed read
+    // is as confirmed as it gets: look in what is shown, else give up.
+    if (source !== "live" && source !== "error") return;
     const done = () => useZenStore.setState({ threadFocusSeq: null });
+    const giveUp = () => {
+      done();
+      giveUpRef.current?.();
+    };
     const el = scrollerRef.current?.querySelector<HTMLElement>(`[data-seq="${focusSeq}"]`);
     if (el) {
       el.scrollIntoView?.({ block: "center" });
@@ -44,8 +74,10 @@ export function useThreadFocusSeq(scrollerRef: RefObject<HTMLElement | null>): n
       done();
       return;
     }
-    if (!thread.length) {
-      done();
+    // The cached copy may simply be behind: the server's copy decides.
+    if (source === "live" && cached && expired !== focusSeq) return;
+    if (!thread.length || source === "error") {
+      giveUp();
       return;
     }
     const oldest = thread[0]?.seq ?? null;
@@ -54,8 +86,8 @@ export function useThreadFocusSeq(scrollerRef: RefObject<HTMLElement | null>): n
       void useZenStore.getState().loadEarlier();
       return;
     }
-    done();
-  }, [focusSeq, thread, source, hasMore, loadingEarlier, scrollerRef]);
+    giveUp();
+  }, [focusSeq, thread, source, cached, expired, hasMore, loadingEarlier, scrollerRef]);
 
   useEffect(() => {
     if (highlight == null) return;

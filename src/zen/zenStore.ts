@@ -102,6 +102,10 @@ import {
   type ChatRead,
 } from "./chatRevalidate";
 import type { CachedChat } from "./chatCacheBackend";
+import { deltaSupported } from "../api/threadDelta";
+import { entryForRow, type RowRef } from "./unread";
+import { useUnreadStore } from "./unreadStore";
+import { RETURN_HOLD_MS, holdFirstPaint, knownServerNewest } from "./returnHold";
 import { installChatCacheWiring } from "./chatCacheWiring";
 import {
   beginChatOpen,
@@ -188,6 +192,9 @@ type ZenState = {
    *  by a server read (stale-while-revalidate). Read marking and card
    *  answers wait for the server's copy. */
   threadCached: boolean;
+  /** The first paint is held (≤ RETURN_HOLD_MS) for a read that will
+   *  bring a cache known to be behind up to date (`returnHold`). */
+  threadHolding: boolean;
   threadGen: number;
   threadAddr: string | null;
   threadGroupId: string | null;
@@ -626,10 +633,97 @@ function cachedPatch(e: CachedChat): Partial<ZenState> {
   };
 }
 
+type CacheFrom = "memory" | "device";
+
+/** Is the cached copy of the chat being opened known to be behind the
+ *  server (and can a delta bring it up to date)? `returnHold`. */
+function staleOnServer(
+  scope: ServerScope,
+  ref: RowRef,
+  entry: CachedChat
+): boolean {
+  if (!deltaSupported(scope)) return false;
+  const u = useUnreadStore.getState();
+  const unread = entryForRow(u.servers[scope.id], u.addrs[scope.id], ref);
+  const preview =
+    ref.kind === "thread" && ref.addr
+      ? useZenStore.getState().previewByKey[lastAtKey(scope.id, "thread", ref.addr)]?.seq
+      : null;
+  return holdFirstPaint({
+    delta: true,
+    kind: ref.kind,
+    cache: { messages: entry.messages, conversationId: ref.kind === "project" ? null : entry.conversationId },
+    serverNewest: knownServerNewest(unread?.lastSeq, preview),
+  });
+}
+
+/** An open's first paint of its cached copy: at once — or, when the copy
+ *  is known to be behind (`stale`), held up to `RETURN_HOLD_MS` for the
+ *  read. `take()` hands the held copy to the read's own (single) update;
+ *  `release()` paints it now (the hold ran out, the read failed). */
+type CachePainter = {
+  offer: (entry: CachedChat, from: CacheFrom) => void;
+  paintNow: (entry: CachedChat, from: CacheFrom) => void;
+  take: () => { entry: CachedChat; from: CacheFrom } | null;
+  release: () => void;
+};
+
+function cachePainter(
+  gen: number,
+  timing: number,
+  stale: (e: CachedChat) => boolean,
+  patch: (e: CachedChat) => Partial<ZenState> = cachedPatch
+): CachePainter {
+  const { getState: get, setState: set } = useZenStore;
+  let held: { entry: CachedChat; from: CacheFrom } | null = null;
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  const clear = () => {
+    if (timer) clearTimeout(timer);
+    timer = null;
+  };
+  const paintNow = (entry: CachedChat, from: CacheFrom) => {
+    if (get().threadGen !== gen) return;
+    set({ ...patch(entry), threadHolding: false });
+    noteCachedPaint(timing, from, entry.messages.length);
+  };
+  const take = () => {
+    clear();
+    const h = held;
+    held = null;
+    if (h && get().threadGen === gen && get().threadSource !== "loading") return null;
+    return h;
+  };
+  const release = () => {
+    const h = take();
+    if (h) paintNow(h.entry, h.from);
+    else if (get().threadGen === gen && get().threadHolding) set({ threadHolding: false });
+  };
+  return {
+    offer(entry, from) {
+      if (get().threadGen !== gen) return;
+      if (!held && stale(entry)) {
+        held = { entry, from };
+        set({ threadHolding: true });
+        timer = setTimeout(release, RETURN_HOLD_MS);
+        return;
+      }
+      paintNow(entry, from);
+    },
+    paintNow,
+    take,
+    release,
+  };
+}
+
 /** Nothing cached in memory: ask the device store, and paint its copy if
- *  this open is still loading when it answers. Resolves to the copy (the
- *  delta cursor), or null. */
-async function deviceCopy(key: string, gen: number, timing: number): Promise<CachedChat | null> {
+ *  this open is still loading when it answers (through `painter`: it may
+ *  hold it for the read). Resolves to the copy (the delta cursor), or null. */
+async function deviceCopy(
+  key: string,
+  gen: number,
+  timing: number,
+  painter?: CachePainter
+): Promise<CachedChat | null> {
   let hit: Awaited<ReturnType<ReturnType<typeof chatCache>["read"]>> = null;
   try {
     hit = await chatCache().read(key);
@@ -643,6 +737,10 @@ async function deviceCopy(key: string, gen: number, timing: number): Promise<Cac
   // (nothing on screen): the cached copy is better than nothing.
   const down = st.threadSource === "error" && !st.thread.length && looksUnreachable(st.threadError);
   if (st.threadSource !== "loading" && !down) return hit.entry;
+  if (painter && !down) {
+    painter.offer(hit.entry, hit.from);
+    return hit.entry;
+  }
   set(cachedPatch(hit.entry));
   noteCachedPaint(timing, hit.from, hit.entry.messages.length);
   return hit.entry;
@@ -747,6 +845,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   threadError: null,
   thread: [],
   threadCached: false,
+  threadHolding: false,
   threadGen: 0,
   threadAddr: null,
   threadGroupId: null,
@@ -1249,6 +1348,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       thread: cached ?? [],
       threadCached: !!cached,
       threadGen: resumeGen,
+      threadHolding: false,
       threadGroupId: null,
       threadConversationId: null,
       ...cachedAddr,
@@ -1531,10 +1631,19 @@ export const useZenStore = create<ZenState>((set, get) => ({
     // Its cached copy at once (stale-while-revalidate); the read below
     // brings it up to date (a delta when the server has one).
     const hit = cachedRoom(key);
+    const groupPatch = (e: CachedChat): Partial<ZenState> => ({ ...cachedPatch(e), threadConversationId: null });
+    // Known to be behind (unread `lastSeq`) with a delta to fetch: hold
+    // the first paint briefly for the read (`returnHold`).
+    const before = get();
+    const shown = before.threadGroupId === groupId && before.thread.length > 0 && before.threadSource === "live";
+    const stale = (e: CachedChat) => !shown && staleOnServer(scope, { kind: "project", groupId }, e);
+    const painter = cachePainter(gen, timing, stale, groupPatch);
+    const holdHit = !!hit && stale(hit);
     set({
       threadGen: gen,
       thread: [],
       threadCached: false,
+      threadHolding: false,
       threadError: null,
       threadSource: "loading",
       threadAddr: null,
@@ -1542,10 +1651,13 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadConversationId: null,
       threadHasMore: false,
       threadOldestSeq: null,
-      ...(hit ? { ...cachedPatch(hit), threadConversationId: null } : null),
+      ...(hit && !holdHit ? groupPatch(hit) : null),
     });
-    if (hit) noteCachedPaint(timing, "memory", hit.messages.length);
+    if (hit && holdHit) painter.offer(hit, "memory");
+    else if (hit) noteCachedPaint(timing, "memory", hit.messages.length);
     const failed = (msg: string, gone: boolean) => {
+      if (!gone) painter.release();
+      else if (painter.take() || get().threadHolding) set({ threadHolding: false });
       if (gone) {
         // The project (or access to it) is gone: so is its cache.
         chatCache().forget(key);
@@ -1563,7 +1675,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
     try {
       // The device copy (the delta cursor) when there may be one; known
       // absent: the read goes out at once.
-      const pending = hit || chatCache().known(key) === false ? null : deviceCopy(key, gen, timing);
+      const pending =
+        hit || chatCache().known(key) === false ? null : deviceCopy(key, gen, timing, painter);
       const base = pending ? await pending : hit;
       if (get().threadGen !== gen) return;
       const read = await fetchGroupRead(scope, groupId, base);
@@ -1573,15 +1686,19 @@ export const useZenStore = create<ZenState>((set, get) => ({
         failed(read.error, read.gone);
         return;
       }
-      const items = applyGroupRead(get().thread, read);
+      // The read beat the hold: the merged copy is the first paint.
+      const held = painter.take();
+      if (held) noteCachedPaint(timing, held.from, held.entry.messages.length);
+      const items = applyGroupRead(held ? held.entry.messages : get().thread, read);
       const lastAt = items[items.length - 1]?.at ?? null;
       if (!items.length) chatCache().forget(key);
       set({
+        threadHolding: false,
         threadSource: "live",
         thread: items,
         threadCached: false,
         threadError: null,
-        threadHasMore: read.hasMore ?? get().threadHasMore,
+        threadHasMore: read.hasMore ?? (held ? held.entry.hasMore : get().threadHasMore),
         threadOldestSeq: items.length ? 0 : null,
         lastAtByKey: { ...get().lastAtByKey, [lastAtKey(scope.id, "group", groupId)]: lastAt },
       });
@@ -1620,10 +1737,20 @@ export const useZenStore = create<ZenState>((set, get) => ({
     // `thread-delta-v1`, else the newest page merged over it (a server
     // that is down leaves it on screen).
     const hit = cachedRoom(key);
+    // Known to be behind the server (unread / list `latest`) with a delta
+    // to fetch: hold the first paint briefly for the read (`returnHold`).
+    // Not when this chat's copy is already on screen (a resume painted it).
+    const before = get();
+    const shown =
+      before.threadAddr === addr && !before.threadGroupId && before.thread.length > 0 && before.threadSource === "live";
+    const stale = (e: CachedChat) => !shown && staleOnServer(scope, { kind: "thread", addr }, e);
+    const painter = cachePainter(gen, timing, stale);
+    const holdHit = !!hit && stale(hit);
     set({
       threadGen: gen,
       thread: [],
       threadCached: false,
+      threadHolding: false,
       threadError: null,
       threadSource: "loading",
       threadAddr: addr,
@@ -1631,10 +1758,14 @@ export const useZenStore = create<ZenState>((set, get) => ({
       threadConversationId: null,
       threadHasMore: false,
       threadOldestSeq: null,
-      ...(hit ? cachedPatch(hit) : null),
+      ...(hit && !holdHit ? cachedPatch(hit) : null),
     });
-    if (hit) noteCachedPaint(timing, "memory", hit.messages.length);
+    if (hit && holdHit) painter.offer(hit, "memory");
+    else if (hit) noteCachedPaint(timing, "memory", hit.messages.length);
     const failed = (msg: string, gone: boolean) => {
+      // A held first paint: the cached copy shows now.
+      if (!gone) painter.release();
+      else if (painter.take() || get().threadHolding) set({ threadHolding: false });
       if (gone) {
         // The access or the conversation is gone: so is its cache. The
         // error shows as it always has.
@@ -1659,7 +1790,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
     try {
       // The device copy (the delta cursor) when there may be one; known
       // absent: the read goes out at once.
-      const pending = hit || chatCache().known(key) === false ? null : deviceCopy(key, gen, timing);
+      const pending =
+        hit || chatCache().known(key) === false ? null : deviceCopy(key, gen, timing, painter);
       const base = pending ? await pending : hit;
       if (get().threadGen !== gen) return;
       const read = await fetchThreadRead(scope, addr, base).finally(live.stop);
@@ -1670,20 +1802,25 @@ export const useZenStore = create<ZenState>((set, get) => ({
         return;
       }
       if (read.mode === "reset") chatCache().forget(key); // the conversation moved
-      const cur = get();
-      const thread = applyThreadRead(cur.thread, read, {
+      // The read beat the hold: the merged copy is the first paint (one
+      // update, at the bottom, nothing to animate).
+      const held = painter.take();
+      if (held) noteCachedPaint(timing, held.from, held.entry.messages.length);
+      const cur = held ? { ...get(), ...cachedPatch(held.entry) } : get();
+      const thread = applyThreadRead(cur.thread as ThreadMessage[], read, {
         arrivedLive: live.ids,
-        conversationId: cur.threadConversationId,
+        conversationId: cur.threadConversationId ?? null,
       });
       if (!thread.length) chatCache().forget(key);
       const last = thread[thread.length - 1];
       set({
+        threadHolding: false,
         threadSource: "live",
         thread,
         threadCached: false,
         threadError: null,
-        threadConversationId: read.conversationId ?? cur.threadConversationId,
-        threadHasMore: read.hasMore ?? cur.threadHasMore,
+        threadConversationId: read.conversationId ?? cur.threadConversationId ?? null,
+        threadHasMore: read.hasMore ?? cur.threadHasMore ?? false,
         threadOldestSeq: oldestSeqOf(thread),
         ...threadRowPatch(get(), scope, addr, last),
       });

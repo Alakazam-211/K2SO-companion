@@ -15,7 +15,9 @@ import {
   type ChatRead,
   type ReadDeps,
 } from "./chatRevalidate";
-import type { RowRef } from "./unread";
+import { addrKey, type AddrMap, type RowRef, type ServerUnread } from "./unread";
+import { useUnreadStore } from "./unreadStore";
+import { parseLastAtKey } from "./lastAtFetch";
 import { useZenStore } from "./zenStore";
 import { zenScope } from "./zenScope";
 
@@ -28,6 +30,13 @@ import { zenScope } from "./zenScope";
 // drops what is queued. Reads like an open does (`chatRevalidate`): a
 // delta (`thread-delta-v1`) when the server lists it and the cache has a
 // cursor, otherwise the newest page.
+//
+// Unread-driven (`installUnreadPrefetch`): whenever a server's unread state
+// says a chat changed (its `lastSeq`, unread or waiting count went up — a
+// frame or a summary re-read), that chat is prefetched at once (the gap
+// above does not apply; the concurrency cap, foreground-only and
+// never-the-open-chat rules do), whether the list is on screen or the
+// reader is inside another chat. Returning to it then paints fresh.
 
 export const PREFETCH_TOP = 8;
 export const PREFETCH_CONCURRENCY = 2;
@@ -80,7 +89,9 @@ export type PrefetchDeps = {
 };
 
 export interface Prefetcher {
-  request(targets: PrefetchTarget[]): void;
+  /** `force`: the chat is known to have changed — skip the min gap (a read
+   *  already running for it runs once more after it). */
+  request(targets: PrefetchTarget[], opts?: { force?: boolean }): void;
   /** Drop what is queued (the app went to the background). */
   stop(): void;
   /** Tests: what ran / is queued. */
@@ -103,6 +114,8 @@ export function createPrefetcher(deps: PrefetchDeps): Prefetcher {
   const lastRun = new Map<string, number>();
   const queue: { key: string; t: PrefetchTarget }[] = [];
   const running = new Set<string>();
+  /** Forced while running: read again once it is done. */
+  const again = new Map<string, PrefetchTarget>();
 
   const due = (key: string) => {
     const at = lastRun.get(key);
@@ -163,19 +176,29 @@ export function createPrefetcher(deps: PrefetchDeps): Prefetcher {
       running.add(next.key);
       void run(next.key, next.t).finally(() => {
         running.delete(next.key);
+        const re = again.get(next.key);
+        if (re) {
+          again.delete(next.key);
+          if (deps.foreground() && deps.openKey() !== next.key) queue.push({ key: next.key, t: re });
+        }
         pump();
       });
     }
   }
 
   return {
-    request(targets) {
+    request(targets, opts = {}) {
       if (!deps.foreground()) return;
       const open = deps.openKey();
       for (const t of targets) {
         const key = prefetchKey(t);
-        if (!key || key === open || running.has(key) || queue.some((q) => q.key === key)) continue;
-        if (!due(key)) continue;
+        if (!key || key === open) continue;
+        if (running.has(key)) {
+          if (opts.force) again.set(key, t);
+          continue;
+        }
+        if (queue.some((q) => q.key === key)) continue;
+        if (!opts.force && !due(key)) continue;
         if (deps.isDown(t.serverId) || !usable(deps.scopeOf(t.serverId))) continue;
         queue.push({ key, t });
       }
@@ -183,6 +206,7 @@ export function createPrefetcher(deps: PrefetchDeps): Prefetcher {
     },
     stop() {
       queue.length = 0;
+      again.clear();
     },
     inFlight: () => running.size,
     queued: () => queue.length,
@@ -222,6 +246,73 @@ export function chatPrefetcher(): Prefetcher {
     fetchProjectGroupMessages,
     fetchProjectGroupDelta,
   }));
+}
+
+/** Chats whose unread state moved between `prev` and `next` (one
+ *  server): `lastSeq`, unread or waiting went up, or a chat newly has
+ *  something. Nothing on the summary's first load (the list's own prefetch
+ *  covers what is unread then). A Thread is found by its conversation id
+ *  through `addrs` (`addrOf` gives the addr's own spelling). */
+export function unreadMovedTargets(
+  serverId: string,
+  prev: ServerUnread | undefined,
+  next: ServerUnread | undefined,
+  addrs: AddrMap | undefined,
+  addrOf: (lowerAddr: string) => string = (a) => a
+): PrefetchTarget[] {
+  if (!serverId || !prev || !prev.loaded || !next || prev === next) return [];
+  const out: PrefetchTarget[] = [];
+  let byConv: Map<string, string> | null = null;
+  for (const [key, e] of Object.entries(next.byKey)) {
+    const b = prev.byKey[key];
+    const moved = b
+      ? e.lastSeq > b.lastSeq || e.unread > b.unread || e.waiting > b.waiting
+      : e.unread > 0 || e.waiting > 0;
+    if (!moved) continue;
+    if (e.kind === "project") {
+      out.push({ serverId, ref: { kind: "project", groupId: e.id } });
+      continue;
+    }
+    byConv ??= new Map(Object.entries(addrs ?? {}).map(([a, c]) => [c, a]));
+    const lower = byConv.get(e.id);
+    if (lower) out.push({ serverId, ref: { kind: "thread", addr: addrOf(lower), conversationId: e.id } });
+  }
+  return out;
+}
+
+/** The addr as the app spells it (the list's row keys), from its
+ *  lowercased form. */
+function spelledAddr(serverId: string, lower: string): string {
+  const z = useZenStore.getState();
+  for (const k of Object.keys(z.previewByKey)) {
+    const p = parseLastAtKey(k);
+    if (p && p.serverId === serverId && p.kind === "thread" && addrKey(p.id) === lower) return p.id;
+  }
+  if (zenScope().id === serverId) {
+    const a = z.agents.find((x) => x.addr && addrKey(x.addr) === lower);
+    if (a?.addr) return a.addr;
+  }
+  return lower;
+}
+
+/** Prefetch every chat whose unread state moves (any server, any screen).
+ *  Returns the unsubscribe. */
+export function installUnreadPrefetch(prefetcher: () => Prefetcher = chatPrefetcher): () => void {
+  return useUnreadStore.subscribe((st, prev) => {
+    if (st.servers === prev.servers) return;
+    const targets: PrefetchTarget[] = [];
+    for (const id of Object.keys(st.servers)) {
+      targets.push(
+        ...unreadMovedTargets(id, prev.servers[id], st.servers[id], st.addrs[id], (a) => spelledAddr(id, a))
+      );
+    }
+    if (targets.length) prefetcher().request(targets, { force: true });
+  });
+}
+
+/** Mounted once (the Zen page): unread-driven prefetch while it is up. */
+export function useUnreadPrefetch(): void {
+  useEffect(() => installUnreadPrefetch(), []);
 }
 
 /** Tests only. */

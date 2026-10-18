@@ -322,7 +322,13 @@ export function runSendFly(opts: {
   source: FlySource;
   done: () => void;
   target?: () => HTMLElement | null;
-  glide?: { content: HTMLElement | null; dy: number };
+  /** `run`: start the glide through the caller's own list controller
+   *  (`listGlide`), so it folds into any glide already running. */
+  glide?: {
+    content: HTMLElement | null;
+    dy: number;
+    run?: (dy: number, motion: FlyMotion) => () => void;
+  };
   motion?: FlyMotion;
 }): () => void {
   const { root, bubble, source, done } = opts;
@@ -459,7 +465,8 @@ export function runSendFly(opts: {
     }
     root.appendChild(clone);
     // The list starts moving in the same frame as the clone, on its curve.
-    stopGlide = opts.glide ? glideList(opts.glide.content, opts.glide.dy, motion) : () => {};
+    const gl = opts.glide;
+    stopGlide = gl ? (gl.run ? gl.run(gl.dy, motion) : glideList(gl.content, gl.dy, motion)) : () => {};
 
     const timing = { duration: motion.ms, fill: "both" as const };
     const blueAt = Math.min(Math.max(motion.blueAt, 0.05), 1);
