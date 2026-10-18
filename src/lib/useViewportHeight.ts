@@ -30,8 +30,32 @@
 //     container can translate down by it (`useViewport().offsetTop`).
 // One shared store: every mounted screen reads the same measurement and
 // the listeners are installed once, coalesced to an animation frame.
+//
+// Keyboard motion (iOS): the native shell forwards UIKeyboardWill{Show,
+// Hide,ChangeFrame} (src-tauri/src/lib.rs → `window.__k2KeyboardWill` →
+// `k2-keyboard-will`) with the keyboard's overlap, animation duration and
+// curve. The store jumps straight to the height the keyboard is heading
+// for and publishes `motion` ({ms, easing, elapsed}); a screen that sets
+// `transition: viewportTransition(motion)` glides its column with the
+// keyboard instead of stepping through WebKit's visualViewport updates.
+// Until the keyboard lands, measurements may reset the page pan and
+// report offsetTop but do not move the height (they would fight the
+// glide); once it has, a normal re-measure settles it. Reduced motion:
+// the same final height at once, no motion. Android never sends the
+// event: the visualViewport path is unchanged there.
 
 import { useSyncExternalStore } from "react";
+
+/** The iOS keyboard is animating `height` to its current value. */
+export type ViewportMotion = {
+  /** Full keyboard animation duration (ms). */
+  ms: number;
+  /** CSS timing function matching the keyboard's curve. */
+  easing: string;
+  /** How far into the animation the page heard about it (ms): the
+   *  bridge hop. A negative transition-delay starts mid-curve, in step. */
+  elapsed: number;
+};
 
 export type ViewportState = {
   /** Height for a fixed, top:0 container. */
@@ -39,7 +63,66 @@ export type ViewportState = {
   /** visualViewport.offsetTop still left after the scroll reset. A
    *  fixed container sets `top` to this so it tracks the visible area. */
   offsetTop: number;
+  /** Set while the keyboard animates the height (iOS). */
+  motion: ViewportMotion | null;
 };
+
+/** What the native shell sends on UIKeyboardWill{Show,Hide,ChangeFrame}. */
+export type KeyboardWill = {
+  /** Keyboard overlap of the web view's bottom (px); 0 when hiding. */
+  height: number;
+  /** Animation duration (ms). */
+  duration: number;
+  /** UIViewAnimationCurve (7 = the keyboard's own curve). */
+  curve?: number;
+  show: boolean;
+  /** Date.now() when UIKit posted it. */
+  at?: number;
+};
+
+/** UIKit's private keyboard curve (UIViewAnimationCurve 7). */
+export const KEYBOARD_EASING = "cubic-bezier(0.38, 0.7, 0.125, 1)";
+/** The keyboard's usual duration (ms), until the shell reports one. */
+export const KEYBOARD_MS = 250;
+/** After the keyboard's animation: when the re-measure takes over. */
+const SETTLE_SLOP_MS = 60;
+
+/** CSS timing function for a UIViewAnimationCurve. */
+export function keyboardEasing(curve?: number): string {
+  switch (curve) {
+    case 0:
+      return "ease-in-out";
+    case 1:
+      return "ease-in";
+    case 2:
+      return "ease-out";
+    case 3:
+      return "linear";
+    default:
+      return KEYBOARD_EASING;
+  }
+}
+
+/** A `transition` for a keyboard-driven change of `prop` (none at rest). */
+export function viewportTransition(
+  motion: ViewportMotion | null,
+  prop = "height"
+): string | undefined {
+  if (!motion || motion.ms <= 0) return undefined;
+  const delay = motion.elapsed > 0 ? ` -${Math.round(motion.elapsed)}ms` : "";
+  return `${prop} ${Math.round(motion.ms)}ms ${motion.easing}${delay}`;
+}
+
+function reducedMotion(): boolean {
+  try {
+    return (
+      typeof window.matchMedia === "function" &&
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
+  } catch {
+    return false;
+  }
+}
 
 /** A viewport this much shorter than the window = keyboard open (the
  *  ChatSession -100px heuristic). */
@@ -78,25 +161,93 @@ function resetScroll(): void {
 let state: ViewportState = {
   height: typeof window !== "undefined" ? window.innerHeight : 0,
   offsetTop: 0,
+  motion: null,
 };
 const subscribers = new Set<() => void>();
 let teardown: (() => void) | null = null;
 let frame: number | null = null;
 const timers = new Set<ReturnType<typeof setTimeout>>();
+/** The keyboard is animating: hold the height it is heading for. */
+let animating = false;
+let settleTimer: ReturnType<typeof setTimeout> | null = null;
+/** Last keyboard duration the shell reported (ms). */
+let keyboardMs = KEYBOARD_MS;
+
+/** Duration (ms) of the keyboard's animation, as last reported. Screens
+ *  easing something with the keyboard (the composer's bottom gap) use it. */
+export function keyboardMotionMs(): number {
+  return keyboardMs;
+}
 
 function set(next: ViewportState): void {
-  if (next.height === state.height && next.offsetTop === state.offsetTop) return;
+  if (
+    next.height === state.height &&
+    next.offsetTop === state.offsetTop &&
+    next.motion === state.motion
+  ) {
+    return;
+  }
   state = next;
   for (const fn of [...subscribers]) fn();
 }
 
-/** Measure now: reset any page pan, then size to the visible height. */
+/** Measure now: reset any page pan, then size to the visible height
+ *  (held while the keyboard animates). */
 function measure(): void {
   resetScroll();
   const vv = window.visualViewport;
   const visible = vv ? vv.height : window.innerHeight;
   const offsetTop = vv ? Math.max(0, Math.round(vv.offsetTop || 0)) : 0;
-  set({ height: heightFor(visible), offsetTop });
+  if (animating) {
+    set({ height: state.height, offsetTop, motion: state.motion });
+    return;
+  }
+  set({ height: heightFor(visible), offsetTop, motion: null });
+}
+
+function clearSettle(): void {
+  if (settleTimer !== null) clearTimeout(settleTimer);
+  settleTimer = null;
+}
+
+/** UIKeyboardWill{Show,Hide,ChangeFrame}: go to where the keyboard is
+ *  heading, with its timing, and hold there until it lands. */
+function keyboardWill(will: KeyboardWill): void {
+  const full = fullHeight();
+  const overlap =
+    will.show && Number.isFinite(will.height) ? Math.min(full, Math.max(0, will.height)) : 0;
+  const target = heightFor(full - overlap);
+  const ms = Number.isFinite(will.duration) ? Math.max(0, will.duration) : 0;
+  if (ms > 0) {
+    keyboardMs = ms;
+    try {
+      const root = document.documentElement.style;
+      root.setProperty("--k2-kb-ms", `${Math.round(ms)}ms`);
+      root.setProperty("--k2-kb-ease", keyboardEasing(will.curve));
+    } catch {
+      /* no document */
+    }
+  }
+  // WillChangeFrame + WillShow/Hide both arrive for one animation.
+  if (animating && target === state.height) return;
+  const lag =
+    typeof will.at === "number" && Number.isFinite(will.at)
+      ? Math.min(ms, Math.max(0, Date.now() - will.at))
+      : 0;
+  const remaining = ms - lag;
+  const motion: ViewportMotion | null =
+    remaining > 0 && target !== state.height && !reducedMotion()
+      ? { ms, easing: keyboardEasing(will.curve), elapsed: lag }
+      : null;
+  resetScroll();
+  animating = true;
+  clearSettle();
+  settleTimer = setTimeout(() => {
+    settleTimer = null;
+    animating = false;
+    measure();
+  }, remaining + SETTLE_SLOP_MS);
+  set({ height: target, offsetTop: state.offsetTop, motion });
 }
 
 /** Coalesce bursts (keyboard animation fires resize + scroll per frame). */
@@ -128,9 +279,16 @@ function install(): () => void {
   const vv = window.visualViewport;
   const onCustom = (e: Event) => {
     const h = (e as CustomEvent).detail?.height;
-    // The native height is authoritative now; still re-pin the scroll.
-    if (typeof h === "number") set({ height: heightFor(h), offsetTop: state.offsetTop });
+    // The native height is authoritative now (unless the keyboard is
+    // still animating to a known one); still re-pin the scroll.
+    if (typeof h === "number" && !animating) {
+      set({ height: heightFor(h), offsetTop: state.offsetTop, motion: null });
+    }
     schedule();
+  };
+  const onWill = (e: Event) => {
+    const d = (e as CustomEvent<KeyboardWill>).detail;
+    if (d && typeof d === "object") keyboardWill(d);
   };
   const onResync = () => scheduleAfter(RESUME_DELAYS);
   const onVisibility = () => {
@@ -140,6 +298,7 @@ function install(): () => void {
   const onFocusOut = () => scheduleAfter(FOCUS_OUT_DELAYS);
 
   window.addEventListener("k2-viewport-resize", onCustom);
+  window.addEventListener("k2-keyboard-will", onWill);
   window.addEventListener("k2-viewport-resync", onResync);
   window.addEventListener("pageshow", onResync);
   window.addEventListener("focus", onResync);
@@ -152,6 +311,7 @@ function install(): () => void {
 
   return () => {
     window.removeEventListener("k2-viewport-resize", onCustom);
+    window.removeEventListener("k2-keyboard-will", onWill);
     window.removeEventListener("k2-viewport-resync", onResync);
     window.removeEventListener("pageshow", onResync);
     window.removeEventListener("focus", onResync);
@@ -163,6 +323,8 @@ function install(): () => void {
     vv?.removeEventListener("scroll", schedule);
     for (const t of timers) clearTimeout(t);
     timers.clear();
+    clearSettle();
+    animating = false;
     if (frame !== null) {
       if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
       clearTimeout(frame as unknown as ReturnType<typeof setTimeout>);
@@ -190,7 +352,18 @@ function getSnapshot(): ViewportState {
   return state;
 }
 
-/** Height + residual offsetTop for a fixed, viewport-anchored column. */
+// The shell's hook (lib.rs also injects it; this survives a page reload).
+if (typeof window !== "undefined") {
+  const w = window as unknown as { __k2KeyboardWill?: (d: KeyboardWill) => void };
+  if (typeof w.__k2KeyboardWill !== "function") {
+    w.__k2KeyboardWill = (d: KeyboardWill) => {
+      window.dispatchEvent(new CustomEvent("k2-keyboard-will", { detail: d }));
+    };
+  }
+}
+
+/** Height + residual offsetTop (+ keyboard motion) for a fixed,
+ *  viewport-anchored column. */
 export function useViewport(): ViewportState {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
 }
@@ -204,5 +377,8 @@ export function __resetViewportForTests(): void {
   teardown?.();
   teardown = null;
   subscribers.clear();
-  state = { height: window.innerHeight, offsetTop: 0 };
+  clearSettle();
+  animating = false;
+  keyboardMs = KEYBOARD_MS;
+  state = { height: window.innerHeight, offsetTop: 0, motion: null };
 }

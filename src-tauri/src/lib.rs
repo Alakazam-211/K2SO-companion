@@ -162,10 +162,40 @@ mod ios_keyboard {
             objc2::Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]);
     }
 
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGSize {
+        width: f64,
+        height: f64,
+    }
+
+    unsafe impl objc2::Encode for CGSize {
+        const ENCODING: objc2::Encoding =
+            objc2::Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]);
+    }
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct CGRect {
+        origin: CGPoint,
+        size: CGSize,
+    }
+
+    unsafe impl objc2::Encode for CGRect {
+        const ENCODING: objc2::Encoding =
+            objc2::Encoding::Struct("CGRect", &[CGPoint::ENCODING, CGSize::ENCODING]);
+    }
+
     #[link(name = "UIKit", kind = "framework")]
     extern "C" {
         static UIKeyboardDidShowNotification: *const AnyObject;
         static UIKeyboardDidHideNotification: *const AnyObject;
+        static UIKeyboardWillShowNotification: *const AnyObject;
+        static UIKeyboardWillHideNotification: *const AnyObject;
+        static UIKeyboardWillChangeFrameNotification: *const AnyObject;
+        static UIKeyboardAnimationDurationUserInfoKey: *const AnyObject;
+        static UIKeyboardAnimationCurveUserInfoKey: *const AnyObject;
+        static UIKeyboardFrameEndUserInfoKey: *const AnyObject;
         static UIApplicationDidBecomeActiveNotification: *const AnyObject;
     }
 
@@ -196,6 +226,114 @@ mod ios_keyboard {
             }
             let _: () = msg_send![wk, evaluateJavaScript: s, completionHandler: std::ptr::null::<AnyObject>()];
         }
+    }
+
+    /// Run a JS snippet in the page (fire and forget).
+    fn eval_js(wk: *mut AnyObject, js: &str) {
+        let Ok(c) = std::ffi::CString::new(js) else {
+            return;
+        };
+        unsafe {
+            let s: *mut AnyObject = msg_send![class!(NSString), stringWithUTF8String: c.as_ptr()];
+            if s.is_null() {
+                return;
+            }
+            let _: () = msg_send![wk, evaluateJavaScript: s, completionHandler: std::ptr::null::<AnyObject>()];
+        }
+    }
+
+    // ── Keyboard motion ──────────────────────────────────────────────
+    //
+    // UIKeyboardWill{Show,Hide,ChangeFrame} arrive as the keyboard starts
+    // to move, with its end frame, duration and curve. The page
+    // (useViewportHeight) goes straight to the height the keyboard is
+    // heading for and eases its column on the same curve, so the composer
+    // rides the keyboard instead of stepping after it.
+
+    /// How far a keyboard ending at `end` (screen coordinates) covers the
+    /// web view's bottom edge, in the web view's points (= CSS px).
+    fn keyboard_overlap(wk: *mut AnyObject, end: CGRect) -> f64 {
+        unsafe {
+            let window: *mut AnyObject = msg_send![wk, window];
+            if window.is_null() {
+                return 0.0;
+            }
+            let screen: *mut AnyObject = msg_send![window, screen];
+            if screen.is_null() {
+                return 0.0;
+            }
+            let space: *mut AnyObject = msg_send![screen, coordinateSpace];
+            if space.is_null() {
+                return 0.0;
+            }
+            let r: CGRect = msg_send![wk, convertRect: end, fromCoordinateSpace: space];
+            let b: CGRect = msg_send![wk, bounds];
+            let bottom = b.origin.y + b.size.height;
+            // Floating / undocked keyboards do not reach the bottom edge.
+            if r.size.height <= 0.0 || r.origin.y + r.size.height < bottom - 1.0 {
+                return 0.0;
+            }
+            (bottom - r.origin.y).clamp(0.0, b.size.height.max(0.0))
+        }
+    }
+
+    /// Tell the page where the keyboard is heading and how it gets there
+    /// (`window.__k2KeyboardWill`).
+    fn keyboard_will(note: *mut AnyObject, hiding: bool) {
+        let Some(wk) = live_webview() else {
+            return;
+        };
+        let mut duration_ms = 250.0f64;
+        let mut curve: isize = 7;
+        let mut overlap = 0.0f64;
+        unsafe {
+            let info: *mut AnyObject = if note.is_null() {
+                std::ptr::null_mut()
+            } else {
+                msg_send![note, userInfo]
+            };
+            if !info.is_null() {
+                let d: *mut AnyObject =
+                    msg_send![info, objectForKey: UIKeyboardAnimationDurationUserInfoKey];
+                if !d.is_null() {
+                    let secs: f64 = msg_send![d, doubleValue];
+                    if secs.is_finite() && secs >= 0.0 {
+                        duration_ms = secs * 1000.0;
+                    }
+                }
+                let c: *mut AnyObject =
+                    msg_send![info, objectForKey: UIKeyboardAnimationCurveUserInfoKey];
+                if !c.is_null() {
+                    curve = msg_send![c, integerValue];
+                }
+                if !hiding {
+                    let f: *mut AnyObject =
+                        msg_send![info, objectForKey: UIKeyboardFrameEndUserInfoKey];
+                    if !f.is_null() {
+                        let end: CGRect = msg_send![f, CGRectValue];
+                        overlap = keyboard_overlap(wk, end);
+                    }
+                }
+            }
+        }
+        let at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0);
+        let show = !hiding && overlap > 0.0;
+        let js = format!(
+            "window.__k2KeyboardWill && window.__k2KeyboardWill({{height:{:.1},duration:{:.0},curve:{},show:{},at:{}}});",
+            overlap, duration_ms, curve, show, at
+        );
+        eval_js(wk, &js);
+    }
+
+    extern "C-unwind" fn on_keyboard_will_change(_this: &AnyObject, _cmd: Sel, note: *mut AnyObject) {
+        keyboard_will(note, false);
+    }
+
+    extern "C-unwind" fn on_keyboard_will_hide(_this: &AnyObject, _cmd: Sel, note: *mut AnyObject) {
+        keyboard_will(note, true);
     }
 
     fn live_webview() -> Option<*mut AnyObject> {
@@ -235,6 +373,14 @@ mod ios_keyboard {
                 on_keyboard_did_show as extern "C-unwind" fn(_, _, _),
             );
             builder.add_method(sel!(k2ResetViewport:), on_reset as extern "C-unwind" fn(_, _, _));
+            builder.add_method(
+                sel!(k2KeyboardWillChange:),
+                on_keyboard_will_change as extern "C-unwind" fn(_, _, _),
+            );
+            builder.add_method(
+                sel!(k2KeyboardWillHide:),
+                on_keyboard_will_hide as extern "C-unwind" fn(_, _, _),
+            );
         }
         let cls = builder.register();
         unsafe {
@@ -252,6 +398,9 @@ mod ios_keyboard {
             let _: () = msg_send![center, addObserver: observer, selector: sel!(k2KeyboardDidShow:), name: UIKeyboardDidShowNotification, object: none];
             let _: () = msg_send![center, addObserver: observer, selector: sel!(k2ResetViewport:), name: UIKeyboardDidHideNotification, object: none];
             let _: () = msg_send![center, addObserver: observer, selector: sel!(k2ResetViewport:), name: UIApplicationDidBecomeActiveNotification, object: none];
+            let _: () = msg_send![center, addObserver: observer, selector: sel!(k2KeyboardWillChange:), name: UIKeyboardWillShowNotification, object: none];
+            let _: () = msg_send![center, addObserver: observer, selector: sel!(k2KeyboardWillChange:), name: UIKeyboardWillChangeFrameNotification, object: none];
+            let _: () = msg_send![center, addObserver: observer, selector: sel!(k2KeyboardWillHide:), name: UIKeyboardWillHideNotification, object: none];
         }
     }
 
@@ -301,6 +450,14 @@ mod ios_keyboard {
                         window.dispatchEvent(new CustomEvent('k2-viewport-resize', { detail: { height: lastHeight } }));
                         window.dispatchEvent(new Event('k2-viewport-resync'));
                     };
+
+                    // Native UIKeyboardWill*: where the keyboard is heading
+                    // and its timing (useViewportHeight eases with it).
+                    if (typeof window.__k2KeyboardWill !== 'function') {
+                        window.__k2KeyboardWill = function(d) {
+                            window.dispatchEvent(new CustomEvent('k2-keyboard-will', { detail: d }));
+                        };
+                    }
 
                     if (window.visualViewport) {
                         window.visualViewport.addEventListener('resize', checkHeight);

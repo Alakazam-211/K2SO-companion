@@ -263,6 +263,49 @@ html, body, #root {
   padding-bottom: max(8px, var(--safe-bottom));
 }
 
+/* The Thread's composer gap rides the iOS keyboard. ThreadPane sets
+   `data-composer-focused` on its root in the same focus event that flips
+   :focus-within, and the scroller ends in a spacer of the same gap: the
+   bar's bottom padding and the room the list leaves for it ease together,
+   on the keyboard's timing (useViewportHeight sets --k2-kb-* from the
+   native UIKeyboardWill* notifications), so the newest message stays
+   just above the field while the keyboard slides. */
+:root {
+  --k2-kb-ms: 250ms;
+  --k2-kb-ease: cubic-bezier(0.38, 0.7, 0.125, 1);
+}
+.zen-thread-pane {
+  --zen-composer-gap: max(8px, var(--safe-bottom));
+}
+.zen-thread-pane[data-composer-focused] {
+  --zen-composer-gap: 8px;
+}
+.platform-android .zen-thread-pane[data-composer-focused] {
+  --zen-composer-gap: max(8px, var(--safe-bottom));
+}
+.zen-thread-pane .zen-composer-bar,
+.zen-thread-pane .zen-composer-bar:focus-within {
+  padding-bottom: var(--zen-composer-gap);
+  transition: padding-bottom var(--k2-kb-ms) var(--k2-kb-ease);
+}
+.zen-thread-pane .zen-composer-gap {
+  height: var(--zen-composer-gap);
+  transition: height var(--k2-kb-ms) var(--k2-kb-ease);
+}
+/* Android: no keyboard timing from the shell; the inset follows the
+   system bars (k2-insets) as before, unanimated. */
+.platform-android .zen-thread-pane .zen-composer-bar,
+.platform-android .zen-thread-pane .zen-composer-gap {
+  transition: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .zen-thread-pane .zen-composer-bar,
+  .zen-thread-pane .zen-composer-bar:focus-within,
+  .zen-thread-pane .zen-composer-gap {
+    transition: none;
+  }
+}
+
 /* Overlay Chats chrome — iOS liquid glass on dark. */
 .zen-glass {
   background: rgba(255, 255, 255, 0.1);
