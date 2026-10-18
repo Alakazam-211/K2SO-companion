@@ -92,7 +92,7 @@ import {
 } from "./sidecarRows";
 import { groupMessagesToThread, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import { mergeThreadMessages } from "./threadLive";
-import { mergeServerPage, shareUnchanged } from "./threadCacheMerge";
+import { mergeServerPage, sameMessage } from "./threadCacheMerge";
 import { chatCache } from "./chatCache";
 import {
   applyGroupRead,
@@ -2001,8 +2001,24 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const msg = normaliseThreadItem(raw, username);
     if (!msg) return;
     if (msg.id) for (const w of liveWatches) w.add(msg.id);
-    const thread = mergeThreadMessages(get().thread, [msg]);
-    if (thread === get().thread) return;
+    // A frame for a message already shown is its new state (a card
+    // answered / voided / expired): replace it in place. Its files keep
+    // the state on screen (frames carry the post-time state).
+    const cur = get().thread;
+    const at = msg.id ? cur.findIndex((m) => m.id === msg.id) : -1;
+    let thread: ThreadMessage[];
+    if (at >= 0) {
+      const next = { ...msg, files: cur[at].files, pending: cur[at].pending, failed: cur[at].failed };
+      if (!next.files) delete next.files;
+      if (!next.pending) delete next.pending;
+      if (!next.failed) delete next.failed;
+      if (sameMessage(cur[at], next)) return;
+      thread = [...cur];
+      thread[at] = next;
+    } else {
+      thread = mergeThreadMessages(cur, [msg]);
+    }
+    if (thread === cur) return;
     const last = thread[thread.length - 1];
     const addr = get().threadAddr;
     const wasError = get().threadSource === "error";
@@ -2015,18 +2031,36 @@ export const useZenStore = create<ZenState>((set, get) => ({
   },
 
   refreshOpenThread: async () => {
+    // The foreground / catch-up re-read: what changed while away (cards
+    // answered or voided, new messages) — a delta from the newest seq on
+    // screen when the server has one, else the newest page merged.
     if (get().agentSource === "stub") return;
     const gen = get().threadGen;
     const groupId = (get().threadGroupId || "").trim();
+    const addr = get().threadAddr;
+    if (!groupId && !addr) return;
     const scope = zenScope();
-    const username = scope.username();
+    const key = threadRoomKey(scope.id, groupId || null, groupId ? null : addr);
+    const still = () =>
+      get().threadGen === gen &&
+      (groupId ? get().threadGroupId === groupId : get().threadAddr === addr);
+    const gone = (msg: string) => {
+      chatCache().forget(key);
+      set({ thread: [], threadCached: false, threadSource: "error", threadError: msg });
+    };
     if (groupId) {
       try {
-        const r = await fetchProjectGroupMessages(scope, groupId, { limit: 50 });
-        if (get().threadGen !== gen || get().threadGroupId !== groupId) return;
-        if (!r.ok) return;
+        const read = await fetchGroupRead(scope, groupId, {
+          messages: get().thread,
+          conversationId: null,
+        });
+        if (!still()) return;
+        if (!read.ok) {
+          if (read.gone) gone(read.error);
+          return; // keep what is on screen
+        }
         const cur = get().thread;
-        const incoming = shareUnchanged(cur, groupMessagesToThread(r.data?.messages ?? [], username));
+        const incoming = applyGroupRead(cur, read);
         if (incoming === cur && !get().threadCached) return;
         const last = incoming[incoming.length - 1];
         set({
@@ -2034,6 +2068,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
           threadCached: false,
           threadSource: "live",
           threadError: null,
+          ...(read.mode === "replace" ? { threadHasMore: !!read.hasMore } : null),
           lastAtByKey: {
             ...get().lastAtByKey,
             [lastAtKey(scope.id, "group", groupId)]:
@@ -2046,25 +2081,24 @@ export const useZenStore = create<ZenState>((set, get) => ({
       }
       return;
     }
-    const addr = get().threadAddr;
-    if (!addr) return;
+    const a = addr as string;
     const live = watchLive();
     try {
-      const r = await Promise.resolve(getThread(scope, addr)).finally(live.stop);
-      if (get().threadGen !== gen || get().threadAddr !== addr) return;
-      if (!r.ok || !r.data || !Array.isArray(r.data.items)) return;
-      const incoming = r.data.items
-        .map((it) => normaliseThreadItem(it, username))
-        .filter((m): m is ThreadMessage => !!m);
-      // A full newest-page read: the server's copy wins inside its window
-      // (answered / voided cards, file states), older pages stay.
-      const conv =
-        (r.data.conversation_id || "").trim() || get().threadConversationId;
       const prevConv = get().threadConversationId;
-      const thread = mergeServerPage(get().thread, incoming, {
-        hasMore: !!r.data.has_more,
-        sameConversation: !prevConv || !conv || prevConv === conv,
+      const read = await fetchThreadRead(scope, a, {
+        messages: get().thread,
+        conversationId: prevConv,
+      }).finally(live.stop);
+      if (!still()) return;
+      if (!read.ok) {
+        if (read.gone) gone(read.error);
+        return; // keep what is on screen
+      }
+      if (read.mode === "reset") chatCache().forget(key);
+      const conv = read.conversationId ?? prevConv;
+      const thread = applyThreadRead(get().thread, read, {
         arrivedLive: live.ids,
+        conversationId: prevConv,
       });
       if (thread === get().thread && conv === prevConv && !get().threadCached) return;
       const last = thread[thread.length - 1];
@@ -2074,10 +2108,14 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadSource: "live",
         threadError: null,
         threadConversationId: conv,
+        // Older pages already on screen stay, so their "more" stays —
+        // unless the copy was replaced.
+        ...(read.mode === "replace" || read.mode === "reset" ? { threadHasMore: !!read.hasMore } : null),
         threadOldestSeq: oldestSeqOf(thread) ?? get().threadOldestSeq,
-        ...threadRowPatch(get(), scope, addr, last),
+        ...threadRowPatch(get(), scope, a, last),
       });
     } catch {
+      live.stop();
       /* keep what is on screen */
     }
   },

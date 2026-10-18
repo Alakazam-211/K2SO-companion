@@ -68,7 +68,7 @@ describe("Thread revalidation (thread-delta-v1)", () => {
     expect(d.fetchThreadDelta).toHaveBeenCalledWith(expect.anything(), "sales", 5, 50);
     expect(d.getThread).not.toHaveBeenCalled();
     expect(r.mode).toBe("delta");
-    expect(r.counts).toEqual({ items: 1, changed: 2, removed: 2 });
+    expect(r.counts).toEqual({ items: 1, changed: 2, removed: 2, pages: 1 });
     const out = applyThreadRead(cached, r);
     // m2 removed; m5 removed THEN upserted by `changed` (order matters);
     // the card answered in place; m4 appended.
@@ -78,29 +78,45 @@ describe("Thread revalidation (thread-delta-v1)", () => {
     expect(out[0]).toBe(cached[0]);
   });
 
-  it("has_more: reloads the newest page, keeping the updated older items and dropping the gap", async () => {
-    const d = deps({
-      fetchThreadDelta: vi.fn(async () => ({
-        ok: true,
-        data: {
-          items: [item(11), item(12)],
-          changed: [card(3, "Hold")],
-          removed: [{ id: "m1", seq: 1 }],
-          hasMore: true,
-          conversationId: "c1",
-          bytes: 9,
-        },
-      })) as never,
-      getThread: vi.fn(async () => ({ ok: true, data: { conversation_id: "c1", items: [item(60), item(61)], has_more: true } })) as never,
-    });
+  it("has_more: pages forward from the last item's seq, applying every page's changed / removed", async () => {
+    const fetchThreadDelta = vi.fn(async (_s: unknown, _a: string, after: number) => ({
+      ok: true,
+      data:
+        after === 10
+          ? { items: [item(11), item(12)], changed: [card(3, "Hold")], removed: [{ id: "m1", seq: 1 }], hasMore: true, conversationId: "c1", bytes: 9 }
+          : { items: [item(13)], changed: [card(3, "Hold")], removed: [{ id: "m1", seq: 1 }], hasMore: false, conversationId: "c1", bytes: 4 },
+    }));
+    const d = deps({ fetchThreadDelta: fetchThreadDelta as never });
     const cached = [msg(1), msg(2), cachedCard(3), msg(10)];
     const r = ok(await fetchThreadRead(withDelta(), "sales", { messages: cached, conversationId: "c1" }, d));
-    expect(r.mode).toBe("delta+page");
-    expect(vi.mocked(d.getThread).mock.calls[0]).toHaveLength(2); // the newest page: no cursor
+    expect(fetchThreadDelta.mock.calls.map((c) => c[2])).toEqual([10, 12]);
+    expect(d.getThread).not.toHaveBeenCalled();
+    expect(r.mode).toBe("delta");
+    expect(r.counts).toEqual({ items: 3, changed: 2, removed: 2, pages: 2 });
     const out = applyThreadRead(cached, r);
-    expect(ids(out)).toEqual(["m2", "m3", "m10", "m60", "m61"]);
+    expect(ids(out)).toEqual(["m2", "m3", "m10", "m11", "m12", "m13"]);
     expect(out[1].choice?.answer).toBe("Hold");
-    expect(r.hasMore).toBe(true);
+  });
+
+  it("still more after four pages: the newest page replaces the copy (no hole)", async () => {
+    const fetchThreadDelta = vi.fn(async (_s: unknown, _a: string, after: number) => ({
+      ok: true,
+      data: { items: [item(after + 1), item(after + 2)], changed: [], removed: [], hasMore: true, conversationId: "c1", bytes: 1 },
+    }));
+    const d = deps({
+      fetchThreadDelta: fetchThreadDelta as never,
+      getThread: vi.fn(async () => ({ ok: true, data: { conversation_id: "c1", items: [item(60), item(61)], has_more: true } })) as never,
+    });
+    const pending = msg(0, { id: "local", seq: null, pending: true });
+    const cached = [msg(1), msg(10)];
+    const r = ok(await fetchThreadRead(withDelta(), "sales", { messages: cached, conversationId: "c1" }, d));
+    expect(fetchThreadDelta.mock.calls.map((c) => c[2])).toEqual([10, 12, 14, 16]);
+    expect(vi.mocked(d.getThread).mock.calls[0]).toHaveLength(2); // the newest page: no cursor
+    expect(r.mode).toBe("replace");
+    expect(r.hasMore).toBe(true); // Load earlier pages back from m60
+    const live = new Set(["m99"]);
+    const out = applyThreadRead([...cached, msg(99), pending], r, { arrivedLive: live });
+    expect(ids(out)).toEqual(["m60", "m61", "m99", "local"]);
   });
 
   it("another conversation id: the copy is dropped for the newest page", async () => {
@@ -157,7 +173,7 @@ describe("Thread revalidation (thread-delta-v1)", () => {
   });
 
   it("the page path keeps 'the server wins in its window'", () => {
-    const read = { ok: true as const, mode: "page" as const, removedIds: [], changed: [], items: [], afterSeq: null, page: [msg(5), msg(7)], hasMore: true, conversationId: "c1", counts: { items: 2, changed: 0, removed: 0 }, bytes: null };
+    const read = { ok: true as const, mode: "page" as const, steps: [], page: [msg(5), msg(7)], hasMore: true, conversationId: "c1", counts: { items: 2, changed: 0, removed: 0, pages: 0 }, bytes: null };
     expect(ids(applyThreadRead([msg(1), msg(5), msg(6), msg(7)], read))).toEqual(["m1", "m5", "m7"]);
   });
 });
@@ -181,20 +197,31 @@ describe("project chat revalidation", () => {
     expect(out.map((m) => m.seq)).toEqual([0, 1, 2]);
   });
 
-  it("has_more: the newest page, over the older cached lines", async () => {
-    const d = deps({
-      fetchProjectGroupDelta: vi.fn(async () => ({
-        ok: true,
-        data: { items: [line(12), line(13)], changed: [], removed: [], hasMore: true, conversationId: null, bytes: 1 },
-      })) as never,
-      fetchProjectGroupMessages: vi.fn(async () => ({ ok: true, data: { messages: [line(90), line(91)], truncated: true } })) as never,
-    });
+  it("has_more: pages forward by line seq; past four pages the newest page replaces", async () => {
+    const paged = vi.fn(async (_s: unknown, _g: string, after: number) => ({
+      ok: true,
+      data: { items: [line(after + 1)], changed: [], removed: [], hasMore: after < 12, conversationId: null, bytes: 1 },
+    }));
+    const d = deps({ fetchProjectGroupDelta: paged as never });
     const cached = [cachedLine(10, 0), cachedLine(11, 1)];
     const r = ok(await fetchGroupRead(withDelta(), "grp", { messages: cached, conversationId: null }, d));
-    expect(r.mode).toBe("delta+page");
-    const out = applyGroupRead(cached, r);
-    expect(ids(out)).toEqual(["g10", "g11", "g90", "g91"]);
-    expect(out.map((m) => m.seq)).toEqual([0, 1, 2, 3]);
+    expect(paged.mock.calls.map((c) => c[2])).toEqual([11, 12]);
+    expect(ids(applyGroupRead(cached, r))).toEqual(["g10", "g11", "g12", "g13"]);
+
+    const endless = vi.fn(async (_s: unknown, _g: string, after: number) => ({
+      ok: true,
+      data: { items: [line(after + 1)], changed: [], removed: [], hasMore: true, conversationId: null, bytes: 1 },
+    }));
+    const d2 = deps({
+      fetchProjectGroupDelta: endless as never,
+      fetchProjectGroupMessages: vi.fn(async () => ({ ok: true, data: { messages: [line(90), line(91)], truncated: true } })) as never,
+    });
+    const r2 = ok(await fetchGroupRead(withDelta(), "grp", { messages: cached, conversationId: null }, d2));
+    expect(endless).toHaveBeenCalledTimes(4);
+    expect(r2.mode).toBe("replace");
+    const out = applyGroupRead(cached, r2);
+    expect(ids(out)).toEqual(["g90", "g91"]);
+    expect(out.map((m) => m.seq)).toEqual([0, 1]);
   });
 
   it("404: the project is gone", async () => {
