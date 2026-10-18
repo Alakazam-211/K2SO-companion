@@ -8,6 +8,7 @@ import {
   keyboardEasing,
   keyboardMotionMs,
   useViewport,
+  useViewportTrackRef,
   viewportTransition,
   type KeyboardWill,
   type ViewportMotion,
@@ -409,5 +410,161 @@ describe("keyboard motion (native UIKeyboardWill*)", () => {
     expect(viewportTransition({ ms: 250, easing: "linear", elapsed: 12.4 }, "top")).toBe(
       "top 250ms linear -12ms"
     );
+  });
+});
+
+describe("interactive keyboard dismiss (native per-frame track)", () => {
+  let seen: { h: number; interactive: boolean; motion: ViewportMotion | null } | null = null;
+  let renders = 0;
+  /** A column like Zen's thread column. */
+  function Column() {
+    const { height, motion, interactive } = useViewport();
+    const ref = useViewportTrackRef();
+    renders++;
+    seen = { h: height, interactive, motion };
+    return (
+      <div data-testid="col" ref={ref} style={{ height, transition: viewportTransition(motion) }} />
+    );
+  }
+  const col = () => document.querySelector('[data-testid="col"]') as HTMLElement;
+  function track(overlap: number) {
+    act(() => {
+      (window as unknown as { __k2KeyboardTrack: (h: number) => void }).__k2KeyboardTrack(overlap);
+    });
+  }
+  function will(d: KeyboardWill) {
+    act(() => {
+      (window as unknown as { __k2KeyboardWill: (d: KeyboardWill) => void }).__k2KeyboardWill(d);
+    });
+  }
+  let reduce = false;
+  beforeEach(() => {
+    seen = null;
+    renders = 0;
+    reduce = false;
+    window.matchMedia = vi.fn((q: string) => ({
+      matches: q.includes("reduce") ? reduce : false,
+      media: q,
+      addEventListener() {},
+      removeEventListener() {},
+    })) as unknown as typeof window.matchMedia;
+  });
+
+  /** Keyboard up and settled (WillShow, landed). */
+  function keyboardShown() {
+    will({ height: KEYBOARD, duration: 250, curve: 7, show: true });
+    vv.height = FULL - KEYBOARD;
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(seen?.h).toBe(FULL - KEYBOARD);
+    expect(seen?.motion).toBeNull();
+  }
+
+  it("follows the finger on the tracked column, unanimated, with one render", () => {
+    render(<Column />);
+    keyboardShown();
+    const before = renders;
+    track(KEYBOARD - 40);
+    expect(col().style.height).toBe(`${FULL - KEYBOARD + 40}px`);
+    expect(col().style.transition).toBe("none");
+    expect(seen?.interactive).toBe(true);
+    // The published height holds (the terminal does not re-fit per frame).
+    expect(seen?.h).toBe(FULL - KEYBOARD);
+    const afterStart = renders;
+    expect(afterStart).toBe(before + 1);
+    track(KEYBOARD - 120);
+    track(KEYBOARD - 300);
+    expect(col().style.height).toBe(`${FULL - KEYBOARD + 300}px`);
+    // No KEYBOARD_SLOP snap near the bottom: continuous to the edge.
+    track(30);
+    expect(col().style.height).toBe(`${FULL - 30}px`);
+    expect(renders).toBe(afterStart);
+    // visualViewport noise mid-drag does not move anything.
+    vv.height = FULL - 200;
+    act(() => {
+      vv.dispatchEvent(new Event("resize"));
+    });
+    flush();
+    expect(seen?.h).toBe(FULL - KEYBOARD);
+    expect(col().style.height).toBe(`${FULL - 30}px`);
+  });
+
+  it("release to close: WillHide finishes from the dragged height on the keyboard curve", () => {
+    render(<Column />);
+    keyboardShown();
+    track(KEYBOARD - 150);
+    will({ height: 0, duration: 180, curve: 7, show: false });
+    expect(seen?.interactive).toBe(false);
+    expect(seen?.h).toBe(FULL);
+    expect(seen?.motion?.ms).toBe(180);
+    expect(col().style.height).toBe(`${FULL}px`);
+    expect(col().style.transition).toBe(`height 180ms ${KEYBOARD_EASING}`);
+    vv.height = FULL;
+    flush();
+    expect(seen?.motion).toBeNull();
+    expect(col().style.transition).toBe("");
+  });
+
+  it("spring back: WillShow to the old height still rewrites the column, animated", () => {
+    render(<Column />);
+    keyboardShown();
+    track(KEYBOARD - 100);
+    expect(col().style.height).toBe(`${FULL - KEYBOARD + 100}px`);
+    will({ height: KEYBOARD, duration: 200, curve: 7, show: true });
+    expect(seen?.interactive).toBe(false);
+    expect(seen?.h).toBe(FULL - KEYBOARD);
+    // Same published height as before the drag, but the column moved.
+    expect(seen?.motion?.ms).toBe(200);
+    expect(col().style.height).toBe(`${FULL - KEYBOARD}px`);
+    expect(col().style.transition).toBe(`height 200ms ${KEYBOARD_EASING}`);
+  });
+
+  it("a native Did* resync with no Will* hands the column back", () => {
+    render(<Column />);
+    keyboardShown();
+    track(KEYBOARD - 100);
+    act(() => {
+      window.dispatchEvent(new Event("k2-viewport-resync"));
+    });
+    expect(seen?.interactive).toBe(false);
+    expect(col().style.height).toBe(`${FULL - KEYBOARD}px`);
+    expect(col().style.transition).toBe("");
+  });
+
+  it("reduced motion: still follows the finger; the release lands unanimated", () => {
+    reduce = true;
+    render(<Column />);
+    keyboardShown();
+    track(KEYBOARD - 100);
+    expect(col().style.height).toBe(`${FULL - KEYBOARD + 100}px`);
+    will({ height: 0, duration: 250, curve: 7, show: false });
+    expect(seen?.motion).toBeNull();
+    expect(col().style.height).toBe(`${FULL}px`);
+    expect(col().style.transition).toBe("");
+  });
+
+  it("a track during a Will* hold takes over (the finger caught the keyboard)", () => {
+    render(<Column />);
+    will({ height: KEYBOARD, duration: 250, curve: 7, show: true });
+    track(KEYBOARD - 20);
+    expect(seen?.interactive).toBe(true);
+    expect(col().style.height).toBe(`${FULL - KEYBOARD + 20}px`);
+    // The old settle timer does not fire a re-measure over the drag.
+    vv.height = FULL;
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(col().style.height).toBe(`${FULL - KEYBOARD + 20}px`);
+    expect(seen?.interactive).toBe(true);
+  });
+
+  it("unmounted columns are dropped from tracking", () => {
+    const { unmount } = render(<Column />);
+    const el = col();
+    unmount();
+    render(<Probe />);
+    track(100);
+    expect(el.style.transition).not.toBe("none");
   });
 });

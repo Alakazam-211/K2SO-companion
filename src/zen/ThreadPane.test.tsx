@@ -614,6 +614,47 @@ describe("ThreadPane", () => {
     }
   });
 
+  it("interactive keyboard dismiss: no re-pin under the finger; pinning resumes after", () => {
+    let height = 1800;
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.getAttribute?.("data-testid") === "thread-scroller" ? height : 0;
+      },
+    });
+    try {
+      useZenStore.setState({
+        agentId: "appa",
+        threadSource: "live",
+        threadError: null,
+        threadHasMore: false,
+        thread: [
+          { id: "a", seq: 1, text: "one", from: "appa", at: 1, mine: false, kind: "text", choice: null },
+        ],
+      });
+      const { rerender } = render(<ThreadPane viewportHeight={464} />);
+      const el = screen.getByTestId("thread-scroller");
+      expect(el.scrollTop).toBe(1800);
+      // The finger drags the list (and the keyboard) down: the reader
+      // owns the scroll; layout changes must not stick it back.
+      rerender(<ThreadPane viewportHeight={464} viewportInteractive />);
+      el.scrollTop = 1750;
+      height = 1900;
+      rerender(<ThreadPane viewportHeight={500} viewportInteractive />);
+      expect(el.scrollTop).toBe(1750);
+      // Released (WillHide): the keyboard's tail pins again if following.
+      rerender(<ThreadPane viewportHeight={800} viewportMotionMs={200} />);
+      expect(el.scrollTop).toBe(1900);
+    } finally {
+      Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+        configurable: true,
+        get() {
+          return 0;
+        },
+      });
+    }
+  });
+
   it("composer focus flips the pane's gap attribute in the focus event, and the scroller ends in the gap spacer", () => {
     useZenStore.setState({
       agentId: "appa",
