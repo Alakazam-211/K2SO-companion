@@ -348,10 +348,22 @@ export function GlassComposer({
       blockCb.current?.(px);
     };
     report();
-    if (typeof ResizeObserver === "undefined") return;
-    const ro = new ResizeObserver(report);
-    ro.observe(bar);
-    return () => ro.disconnect();
+    // Focus changes the bar's bottom padding (home-indicator inset at
+    // rest, 8px while typing): padding is not the content box, so watch
+    // the border box, and re-read on focus moves as a backstop.
+    const refocus = () => requestAnimationFrame(report);
+    bar.addEventListener("focusin", refocus);
+    bar.addEventListener("focusout", refocus);
+    let ro: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined") {
+      ro = new ResizeObserver(report);
+      ro.observe(bar, { box: "border-box" });
+    }
+    return () => {
+      ro?.disconnect();
+      bar.removeEventListener("focusin", refocus);
+      bar.removeEventListener("focusout", refocus);
+    };
   }, [watchBlock]);
 
   const onPasteFiles = (e: ClipboardEvent) => {
