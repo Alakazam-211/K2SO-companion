@@ -18,6 +18,7 @@ import { useKeyboardFlip } from "../kit/mobileChat/useKeyboardFlip";
 import { COMPOSER_FOCUSED_ATTR, useComposerFocusGap } from "../kit/mobileChat/useComposerFocusGap";
 import { useScrollRoom } from "../kit/mobileChat/useScrollRoom";
 import { useKeyboardDrag } from "../kit/mobileChat/useKeyboardDrag";
+import { useTapToDismiss } from "../kit/mobileChat/useTapToDismiss";
 import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
 import { StubMark } from "./StubMark";
 import { mountainTime, type ThreadMessage } from "./threadModel";
@@ -929,6 +930,13 @@ export function ThreadPane({
     root: () => rootRef.current,
     bar: () => rootRef.current?.querySelector<HTMLElement>('[data-testid="composer-bar"]') ?? null,
     onChange: () => followFor(keyboardMotionMs() + 80),
+  });
+
+  // A tap on the conversation (not on a link / button / chip, not a
+  // scroll, not a selection) closes the keyboard (iMessage).
+  useTapToDismiss({
+    area: () => scrollerRef.current,
+    composer: () => rootRef.current?.querySelector<HTMLElement>('[data-testid="composer-bar"]') ?? null,
   });
 
   // The floating header growing (sidecar line, banner) adds top padding,

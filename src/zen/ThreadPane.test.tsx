@@ -1491,3 +1491,26 @@ describe("ThreadPane", () => {
     });
   });
 });
+describe("ThreadPane tap-to-dismiss (mobile chat kit)", () => {
+  it("a tap on the conversation blurs the composer", () => {
+    useZenStore.setState({ agentId: "appa", threadSource: "live", threadError: null, thread: [] });
+    render(<ThreadPane viewportHeight={464} />);
+    const field = screen.getByTestId("composer-bar").querySelector("textarea")!;
+    act(() => field.focus());
+    const ev = (el: Element, type: string, t: number) => {
+      const e = new Event(type, { bubbles: true });
+      Object.defineProperty(e, "pointerId", { value: 1 });
+      Object.defineProperty(e, "clientX", { value: 5 });
+      Object.defineProperty(e, "clientY", { value: 5 });
+      Object.defineProperty(e, "timeStamp", { value: t });
+      act(() => {
+        el.dispatchEvent(e);
+      });
+    };
+    const scroller = screen.getByTestId("thread-scroller");
+    ev(scroller, "pointerdown", 100);
+    ev(scroller, "pointermove", 140);
+    ev(scroller, "pointerup", 150);
+    expect(document.activeElement).not.toBe(field);
+  });
+});

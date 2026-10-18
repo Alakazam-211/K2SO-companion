@@ -23,6 +23,12 @@ import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { useFeedbackStore } from "../stores/feedback";
 import { BriefCard, BriefReader, useBriefDoc } from "./TicketBrief";
 import { GlassComposer, settledHeight } from "./GlassComposer";
+import { keyboardMotionMs, useViewport, useViewportPadRef } from "../lib/useViewportHeight";
+import { useKeyboardFlip } from "../kit/mobileChat/useKeyboardFlip";
+import { useComposerFocusGap } from "../kit/mobileChat/useComposerFocusGap";
+import { useScrollRoom } from "../kit/mobileChat/useScrollRoom";
+import { useKeyboardDrag } from "../kit/mobileChat/useKeyboardDrag";
+import { useTapToDismiss } from "../kit/mobileChat/useTapToDismiss";
 import { NEW_BELOW_SETTLE_MS, threadBottomPadding } from "./ThreadPane";
 import {
   FOOTER_BLUR_FADE_PX,
@@ -427,6 +433,25 @@ function AnswerPills({
 
 const NO_COMMENTS: FeedbackComment[] = [];
 
+
+/** The dock's height above the composer bar's bottom gap: the scroller's
+ *  `.mchat-gap` spacer adds that gap and eases with it (mobile chat kit),
+ *  so this stays put while the gap eases with the keyboard. */
+export function ticketDockBlockPx(dock: HTMLElement): number {
+  const h = settledHeight(dock);
+  const bar = dock.querySelector<HTMLElement>('[data-testid="ticket-composer-bar"]');
+  if (!bar) return h;
+  let pad = 0;
+  try {
+    pad = parseFloat(getComputedStyle(bar).paddingBottom) || 0;
+  } catch {
+    pad = 0;
+  }
+  if (!(pad > 0)) return h;
+  const base = dock.querySelector("[data-settled-height]") ? h : dock.getBoundingClientRect().height;
+  return Math.max(0, Math.round(base - pad));
+}
+
 /** One row of the ticket's conversation: a server comment, or a send the
  *  server has not shown back yet (`out`). */
 type CommentRow = {
@@ -475,6 +500,15 @@ export function TicketView({
   const scrollerRef = useRef<HTMLDivElement>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   const dockRef = useRef<HTMLDivElement>(null);
+  // Mobile chat kit: keyboard FLIP, interactive dismiss, scroll room,
+  // focus gap and tap-to-dismiss (the Thread's behaviour).
+  const viewport = useViewport();
+  const interactiveRef = useRef(viewport.interactive);
+  interactiveRef.current = viewport.interactive;
+  const dragLayerRef = useRef<HTMLDivElement>(null);
+  const topRoomRef = useRef<HTMLDivElement>(null);
+  const kbPadRef = useViewportPadRef();
+  const lastScrollAt = useRef(0);
   const [headerRef, headerPx] = useMeasuredHeight(TICKET_HEADER_PX);
   // At rest the brief card sits just under the header and stays sharp;
   // the heavy blur's strip below the header waits for a scroll.
@@ -611,7 +645,7 @@ export function TicketView({
     if (!dock) return;
     const read = () => {
       // Settled: a send's clear-collapse reports its end height.
-      const px = settledHeight(dock);
+      const px = ticketDockBlockPx(dock);
       if (px === dockPxRef.current) return;
       dockPxRef.current = px;
       setDockPx(px);
@@ -626,7 +660,7 @@ export function TicketView({
   // The new bottom padding is in the DOM: keep the newest above the field.
   useLayoutEffect(() => {
     const el = scrollerRef.current;
-    if (el && following.current) stickToNewest(el);
+    if (el && following.current && !interactiveRef.current) stickToNewest(el);
   }, [dockPx]);
 
   // The keyboard opening/closing resizes the column (and the scroller):
@@ -638,11 +672,79 @@ export function TicketView({
     const ro = new ResizeObserver(() => {
       if (el.clientHeight === h) return;
       h = el.clientHeight;
-      if (following.current) stickToNewest(el);
+      // Not under the finger of an interactive dismiss.
+      if (following.current && !interactiveRef.current) stickToNewest(el);
     });
     ro.observe(el);
     return () => ro.disconnect();
   }, []);
+
+  const stickIfFollowing = () => {
+    const el = scrollerRef.current;
+    if (!el || interactiveRef.current) return;
+    const follow = following.current ?? nearNewest(el);
+    if (!follow) return;
+    stickToNewest(el);
+    lastTop.current = el.scrollTop;
+  };
+  // Keyboard show / hide on the compositor (FLIP).
+  useKeyboardFlip({
+    viewportHeight: viewport.height,
+    motion: viewport.motion,
+    interactive: viewport.interactive,
+    scroller: () => scrollerRef.current,
+    docks: () => [dockRef.current],
+    list: {
+      isFollowing: () => {
+        const el = scrollerRef.current;
+        return following.current ?? (el ? nearNewest(el) : false);
+      },
+      lastScrollTop: () => lastTop.current,
+      stick: stickIfFollowing,
+    },
+    enabled: item != null,
+  });
+  // Real scroll range above while the keyboard is up (the drag is a 1:1
+  // scroll).
+  useScrollRoom({
+    viewportHeight: viewport.height,
+    scroller: () => scrollerRef.current,
+    room: () => topRoomRef.current,
+    content: () => contentRef.current,
+    lastScrollAt: () => lastScrollAt.current,
+    onScrollWrite: (top) => {
+      lastTop.current = top;
+    },
+  });
+  // Interactive dismiss: the composer's copy rides the scrolled content.
+  useKeyboardDrag({
+    scroller: () => scrollerRef.current,
+    dock: () => dockRef.current,
+    layer: () => dragLayerRef.current,
+    composerPx: dockPx > 0 ? dockPx + 8 : 0,
+    enabled: item != null && linked,
+  });
+  // The composer's bottom gap eases with the keyboard; stick through it.
+  useComposerFocusGap({
+    root: () => swipeRef.current,
+    bar: () =>
+      swipeRef.current?.querySelector<HTMLElement>('[data-testid="ticket-composer-bar"]') ?? null,
+    onChange: () => {
+      stickIfFollowing();
+      const until = Date.now() + keyboardMotionMs() + 80;
+      const tick = () => {
+        stickIfFollowing();
+        if (Date.now() < until) requestAnimationFrame(tick);
+      };
+      if (typeof requestAnimationFrame === "function") requestAnimationFrame(tick);
+    },
+  });
+  // A tap on the conversation (not on a control) closes the keyboard.
+  useTapToDismiss({
+    area: () => scrollerRef.current,
+    composer: () =>
+      swipeRef.current?.querySelector<HTMLElement>('[data-testid="ticket-composer-bar"]') ?? null,
+  });
 
   const status = item?.status ?? "waiting";
   const closed = isClosedStatus(status);
@@ -775,7 +877,7 @@ export function TicketView({
     // slot is final before the bubble is aimed.
     // A multi-line field eases shut over the flight: pad for its end.
     const dock = dockRef.current;
-    const dockNow = dock ? settledHeight(dock) : 0;
+    const dockNow = dock ? ticketDockBlockPx(dock) : 0;
     if (el && dock && dockNow > 0 && dockNow !== dockPxRef.current) {
       dockPxRef.current = dockNow;
       el.style.paddingBottom = threadBottomPadding(dockNow, 0);
@@ -834,7 +936,7 @@ export function TicketView({
   return (
     <div
       ref={swipeRef}
-      className="absolute inset-0 flex flex-col min-w-0 overflow-x-hidden"
+      className="mchat-pane absolute inset-0 flex flex-col min-w-0 overflow-x-hidden"
       style={{
         background: "#000",
         zIndex: 8,
@@ -974,7 +1076,8 @@ export function TicketView({
         onScroll={(e) => {
           const el = e.currentTarget;
           const top = el.scrollTop;
-          setScrolled(top > 0);
+          lastScrollAt.current = Date.now();
+          if (!interactiveRef.current) setScrolled(top > 0);
           const prev = lastTop.current;
           lastTop.current = top;
           if (nearNewest(el)) setFollowing(true);
@@ -991,6 +1094,16 @@ export function TicketView({
           WebkitOverflowScrolling: "touch",
         }}
       >
+        {/* Scroll room above while the keyboard is up (kit useScrollRoom). */}
+        <div ref={topRoomRef} aria-hidden="true" data-testid="ticket-kb-top-room" />
+        {/* The composer's copy rides here during an interactive dismiss. */}
+        <div
+          ref={dragLayerRef}
+          aria-hidden="true"
+          className="relative h-0"
+          style={{ zIndex: 3 }}
+          data-testid="ticket-kb-drag-layer"
+        />
         <div ref={contentRef} className="min-w-0 flex flex-col gap-3" data-testid="ticket-content">
         {openError && !item ? (
           <div className="flex flex-col items-center gap-3 py-10">
@@ -1157,6 +1270,12 @@ export function TicketView({
           </>
         )}
         </div>
+        {/* The composer's bottom gap (eases with the bar's padding,
+            mobile chat kit) and the keyboard's height during a drag. */}
+        {item && linked ? (
+          <div aria-hidden="true" className="mchat-gap" data-testid="ticket-composer-gap" />
+        ) : null}
+        <div ref={kbPadRef} aria-hidden="true" data-testid="ticket-kb-drag-pad" />
       </div>
 
       {!item ? null : (

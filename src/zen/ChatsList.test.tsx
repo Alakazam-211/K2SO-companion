@@ -67,6 +67,7 @@ import {
   zenPinGridColumns,
   zenPinnedGroupInsetPx,
 } from "./ChatsList";
+import { __resetViewportForTests } from "../lib/useViewportHeight";
 
 /** A CSS length as jsdom normalises it (calc() gets rewritten). */
 function cssLen(v: string): string {
@@ -2182,5 +2183,31 @@ describe("ChatsList", () => {
       });
       expect(refreshServerLists).toHaveBeenCalledTimes(2);
     });
+  });
+});
+
+describe("ChatsList search bar — mobile chat kit FLIP", () => {
+  afterEach(() => {
+    __resetViewportForTests();
+  });
+  it("keyboard show: the search bar and its blur play up by transform; the column holds (no height transition)", () => {
+    seedServer();
+    mount();
+    const bar = screen.getByRole("searchbox").closest<HTMLElement>("[data-no-pin]")!;
+    const blur = screen.getByTestId("search-bar-blur");
+    const column = screen.getByTestId("chats-column");
+    act(() => {
+      (window as unknown as { __k2KeyboardWill: (d: unknown) => void }).__k2KeyboardWill({
+        height: 336,
+        duration: 250,
+        curve: 7,
+        show: true,
+      });
+    });
+    expect(bar.style.transform).toBe("translate3d(0, -336px, 0)");
+    expect(blur.style.transform).toBe("translate3d(0, -336px, 0)");
+    expect(bar.style.transition).toMatch(/^transform 250ms /);
+    expect(column.style.height).toBe(`${window.innerHeight}px`);
+    expect(column.style.transition).toBe("");
   });
 });
