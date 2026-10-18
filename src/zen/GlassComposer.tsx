@@ -225,8 +225,10 @@ export function GlassComposer({
   // take the screen (and the keyboard); `refocus` brings the field back
   // when one returns if it had focus when the menu opened.
   const [menuOpen, setMenuOpen] = useState(false);
+  const [plusPressed, setPlusPressed] = useState(false);
   const refocus = useRef(false);
   const menuShown = menuOpen && showAttach && !attachDisabled;
+  const plusLit = (plusPressed || menuShown) && !attachDisabled;
   const closeMenu = useCallback(() => {
     refocus.current = false;
     setMenuOpen(false);
@@ -510,7 +512,13 @@ export function GlassComposer({
                 // Keep the textarea focused: a blur here drops the keyboard,
                 // the composer slides down mid-tap and the click misses the
                 // button. The menu opens with the keyboard still up.
-                onPointerDown={(e) => e.preventDefault()}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  if (!attachDisabled) setPlusPressed(true);
+                }}
+                onPointerUp={() => setPlusPressed(false)}
+                onPointerCancel={() => setPlusPressed(false)}
+                onPointerLeave={() => setPlusPressed(false)}
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   if (!menuShown) refocus.current = document.activeElement === ref.current;
@@ -521,9 +529,13 @@ export function GlassComposer({
                   width: 30,
                   height: 30,
                   borderRadius: "50%",
+                  // Lit while pressed and while its menu is open.
+                  background: plusLit ? "rgba(255,255,255,0.2)" : undefined,
+                  transition: "background-color 90ms ease-out",
                 }}
+                data-lit={plusLit || undefined}
               >
-                <PlusGlyph />
+                <PlusGlyph bright={plusLit} />
               </button>
             ) : null}
             <textarea
@@ -575,7 +587,7 @@ export function GlassComposer({
                     : {}),
                   // Pressed: a little brighter (Rosson 2026-10-18). preventDefault
                   // above keeps the keyboard up but also skips :active on iOS.
-                  filter: sendPressed && sendReady ? "brightness(1.25)" : undefined,
+                  filter: sendPressed && sendReady ? "brightness(1.5)" : undefined,
                   transition: "filter 90ms ease-out",
                 }}
               >

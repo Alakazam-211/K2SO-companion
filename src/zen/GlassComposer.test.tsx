@@ -292,8 +292,26 @@ describe("GlassComposer send press", () => {
     const send = screen.getByTestId("p-send");
     expect(send.style.filter).toBe("");
     fireEvent.pointerDown(send);
-    expect(send.style.filter).toBe("brightness(1.25)");
+    expect(send.style.filter).toBe("brightness(1.5)");
     fireEvent.pointerUp(send);
     expect(send.style.filter).toBe("");
+  });
+});
+
+describe("GlassComposer + lit", () => {
+  it("lights the + while pressed and while its menu is open", () => {
+    render(
+      <GlassComposer value="" onChange={() => {}} onSubmit={() => {}} canSend sendReady={false} onAttach={() => {}} testIdPrefix="q" />
+    );
+    const plus = screen.getByTestId("q-attach");
+    expect(plus.hasAttribute("data-lit")).toBe(false);
+    fireEvent.pointerDown(plus);
+    expect(plus.hasAttribute("data-lit")).toBe(true);
+    fireEvent.pointerUp(plus);
+    expect(plus.hasAttribute("data-lit")).toBe(false);
+    fireEvent.click(plus);
+    expect(plus.getAttribute("aria-expanded")).toBe("true");
+    expect(plus.hasAttribute("data-lit")).toBe(true);
+    expect(plus.style.background).toContain("rgba(255, 255, 255, 0.2)");
   });
 });
