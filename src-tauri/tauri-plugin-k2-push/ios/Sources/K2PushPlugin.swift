@@ -187,6 +187,19 @@ class K2PushPlugin: Plugin {
     }
   }
 
+  // ── Attach pickers (K2Pickers.swift) ────────────────────────────────
+
+  /// Photo Library: PHPicker, images + videos, up to `limit` (10).
+  /// Args `{limit?, maxBytes?, maxTotalBytes?}` → `{files, skipped, cancelled}`.
+  @objc public func pickMedia(_ invoke: Invoke) {
+    K2Pickers.pick(invoke, media: true, root: manager.viewController)
+  }
+
+  /// Choose Files: the document picker (any type, copies), multi-select.
+  @objc public func pickDocuments(_ invoke: Invoke) {
+    K2Pickers.pick(invoke, media: false, root: manager.viewController)
+  }
+
   // ── Badge commands (App Group, K2BadgeStore) ────────────────────────
 
   /// `{subdomain, unread, waiting}` → store it, set the icon badge.

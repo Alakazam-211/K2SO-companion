@@ -11,6 +11,8 @@ const COMMANDS: &[&str] = &[
     "clear_server_totals",
     "get_badge_totals",
     "get_badge_diagnostics",
+    "pick_media",
+    "pick_documents",
     "register_listener",
     "remove_listener",
 ];

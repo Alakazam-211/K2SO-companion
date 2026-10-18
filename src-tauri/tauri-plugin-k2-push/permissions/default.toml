@@ -5,7 +5,8 @@ description = """
 Default permissions for the k2-push plugin: availability probe,
 permission request, token fetch, launch-tap read, the notification
 avatar cache (Communication Notifications), the app-icon badge
-totals and their delivery diagnostics, and the event listener
+totals and their delivery diagnostics, the composer's attach
+pickers (photo library, document picker), and the event listener
 plumbing for `tap`/`tokenRefresh`/`badgeTotals`.
 """
 
@@ -19,6 +20,8 @@ permissions = [
   "allow-clear-server-totals",
   "allow-get-badge-totals",
   "allow-get-badge-diagnostics",
+  "allow-pick-media",
+  "allow-pick-documents",
   "allow-register-listener",
   "allow-remove-listener",
 ]

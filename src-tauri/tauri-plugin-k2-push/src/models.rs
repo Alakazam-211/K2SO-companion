@@ -174,3 +174,49 @@ impl BadgeDiagnosticsResponse {
 fn one() -> u32 {
     1
 }
+
+/// `pick_media()` / `pick_documents()` request (the composer's attach
+/// menu). All optional: `limit` (media only, 1..=10, default 10),
+/// `maxBytes` per file (default 50 MB), `maxTotalBytes` for the whole
+/// pick (default 100 MB).
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub limit: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_bytes: Option<u64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub max_total_bytes: Option<u64>,
+}
+
+/// One picked file: its name, MIME type and bytes (base64).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickedFile {
+    pub name: String,
+    pub mime: String,
+    pub base64: String,
+}
+
+/// A picked file left out: "too large", "total size limit",
+/// "unreadable", "unsupported type".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkippedFile {
+    pub name: String,
+    pub reason: String,
+}
+
+/// `pick_media()` / `pick_documents()` response. `cancelled` = the user
+/// closed the picker without choosing.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PickResponse {
+    #[serde(default)]
+    pub files: Vec<PickedFile>,
+    #[serde(default)]
+    pub skipped: Vec<SkippedFile>,
+    #[serde(default)]
+    pub cancelled: bool,
+}

@@ -1,8 +1,11 @@
 import {
+  useCallback,
   useEffect,
   useLayoutEffect,
   useRef,
+  useState,
   type CSSProperties,
+  type ChangeEvent,
   type ClipboardEvent,
   type FocusEventHandler,
   type FormEvent,
@@ -15,6 +18,13 @@ import { useFileDrag } from "./fileDrag";
 import { zenTextPx } from "./zenFont";
 import { PlusGlyph } from "./PlusGlyph";
 import { sidecarSuffix } from "./sidecarRows";
+import { AttachMenu, type AttachChoice } from "./AttachMenu";
+import {
+  isUnsupportedPick,
+  nativePick,
+  nativePickerAvailable,
+  skippedMessage,
+} from "../lib/nativePicker";
 
 /** Composer placeholder: "Message <Agent>", "Message <Agent>/<sidecar>"
  *  on an extra chat, "Message <group>" on a project chat, else "Message".
@@ -92,6 +102,8 @@ export interface GlassComposerProps {
   /** Files picked from `＋` or pasted. `＋` renders while `canSend`;
    *  disable it with `attachDisabled`. */
   onAttach?: (files: File[]) => void;
+  /** A pick that left files out (too large, unreadable) or failed. */
+  onAttachError?: (message: string) => void;
   placeholder?: string;
   /** Textarea disabled. */
   disabled?: boolean;
@@ -107,8 +119,9 @@ export interface GlassComposerProps {
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   onFocus?: FocusEventHandler<HTMLTextAreaElement>;
   ariaLabel?: string;
-  /** Test-id prefix: `${p}-bar`, `-form`, `-file-input`, `-field`,
-   *  `-attach`, `-input`, `-send`. */
+  /** Test-id prefix: `${p}-bar`, `-form`, `-file-input`, `-photo-input`,
+   *  `-camera-input`, `-field`, `-attach`, `-attach-menu`, `-input`,
+   *  `-send`. */
   testIdPrefix?: string;
   /** Extra attrs on the bar (e.g. `data-k2-variant`). */
   barProps?: Record<string, string | undefined>;
@@ -135,6 +148,7 @@ export function GlassComposer({
   onChange,
   onSubmit,
   onAttach,
+  onAttachError,
   placeholder = "Message",
   disabled,
   canSend,
@@ -155,8 +169,82 @@ export function GlassComposer({
   const barRef = useRef<HTMLDivElement>(null);
   const ref = textareaRef ?? ownRef;
   const fileRef = useRef<HTMLInputElement>(null);
+  const photoRef = useRef<HTMLInputElement>(null);
+  const cameraRef = useRef<HTMLInputElement>(null);
+  const plusRef = useRef<HTMLButtonElement>(null);
   const id = (s: string) => `${testIdPrefix}-${s}`;
   const showAttach = canSend && attach;
+
+  // `＋` opens our own menu (AttachMenu), not iOS's file-input menu, so
+  // the keyboard stays up while choosing. The pickers themselves still
+  // take the screen (and the keyboard); `refocus` brings the field back
+  // when one returns if it had focus when the menu opened.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const refocus = useRef(false);
+  const menuShown = menuOpen && showAttach && !attachDisabled;
+  const closeMenu = useCallback(() => {
+    refocus.current = false;
+    setMenuOpen(false);
+  }, []);
+  // Disabled or hidden while open: it stays closed when `＋` comes back.
+  useEffect(() => {
+    if (!showAttach || attachDisabled) setMenuOpen(false);
+  }, [showAttach, attachDisabled]);
+  const restoreFocus = useCallback(() => {
+    if (!refocus.current) return;
+    refocus.current = false;
+    const el = ref.current;
+    if (!el || el.disabled) return;
+    // A presented picker ends the input session without a DOM blur:
+    // focus() on the still-active field would be a no-op.
+    if (document.activeElement === el) el.blur();
+    el.focus({ preventScroll: true });
+  }, [ref]);
+  const deliver = (files: File[]) => {
+    if (files.length) onAttach?.(files);
+  };
+  const pickWithInput = (choice: AttachChoice) => {
+    const input =
+      choice === "camera" ? cameraRef.current : choice === "library" ? photoRef.current : fileRef.current;
+    input?.click();
+  };
+  const choose = (choice: AttachChoice) => {
+    setMenuOpen(false);
+    // The camera input opens the camera directly (no iOS menu).
+    if (choice === "camera" || !nativePickerAvailable()) {
+      pickWithInput(choice);
+      return;
+    }
+    nativePick(choice === "library" ? "media" : "documents")
+      .then((out) => {
+        deliver(out.files);
+        const skipped = skippedMessage(out.skipped);
+        if (skipped) onAttachError?.(skipped);
+      })
+      .catch((e) => {
+        if (isUnsupportedPick(e)) {
+          pickWithInput(choice);
+          return;
+        }
+        console.warn("[attach] native picker failed:", e);
+        onAttachError?.("Could not open the picker.");
+      })
+      .finally(restoreFocus);
+  };
+  // The web inputs: `change` on a pick, `cancel` (Safari 16.4+) on close.
+  useEffect(() => {
+    const inputs = [fileRef.current, photoRef.current, cameraRef.current];
+    for (const el of inputs) el?.addEventListener("cancel", restoreFocus);
+    return () => {
+      for (const el of inputs) el?.removeEventListener("cancel", restoreFocus);
+    };
+  }, [restoreFocus]);
+  const onInputChange = (e: ChangeEvent<HTMLInputElement>) => {
+    const list = e.target.files;
+    onAttach?.(list ? Array.from(list) : []);
+    e.target.value = "";
+    restoreFocus();
+  };
   // Files drawer drag: the field is the drop target. A drop (or a
   // direct insert) queues a file reference; this composer appends it.
   const dragging = useFileDrag((s) => s.drag !== null);
@@ -210,8 +298,8 @@ export function GlassComposer({
     <div
       ref={barRef}
       className="shrink-0 min-w-0 w-full overflow-hidden px-3 pt-2 zen-composer-bar"
-      // A drawer stands above the bar: let it show.
-      style={drawer ? { overflow: "visible" } : undefined}
+      // A drawer or the attach menu stands above the bar: let it show.
+      style={drawer || menuShown ? { overflow: "visible" } : undefined}
       data-testid={id("bar")}
       {...barProps}
     >
@@ -228,17 +316,33 @@ export function GlassComposer({
           onSubmit();
         }}
       >
+        {/* Web pickers: Choose Files (any type), Photo Library when the
+            native one is missing, and the camera (capture: no iOS menu). */}
         <input
           ref={fileRef}
           type="file"
           multiple
           className="hidden"
           data-testid={id("file-input")}
-          onChange={(e) => {
-            const list = e.target.files;
-            onAttach?.(list ? Array.from(list) : []);
-            e.target.value = "";
-          }}
+          onChange={onInputChange}
+        />
+        <input
+          ref={photoRef}
+          type="file"
+          multiple
+          accept="image/*,video/*"
+          className="hidden"
+          data-testid={id("photo-input")}
+          onChange={onInputChange}
+        />
+        <input
+          ref={cameraRef}
+          type="file"
+          accept="image/*,video/*"
+          capture="environment"
+          className="hidden"
+          data-testid={id("camera-input")}
+          onChange={onInputChange}
         />
         <div className="relative flex-1 min-w-0" data-testid={id("dock")}>
           {drawer ? (
@@ -263,6 +367,14 @@ export function GlassComposer({
               {drawer}
             </div>
           ) : null}
+          {menuShown ? (
+            <AttachMenu
+              onChoose={choose}
+              onClose={closeMenu}
+              anchorRef={plusRef}
+              testIdPrefix={testIdPrefix}
+            />
+          ) : null}
           <div
             className="relative w-full min-w-0 overflow-hidden flex items-end gap-1 pl-1 pr-1 py-1 k2-tile"
             data-testid={id("field")}
@@ -283,17 +395,22 @@ export function GlassComposer({
           >
             {showAttach ? (
               <button
+                ref={plusRef}
                 type="button"
                 data-testid={id("attach")}
                 aria-label="Add file"
+                aria-haspopup="menu"
+                aria-expanded={menuShown}
                 disabled={Boolean(attachDisabled)}
                 // Keep the textarea focused: a blur here drops the keyboard,
                 // the composer slides down mid-tap and the click misses the
-                // button, so the picker never opened. iOS dismisses the
-                // keyboard itself when the picker presents.
+                // button. The menu opens with the keyboard still up.
                 onPointerDown={(e) => e.preventDefault()}
                 onMouseDown={(e) => e.preventDefault()}
-                onClick={() => fileRef.current?.click()}
+                onClick={() => {
+                  if (!menuShown) refocus.current = document.activeElement === ref.current;
+                  setMenuOpen(!menuShown);
+                }}
                 className="shrink-0 flex items-center justify-center bg-transparent border-0 text-[var(--text-muted)] disabled:opacity-40"
                 style={{
                   width: 30,

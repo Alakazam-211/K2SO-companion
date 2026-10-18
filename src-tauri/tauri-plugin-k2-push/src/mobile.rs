@@ -100,4 +100,20 @@ impl<R: Runtime> K2Push<R> {
             .run_mobile_plugin::<BadgeDiagnosticsResponse>("getBadgeDiagnostics", ())
             .map_err(Into::into)
     }
+
+    /// Async: the picker stays up while the user chooses, so this must
+    /// not park a runtime worker the way `run_mobile_plugin` would.
+    pub async fn pick_media(&self, req: PickRequest) -> crate::Result<PickResponse> {
+        self.0
+            .run_mobile_plugin_async::<PickResponse>("pickMedia", req)
+            .await
+            .map_err(Into::into)
+    }
+
+    pub async fn pick_documents(&self, req: PickRequest) -> crate::Result<PickResponse> {
+        self.0
+            .run_mobile_plugin_async::<PickResponse>("pickDocuments", req)
+            .await
+            .map_err(Into::into)
+    }
 }

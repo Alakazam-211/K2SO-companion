@@ -142,7 +142,7 @@ describe("GlassComposer field auto-grow", () => {
 });
 
 describe("GlassComposer attach (+)", () => {
-  it("does not take focus from the textarea (keyboard stays up), and still opens the picker", () => {
+  it("does not take focus from the textarea (keyboard stays up), and opens our menu, not a picker", () => {
     renderComposer();
     const attach = screen.getByTestId("composer-attach");
     for (const type of ["pointerDown", "mouseDown"] as const) {
@@ -150,12 +150,14 @@ describe("GlassComposer attach (+)", () => {
       fireEvent(attach, ev);
       expect(ev.defaultPrevented).toBe(true);
     }
-    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
     let opened = 0;
-    input.click = () => {
-      opened += 1;
-    };
+    for (const input of Array.from(document.querySelectorAll('input[type="file"]'))) {
+      (input as HTMLInputElement).click = () => {
+        opened += 1;
+      };
+    }
     fireEvent.click(attach);
-    expect(opened).toBe(1);
+    expect(opened).toBe(0);
+    expect(screen.getByRole("menu", { name: "Attach" })).not.toBeNull();
   });
 });

@@ -1186,6 +1186,7 @@ export function ThreadPane({
             value={draft}
             onChange={setDraft}
             onAttach={queueFiles}
+            onAttachError={setAttachError}
             onSubmit={onSend}
             placeholder={placeholder}
             disabled={!canSend}

@@ -38,6 +38,12 @@
 //! the NSE). Event `badgeTotals` `{subdomain, unread, waiting?, sum}` when
 //! a silent `{kind:"badge"}` push (or a foreground alert push) brings new
 //! totals. Android/desktop: stubs that answer `available: false`.
+//!
+//! Attach pickers (`pick_media`, `pick_documents`): the composer's own
+//! attach menu opens the photo library (PHPicker) or the document picker
+//! directly, so iOS's file-input menu never shows (`K2Pickers.swift`).
+//! Resolve `{files: [{name, mime, base64}], skipped, cancelled}`. Android
+//! and desktop reject `unsupported: …`; JS uses the web file input there.
 
 use tauri::{
     plugin::{Builder, TauriPlugin},
@@ -85,6 +91,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::clear_server_totals,
             commands::get_badge_totals,
             commands::get_badge_diagnostics,
+            commands::pick_media,
+            commands::pick_documents,
         ])
         .setup(|app, api| {
             #[cfg(mobile)]
