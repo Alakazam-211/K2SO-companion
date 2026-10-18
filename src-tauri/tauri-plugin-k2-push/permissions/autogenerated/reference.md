@@ -2,8 +2,9 @@
 
 Default permissions for the k2-push plugin: availability probe,
 permission request, token fetch, launch-tap read, the notification
-avatar cache (Communication Notifications), and the event
-listener plumbing for `tap`/`tokenRefresh`.
+avatar cache (Communication Notifications), the app-icon badge
+totals and their delivery diagnostics, and the event listener
+plumbing for `tap`/`tokenRefresh`/`badgeTotals`.
 
 #### This default permission set includes the following:
 
@@ -12,6 +13,10 @@ listener plumbing for `tap`/`tokenRefresh`.
 - `allow-get-token`
 - `allow-get-launch-tap`
 - `allow-cache-avatars`
+- `allow-set-server-totals`
+- `allow-clear-server-totals`
+- `allow-get-badge-totals`
+- `allow-get-badge-diagnostics`
 - `allow-register-listener`
 - `allow-remove-listener`
 
@@ -46,6 +51,84 @@ Enables the cache_avatars command without any pre-configured scope.
 <td>
 
 Denies the cache_avatars command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:allow-clear-server-totals`
+
+</td>
+<td>
+
+Enables the clear_server_totals command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:deny-clear-server-totals`
+
+</td>
+<td>
+
+Denies the clear_server_totals command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:allow-get-badge-diagnostics`
+
+</td>
+<td>
+
+Enables the get_badge_diagnostics command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:deny-get-badge-diagnostics`
+
+</td>
+<td>
+
+Denies the get_badge_diagnostics command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:allow-get-badge-totals`
+
+</td>
+<td>
+
+Enables the get_badge_totals command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:deny-get-badge-totals`
+
+</td>
+<td>
+
+Denies the get_badge_totals command without any pre-configured scope.
 
 </td>
 </tr>
@@ -202,6 +285,32 @@ Enables the request_permission command without any pre-configured scope.
 <td>
 
 Denies the request_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:allow-set-server-totals`
+
+</td>
+<td>
+
+Enables the set_server_totals command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:deny-set-server-totals`
+
+</td>
+<td>
+
+Denies the set_server_totals command without any pre-configured scope.
 
 </td>
 </tr>

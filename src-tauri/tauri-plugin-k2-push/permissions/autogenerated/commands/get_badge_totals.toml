@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-get-badge-totals"
+description = "Enables the get_badge_totals command without any pre-configured scope."
+commands.allow = ["get_badge_totals"]
+
+[[permission]]
+identifier = "deny-get-badge-totals"
+description = "Denies the get_badge_totals command without any pre-configured scope."
+commands.deny = ["get_badge_totals"]

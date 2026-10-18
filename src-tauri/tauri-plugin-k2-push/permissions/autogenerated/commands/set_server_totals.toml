@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-set-server-totals"
+description = "Enables the set_server_totals command without any pre-configured scope."
+commands.allow = ["set_server_totals"]
+
+[[permission]]
+identifier = "deny-set-server-totals"
+description = "Denies the set_server_totals command without any pre-configured scope."
+commands.deny = ["set_server_totals"]

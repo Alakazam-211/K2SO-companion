@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from
 import { useServersStore } from "./stores/servers";
 import { useWorkspacesStore } from "./stores/workspaces";
 import { registerAllSignedIn, attachPushNavigation, watchPushRegistrations } from "./lib/push";
+import { installBadgeServerHooks } from "./lib/badgeTotals";
 import { setLifecycleEnabled } from "./lib/appLifecycle";
 import { useMultiServerPrefs } from "./zen/multi/prefs";
 import { TabBar } from "./components/TabBar";
@@ -95,9 +96,13 @@ function PushBridge() {
     });
     // Register on every signed-in server now, and again on each login.
     const stopWatch = watchPushRegistrations();
+    // App-icon badge: drop a server's totals when it is signed out of or
+    // removed (no-op unless push is available on iOS).
+    const stopBadge = installBadgeServerHooks();
     return () => {
       cleanup?.();
       stopWatch();
+      stopBadge();
     };
   }, []);
   return null;

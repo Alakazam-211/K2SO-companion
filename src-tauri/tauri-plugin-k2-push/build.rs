@@ -7,6 +7,10 @@ const COMMANDS: &[&str] = &[
     "get_token",
     "get_launch_tap",
     "cache_avatars",
+    "set_server_totals",
+    "clear_server_totals",
+    "get_badge_totals",
+    "get_badge_diagnostics",
     "register_listener",
     "remove_listener",
 ];

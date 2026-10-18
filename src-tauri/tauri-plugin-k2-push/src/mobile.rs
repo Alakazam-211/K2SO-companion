@@ -73,4 +73,31 @@ impl<R: Runtime> K2Push<R> {
             .run_mobile_plugin::<CacheAvatarsResponse>("cacheAvatars", req)
             .map_err(Into::into)
     }
+
+    pub fn set_server_totals(&self, req: ServerTotalsRequest) -> crate::Result<BadgeSumResponse> {
+        self.0
+            .run_mobile_plugin::<BadgeSumResponse>("setServerTotals", req)
+            .map_err(Into::into)
+    }
+
+    pub fn clear_server_totals(
+        &self,
+        req: ClearServerTotalsRequest,
+    ) -> crate::Result<BadgeSumResponse> {
+        self.0
+            .run_mobile_plugin::<BadgeSumResponse>("clearServerTotals", req)
+            .map_err(Into::into)
+    }
+
+    pub fn get_badge_totals(&self) -> crate::Result<BadgeTotalsResponse> {
+        self.0
+            .run_mobile_plugin::<BadgeTotalsResponse>("getBadgeTotals", ())
+            .map_err(Into::into)
+    }
+
+    pub fn get_badge_diagnostics(&self) -> crate::Result<BadgeDiagnosticsResponse> {
+        self.0
+            .run_mobile_plugin::<BadgeDiagnosticsResponse>("getBadgeDiagnostics", ())
+            .map_err(Into::into)
+    }
 }

@@ -36,6 +36,19 @@
 // the agent's picture on a Thread push (Communication Notifications).
 // Without the App Group entitlement the container is nil and the command
 // answers `available: false` — dormant, like the rest of this file.
+//
+// Badge (K2 0.46.1): the app-icon badge is the sum of each server's
+// `unreadTotal`, kept in the App Group by `K2BadgeStore` (K2BadgeStore.swift,
+// the same source file the NSE compiles). Three writers:
+//   - the NSE, for Thread / project-chat alert pushes carrying totals;
+//   - this plugin, for the silent `{kind:"badge"}` push
+//     (`application(_:didReceiveRemoteNotification:fetchCompletionHandler:)`,
+//     spliced like the token callbacks; needs UIBackgroundModes
+//     remote-notification). Foreground deliveries arrive here too;
+//   - JS, via `setServerTotals` / `clearServerTotals` (live frames, list
+//     fetches, server removed / signed out).
+// Each sets the icon badge to the new sum and emits `badgeTotals`
+// `{subdomain, unread, waiting, sum}` so a running UI can update.
 
 import SwiftRs
 import Tauri
@@ -74,6 +87,12 @@ class K2PushPlugin: Plugin {
   override init() {
     super.init()
     K2PushPlugin.shared = self
+    // Silent badge pushes can launch the app in the background, where the
+    // webview (and so `load`) may come late or not at all. Try the hooks
+    // as soon as the main run loop turns; harmless if `load` repeats it.
+    DispatchQueue.main.async {
+      _ = self.ensureDelegateHooks()
+    }
   }
 
   @objc public override func load(webview: WKWebView) {
@@ -165,6 +184,153 @@ class K2PushPlugin: Plugin {
       ]
       if let reason = outcome.reason { res["reason"] = reason }
       invoke.resolve(res)
+    }
+  }
+
+  // ── Badge commands (App Group, K2BadgeStore) ────────────────────────
+
+  /// `{subdomain, unread, waiting}` → store it, set the icon badge.
+  /// Resolves `{available, sum}`. Never rejects for a bad subdomain (it is
+  /// ignored); rejects only for unparseable args.
+  @objc public func setServerTotals(_ invoke: Invoke) {
+    let args: ServerTotalsArgs
+    do {
+      args = try invoke.parseArgs(ServerTotalsArgs.self)
+    } catch {
+      invoke.reject("setServerTotals: invalid args (\(error.localizedDescription))")
+      return
+    }
+    K2PushPlugin.badgeQueue.async {
+      let sum = K2BadgeStore.set(
+        subdomain: args.subdomain, unread: max(0, args.unread), waiting: args.waiting.map { max(0, $0) })
+      invoke.resolve(K2PushPlugin.sumResponse(sum))
+      if let sum = sum { K2PushPlugin.setIconBadge(sum) }
+    }
+  }
+
+  /// `{subdomain}` → drop that server, set the icon badge. `{available, sum}`.
+  @objc public func clearServerTotals(_ invoke: Invoke) {
+    let args: ClearTotalsArgs
+    do {
+      args = try invoke.parseArgs(ClearTotalsArgs.self)
+    } catch {
+      invoke.reject("clearServerTotals: invalid args (\(error.localizedDescription))")
+      return
+    }
+    K2PushPlugin.badgeQueue.async {
+      let sum = K2BadgeStore.clear(subdomain: args.subdomain)
+      invoke.resolve(K2PushPlugin.sumResponse(sum))
+      if let sum = sum { K2PushPlugin.setIconBadge(sum) }
+    }
+  }
+
+  /// `{available, sum, version, servers}` — the totals.json contents.
+  @objc public func getBadgeTotals(_ invoke: Invoke) {
+    K2PushPlugin.badgeQueue.async {
+      guard let totals = K2BadgeStore.snapshot() else {
+        invoke.resolve(["available": false, "sum": 0, "version": 1, "servers": [:] as JsonObject, "reason": K2PushPlugin.noGroupReason])
+        return
+      }
+      var servers: JsonObject = [:]
+      for (key, t) in totals.servers {
+        servers[key] = ["unread": t.unread, "waiting": t.waiting, "at": Double(t.at)] as JsonObject
+      }
+      invoke.resolve([
+        "available": true, "sum": K2BadgeStore.sum(totals), "version": totals.version,
+        "servers": servers,
+      ])
+    }
+  }
+
+  /// `{available, version, days}` — the received.json delivery counters.
+  @objc public func getBadgeDiagnostics(_ invoke: Invoke) {
+    K2PushPlugin.badgeQueue.async {
+      guard let rec = K2BadgeStore.diagnostics() else {
+        invoke.resolve(["available": false, "version": 1, "days": [:] as JsonObject, "reason": K2PushPlugin.noGroupReason])
+        return
+      }
+      var days: JsonObject = [:]
+      for (day, servers) in rec.days {
+        var row: JsonObject = [:]
+        for (key, c) in servers {
+          var entry: JsonObject = ["silent": c.silent, "alert": c.alert]
+          if let lastAt = c.lastAt { entry["lastAt"] = Double(lastAt) }
+          row[key] = entry
+        }
+        days[day] = row
+      }
+      invoke.resolve(["available": true, "version": rec.version, "days": days])
+    }
+  }
+
+  static let badgeQueue = DispatchQueue(label: "com.alakazamlabs.k2so.companion.badges", qos: .utility)
+  private static let noGroupReason = "no App Group container (\(K2BadgeStore.appGroupId) entitlement missing)"
+
+  private static func sumResponse(_ sum: Int?) -> JsonObject {
+    if let sum = sum { return ["available": true, "sum": sum] }
+    return ["available": false, "sum": 0, "reason": noGroupReason]
+  }
+
+  /// iOS 16+: UNUserNotificationCenter.setBadgeCount; earlier:
+  /// applicationIconBadgeNumber (main thread).
+  /// `done` runs once the badge is set (or failed).
+  static func setIconBadge(_ count: Int, done: (() -> Void)? = nil) {
+    let n = max(0, count)
+    if #available(iOS 16.0, *) {
+      UNUserNotificationCenter.current().setBadgeCount(n) { error in
+        if let error = error { pushLog("setBadgeCount failed: \(error.localizedDescription)") }
+        done?()
+      }
+    } else {
+      DispatchQueue.main.async {
+        UIApplication.shared.applicationIconBadgeNumber = n
+        done?()
+      }
+    }
+  }
+
+  // ── Silent badge push ───────────────────────────────────────────────
+
+  /// `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)`
+  /// (background AND foreground). `{kind:"badge", subdomain, unreadTotal,
+  /// waitingTotal}` → store, icon badge, `badgeTotals` event, `.newData`.
+  /// Anything else → `.noData`. A duplicate (same collapse id) is applied
+  /// again: idempotent apart from the received counter.
+  fileprivate func handleRemoteNotification(
+    _ userInfo: [AnyHashable: Any], completion: @escaping (UIBackgroundFetchResult) -> Void
+  ) {
+    guard (userInfo["kind"] as? String) == "badge" else {
+      completion(.noData)
+      return
+    }
+    K2PushPlugin.badgeQueue.async {
+      guard let applied = K2BadgeStore.apply(push: userInfo, source: .silent) else {
+        pushLog("badge push without usable totals")
+        completion(.noData)
+        return
+      }
+      self.emitBadgeTotals(applied.totals, sum: applied.sum)
+      // Complete only once the badge is set: iOS may suspend us right after.
+      K2PushPlugin.setIconBadge(applied.sum) {
+        DispatchQueue.main.async { completion(.newData) }
+      }
+    }
+  }
+
+  /// A presented alert push (app in the foreground): the NSE already stored
+  /// its totals; just tell a running UI.
+  fileprivate func handlePresentedTotals(_ userInfo: [AnyHashable: Any]) {
+    guard let t = K2BadgeStore.totals(fromPush: userInfo) else { return }
+    K2PushPlugin.badgeQueue.async {
+      let sum = K2BadgeStore.currentSum() ?? 0
+      self.emitBadgeTotals(t, sum: sum)
+    }
+  }
+
+  private func emitBadgeTotals(_ t: K2BadgeStore.PushTotals, sum: Int) {
+    let event = BadgeTotalsEvent(subdomain: t.subdomain, unread: t.unread, waiting: t.waiting, sum: sum)
+    DispatchQueue.main.async {
+      try? self.trigger("badgeTotals", data: event)
     }
   }
 
@@ -305,6 +471,27 @@ class K2PushPlugin: Plugin {
       cls, failureSel, imp_implementationWithBlock(failureBlock), types: "v@:@@",
       original: &K2PushPlugin.originalFailureImp)
 
+    // Silent (content-available) pushes: the `{kind:"badge"}` totals push.
+    // Needs UIBackgroundModes remote-notification (Info.ios.plist +
+    // project.yml) to be delivered in the background.
+    let remoteSel = #selector(
+      UIApplicationDelegate.application(_:didReceiveRemoteNotification:fetchCompletionHandler:))
+    typealias FetchCompletion = @convention(block) (UIBackgroundFetchResult) -> Void
+    let remoteBlock: @convention(block) (AnyObject, UIApplication, NSDictionary, @escaping FetchCompletion) -> Void = {
+      _self, application, userInfo, completion in
+      let info = userInfo as? [AnyHashable: Any] ?? [:]
+      guard let plugin = K2PushPlugin.shared else {
+        K2PushPlugin.forwardRemote(_self, remoteSel, application, userInfo, completion, ours: .noData)
+        return
+      }
+      plugin.handleRemoteNotification(info) { ours in
+        K2PushPlugin.forwardRemote(_self, remoteSel, application, userInfo, completion, ours: ours)
+      }
+    }
+    let remoteMode = spliceMethod(
+      cls, remoteSel, imp_implementationWithBlock(remoteBlock), types: "v@:@@@?",
+      original: &K2PushPlugin.originalRemoteImp)
+
     // Bust UIApplication's cached delegate-flags bitfield: setDelegate:
     // re-scans which selectors the delegate answers — now including the
     // ones we just spliced in. Nil-then-restore because a same-pointer
@@ -321,7 +508,7 @@ class K2PushPlugin: Plugin {
 
     hookedClass = cls
     hookDescription =
-      "hook on \(NSStringFromClass(cls)), installed=\(successMode)+\(failureMode), "
+      "hook on \(NSStringFromClass(cls)), installed=\(successMode)+\(failureMode)+\(remoteMode), "
       + "responds=\(delegate.responds(to: successSel))"
     pushLog("hooks installed: \(hookDescription)")
     return true
@@ -329,6 +516,31 @@ class K2PushPlugin: Plugin {
 
   private static var originalSuccessImp: IMP?
   private static var originalFailureImp: IMP?
+  private static var originalRemoteImp: IMP?
+
+  /// The completion handler must run exactly once. With no original
+  /// implementation we call it with our result; with one (a future tao)
+  /// it gets a wrapper and the combined answer is `.newData` if either
+  /// side had new data, else the original's.
+  private static func forwardRemote(
+    _ target: AnyObject, _ sel: Selector, _ application: UIApplication, _ userInfo: NSDictionary,
+    _ completion: @escaping (UIBackgroundFetchResult) -> Void, ours: UIBackgroundFetchResult
+  ) {
+    guard let original = originalRemoteImp else {
+      completion(ours)
+      return
+    }
+    typealias Fn = @convention(c) (
+      AnyObject, Selector, UIApplication, NSDictionary, @escaping @convention(block) (UIBackgroundFetchResult) -> Void
+    ) -> Void
+    var called = false
+    let wrapped: @convention(block) (UIBackgroundFetchResult) -> Void = { theirs in
+      if called { return }
+      called = true
+      completion(ours == .newData ? .newData : theirs)
+    }
+    unsafeBitCast(original, to: Fn.self)(target, sel, application, userInfo, wrapped)
+  }
   /// Keeps the (re-assigned) app delegate alive: UIApplication released
   /// its ownership during our setDelegate: dance and never re-retains.
   private static var retainedDelegate: UIApplicationDelegate?
@@ -375,6 +587,7 @@ private class K2PushTapDelegate: NSObject, UNUserNotificationCenterDelegate {
     withCompletionHandler completionHandler:
       @escaping (UNNotificationPresentationOptions) -> Void
   ) {
+    plugin?.handlePresentedTotals(notification.request.content.userInfo)
     if #available(iOS 14.0, *) {
       completionHandler([.banner, .sound, .badge])
     } else {
@@ -390,6 +603,24 @@ private class K2PushTapDelegate: NSObject, UNUserNotificationCenterDelegate {
     plugin?.handleTap(response.notification.request.content.userInfo)
     completionHandler()
   }
+}
+
+/// `badgeTotals` event. `waiting` is omitted when the push had none.
+private struct BadgeTotalsEvent: Encodable {
+  let subdomain: String
+  let unread: Int
+  let waiting: Int?
+  let sum: Int
+}
+
+private struct ServerTotalsArgs: Decodable {
+  let subdomain: String
+  let unread: Int
+  let waiting: Int?
+}
+
+private struct ClearTotalsArgs: Decodable {
+  let subdomain: String
 }
 
 // ── Notification avatar cache (App Group) ─────────────────────────────
