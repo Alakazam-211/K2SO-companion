@@ -34,12 +34,15 @@ export type PinRect = MenuRect;
  *     the pins on the server (`movePin` → `projects/reorder`). A drop
  *     anywhere else puts it back (Unpin is in the menu).
  *
- * List rows no longer lift into the grid: Pin is in their menu.
+ * In Agents Rearrange (`mode` "drag") there is no menu: a pin lifts as
+ * soon as it moves past PIN_LIFT_PX. List rows no longer lift into the
+ * grid: Pin is in their menu.
  */
 export function usePinDrag(
   pinsRef: { current: HTMLElement | null },
-  /** Read at press time: false (Rearrange mode) = pins ignore presses. */
-  enabled: () => boolean = () => true
+  /** Read at press time: "hold" = menu or hold-and-drag; "drag" = drag
+   *  at once, no menu (Agents Rearrange); "off" = pins ignore presses. */
+  mode: () => "hold" | "drag" | "off" = () => "hold"
 ) {
   const movePin = useZenStore((s) => s.movePin);
   const skipClick = useRef(false);
@@ -123,7 +126,8 @@ export function usePinDrag(
   const onPointerDown = (e: ReactPointerEvent<HTMLElement>) => {
     skipClick.current = false;
     if (e.button && e.button !== 0) return;
-    if (!enabled()) return;
+    const m = mode();
+    if (m === "off") return;
     const target = e.target as HTMLElement;
     if (target.closest("input,textarea,[data-no-pin]")) return;
     const pin = target.closest("[data-pin-id][data-pin-from='pin']") as HTMLElement | null;
@@ -136,7 +140,7 @@ export function usePinDrag(
       x: e.clientX,
       y: e.clientY,
       lifted: false,
-      timer: setTimeout(openMenu, PIN_MENU_MS),
+      timer: m === "hold" ? setTimeout(openMenu, PIN_MENU_MS) : null,
       rect: rectOf(pin),
       slots: [],
     };
