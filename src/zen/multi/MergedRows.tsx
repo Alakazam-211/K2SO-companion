@@ -8,6 +8,7 @@
 // server (`zenStore.openRoom`); the active server never changes. A server
 // known to be below the phone floor (0.41.6) opens the old way instead.
 
+import { RowChevron } from "../RowChevron";
 import { useEffect, useState, type ReactNode } from "react";
 import { activityColor, activityRowText, type RowActivity } from "../agentActivity";
 import { WorkspaceAvatar } from "../WorkspaceAvatar";
@@ -207,7 +208,7 @@ export function RemoteAgentRow({
               data-testid="row-when"
             >
               {when}
-              {when ? " " : ""}›
+              <RowChevron />
             </span>
           )}
         </span>

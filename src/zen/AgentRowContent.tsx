@@ -1,3 +1,4 @@
+import { RowChevron } from "./RowChevron";
 import type { ReactNode } from "react";
 import { activityColor, activityRowText, type RowActivity } from "./agentActivity";
 import { StubMark } from "./StubMark";
@@ -119,8 +120,7 @@ export function AgentRowContent({
               data-testid="row-when"
             >
               {when}
-              {when ? " " : ""}
-              ›
+              <RowChevron />
             </span>
           )}
         </span>
