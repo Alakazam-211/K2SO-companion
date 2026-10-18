@@ -1903,7 +1903,8 @@ describe("ChatsList", () => {
       expect(alpha.style.paddingLeft).toBe(cssLen(`calc(${ZEN_LIST_CONTENT_INSET} + 40px)`));
       const done = screen.getByTestId("rearrange-done");
       expect(done.textContent).toBe("Done");
-      expect(done.className).toContain("zen-glass");
+      expect(done.className).toContain("k2-tile");
+      expect(done.style.background).toBe("rgb(10, 132, 255)");
       expect(done.style.right).toBe("16px");
       expect(done.style.bottom).toContain(SEARCH_BAR_REST_BOTTOM);
       // A tap does not open the chat; a hold opens no menu.

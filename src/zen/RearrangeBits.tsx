@@ -64,19 +64,23 @@ export function GripHandle({
   );
 }
 
-/** Glass "Done" pill: bottom right, just above the search field and `+`. */
+/** Blue glass "Done" pill (the composer Send button's tile): bottom
+ *  right, just above the search field and `+`. */
 export function RearrangeDone({ onDone }: { onDone: () => void }) {
   return (
     <button
       type="button"
-      className="absolute flex items-center justify-center text-[16px] font-semibold zen-glass zen-glass-pill"
+      className="absolute flex items-center justify-center text-[16px] font-semibold k2-tile"
       style={{
         zIndex: 6,
         right: 16,
         bottom: `calc(${SEARCH_BAR_REST_BOTTOM} + ${SEARCH_BAR_HEIGHT + 12}px)`,
         height: 40,
         padding: "0 22px",
+        borderRadius: 20,
         color: "#fff",
+        background: "#0a84ff",
+        borderColor: "#0a84ff",
       }}
       data-no-pin="1"
       data-testid="rearrange-done"
