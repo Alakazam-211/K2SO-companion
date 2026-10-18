@@ -95,6 +95,26 @@ export function settledHeight(block: HTMLElement): number {
   return Math.round(h);
 }
 
+/** The block's height above its bottom padding (the home-indicator /
+ *  keyboard gap), settled like `settledHeight`. The Thread pads for that
+ *  gap with its own spacer on the same CSS transition, so this stays put
+ *  while the gap eases with the keyboard (no per-frame reports). */
+export function composerBlockHeight(block: HTMLElement): number {
+  let pad = 0;
+  try {
+    pad = parseFloat(getComputedStyle(block).paddingBottom) || 0;
+  } catch {
+    pad = 0;
+  }
+  if (!(pad > 0)) return settledHeight(block);
+  let h = block.getBoundingClientRect().height - pad;
+  block.querySelectorAll<HTMLElement>(`[${SETTLED_HEIGHT_ATTR}]`).forEach((f) => {
+    const settled = parseFloat(f.getAttribute(SETTLED_HEIGHT_ATTR) ?? "");
+    if (Number.isFinite(settled)) h -= Math.max(0, f.getBoundingClientRect().height - settled);
+  });
+  return Math.max(0, Math.round(h));
+}
+
 /** The field's corner radius (px). The drawer's geometry derives from it. */
 export const COMPOSER_RADIUS_PX = 20;
 /** Drawer side inset: half the radius, so its sides land on the field's
@@ -152,9 +172,10 @@ export interface GlassComposerProps {
   /** Room (px) kept between `children` and the field so rows above the
    *  field are not covered by the drawer. 0 when there are none. */
   drawerRoom?: number;
-  /** The whole composer block's height (px): rows above the field,
-   *  drawer room, the field, and the bar's safe-area / keyboard gap.
-   *  Reported on mount and on every resize (ResizeObserver), settled
+  /** The composer block's height (px) above its bottom gap: rows above
+   *  the field, drawer room, the field (composerBlockHeight). The bar's
+   *  safe-area / keyboard gap is left out: the Thread's spacer eases with
+   *  it on the keyboard's timing (index.css `.zen-thread-pane`). Reported on mount and on every resize (ResizeObserver), settled
    *  (a clear-collapse in progress reports its end height). */
   onBlockHeight?: (px: number) => void;
   /** A send clearing a multi-line draft: the field eases shut on the send
@@ -342,15 +363,16 @@ export function GlassComposer({
     if (!bar || !watchBlock) return;
     let last = -1;
     const report = () => {
-      const px = settledHeight(bar);
+      const px = composerBlockHeight(bar);
       if (px === last) return;
       last = px;
       blockCb.current?.(px);
     };
     report();
-    // Focus changes the bar's bottom padding (home-indicator inset at
-    // rest, 8px while typing): padding is not the content box, so watch
-    // the border box, and re-read on focus moves as a backstop.
+    // The bar's bottom padding (home-indicator inset at rest, 8px while
+    // typing) is not counted (composerBlockHeight): the Thread's spacer
+    // eases with it. Watch the border box anyway (top padding, rows), and
+    // re-read on focus moves as a backstop.
     const refocus = () => requestAnimationFrame(report);
     bar.addEventListener("focusin", refocus);
     bar.addEventListener("focusout", refocus);

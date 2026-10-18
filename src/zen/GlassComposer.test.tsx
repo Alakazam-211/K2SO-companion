@@ -8,6 +8,7 @@ import {
   COMPOSER_RADIUS_PX,
   GlassComposer,
   SETTLED_HEIGHT_ATTR,
+  composerBlockHeight,
   settledHeight,
 } from "./GlassComposer";
 import { FLY_MS } from "./sendFly";
@@ -161,6 +162,28 @@ describe("GlassComposer field auto-grow", () => {
     } finally {
       globalThis.ResizeObserver = RO;
       if (ownOffset) Object.defineProperty(HTMLElement.prototype, "offsetHeight", ownOffset);
+    }
+  });
+});
+
+describe("composerBlockHeight", () => {
+  it("leaves out the bar's bottom gap (the Thread's spacer eases with it)", () => {
+    const bar = document.createElement("div");
+    document.body.appendChild(bar);
+    try {
+      bar.getBoundingClientRect = () => ({ height: 100.4 }) as DOMRect;
+      Object.defineProperty(bar, "offsetHeight", { configurable: true, value: 100 });
+      // No bottom padding: the whole block.
+      expect(composerBlockHeight(bar)).toBe(100);
+      // Mid-ease (34px → 8px) the block and the gap move together: the
+      // reported height does not change frame to frame.
+      bar.style.paddingBottom = "34px";
+      expect(composerBlockHeight(bar)).toBe(66);
+      bar.style.paddingBottom = "20.4px";
+      bar.getBoundingClientRect = () => ({ height: 86.8 }) as DOMRect;
+      expect(composerBlockHeight(bar)).toBe(66);
+    } finally {
+      bar.remove();
     }
   });
 });

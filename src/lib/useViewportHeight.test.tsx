@@ -2,8 +2,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
 import {
+  KEYBOARD_EASING,
+  KEYBOARD_MS,
   __resetViewportForTests,
+  keyboardEasing,
+  keyboardMotionMs,
   useViewport,
+  viewportTransition,
+  type KeyboardWill,
+  type ViewportMotion,
 } from "./useViewportHeight";
 
 /** A WKWebView-ish visualViewport: settable height / offsetTop, fires
@@ -215,5 +222,192 @@ describe("useViewport", () => {
     expect(remove).not.toHaveBeenCalled();
     b.unmount();
     expect(remove).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe("keyboard motion (native UIKeyboardWill*)", () => {
+  let seen: ViewportMotion | null = null;
+  function MotionProbe() {
+    const { height, offsetTop, motion } = useViewport();
+    seen = motion;
+    return <div data-testid="probe" data-h={height} data-top={offsetTop} />;
+  }
+  function will(d: KeyboardWill) {
+    act(() => {
+      (window as unknown as { __k2KeyboardWill: (d: KeyboardWill) => void }).__k2KeyboardWill(d);
+    });
+  }
+  function keyboardUp() {
+    vv.height = FULL - KEYBOARD;
+    act(() => {
+      vv.dispatchEvent(new Event("resize"));
+    });
+    flush();
+  }
+  let mql: boolean;
+  beforeEach(() => {
+    seen = null;
+    mql = false;
+    window.matchMedia = vi.fn((q: string) => ({
+      matches: q.includes("reduce") ? mql : false,
+      media: q,
+      addEventListener() {},
+      removeEventListener() {},
+    })) as unknown as typeof window.matchMedia;
+  });
+
+  it("hide: jumps to full height at once with the keyboard's timing, holds it, then settles", () => {
+    render(<MotionProbe />);
+    keyboardUp();
+    expect(read().h).toBe(FULL - KEYBOARD);
+
+    will({ height: 0, duration: 250, curve: 7, show: false });
+    expect(read().h).toBe(FULL);
+    expect(seen).toEqual({ ms: 250, easing: KEYBOARD_EASING, elapsed: 0 });
+
+    // WebKit's visualViewport and the native ping still report the
+    // keyboard mid-slide: they must not fight the glide.
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    act(() => {
+      vv.dispatchEvent(new Event("resize"));
+      window.dispatchEvent(new CustomEvent("k2-viewport-resize", { detail: { height: FULL - KEYBOARD } }));
+    });
+    act(() => {
+      vi.advanceTimersByTime(20);
+    });
+    expect(read().h).toBe(FULL);
+    expect(seen).not.toBeNull();
+
+    // Landed: the re-measure takes over and the motion clears.
+    vv.height = FULL;
+    flush();
+    expect(read().h).toBe(FULL);
+    expect(seen).toBeNull();
+  });
+
+  it("show: heads straight for full minus the keyboard's overlap", () => {
+    render(<MotionProbe />);
+    will({ height: KEYBOARD, duration: 300, curve: 7, show: true });
+    expect(read().h).toBe(FULL - KEYBOARD);
+    expect(seen?.ms).toBe(300);
+    // An intermediate visualViewport height mid-animation is ignored.
+    vv.height = FULL - 120;
+    act(() => {
+      vv.dispatchEvent(new Event("resize"));
+    });
+    act(() => {
+      vi.advanceTimersByTime(50);
+    });
+    expect(read().h).toBe(FULL - KEYBOARD);
+    // Still resets the reveal pan while holding.
+    expect(window.scrollTo).toHaveBeenCalledWith(0, 0);
+    // After the animation the post-measure corrects to the real value.
+    vv.height = FULL - KEYBOARD - 4;
+    flush();
+    expect(read().h).toBe(FULL - KEYBOARD - 4);
+    expect(seen).toBeNull();
+  });
+
+  it("the post-animation re-measure fires on its own (no other event)", () => {
+    render(<MotionProbe />);
+    keyboardUp();
+    will({ height: 0, duration: 250, curve: 7, show: false });
+    vv.height = FULL;
+    act(() => {
+      vi.advanceTimersByTime(250 + 59);
+    });
+    expect(seen).not.toBeNull();
+    act(() => {
+      vi.advanceTimersByTime(2);
+    });
+    expect(seen).toBeNull();
+    expect(read().h).toBe(FULL);
+  });
+
+  it("WillShow + WillChangeFrame for one animation do not restart it", () => {
+    render(<MotionProbe />);
+    will({ height: KEYBOARD, duration: 250, curve: 7, show: true });
+    const first = seen;
+    act(() => {
+      vi.advanceTimersByTime(200);
+    });
+    will({ height: KEYBOARD, duration: 250, curve: 7, show: true });
+    expect(seen).toBe(first);
+    // Still settles on the first one's schedule.
+    vv.height = FULL - KEYBOARD;
+    act(() => {
+      vi.advanceTimersByTime(120);
+    });
+    expect(seen).toBeNull();
+  });
+
+  it("reversing mid-animation (show, then hide) retargets with fresh timing", () => {
+    render(<MotionProbe />);
+    will({ height: KEYBOARD, duration: 250, curve: 7, show: true });
+    act(() => {
+      vi.advanceTimersByTime(100);
+    });
+    will({ height: 0, duration: 250, curve: 7, show: false });
+    expect(read().h).toBe(FULL);
+    expect(seen?.ms).toBe(250);
+  });
+
+  it("reduced motion: the same final height at once, no motion", () => {
+    mql = true;
+    render(<MotionProbe />);
+    keyboardUp();
+    will({ height: 0, duration: 250, curve: 7, show: false });
+    expect(read().h).toBe(FULL);
+    expect(seen).toBeNull();
+  });
+
+  it("a hardware-keyboard bar (under the slop) changes nothing", () => {
+    render(<MotionProbe />);
+    will({ height: 55, duration: 250, curve: 7, show: true });
+    expect(read().h).toBe(FULL);
+    expect(seen).toBeNull();
+  });
+
+  it("no duration (unanimated frame change): snaps, no motion", () => {
+    render(<MotionProbe />);
+    will({ height: KEYBOARD, duration: 0, curve: 7, show: true });
+    expect(read().h).toBe(FULL - KEYBOARD);
+    expect(seen).toBeNull();
+  });
+
+  it("the bridge hop is skipped: elapsed comes from the native timestamp", () => {
+    render(<MotionProbe />);
+    will({ height: KEYBOARD, duration: 250, curve: 7, show: true, at: Date.now() - 40 });
+    expect(seen!.elapsed).toBeGreaterThanOrEqual(40);
+    expect(seen!.elapsed).toBeLessThan(80);
+    expect(viewportTransition(seen)).toMatch(
+      new RegExp(`^height 250ms ${KEYBOARD_EASING.replace(/[()]/g, "\\$&")} -\\d+ms$`)
+    );
+  });
+
+  it("the reported duration and curve reach the CSS (--k2-kb-*) and keyboardMotionMs", () => {
+    render(<MotionProbe />);
+    expect(keyboardMotionMs()).toBe(KEYBOARD_MS);
+    will({ height: KEYBOARD, duration: 320, curve: 0, show: true });
+    expect(keyboardMotionMs()).toBe(320);
+    const root = document.documentElement.style;
+    expect(root.getPropertyValue("--k2-kb-ms")).toBe("320ms");
+    expect(root.getPropertyValue("--k2-kb-ease")).toBe("ease-in-out");
+    root.removeProperty("--k2-kb-ms");
+    root.removeProperty("--k2-kb-ease");
+  });
+
+  it("timing helpers", () => {
+    expect(keyboardEasing(7)).toBe(KEYBOARD_EASING);
+    expect(keyboardEasing(undefined)).toBe(KEYBOARD_EASING);
+    expect(keyboardEasing(3)).toBe("linear");
+    expect(keyboardEasing(2)).toBe("ease-out");
+    expect(viewportTransition(null)).toBeUndefined();
+    expect(viewportTransition({ ms: 250, easing: "linear", elapsed: 0 })).toBe("height 250ms linear");
+    expect(viewportTransition({ ms: 250, easing: "linear", elapsed: 12.4 }, "top")).toBe(
+      "top 250ms linear -12ms"
+    );
   });
 });
