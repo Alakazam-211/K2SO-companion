@@ -57,9 +57,14 @@
 //     by the keyboard's height — the scroller reaches the screen bottom
 //     (the stand-in is not clipped) and nothing on screen moves;
 //     `interactive` flips (one render) so the Thread stops re-pinning;
-//   - the shell's `window.__k2KeyboardTrack(overlap)` (→ `k2-keyboard-
-//     track`) is only a "keyboard started moving" signal now, handed to
-//     the registered drag handler as a fallback trigger;
+//   - the shell samples the keyboard only during a dismiss drag (a pan
+//     that began with the keyboard up, and only once the keyboard has left
+//     its rest: a few frames, then one ~100ms later):
+//     `window.__k2KeyboardSample({top, scrollY, t})` (→ `k2-keyboard-
+//     sample`) goes to the registered drag handler, which uses it to put
+//     the stand-in exactly on the keyboard and as a fallback trigger;
+//     (`__k2KeyboardTrack(overlap)`, the older shell's "started moving"
+//     signal, still works as a fallback trigger);
 //   - on release iOS posts WillHide / WillShow: in one frame the stand-in
 //     goes, the columns take its current bottom as their height (the real
 //     composer lands exactly where the stand-in was), pads clear, then the
@@ -103,6 +108,9 @@ export type KeyboardWill = {
   show: boolean;
   /** Date.now() when UIKit posted it. */
   at?: number;
+  /** The keyboard's top (viewport px) as the animation begins (its begin
+   *  frame): after an interactive drag, where the finger left it. */
+  fromTop?: number;
 };
 
 /** UIKit's private keyboard curve (UIViewAnimationCurve 7). */
@@ -206,8 +214,15 @@ const padEls = new Set<HTMLElement>();
 /** Last keyboard overlap the shell signalled (px). */
 let latestOverlap = 0;
 
+/** One reading from the shell during a dismiss drag, all in the same
+ *  native frame: the keyboard's top (viewport px), the panning scroll
+ *  view's contentOffset.y (null if unknown), wall-clock ms. */
+export type KeyboardSample = { top: number; scrollY: number | null; t: number };
+
 /** The screen whose composer rides an interactive dismiss (the Thread). */
 export type KeyboardDragHandler = {
+  /** A sample from the shell (only while a dismiss drag moves it). */
+  keyboardSample(sample: KeyboardSample): void;
   /** The shell saw the keyboard start moving with no Will* (fallback
    *  trigger when touch events did not catch the crossing). `moved` is
    *  how far (px) it had gone when sampled. */
@@ -257,9 +272,15 @@ export function beginKeyboardDrag(): boolean {
 /** End a drag: in one frame the stand-in goes and the columns take its
  *  bottom as their height (no visible change), then go to `target` with
  *  `transition` (the keyboard's, or none). */
-function finishDrag(target: number, transition: string): void {
+function finishDrag(target: number, transition: string, keyboardTop?: number): void {
   if (state.interactive) {
-    const bottom = dragHandler?.draggedBottom() ?? null;
+    // The true geometry when the shell reports it (the keyboard's begin
+    // frame), else where the stand-in is.
+    const known =
+      typeof keyboardTop === "number" && Number.isFinite(keyboardTop) && keyboardTop > 0
+        ? Math.min(fullHeight(), keyboardTop)
+        : null;
+    const bottom = known ?? dragHandler?.draggedBottom() ?? null;
     dragHandler?.detach();
     for (const el of trackEls) {
       const top = el.getBoundingClientRect().top;
@@ -411,7 +432,7 @@ function keyboardWill(will: KeyboardWill): void {
   }, remaining + SETTLE_SLOP_MS);
   // Released: finish from where the finger left it (also a spring back
   // to the old height, which React alone would not rewrite).
-  if (wasInteractive) finishDrag(target, viewportTransition(motion) ?? "");
+  if (wasInteractive) finishDrag(target, viewportTransition(motion) ?? "", will.fromTop);
   set({ height: target, offsetTop: state.offsetTop, motion, interactive: false });
 }
 
@@ -455,6 +476,13 @@ function install(): () => void {
     const h = (e as CustomEvent<{ height?: number }>).detail?.height;
     if (typeof h === "number") keyboardTrack(h);
   };
+  const onSample = (e: Event) => {
+    const d = (e as CustomEvent<Partial<KeyboardSample>>).detail;
+    if (!d || typeof d.top !== "number" || !Number.isFinite(d.top)) return;
+    const scrollY = typeof d.scrollY === "number" && Number.isFinite(d.scrollY) ? d.scrollY : null;
+    const t = typeof d.t === "number" && Number.isFinite(d.t) ? d.t : Date.now();
+    dragHandler?.keyboardSample({ top: d.top, scrollY, t });
+  };
   const onWill = (e: Event) => {
     const d = (e as CustomEvent<KeyboardWill>).detail;
     if (d && typeof d === "object") keyboardWill(d);
@@ -473,6 +501,7 @@ function install(): () => void {
   window.addEventListener("k2-viewport-resize", onCustom);
   window.addEventListener("k2-keyboard-will", onWill);
   window.addEventListener("k2-keyboard-track", onTrack);
+  window.addEventListener("k2-keyboard-sample", onSample);
   window.addEventListener("k2-viewport-resync", onResync);
   window.addEventListener("pageshow", onResync);
   window.addEventListener("focus", onResync);
@@ -487,6 +516,7 @@ function install(): () => void {
     window.removeEventListener("k2-viewport-resize", onCustom);
     window.removeEventListener("k2-keyboard-will", onWill);
     window.removeEventListener("k2-keyboard-track", onTrack);
+    window.removeEventListener("k2-keyboard-sample", onSample);
     window.removeEventListener("k2-viewport-resync", onResync);
     window.removeEventListener("pageshow", onResync);
     window.removeEventListener("focus", onResync);
@@ -532,7 +562,13 @@ if (typeof window !== "undefined") {
   const w = window as unknown as {
     __k2KeyboardWill?: (d: KeyboardWill) => void;
     __k2KeyboardTrack?: (overlap: number) => void;
+    __k2KeyboardSample?: (s: KeyboardSample) => void;
   };
+  if (typeof w.__k2KeyboardSample !== "function") {
+    w.__k2KeyboardSample = (s: KeyboardSample) => {
+      window.dispatchEvent(new CustomEvent("k2-keyboard-sample", { detail: s }));
+    };
+  }
   if (typeof w.__k2KeyboardWill !== "function") {
     w.__k2KeyboardWill = (d: KeyboardWill) => {
       window.dispatchEvent(new CustomEvent("k2-keyboard-will", { detail: d }));

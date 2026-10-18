@@ -5,6 +5,152 @@ fn greet(name: &str) -> String {
     format!("Hello, {}!", name)
 }
 
+/// The interactive-dismiss sampler's decisions, platform-free (tested on
+/// the host). Fed one reading per display frame while a pan that began
+/// with the keyboard up is in progress: it says when to post a sample and
+/// when to stop. A keyboard that does not move posts nothing.
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+pub(crate) mod kb_sampler {
+    /// Samples posted at the start of an excursion from rest.
+    pub const EARLY_SAMPLES: u32 = 4;
+    /// One more sample this long (ms) into the excursion.
+    pub const LATE_SAMPLE_MS: f64 = 100.0;
+    /// Pan over and the keyboard still this many frames: stop.
+    pub const IDLE_STOP_FRAMES: u32 = 8;
+    /// Smaller changes (px) are noise.
+    pub const MOVE_EPS: f64 = 0.5;
+
+    #[derive(Debug, Default, Clone, Copy, PartialEq)]
+    pub struct Frame {
+        pub sample: bool,
+        pub stop: bool,
+    }
+
+    #[derive(Debug, Default)]
+    pub struct Sampler {
+        rest: Option<f64>,
+        prev: Option<f64>,
+        move_start_ms: Option<f64>,
+        early_sent: u32,
+        late_sent: bool,
+        idle: u32,
+    }
+
+    impl Sampler {
+        pub fn reset(&mut self) {
+            *self = Self::default();
+        }
+
+        /// One frame: `overlap` = keyboard overlap now (None: unknown),
+        /// `now_ms` since the run started, `pan_active` = finger down.
+        pub fn frame(&mut self, overlap: Option<f64>, now_ms: f64, pan_active: bool) -> Frame {
+            let mut out = Frame::default();
+            match overlap {
+                None => self.idle += 1,
+                Some(cur) => {
+                    let rest = *self.rest.get_or_insert(cur);
+                    let still = self.prev.map_or(true, |p| (cur - p).abs() < MOVE_EPS);
+                    self.prev = Some(cur);
+                    if still {
+                        self.idle += 1;
+                    } else {
+                        self.idle = 0;
+                    }
+                    if (cur - rest).abs() >= MOVE_EPS {
+                        let start = *self.move_start_ms.get_or_insert(now_ms);
+                        if self.early_sent < EARLY_SAMPLES {
+                            self.early_sent += 1;
+                            out.sample = true;
+                        } else if !self.late_sent && now_ms - start >= LATE_SAMPLE_MS {
+                            self.late_sent = true;
+                            out.sample = true;
+                        }
+                    } else {
+                        // Back at rest: the next excursion samples afresh.
+                        self.move_start_ms = None;
+                        self.early_sent = 0;
+                        self.late_sent = false;
+                    }
+                }
+            }
+            if !pan_active && self.idle >= IDLE_STOP_FRAMES {
+                out.stop = true;
+            }
+            out
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn a_static_keyboard_posts_nothing_and_stops_after_the_pan() {
+            let mut s = Sampler::default();
+            for i in 0..120 {
+                let f = s.frame(Some(336.0), i as f64 * 16.7, true);
+                assert!(!f.sample, "frame {i}");
+                assert!(!f.stop, "frame {i}: pan still active");
+            }
+            let mut stopped = false;
+            for i in 0..IDLE_STOP_FRAMES {
+                let f = s.frame(Some(336.0), 2000.0 + i as f64 * 16.7, false);
+                assert!(!f.sample);
+                stopped |= f.stop;
+            }
+            assert!(stopped);
+        }
+
+        #[test]
+        fn an_excursion_posts_the_early_frames_then_one_late_sample() {
+            let mut s = Sampler::default();
+            let mut posted = vec![];
+            let mut t = 0.0;
+            let mut k = 336.0;
+            s.frame(Some(k), t, true); // rest
+            for _ in 0..30 {
+                t += 16.7;
+                k -= 6.0; // the finger pulls it down
+                if s.frame(Some(k), t, true).sample {
+                    posted.push(t);
+                }
+            }
+            assert_eq!(posted.len() as u32, EARLY_SAMPLES + 1);
+            let start = posted[0];
+            assert!(posted[..EARLY_SAMPLES as usize]
+                .windows(2)
+                .all(|w| (w[1] - w[0] - 16.7).abs() < 1e-6));
+            assert!(posted[EARLY_SAMPLES as usize] - start >= LATE_SAMPLE_MS);
+        }
+
+        #[test]
+        fn back_at_rest_re_arms_and_a_moving_keyboard_never_stops() {
+            let mut s = Sampler::default();
+            s.frame(Some(336.0), 0.0, true);
+            assert!(s.frame(Some(330.0), 16.0, true).sample);
+            s.frame(Some(336.0), 32.0, true); // back up
+            assert!(s.frame(Some(320.0), 48.0, true).sample);
+            // Pan over but the keyboard still moving (no Will* yet): run on.
+            for i in 0..20 {
+                let f = s.frame(Some(300.0 - i as f64), 64.0 + i as f64 * 16.0, false);
+                assert!(!f.stop);
+            }
+        }
+
+        #[test]
+        fn unknown_readings_count_as_idle() {
+            let mut s = Sampler::default();
+            let mut stop = false;
+            for i in 0..IDLE_STOP_FRAMES {
+                let f = s.frame(None, i as f64, false);
+                assert!(!f.sample);
+                stop |= f.stop;
+            }
+            assert!(stop);
+        }
+    }
+}
+
 #[cfg(target_os = "ios")]
 mod ios_keyboard {
     use objc2::runtime::{AnyClass, AnyObject, ClassBuilder, Sel};
@@ -196,6 +342,7 @@ mod ios_keyboard {
         static UIKeyboardAnimationDurationUserInfoKey: *const AnyObject;
         static UIKeyboardAnimationCurveUserInfoKey: *const AnyObject;
         static UIKeyboardFrameEndUserInfoKey: *const AnyObject;
+        static UIKeyboardFrameBeginUserInfoKey: *const AnyObject;
         static UIApplicationDidBecomeActiveNotification: *const AnyObject;
     }
 
@@ -291,6 +438,9 @@ mod ios_keyboard {
         let mut duration_ms = 250.0f64;
         let mut curve: isize = 7;
         let mut overlap = 0.0f64;
+        // Where the keyboard is as this animation begins (web view px from
+        // the top): after an interactive drag, where the finger left it.
+        let mut from_top: Option<f64> = None;
         unsafe {
             let info: *mut AnyObject = if note.is_null() {
                 std::ptr::null_mut()
@@ -311,6 +461,16 @@ mod ios_keyboard {
                 if !c.is_null() {
                     curve = msg_send![c, integerValue];
                 }
+                let fb: *mut AnyObject =
+                    msg_send![info, objectForKey: UIKeyboardFrameBeginUserInfoKey];
+                if !fb.is_null() {
+                    let begin: CGRect = msg_send![fb, CGRectValue];
+                    let b: CGRect = msg_send![wk, bounds];
+                    let o = keyboard_overlap(wk, begin);
+                    if o > 0.0 {
+                        from_top = Some(b.size.height - o);
+                    }
+                }
                 if !hiding {
                     let f: *mut AnyObject =
                         msg_send![info, objectForKey: UIKeyboardFrameEndUserInfoKey];
@@ -326,19 +486,20 @@ mod ios_keyboard {
             .map(|d| d.as_millis())
             .unwrap_or(0);
         let show = !hiding && overlap > 0.0;
-        // The keyboard moves on its own now: the frame tracker stands down
-        // until it lands (then re-bases on wherever that is).
-        TRACK.with(|t| {
-            t.borrow_mut().anim_until =
-                Some(Instant::now() + Duration::from_millis(duration_ms as u64 + 40));
-        });
+        // The keyboard moves on its own now (a release, or a plain show /
+        // hide): any dismiss sampling is over.
+        stop_sampling();
+        KEYBOARD_UP.store(show, Ordering::Release);
         if show {
             set_interactive_dismiss(wk);
-            start_tracking();
         }
+        let from = match from_top {
+            Some(v) if v.is_finite() => format!("{:.2}", v),
+            _ => "null".to_string(),
+        };
         let js = format!(
-            "window.__k2KeyboardWill && window.__k2KeyboardWill({{height:{:.1},duration:{:.0},curve:{},show:{},at:{}}});",
-            overlap, duration_ms, curve, show, at
+            "window.__k2KeyboardWill && window.__k2KeyboardWill({{height:{:.1},duration:{:.0},curve:{},show:{},at:{},fromTop:{}}});",
+            overlap, duration_ms, curve, show, at, from
         );
         eval_js(wk, &js);
     }
@@ -362,12 +523,21 @@ mod ios_keyboard {
     // into the natively scrolled list content as the drag starts
     // (src/zen/keyboardDragDock.ts), normally on a touchmove crossing the
     // keyboard's top minus keyboardDismissPadding (iOS 17+, the composer's
-    // height, set from the page: ios_keyboard_dismiss_padding). As a
-    // fallback trigger, while the keyboard is up a CADisplayLink reads its
-    // top every frame and posts ONE `window.__k2KeyboardTrack(overlap)`
-    // when it leaves its rest with no Will* animation in flight (re-armed
-    // back at rest). On release UIKit posts WillHide / WillShow with the
-    // rest of the animation, which takes over (keyboard_will).
+    // height, set from the page: ios_keyboard_dismiss_padding).
+    //
+    // Idle by default: nothing runs while the keyboard just sits there.
+    // Every child scroll view's panGestureRecognizer gets a target; a pan
+    // that BEGINS while the keyboard is up starts a CADisplayLink sampler.
+    // It reads the keyboard's top each frame but posts only when the
+    // keyboard has left its rest: the first EARLY_SAMPLES frames of the
+    // excursion and one ~LATE_SAMPLE_MS later
+    // (`window.__k2KeyboardSample({top, scrollY, t})`, with the panning
+    // scroll view's contentOffset.y in the same frame). The page uses them
+    // to place the composer copy exactly on the keyboard (one or two
+    // corrections) and the first as a fallback attach trigger. It stops
+    // when the pan has ended and the keyboard has been still for
+    // IDLE_STOP_FRAMES, on any Will* (the release animation takes over,
+    // keyboard_will) and on DidHide.
     //
     // Keyboard top: UIKeyboardLayoutGuide (public, iOS 15+) first. If it
     // sits still while the keyboard's host view moves (it did not follow
@@ -376,9 +546,10 @@ mod ios_keyboard {
     // Absent views / selectors just mean no tracking.
 
     const UI_SCROLL_VIEW_KEYBOARD_DISMISS_MODE_INTERACTIVE: isize = 2;
-    /// Re-apply the dismiss mode every this many frames (WebKit creates
-    /// child scroll views lazily, and recreates them on re-layering).
-    const REAPPLY_TICKS: u32 = 45;
+    const UI_GESTURE_STATE_BEGAN: isize = 1;
+    const UI_GESTURE_STATE_ENDED: isize = 3;
+    const UI_GESTURE_STATE_CANCELLED: isize = 4;
+    const UI_GESTURE_STATE_FAILED: isize = 5;
 
     use std::cell::RefCell;
     use std::sync::atomic::AtomicU64;
@@ -404,10 +575,16 @@ mod ios_keyboard {
             set_interactive_dismiss(wk);
         }
     }
-    use std::time::{Duration, Instant};
+    use std::sync::atomic::AtomicBool;
+
+    use crate::kb_sampler::Sampler;
 
     static OBSERVER: AtomicPtr<AnyObject> = AtomicPtr::new(std::ptr::null_mut());
     static LINK: AtomicPtr<AnyObject> = AtomicPtr::new(std::ptr::null_mut());
+    /// The keyboard is up (a Will*Show / DidShow, until a Will*Hide).
+    static KEYBOARD_UP: AtomicBool = AtomicBool::new(false);
+    /// A scroll view's pan is in progress (began … ended).
+    static PAN_ACTIVE: AtomicBool = AtomicBool::new(false);
 
     #[derive(Clone, Copy, PartialEq)]
     enum TrackSource {
@@ -416,33 +593,30 @@ mod ios_keyboard {
     }
 
     struct Track {
-        /// A Will* animation owns the keyboard until then.
-        anim_until: Option<Instant>,
-        /// Next tick takes the current values as the baseline, sends nothing.
-        rebase: bool,
+        /// First frame of a sampling run: take the readings as baseline.
+        fresh: bool,
         prev_guide: f64,
         prev_host: f64,
-        /// The keyboard's resting overlap (baseline at the last rebase).
-        sent: f64,
         source: TrackSource,
-        ticks: u32,
         guide_configured: bool,
-        /// "Started moving" already posted for this excursion from rest.
-        signaled: bool,
+        sampler: Sampler,
+        /// The scroll view whose pan started this run (its contentOffset
+        /// goes with each sample).
+        pan_view: Option<objc2::rc::Retained<AnyObject>>,
+        started: Option<std::time::Instant>,
     }
 
     thread_local! {
-        // Main thread only (notifications + display link).
+        // Main thread only (notifications, gestures, display link).
         static TRACK: RefCell<Track> = RefCell::new(Track {
-            anim_until: None,
-            rebase: true,
+            fresh: true,
             prev_guide: 0.0,
             prev_host: 0.0,
-            sent: 0.0,
             source: TrackSource::Guide,
-            ticks: 0,
             guide_configured: false,
-            signaled: false,
+            sampler: Sampler::default(),
+            pan_view: None,
+            started: None,
         });
     }
 
@@ -476,6 +650,16 @@ mod ios_keyboard {
                 let mode: isize = msg_send![view, keyboardDismissMode];
                 if mode != UI_SCROLL_VIEW_KEYBOARD_DISMISS_MODE_INTERACTIVE {
                     let _: () = msg_send![view, setKeyboardDismissMode: UI_SCROLL_VIEW_KEYBOARD_DISMISS_MODE_INTERACTIVE];
+                }
+                // Know when a drag that may dismiss the keyboard starts.
+                let observer = OBSERVER.load(Ordering::Acquire);
+                if !observer.is_null() {
+                    let pan: *mut AnyObject = msg_send![view, panGestureRecognizer];
+                    if !pan.is_null() {
+                        // remove + add: idempotent across walks.
+                        let _: () = msg_send![pan, removeTarget: observer, action: sel!(k2Pan:)];
+                        let _: () = msg_send![pan, addTarget: observer, action: sel!(k2Pan:)];
+                    }
                 }
                 let pad = f64::from_bits(DISMISS_PADDING.load(Ordering::Acquire));
                 if pad > 0.0 {
@@ -605,89 +789,123 @@ mod ios_keyboard {
         }
     }
 
-    fn send_track(wk: *mut AnyObject, overlap: f64) {
+    /// One sample to the page: the keyboard's top (web view px) and the
+    /// panning scroll view's contentOffset.y, read in the same frame.
+    fn send_sample(wk: *mut AnyObject, overlap: f64, scroll_y: Option<f64>) {
+        let height = unsafe {
+            let b: CGRect = msg_send![wk, bounds];
+            b.size.height
+        };
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64() * 1000.0)
+            .unwrap_or(0.0);
+        let scroll = match scroll_y {
+            Some(y) if y.is_finite() => format!("{:.2}", y),
+            _ => "null".to_string(),
+        };
         let js = format!(
-            "window.__k2KeyboardTrack && window.__k2KeyboardTrack({:.1});",
-            overlap
+            "window.__k2KeyboardSample && window.__k2KeyboardSample({{top:{:.2},scrollY:{},t:{:.1}}});",
+            height - overlap,
+            scroll,
+            t
         );
         eval_js(wk, &js);
     }
 
+    extern "C-unwind" fn on_pan(_this: &AnyObject, _cmd: Sel, pan: *mut AnyObject) {
+        if pan.is_null() {
+            return;
+        }
+        let state: isize = unsafe { msg_send![pan, state] };
+        if state == UI_GESTURE_STATE_BEGAN {
+            if !KEYBOARD_UP.load(Ordering::Acquire) {
+                return;
+            }
+            PAN_ACTIVE.store(true, Ordering::Release);
+            let view: *mut AnyObject = unsafe { msg_send![pan, view] };
+            let retained = unsafe { objc2::rc::Retained::retain(view) };
+            TRACK.with(|t| t.borrow_mut().pan_view = retained);
+            start_sampling();
+        } else if state == UI_GESTURE_STATE_ENDED
+            || state == UI_GESTURE_STATE_CANCELLED
+            || state == UI_GESTURE_STATE_FAILED
+        {
+            PAN_ACTIVE.store(false, Ordering::Release);
+        }
+    }
+
     extern "C-unwind" fn on_keyboard_tick(_this: &AnyObject, _cmd: Sel, _link: *mut AnyObject) {
         let Some(wk) = live_webview() else {
+            stop_sampling();
             return;
         };
-        let now = Instant::now();
-        let (reapply, configure) = TRACK.with(|t| {
+        let configure = TRACK.with(|t| {
             let mut t = t.borrow_mut();
-            t.ticks = t.ticks.wrapping_add(1);
-            let configure = !t.guide_configured;
+            let c = !t.guide_configured;
             t.guide_configured = true;
-            (t.ticks % REAPPLY_TICKS == 0, configure)
+            c
         });
-        if reapply {
-            set_interactive_dismiss(wk);
-        }
         let guide = guide_overlap(wk, configure);
         let host = host_overlap(wk);
-        let send = TRACK.with(|t| {
+        let pan_active = PAN_ACTIVE.load(Ordering::Acquire);
+        let (out, overlap, scroll_y) = TRACK.with(|t| {
             let mut t = t.borrow_mut();
-            let animating = t.anim_until.map_or(false, |until| now < until);
-            if animating || t.rebase {
-                if !animating {
-                    t.anim_until = None;
-                    t.rebase = false;
-                } else {
-                    t.rebase = true;
-                }
+            let now_ms = t
+                .started
+                .map_or(0.0, |s| s.elapsed().as_secs_f64() * 1000.0);
+            if t.fresh {
+                t.fresh = false;
                 if let Some(g) = guide {
                     t.prev_guide = g;
                 }
                 if let Some(h) = host {
                     t.prev_host = h;
                 }
-                t.sent = guide.or(host).unwrap_or(t.sent);
                 t.source = TrackSource::Guide;
-                t.signaled = false;
-                return None;
-            }
-            let guide_moved = guide.map_or(false, |g| (g - t.prev_guide).abs() >= 0.5);
-            let host_moved = host.map_or(false, |h| (h - t.prev_host).abs() >= 0.5);
-            if let Some(g) = guide {
-                t.prev_guide = g;
-            }
-            if let Some(h) = host {
-                t.prev_host = h;
-            }
-            if guide_moved {
-                t.source = TrackSource::Guide;
-            } else if host_moved {
-                t.source = TrackSource::Host;
+            } else {
+                let guide_moved = guide.map_or(false, |g| (g - t.prev_guide).abs() >= 0.5);
+                let host_moved = host.map_or(false, |h| (h - t.prev_host).abs() >= 0.5);
+                if let Some(g) = guide {
+                    t.prev_guide = g;
+                }
+                if let Some(h) = host {
+                    t.prev_host = h;
+                }
+                if guide_moved {
+                    t.source = TrackSource::Guide;
+                } else if host_moved {
+                    t.source = TrackSource::Host;
+                }
             }
             let cur = match t.source {
                 TrackSource::Guide => guide.or(host),
                 TrackSource::Host => host.or(guide),
-            }?;
-            // Only the start of an excursion is posted: the page moves the
-            // composer into the natively scrolled content then, and
-            // scrolling carries it (no per-frame IPC). Back at rest re-arms.
-            if (cur - t.sent).abs() < 0.5 {
-                t.signaled = false;
-                return None;
-            }
-            if t.signaled {
-                return None;
-            }
-            t.signaled = true;
-            Some(cur)
+            };
+            let out = t.sampler.frame(cur, now_ms, pan_active);
+            let scroll_y = if out.sample {
+                t.pan_view.as_ref().map(|v| unsafe {
+                    let p: CGPoint = msg_send![&**v, contentOffset];
+                    p.y
+                })
+            } else {
+                None
+            };
+            (out, cur, scroll_y)
         });
-        if let Some(overlap) = send {
-            send_track(wk, overlap);
+        if out.sample {
+            if let Some(overlap) = overlap {
+                send_sample(wk, overlap, scroll_y);
+            }
+        }
+        if out.stop {
+            stop_sampling();
         }
     }
 
-    /// Start the per-frame keyboard tracker (idempotent).
-    fn start_tracking() {
+    /// Start the dismiss sampler (idempotent): only while a pan that began
+    /// with the keyboard up is (or was just) in progress.
+    fn start_sampling() {
         if !LINK.load(Ordering::Acquire).is_null() {
             return;
         }
@@ -698,6 +916,12 @@ mod ios_keyboard {
         let Some(link_class) = AnyClass::get(c"CADisplayLink") else {
             return;
         };
+        TRACK.with(|t| {
+            let mut t = t.borrow_mut();
+            t.fresh = true;
+            t.sampler.reset();
+            t.started = Some(std::time::Instant::now());
+        });
         unsafe {
             let link: *mut AnyObject = msg_send![link_class, displayLinkWithTarget: observer, selector: sel!(k2KeyboardTick:)];
             if link.is_null() {
@@ -711,10 +935,9 @@ mod ios_keyboard {
             let _: () = msg_send![link, addToRunLoop: run_loop, forMode: NSRunLoopCommonModes];
             LINK.store(link, Ordering::Release);
         }
-        TRACK.with(|t| t.borrow_mut().rebase = true);
     }
 
-    fn stop_tracking() {
+    fn stop_sampling() {
         let link = LINK.swap(std::ptr::null_mut(), Ordering::AcqRel);
         if !link.is_null() {
             // The run loop held the only reference: invalidate releases it.
@@ -722,6 +945,11 @@ mod ios_keyboard {
                 let _: () = msg_send![link, invalidate];
             }
         }
+        TRACK.with(|t| {
+            let mut t = t.borrow_mut();
+            t.pan_view = None;
+            t.started = None;
+        });
     }
 
     fn live_webview() -> Option<*mut AnyObject> {
@@ -735,19 +963,16 @@ mod ios_keyboard {
 
     extern "C-unwind" fn on_keyboard_did_show(_this: &AnyObject, _cmd: Sel, _note: *mut AnyObject) {
         if let Some(wk) = live_webview() {
+            KEYBOARD_UP.store(true, Ordering::Release);
             set_interactive_dismiss(wk);
-            TRACK.with(|t| {
-                let mut t = t.borrow_mut();
-                t.anim_until = None;
-                t.rebase = true;
-            });
-            start_tracking();
             ping_page(wk);
         }
     }
 
     extern "C-unwind" fn on_keyboard_did_hide(_this: &AnyObject, _cmd: Sel, _note: *mut AnyObject) {
-        stop_tracking();
+        KEYBOARD_UP.store(false, Ordering::Release);
+        PAN_ACTIVE.store(false, Ordering::Release);
+        stop_sampling();
         if let Some(wk) = live_webview() {
             reset_content_offset(wk);
             ping_page(wk);
@@ -784,6 +1009,7 @@ mod ios_keyboard {
                 sel!(k2KeyboardTick:),
                 on_keyboard_tick as extern "C-unwind" fn(_, _, _),
             );
+            builder.add_method(sel!(k2Pan:), on_pan as extern "C-unwind" fn(_, _, _));
             builder.add_method(
                 sel!(k2KeyboardWillChange:),
                 on_keyboard_will_change as extern "C-unwind" fn(_, _, _),
@@ -856,8 +1082,13 @@ mod ios_keyboard {
                     // Native ping (keyboard did show/hide, app did become
                     // active): always re-send the height, then ask the page
                     // to re-measure + reset any pan (useViewportHeight).
-                    // Native per-frame keyboard top during an interactive
-                    // dismiss (overlap px).
+                    // Keyboard samples during an interactive dismiss drag
+                    // ({top, scrollY, t}; useViewportHeight).
+                    if (typeof window.__k2KeyboardSample !== 'function') {
+                        window.__k2KeyboardSample = function(s) {
+                            window.dispatchEvent(new CustomEvent('k2-keyboard-sample', { detail: s }));
+                        };
+                    }
                     if (typeof window.__k2KeyboardTrack !== 'function') {
                         window.__k2KeyboardTrack = function(h) {
                             window.dispatchEvent(new CustomEvent('k2-keyboard-track', { detail: { height: h } }));
