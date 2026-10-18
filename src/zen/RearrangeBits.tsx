@@ -64,22 +64,19 @@ export function GripHandle({
   );
 }
 
-/** Blue "Done" pill: bottom right, just above the search field and `+`. */
+/** Glass "Done" pill: bottom right, just above the search field and `+`. */
 export function RearrangeDone({ onDone }: { onDone: () => void }) {
   return (
     <button
       type="button"
-      className="absolute flex items-center justify-center border-0 text-[16px] font-semibold"
+      className="absolute flex items-center justify-center text-[16px] font-semibold zen-glass zen-glass-pill"
       style={{
         zIndex: 6,
         right: 16,
         bottom: `calc(${SEARCH_BAR_REST_BOTTOM} + ${SEARCH_BAR_HEIGHT + 12}px)`,
         height: 40,
         padding: "0 22px",
-        borderRadius: 20,
-        background: "#0a84ff",
         color: "#fff",
-        boxShadow: "0 6px 18px rgba(0,0,0,.35)",
       }}
       data-no-pin="1"
       data-testid="rearrange-done"
