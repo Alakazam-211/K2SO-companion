@@ -205,6 +205,10 @@ describe("no fallback: every stack stays on its scope's server (MS7)", () => {
   it("a removed B fails closed: nothing is sent anywhere", async () => {
     const b = B();
     useServersStore.getState().removeServer("b");
+    // Leaving B revokes its session on B (the one intended request).
+    await new Promise((r) => setTimeout(r, 0));
+    expect(fetchMock.mock.calls.map(([u]) => String(u))).toEqual([expect.stringMatching(/\/cli\/auth\/logout$/)]);
+    fetchMock.mockClear();
     const r = await getThread(b, "appa");
     expect(r.ok).toBe(false);
     expect(r.error).toMatch(/removed/);

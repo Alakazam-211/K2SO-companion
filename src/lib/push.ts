@@ -460,9 +460,7 @@ export async function unregisterLeaving(server: ServerEntry, token: string): Pro
   }
 }
 
-onServerLeave((server, token) => {
-  void unregisterLeaving(server, token);
-});
+onServerLeave((server, token) => unregisterLeaving(server, token));
 
 // ─── Tap deep-link + token rotation wiring ───
 
