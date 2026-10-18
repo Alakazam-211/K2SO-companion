@@ -9,6 +9,7 @@
 // known to be below the phone floor (0.41.6) opens the old way instead.
 
 import { RowChevron } from "../RowChevron";
+import { RowDivider } from "../RowDivider";
 import { useEffect, useState, type ReactNode } from "react";
 import { activityColor, activityRowText, type RowActivity } from "../agentActivity";
 import { WorkspaceAvatar } from "../WorkspaceAvatar";
@@ -92,6 +93,7 @@ function RowShell({
   testId,
   serverId,
   rowKey,
+  divider = false,
 }: {
   inset: string;
   greyed: boolean;
@@ -99,6 +101,7 @@ function RowShell({
   testId: string;
   serverId: string;
   rowKey?: string;
+  divider?: boolean;
 }) {
   return (
     <div
@@ -116,6 +119,7 @@ function RowShell({
       }}
     >
       {children}
+      {divider ? <RowDivider padLeft={inset} padRight={inset} /> : null}
     </div>
   );
 }
@@ -135,6 +139,7 @@ export function RemoteAgentRow({
   onAction,
   nextAt,
   unread = null,
+  divider = false,
 }: {
   row: MergedRow;
   failure: RowFailure | null;
@@ -149,6 +154,8 @@ export function RemoteAgentRow({
   nextAt?: number | null;
   /** Unread marks on that server (K2 0.46.1); null = none. */
   unread?: RowUnread | null;
+  /** The hairline under the row (every row but a section's last). */
+  divider?: boolean;
 }) {
   const a = row.agent;
   const marks = failure ? null : unread;
@@ -237,7 +244,7 @@ export function RemoteAgentRow({
     // reconnects (its banner says so).
     const opens = failure.state === "offline" || failure.state === "restarting";
     return (
-      <RowShell inset={inset} greyed testId="remote-row" serverId={row.serverId} rowKey={row.key}>
+      <RowShell inset={inset} greyed testId="remote-row" serverId={row.serverId} rowKey={row.key} divider={divider}>
         {opens ? (
           <button
             type="button"
@@ -287,6 +294,7 @@ export function RemoteAgentRow({
       >
         {body}
       </button>
+      {divider ? <RowDivider padLeft={inset} padRight={inset} /> : null}
     </div>
   );
 }

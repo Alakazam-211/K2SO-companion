@@ -14,6 +14,7 @@ import { rowPreviewFor, rowPreviewText } from "./rowPreview";
 import { RowSnippet } from "./RowSnippet";
 import { activityColor, activityForRow, activityPinText, activityRowText } from "./agentActivity";
 import { AgentRowContent } from "./AgentRowContent";
+import { RowDivider } from "./RowDivider";
 import { OverlayAddServer } from "./OverlayAddServer";
 import {
   GlassSearchBar,
@@ -940,7 +941,7 @@ export function ChatsList() {
     };
   };
 
-  const renderRemoteRow = (r: MergedRow) => {
+  const renderRemoteRow = (r: MergedRow, divider: boolean) => {
     const { failure, busy } = remoteView(r);
     const lastKey = failure ? undefined : lastAtKeyFor(r.serverId, r.agent) ?? undefined;
     const when =
@@ -956,6 +957,7 @@ export function ChatsList() {
         lastKey={lastKey}
         iconUrl={iconOf(r)}
         inset={ZEN_LIST_CONTENT_INSET}
+        divider={divider}
         nextAt={multi.entries[r.serverId]?.nextAt ?? null}
         onOpen={() => openRemote(r)}
         onAction={() => {
@@ -1691,8 +1693,10 @@ export function ChatsList() {
             {activeDown && source !== "stub" ? reconnectingLine : agentError || "No agents on this list."}
           </p>
         ) : null}
-        {listItems.map((item) => {
-          if (!item.active) return renderRemoteRow(item.row);
+        {listItems.map((item, i) => {
+          // A hairline between rows: none under the last one.
+          const divided = i < listItems.length - 1;
+          if (!item.active) return renderRemoteRow(item.row, divided);
           const a = item.agent;
           const lastKey = source === "live" ? lastAtKeyFor(zen.id, a) ?? undefined : undefined;
           const when =
@@ -1785,6 +1789,13 @@ export function ChatsList() {
               unread={source === "live" ? rowUnread(zen.id, a) : null}
             />
           </button>
+          {divided && !shift.dragging ? (
+            <RowDivider
+              padLeft={rearrangePadLeft(ZEN_LIST_CONTENT_INSET, agentsRearranging)}
+              padRight={ZEN_LIST_CONTENT_INSET}
+              transition={rearrange.reduced ? undefined : "left 200ms cubic-bezier(.2,.9,.25,1)"}
+            />
+          ) : null}
           </div>
           );
         })}
