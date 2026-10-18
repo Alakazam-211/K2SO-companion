@@ -466,7 +466,7 @@ describe("Row dividers (Rosson 2026-10-18)", () => {
     expect(d.style.left).toBe(css("left", `calc(${padLeft} + 60px)`));
     expect(d.style.left).toContain("60px");
     expect(d.style.right).toBe(css("right", ZEN_LIST_CONTENT_INSET));
-    expect(d.style.background).toMatch(/#8e8e93|rgb\(142, 142, 147\)/);
+    expect(d.style.background).toMatch(/rgba\(84, 84, 88, 0\.65\)/);
     expect(d.style.transform).toBe("scaleY(.5)");
   };
 
