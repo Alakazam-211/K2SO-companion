@@ -481,14 +481,20 @@ mod ios_keyboard {
                 }
             }
         }
+        // Wall-clock ms with sub-ms precision (the page compares it with
+        // performance.timeOrigin + now).
         let at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_millis())
-            .unwrap_or(0);
+            .map(|d| d.as_secs_f64() * 1000.0)
+            .unwrap_or(0.0);
         let show = !hiding && overlap > 0.0;
         // The keyboard moves on its own now (a release, or a plain show /
-        // hide): any dismiss sampling is over.
-        stop_sampling();
+        // hide): any dismiss sampling is over — unless the drag recorder
+        // is on and a drag was being sampled: it records the release
+        // animation too, then stops.
+        if !rec_tail(duration_ms) {
+            stop_sampling();
+        }
         KEYBOARD_UP.store(show, Ordering::Release);
         if show {
             set_interactive_dismiss(wk);
@@ -498,7 +504,7 @@ mod ios_keyboard {
             _ => "null".to_string(),
         };
         let js = format!(
-            "window.__k2KeyboardWill && window.__k2KeyboardWill({{height:{:.1},duration:{:.0},curve:{},show:{},at:{},fromTop:{}}});",
+            "window.__k2KeyboardWill && window.__k2KeyboardWill({{height:{:.1},duration:{:.0},curve:{},show:{},at:{:.2},fromTop:{}}});",
             overlap, duration_ms, curve, show, at, from
         );
         eval_js(wk, &js);
@@ -586,6 +592,57 @@ mod ios_keyboard {
     /// A scroll view's pan is in progress (began … ended).
     static PAN_ACTIVE: AtomicBool = AtomicBool::new(false);
 
+    // ── Drag recorder hook (diagnostics; off by default) ─────────────
+    //
+    // Server settings → Diagnostics → "Keyboard drag recorder" turns it on
+    // (ios_keyboard_recorder). Only while it is on AND a dismiss drag is
+    // being sampled, every frame also posts
+    // `window.__k2KeyboardRec({t, top, scrollY})` (src/lib/kbDragRecorder.ts),
+    // and the sampler keeps running through the release animation (+150ms)
+    // instead of stopping on the Will*. Off: exactly the sampler above.
+    static RECORDING: AtomicBool = AtomicBool::new(false);
+
+    pub fn set_recording(on: bool) {
+        RECORDING.store(on, Ordering::Release);
+    }
+
+    /// A Will* while recording a sampled drag: keep the link for the
+    /// release animation. True when the tail took over (do not stop).
+    fn rec_tail(duration_ms: f64) -> bool {
+        if !RECORDING.load(Ordering::Acquire) || LINK.load(Ordering::Acquire).is_null() {
+            return false;
+        }
+        let ms = if duration_ms.is_finite() { duration_ms.clamp(0.0, 1000.0) } else { 250.0 };
+        TRACK.with(|t| {
+            t.borrow_mut().tail_until = Some(
+                std::time::Instant::now() + std::time::Duration::from_millis(ms as u64 + 150),
+            );
+        });
+        true
+    }
+
+    fn send_rec(wk: *mut AnyObject, overlap: f64, scroll_y: Option<f64>) {
+        let height = unsafe {
+            let b: CGRect = msg_send![wk, bounds];
+            b.size.height
+        };
+        let t = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_secs_f64() * 1000.0)
+            .unwrap_or(0.0);
+        let scroll = match scroll_y {
+            Some(y) if y.is_finite() => format!("{:.1}", y),
+            _ => "null".to_string(),
+        };
+        let js = format!(
+            "window.__k2KeyboardRec && window.__k2KeyboardRec({{top:{:.1},scrollY:{},t:{:.2}}});",
+            height - overlap,
+            scroll,
+            t
+        );
+        eval_js(wk, &js);
+    }
+
     #[derive(Clone, Copy, PartialEq)]
     enum TrackSource {
         Guide,
@@ -604,6 +661,8 @@ mod ios_keyboard {
         /// goes with each sample).
         pan_view: Option<objc2::rc::Retained<AnyObject>>,
         started: Option<std::time::Instant>,
+        /// Recorder only: the release animation is being recorded until then.
+        tail_until: Option<std::time::Instant>,
     }
 
     thread_local! {
@@ -617,6 +676,7 @@ mod ios_keyboard {
             sampler: Sampler::default(),
             pan_view: None,
             started: None,
+            tail_until: None,
         });
     }
 
@@ -849,7 +909,8 @@ mod ios_keyboard {
         let guide = guide_overlap(wk, configure);
         let host = host_overlap(wk);
         let pan_active = PAN_ACTIVE.load(Ordering::Acquire);
-        let (out, overlap, scroll_y) = TRACK.with(|t| {
+        let recording = RECORDING.load(Ordering::Acquire);
+        let (out, overlap, scroll_y, rec_scroll) = TRACK.with(|t| {
             let mut t = t.borrow_mut();
             let now_ms = t
                 .started
@@ -882,17 +943,28 @@ mod ios_keyboard {
                 TrackSource::Guide => guide.or(host),
                 TrackSource::Host => host.or(guide),
             };
-            let out = t.sampler.frame(cur, now_ms, pan_active);
-            let scroll_y = if out.sample {
+            fn offset(t: &Track) -> Option<f64> {
                 t.pan_view.as_ref().map(|v| unsafe {
                     let p: CGPoint = msg_send![&**v, contentOffset];
                     p.y
                 })
-            } else {
-                None
-            };
-            (out, cur, scroll_y)
+            }
+            if let Some(until) = t.tail_until {
+                // Recorder tail: no samples (the Will* owns the keyboard).
+                let stop = std::time::Instant::now() >= until;
+                let out = kb_sampler_frame_stop(stop);
+                return (out, cur, None, offset(&t));
+            }
+            let out = t.sampler.frame(cur, now_ms, pan_active);
+            let scroll_y = if out.sample { offset(&t) } else { None };
+            let rec_scroll = if recording { offset(&t) } else { None };
+            (out, cur, scroll_y, rec_scroll)
         });
+        if recording {
+            if let Some(overlap) = overlap {
+                send_rec(wk, overlap, rec_scroll);
+            }
+        }
         if out.sample {
             if let Some(overlap) = overlap {
                 send_sample(wk, overlap, scroll_y);
@@ -937,6 +1009,10 @@ mod ios_keyboard {
         }
     }
 
+    fn kb_sampler_frame_stop(stop: bool) -> crate::kb_sampler::Frame {
+        crate::kb_sampler::Frame { sample: false, stop }
+    }
+
     fn stop_sampling() {
         let link = LINK.swap(std::ptr::null_mut(), Ordering::AcqRel);
         if !link.is_null() {
@@ -949,6 +1025,7 @@ mod ios_keyboard {
             let mut t = t.borrow_mut();
             t.pan_view = None;
             t.started = None;
+            t.tail_until = None;
         });
     }
 
@@ -972,7 +1049,11 @@ mod ios_keyboard {
     extern "C-unwind" fn on_keyboard_did_hide(_this: &AnyObject, _cmd: Sel, _note: *mut AnyObject) {
         KEYBOARD_UP.store(false, Ordering::Release);
         PAN_ACTIVE.store(false, Ordering::Release);
-        stop_sampling();
+        // A recorder tail ends itself (it records the keyboard settling).
+        let tail = TRACK.with(|t| t.borrow().tail_until.is_some());
+        if !tail {
+            stop_sampling();
+        }
         if let Some(wk) = live_webview() {
             reset_content_offset(wk);
             ping_page(wk);
@@ -1087,6 +1168,11 @@ mod ios_keyboard {
                     if (typeof window.__k2KeyboardSample !== 'function') {
                         window.__k2KeyboardSample = function(s) {
                             window.dispatchEvent(new CustomEvent('k2-keyboard-sample', { detail: s }));
+                        };
+                    }
+                    if (typeof window.__k2KeyboardRec !== 'function') {
+                        window.__k2KeyboardRec = function(s) {
+                            window.dispatchEvent(new CustomEvent('k2-keyboard-rec', { detail: s }));
                         };
                     }
                     if (typeof window.__k2KeyboardTrack !== 'function') {
@@ -1245,6 +1331,22 @@ fn ios_keyboard_dismiss_padding(px: f64, webview: tauri::WebviewWindow) -> bool 
     }
 }
 
+/// Diagnostics: the keyboard drag recorder on / off (per-frame keyboard
+/// frames during a sampled dismiss drag; src/lib/kbDragRecorder.ts).
+#[tauri::command]
+fn ios_keyboard_recorder(on: bool) -> bool {
+    #[cfg(target_os = "ios")]
+    {
+        ios_keyboard::set_recording(on);
+        true
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = on;
+        false
+    }
+}
+
 #[tauri::command]
 fn ios_strip_accessory_bar(webview: tauri::WebviewWindow) {
     #[cfg(target_os = "ios")]
@@ -1297,6 +1399,7 @@ pub fn run() {
             greet,
             ios_strip_accessory_bar,
             ios_keyboard_dismiss_padding,
+            ios_keyboard_recorder,
             open_external_url,
             aps_environment
         ])

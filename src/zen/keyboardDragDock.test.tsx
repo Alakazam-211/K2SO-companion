@@ -127,7 +127,7 @@ function rect(top: number, height: number, left = 0, width = 390): DOMRect {
 }
 
 function Thread() {
-  const { height } = useViewport();
+  const { height, motion } = useViewport();
   const col = useViewportTrackRef();
   const pad = useViewportPadRef();
   const scroller = useRef<HTMLDivElement>(null);
@@ -144,7 +144,7 @@ function Thread() {
     []
   );
   return (
-    <div data-testid="col" ref={col} style={{ height }}>
+    <div data-testid="col" ref={col} style={{ height }} data-from={motion?.from ?? ""}>
       <div data-testid="scroller" ref={scroller}>
         <div data-testid="layer" ref={layer} />
         <div data-testid="pad" ref={pad} />
@@ -252,7 +252,7 @@ describe("installKeyboardDragDock", () => {
     expect(standIn()).not.toBeNull();
   });
 
-  it("release (WillHide): the real composer lands where the stand-in was, then eases", () => {
+  it("release (WillHide): the composer's motion starts where the stand-in was; the column is final at once", () => {
     mount();
     touch("touchstart", 300);
     touch("touchmove", TOP - DOCK_H - 1);
@@ -261,19 +261,13 @@ describe("installKeyboardDragDock", () => {
     // Native scrolling carried it 120px down with the finger.
     s.getBoundingClientRect = () => rect(TOP - DOCK_H + 120, DOCK_H);
     const col = el("col");
-    const at: string[] = [];
-    Object.defineProperty(col, "offsetHeight", {
-      configurable: true,
-      get() {
-        at.push(`${col.style.height}|${el("dock").style.opacity}|${standIn() ? "standin" : "-"}`);
-        return 0;
-      },
-    });
     touch("touchend", TOP + 120);
     will({ height: 0, duration: 200, curve: 7, show: false });
-    expect(at).toEqual([`${TOP + 120}px||-`]);
+    expect(standIn()).toBeNull();
+    expect(el("dock").style.opacity).toBe("");
+    expect(col.dataset.from).toBe(`${TOP + 120}`);
     expect(col.style.height).toBe(`${FULL}px`);
-    expect(col.style.transition).toMatch(/^height 200ms /);
+    expect(col.style.transition).toBe("");
     // The grace timer finds nothing to do (the keyboard landed).
     vv.height = FULL;
     act(() => {
@@ -376,7 +370,7 @@ describe("installKeyboardDragDock", () => {
     expect(standIn()!.style.transition).toBe("none");
   });
 
-  it("release: the real composer lands on the keyboard's begin frame (true geometry), the correction dropped", () => {
+  it("release: the motion starts at the keyboard's begin frame (true geometry), the correction dropped", () => {
     mount();
     touch("touchstart", 300);
     touch("touchmove", TOP - DOCK_H - 1);
@@ -386,19 +380,10 @@ describe("installKeyboardDragDock", () => {
     sample(TOP + 16, scroll - 10, 0);
     // Mid-ease the stand-in's rect is somewhere in between.
     s.getBoundingClientRect = () => rect(TOP + 120 - DOCK_H + 3, DOCK_H);
-    const col = el("col");
-    const at: string[] = [];
-    Object.defineProperty(col, "offsetHeight", {
-      configurable: true,
-      get() {
-        at.push(col.style.height);
-        return 0;
-      },
-    });
     will({ height: 0, duration: 200, curve: 7, show: false, fromTop: TOP + 126 });
-    expect(at).toEqual([`${TOP + 126}px`]);
+    expect(el("col").dataset.from).toBe(`${TOP + 126}`);
     expect(standIn()).toBeNull();
-    expect(col.style.transition).toMatch(/^height 200ms /);
+    expect(el("col").style.transition).toBe("");
   });
 
   it("samples before the attach are not used; a sample with no stand-in attaches (fallback)", () => {
