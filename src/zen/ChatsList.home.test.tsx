@@ -49,7 +49,8 @@ vi.mock("../lib/useSessionIdentity", () => ({
 
 import { connectServer } from "../lib/revive";
 import { useServersStore } from "../stores/servers";
-import { ChatsList } from "./ChatsList";
+import { ChatsList, ZEN_LIST_CONTENT_INSET } from "./ChatsList";
+import { rearrangePadLeft } from "./RearrangeBits";
 import { HOME_EMPTY_BODY, HOME_EMPTY_TITLE } from "./HomeList";
 import { HOMES_STORAGE_KEY, LIST_TAB_KEY, homeAddress, parseHomesDoc, useHomesStore } from "./homes";
 import { FOCUS_OFF, type ServerProject } from "./serverPins";
@@ -449,5 +450,60 @@ describe("Home row menu and Rearrange (HM6)", () => {
     const hint = document.getElementById(row.getAttribute("aria-describedby")!)!;
     expect(hint.textContent).not.toMatch(/Swipe/);
     expect(hint.textContent).toMatch(/Press and hold/);
+  });
+});
+
+describe("Row dividers (Rosson 2026-10-18)", () => {
+  // The divider spans the text column: row left padding + 50px avatar +
+  // 10px gap, to the row's right padding (the chevron's right edge).
+  // jsdom normalizes calc(); compare against a probe normalized the same way.
+  const css = (prop: "left" | "right", v: string) => {
+    const probe = document.createElement("span");
+    probe.style[prop] = v;
+    return probe.style[prop];
+  };
+  const expectInset = (d: HTMLElement, padLeft: string) => {
+    expect(d.style.left).toBe(css("left", `calc(${padLeft} + 60px)`));
+    expect(d.style.left).toContain("60px");
+    expect(d.style.right).toBe(css("right", ZEN_LIST_CONTENT_INSET));
+    expect(d.style.background).toMatch(/#8e8e93|rgb\(142, 142, 147\)/);
+    expect(d.style.transform).toBe("scaleY(.5)");
+  };
+
+  it("Home: a hairline under every row but the last, inset to the text column", () => {
+    const h = useHomesStore.getState();
+    h.addRow(h.selectedId, { address: homeAddress("alpha", HOST), workspaceId: "pa", label: "alpha" });
+    h.addRow(h.selectedId, { address: homeAddress("bravo", HOST), workspaceId: "pb", label: "bravo" });
+    h.addRow(h.selectedId, { address: homeAddress("alpha/2", HOST), workspaceId: "pa", label: "alpha 2" });
+    mount();
+    goHome();
+    const rows = Array.from(screen.getByTestId("home-list").querySelectorAll<HTMLElement>("[data-home-row]"));
+    expect(rows).toHaveLength(3);
+    expect(rows.map((r) => within(r).queryAllByTestId("row-divider").length)).toEqual([1, 1, 0]);
+    expectInset(within(rows[0]).getByTestId("row-divider"), ZEN_LIST_CONTENT_INSET);
+  });
+
+  it("Home: in Rearrange the divider starts after the grip room too", () => {
+    const h = useHomesStore.getState();
+    h.addRow(h.selectedId, { address: homeAddress("alpha", HOST), workspaceId: "pa", label: "alpha" });
+    h.addRow(h.selectedId, { address: homeAddress("bravo", HOST), workspaceId: "pb", label: "bravo" });
+    mount();
+    goHome();
+    fireEvent.contextMenu(screen.getByTestId("home-row-alpha"));
+    fireEvent.click(screen.getByTestId("menu-rearrange"));
+    const d = within(screen.getByTestId("home-list")).getByTestId("row-divider");
+    expectInset(d, rearrangePadLeft(ZEN_LIST_CONTENT_INSET, true));
+  });
+
+  it("Agents: a hairline under every row but the last; none in the pin grid", () => {
+    mount();
+    const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-agent-row]"));
+    expect(rows.length).toBeGreaterThan(1);
+    expect(rows.map((r) => within(r).queryAllByTestId("row-divider").length)).toEqual([
+      ...rows.slice(1).map(() => 1),
+      0,
+    ]);
+    expectInset(within(rows[0]).getByTestId("row-divider"), ZEN_LIST_CONTENT_INSET);
+    expect(within(screen.getByTestId("chats-pins")).queryAllByTestId("row-divider")).toHaveLength(0);
   });
 });

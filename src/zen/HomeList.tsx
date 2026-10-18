@@ -3,6 +3,7 @@ import { connectServer } from "../lib/revive";
 import { useServersStore } from "../stores/servers";
 import { activityForRow } from "./agentActivity";
 import { AgentRowContent } from "./AgentRowContent";
+import { RowDivider } from "./RowDivider";
 import { skinInitials } from "./agentRow";
 import { parseHomeAddress } from "./homes";
 import type { HomeRowView } from "./homeView";
@@ -235,7 +236,7 @@ export function HomeList({
           ? "Drag a handle to reorder. Tap Done when finished."
           : `Press and hold for options, like Remove from ${homeName}.`}
       </span>
-      {views.map((v) => {
+      {views.map((v, i) => {
         const address = v.row.address;
         const handle = parseHomeAddress(address)?.handle ?? "";
         const here = v.kind === "here" ? v.agent : null;
@@ -359,6 +360,14 @@ export function HomeList({
                   onAction={() => action?.()}
                 />
               </span>
+            ) : null}
+            {/* A hairline between rows: none under the last one. */}
+            {i < views.length - 1 && !shift.dragging ? (
+              <RowDivider
+                padLeft={rearrangePadLeft(inset, rearranging)}
+                padRight={inset}
+                transition={rearrange.reduced ? undefined : "left 200ms cubic-bezier(.2,.9,.25,1)"}
+              />
             ) : null}
           </div>
         );
