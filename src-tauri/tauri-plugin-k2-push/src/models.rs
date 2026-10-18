@@ -76,22 +76,32 @@ pub struct CacheAvatarsResponse {
 }
 
 /// `set_server_totals()` request: one server's totals (from a live frame,
-/// a list fetch or app open). `subdomain` = the server's tunnel label;
+/// a list fetch or app open). `key` = the App Group totals key: the
+/// server's `badgeKey` (K2 0.46.1) when known, else its tunnel label.
+/// `subdomain` = the older form of the same (a tunnel label); `key` wins.
 /// `waiting` absent keeps the stored value.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ServerTotalsRequest {
-    pub subdomain: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subdomain: Option<String>,
     pub unread: u32,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub waiting: Option<u32>,
 }
 
-/// `clear_server_totals()` request: a server was removed / signed out.
+/// `clear_server_totals()` request: a server was removed / signed out, or
+/// moved to a new key. `key` as in `ServerTotalsRequest` (`subdomain`: the
+/// older form; `key` wins).
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ClearServerTotalsRequest {
-    pub subdomain: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subdomain: Option<String>,
 }
 
 /// `set_server_totals()` / `clear_server_totals()` response: the new
@@ -118,7 +128,8 @@ impl BadgeSumResponse {
 }
 
 /// `get_badge_totals()` response: `<AppGroup>/badges/totals.json`
-/// (`servers` = `{"<subdomain>": {unread, waiting, at}}`) plus the sum.
+/// (`servers` = `{"<key>": {unread, waiting, at}}`, key = badgeKey or
+/// tunnel label) plus the sum.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct BadgeTotalsResponse {

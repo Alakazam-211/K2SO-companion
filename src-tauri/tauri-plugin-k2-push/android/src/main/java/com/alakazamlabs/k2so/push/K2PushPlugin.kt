@@ -39,11 +39,12 @@ private const val PUSH_PERMISSION_ALIAS = "postNotifications"
  *  Ticket/project: kind, feedbackId|ticketId|id, groupId, subdomain.
  *  Thread (K2 0.45.5 `thread-push-v1`): instanceId, addr, conversationId,
  *  seq, projectId, agentName, msgKind, count, principal (the recipient's
- *  person key, TP28). All values are strings. */
+ *  person key, TP28; older daemons), badgeKey (K2 0.46.1: the recipient's
+ *  opaque per-person-per-server key). All values are strings. */
 private val TAP_KEYS = listOf(
   "kind", "feedbackId", "ticketId", "id", "groupId", "subdomain",
   "instanceId", "addr", "conversationId", "seq", "projectId", "agentName", "msgKind", "count",
-  "principal"
+  "principal", "badgeKey"
 )
 
 @TauriPlugin(

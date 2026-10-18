@@ -1,7 +1,8 @@
 // thread-read-v1 (K2 0.46.1): a PERSON's unread counts, read cursors and
 // mutes for Threads and project chats. Wire contract:
 //   GET  /cli/thread/unread[?kind=thread|project]
-//        → {ok, person, total, waitingTotal, byConversation:[State…], muted:[…]}
+//        → {ok, person, total, waitingTotal, byConversation:[State…], muted:[…],
+//           badgeKey}  (badgeKey: this login's push key, see lib/badgeKeys)
 //   POST /cli/thread/read          {conversationId | addr, seq?}
 //   POST /cli/project-group/read   {group, seq?}
 //   POST /cli/thread/mute          {kind?, id | conversationId | addr | group, muted, until?}

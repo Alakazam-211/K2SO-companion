@@ -6,6 +6,7 @@ import {
   postThreadMute,
   postThreadRead,
 } from "../api/threadRead";
+import { learnBadgeKey } from "../lib/badgeKeys";
 import { clearServerTotals, setServerTotals } from "../lib/badgeTotals";
 import { onServerForget, useServersStore } from "../stores/servers";
 import {
@@ -161,6 +162,9 @@ export const useUnreadStore = create<State>((set, get) => {
       const run = (async () => {
         const r = await getThreadUnread(scopeFor(serverId));
         if (!r.ok || !saved(serverId) || !unreadSupported(serverId)) return;
+        // K2 0.46.1: the summary names this login's badgeKey. Learn it
+        // before the totals below, so they land under the right key.
+        learnBadgeKey(serverId, (r.data as { badgeKey?: unknown } | null)?.badgeKey);
         const next = parseUnreadSummary(r.data);
         if (!next) return;
         // A frame or reply landed meanwhile: this answer may be older.

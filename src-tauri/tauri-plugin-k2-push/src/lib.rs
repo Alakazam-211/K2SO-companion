@@ -35,7 +35,9 @@
 //! Badge (`set_server_totals`, `clear_server_totals`, `get_badge_totals`,
 //! `get_badge_diagnostics`): iOS app-icon badge = the sum of each server's
 //! unread total, kept in the App Group (`K2BadgeStore.swift`, shared with
-//! the NSE). Event `badgeTotals` `{subdomain, unread, waiting?, sum}` when
+//! the NSE), keyed by the push's `badgeKey` (K2 0.46.1) else `subdomain`;
+//! the set/clear commands take `{key}` (`{subdomain}` still accepted).
+//! Event `badgeTotals` `{key, subdomain?, badgeKey?, unread, waiting?, sum}` when
 //! a silent `{kind:"badge"}` push (or a foreground alert push) brings new
 //! totals. Android/desktop: stubs that answer `available: false`.
 //!

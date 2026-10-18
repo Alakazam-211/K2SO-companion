@@ -18,6 +18,7 @@ import { parseHomeAddress, selectedHome, useHomesStore } from "../zen/homes";
 import { entryMatchesHomeHost } from "../zen/homeServerIds";
 import { zenProjectPath, zenTicketPath } from "../zen/terminalJump";
 import { pushAvailability, pushIsAvailable } from "./pushAvailability";
+import { badgeKeyFromReply, learnBadgeKey, normalizeBadgeKey, readBadgeKeys } from "./badgeKeys";
 import {
   FEATURE_PUSH_ENVIRONMENT,
   FEATURE_PUSH_PREVIEWS,
@@ -50,6 +51,10 @@ import {
 //     reply's `previews` / `previewsAllowed` are recorded there.
 //   - `environment` (`push-environment-v1`): the APNs environment this
 //     build's token belongs to, from the app's `aps_environment` command.
+//
+// The register reply and `GET /cli/push/device` (K2 0.46.1) also carry
+// this login's `badgeKey` (stable per person per server); it is learned
+// into `./badgeKeys` (badge-totals key, tap routing).
 
 const PLUGIN = "k2-push";
 const STORE_FILE = "push.json";
@@ -79,8 +84,13 @@ export interface TapPayload {
   msgKind?: string;
   count?: string;
   /** The recipient's person key (TP28): `"owner"` or a Connect username.
-   *  Picks between saved accounts on the same host (`matchTapServer`). */
+   *  Picks between saved accounts on the same host (`matchTapServer`).
+   *  Older daemons; K2 0.46.1 sends `badgeKey` instead by default. */
   principal?: string;
+  /** K2 0.46.1: the recipient's opaque key, stable per person per server
+   *  (`./badgeKeys`). Picks between saved accounts on the same host, ahead
+   *  of `instanceId` / `principal`. */
+  badgeKey?: string;
   /** Communication Notifications (read by the iOS Notification Service
    *  Extension, not by tap routing): hash of the agent's current avatar,
    *  and the agent's colour (hex) for the initials fallback. */
@@ -208,12 +218,21 @@ export async function registrationBody(
   return body;
 }
 
+/** Remember a reply's `badgeKey` for a server that is still saved. */
+function learnFromReply(serverId: string, text: unknown): void {
+  const key = badgeKeyFromReply(text);
+  if (!key || !useServersStore.getState().servers.some((x) => x.id === serverId)) return;
+  learnBadgeKey(serverId, key);
+}
+
 /** Register on one server; null when it took it, else the error. The
- *  reply's previews fields are recorded (stores/pushPreviews). */
+ *  reply's previews fields are recorded (stores/pushPreviews), and its
+ *  `badgeKey` learned (./badgeKeys). */
 async function registerOn(scope: ServerScope, reg: DeviceReg): Promise<string | null> {
   try {
     const body = await registrationBody(scope, reg);
     const text = await postPush(scope, "/cli/push/register-device", body);
+    learnFromReply(scope.id, text);
     const sent = typeof body.previews === "boolean" ? body.previews : undefined;
     usePushPreviewsStore.getState().noteReply(scope.id, sent, parseRegisterReply(text));
     return null;
@@ -275,7 +294,9 @@ export async function readBackPreviews(serverId: string): Promise<void> {
       query: { deviceId: await getDeviceId() },
       revive: false,
     });
-    if (!res.ok || (previewGens.get(serverId) ?? 0) !== gen) return;
+    if (!res.ok) return;
+    learnFromReply(serverId, res.text);
+    if ((previewGens.get(serverId) ?? 0) !== gen) return;
     store.noteReadBack(serverId, parseRegisterReply(res.text));
   } catch (e) {
     console.warn("[push] previews read-back skipped:", e);
@@ -543,6 +564,10 @@ function isPrincipal(
  * Which saved server a push came from (K2 contract, TP28/TP29):
  *   1. `subdomain` — stamped by the relay from the label it authenticated,
  *      so trusted. Saved servers whose URL host is `<subdomain>.k2.dev`.
+ *      Every later step only narrows THESE candidates (never another host).
+ *   1b. `badgeKey` (K2 0.46.1) — the recipient's per-person-per-server key.
+ *      The candidates whose learned badgeKey equals it; exactly one wins.
+ *      None (key unknown, not learned yet): fall through to step 2.
  *   2. `instanceId` — chosen by the daemon, so only a tiebreaker when
  *      more than one saved server matched step 1.
  *   3. `principal` — the recipient's person key (`"owner"` or a Connect
@@ -559,6 +584,8 @@ export function matchTapServer(
   ctx: {
     instanceIds?: Record<string, string | null | undefined>;
     identities?: Record<string, TapIdentity | null | undefined>;
+    /** Server id → learned badgeKey (`./badgeKeys`). */
+    badgeKeys?: Record<string, string | null | undefined>;
     activeServerId?: string | null;
   } = {}
 ): ServerEntry | null {
@@ -568,6 +595,12 @@ export function matchTapServer(
   const hits = servers.filter((x) => hostOf(x.url) === host);
   if (hits.length <= 1) return hits[0] ?? null;
   let pool = hits;
+  const key = normalizeBadgeKey(tap.badgeKey);
+  if (key) {
+    const byKey = pool.filter((x) => ctx.badgeKeys?.[x.id] === key);
+    if (byKey.length === 1) return byKey[0];
+    if (byKey.length) pool = byKey;
+  }
   const inst = str(tap.instanceId);
   if (inst) {
     const byInst = pool.filter((x) => ctx.instanceIds?.[x.id] === inst);
@@ -602,8 +635,9 @@ async function tapWhoami(scope: ServerScope): Promise<TapIdentity | null> {
   }
 }
 
-/** `matchTapServer` with live data for servers tied on host: `instanceId`
- *  read fresh from each one's `/boot-status` (it changes on every daemon
+/** `matchTapServer` with live data for servers tied on host: the learned
+ *  badgeKeys, then (only when those do not settle it) `instanceId` read
+ *  fresh from each one's `/boot-status` (it changes on every daemon
  *  restart), and whoami (role) when the push names a `principal`. */
 export async function resolveTapServer(tap: TapPayload): Promise<ServerEntry | null> {
   const s = useServersStore.getState();
@@ -611,9 +645,12 @@ export async function resolveTapServer(tap: TapPayload): Promise<ServerEntry | n
   const tied = sub
     ? s.servers.filter((x) => hostOf(x.url) === `${sub}.k2.dev`)
     : [];
+  const badgeKeys = readBadgeKeys();
   const instanceIds: Record<string, string | null> = {};
   const identities: Record<string, TapIdentity | null> = {};
-  if (tied.length > 1) {
+  const key = normalizeBadgeKey(tap.badgeKey);
+  const settledByKey = !!key && tied.filter((x) => badgeKeys[x.id] === key).length === 1;
+  if (tied.length > 1 && !settledByKey) {
     const wantInst = !!str(tap.instanceId);
     const wantWho = !!str(tap.principal);
     await Promise.all(
@@ -630,6 +667,7 @@ export async function resolveTapServer(tap: TapPayload): Promise<ServerEntry | n
   return matchTapServer(tap, s.servers, {
     instanceIds,
     identities,
+    badgeKeys,
     activeServerId: s.activeServerId,
   });
 }

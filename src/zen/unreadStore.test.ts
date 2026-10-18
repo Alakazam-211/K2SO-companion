@@ -17,6 +17,7 @@ import * as badge from "../lib/badgeTotals";
 import { __resetScopesForTests, noteBootStatus } from "../api/scope";
 import { useServersStore } from "../stores/servers";
 import { __resetUnreadStoreForTests, unreadSupported, useUnreadStore } from "./unreadStore";
+import { badgeKeyOf } from "../lib/badgeKeys";
 
 const FEATURES = { features: ["thread-read-v1"] };
 
@@ -89,6 +90,17 @@ describe("fetch", () => {
     expect(s.byKey["thread:c1"].unread).toBe(5);
     expect(vi.mocked(api.getThreadUnread).mock.calls[0][0].id).toBe("s1");
     expect(badge.setServerTotals).toHaveBeenCalledWith("s1", { unread: 6, waiting: 1 });
+  });
+
+  it("learns the summary's badgeKey before feeding the badge (K2 0.46.1)", async () => {
+    vi.mocked(api.getThreadUnread).mockResolvedValue({ ok: true, data: { ...summary, badgeKey: "bkS1" } });
+    let keyAtTotals: string | null = null;
+    vi.mocked(badge.setServerTotals).mockImplementation(() => {
+      keyAtTotals = badgeKeyOf("s1");
+    });
+    await useUnreadStore.getState().refresh("s1");
+    expect(badgeKeyOf("s1")).toBe("bkS1");
+    expect(keyAtTotals).toBe("bkS1");
   });
 
   it("minGapMs skips a read that started recently", async () => {
