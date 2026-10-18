@@ -47,12 +47,17 @@ export default function FileBody({
   source,
   stub,
   onFileLink,
+  line = null,
+  lineEnd = null,
 }: {
   file: StubFile;
   /** Show the raw text instead of the rendered view. */
   source: boolean;
   stub: boolean;
   onFileLink?: (ref: string) => void;
+  /** Source view: highlight `line..lineEnd` (1-based) and scroll to it. */
+  line?: number | null;
+  lineEnd?: number | null;
 }) {
   const path = file.fsPath ?? null;
   const category = getFileCategory(file.id);
@@ -99,7 +104,7 @@ export default function FileBody({
   if (source || category === "text") {
     // Prose-like text wraps; code keeps its lines and scrolls sideways.
     const wrap = !lang || lang === "markdown" || lang === "log";
-    return <Scroll>{note}<CodeView code={text} lang={lang} wrap={wrap} /></Scroll>;
+    return <Scroll>{note}<CodeView code={text} lang={lang} wrap={wrap} line={line} lineEnd={lineEnd} /></Scroll>;
   }
   if (category === "json") return <Scroll>{note}<CodeView code={cut ? text : prettyJson(text)} lang="json" /></Scroll>;
   if (category === "markdown") return <Scroll>{note}<MarkdownView content={text} onFileLink={onFileLink} /></Scroll>;

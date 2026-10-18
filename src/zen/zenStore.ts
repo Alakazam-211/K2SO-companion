@@ -1875,7 +1875,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       const incoming = r.data.items
         .map((it) => normaliseThreadItem(it, username))
         .filter((m): m is ThreadMessage => !!m);
-      const thread = mergeThreadMessages(get().thread, incoming);
+      const thread = mergeThreadMessages(get().thread, incoming, { refreshFiles: true });
       const conv =
         (r.data.conversation_id || "").trim() || get().threadConversationId;
       if (thread === get().thread && conv === get().threadConversationId) return;

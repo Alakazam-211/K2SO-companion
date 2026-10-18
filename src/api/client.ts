@@ -674,6 +674,9 @@ export type ThreadDoc = {
   conversation_id?: string;
   choice?: { prompt?: string; options?: unknown; answer?: unknown };
   secret?: { prompt?: string };
+  /** K2 0.46.1 `thread-attachments-v1`: files riding the message (parsed
+   *  defensively by `parseThreadAttachments`). */
+  attachments?: unknown;
 };
 
 export type ThreadItem = ThreadDoc & {
@@ -712,6 +715,9 @@ export type ThreadLatestItem = {
   via?: string | null;
   kind?: string | null;
   preview?: string | null;
+  /** K2 0.46.1 `thread-attachments-v1`: files on the newest message (0
+   *  when none; absent on an empty Thread and on older servers). */
+  attachmentCount?: number | null;
   error?: { code?: string; hint?: string };
 };
 
