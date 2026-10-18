@@ -25,7 +25,7 @@ describe("Other servers' rows: dividers", () => {
     );
     const d = within(screen.getByTestId("remote-row")).getByTestId("row-divider");
     expect(d.style.left).toBe("calc(80px)");
-    expect(d.style.right).toBe("20px");
+    expect(d.style.right).toBe("12px");
   });
 
   it("no divider by default (a section's last row), and none on placeholder rows", () => {

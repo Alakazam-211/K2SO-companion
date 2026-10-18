@@ -9,7 +9,7 @@
 // known to be below the phone floor (0.41.6) opens the old way instead.
 
 import { RowChevron } from "../RowChevron";
-import { RowDivider } from "../RowDivider";
+import { RowDivider, ZEN_ROW_RIGHT_INSET } from "../RowDivider";
 import { useEffect, useState, type ReactNode } from "react";
 import { activityColor, activityRowText, type RowActivity } from "../agentActivity";
 import { WorkspaceAvatar } from "../WorkspaceAvatar";
@@ -115,11 +115,11 @@ function RowShell({
         paddingTop: 12,
         paddingBottom: 12,
         paddingLeft: inset,
-        paddingRight: inset,
+        paddingRight: ZEN_ROW_RIGHT_INSET,
       }}
     >
       {children}
-      {divider ? <RowDivider padLeft={inset} padRight={inset} /> : null}
+      {divider ? <RowDivider padLeft={inset} padRight={ZEN_ROW_RIGHT_INSET} /> : null}
     </div>
   );
 }
@@ -285,7 +285,7 @@ export function RemoteAgentRow({
           paddingTop: 12,
           paddingBottom: 12,
           paddingLeft: inset,
-          paddingRight: inset,
+          paddingRight: ZEN_ROW_RIGHT_INSET,
         }}
         onClick={onOpen}
         aria-label={`${a.name}, ${row.serverLabel}` + (busy ? `, ${activityRowText(busy)}` : "")}
@@ -294,7 +294,7 @@ export function RemoteAgentRow({
       >
         {body}
       </button>
-      {divider ? <RowDivider padLeft={inset} padRight={inset} /> : null}
+      {divider ? <RowDivider padLeft={inset} padRight={ZEN_ROW_RIGHT_INSET} /> : null}
     </div>
   );
 }

@@ -3,7 +3,7 @@ import { connectServer } from "../lib/revive";
 import { useServersStore } from "../stores/servers";
 import { activityForRow } from "./agentActivity";
 import { AgentRowContent } from "./AgentRowContent";
-import { RowDivider } from "./RowDivider";
+import { RowDivider, ZEN_ROW_RIGHT_INSET } from "./RowDivider";
 import { skinInitials } from "./agentRow";
 import { parseHomeAddress } from "./homes";
 import type { HomeRowView } from "./homeView";
@@ -311,7 +311,7 @@ export function HomeList({
                 paddingTop: 12,
                 paddingBottom: 12,
                 paddingLeft: rearrangePadLeft(inset, rearranging),
-                paddingRight: failure?.action ? `calc(${inset} + 96px)` : inset,
+                paddingRight: failure?.action ? `calc(${ZEN_ROW_RIGHT_INSET} + 96px)` : ZEN_ROW_RIGHT_INSET,
                 opacity,
                 touchAction: "pan-y",
                 userSelect: "none",
@@ -351,7 +351,7 @@ export function HomeList({
             {failure && remoteView && !rearranging ? (
               <span
                 className="absolute flex items-center"
-                style={{ right: inset, top: "50%", transform: "translateY(-50%)" }}
+                style={{ right: ZEN_ROW_RIGHT_INSET, top: "50%", transform: "translateY(-50%)" }}
                 data-no-pin="1"
               >
                 <FailureAction
@@ -365,7 +365,7 @@ export function HomeList({
             {i < views.length - 1 && !shift.dragging ? (
               <RowDivider
                 padLeft={rearrangePadLeft(inset, rearranging)}
-                padRight={inset}
+                padRight={ZEN_ROW_RIGHT_INSET}
                 transition={rearrange.reduced ? undefined : "left 200ms cubic-bezier(.2,.9,.25,1)"}
               />
             ) : null}

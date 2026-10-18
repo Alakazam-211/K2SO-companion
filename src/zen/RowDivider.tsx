@@ -1,6 +1,9 @@
 /** A dim separator grey (iOS dark separator); dimmer than the time and
  *  chevron, per Rosson 2026-10-18. */
 export const ROW_DIVIDER_COLOR = "rgba(84,84,88,0.65)";
+/** Agent rows' right padding: closer to the screen edge than the left
+ *  inset, which keeps room for the unread dot (Rosson 2026-10-18). */
+export const ZEN_ROW_RIGHT_INSET = "12px";
 /** Avatar (50px) + the row's gap (10px): where the text column starts. */
 export const ROW_DIVIDER_AVATAR_OFFSET = 60;
 
