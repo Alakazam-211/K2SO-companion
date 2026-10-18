@@ -186,3 +186,35 @@ export function mergeGroupDelta(current: ThreadMessage[], delta: ThreadMessage[]
     ordered.map((m, i) => (m.seq === i ? m : { ...m, seq: i }))
   );
 }
+
+/** Delete messages by id (a delta's `removed`). Same array when none. */
+export function removeIds(current: ThreadMessage[], ids: readonly string[]): ThreadMessage[] {
+  if (!ids.length) return current;
+  const gone = new Set(ids);
+  const next = current.filter((m) => !m.id || !gone.has(m.id) || local(m));
+  return next.length === current.length ? current : next;
+}
+
+/** A project chat's newest page over its cached lines: the page, plus —
+ *  when the server says older lines exist — cached lines older than the
+ *  page; ordered by `readSeq`, positions renumbered. */
+export function mergeGroupPage(
+  current: ThreadMessage[],
+  page: ThreadMessage[],
+  opts: { hasMore: boolean }
+): ThreadMessage[] {
+  const seqs = page.map((m) => m.readSeq).filter((s): s is number => typeof s === "number");
+  const lo = seqs.length ? Math.min(...seqs) : null;
+  const pageIds = new Set(page.map((m) => m.id));
+  const older =
+    opts.hasMore && lo != null
+      ? current.filter((m) => !pageIds.has(m.id) && typeof m.readSeq === "number" && m.readSeq < lo)
+      : [];
+  const ordered = [...older, ...page].sort(
+    (a, b) => (a.readSeq ?? Number.MAX_SAFE_INTEGER) - (b.readSeq ?? Number.MAX_SAFE_INTEGER) || (a.at ?? 0) - (b.at ?? 0)
+  );
+  return shareUnchanged(
+    current,
+    ordered.map((m, i) => (m.seq === i ? m : { ...m, seq: i }))
+  );
+}

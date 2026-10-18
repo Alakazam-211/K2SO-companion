@@ -30,6 +30,13 @@ export type ChatOpenTiming = {
   items: number | null;
   ok: boolean | null;
   error: string | null;
+  /** How the server was read: a delta (`thread-delta-v1`), a delta then
+   *  the newest page (more new than one delta), the newest page, or a
+   *  reset (the conversation moved). */
+  mode: "delta" | "delta+page" | "page" | "reset" | null;
+  /** Delta parts: rewritten older items, and removed ones. */
+  changed: number | null;
+  removed: number | null;
 };
 
 const ring: ChatOpenTiming[] = [];
@@ -50,8 +57,11 @@ function devLog(t: ChatOpenTiming, phase: string): void {
     cachedFrom: t.cachedFrom,
     responseMs: t.responseMs,
     paintMs: t.paintMs,
+    mode: t.mode,
     bytes: t.bytes,
     items: t.items,
+    changed: t.changed,
+    removed: t.removed,
   });
 }
 
@@ -91,6 +101,9 @@ export function beginChatOpen(serverId: string, roomKey: string, kind: "thread" 
     items: null,
     ok: null,
     error: null,
+    mode: null,
+    changed: null,
+    removed: null,
   };
   startedAt.set(t.id, t0);
   ring.unshift(t);
@@ -117,7 +130,15 @@ export function noteCachedPaint(id: number, from: "memory" | "device", count: nu
  *  `notePainted` on the next frame. */
 export function noteResponse(
   id: number,
-  r: { ok: boolean; items?: number | null; bytes?: number | null; error?: string | null }
+  r: {
+    ok: boolean;
+    items?: number | null;
+    bytes?: number | null;
+    error?: string | null;
+    mode?: ChatOpenTiming["mode"];
+    changed?: number | null;
+    removed?: number | null;
+  }
 ): void {
   const t = find(id);
   const s = startedAt.get(id);
@@ -127,6 +148,9 @@ export function noteResponse(
   t.items = r.items ?? null;
   t.bytes = r.bytes ?? null;
   t.error = r.error ?? null;
+  t.mode = r.mode ?? null;
+  t.changed = r.changed ?? null;
+  t.removed = r.removed ?? null;
   emit();
 }
 

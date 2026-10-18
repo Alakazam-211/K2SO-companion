@@ -2,24 +2,19 @@ import { useEffect } from "react";
 import { getThread } from "../api/client";
 import { fetchProjectGroupMessages } from "../api/projectGroups";
 import { scopeFor, type ServerScope } from "../api/scope";
-import {
-  DELTA_LIMIT,
-  deltaSupported,
-  fetchProjectGroupDelta,
-  fetchThreadDelta,
-} from "../api/threadDelta";
+import { fetchProjectGroupDelta, fetchThreadDelta } from "../api/threadDelta";
 import { chatCache, type ChatCache } from "./chatCache";
-import type { CachedChat } from "./chatCacheBackend";
 import { pool } from "./multi/pool";
 import { serverDown } from "./multi/serverHealth";
 import { threadRoomKey } from "./outbox";
 import {
-  mergeDelta,
-  mergeGroupDelta,
-  mergeServerPage,
-  newestSeq,
-} from "./threadCacheMerge";
-import { groupMessagesToThread, normaliseThreadItem, type ThreadMessage } from "./threadModel";
+  applyGroupRead,
+  applyThreadRead,
+  fetchGroupRead,
+  fetchThreadRead,
+  type ChatRead,
+  type ReadDeps,
+} from "./chatRevalidate";
 import type { RowRef } from "./unread";
 import { useZenStore } from "./zenStore";
 import { zenScope } from "./zenScope";
@@ -30,14 +25,13 @@ import { zenScope } from "./zenScope";
 // paints from cache. Each read runs on the row's OWN server scope, at most
 // `PREFETCH_CONCURRENCY` at a time, never on a server that is down, at
 // most once per chat per `PREFETCH_MIN_GAP_MS`; backgrounding the app
-// drops what is queued. Uses delta reads (`thread-delta-v1`) when the
-// server lists them and the cache has a cursor; otherwise the normal
-// newest-page read.
+// drops what is queued. Reads like an open does (`chatRevalidate`): a
+// delta (`thread-delta-v1`) when the server lists it and the cache has a
+// cursor, otherwise the newest page.
 
 export const PREFETCH_TOP = 8;
 export const PREFETCH_CONCURRENCY = 2;
 export const PREFETCH_MIN_GAP_MS = 120_000;
-const PAGE = 50;
 
 export type PrefetchTarget = { serverId: string; ref: RowRef };
 
@@ -115,86 +109,47 @@ export function createPrefetcher(deps: PrefetchDeps): Prefetcher {
     return at == null || deps.now() - at >= minGap;
   };
 
-  async function readThread(scope: ServerScope, addr: string, cached: CachedChat | null) {
-    const username = scope.username();
-    const norm = (items: unknown[]) =>
-      items
-        .map((it) => normaliseThreadItem(it as never, username))
-        .filter((m): m is ThreadMessage => !!m);
-    const cursor = cached ? newestSeq(cached.messages) : null;
-    if (cached && cursor != null && deltaSupported(scope)) {
-      const d = await deps.fetchThreadDelta(scope, addr, cursor, DELTA_LIMIT);
-      if (d.ok && d.data && !d.data.hasMore) {
-        const sameConv = !d.data.conversationId || !cached.conversationId || d.data.conversationId === cached.conversationId;
-        if (sameConv) {
-          return {
-            messages: mergeDelta(cached.messages, norm(d.data.items)),
-            conversationId: d.data.conversationId ?? cached.conversationId,
-            hasMore: cached.hasMore,
-          };
-        }
-      }
-      // More new than one delta, another conversation, or no answer: the
-      // newest page.
-    }
-    const r = await deps.getThread(scope, addr, PAGE);
-    if (!r.ok || !r.data || !Array.isArray(r.data.items)) return null;
-    const page = norm(r.data.items);
-    const conv = (r.data.conversation_id || "").trim() || null;
-    const hasMore = !!r.data.has_more;
-    const base = cached?.messages ?? [];
-    return {
-      messages: mergeServerPage(base, page, {
-        hasMore,
-        sameConversation: !cached?.conversationId || !conv || cached.conversationId === conv,
-      }),
-      conversationId: conv,
-      hasMore,
-    };
-  }
-
-  async function readGroup(scope: ServerScope, groupId: string, cached: CachedChat | null) {
-    const username = scope.username();
-    const cursor =
-      cached && cached.messages.every((m) => m.readSeq != null) ? newestSeq(cached.messages, "readSeq") : null;
-    if (cached && cursor != null && deltaSupported(scope)) {
-      const d = await deps.fetchProjectGroupDelta(scope, groupId, cursor, DELTA_LIMIT);
-      if (d.ok && d.data && !d.data.hasMore) {
-        return {
-          messages: mergeGroupDelta(cached.messages, groupMessagesToThread(d.data.items, username)),
-          conversationId: null,
-          hasMore: cached.hasMore,
-        };
-      }
-    }
-    const r = await deps.fetchProjectGroupMessages(scope, groupId, { limit: PAGE });
-    if (!r.ok) return null;
-    return {
-      messages: groupMessagesToThread(r.data?.messages ?? [], username),
-      conversationId: null,
-      hasMore: !!r.data?.truncated,
-    };
-  }
+  const readDeps: ReadDeps = {
+    getThread: (...a) => deps.getThread(...a),
+    fetchThreadDelta: (...a) => deps.fetchThreadDelta(...a),
+    fetchProjectGroupMessages: (...a) => deps.fetchProjectGroupMessages(...a),
+    fetchProjectGroupDelta: (...a) => deps.fetchProjectGroupDelta(...a),
+  };
 
   async function run(key: string, t: PrefetchTarget): Promise<void> {
     lastRun.set(key, deps.now());
     const scope = deps.scopeOf(t.serverId);
     if (!usable(scope) || deps.isDown(t.serverId) || !deps.foreground()) return;
     const cached = (await deps.cache().read(key))?.entry ?? null;
-    let got: { messages: ThreadMessage[]; conversationId: string | null; hasMore: boolean } | null = null;
+    let read: ChatRead;
     try {
-      got =
+      read =
         t.ref.kind === "project"
-          ? await readGroup(scope, t.ref.groupId, cached)
-          : await readThread(scope, (t.ref.addr || "").trim(), cached);
+          ? await fetchGroupRead(scope, t.ref.groupId, cached, readDeps)
+          : await fetchThreadRead(scope, (t.ref.addr || "").trim(), cached, readDeps);
     } catch {
-      got = null;
+      return;
     }
-    if (!got) return;
     // Opened meanwhile (its own read is the one that counts), or signed
     // out / removed meanwhile (nothing may come back).
     if (deps.openKey() === key || !usable(deps.scopeOf(t.serverId))) return;
-    deps.cache().remember({ key, serverId: t.serverId, ...got });
+    if (!read.ok) {
+      if (read.gone) deps.cache().forget(key); // access or chat gone
+      return;
+    }
+    const base = read.mode === "reset" ? [] : cached?.messages ?? [];
+    const messages =
+      t.ref.kind === "project"
+        ? applyGroupRead(base, read)
+        : applyThreadRead(base, read, { conversationId: cached?.conversationId ?? null });
+    if (read.mode === "reset") deps.cache().forget(key);
+    deps.cache().remember({
+      key,
+      serverId: t.serverId,
+      messages,
+      conversationId: read.conversationId ?? cached?.conversationId ?? null,
+      hasMore: read.hasMore ?? cached?.hasMore ?? false,
+    });
   }
 
   function pump(): void {
