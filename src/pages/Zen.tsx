@@ -530,7 +530,7 @@ export function Zen() {
                   // was right 100%, marginRight 8, top 0, height = avatar).
                   // zIndex -1 stays inside the avatar's stacking layer
                   // (z 2): under the picture, still over the bubble (z 1).
-                  style={{ right: "100%", marginRight: -7, top: HEADER_AVATAR_PX - 15, zIndex: -1 }}
+                  style={{ right: "100%", marginRight: -4, top: HEADER_AVATAR_PX - 18, zIndex: -1 }}
                 >
                   <LlmIcon harness={headerHarness} size={18} />
                 </span>
