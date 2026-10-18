@@ -30,7 +30,7 @@ export type KbEvent =
   | { t: number; k: "attach"; via: "touch" | "sample" }
   | { t: number; k: "correct"; d: number; ms: number }
   | { t: number; k: "release"; fromTop: number | null; copyBottom: number | null }
-  | { t: number; k: "will"; show: boolean; ms: number }
+  | { t: number; k: "will"; show: boolean; ms: number; fromTop?: number | null }
   | { t: number; k: "touch"; y: number }
   | { t: number; k: "lift" }
   | { t: number; k: "end" };

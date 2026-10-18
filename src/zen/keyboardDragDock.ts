@@ -314,10 +314,19 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
     return true;
   };
 
-  const detach = () => {
+  const detach = (drawnAt?: number) => {
     clearGrace();
     resetSamples();
     if (standIn) observer?.detached();
+    if (hidden && drawnAt != null && Number.isFinite(drawnAt)) {
+      // Release: the real composer starts exactly where the stand-in is
+      // drawn (its layout spot is final already); the Thread's FLIP plays
+      // it on from there. Set before it is shown, flushed with it.
+      hidden.style.transition = "none";
+      hidden.style.transform = "";
+      const dy = drawnAt - hidden.getBoundingClientRect().bottom;
+      hidden.style.transform = Math.abs(dy) >= 0.5 ? `translate3d(0, ${dy}px, 0)` : "";
+    }
     standIn?.remove();
     standIn = null;
     if (hidden) {
@@ -343,8 +352,15 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
       }
       useSample(sample);
     },
-    draggedBottom() {
-      return standIn ? standIn.getBoundingClientRect().bottom : null;
+    draggedBottom(nativeScrollY) {
+      if (!standIn) return null;
+      if (nativeScrollY != null && Number.isFinite(nativeScrollY)) {
+        // Exact: its content-space bottom at the native frame's offset
+        // (+ its correction), not the page's possibly late scroll view.
+        const base = copyBottomContent();
+        if (base != null) return base - nativeScrollY + target;
+      }
+      return standIn.getBoundingClientRect().bottom;
     },
     detach,
     released(keyboardTop) {
