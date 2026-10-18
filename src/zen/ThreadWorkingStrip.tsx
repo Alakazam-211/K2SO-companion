@@ -14,6 +14,7 @@ import {
   threadDrawerLine,
   type StripCounter,
   type StripCounterKey,
+  type StripDetailItem,
   type ThreadDrawerLine,
   type ThreadStripStep,
   type ThreadStripTone,
@@ -108,6 +109,28 @@ function BrailleSpinner({ still }: { still: boolean }) {
         ))}
       </span>
     </span>
+  );
+}
+
+/** Expanded detail bits, each led by its collapsed counter's icon so the
+ *  words map to the icons (Rosson 2026-10-18). */
+function DetailBits({ items, fallback }: { items?: StripDetailItem[]; fallback: string }) {
+  if (!items?.length) return <>{fallback}</>;
+  return (
+    <>
+      {items.map((it, i) => {
+        const Glyph = STRIP_ICON[it.key];
+        return (
+          <span key={it.key} data-testid={`thread-strip-detail-${it.key}`}>
+            {i > 0 ? " · " : null}
+            <span className="whitespace-nowrap">
+              <Glyph size={COUNTER_ICON_PX} strokeWidth={2} className="inline-block" style={ON_BASELINE} />
+            </span>
+            {it.text}
+          </span>
+        );
+      })}
+    </>
   );
 }
 
@@ -441,7 +464,7 @@ export function ThreadWorkingStrip({
                   className="min-w-0 break-words text-[12px] leading-[18px]"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  {d.tally}
+                  <DetailBits items={d.tallyItems} fallback={d.tally} />
                 </span>
               ) : null}
               {d.children ? (
@@ -450,7 +473,7 @@ export function ThreadWorkingStrip({
                   className="min-w-0 break-words text-[12px] leading-[18px]"
                   style={{ color: "var(--text-muted)" }}
                 >
-                  {d.children}
+                  <DetailBits items={d.childItems} fallback={d.children} />
                 </span>
               ) : null}
             </span>
