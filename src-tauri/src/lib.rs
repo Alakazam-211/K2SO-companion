@@ -1059,7 +1059,9 @@ mod ios_keyboard {
     }
 
     extern "C-unwind" fn on_keyboard_did_hide(_this: &AnyObject, _cmd: Sel, _note: *mut AnyObject) {
-        KEYBOARD_UP.store(false, Ordering::Release);
+        // A Will*Show since this hide began (a field tapped mid-animation):
+        // the keyboard is coming back — leave its session alone.
+        let coming_back = KEYBOARD_UP.load(Ordering::Acquire);
         PAN_ACTIVE.store(false, Ordering::Release);
         // A recorder tail ends itself (it records the keyboard settling).
         let tail = TRACK.with(|t| t.borrow().tail_until.is_some());
@@ -1067,6 +1069,18 @@ mod ios_keyboard {
             stop_sampling();
         }
         if let Some(wk) = live_webview() {
+            if !coming_back {
+                // The keyboard is gone. If it went by an interactive dismiss
+                // (or on its own), WebKit's content view can still be the
+                // first responder with its input view hidden: the next tap on
+                // a field focuses it (the page sees focus) but UIKit never
+                // shows the keyboard again (TestFlight 1446, Tickets). Resign
+                // it, as UIKit does for a native field; a no-op when the page
+                // blurred the field itself.
+                unsafe {
+                    let _: bool = msg_send![wk, endEditing: true];
+                }
+            }
             reset_content_offset(wk);
             ping_page(wk);
         }
