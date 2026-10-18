@@ -470,7 +470,8 @@ describe("one element from Send to delivered (no snap, no jostle)", () => {
     expect(l.textContent).not.toBe("Sending…");
     expect(l.dataset.status).toBe("sent");
     expect(bubble.style.opacity).toBe("1");
-    expect(bubble.style.transition).toContain("opacity");
+    // The brighten is a Web Animation (useDeliverBrighten), not a CSS step.
+    expect(bubble.style.transition).toBe("");
     expect(r.hasAttribute("data-outgoing")).toBe(false);
   });
 

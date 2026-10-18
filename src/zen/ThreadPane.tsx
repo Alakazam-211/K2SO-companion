@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useDeliverBrighten } from "./useDeliverBrighten";
 import { getThreadActivity, uploadFsBinary } from "../api/client";
 import { ChatMessageBody } from "../components/ChatMessage";
 import { asErrorText } from "../lib/apiError";
@@ -101,9 +102,13 @@ function Bubble({
   const choice = secret ? null : m.choice;
   const answered =
     choice != null && choice.answer != null && String(choice.answer) !== "";
+  const bubbleRef = useRef<HTMLDivElement>(null);
+  const breathing = Boolean(breathe && m.pending && !flying && !fadeIn);
+  useDeliverBrighten(bubbleRef, Boolean(m.pending), breathing, Boolean(flying));
   return (
     <div
-      className={`px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden${fadeIn ? " zen-bubble-fade" : breathe && m.pending && !flying ? " zen-bubble-breathe" : ""}`}
+      ref={bubbleRef}
+      className={`px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden${fadeIn ? " zen-bubble-fade" : breathing ? " zen-bubble-breathe" : ""}`}
       data-testid="thread-bubble"
       data-fly-target={flying ? "true" : undefined}
       style={{
@@ -113,9 +118,9 @@ function Bubble({
         borderRadius: 18,
         background: m.mine ? "#0a84ff" : "#3a3a3c",
         color: "#fff",
-        // Sending: dimmed. Delivered: it only brightens (nothing moves).
+        // Sending: dimmed. Delivered: it only brightens, gradually
+        // (useDeliverBrighten); nothing moves.
         opacity: m.pending ? 0.7 : 1,
-        transition: "opacity 240ms ease-out",
       }}
     >
       {choice ? (

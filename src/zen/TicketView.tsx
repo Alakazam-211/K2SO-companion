@@ -1,4 +1,5 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { useDeliverBrighten } from "./useDeliverBrighten";
 import {
   assignFeedback,
   commentFeedback,
@@ -1082,9 +1083,11 @@ export function TicketView({
                           </span>
                         </span>
                       ) : null}
-                      <div
+                      <TicketBubbleBox
+                        pending={out?.status === "sending"}
+                        flying={hidden}
+                        fade={Boolean(flying && fly?.fade)}
                         className={`px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden${flying && fly?.fade ? " zen-bubble-fade" : !flying && out?.status === "sending" ? " zen-bubble-breathe" : ""}`}
-                        data-testid="ticket-bubble"
                         data-fly-target={hidden ? "true" : undefined}
                         style={{
                           visibility: hidden ? "hidden" : undefined,
@@ -1093,9 +1096,9 @@ export function TicketView({
                           borderRadius: 18,
                           background: r.mine ? "#0a84ff" : "#3a3a3c",
                           color: "#fff",
-                          // Sending: dimmed. Delivered: it only brightens.
+                          // Sending: dimmed. Delivered: it only brightens,
+                          // gradually (useDeliverBrighten).
                           opacity: out?.status === "sending" ? 0.7 : 1,
-                          transition: "opacity 240ms ease-out",
                         }}
                       >
                         <ChatMessageBody
@@ -1103,7 +1106,7 @@ export function TicketView({
                           className="!p-0 text-white"
                           style={{ color: "#fff", fontSize: zenTextPx(14) }}
                         />
-                      </div>
+                      </TicketBubbleBox>
                       {r.mine ? (
                         // One box from Send to delivered: "Sending…", then the
                         // time (or "Not sent · Retry"). Fixed height, so the
@@ -1300,6 +1303,34 @@ export function TicketView({
         <ReassignSheet item={item} onClose={() => setSheet(null)} />
       ) : null}
       {sheet === "agreed" && item ? <AgreedSheet item={item} onClose={() => setSheet(null)} /> : null}
+    </div>
+  );
+}
+
+/** An open ticket's comment bubble: the delivered brighten needs a hook,
+ *  so the box is its own component. */
+function TicketBubbleBox({
+  pending,
+  flying,
+  fade,
+  className,
+  style,
+  children,
+  "data-fly-target": flyTarget,
+}: {
+  pending: boolean;
+  flying: boolean;
+  fade: boolean;
+  className: string;
+  style: CSSProperties;
+  children: ReactNode;
+  "data-fly-target"?: string;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  useDeliverBrighten(ref, pending, pending && !flying && !fade, flying);
+  return (
+    <div ref={ref} className={className} data-testid="ticket-bubble" data-fly-target={flyTarget} style={style}>
+      {children}
     </div>
   );
 }
