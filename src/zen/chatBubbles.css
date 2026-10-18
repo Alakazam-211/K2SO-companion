@@ -7,6 +7,15 @@
    (a pseudo-element), so the bubble's opacity — the "Sending…" dim and
    breathe — applies to bubble and tail as one. `.zen-tail-solo` is the
    same tail as a real element: the send flight carries it on its blue. */
+/* The bubble is its own stacking layer, so its tail (z -1) paints over
+   the bubble's background but UNDER its text: the tail's corner block sits
+   inside the bubble and used to clip the last line's first letter. */
+.zen-tail {
+  isolation: isolate;
+}
+.zen-tail::after {
+  z-index: -1;
+}
 .zen-tail::after,
 .zen-tail-solo {
   content: "";
