@@ -30,14 +30,20 @@ export function useTicker(on: boolean, ms = 1_000): number {
   return now;
 }
 
-/** A failure's state word. Offline counts down to the next check on its
- *  own 1 s tick, so the list itself does not re-render every second. */
-export function FailureText({ failure, nextAt }: { failure: RowFailure; nextAt?: number | null }) {
-  const counting = failure.state === "offline" && nextAt != null;
-  const now = useTicker(counting);
-  if (!counting) return <>{failure.copy}</>;
-  const secs = Math.max(0, Math.ceil((nextAt! - now) / 1000));
-  return <>{`Offline · retrying in ${secs} s`}</>;
+/** A failure's state word. A server that is down says "Reconnecting…"
+ *  with a breathing dot (auto reconnect retries it on its own). */
+export function FailureText({ failure }: { failure: RowFailure; nextAt?: number | null }) {
+  // A server that is down is being retried on its own: a breathing dot
+  // and "Reconnecting…", not a dead row.
+  if (failure.state === "offline" || failure.state === "restarting") {
+    return (
+      <span className="inline-flex items-center" style={{ gap: 6 }}>
+        <span aria-hidden className="k2-reconnect-dot" data-testid="row-reconnecting" />
+        {failure.copy}
+      </span>
+    );
+  }
+  return <>{failure.copy}</>;
 }
 
 /** The trailing one-tap fix on a failure row. */
@@ -208,16 +214,32 @@ export function RemoteAgentRow({
     </>
   );
   if (failure) {
+    // A server that is down still opens: the chat shows what is cached and
+    // reconnects (its banner says so).
+    const opens = failure.state === "offline" || failure.state === "restarting";
     return (
       <RowShell inset={inset} greyed testId="remote-row" serverId={row.serverId} rowKey={row.key}>
-        <span
-          className="flex-1 min-w-0 flex items-center"
-          style={{ gap: 10, opacity: 0.6 }}
-          aria-label={`${a.name}, ${row.serverLabel}, ${failure.copy}`}
-          aria-disabled="true"
-        >
-          {body}
-        </span>
+        {opens ? (
+          <button
+            type="button"
+            className="flex-1 min-w-0 flex items-center text-left"
+            style={{ gap: 10, opacity: 0.6 }}
+            aria-label={`${a.name}, ${row.serverLabel}, ${failure.copy}`}
+            onClick={onOpen}
+            data-no-pin="1"
+          >
+            {body}
+          </button>
+        ) : (
+          <span
+            className="flex-1 min-w-0 flex items-center"
+            style={{ gap: 10, opacity: 0.6 }}
+            aria-label={`${a.name}, ${row.serverLabel}, ${failure.copy}`}
+            aria-disabled="true"
+          >
+            {body}
+          </span>
+        )}
         <FailureAction failure={failure} serverLabel={row.serverLabel} onAction={onAction} />
       </RowShell>
     );

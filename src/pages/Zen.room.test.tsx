@@ -79,6 +79,9 @@ import { roomServerId } from "../zen/zenScope";
 import { useMultiServerPrefs } from "../zen/multi/prefs";
 import { pool } from "../zen/multi/pool";
 import { __resetKeepAliveForTests } from "../zen/room/keepAlive";
+import { retryServerNow } from "../zen/multi/poolLoop";
+import { __resetHealthForTests, healthStore } from "../zen/multi/serverHealth";
+import { __resetRecoveryForTests } from "../zen/multi/recovery";
 import { Zen } from "./Zen";
 
 class MockWS {
@@ -121,6 +124,8 @@ beforeEach(() => {
   __resetScopesForTests();
   __resetDialQueueForTests();
   __resetKeepAliveForTests();
+  __resetHealthForTests();
+  __resetRecoveryForTests();
   pool.forget("a");
   pool.forget("b");
   useMultiServerPrefs.setState({ multiServer: true });
@@ -186,16 +191,25 @@ describe("Zen rooms (flag on)", () => {
     expect(useServersStore.getState().tokens.b).toBe("tok-b");
   });
 
-  it("MS36: an offline room server says so with Retry now, which re-checks B only", async () => {
+  it("MS36: an offline room server says Reconnecting…, then offline with Retry now, which re-checks B only", async () => {
     renderAt("/zen?addr=docs&server=bravo.k2.dev");
     await waitFor(() => expect(useZenStore.getState().threadSource).toBe("live"));
     net.boot = null as unknown;
     await act(async () => {
-      await pool.check("b");
+      retryServerNow("b");
     });
     const banner = await screen.findByTestId("room-banner");
-    expect(banner.getAttribute("data-state")).toBe("offline");
-    expect(screen.getByTestId("room-banner-copy").textContent).toMatch(/^Offline/);
+    expect(banner.getAttribute("data-state")).toBe("reconnecting");
+    expect(screen.getByTestId("room-banner-copy").textContent).toBe("Reconnecting to Bravo…");
+    expect(screen.getByTestId("room-banner-spinner")).toBeTruthy();
+    // Input stays on while it reconnects: sends wait for B.
+    expect(screen.getByTestId("composer-input").hasAttribute("disabled")).toBe(false);
+    // Past the 10 s grace: offline, still trying, with Retry now.
+    act(() => healthStore.setState({ downSince: { b: Date.now() - 11_000 } }));
+    await waitFor(() => expect(screen.getByTestId("room-banner").getAttribute("data-state")).toBe("offline"), {
+      timeout: 2_500,
+    });
+    expect(screen.getByTestId("room-banner-copy").textContent).toBe("Bravo is offline. We'll keep trying");
     net.calls = [];
     fireEvent.click(screen.getByTestId("room-banner-action"));
     await waitFor(() => expect(net.calls.length).toBeGreaterThan(0));

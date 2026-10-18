@@ -1,7 +1,7 @@
 import { isTicketEventFrame } from "../api/feedbackPure";
 import type { ServerScope } from "../api/scope";
 import { queueDial, type DialTicket } from "../api/dialQueue";
-import { emitServerSignal } from "../api/serverSignals";
+import { emitServerSignal, onServerSignal } from "../api/serverSignals";
 import { inBackground, onAppLifecycle } from "../lib/appLifecycle";
 import { revive } from "../lib/revive";
 import { onServerForget } from "../stores/servers";
@@ -294,6 +294,18 @@ export function subscribeAppEvents(
     },
   };
 }
+
+// Auto reconnect: the server answers again. A hub waiting on its backoff
+// redials now (through the dial queue); the reopen re-pulls.
+onServerSignal((id, signal) => {
+  if (signal !== "recovered") return;
+  const hub = hubs.get(id);
+  if (!hub || hub.dead || hub.paused || hub.ws || hub.dial) return;
+  if (hub.retryTimer) clearTimeout(hub.retryTimer);
+  hub.retryTimer = null;
+  hub.attempt = 0;
+  openHub(hub);
+});
 
 // MS28 (flag on): the background closes every hub socket; the foreground
 // reopens them through the dial queue, and the reopen re-pulls.

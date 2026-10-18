@@ -25,13 +25,14 @@ describe("room failure banner", () => {
       const f = roomFailure({ ...base, ...over, entry });
       return f && [f.state, f.copy, f.action, f.actionLabel];
     };
+    // Down for longer than the 10 s grace: offline, and still trying.
     expect(row(live({ reach: "offline", nextAt: 22_000 }))).toEqual([
       "offline",
-      "Offline · retrying in 12 s",
+      "Bravo is offline. We'll keep trying",
       "retry",
       "Retry now",
     ]);
-    expect(row(live({ reach: "starting" }))).toEqual(["restarting", "Restarting…", "retry", "Retry now"]);
+    expect(row(live({ reach: "starting" }))).toEqual(["restarting", "Bravo is restarting…", "retry", "Retry now"]);
     expect(row(live(), { hasLogin: false })).toEqual(["signin-required", "Sign in to Bravo", "sign-in", "Sign in"]);
     expect(row(live({ auth: "kicked" }))).toEqual(["kicked", "Removed from Bravo", "sign-in", "Sign in"]);
     expect(row(live({ auth: "rotate-required" }))).toEqual([
@@ -50,6 +51,49 @@ describe("room failure banner", () => {
       null,
       null,
     ]);
+  });
+
+  it("down: 'Reconnecting…' (spinner, no action) for 10 s after it went down or the user's last try, then offline", () => {
+    const off = live({ reach: "offline", checkedAt: 9_000 });
+    const at = (now: number, over: Partial<Parameters<typeof roomFailure>[0]> = {}) =>
+      roomFailure({ ...base, entry: off, now, downSince: 5_000, ...over });
+    expect(at(10_000)).toMatchObject({
+      state: "reconnecting",
+      copy: "Reconnecting to Bravo…",
+      action: null,
+      spinner: true,
+      queuesInput: true,
+    });
+    expect(at(15_000)).toMatchObject({
+      state: "offline",
+      copy: "Bravo is offline. We'll keep trying",
+      action: "retry",
+      actionLabel: "Retry now",
+      queuesInput: true,
+    });
+    // Retry now (or opening the chat) restarts the grace.
+    expect(at(15_000, { retryAt: 14_000 })?.state).toBe("reconnecting");
+    // A reconnect running reads as reconnecting.
+    expect(at(60_000, { reconnecting: true })?.state).toBe("reconnecting");
+  });
+
+  it("the active server: a banner only when it is down or its login expired", () => {
+    const active = { ...base, active: true, entry: { ...live(), auth: "signin-required" as const } };
+    expect(roomFailure({ ...active })).toBeNull();
+    expect(roomFailure({ ...active, downSince: 9_500 })?.state).toBe("reconnecting");
+    expect(roomFailure({ ...active, expired: true })).toMatchObject({
+      state: "signin-required",
+      copy: "Sign in again to Bravo",
+      action: "sign-in",
+      actionLabel: "Sign in again",
+    });
+    expect(roomFailure({ ...active, hasLogin: false, downSince: 1 })).toBeNull();
+  });
+
+  it("an expired login on another server says Sign in again, input off", () => {
+    const f = roomFailure({ ...base, entry: live({ auth: "signin-required" }) });
+    expect(f).toMatchObject({ state: "signin-required", copy: "Sign in again to Bravo", actionLabel: "Sign in again" });
+    expect(f?.queuesInput).toBeFalsy();
   });
 
   it("0.41.6 is the floor (Q9): at the floor the room is usable", () => {

@@ -102,6 +102,7 @@ export function HomeList({
   remoteLook,
   onRemoteAction,
   hereChip = null,
+  activeDown = false,
   inset = "16px",
 }: {
   views: HomeRowView[];
@@ -123,6 +124,8 @@ export function HomeList({
   onRemoteAction?: (view: Extract<HomeRowView, { kind: "remote" }>, action: FailureActionKind) => void;
   /** The active server's chip on its own rows (flag on, several servers). */
   hereChip?: string | null;
+  /** The active server is down (auto reconnect): its rows say so. */
+  activeDown?: boolean;
   /** Row side padding: the Agents list's content inset. */
   inset?: string;
 }) {
@@ -267,6 +270,11 @@ export function HomeList({
           </span>
         ) : look ? (
           look.preview
+        ) : activeDown && v.kind !== "remote" ? (
+          <span className="inline-flex items-center" style={{ gap: 6 }} data-testid="row-reconnecting">
+            <span aria-hidden className="k2-reconnect-dot" />
+            Reconnecting…
+          </span>
         ) : v.kind === "here" ? (
           previewFor(v.agent)
         ) : v.kind === "remote" ? (
@@ -358,8 +366,10 @@ export function HomeList({
                 }
                 if (v.kind === "here") setAgent(v.agent.id);
                 else if (v.kind === "remote") {
-                  // Flag on: a server in trouble runs its one fix instead.
-                  if (failure) action?.();
+                  // Flag on: a server in trouble runs its one fix instead —
+                  // except one that is down: the chat opens with what is
+                  // cached and reconnects (auto reconnect, its banner).
+                  if (failure && failure.state !== "offline" && failure.state !== "restarting") action?.();
                   else onOpenRemote(v);
                 }
               }}

@@ -30,7 +30,10 @@ import {
   type MergedSource,
 } from "./merge";
 import { pool, roleAllowsRoom, usePoolEntries, type PoolEntry } from "./pool";
-import { retryServerNow, usePoolLoop } from "./poolLoop";
+import { usePoolLoop } from "./poolLoop";
+import { retryServerFromUser, serverNeedsWatch, useFlagOffRecovery } from "./recovery";
+import { useHealth } from "./serverHealth";
+import { zenServerId } from "../zenScope";
 import { useMultiServerPrefs } from "./prefs";
 import {
   clearServerSnapshot,
@@ -140,7 +143,19 @@ export function useMultiServerList(opts: {
     },
     [activeServerId]
   );
-  usePoolLoop(on && opts.listOnScreen, ids, activeServerId, onChecked);
+  // The loop runs whenever the flag is on (foregrounded only). Off the
+  // list (a Thread open) it checks only servers that need watching: down,
+  // the room's, Zen's server in trouble (auto reconnect).
+  usePoolLoop(on, ids, activeServerId, onChecked, {
+    listOnScreen: opts.listOnScreen,
+    watched: serverNeedsWatch,
+    foregroundIds: () => {
+      const z = zenServerId();
+      return z ? [z] : [];
+    },
+  });
+  useFlagOffRecovery(on);
+  const expired = useHealth((h) => h.expired);
 
   // MS13: a restart resyncs THAT server only.
   useEffect(() => {
@@ -270,16 +285,17 @@ export function useMultiServerList(opts: {
       const label = labelOf(s);
       if (s.id === activeServerId) {
         // The active server keeps today's paths; only "signed out" (the
-        // stub list) needs a row here.
-        if (active.source !== "stub") continue;
+        // stub list) or a login that expired needs a row here.
+        const again = !!expired[s.id] && active.source !== "stub";
+        if (active.source !== "stub" && !again) continue;
         out.push({
           serverId: s.id,
           label,
           failure: {
             state: "signin-required",
-            copy: `Sign in to ${label}`,
+            copy: again ? `Sign in again to ${label}` : `Sign in to ${label}`,
             action: "sign-in",
-            actionLabel: "Sign in",
+            actionLabel: again ? "Sign in again" : "Sign in",
           },
           note: "",
           nextAt: null,
@@ -299,7 +315,7 @@ export function useMultiServerList(opts: {
       });
     }
     return out;
-  }, [on, servers, selectedId, activeServerId, active.source, byServer, statusFor, entries]);
+  }, [on, servers, selectedId, activeServerId, active.source, byServer, statusFor, entries, expired]);
 
   const loads = useMemo(
     () =>
@@ -341,7 +357,7 @@ export function useMultiServerList(opts: {
 
   const act = useCallback(
     (serverId: string, action: FailureAction) => {
-      if (action === "retry") retryServerNow(serverId);
+      if (action === "retry") retryServerFromUser(serverId);
       else if (action === "sign-in") setSignInFor(serverId);
       else void switchOpen(serverId, null);
     },

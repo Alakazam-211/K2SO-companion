@@ -47,6 +47,9 @@ export interface RowStatus {
   label: string;
   /** Why, for the row's second line / a11y ("Removed from B. Sign in again."). */
   detail?: string | null;
+  /** `sign-in` because the login this phone holds stopped working (the
+   *  server answered and said so): "Sign in again". */
+  expired?: boolean;
 }
 
 const LABELS: Record<RowStatusKind, string> = {
@@ -133,7 +136,9 @@ export function resolveRowStatus(input: RowStatusInput): RowStatus {
         : e.auth === "kicked"
           ? `Removed from ${server}. Sign in again.`
           : null);
-    return status("sign-in", detail);
+    const out = status("sign-in", detail);
+    if (e.auth === "signin-required") out.expired = true;
+    return out;
   }
   if (!roleAllowsRoom(e.role)) {
     return status(
@@ -209,7 +214,9 @@ export function rowFailure(
       action === "retry"
         ? "Retry now"
         : action === "sign-in"
-          ? "Sign in"
+          ? s.expired
+            ? "Sign in again"
+            : "Sign in"
           : action === "switch"
             ? "Open"
             : null,
@@ -218,15 +225,11 @@ export function rowFailure(
   switch (s.kind) {
     case "checking":
       return f("checking", "Checking…", null);
-    case "offline": {
-      const next = entry?.nextAt ?? null;
-      const secs = next === null ? null : Math.max(0, Math.ceil((next - now) / 1000));
-      return f(
-        "offline",
-        secs === null ? "Offline" : `Offline · retrying in ${secs} s`,
-        "retry"
-      );
-    }
+    case "offline":
+      // Auto reconnect keeps trying on its own (5 s / 15 s / 30 s): the row
+      // says so instead of looking dead. `now` is kept for callers.
+      void now;
+      return f("offline", "Reconnecting…", "retry");
     case "starting":
       return f("restarting", "Restarting…", "retry");
     case "signing-in":
@@ -236,7 +239,11 @@ export function rowFailure(
       if (entry?.auth === "rotate-required") {
         return f("rotate-required", `Change password on ${serverLabel}`, "sign-in");
       }
-      return f("signin-required", `Sign in to ${serverLabel}`, "sign-in");
+      return f(
+        "signin-required",
+        s.expired ? `Sign in again to ${serverLabel}` : `Sign in to ${serverLabel}`,
+        "sign-in"
+      );
     case "too-old":
       return f("too-old", `${serverLabel} needs an update`, "switch");
     case "no-access":

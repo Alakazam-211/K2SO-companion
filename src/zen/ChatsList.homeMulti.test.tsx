@@ -386,6 +386,66 @@ describe("Home list across servers (HM3, flag on)", () => {
     expect(useServersStore.getState().activeServerId).toBe("a");
   });
 
+  it("auto reconnect: a row on a server that is down opens its chat (a room there), not just a retry", async () => {
+    addHomeRow("dd", "delta.k2.dev");
+    seed();
+    setFlag(true);
+    mount();
+    goHome();
+    await waitFor(() =>
+      expect(homeRow("dd::delta.k2.dev").querySelector("[data-testid=row-failure]")?.getAttribute("data-state")).toBe(
+        "offline"
+      )
+    );
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("home-row-dd"));
+    });
+    await waitFor(() => expect(useZenStore.getState().screen).toBe("thread"));
+    expect(roomServerId()).toBe("d");
+    expect(useServersStore.getState().activeServerId).toBe("a");
+  });
+
+  it("pull to refresh on Home retries every saved server at once", async () => {
+    seed();
+    setFlag(true);
+    mount();
+    goHome();
+    await waitFor(() => expect(pool.entry("d")?.reach).toBe("offline"));
+    net.calls = [];
+    const list = screen.getByTestId("chats-list");
+    fireEvent.touchStart(list, { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchMove(list, { touches: [{ clientX: 102, clientY: 140 }] });
+    expect(screen.getByTestId("chats-pull-refresh").getAttribute("data-state")).toBe("pulling");
+    fireEvent.touchMove(list, { touches: [{ clientX: 103, clientY: 200 }] });
+    expect(screen.getByTestId("chats-pull-refresh").getAttribute("data-state")).toBe("armed");
+    fireEvent.touchEnd(list, { touches: [] });
+    expect(screen.getByTestId("chats-pull-refresh").getAttribute("data-state")).toBe("refreshing");
+    await waitFor(() => {
+      const hosts = new Set(net.calls.filter((c) => c.path === "/boot-status").map((c) => c.host));
+      for (const sv of ALL) expect(hosts.has(sv.url.replace("https://", ""))).toBe(true);
+    });
+    expect(useServersStore.getState().activeServerId).toBe("a");
+  });
+
+  it("a sideways swipe or a short pull does not refresh", async () => {
+    seed();
+    setFlag(true);
+    mount();
+    goHome();
+    await waitFor(() => expect(pool.entry("d")?.reach).toBe("offline"));
+    net.calls = [];
+    const list = screen.getByTestId("chats-list");
+    fireEvent.touchStart(list, { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchMove(list, { touches: [{ clientX: 200, clientY: 130 }] });
+    fireEvent.touchEnd(list, { touches: [] });
+    fireEvent.touchStart(list, { touches: [{ clientX: 100, clientY: 100 }] });
+    fireEvent.touchMove(list, { touches: [{ clientX: 100, clientY: 130 }] });
+    fireEvent.touchEnd(list, { touches: [] });
+    expect(screen.queryByTestId("chats-pull-refresh")).toBeNull();
+    await new Promise((r) => setTimeout(r, 20));
+    expect(net.calls.filter((c) => c.path === "/boot-status")).toEqual([]);
+  });
+
   it("failure rows: the §6.8 copy and one action, scoped to the row's server", async () => {
     addHomeRow("cc", "charlie.k2.dev");
     addHomeRow("dd", "delta.k2.dev");
@@ -408,7 +468,9 @@ describe("Home list across servers (HM3, flag on)", () => {
     );
     const actions = (addr: string) => within(homeRow(addr)).queryAllByTestId("row-failure-action");
     expect(homeRow("dd::delta.k2.dev").getAttribute("data-greyed")).toBe("1");
-    expect(within(homeRow("dd::delta.k2.dev")).getByTestId("row-failure").textContent).toMatch(/^Offline · retrying in \d+ s$/);
+    expect(within(homeRow("dd::delta.k2.dev")).getByTestId("row-failure").textContent).toBe("Reconnecting…");
+    // A server that is down reads as being retried, not dead.
+    expect(within(homeRow("dd::delta.k2.dev")).getByTestId("row-reconnecting")).not.toBeNull();
     expect(actions("ff::fox.k2.dev")).toHaveLength(0);
     expect(within(homeRow("ff::fox.k2.dev")).getByTestId("row-failure").textContent).toBe("No access on Foxtrot");
 

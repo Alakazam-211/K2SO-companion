@@ -1,7 +1,7 @@
 import type { ThreadItem } from "../api/client";
 import type { ServerScope } from "../api/scope";
 import { queueDial, type DialTicket } from "../api/dialQueue";
-import { emitServerSignal } from "../api/serverSignals";
+import { emitServerSignal, onServerSignal } from "../api/serverSignals";
 import { inBackground, onAppLifecycle } from "../lib/appLifecycle";
 import { revive } from "../lib/revive";
 import { overlayEventsUrl } from "./threadLive";
@@ -270,6 +270,18 @@ export function connectOverlayEvents(opts: {
     }
   });
 
+  // Auto reconnect: the server answers again. A socket waiting on its
+  // backoff (or polling after failed handshakes) redials now.
+  const stopRecovered = onServerSignal((id, signal) => {
+    if (signal !== "recovered" || id !== opts.scope.id) return;
+    if (stopped || paused || ws || dial) return;
+    if (wsTimer) clearTimeout(wsTimer);
+    wsTimer = null;
+    handshakeFails = 0;
+    reconnectAttempt = 0;
+    open();
+  });
+
   open();
   return {
     setViewing(visible) {
@@ -287,6 +299,7 @@ export function connectOverlayEvents(opts: {
       stopViewTimer();
       stopped = true;
       stopLifecycle();
+      stopRecovered();
       stopPoll();
       dial?.cancel();
       dial = null;

@@ -73,6 +73,8 @@ import {
   type ServerProject,
 } from "./serverPins";
 import { isSendableAddr } from "./sendGate";
+import { pool } from "./multi/pool";
+import { looksUnreachable, serverDown } from "./multi/serverHealth";
 import { terminalIdForAgent } from "./terminalJump";
 import { resolveFileRef } from "./chatLinks";
 import { getFileCategory, isBinaryPreviewCategory } from "./files/fileCategory";
@@ -556,6 +558,37 @@ type ListSlice = Pick<
 >;
 let listSlice: { serverId: string; state: ListSlice } | null = null;
 
+// Auto reconnect: the last Thread read per room (server + addr), in memory.
+// Only used while that server is DOWN, so a chat opened there shows what was
+// cached instead of an empty room (its banner says it is reconnecting).
+const THREAD_CACHE_MAX = 40;
+const threadCache = new Map<string, ThreadMessage[]>();
+
+function rememberThread(roomKey: string, thread: ThreadMessage[]): void {
+  if (!thread.length) return;
+  threadCache.delete(roomKey);
+  threadCache.set(roomKey, thread);
+  while (threadCache.size > THREAD_CACHE_MAX) {
+    const oldest = threadCache.keys().next().value;
+    if (oldest === undefined) break;
+    threadCache.delete(oldest);
+  }
+}
+
+/** A Thread read failed: when the server did not answer, its cached copy
+ *  (the banner says it is reconnecting), else nothing. */
+function unreachableFallback(serverId: string, addr: string, error: string | null): ThreadMessage[] {
+  if (!looksUnreachable(error)) return [];
+  return threadCache.get(threadRoomKey(serverId, null, addr.trim())) ?? [];
+}
+
+/** The cached Thread for `addr` on a server that is down, else null. */
+function cachedThreadWhileDown(serverId: string, addr: string | null | undefined): ThreadMessage[] | null {
+  const a = (addr || "").trim();
+  if (!serverId || !a || !serverDown(serverId, pool.entry(serverId))) return null;
+  return threadCache.get(threadRoomKey(serverId, null, a)) ?? null;
+}
+
 function captureList(s: ZenState): ListSlice {
   return {
     agentSource: s.agentSource,
@@ -598,6 +631,7 @@ onServerForget((id) => {
   // another server's data (MS7).
   if (roomServerId() === id) useZenStore.getState().closeChat();
   if (listSlice?.serverId === id) listSlice = null;
+  for (const k of [...threadCache.keys()]) if (k.startsWith(`${id}|`)) threadCache.delete(k);
 });
 
 // The active server changed under an open room: the parked list is stale,
@@ -1076,6 +1110,13 @@ export const useZenStore = create<ZenState>((set, get) => ({
     // lists (features, version) gates routes and verbs on its scope.
     // Public, single-flight, re-read at most every few minutes.
     void ensureBootStatus(scope);
+    // A chat resumed on a server that is down shows its cached Thread at
+    // once (auto reconnect); the reads below may take a while to fail.
+    const resumeRow = resumeId
+      ? get().agents.find((a) => a.id === resumeId) ?? get().agents.find((a) => a.addr === resumeId)
+      : undefined;
+    const cached = resumeRow ? cachedThreadWhileDown(scope.id, resumeRow.addr) : null;
+    const cachedAddr = cached ? { threadAddr: (resumeRow?.addr || "").trim() } : {};
     // Session exists: stub is unreachable. Owner fleet is GET /cli/agent/list
     // (singular). Address book is GET /cli/projects/list. Join on path.
     // Plural /cli/agents/list is the skills enumerator.
@@ -1090,11 +1131,12 @@ export const useZenStore = create<ZenState>((set, get) => ({
       agentId: resumeId || "",
       openFileIds: resumeId ? get().openFileIds : [],
       focusId: resumeId ? get().focusId : null,
-      threadSource: "loading",
+      threadSource: cached ? "live" : "loading",
       threadError: null,
-      thread: [],
+      thread: cached ?? [],
       threadGroupId: null,
       threadConversationId: null,
+      ...cachedAddr,
     });
     try {
       const [rAgents, rProjects, rGroups, rSessions] = await Promise.all([
@@ -1119,6 +1161,20 @@ export const useZenStore = create<ZenState>((set, get) => ({
       });
       if (!built.ok) {
         const msg = built.error;
+        if (resumeRow?.addr && looksUnreachable(msg)) {
+          // The server did not answer while a chat on it opens: keep the
+          // chat (its row, its cached Thread) so it can reconnect and its
+          // sends can wait (auto reconnect).
+          set({
+            agentSource: "error",
+            agentError: msg,
+            threadSource: cached ? "live" : "error",
+            threadError: cached ? null : msg,
+            thread: cached ?? [],
+            threadAddr: resumeRow.addr.trim(),
+          });
+          return;
+        }
         set({
           agentSource: "error",
           fileSource: "error",
@@ -1169,11 +1225,12 @@ export const useZenStore = create<ZenState>((set, get) => ({
         files: resumeId ? get().files : [],
         agentError: msg,
         fileError: msg,
-        threadSource: resumeId ? "loading" : "error",
+        threadSource: cached ? "live" : resumeId ? "loading" : "error",
         threadError: resumeId ? null : msg,
-        thread: [],
+        thread: cached ?? [],
         screen: resumeId ? "thread" : "list",
         agentId: resumeId || "",
+        ...cachedAddr,
       });
       if (resumeId) get().setAgent(resumeId);
     }
@@ -1406,26 +1463,30 @@ export const useZenStore = create<ZenState>((set, get) => ({
       return;
     }
     const gen = get().threadGen + 1;
+    const scope = zenScope();
+    // Its server is down: the cached Thread, at once (auto reconnect).
+    const cached = cachedThreadWhileDown(scope.id, addr);
     set({
       threadGen: gen,
-      thread: [],
+      thread: cached ?? [],
       threadError: null,
-      threadSource: "loading",
+      threadSource: cached ? "live" : "loading",
       threadAddr: addr,
       threadGroupId: null,
       threadConversationId: null,
       threadHasMore: false,
-      threadOldestSeq: null,
+      threadOldestSeq: cached ? oldestSeqOf(cached) : null,
     });
-    const scope = zenScope();
     const username = scope.username();
     try {
       const r = await getThread(scope, addr);
       if (get().threadGen !== gen) return;
+      if (cached && (!r.ok || !r.data || !Array.isArray(r.data.items))) return; // keep the cached copy
       if (!r.ok || !r.data || !Array.isArray(r.data.items)) {
         set({
           threadSource: "error",
-          thread: [],
+          // The server did not answer: what was read before stays readable.
+          thread: unreachableFallback(scope.id, addr, typeof r.error === "string" ? r.error : null),
           threadError:
             typeof r.error === "string" && r.error
               ? r.error
@@ -1451,10 +1512,12 @@ export const useZenStore = create<ZenState>((set, get) => ({
       });
     } catch (e) {
       if (get().threadGen !== gen) return;
+      if (cached) return; // keep the cached copy; the banner says why
+      const msg = e instanceof Error ? e.message : String(e);
       set({
         threadSource: "error",
-        thread: [],
-        threadError: e instanceof Error ? e.message : String(e),
+        thread: unreachableFallback(scope.id, addr, msg),
+        threadError: msg,
       });
     }
   },
@@ -2208,7 +2271,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
     listSlice = null;
     activityServer = active;
     focusServer = active;
-    if (parked && parked.serverId === active) {
+    // A parked list that had failed (its server was down) is read again.
+    if (parked && parked.serverId === active && parked.state.agentSource !== "error") {
       set(parked.state);
       // Fresh dots, pins and groups for the list, in the background.
       void get().refreshActivity();
@@ -2335,6 +2399,14 @@ export const useZenStore = create<ZenState>((set, get) => ({
 
   focusFile: (id) => set({ focusId: id }),
 }));
+
+// Every Thread read that landed is the room's cached copy (auto reconnect).
+useZenStore.subscribe((s, p) => {
+  if (s.thread === p.thread || s.threadSource !== "live") return;
+  const addr = (s.threadAddr || "").trim();
+  if (!addr || (s.threadGroupId || "").trim()) return;
+  rememberThread(threadRoomKey(zenId(), null, addr), s.thread);
+});
 
 /** The header's short error line (pins and groups). Clears itself. */
 function showPinError(text: string): void {

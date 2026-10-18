@@ -1,7 +1,8 @@
 import type { RoomFailure } from "./roomFailure";
 
 /** MS36: the room's failure, above the composer. One action, scoped to
- *  the room's server (never another one). Input is off while it shows. */
+ *  the room's server (never another one). Input is off while it shows,
+ *  except while the server is down: sends wait for it (auto reconnect). */
 export function RoomBanner({
   failure,
   onAction,
@@ -17,8 +18,11 @@ export function RoomBanner({
       className="flex items-center gap-2 mb-1.5 px-3 py-2 rounded-xl"
       style={{ background: "rgba(255,255,255,0.08)", color: "#fff" }}
     >
+      {failure.spinner ? (
+        <span aria-hidden className="k2-spinner shrink-0" data-testid="room-banner-spinner" />
+      ) : null}
       <span className="min-w-0 flex-1 text-[13px] leading-snug">
-        <span className="block truncate" data-testid="room-banner-copy">
+        <span className="block" data-testid="room-banner-copy">
           {failure.copy}
         </span>
         {failure.detail ? (

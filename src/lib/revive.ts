@@ -266,9 +266,14 @@ onServerForget((id) => {
 });
 
 /** Explicit user gesture: make a server active elsewhere, then call this to
- *  (re)connect it — probes/re-logs-in as needed, bypassing the cooldown. */
-export function connectServer(serverId: string): Promise<ReviveOutcome> {
-  return reviveServerSession(serverId, { force: true });
+ *  (re)connect it — probes/re-logs-in as needed, bypassing the cooldown.
+ *  The automatic reconnect (`zen/multi/recovery.ts`) runs the same thing
+ *  with `background`: a dead login is marked, never deleted (MA22). */
+export function connectServer(
+  serverId: string,
+  opts?: { background?: boolean }
+): Promise<ReviveOutcome> {
+  return reviveServerSession(serverId, { force: true, background: opts?.background === true });
 }
 
 /** Test-only: clear the single-flight + backoff maps. */

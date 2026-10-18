@@ -18,7 +18,9 @@ export type OutgoingMessage = {
   paths: (string | null)[];
   attachWorkspace: string | null;
   attachDir: string | null;
-  status: "sending" | "failed";
+  /** `queued`: typed while its server was down; goes out on its own once
+   *  the server is back (auto reconnect, `sendQueue.ts`). */
+  status: "sending" | "failed" | "queued";
   error: string | null;
   /** Unix seconds when Send was tapped. */
   at: number;
@@ -145,7 +147,7 @@ export function outgoingBubble(o: OutgoingMessage): ThreadMessage {
     mine: true,
     kind: "text",
     choice: null,
-    pending: o.status === "sending",
+    pending: o.status === "sending" || o.status === "queued",
     failed: o.status === "failed",
   };
 }
