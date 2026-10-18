@@ -14,7 +14,7 @@ import { rowPreviewFor, rowPreviewText } from "./rowPreview";
 import { RowSnippet } from "./RowSnippet";
 import { activityColor, activityForRow, activityPinText, activityRowText } from "./agentActivity";
 import { AgentRowContent } from "./AgentRowContent";
-import { RowDivider } from "./RowDivider";
+import { RowDivider, ZEN_ROW_RIGHT_INSET } from "./RowDivider";
 import { OverlayAddServer } from "./OverlayAddServer";
 import {
   GlassSearchBar,
@@ -1751,7 +1751,7 @@ export function ChatsList() {
               paddingTop: 12,
               paddingBottom: 12,
               paddingLeft: rearrangePadLeft(ZEN_LIST_CONTENT_INSET, agentsRearranging),
-              paddingRight: ZEN_LIST_CONTENT_INSET,
+              paddingRight: ZEN_ROW_RIGHT_INSET,
               touchAction: ghost ? "none" : "pan-y",
               userSelect: "none",
               WebkitUserSelect: "none",
@@ -1792,7 +1792,7 @@ export function ChatsList() {
           {divided && !shift.dragging ? (
             <RowDivider
               padLeft={rearrangePadLeft(ZEN_LIST_CONTENT_INSET, agentsRearranging)}
-              padRight={ZEN_LIST_CONTENT_INSET}
+              padRight={ZEN_ROW_RIGHT_INSET}
               transition={rearrange.reduced ? undefined : "left 200ms cubic-bezier(.2,.9,.25,1)"}
             />
           ) : null}
