@@ -16,7 +16,7 @@ import { GlassComposer, composerBlockHeight, composerPlaceholder } from "./Glass
 import { keyboardMotionMs, useViewportPadRef, type ViewportMotion } from "../lib/useViewportHeight";
 import { useKeyboardFlip } from "../kit/mobileChat/useKeyboardFlip";
 import { COMPOSER_FOCUSED_ATTR, useComposerFocusGap } from "../kit/mobileChat/useComposerFocusGap";
-import { useScrollRoom } from "../kit/mobileChat/useScrollRoom";
+import { CHAT_CONTENT_CLASS, useScrollRoom } from "../kit/mobileChat/useScrollRoom";
 import { useKeyboardDrag } from "../kit/mobileChat/useKeyboardDrag";
 import { useTapToDismiss } from "../kit/mobileChat/useTapToDismiss";
 import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
@@ -884,6 +884,7 @@ export function ThreadPane({
     };
   }, [viewingAllowed, covered, source, conversationId, threadGroupId, zenServer]);
 
+  const scrollRoom = useRef<{ dropNow(): void } | null>(null);
   // Keyboard open/close on the compositor (FLIP; mobile chat kit). After
   // an interactive drag the finger owns the scroll: only the composer
   // plays, the list is never moved or re-stuck.
@@ -898,11 +899,13 @@ export function ThreadPane({
       lastScrollTop: () => lastTop.current,
       stick: () => follow(),
       held: () => !!pendingAnchor.current,
+      content: () => contentRef.current,
+      beforeHide: () => scrollRoom.current?.dropNow(),
     },
   });
 
   // Keyboard up: real scroll range above the view (kit useScrollRoom).
-  useScrollRoom({
+  scrollRoom.current = useScrollRoom({
     viewportHeight,
     scroller: () => scrollerRef.current,
     room: () => topRoomRef.current,
@@ -1322,7 +1325,10 @@ export function ThreadPane({
         <div
           ref={contentRef}
           data-testid="thread-content"
-          className="shrink-0 min-w-0 flex flex-col gap-1"
+          // Always fills the view (mobile chat kit): the keyboard's scroll
+          // room coming and going never moves a short chat; it rests
+          // top-aligned and glides there with the keyboard (FLIP).
+          className={`${CHAT_CONTENT_CLASS} shrink-0 min-w-0 flex flex-col gap-1`}
         >
           {source === "loading" && holding ? null : source === "loading" ? (
             <span

@@ -26,7 +26,7 @@ import { GlassComposer, settledHeight } from "./GlassComposer";
 import { keyboardMotionMs, useViewport, useViewportPadRef } from "../lib/useViewportHeight";
 import { useKeyboardFlip } from "../kit/mobileChat/useKeyboardFlip";
 import { useComposerFocusGap } from "../kit/mobileChat/useComposerFocusGap";
-import { useScrollRoom } from "../kit/mobileChat/useScrollRoom";
+import { CHAT_CONTENT_CLASS, useScrollRoom } from "../kit/mobileChat/useScrollRoom";
 import { useKeyboardDrag } from "../kit/mobileChat/useKeyboardDrag";
 import { useTapToDismiss } from "../kit/mobileChat/useTapToDismiss";
 import { NEW_BELOW_SETTLE_MS, threadBottomPadding } from "./ThreadPane";
@@ -687,6 +687,7 @@ export function TicketView({
     stickToNewest(el);
     lastTop.current = el.scrollTop;
   };
+  const scrollRoom = useRef<{ dropNow(): void } | null>(null);
   // Keyboard show / hide on the compositor (FLIP).
   useKeyboardFlip({
     viewportHeight: viewport.height,
@@ -701,12 +702,14 @@ export function TicketView({
       },
       lastScrollTop: () => lastTop.current,
       stick: stickIfFollowing,
+      content: () => contentRef.current,
+      beforeHide: () => scrollRoom.current?.dropNow(),
     },
     enabled: item != null,
   });
   // Real scroll range above while the keyboard is up (the drag is a 1:1
   // scroll).
-  useScrollRoom({
+  scrollRoom.current = useScrollRoom({
     viewportHeight: viewport.height,
     scroller: () => scrollerRef.current,
     room: () => topRoomRef.current,
@@ -1108,7 +1111,14 @@ export function TicketView({
           style={{ zIndex: 3 }}
           data-testid="ticket-kb-drag-layer"
         />
-        <div ref={contentRef} className="min-w-0 flex flex-col gap-3" data-testid="ticket-content">
+        {/* Top-aligned (the brief and its answers lead the ticket), but
+            always at least the scroller's height: the keyboard's scroll
+            room coming and going never moves it (mobile chat kit). */}
+        <div
+          ref={contentRef}
+          className={`${CHAT_CONTENT_CLASS} min-w-0 flex flex-col gap-3`}
+          data-testid="ticket-content"
+        >
         {openError && !item ? (
           <div className="flex flex-col items-center gap-3 py-10">
             <p className="text-[14px] text-center" style={{ color: "var(--warning)" }}>

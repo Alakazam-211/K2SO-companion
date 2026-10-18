@@ -300,10 +300,23 @@ html, body, #root {
   height: var(--mchat-composer-gap);
   transition: height var(--k2-kb-ms) var(--k2-kb-ease);
 }
+/* The list's content: always the scroller's height minus the gap spacer
+   (and minus the drag pad during an interactive dismiss), easing with the
+   spacer — a short list fills the view exactly and never moves when the
+   keyboard's scroll room comes or goes (useScrollRoom). Percentages
+   resolve at layout: a column resize does not animate it; only the gap
+   does (the drag pad switches the ease off: --mchat-content-ms). */
+.mchat-pane .mchat-content,
+.zen-thread-pane .mchat-content {
+  min-height: calc(100% - var(--mchat-composer-gap) - var(--mchat-drag-pad, 0px));
+  transition: min-height var(--mchat-content-ms, var(--k2-kb-ms)) var(--k2-kb-ease);
+}
 /* Android: no keyboard timing from the shell; the inset follows the
    system bars (k2-insets) as before, unanimated. */
 .platform-android .mchat-pane .mchat-bar,
 .platform-android .mchat-pane .mchat-gap,
+.platform-android .mchat-pane .mchat-content,
+.platform-android .zen-thread-pane .mchat-content,
 .platform-android .zen-thread-pane .zen-composer-bar,
 .platform-android .zen-thread-pane .zen-composer-gap {
   transition: none;
@@ -312,6 +325,8 @@ html, body, #root {
   .mchat-pane .mchat-bar,
   .mchat-pane .mchat-bar:focus-within,
   .mchat-pane .mchat-gap,
+  .mchat-pane .mchat-content,
+  .zen-thread-pane .mchat-content,
   .zen-thread-pane .zen-composer-bar,
   .zen-thread-pane .zen-composer-bar:focus-within,
   .zen-thread-pane .zen-composer-gap {
