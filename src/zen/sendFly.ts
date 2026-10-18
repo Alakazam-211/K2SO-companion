@@ -78,7 +78,9 @@ export const FLY_TEXT_AT = 0.15;
 /** The end correction when the real bubble moved mid-flight. */
 export const FLY_CORRECT_MS = 180;
 /** A delivered-mid-flight bubble brightens after the reveal. */
-export const FLY_BRIGHTEN_MS = 240;
+/** A bubble delivered mid-flight brightens after the reveal (matches
+ *  useDeliverBrighten's DELIVER_BRIGHTEN_MS). */
+export const FLY_BRIGHTEN_MS = 700;
 /** Spring decay rate per flight (zeta * omega): ~99.7% there at the end. */
 export const SPRING_DECAY = 8;
 /** The clone's stacking: the pane root is not a stacking context, so this
@@ -541,7 +543,7 @@ function settle(
   if (Math.abs(target - fromOpacity) > 0.01) {
     el.animate([{ opacity: fromOpacity }, { opacity: target }], {
       duration: FLY_BRIGHTEN_MS,
-      easing: "ease-out",
+      easing: "cubic-bezier(0.4, 0, 0.2, 1)",
     });
   }
 }

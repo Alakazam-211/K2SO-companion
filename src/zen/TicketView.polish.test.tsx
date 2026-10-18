@@ -281,7 +281,7 @@ describe("Optimistic comment", () => {
     expect(row.getAttribute("data-mine")).toBe("1");
     expect(row.getAttribute("data-outgoing")).toBe("sending");
     expect(bubbleOf(row).style.opacity).toBe("0.7");
-    expect(bubbleOf(row).style.transition).toContain("opacity");
+    expect(bubbleOf(row).style.transition).toBe("");
     expect(statusOf(row).textContent).toBe("Sending…");
     // Typing stays open while it sends; a second send waits.
     type("again");
