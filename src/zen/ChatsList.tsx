@@ -39,7 +39,7 @@ import { useRoomElsewhere, useZenScope } from "./zenScope";
 import { mountainListWhen } from "./threadModel";
 import { usePinDrag } from "./usePinDrag";
 import { useHoldMenu } from "./useHoldMenu";
-import { useRearrange } from "./useRearrange";
+import { prefersReducedMotion, useRearrange } from "./useRearrange";
 import { GripHandle, RearrangeDone, rearrangePadLeft } from "./RearrangeBits";
 import {
   AgentMenu,
@@ -176,6 +176,9 @@ const LIST_LINE_SIDES = {
 type ListItem =
   | { active: true; key: string; agent: StubAgent }
   | { active: false; key: string; row: MergedRow };
+
+/** Pins sliding aside while one is dragged. */
+const PIN_SHIFT_TRANSITION = "transform 220ms cubic-bezier(.2,.8,.2,1)";
 
 export function ChatsList() {
   const { height: containerHeight, offsetTop: viewportTop } = useViewport();
@@ -1517,6 +1520,9 @@ export function ChatsList() {
           const pinBusy =
             source === "live" ? activityForRow(a, activity, false, chatSessions) : null;
           const pinColor = pinBusy ? activityColor(pinBusy) : "";
+          // A lifted pin: the others slide between the cells to make room,
+          // and the lifted one's cell is the gap it will drop into.
+          const shift = pinDrag.offsetOf(a.id);
           return (
             <button
               key={item.key}
@@ -1527,6 +1533,9 @@ export function ChatsList() {
                 touchAction: "none",
                 WebkitTouchCallout: "none",
                 userSelect: "none",
+                transform: shift ? `translate(${shift.dx}px, ${shift.dy}px)` : undefined,
+                transition: ghost && !prefersReducedMotion() ? PIN_SHIFT_TRANSITION : undefined,
+                opacity: pinDrag.draggingId === a.id ? 0 : undefined,
               }}
               data-pin-id={a.id}
               data-pin-from="pin"

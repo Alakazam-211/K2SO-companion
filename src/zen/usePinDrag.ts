@@ -1,5 +1,12 @@
 import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import { PIN_LIFT_PX, PIN_MENU_MS, dropIsPins, pinBeforeId } from "./pinChats";
+import {
+  PIN_LIFT_PX,
+  PIN_MENU_MS,
+  dropIsPins,
+  pinPreviewOrder,
+  pinSlotOffset,
+  type PinSlot,
+} from "./pinChats";
 import { rectOf, type HeldMenu, type MenuRect } from "./useHoldMenu";
 import { useZenStore } from "./zenStore";
 
@@ -11,6 +18,8 @@ type Drag = {
   timer: ReturnType<typeof setTimeout> | null;
   /** Where the pressed pin sits, for placing its menu. */
   rect: MenuRect | null;
+  /** The pins' cells, measured at lift: the others slide between them. */
+  slots: PinSlot[];
 };
 
 export type PinRect = MenuRect;
@@ -20,9 +29,10 @@ export type PinRect = MenuRect;
  *
  *   - still for PIN_MENU_MS: its menu (the same agent menu rows get);
  *   - move past PIN_LIFT_PX (before or after the menu opens): the pin
- *     lifts and drags; a drop inside the grid reorders the pins on the
- *     server (`movePin` → `projects/reorder`). A drop anywhere else puts
- *     it back (Unpin is in the menu).
+ *     lifts and drags, and the other pins slide aside to show where it
+ *     will land (`order`, `offsetOf`); a drop inside the grid reorders
+ *     the pins on the server (`movePin` → `projects/reorder`). A drop
+ *     anywhere else puts it back (Unpin is in the menu).
  *
  * List rows no longer lift into the grid: Pin is in their menu.
  */
@@ -44,6 +54,8 @@ export function usePinDrag(
     y: number;
   } | null>(null);
   const [hot, setHot] = useState(false);
+  /** The previewed pin order while one is lifted (null = not dragging). */
+  const [order, setOrder] = useState<string[] | null>(null);
   const [menu, setMenu] = useState<HeldMenu | null>(null);
 
   const consumeSkipClick = () => {
@@ -58,7 +70,22 @@ export function usePinDrag(
     dragRef.current = null;
     setGhost(null);
     setHot(false);
+    setOrder(null);
   };
+
+  const measureSlots = (): PinSlot[] => {
+    const root = pinsRef.current;
+    if (!root) return [];
+    return [...root.querySelectorAll<HTMLElement>("[data-pin-from='pin'][data-pin-id]")]
+      .filter((n) => n.dataset.placeholder !== "1" && n.dataset.pinId)
+      .map((n) => {
+        const r = n.getBoundingClientRect();
+        return { id: n.dataset.pinId!, left: r.left, top: r.top, width: r.width, height: r.height };
+      });
+  };
+
+  const overGrid = (x: number, y: number) =>
+    dropIsPins(x, y, pinsRef.current?.getBoundingClientRect() ?? null);
 
   const liftAt = (x: number, y: number) => {
     const d = dragRef.current;
@@ -67,6 +94,8 @@ export function usePinDrag(
     d.lifted = true;
     d.timer = null;
     skipClick.current = true;
+    d.slots = measureSlots();
+    setOrder(pinPreviewOrder(d.slots, d.id, x, y, overGrid(x, y)));
     const row = useZenStore.getState().agents.find((a) => a.id === d.id);
     setGhost({
       id: d.id,
@@ -109,6 +138,7 @@ export function usePinDrag(
       lifted: false,
       timer: setTimeout(openMenu, PIN_MENU_MS),
       rect: rectOf(pin),
+      slots: [],
     };
   };
 
@@ -126,14 +156,19 @@ export function usePinDrag(
     e.preventDefault();
     e.stopPropagation();
     setGhost((g) => (g ? { ...g, x: e.clientX, y: e.clientY } : g));
+    const next = pinPreviewOrder(d.slots, d.id, e.clientX, e.clientY, overGrid(e.clientX, e.clientY));
+    setOrder((o) => (o && o.join("\n") === next.join("\n") ? o : next));
   };
 
   const onPointerUp = (e: ReactPointerEvent<HTMLElement>) => {
     const d = dragRef.current;
     if (!d) return;
-    if (d.lifted) {
-      const inPins = dropIsPins(e.clientX, e.clientY, pinsRef.current?.getBoundingClientRect() ?? null);
-      if (inPins) void movePin(d.id, pinBeforeId(e.clientX, e.clientY, pinsRef.current));
+    if (d.lifted && overGrid(e.clientX, e.clientY)) {
+      const next = pinPreviewOrder(d.slots, d.id, e.clientX, e.clientY, true);
+      const at = next.indexOf(d.id);
+      if (next.join("\n") !== d.slots.map((s) => s.id).join("\n")) {
+        void movePin(d.id, next[at + 1] ?? null);
+      }
     }
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -152,6 +187,13 @@ export function usePinDrag(
     onPointerUp,
     ghost,
     hot,
+    /** While a pin is lifted: how far pin `id` slides from its cell. */
+    offsetOf: (id: string) => {
+      const d = dragRef.current;
+      return d && order ? pinSlotOffset(d.slots, order, id) : null;
+    },
+    /** The lifted pin's id (its cell shows as the gap it will drop into). */
+    draggingId: ghost?.id ?? null,
     consumeSkipClick,
     onPinClick,
     menu,
