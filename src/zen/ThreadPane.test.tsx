@@ -762,6 +762,16 @@ describe("ThreadPane", () => {
     // Keyboard dismissed (focus leaves to nothing).
     fireEvent.focusOut(ta, { relatedTarget: null });
     expect(root.hasAttribute("data-composer-focused")).toBe(false);
+    // The keyboard hiding on its own (a drag-dismiss) while the field is
+    // still focused: blur it and take the resting gap.
+    ta.focus();
+    fireEvent.focusIn(ta);
+    expect(root.hasAttribute("data-composer-focused")).toBe(true);
+    act(() => {
+      window.dispatchEvent(new CustomEvent("k2-keyboard-will", { detail: { show: false, height: 0, duration: 250 } }));
+    });
+    expect(document.activeElement).not.toBe(ta);
+    expect(root.hasAttribute("data-composer-focused")).toBe(false);
   });
 
   it("pads the scroller under a floating header and keeps the newest in view when it grows", () => {
