@@ -1,6 +1,9 @@
 import { useState, useRef, useEffect, useSyncExternalStore, type CSSProperties } from "react";
 import { useParams, useNavigate, useLocation, useSearchParams } from "react-router-dom";
-import { useViewportHeight } from "../lib/useViewportHeight";
+import { fullViewportHeight, useViewport } from "../lib/useViewportHeight";
+import { keyboardColumnHeight } from "../kit/mobileChat/useKeyboardFlip";
+import { useKeyboardForwardPlay } from "../kit/mobileChat/useKeyboardForwardPlay";
+import { useTapToDismiss } from "../kit/mobileChat/useTapToDismiss";
 import { useWorkspacesStore } from "../stores/workspaces";
 import { TerminalView } from "../components/TerminalView";
 import { ensurePinnedChat, uploadFsBinary } from "../api/client";
@@ -129,7 +132,8 @@ export function ZenTerminal() {
     (session && projects.find((p) => p.id === session.workspaceId)?.path) ||
     projectPath;
   const [input, setInput] = useState("");
-  const containerHeight = useViewportHeight();
+  const viewport = useViewport();
+  const containerHeight = viewport.height;
 
   const directHandles = useSyncExternalStore(
     subscribeSendModes,
@@ -139,6 +143,8 @@ export function ZenTerminal() {
   // Send-mode memory is per server (MA6): `<serverId>|<terminalId>`.
   const modeKey = terminalId ? scopedKey(termScope, terminalId) : "";
   const sendMode: SendMode = modeKey ? modeFor(directHandles, modeKey) : "safe";
+  const sendModeRef = useRef(sendMode);
+  sendModeRef.current = sendMode;
   const [sendBusy, setSendBusy] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -158,6 +164,50 @@ export function ZenTerminal() {
   }, [allSessions]);
 
   const terminalWrapperRef = useRef<HTMLDivElement>(null);
+  const columnRef = useRef<HTMLDivElement>(null);
+  // Mobile chat kit, forward play: the grid re-fits its rows on every
+  // size change, so it must not re-lay out while the keyboard moves. Show:
+  // the column is held at its old height (keyboardColumnHeight); hide:
+  // the column goes final and the grid's box is pinned at its old height.
+  // The composer plays by transform; when the motion clears, the pin and
+  // the transform go in one commit — the grid re-fits ONCE.
+  const gridPin = useRef<{ flex: string; height: string } | null>(null);
+  useKeyboardForwardPlay({
+    motion: viewport.motion,
+    movers: () => [
+      columnRef.current?.querySelector<HTMLElement>(
+        '[data-testid="terminal-composer-bar"], [data-testid="zen-terminal-direct-bar"]'
+      ) ?? null,
+    ],
+    hold: {
+      begin(m) {
+        const w = terminalWrapperRef.current;
+        if (!w || m.to <= m.from) return; // show: the column holds
+        gridPin.current = { flex: w.style.flex, height: w.style.height };
+        // The column grew by (to − from) in this commit; the grid had
+        // that much less.
+        const h = Math.max(0, w.getBoundingClientRect().height - (m.to - m.from));
+        w.style.flex = "0 0 auto";
+        w.style.height = `${h}px`;
+      },
+      end() {
+        const w = terminalWrapperRef.current;
+        const pin = gridPin.current;
+        gridPin.current = null;
+        if (!w || !pin) return;
+        w.style.flex = pin.flex;
+        w.style.height = pin.height;
+      },
+    },
+  });
+  // Reading the output closes the keyboard (a tap, not a scroll) — unless
+  // the terminal takes typing directly (a tap there means "type here").
+  useTapToDismiss({
+    area: () => terminalWrapperRef.current,
+    composer: () =>
+      columnRef.current?.querySelector<HTMLElement>('[data-testid="terminal-composer-bar"]') ?? null,
+    canDismiss: () => sendModeRef.current !== "direct",
+  });
   const sendInputRef = useRef<((text: string) => void) | null>(null);
   const reloadRef = useRef<(() => void) | null>(null);
   const captureFocusRef = useRef<(() => void) | null>(null);
@@ -324,9 +374,10 @@ export function ZenTerminal() {
       style={{ background: "#000" }}
     >
       <div
+        ref={columnRef}
         className="relative flex flex-col min-h-0"
         data-testid="zen-terminal-column"
-        style={{ height: containerHeight, overflow: "hidden" }}
+        style={{ height: keyboardColumnHeight(viewport, fullViewportHeight()), overflow: "hidden" }}
       >
         {/* Glass header with the Zen thread's progressive blur. In flow,
             not over the grid: a terminal row under the header would be

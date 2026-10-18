@@ -1,6 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useViewport, viewportTransition } from "../lib/useViewportHeight";
+import {
+  fullViewportHeight,
+  useViewport,
+  useViewportTrackRef,
+} from "../lib/useViewportHeight";
+import { keyboardColumnHeight, useKeyboardFlip } from "../kit/mobileChat/useKeyboardFlip";
 import { useFeedbackStore } from "../stores/feedback";
 import { ticketsAriaLabel, ticketsBadge } from "../api/feedbackPure";
 import { hostLabel, serverHostKey, useServersStore, type RecoveryState } from "../stores/servers";
@@ -182,11 +187,19 @@ type ListItem =
 const PIN_SHIFT_TRANSITION = "transform 220ms cubic-bezier(.2,.8,.2,1)";
 
 export function ChatsList() {
+  const viewport = useViewport();
   const {
     height: containerHeight,
     offsetTop: viewportTop,
     motion: viewportMotion,
-  } = useViewport();
+    interactive: viewportInteractive,
+  } = viewport;
+  // Mobile chat kit: the column is tracked (an open ticket's interactive
+  // dismiss sizes it) and the search bar + its blur ride the keyboard by
+  // FLIP (no height transition).
+  const columnTrackRef = useViewportTrackRef();
+  const searchBarRef = useRef<HTMLDivElement>(null);
+  const searchBlurRef = useRef<HTMLDivElement>(null);
   const agents = useZenStore((s) => s.agents);
   const chatRows = useMemo(() => agents.filter((a) => a.kind !== "group"), [agents]);
   const source = useZenStore((s) => s.agentSource);
@@ -210,6 +223,16 @@ export function ChatsList() {
   const recentOn = useRecentFirstStore((s) => s.on);
   const recentSent = useRecentFirstStore((s) => s.sent);
   const listRef = useRef<HTMLDivElement | null>(null);
+  // The search bar (and its blur) ride the keyboard's show / hide on the
+  // compositor; the list itself never moves (it does not stick to an end).
+  useKeyboardFlip({
+    viewportHeight: containerHeight,
+    motion: viewportMotion,
+    interactive: viewportInteractive,
+    scroller: () => listRef.current,
+    docks: () => [searchBarRef.current, searchBlurRef.current],
+    enabled: zenScreen !== "thread",
+  });
   const pinsRef = useRef<HTMLDivElement | null>(null);
   const headerRef = useRef<HTMLDivElement | null>(null);
   const [headerPx, setHeaderPx] = useState(CHATS_HEADER_PX);
@@ -1041,12 +1064,16 @@ export function ChatsList() {
     >
       <div
         className="flex flex-col relative overflow-hidden"
-        // On screen (not under an open Thread): Search eases with the
-        // keyboard's Will*. An interactive dismiss here lands on release.
-        // Hidden under the Thread it just takes the final height.
+        // On screen (not under an open Thread): keyboard motion plays on
+        // the compositor (useKeyboardFlip): final at once on hide, held on
+        // show, full during an (open ticket's) interactive dismiss. Hidden
+        // under the Thread it just takes the final height.
+        ref={zenScreen !== "thread" ? columnTrackRef : undefined}
         style={{
-          height: containerHeight,
-          transition: zenScreen !== "thread" ? viewportTransition(viewportMotion) : undefined,
+          height:
+            zenScreen !== "thread"
+              ? keyboardColumnHeight(viewport, fullViewportHeight())
+              : containerHeight,
         }}
         data-testid="chats-column"
       >
@@ -1882,6 +1909,8 @@ export function ChatsList() {
         onPlus={() => (onHome ? setAddAgent(true) : setNewWorkspace(true))}
         plusLabel={onHome ? "Add agent" : "New workspace"}
         plusBlockedNote={onHome || canCreate ? null : createRoleNote()}
+        barRef={searchBarRef}
+        blurRef={searchBlurRef}
       />
 
       {projectsOpen ? <ProjectsOverlay onClose={() => setProjectsOpen(false)} /> : null}

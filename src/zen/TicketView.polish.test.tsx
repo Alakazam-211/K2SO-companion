@@ -45,6 +45,7 @@ import { useFeedbackStore } from "../stores/feedback";
 import { useServersStore } from "../stores/servers";
 import { composerDraftKey, ticketDraftKey, useComposerDrafts } from "./composerDrafts";
 import { TicketView } from "./TicketView";
+import { __resetViewportForTests } from "../lib/useViewportHeight";
 
 const NOW = Math.floor(Date.now() / 1000);
 
@@ -496,5 +497,60 @@ describe("Comment draft per ticket", () => {
     send();
     expect(input().value).toBe("");
     expect(useComposerDrafts.getState().drafts["s1|ticket:t-wait"]).toBeUndefined();
+  });
+});
+
+describe("Ticket keyboard — the mobile chat kit (the Thread's behaviour)", () => {
+  afterEach(() => {
+    __resetViewportForTests();
+  });
+  const will = (d: Record<string, unknown>) =>
+    act(() => {
+      (window as unknown as { __k2KeyboardWill: (d: unknown) => void }).__k2KeyboardWill(d);
+    });
+  function pointer(el: Element, type: string, t: number) {
+    const e = new Event(type, { bubbles: true });
+    Object.defineProperty(e, "pointerId", { value: 1 });
+    Object.defineProperty(e, "clientX", { value: 10 });
+    Object.defineProperty(e, "clientY", { value: 10 });
+    Object.defineProperty(e, "timeStamp", { value: t });
+    act(() => {
+      el.dispatchEvent(e);
+    });
+  }
+  const tap = (el: Element) => {
+    pointer(el, "pointerdown", 1000);
+    pointer(el, "pointerup", 1080);
+  };
+
+  it("a kit pane: scroll room, drag layer, composer-gap spacer and drag pad in the scroller", () => {
+    open();
+    const scroller = screen.getByTestId("ticket-scroller");
+    expect(screen.getByTestId("ticket-view").className).toMatch(/\bmchat-pane\b/);
+    for (const id of ["ticket-kb-top-room", "ticket-kb-drag-layer", "ticket-composer-gap", "ticket-kb-drag-pad"]) {
+      expect(screen.getByTestId(id).parentElement).toBe(scroller);
+    }
+    expect(screen.getByTestId("ticket-composer-bar").className).toMatch(/\bmchat-bar\b/);
+  });
+
+  it("keyboard show: the dock plays up by transform on the keyboard's timing (no height animation)", () => {
+    open();
+    will({ height: 336, duration: 250, curve: 7, show: true });
+    const dock = screen.getByTestId("ticket-footer-dock");
+    expect(dock.style.transform).toBe(`translate3d(0, -336px, 0)`);
+    expect(dock.style.transition).toMatch(/^transform 250ms cubic-bezier\(0\.38, 0\.7, 0\.125, 1\)/);
+  });
+
+  it("a tap on the conversation closes the keyboard; a tap on a button does not", () => {
+    open();
+    const field = input();
+    act(() => field.focus());
+    const scroller = screen.getByTestId("ticket-scroller");
+    const button = scroller.querySelector("button");
+    expect(button).not.toBeNull();
+    tap(button!);
+    expect(document.activeElement).toBe(field);
+    tap(scroller);
+    expect(document.activeElement).not.toBe(field);
   });
 });

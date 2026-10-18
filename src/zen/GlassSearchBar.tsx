@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode, type Ref } from "react";
 import { PlusGlyph } from "./PlusGlyph";
 import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
 
@@ -29,7 +29,13 @@ export function GlassSearchBar({
   plusTestId,
   plusBlockedNote,
   leading,
+  barRef,
+  blurRef,
 }: {
+  /** The bar and its blur, for a screen that moves them with the
+   *  keyboard (mobile chat kit FLIP). */
+  barRef?: Ref<HTMLDivElement>;
+  blurRef?: Ref<HTMLDivElement>;
   query: string;
   onQuery: (value: string) => void;
   placeholder?: string;
@@ -62,6 +68,7 @@ export function GlassSearchBar({
   return (
     <>
     <ZenFooterBlur
+      elRef={blurRef}
       testId={testId ? `${testId}-blur` : "search-bar-blur"}
       style={{
         left: 0,
@@ -74,6 +81,7 @@ export function GlassSearchBar({
       }}
     />
     <div
+      ref={barRef}
       className="absolute left-3 right-3 flex items-center"
       data-no-pin="1"
       data-testid={testId}

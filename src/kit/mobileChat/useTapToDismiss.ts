@@ -67,15 +67,15 @@ export function useTapToDismiss(opts: {
   area: () => HTMLElement | null;
   /** The composer (its focused field is what gets blurred). */
   composer: () => HTMLElement | null;
-  /** Default true. */
-  enabled?: boolean;
+  /** The kit option: default true. */
+  dismissOnTap?: boolean;
   /** Per tap: false when a tap means something else here (e.g. a
    *  terminal in direct-typing mode). */
   canDismiss?: () => boolean;
 }): void {
   const ref = useRef(opts);
   ref.current = opts;
-  const enabled = opts.enabled ?? true;
+  const enabled = opts.dismissOnTap ?? true;
   useEffect(() => {
     const area = ref.current.area();
     if (!enabled || !area) return;

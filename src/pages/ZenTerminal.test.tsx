@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { useEffect, useRef, type MutableRefObject } from "react";
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
+import { __resetViewportForTests } from "../lib/useViewportHeight";
 
 // TerminalView opens sockets — stand in with a prop recorder whose
 // reload seam is a spy. Its touch layer is simulated with the real
@@ -748,5 +749,86 @@ describe("old /chat/:id page is unchanged", () => {
     const back = document.querySelector("button.-ml-2") as HTMLButtonElement;
     fireEvent.click(back);
     expect(screen.getByTestId("loc").textContent).toBe("/sessions");
+  });
+});
+
+describe("ZenTerminal keyboard — mobile chat kit forward play", () => {
+  const vv = Object.assign(new EventTarget(), { height: window.innerHeight, offsetTop: 0 });
+  beforeEach(() => {
+    vv.height = window.innerHeight;
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: vv });
+    __resetViewportForTests();
+  });
+  afterEach(() => {
+    __resetViewportForTests();
+    delete (window as unknown as Record<string, unknown>).visualViewport;
+    vi.useRealTimers();
+  });
+  const will = (d: Record<string, unknown>) =>
+    act(() => {
+      (window as unknown as { __k2KeyboardWill: (d: unknown) => void }).__k2KeyboardWill(d);
+    });
+  const FULL = window.innerHeight;
+
+  it("show: the composer plays up while the column (and grid) hold; one commit at the end", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+    const column = screen.getByTestId("zen-terminal-column");
+    const bar = screen.getByTestId("terminal-composer-bar");
+    will({ height: 336, duration: 250, curve: 7, show: true });
+    expect(column.style.height).toBe(`${FULL}px`); // held: the grid does not re-fit yet
+    expect(bar.style.transform).toBe("translate3d(0, -336px, 0)");
+    expect(bar.style.transition).toMatch(/^transform 250ms /);
+    vv.height = FULL - 336;
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(column.style.height).toBe(`${FULL - 336}px`);
+    expect(bar.style.transform).toBe("");
+  });
+
+  it("hide: the grid's box is pinned at its old height during the motion, released once", () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+    will({ height: 336, duration: 250, curve: 7, show: true });
+    vv.height = FULL - 336;
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    const wrapper = screen.getByTestId("terminal-view").parentElement as HTMLElement;
+    const bar = screen.getByTestId("terminal-composer-bar");
+    wrapper.getBoundingClientRect = () => ({ height: 600 }) as DOMRect;
+    will({ height: 0, duration: 250, curve: 7, show: false });
+    expect(screen.getByTestId("zen-terminal-column").style.height).toBe(`${FULL}px`);
+    expect(wrapper.style.flex).toBe("0 0 auto");
+    expect(wrapper.style.height).toBe(`${600 - 336}px`);
+    expect(bar.style.transform).toBe("translate3d(0, 336px, 0)");
+    vv.height = FULL;
+    act(() => {
+      vi.advanceTimersByTime(400);
+    });
+    expect(wrapper.style.height).toBe("");
+    expect(wrapper.style.flex).not.toBe("0 0 auto");
+    expect(bar.style.transform).toBe("");
+  });
+
+  it("a tap on the output closes the keyboard in safe send", () => {
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+    const field = screen.getByTestId("terminal-composer-input") as HTMLTextAreaElement;
+    act(() => field.focus());
+    const out = screen.getByTestId("terminal-view");
+    const ev = (type: string, t: number) => {
+      const e = new Event(type, { bubbles: true });
+      Object.defineProperty(e, "pointerId", { value: 1 });
+      Object.defineProperty(e, "clientX", { value: 5 });
+      Object.defineProperty(e, "clientY", { value: 5 });
+      Object.defineProperty(e, "timeStamp", { value: t });
+      act(() => {
+        out.dispatchEvent(e);
+      });
+    };
+    ev("pointerdown", 100);
+    ev("pointerup", 160);
+    expect(document.activeElement).not.toBe(field);
   });
 });
