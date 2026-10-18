@@ -2,19 +2,31 @@
 // that knows the wire's spelling: everything else speaks the merge model
 // (`zen/homesMerge`). If K2 renames a field, change it here.
 //
-// Routes (all on the ONE server the person picked, Bearer token via
-// `scopedFetch`, writes are POST):
-//   GET  /cli/me/homes?since=<cursor>&deviceId=<id>
-//        → {homes:[change…], cursor, device:{syncing}}   (no `since` = full)
+// The final 0.46.1 contract (K2 feat/homes-sync e22e3b774). Routes, all on
+// the ONE server the person picked, Bearer token via `scopedFetch`, writes
+// are POST:
+//   GET  /cli/me/homes?deviceId=<id>&since=<cursor>
+//        → {ok, person, serverId, cursor:<int>, full, changes:[item…],
+//           redirects:{oldId:newId}, device:{deviceId, syncing},
+//           servers:{hostKey:serverId}}
+//        No `since`, or a `since` below the tombstone floor / ahead of the
+//        server, answers `full:true` with the whole live set. Works for an
+//        unregistered device (`device.syncing:false`).
 //   POST /cli/me/homes/push {deviceId, changes:[…]}
-//        → {cursor, applied, rejected:[{item, reason}]}
+//        → {ok, cursor, applied:<count>, superseded:<count>,
+//           rejected:[{item, reason}]}
+//        409 `device_not_registered` until the device registered.
 //   POST /cli/me/homes/devices/register {deviceId, name, platform}
-//   GET  /cli/me/homes/devices → [{deviceId, name, platform, lastSyncAt, current}]
-//   POST /cli/me/homes/devices/remove {deviceId}
+//   GET  /cli/me/homes/devices → {ok, devices:[{deviceId, name, platform,
+//        registeredAt, lastSyncAt, current}]} (a bare array also read)
+//   POST /cli/me/homes/devices/remove {deviceId} → {ok, removed, deviceId}
 // A removed device gets 410 `device_removed` from pull / push.
+// Items carry `deviceId` (the writer: the LWW tie-break, `by` here); a
+// Home tombstone may carry `mergedInto`.
 //
-// Frames on the person's sockets: `homes_changed` (pull now) and
-// `homes_device_removed {deviceId}`.
+// Frames on the person's `/cli/sessions/events` sockets:
+// `{kind:"homes_changed", cursor}` and `{kind:"homes_device_removed",
+// deviceId}`.
 
 import type { ServerScope } from "./scope";
 import { scopedFetch, NOT_CONNECTED } from "./scopedFetch";
@@ -28,6 +40,8 @@ export const FEATURE_HOMES_SYNC = "homes-sync-v1";
 export type SyncFailure =
   /** 410 `device_removed`: stop syncing on this phone. */
   | { ok: false; kind: "removed"; error: string }
+  /** 409 `device_not_registered`: register, then try again. */
+  | { ok: false; kind: "not_registered"; error: string; status: number }
   /** Network error / timeout / no server: retry later. */
   | { ok: false; kind: "offline"; error: string }
   /** Signed out of that server (401 after revive). */
@@ -74,6 +88,8 @@ export function parseChangeItem(raw: unknown): ChangeItem | null {
     const c: ChangeItem = { kind: "home", id, name: str(o.name) ?? "", order: orderStr, updatedAt };
     if (by) c.by = by;
     if (deleted) c.deleted = true;
+    const into = str(pick(o, "mergedInto", "merged_into"));
+    if (deleted && into) c.mergedInto = into;
     return c;
   }
   if (kind === "row") {
@@ -102,6 +118,7 @@ export function toWireChange(c: ChangeItem): Record<string, unknown> {
   if (c.kind === "home") {
     const w: Record<string, unknown> = { kind: "home", id: c.id, name: c.name, order: c.order, updatedAt: c.updatedAt };
     if (c.deleted) w.deleted = true;
+    if (c.deleted && c.mergedInto) w.mergedInto = c.mergedInto;
     return w;
   }
   const w: Record<string, unknown> = {
@@ -117,48 +134,81 @@ export function toWireChange(c: ChangeItem): Record<string, unknown> {
   return w;
 }
 
+/** An integer cursor (a numeric string is read too); null otherwise. */
+export function parseCursor(v: unknown): number | null {
+  const n = num(v);
+  return n !== null && Number.isInteger(n) && n >= 0 ? n : null;
+}
+
+function strRecord(v: unknown): Record<string, string> {
+  const o = obj(v);
+  const out: Record<string, string> = {};
+  if (!o) return out;
+  for (const [k, val] of Object.entries(o)) if (k && typeof val === "string" && val) out[k] = val;
+  return out;
+}
+
 export interface PullReply {
   changes: ChangeItem[];
-  cursor: string | null;
-  /** `device.syncing`; null when absent. */
+  cursor: number | null;
+  /** The whole live set (no / stale / ahead `since`), not a delta. */
+  full: boolean;
+  /** Old Home id → the Home it merged into. */
+  redirects: Record<string, string>;
+  /** hostKey → serverId the server vouches for (its tunnel host, pinned
+   *  peers). */
+  servers: Record<string, string>;
+  person: string | null;
+  serverId: string | null;
+  /** `device.syncing`; null when absent. `false` = not registered (yet). */
   syncing: boolean | null;
 }
 
 export function parsePullReply(raw: unknown): PullReply {
   const o = obj(raw) ?? {};
-  const list = Array.isArray(o.homes) ? o.homes : Array.isArray(o.changes) ? o.changes : [];
-  const cursor = o.cursor;
+  const list = Array.isArray(o.changes) ? o.changes : Array.isArray(o.homes) ? o.homes : [];
   const device = obj(o.device);
   return {
     changes: list.map(parseChangeItem).filter((c): c is ChangeItem => c !== null),
-    cursor: typeof cursor === "string" ? cursor : typeof cursor === "number" ? String(cursor) : null,
+    cursor: parseCursor(o.cursor),
+    full: o.full === true,
+    redirects: strRecord(o.redirects),
+    servers: strRecord(o.servers),
+    person: str(o.person),
+    serverId: str(o.serverId),
     syncing: device && typeof device.syncing === "boolean" ? device.syncing : null,
   };
 }
 
 export interface PushReply {
-  cursor: string | null;
+  cursor: number | null;
   applied: number | null;
+  /** Items the server already held a newer version of (not errors): they
+   *  leave the outbox and a pull brings the newer version. */
+  superseded: number;
   /** Rejected items (as the model reads them) and why. */
   rejected: { item: ChangeItem | null; reason: string }[];
   /** Changes the server sent back with the reply, if any. */
   changes: ChangeItem[];
 }
 
+function count(v: unknown): number | null {
+  return Array.isArray(v) ? v.length : num(v);
+}
+
 export function parsePushReply(raw: unknown): PushReply {
   const o = obj(raw) ?? {};
-  const cursor = o.cursor;
   const rejected = Array.isArray(o.rejected)
     ? o.rejected.map((r) => {
         const ro = obj(r) ?? {};
         return { item: parseChangeItem(ro.item ?? r), reason: str(ro.reason) ?? "rejected" };
       })
     : [];
-  const applied = Array.isArray(o.applied) ? o.applied.length : num(o.applied);
   const list = Array.isArray(o.changes) ? o.changes : Array.isArray(o.homes) ? o.homes : [];
   return {
-    cursor: typeof cursor === "string" ? cursor : typeof cursor === "number" ? String(cursor) : null,
-    applied,
+    cursor: parseCursor(o.cursor),
+    applied: count(o.applied),
+    superseded: count(o.superseded) ?? 0,
     rejected,
     changes: list.map(parseChangeItem).filter((c): c is ChangeItem => c !== null),
   };
@@ -204,15 +254,22 @@ export function parseDevices(raw: unknown): SyncDevice[] {
 
 // ─── Frames ───
 
-export type HomesFrame = { type: "changed" } | { type: "device_removed"; deviceId: string | null };
+export type HomesFrame =
+  /** `cursor`: the server's cursor after the change (null when absent). */
+  | { type: "changed"; cursor: number | null }
+  | { type: "device_removed"; deviceId: string | null };
 
-/** `homes_changed` / `homes_device_removed` (spelt as `kind`, `type`,
- *  `t` or `event`). Null for any other frame. */
+/** `{kind:"homes_changed", cursor}` / `{kind:"homes_device_removed",
+ *  deviceId}` (the name is also read from `type`, `t` or `event`; fields
+ *  from `data` / `payload`). Null for any other frame. */
 export function parseHomesFrame(frame: unknown): HomesFrame | null {
   const o = obj(frame);
   if (!o) return null;
   const name = str(pick(o, "kind", "type", "t", "event"));
-  if (name === "homes_changed") return { type: "changed" };
+  if (name === "homes_changed") {
+    const data = obj(o.data) ?? obj(o.payload) ?? {};
+    return { type: "changed", cursor: parseCursor(o.cursor ?? data.cursor) };
+  }
   if (name === "homes_device_removed") {
     const data = obj(o.data) ?? obj(o.payload) ?? {};
     const id = str(pick(o, "deviceId", "device_id")) ?? str(pick(data, "deviceId", "device_id"));
@@ -271,6 +328,9 @@ async function call<T>(
     return { ok: false, kind: "offline", error: msg === NOT_CONNECTED ? NOT_CONNECTED : msg };
   }
   if (out.status === 410) return { ok: false, kind: "removed", error: apiErrorText(out.text, "device_removed") };
+  if (out.status === 409 && /device_not_registered/.test(out.text)) {
+    return { ok: false, kind: "not_registered", status: 409, error: apiErrorText(out.text, "device_not_registered") };
+  }
   if (out.status === 401) {
     return { ok: false, kind: "auth", status: out.status, error: apiErrorText(out.text, "Sign in again") };
   }
@@ -290,9 +350,9 @@ async function call<T>(
   return { ok: true, data: parse(raw) };
 }
 
-export function pullHomes(scope: ServerScope, deviceId: string, since: string | null): Promise<SyncResult<PullReply>> {
+export function pullHomes(scope: ServerScope, deviceId: string, since: number | null): Promise<SyncResult<PullReply>> {
   const query: Record<string, string> = { deviceId };
-  if (since) query.since = since;
+  if (since !== null && Number.isInteger(since) && since >= 0) query.since = String(since);
   return call(scope, "/cli/me/homes", parsePullReply, { query });
 }
 
