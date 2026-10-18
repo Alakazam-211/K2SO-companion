@@ -7,8 +7,11 @@ import {
   __resetViewportForTests,
   keyboardEasing,
   keyboardMotionMs,
+  beginKeyboardDrag,
+  endKeyboardDrag,
+  keyboardTopNow,
+  setKeyboardDragHandler,
   useViewport,
-  useViewportDockRef,
   useViewportPadRef,
   useViewportTrackRef,
   viewportTransition,
@@ -415,53 +418,55 @@ describe("keyboard motion (native UIKeyboardWill*)", () => {
   });
 });
 
-describe("interactive keyboard dismiss (native per-frame track)", () => {
+describe("interactive keyboard dismiss (drag start / release hand-off)", () => {
   let seen: { h: number; interactive: boolean; motion: ViewportMotion | null } | null = null;
   let renders = 0;
-  /** Zen's thread column: a scroller with a drag pad, a composer dock. */
+  /** Zen's thread column with the scroller's drag pad. */
   function Column() {
     const { height, motion, interactive } = useViewport();
     const ref = useViewportTrackRef();
-    const dock = useViewportDockRef();
     const pad = useViewportPadRef();
     renders++;
     seen = { h: height, interactive, motion };
     return (
       <div data-testid="col" ref={ref} style={{ height, transition: viewportTransition(motion) }}>
-        <div data-testid="scroller">
-          <div data-testid="pad" ref={pad} />
-        </div>
-        <div data-testid="dock" ref={dock} />
+        <div data-testid="pad" ref={pad} />
       </div>
     );
   }
   const el = (id: string) => document.querySelector(`[data-testid="${id}"]`) as HTMLElement;
-  /** Posts from the shell (no frame runs). */
-  function post(overlap: number) {
-    act(() => {
-      (window as unknown as { __k2KeyboardTrack: (h: number) => void }).__k2KeyboardTrack(overlap);
-    });
-  }
-  /** One display frame. */
-  function frame() {
-    act(() => {
-      vi.advanceTimersToNextFrame();
-    });
-  }
-  function track(overlap: number) {
-    post(overlap);
-    frame();
-  }
   function will(d: KeyboardWill) {
     act(() => {
       (window as unknown as { __k2KeyboardWill: (d: KeyboardWill) => void }).__k2KeyboardWill(d);
     });
   }
+  function signal(overlap: number) {
+    act(() => {
+      (window as unknown as { __k2KeyboardTrack: (h: number) => void }).__k2KeyboardTrack(overlap);
+    });
+  }
+  function begin() {
+    let ok = false;
+    act(() => {
+      ok = beginKeyboardDrag();
+    });
+    return ok;
+  }
   let reduce = false;
+  let standInBottom: number | null = null;
+  const handler = {
+    keyboardMoved: vi.fn(),
+    draggedBottom: vi.fn(() => standInBottom),
+    detach: vi.fn(),
+  };
   beforeEach(() => {
     seen = null;
     renders = 0;
     reduce = false;
+    standInBottom = null;
+    handler.keyboardMoved.mockClear();
+    handler.draggedBottom.mockClear();
+    handler.detach.mockClear();
     window.matchMedia = vi.fn((q: string) => ({
       matches: q.includes("reduce") ? reduce : false,
       media: q,
@@ -479,45 +484,30 @@ describe("interactive keyboard dismiss (native per-frame track)", () => {
     });
     expect(seen?.h).toBe(FULL - KEYBOARD);
     expect(seen?.motion).toBeNull();
-    expect(el("col").style.height).toBe(`${FULL - KEYBOARD}px`);
   }
 
-  it("drag start: column full once, pad keeps the scroll range, dock stays where it was", () => {
+  it("no drag without a keyboard up", () => {
+    render(<Column />);
+    expect(keyboardTopNow()).toBeNull();
+    expect(begin()).toBe(false);
+    expect(seen?.interactive).toBe(false);
+  });
+
+  it("drag start: column full and pad = keyboard height, once; one render", () => {
     render(<Column />);
     keyboardShown();
+    expect(keyboardTopNow()).toBe(FULL - KEYBOARD);
     const before = renders;
-    track(KEYBOARD);
+    expect(begin()).toBe(true);
     expect(seen?.interactive).toBe(true);
     expect(renders).toBe(before + 1);
     expect(el("col").style.height).toBe(`${FULL}px`);
     expect(el("col").style.transition).toBe("none");
     expect(el("pad").style.height).toBe(`${KEYBOARD}px`);
-    expect(el("dock").style.transform).toBe(`translate3d(0, ${-KEYBOARD}px, 0)`);
-    expect(el("dock").style.willChange).toBe("transform");
     // The published height holds (the terminal does not re-fit).
     expect(seen?.h).toBe(FULL - KEYBOARD);
-  });
-
-  it("per frame: only the dock's transform moves; latest value wins; no renders", () => {
-    render(<Column />);
-    keyboardShown();
-    track(KEYBOARD - 10);
-    const afterStart = renders;
-    // Several posts inside one frame: one write, the latest.
-    post(KEYBOARD - 40);
-    post(KEYBOARD - 80);
-    expect(el("dock").style.transform).toBe(`translate3d(0, ${-(KEYBOARD - 10)}px, 0)`);
-    frame();
-    expect(el("dock").style.transform).toBe(`translate3d(0, ${-(KEYBOARD - 80)}px, 0)`);
-    track(KEYBOARD - 300);
-    expect(el("dock").style.transform).toBe(`translate3d(0, ${-(KEYBOARD - 300)}px, 0)`);
-    // No KEYBOARD_SLOP snap near the bottom: continuous to the edge.
-    track(0);
-    expect(el("dock").style.transform).toBe("");
-    // Layout never changed after the start.
-    expect(el("col").style.height).toBe(`${FULL}px`);
-    expect(el("pad").style.height).toBe(`${KEYBOARD}px`);
-    expect(renders).toBe(afterStart);
+    expect(begin()).toBe(true); // idempotent
+    expect(renders).toBe(before + 1);
     // visualViewport noise mid-drag does not move anything.
     vv.height = FULL - 200;
     act(() => {
@@ -528,110 +518,125 @@ describe("interactive keyboard dismiss (native per-frame track)", () => {
     expect(el("col").style.height).toBe(`${FULL}px`);
   });
 
-  it("release to close: one frame at the dragged height, then eased on the keyboard curve", () => {
+  it("the shell's track is only a 'started moving' signal to the handler", () => {
     render(<Column />);
     keyboardShown();
-    track(KEYBOARD - 150);
+    setKeyboardDragHandler(handler);
+    signal(KEYBOARD - 30);
+    expect(handler.keyboardMoved).toHaveBeenCalledWith(30);
+    // Nothing moved by itself.
+    expect(seen?.interactive).toBe(false);
+    expect(el("col").style.height).toBe(`${FULL - KEYBOARD}px`);
+    begin();
+    signal(KEYBOARD - 60);
+    expect(handler.keyboardMoved).toHaveBeenCalledTimes(1);
+  });
+
+  it("release to close: the column takes the stand-in's bottom, unanimated, then eases", () => {
+    render(<Column />);
+    keyboardShown();
+    setKeyboardDragHandler(handler);
+    begin();
+    standInBottom = FULL - KEYBOARD + 150;
     const col = el("col");
-    const writes: string[] = [];
-    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "offsetHeight");
+    const seenAtLayout: string[] = [];
     Object.defineProperty(col, "offsetHeight", {
       configurable: true,
       get() {
-        // The forced layout sees the dragged height, unanimated, no transform.
-        writes.push(`${col.style.height}|${col.style.transition}|${el("dock").style.transform}`);
+        seenAtLayout.push(`${col.style.height}|${col.style.transition}|${el("pad").style.height}`);
         return 0;
       },
     });
     will({ height: 0, duration: 180, curve: 7, show: false });
-    expect(writes).toEqual([`${FULL - KEYBOARD + 150}px|none|`]);
+    expect(handler.detach).toHaveBeenCalledTimes(1);
+    expect(seenAtLayout).toEqual([`${FULL - KEYBOARD + 150}px|none|`]);
     expect(seen?.interactive).toBe(false);
     expect(seen?.h).toBe(FULL);
     expect(seen?.motion?.ms).toBe(180);
     expect(col.style.height).toBe(`${FULL}px`);
     expect(col.style.transition).toBe(`height 180ms ${KEYBOARD_EASING}`);
-    expect(el("pad").style.height).toBe("");
-    expect(el("dock").style.transform).toBe("");
-    expect(el("dock").style.willChange).toBe("");
     vv.height = FULL;
     flush();
     expect(seen?.motion).toBeNull();
     expect(col.style.transition).toBe("");
-    if (desc) delete (col as unknown as Record<string, unknown>).offsetHeight;
+    delete (col as unknown as Record<string, unknown>).offsetHeight;
   });
 
-  it("a frame queued before release does not re-apply the drag after it", () => {
+  it("spring back: WillShow to the old height still eases from where the stand-in is", () => {
     render(<Column />);
     keyboardShown();
-    track(KEYBOARD - 100);
-    post(KEYBOARD - 120); // frame pending
-    will({ height: 0, duration: 200, curve: 7, show: false });
-    frame();
-    expect(el("dock").style.transform).toBe("");
-    expect(el("col").style.height).toBe(`${FULL}px`);
-  });
-
-  it("spring back: WillShow to the old height still eases from the dragged height", () => {
-    render(<Column />);
-    keyboardShown();
-    track(KEYBOARD - 100);
+    setKeyboardDragHandler(handler);
+    begin();
+    standInBottom = FULL - KEYBOARD + 100;
     will({ height: KEYBOARD, duration: 200, curve: 7, show: true });
+    expect(handler.detach).toHaveBeenCalled();
     expect(seen?.interactive).toBe(false);
     expect(seen?.h).toBe(FULL - KEYBOARD);
-    // Same published height as before the drag, but the composer moved.
     expect(seen?.motion?.ms).toBe(200);
     expect(el("col").style.height).toBe(`${FULL - KEYBOARD}px`);
     expect(el("col").style.transition).toBe(`height 200ms ${KEYBOARD_EASING}`);
-    expect(el("dock").style.transform).toBe("");
   });
 
-  it("a native Did* resync with no Will* hands everything back", () => {
+  it("no handler: the release falls back to the signalled overlap", () => {
     render(<Column />);
     keyboardShown();
-    track(KEYBOARD - 100);
-    act(() => {
-      window.dispatchEvent(new Event("k2-viewport-resync"));
+    begin();
+    signal(KEYBOARD - 90);
+    const col = el("col");
+    const at: string[] = [];
+    Object.defineProperty(col, "offsetHeight", {
+      configurable: true,
+      get() {
+        at.push(col.style.height);
+        return 0;
+      },
     });
+    will({ height: 0, duration: 200, curve: 7, show: false });
+    expect(at).toEqual([`${FULL - KEYBOARD + 90}px`]);
+    delete (col as unknown as Record<string, unknown>).offsetHeight;
+  });
+
+  it("endKeyboardDrag / a Did* resync hand everything back, unanimated", () => {
+    render(<Column />);
+    keyboardShown();
+    setKeyboardDragHandler(handler);
+    begin();
+    act(() => endKeyboardDrag());
+    expect(handler.detach).toHaveBeenCalledTimes(1);
     expect(seen?.interactive).toBe(false);
     expect(el("col").style.height).toBe(`${FULL - KEYBOARD}px`);
     expect(el("col").style.transition).toBe("");
     expect(el("pad").style.height).toBe("");
-    expect(el("dock").style.transform).toBe("");
+    begin();
+    act(() => {
+      window.dispatchEvent(new Event("k2-viewport-resync"));
+    });
+    expect(handler.detach).toHaveBeenCalledTimes(2);
+    expect(seen?.interactive).toBe(false);
   });
 
-  it("reduced motion: still follows the finger; the release lands unanimated", () => {
+  it("reduced motion: the release lands unanimated", () => {
     reduce = true;
     render(<Column />);
     keyboardShown();
-    track(KEYBOARD - 100);
-    expect(el("dock").style.transform).toBe(`translate3d(0, ${-(KEYBOARD - 100)}px, 0)`);
+    setKeyboardDragHandler(handler);
+    begin();
+    standInBottom = FULL - 50;
     will({ height: 0, duration: 250, curve: 7, show: false });
     expect(seen?.motion).toBeNull();
     expect(el("col").style.height).toBe(`${FULL}px`);
     expect(el("col").style.transition).toBe("");
   });
 
-  it("a track during a Will* hold takes over (the finger caught the keyboard)", () => {
+  it("a drag caught during a Will* hold: the old settle does not re-measure over it", () => {
     render(<Column />);
     will({ height: KEYBOARD, duration: 250, curve: 7, show: true });
-    track(KEYBOARD - 20);
-    expect(seen?.interactive).toBe(true);
-    expect(el("dock").style.transform).toBe(`translate3d(0, ${-(KEYBOARD - 20)}px, 0)`);
-    // The old settle timer does not fire a re-measure over the drag.
+    begin();
     vv.height = FULL;
     act(() => {
       vi.advanceTimersByTime(1000);
     });
-    expect(el("col").style.height).toBe(`${FULL}px`);
     expect(seen?.interactive).toBe(true);
-  });
-
-  it("unmounted elements are dropped from tracking", () => {
-    const { unmount } = render(<Column />);
-    const dock = el("dock");
-    unmount();
-    render(<Probe />);
-    track(100);
-    expect(dock.style.transform).toBe("");
+    expect(el("col").style.height).toBe(`${FULL}px`);
   });
 });

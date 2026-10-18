@@ -1,4 +1,4 @@
-import { useCallback, useState, type CSSProperties, type Ref } from "react";
+import { useCallback, useState, type CSSProperties } from "react";
 
 // Shared pieces of the Zen floating header (chat header c39c0ac, Agents
 // 0a78ef6): the progressive-blur stack (`.zen-header-blur` in index.css)
@@ -45,15 +45,12 @@ export const FOOTER_BLUR_FADE_PX = 24;
 export function ZenFooterBlur({
   testId,
   style,
-  elRef,
 }: {
   testId?: string;
   style?: CSSProperties;
-  elRef?: Ref<HTMLDivElement>;
 }) {
   return (
     <div
-      ref={elRef}
       className="zen-footer-blur"
       data-testid={testId}
       aria-hidden

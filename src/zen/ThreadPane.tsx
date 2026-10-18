@@ -13,7 +13,17 @@ import {
 } from "./composerAttach";
 import { loadGroupPoc, type GroupPoc } from "./groupPoc";
 import { GlassComposer, composerBlockHeight, composerPlaceholder } from "./GlassComposer";
-import { keyboardMotionMs, useViewportDockRef, useViewportPadRef } from "../lib/useViewportHeight";
+import {
+  fullViewportHeight,
+  keyboardMotionMs,
+  useViewportPadRef,
+} from "../lib/useViewportHeight";
+import {
+  installKeyboardDragDock,
+  iosKeyboardShell,
+  syncDismissPadding,
+  topRoomFor,
+} from "./keyboardDragDock";
 import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
 import { StubMark } from "./StubMark";
 import { mountainTime, type ThreadMessage } from "./threadModel";
@@ -88,6 +98,8 @@ export { COMPOSER_MAX_PX, composerHeight } from "./GlassComposer";
 const BUBBLE_TEXT_PX = 14;
 /** How long the "New message ↓" glide gets before a jump finishes it. */
 export const NEW_BELOW_SETTLE_MS = 450;
+/** The keyboard's top room goes once scrolling has been idle this long. */
+const TOP_ROOM_IDLE_MS = 200;
 /** Progressive first paint: a chat that opens with more than this many
  *  messages draws its newest `PROGRESSIVE_FIRST` first and the rest on the
  *  next idle frame (prepended above, the view pinned to the bottom). */
@@ -442,15 +454,24 @@ export function ThreadPane({
   const drawerRaf = useRef(0);
   // Until when (Date.now()) followFor keeps sticking every frame.
   const followUntil = useRef(0);
-  // Interactive keyboard dismiss: the composer dock rides the keyboard by
-  // transform; the pad keeps the list's scroll range while the column is
-  // full height (useViewportHeight).
-  const dockRef = useViewportDockRef();
+  // Interactive keyboard dismiss (keyboardDragDock): a stand-in of the
+  // dock rides the scrolled content (the drag layer) with the finger; the
+  // pad keeps the list's scroll range while the column is full height;
+  // the top room keeps real scroll range above while the keyboard is up.
+  const dockRef = useRef<HTMLDivElement>(null);
+  const dragLayerRef = useRef<HTMLDivElement>(null);
+  const topRoomRef = useRef<HTMLDivElement>(null);
+  const topRoomPx = useRef(0);
   const kbPadRef = useViewportPadRef();
+  // The next keyboard ease ends a drag: the reader's scroll stands.
+  const afterDrag = useRef(false);
+  // Last reader/native scroll (Date.now()): the top room waits for idle.
+  const lastScrollAt = useRef(0);
   // Interactive keyboard dismiss in progress: the reader's finger owns
   // the scroll (iMessage) — no automatic sticking of any kind.
   const interactiveRef = useRef(viewportInteractive);
   interactiveRef.current = viewportInteractive;
+  if (viewportInteractive) afterDrag.current = true;
   // Height (px) the working drawer stands on the composer field. The part
   // above the bar floats over the scroller, which pads its bottom by it
   // (same 200ms ease).
@@ -883,9 +904,84 @@ export function ThreadPane({
   // every frame while the column eases with the keyboard (iOS).
   useLayoutEffect(() => {
     if (viewportHeight == null) return;
+    if (afterDrag.current && !viewportInteractive) {
+      // Released from an interactive dismiss: the finger scrolled where
+      // it wanted and momentum carries on — no re-pin over it.
+      afterDrag.current = false;
+      return;
+    }
     if (viewportMotionMs > 0) followFor(viewportMotionMs + 80);
     else follow();
   }, [viewportHeight]);
+  // A drag that ended without a height change (spring back): done too.
+  useLayoutEffect(() => {
+    if (!viewportInteractive) afterDrag.current = false;
+  }, [viewportInteractive]);
+
+  // Keyboard up: keep at least its height (+ margin) of real scroll range
+  // above the view, so an interactive dismiss drag is a 1:1 native scroll
+  // (the composer's stand-in rides it), never a rubber band. A short chat
+  // also gets min-height 100% so the room is reachable. Added and removed
+  // with scrollTop compensated: nothing on screen moves.
+  const keyboardInset =
+    viewportHeight == null ? 0 : Math.max(0, fullViewportHeight() - viewportHeight);
+  // iOS only (interactive dismiss); Android scrolls as it always did.
+  const keyboardUp = keyboardInset > 100 && iosKeyboardShell();
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    const room = topRoomRef.current;
+    const content = contentRef.current;
+    if (!el || !room || !content) return;
+    if (keyboardUp) {
+      const px = topRoomFor(keyboardInset, el.scrollTop);
+      if (px <= 0 || topRoomPx.current > 0) return;
+      topRoomPx.current = px;
+      content.style.minHeight = "100%";
+      room.style.height = `${px}px`;
+      el.scrollTop += px;
+      ownTop.current = el.scrollTop;
+      lastTop.current = el.scrollTop;
+      return;
+    }
+    // Keyboard gone: drop the room once scrolling is idle (a programmatic
+    // scroll would stop a release's momentum).
+    let t: ReturnType<typeof setTimeout> | null = null;
+    const drop = () => {
+      t = null;
+      const px = topRoomPx.current;
+      if (px <= 0) return;
+      if (Date.now() - lastScrollAt.current < TOP_ROOM_IDLE_MS) {
+        t = setTimeout(drop, TOP_ROOM_IDLE_MS);
+        return;
+      }
+      topRoomPx.current = 0;
+      room.style.height = "";
+      content.style.minHeight = "";
+      el.scrollTop = Math.max(0, el.scrollTop - px);
+      ownTop.current = el.scrollTop;
+      lastTop.current = el.scrollTop;
+    };
+    drop();
+    return () => {
+      if (t !== null) clearTimeout(t);
+    };
+  }, [keyboardUp]);
+
+  // The switch into the content and back (keyboardDragDock).
+  useEffect(
+    () =>
+      installKeyboardDragDock({
+        scroller: () => scrollerRef.current,
+        dock: () => dockRef.current,
+        layer: () => dragLayerRef.current,
+      }),
+    []
+  );
+
+  // iOS 17+: the dismiss drag starts at the composer's top (iMessage).
+  useEffect(() => {
+    if (composerPx > 0) void syncDismissPadding(composerPx + 8);
+  }, [composerPx]);
 
   // Focus into / out of the composer: the bar's bottom gap (home
   // indicator at rest, 8px over the keyboard) and the scroller's spacer
@@ -1261,7 +1357,10 @@ export function ThreadPane({
         }}
         onScroll={(e) => {
           const el = e.currentTarget;
-          setAtNewest(nearNewest(el));
+          lastScrollAt.current = Date.now();
+          // Mid interactive dismiss the finger scrolls every frame: no
+          // state churn (it catches up on the next scroll after).
+          if (!interactiveRef.current) setAtNewest(nearNewest(el));
           const top = el.scrollTop;
           const prev = lastTop.current;
           lastTop.current = top;
@@ -1276,6 +1375,24 @@ export function ThreadPane({
           }
         }}
       >
+        {/* Scroll range above the view while the keyboard is up (empty,
+            0 otherwise). */}
+        <div
+          ref={topRoomRef}
+          aria-hidden="true"
+          className="shrink-0"
+          data-testid="thread-kb-top-room"
+        />
+        {/* The composer's stand-in rides here during an interactive
+            dismiss (keyboardDragDock): in the scrolled content, so native
+            scrolling moves it with the finger and the keyboard. */}
+        <div
+          ref={dragLayerRef}
+          aria-hidden="true"
+          className="relative h-0 shrink-0"
+          style={{ zIndex: 3 }}
+          data-testid="thread-kb-drag-layer"
+        />
         <div
           ref={contentRef}
           data-testid="thread-content"
