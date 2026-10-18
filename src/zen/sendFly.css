@@ -7,3 +7,25 @@
 .zen-bubble-fade {
   animation: zen-bubble-fade 180ms ease-out;
 }
+
+/* Sending, after it lands: a gentle breathe from the "Sending…" dim (0.7,
+   the bubble's own opacity, so it starts without a step) so the wait is
+   not dead. Opacity only: compositor work, never layout. It stops the
+   moment the bubble is delivered (the class goes; the opacity transition
+   brightens it to 1). */
+@keyframes zen-bubble-breathe {
+  from {
+    opacity: 0.7;
+  }
+  to {
+    opacity: 0.8;
+  }
+}
+.zen-bubble-breathe {
+  animation: zen-bubble-breathe 1.2s ease-in-out infinite alternate;
+}
+@media (prefers-reduced-motion: reduce) {
+  .zen-bubble-breathe {
+    animation: none;
+  }
+}

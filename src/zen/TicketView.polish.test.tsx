@@ -138,7 +138,19 @@ function reducedMotion() {
   })) as never;
 }
 
+// The paddings as the app's CSS draws them (Tailwind is not loaded here):
+// the fly starts on the field's text box and ends on the bubble's.
+const PAD_CSS =
+  ".px-3{padding-left:12px;padding-right:12px}.py-2{padding-top:8px;padding-bottom:8px}" +
+  ".px-2{padding-left:8px;padding-right:8px}.py-1{padding-top:4px;padding-bottom:4px}";
+
 beforeEach(() => {
+  if (!document.getElementById("pad-css")) {
+    const style = document.createElement("style");
+    style.id = "pad-css";
+    style.textContent = PAD_CSS;
+    document.head.appendChild(style);
+  }
   vi.clearAllMocks();
   localStorage.clear();
   useComposerDrafts.getState().reload();
@@ -359,15 +371,20 @@ describe("Optimistic comment", () => {
     open();
     type("Ship Pro");
     send();
-    const flies = animate.mock.calls.filter((_, i) => (animate.mock.contexts[i] as Element).getAttribute("data-testid") === "send-fly-clone");
+    const isFly = (i: number) =>
+      (animate.mock.contexts[i] as Element).getAttribute("data-testid") === "send-fly-clone" &&
+      (animate.mock.calls[i] as unknown as [Keyframe[]])[0][0].transform != null;
+    const flies = animate.mock.calls.filter((_, i) => isFly(i));
     expect(flies).toHaveLength(1);
     const [frames] = flies[0] as unknown as [Keyframe[]];
-    // Bubble text origin (200+12, 500+8) onto the composer's (20, 700).
-    expect(frames[0].transform).toBe("translate(-192px, 192px) scale(1.000)");
+    // Bubble text origin (200+12, 500+8) onto the composer's TEXT origin:
+    // inside the field's padding (20+8, 700+4), where the letters were.
+    expect(frames[0].transform).toBe("translate3d(-184px, 196px, 0px) scale(1)");
+    expect(frames[frames.length - 1].transform).toBe("translate3d(0px, 0px, 0px) scale(1)");
     const bubble = bubbleOf(last());
     expect(bubble.style.visibility).toBe("hidden");
     expect(screen.getAllByTestId("send-fly-clone")).toHaveLength(1);
-    const cloneAnim = anims[animate.mock.contexts.findIndex((el) => (el as Element).getAttribute("data-testid") === "send-fly-clone")];
+    const cloneAnim = anims[animate.mock.calls.findIndex((_, i) => isFly(i))];
     act(() => cloneAnim.onfinish?.());
     expect(screen.queryByTestId("send-fly-clone")).toBeNull();
     expect(bubbleOf(last()).style.visibility).toBe("");

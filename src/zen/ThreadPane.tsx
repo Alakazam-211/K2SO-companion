@@ -11,7 +11,7 @@ import {
   workspaceHandleOf,
 } from "./composerAttach";
 import { loadGroupPoc, type GroupPoc } from "./groupPoc";
-import { GlassComposer, composerPlaceholder } from "./GlassComposer";
+import { GlassComposer, composerPlaceholder, settledHeight } from "./GlassComposer";
 import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
 import { StubMark } from "./StubMark";
 import { mountainTime, type ThreadMessage } from "./threadModel";
@@ -50,8 +50,8 @@ import {
   type OutgoingMessage,
 } from "./outbox";
 import {
+  flySourceOfField,
   fontPxOf,
-  glideList,
   prefersReducedMotion,
   rectOf,
   runSendFly,
@@ -80,6 +80,7 @@ function Bubble({
   attachments,
   flying,
   fadeIn,
+  breathe,
 }: {
   m: ThreadMessage;
   onFileLink?: (ref: string) => void;
@@ -93,6 +94,8 @@ function Bubble({
   flying?: boolean;
   /** Reduced motion: just fade in. */
   fadeIn?: boolean;
+  /** Sending (landed, not yet delivered): a gentle opacity breathe. */
+  breathe?: boolean;
 }) {
   const secret = m.kind === "secret";
   const choice = secret ? null : m.choice;
@@ -100,7 +103,7 @@ function Bubble({
     choice != null && choice.answer != null && String(choice.answer) !== "";
   return (
     <div
-      className={`px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden${fadeIn ? " zen-bubble-fade" : ""}`}
+      className={`px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden${fadeIn ? " zen-bubble-fade" : breathe && m.pending && !flying ? " zen-bubble-breathe" : ""}`}
       data-testid="thread-bubble"
       data-fly-target={flying ? "true" : undefined}
       style={{
@@ -353,7 +356,6 @@ export function ThreadPane({
      *  list moves to make room (the glide). */
     anchor: MessageAnchor | null;
   } | null>(null);
-  const stopGlide = useRef<() => void>(() => {});
   const contentRef = useRef<HTMLDivElement>(null);
   const pendingAnchor = useRef<MessageAnchor | null>(null);
   const prevAgent = useRef<string>("");
@@ -574,7 +576,6 @@ export function ThreadPane({
     setAttachments([]);
     setAttachError(null);
     setFly(null);
-    stopGlide.current();
   }, [agentId]);
 
   useEffect(() => {
@@ -808,12 +809,15 @@ export function ThreadPane({
       return;
     }
     onComposerInput?.();
-    // Where the text sits now, before it is cleared (the FLIP "first").
-    const field = text.trim() ? composerRef.current : chipsRef.current;
-    const rect = rectOf(field);
-    const fontPx = text.trim()
-      ? fontPxOf(composerRef.current)
-      : fontPxOf(chipsRef.current?.firstElementChild);
+    // Where the text sits now, before it is cleared (the FLIP "first"):
+    // the field's text box and the text as drawn there; or the chips.
+    const chipsFont = fontPxOf(chipsRef.current?.firstElementChild);
+    const chipsRect = text.trim() ? null : rectOf(chipsRef.current);
+    const flySource: FlySource | null = text.trim()
+      ? flySourceOfField(composerRef.current)
+      : chipsRect
+        ? { rect: chipsRect, fontPx: Number.isFinite(chipsFont) ? chipsFont : 17 }
+        : null;
     // The newest row's top now: after the new row is in, how far it moved.
     const rowsNow = scrollerRef.current?.querySelectorAll<HTMLElement>("[data-thread-msg]");
     const lastRow = rowsNow && rowsNow.length ? rowsNow[rowsNow.length - 1] : null;
@@ -834,12 +838,12 @@ export function ThreadPane({
     const reduced = prefersReducedMotion();
     const canFly =
       !reduced &&
-      rect != null &&
+      flySource != null &&
       typeof Element !== "undefined" &&
       typeof Element.prototype.animate === "function";
     setFly({
       localId,
-      source: canFly ? { rect, fontPx: Number.isFinite(fontPx) ? fontPx : 17 } : null,
+      source: canFly ? flySource : null,
       fade: !canFly,
       anchor: canFly ? anchor : null,
     });
@@ -897,9 +901,12 @@ export function ThreadPane({
     // this same commit, but its ResizeObserver reports a frame later and
     // the padding would then ease down under a bubble already aimed. Take
     // the new height now, unanimated, so the slot is final before paint.
+    // A multi-line field eases shut over the flight (smoothClear): pad for
+    // where it ends, so the bubble is aimed at its final slot.
     const bar = root?.querySelector<HTMLElement>('[data-testid="composer-bar"]');
-    if (el && bar && bar.offsetHeight > 0 && bar.offsetHeight !== composerPxRef.current) {
-      const px = bar.offsetHeight;
+    const barPx = bar ? settledHeight(bar) : 0;
+    if (el && bar && barPx > 0 && barPx !== composerPxRef.current) {
+      const px = barPx;
       el.style.transition = "none";
       el.style.paddingBottom = threadBottomPadding(px, drawerCover);
       void el.offsetHeight;
@@ -917,18 +924,19 @@ export function ThreadPane({
       clear();
       return;
     }
-    // The list makes room as the bubble comes in, rather than jumping.
+    // The list makes room as the bubble comes in, rather than jumping:
+    // it glides on the bubble's curve, started once the bubble's resting
+    // rect is read (glide-free).
     const a = fly.anchor;
     const now = a && a.el.isConnected ? rectOf(a.el) : null;
     const dy = a && now ? a.top - now.top : 0;
-    stopGlide.current();
-    stopGlide.current =
-      el && dy >= 1 && dy <= el.clientHeight ? glideList(contentRef.current, dy) : () => {};
-    return runSendFly({ root, bubble, target, source: fly.source, done: clear });
+    const glide =
+      el && Math.abs(dy) >= 1 && Math.abs(dy) <= el.clientHeight
+        ? { content: contentRef.current, dy }
+        : undefined;
+    return runSendFly({ root, bubble, target, source: fly.source, done: clear, glide });
     // Once per send: a re-render mid-flight must not restart it.
   }, [flyKey]);
-
-  useEffect(() => () => stopGlide.current(), []);
 
   // One list, one key per message: a send's row is keyed by its localId
   // from tap to delivered (the server's copy inherits it), so it is the
@@ -1089,6 +1097,7 @@ export function ThreadPane({
                       attachments={out?.files.length ? out.files.map(uploadFilename) : undefined}
                       flying={flying && !fly?.fade}
                       fadeIn={flying && fly?.fade}
+                      breathe={out?.status === "sending"}
                     />
                     {m.mine ? (
                       // One box from Send to delivered: "Sending…", then the
@@ -1194,6 +1203,7 @@ export function ThreadPane({
             sendReady={sendReady}
             attachDisabled={!canAttach}
             textareaRef={composerRef}
+            smoothClear
             onFocus={() => {
               window.scrollTo(0, 0);
               follow();

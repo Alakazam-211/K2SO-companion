@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, createEvent, fireEvent, render, screen } from "@testing-library/react";
 import {
   COMPOSER_DRAWER_INSET_PX,
@@ -7,9 +7,15 @@ import {
   COMPOSER_DRAWER_TUCK_PX,
   COMPOSER_RADIUS_PX,
   GlassComposer,
+  SETTLED_HEIGHT_ATTR,
+  settledHeight,
 } from "./GlassComposer";
+import { FLY_MS } from "./sendFly";
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const renderComposer = (drawer?: React.ReactNode) =>
   render(
@@ -159,5 +165,80 @@ describe("GlassComposer attach (+)", () => {
     fireEvent.click(attach);
     expect(opened).toBe(0);
     expect(screen.getByRole("menu", { name: "Attach" })).not.toBeNull();
+  });
+});
+
+describe("smoothClear: a send's clear eases the field shut", () => {
+  function Harness({ value, smooth }: { value: string; smooth: boolean }) {
+    return (
+      <GlassComposer value={value} onChange={() => {}} onSubmit={() => {}} canSend sendReady smoothClear={smooth} />
+    );
+  }
+  function stubField(lines: () => number) {
+    const desc = Object.getOwnPropertyDescriptor(HTMLElement.prototype, "scrollHeight");
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get(this: HTMLElement) {
+        return this.tagName === "TEXTAREA" ? 22 * lines() + 8 : 0;
+      },
+    });
+    return () => {
+      if (desc) Object.defineProperty(HTMLElement.prototype, "scrollHeight", desc);
+      else delete (HTMLElement.prototype as { scrollHeight?: number }).scrollHeight;
+    };
+  }
+
+  it("a multi-line draft cleared: the height eases on the flight's curve; settledHeight reads its end", () => {
+    let lines = 3;
+    const restore = stubField(() => lines);
+    const anim = { onfinish: null as null | (() => void), oncancel: null, cancel: vi.fn() };
+    const animate = vi.fn(() => anim);
+    Element.prototype.animate = animate as never;
+    try {
+      const { rerender } = render(<Harness value={"a\nb\nc"} smooth />);
+      const field = screen.getByTestId("composer-input");
+      expect(field.style.height).toBe("74px");
+      lines = 1;
+      rerender(<Harness value="" smooth />);
+      expect(field.style.height).toBe("30px");
+      expect(animate).toHaveBeenCalledTimes(1);
+      const [frames, timing] = animate.mock.calls[0] as unknown as [Keyframe[], KeyframeAnimationOptions];
+      expect(frames[0].height).toBe("74px");
+      expect(frames[frames.length - 1].height).toBe("30px");
+      expect(timing.duration).toBe(FLY_MS);
+      expect(field.getAttribute(SETTLED_HEIGHT_ATTR)).toBe("30");
+      // Mid-collapse the field is still 60px tall: the block reports its end.
+      vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+        const h = this.tagName === "TEXTAREA" ? 60 : this.getAttribute("data-testid") === "composer-bar" ? 100 : 0;
+        return { left: 0, top: 0, width: 300, height: h, right: 300, bottom: h, x: 0, y: 0, toJSON: () => ({}) };
+      });
+      expect(settledHeight(screen.getByTestId("composer-bar"))).toBe(70);
+      anim.onfinish?.();
+      expect(field.hasAttribute(SETTLED_HEIGHT_ATTR)).toBe(false);
+    } finally {
+      restore();
+      // @ts-expect-error test cleanup
+      delete Element.prototype.animate;
+    }
+  });
+
+  it("without smoothClear (or a one-line draft) it snaps as before", () => {
+    let lines = 3;
+    const restore = stubField(() => lines);
+    const animate = vi.fn();
+    Element.prototype.animate = animate as never;
+    try {
+      const { rerender } = render(<Harness value={"a\nb\nc"} smooth={false} />);
+      lines = 1;
+      rerender(<Harness value="" smooth={false} />);
+      expect(animate).not.toHaveBeenCalled();
+      rerender(<Harness value="one" smooth />);
+      rerender(<Harness value="" smooth />);
+      expect(animate).not.toHaveBeenCalled();
+    } finally {
+      restore();
+      // @ts-expect-error test cleanup
+      delete Element.prototype.animate;
+    }
   });
 });
