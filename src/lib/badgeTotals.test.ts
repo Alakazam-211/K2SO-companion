@@ -26,7 +26,9 @@ import {
   getBadgeTotals,
   installBadgeServerHooks,
   localDayKey,
+  badgeStoreKey,
   onBadgeTotals,
+  serverForBadgeEvent,
   setServerTotals,
   summarizeBadgeDiagnostics,
   type BadgeDayCount,
@@ -43,6 +45,16 @@ let listeners: Map<string, (p: unknown) => void>;
 let unregistered: string[];
 let forgetFns: ((id: string) => void)[];
 let leaveFns: ((s: { id: string; url: string }) => void)[];
+let keys: Record<string, string>;
+let keyFns: ((id: string, next: string | null, prev: string | null) => void)[];
+
+/** What `badgeKeys.learnBadgeKey` / `forgetBadgeKey` do, on the fake map. */
+function setKey(id: string, next: string | null) {
+  const prev = keys[id] ?? null;
+  if (next) keys[id] = next;
+  else delete keys[id];
+  keyFns.forEach((fn) => fn(id, next, prev));
+}
 
 function install(over: Record<string, unknown> = {}) {
   __setBadgeTotalsDepsForTests({
@@ -59,6 +71,13 @@ function install(over: Record<string, unknown> = {}) {
       return { unregister: () => void unregistered.push(event) };
     },
     servers: () => servers,
+    badgeKeyOf: (id) => keys[id] ?? null,
+    onBadgeKeyChange: (fn) => {
+      keyFns.push(fn);
+      return () => {
+        keyFns = keyFns.filter((f) => f !== fn);
+      };
+    },
     onForget: (fn) => {
       forgetFns.push(fn);
       return () => {
@@ -89,6 +108,8 @@ beforeEach(() => {
   unregistered = [];
   forgetFns = [];
   leaveFns = [];
+  keys = {};
+  keyFns = [];
   native = {
     set_server_totals: () => ({ available: true, sum: 3 }),
     clear_server_totals: () => ({ available: true, sum: 0 }),
@@ -183,8 +204,8 @@ describe("subdomain derivation", () => {
     });
     await flushBadgeTotals();
     expect(calls).toEqual([
-      { cmd: "set_server_totals", args: { subdomain: "rosson", unread: 2, waiting: 1 } },
-      { cmd: "set_server_totals", args: { subdomain: "baden", unread: 4 } },
+      { cmd: "set_server_totals", args: { key: "rosson", unread: 2, waiting: 1 } },
+      { cmd: "set_server_totals", args: { key: "baden", unread: 4 } },
     ]);
   });
 
@@ -217,8 +238,8 @@ describe("coalescing", () => {
     expect(calls).toEqual([]);
     await vi.advanceTimersByTimeAsync(15);
     expect(calls).toEqual([
-      { cmd: "set_server_totals", args: { subdomain: "rosson", unread: 3, waiting: 1 } },
-      { cmd: "set_server_totals", args: { subdomain: "baden", unread: 1 } },
+      { cmd: "set_server_totals", args: { key: "rosson", unread: 3, waiting: 1 } },
+      { cmd: "set_server_totals", args: { key: "baden", unread: 1 } },
     ]);
   });
 
@@ -230,8 +251,8 @@ describe("coalescing", () => {
     setServerTotals("s2", { unread: 1 });
     await flushBadgeTotals();
     expect(calls).toEqual([
-      { cmd: "clear_server_totals", args: { subdomain: "rosson" } },
-      { cmd: "set_server_totals", args: { subdomain: "baden", unread: 1 } },
+      { cmd: "clear_server_totals", args: { key: "rosson" } },
+      { cmd: "set_server_totals", args: { key: "baden", unread: 1 } },
     ]);
   });
 
@@ -242,7 +263,7 @@ describe("coalescing", () => {
     const b = flushBadgeTotals();
     expect(a).toBe(b);
     await a;
-    expect(calls.map((c) => c.args?.subdomain)).toEqual(["rosson", "baden"]);
+    expect(calls.map((c) => c.args?.key)).toEqual(["rosson", "baden"]);
   });
 });
 
@@ -251,7 +272,7 @@ describe("clear on forget / sign-out", () => {
     installBadgeServerHooks();
     leaveFns.forEach((fn) => fn({ id: "s1", url: "https://rosson.k2.dev" }));
     await flushBadgeTotals();
-    expect(calls).toEqual([{ cmd: "clear_server_totals", args: { subdomain: "rosson" } }]);
+    expect(calls).toEqual([{ cmd: "clear_server_totals", args: { key: "rosson" } }]);
   });
 
   it("forget clears every stored subdomain no saved server uses", async () => {
@@ -261,7 +282,7 @@ describe("clear on forget / sign-out", () => {
     await vi.waitFor(() => expect(calls).toHaveLength(2));
     expect(calls).toEqual([
       { cmd: "get_badge_totals", args: undefined },
-      { cmd: "clear_server_totals", args: { subdomain: "old" } },
+      { cmd: "clear_server_totals", args: { key: "old" } },
     ]);
   });
 
@@ -344,8 +365,8 @@ describe("onBadgeTotals", () => {
     fire({ subdomain: "", unread: 2 });
     fire({ subdomain: "rosson", unread: "x" });
     expect(got).toEqual([
-      { subdomain: "rosson", unread: 4, waiting: 1, sum: 6, serverId: "s1" },
-      { subdomain: "elsewhere", unread: 2, waiting: null, sum: 8, serverId: null },
+      { subdomain: "rosson", badgeKey: null, unread: 4, waiting: 1, sum: 6, serverId: "s1" },
+      { subdomain: "elsewhere", badgeKey: null, unread: 2, waiting: null, sum: 8, serverId: null },
     ]);
     off();
     expect(unregistered).toEqual(["badgeTotals"]);
@@ -374,5 +395,164 @@ describe("onBadgeTotals", () => {
     });
     const off2 = await onBadgeTotals(() => {});
     expect(typeof off2).toBe("function");
+  });
+});
+
+describe("badgeKey store key (K2 0.46.1)", () => {
+  beforeEach(() => {
+    // Two logins on one host: an owner and a member on rosson.k2.dev.
+    servers = [
+      { id: "own", url: "https://rosson.k2.dev" },
+      { id: "mem", url: "https://rosson.k2.dev" },
+      { id: "s2", url: "https://baden.k2.dev" },
+    ];
+  });
+
+  it("keys by the badgeKey when known, else by the tunnel label", async () => {
+    keys = { own: "bkOwner", mem: "bkMember" };
+    expect(badgeStoreKey("own")).toBe("bkOwner");
+    expect(badgeStoreKey("s2")).toBe("baden");
+    setServerTotals("own", { unread: 2 });
+    setServerTotals("mem", { unread: 5, waiting: 1 });
+    setServerTotals("s2", { unread: 1 });
+    await flushBadgeTotals();
+    // Both logins keep their own entry; nothing collides on "rosson"
+    // (still written by no one, so cleared once).
+    expect(calls).toEqual([
+      { cmd: "clear_server_totals", args: { key: "rosson" } },
+      { cmd: "set_server_totals", args: { key: "bkOwner", unread: 2 } },
+      { cmd: "set_server_totals", args: { key: "bkMember", unread: 5, waiting: 1 } },
+      { cmd: "set_server_totals", args: { key: "baden", unread: 1 } },
+    ]);
+  });
+
+  it("moves a server off its tunnel label once its badgeKey is known", async () => {
+    servers = [{ id: "s1", url: "https://rosson.k2.dev" }];
+    setServerTotals("s1", { unread: 2 });
+    await flushBadgeTotals();
+    installBadgeServerHooks();
+    setKey("s1", "bk1");
+    setServerTotals("s1", { unread: 3 });
+    await flushBadgeTotals();
+    expect(calls).toEqual([
+      { cmd: "set_server_totals", args: { key: "rosson", unread: 2 } },
+      { cmd: "clear_server_totals", args: { key: "rosson" } },
+      { cmd: "set_server_totals", args: { key: "bk1", unread: 3 } },
+    ]);
+    // Steady state: no more clears.
+    calls = [];
+    setServerTotals("s1", { unread: 4 });
+    await flushBadgeTotals();
+    expect(calls).toEqual([{ cmd: "set_server_totals", args: { key: "bk1", unread: 4 } }]);
+  });
+
+  it("first write of a session with a known key clears a label entry left from before", async () => {
+    servers = [{ id: "s1", url: "https://rosson.k2.dev" }];
+    keys = { s1: "bk1" };
+    setServerTotals("s1", { unread: 1 });
+    await flushBadgeTotals();
+    expect(calls).toEqual([
+      { cmd: "clear_server_totals", args: { key: "rosson" } },
+      { cmd: "set_server_totals", args: { key: "bk1", unread: 1 } },
+    ]);
+  });
+
+  it("keeps the label entry while another login on that host still writes it", async () => {
+    keys = { own: "bkOwner" };
+    setServerTotals("own", { unread: 2 });
+    setServerTotals("mem", { unread: 1 });
+    await flushBadgeTotals();
+    expect(calls).toEqual([
+      { cmd: "set_server_totals", args: { key: "bkOwner", unread: 2 } },
+      { cmd: "set_server_totals", args: { key: "rosson", unread: 1 } },
+    ]);
+  });
+
+  it("a changed badgeKey clears the old entry; a shared key is kept", async () => {
+    installBadgeServerHooks();
+    keys = { own: "bkA", mem: "bkM" };
+    setKey("own", "bkB");
+    await flushBadgeTotals();
+    expect(calls).toEqual([{ cmd: "clear_server_totals", args: { key: "bkA" } }]);
+    // Owner token + owner-linked login share one key: forgetting one keeps it.
+    calls = [];
+    keys = { own: "bkO", mem: "bkO" };
+    setKey("mem", null);
+    await flushBadgeTotals();
+    expect(calls).toEqual([]);
+  });
+
+  it("clear / sign-out clears the badgeKey entry", async () => {
+    keys = { own: "bkOwner", mem: "bkMember" };
+    clearServerTotals("own");
+    installBadgeServerHooks();
+    leaveFns.forEach((fn) => fn({ id: "mem", url: "https://rosson.k2.dev" }));
+    await flushBadgeTotals();
+    expect(calls).toEqual([
+      { cmd: "clear_server_totals", args: { key: "bkOwner" } },
+      { cmd: "clear_server_totals", args: { key: "rosson" } },
+      { cmd: "clear_server_totals", args: { key: "bkMember" } },
+    ]);
+  });
+
+  it("forget sweeps keys no saved server writes now", async () => {
+    keys = { own: "bkOwner" };
+    native.get_badge_totals = () => ({
+      available: true,
+      sum: 9,
+      version: 1,
+      servers: {
+        bkOwner: { unread: 1, waiting: 0, at: 1 },
+        bkGone: { unread: 2, waiting: 0, at: 1 },
+        rosson: { unread: 3, waiting: 0, at: 1 },
+        baden: { unread: 3, waiting: 0, at: 1 },
+      },
+    });
+    installBadgeServerHooks();
+    forgetFns.forEach((fn) => fn("gone"));
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    // "rosson" stays: "mem" has no key yet and writes it.
+    expect(calls[1]).toEqual({ cmd: "clear_server_totals", args: { key: "bkGone" } });
+  });
+});
+
+describe("badgeTotals event → server (K2 0.46.1)", () => {
+  const two = [
+    { id: "own", url: "https://rosson.k2.dev" },
+    { id: "mem", url: "https://rosson.k2.dev" },
+    { id: "s2", url: "https://baden.k2.dev" },
+  ];
+
+  it("maps the badgeKey to the saved login on that host", () => {
+    const keyOf = (id: string) => ({ own: "bkO", mem: "bkM" })[id] ?? null;
+    expect(serverForBadgeEvent({ subdomain: "rosson", badgeKey: "bkM" }, two, keyOf)).toBe("mem");
+    expect(serverForBadgeEvent({ subdomain: "rosson", badgeKey: "bkO" }, two, keyOf)).toBe("own");
+    // A key held on another host never maps across hosts.
+    expect(serverForBadgeEvent({ subdomain: "baden", badgeKey: "bkM" }, two, keyOf)).toBe("s2");
+  });
+
+  it("falls back to the tunnel label, preferring a login whose key is unknown", () => {
+    const keyOf = (id: string) => ({ own: "bkO" })[id] ?? null;
+    expect(serverForBadgeEvent({ subdomain: "rosson", badgeKey: "bkNew" }, two, keyOf)).toBe("mem");
+    expect(serverForBadgeEvent({ subdomain: "rosson", badgeKey: null }, two, keyOf)).toBe("own");
+    expect(serverForBadgeEvent({ subdomain: "nowhere", badgeKey: "bkO" }, two, keyOf)).toBeNull();
+    // No subdomain: the key alone (a refresh hint only).
+    expect(serverForBadgeEvent({ subdomain: "", badgeKey: "bkO" }, two, keyOf)).toBe("own");
+    expect(serverForBadgeEvent({ subdomain: "", badgeKey: "bkX" }, two, keyOf)).toBeNull();
+  });
+
+  it("the plugin event carries the key and the mapped server", async () => {
+    servers = two;
+    keys = { own: "bkO", mem: "bkM" };
+    const got: BadgeTotalsEvent[] = [];
+    await onBadgeTotals((e) => got.push(e));
+    const fire = listeners.get("badgeTotals")!;
+    fire({ key: "bkM", subdomain: "rosson", badgeKey: "bkM", unread: 3, waiting: 0, sum: 3 });
+    fire({ key: "bkO", badgeKey: "bkO", unread: 1, sum: 4 });
+    fire({ key: "x", badgeKey: "bad key!", unread: 1 });
+    expect(got).toEqual([
+      { subdomain: "rosson", badgeKey: "bkM", unread: 3, waiting: 0, sum: 3, serverId: "mem" },
+      { subdomain: "", badgeKey: "bkO", unread: 1, waiting: null, sum: 4, serverId: "own" },
+    ]);
   });
 });

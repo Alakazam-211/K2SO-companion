@@ -48,7 +48,9 @@
 //   - JS, via `setServerTotals` / `clearServerTotals` (live frames, list
 //     fetches, server removed / signed out).
 // Each sets the icon badge to the new sum and emits `badgeTotals`
-// `{subdomain, unread, waiting, sum}` so a running UI can update.
+// `{key, subdomain?, badgeKey?, unread, waiting, sum}` so a running UI can
+// update. The store key is the push's `badgeKey` (K2 0.46.1) when present,
+// else its `subdomain`; JS sends the key it picked the same way.
 
 import SwiftRs
 import Tauri
@@ -202,9 +204,9 @@ class K2PushPlugin: Plugin {
 
   // ── Badge commands (App Group, K2BadgeStore) ────────────────────────
 
-  /// `{subdomain, unread, waiting}` → store it, set the icon badge.
-  /// Resolves `{available, sum}`. Never rejects for a bad subdomain (it is
-  /// ignored); rejects only for unparseable args.
+  /// `{key, unread, waiting}` (older JS: `{subdomain, …}`) → store it, set
+  /// the icon badge. Resolves `{available, sum}`. Never rejects for a bad
+  /// key (it is ignored); rejects only for unparseable args.
   @objc public func setServerTotals(_ invoke: Invoke) {
     let args: ServerTotalsArgs
     do {
@@ -214,14 +216,19 @@ class K2PushPlugin: Plugin {
       return
     }
     K2PushPlugin.badgeQueue.async {
-      let sum = K2BadgeStore.set(
-        subdomain: args.subdomain, unread: max(0, args.unread), waiting: args.waiting.map { max(0, $0) })
+      let sum: Int?
+      if let key = K2BadgeStore.commandKey(key: args.key, subdomain: args.subdomain) {
+        sum = K2BadgeStore.set(key: key, unread: max(0, args.unread), waiting: args.waiting.map { max(0, $0) })
+      } else {
+        sum = K2BadgeStore.currentSum()
+      }
       invoke.resolve(K2PushPlugin.sumResponse(sum))
       if let sum = sum { K2PushPlugin.setIconBadge(sum) }
     }
   }
 
-  /// `{subdomain}` → drop that server, set the icon badge. `{available, sum}`.
+  /// `{key}` (older JS: `{subdomain}`) → drop that entry, set the icon
+  /// badge. `{available, sum}`.
   @objc public func clearServerTotals(_ invoke: Invoke) {
     let args: ClearTotalsArgs
     do {
@@ -231,7 +238,12 @@ class K2PushPlugin: Plugin {
       return
     }
     K2PushPlugin.badgeQueue.async {
-      let sum = K2BadgeStore.clear(subdomain: args.subdomain)
+      let sum: Int?
+      if let key = K2BadgeStore.commandKey(key: args.key, subdomain: args.subdomain) {
+        sum = K2BadgeStore.clear(key: key)
+      } else {
+        sum = K2BadgeStore.currentSum()
+      }
       invoke.resolve(K2PushPlugin.sumResponse(sum))
       if let sum = sum { K2PushPlugin.setIconBadge(sum) }
     }
@@ -305,8 +317,10 @@ class K2PushPlugin: Plugin {
   // ── Silent badge push ───────────────────────────────────────────────
 
   /// `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)`
-  /// (background AND foreground). `{kind:"badge", subdomain, unreadTotal,
-  /// waitingTotal}` → store, icon badge, `badgeTotals` event, `.newData`.
+  /// (background AND foreground). `{kind:"badge", unreadTotal, waitingTotal,
+  /// badgeKey, subdomain, instanceId}` (K2 0.46.1; older daemons send no
+  /// `badgeKey`) → store under `badgeKey` (else `subdomain`), icon badge,
+  /// `badgeTotals` event, `.newData`.
   /// Anything else → `.noData`. A duplicate (same collapse id) is applied
   /// again: idempotent apart from the received counter.
   fileprivate func handleRemoteNotification(
@@ -341,7 +355,9 @@ class K2PushPlugin: Plugin {
   }
 
   private func emitBadgeTotals(_ t: K2BadgeStore.PushTotals, sum: Int) {
-    let event = BadgeTotalsEvent(subdomain: t.subdomain, unread: t.unread, waiting: t.waiting, sum: sum)
+    let event = BadgeTotalsEvent(
+      key: t.key, subdomain: t.subdomain, badgeKey: t.badgeKey, unread: t.unread, waiting: t.waiting,
+      sum: sum)
     DispatchQueue.main.async {
       try? self.trigger("badgeTotals", data: event)
     }
@@ -618,22 +634,28 @@ private class K2PushTapDelegate: NSObject, UNUserNotificationCenterDelegate {
   }
 }
 
-/// `badgeTotals` event. `waiting` is omitted when the push had none.
+/// `badgeTotals` event. `subdomain` / `badgeKey` / `waiting` are omitted
+/// when the push had none. `key` = the totals.json key it was stored under.
 private struct BadgeTotalsEvent: Encodable {
-  let subdomain: String
+  let key: String
+  let subdomain: String?
+  let badgeKey: String?
   let unread: Int
   let waiting: Int?
   let sum: Int
 }
 
+/// `key` (current JS) or `subdomain` (older JS); `key` wins.
 private struct ServerTotalsArgs: Decodable {
-  let subdomain: String
+  let key: String?
+  let subdomain: String?
   let unread: Int
   let waiting: Int?
 }
 
 private struct ClearTotalsArgs: Decodable {
-  let subdomain: String
+  let key: String?
+  let subdomain: String?
 }
 
 // ── Notification avatar cache (App Group) ─────────────────────────────

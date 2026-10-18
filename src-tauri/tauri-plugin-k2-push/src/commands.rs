@@ -37,11 +37,13 @@ pub(crate) async fn cache_avatars<R: Runtime>(
 #[command]
 pub(crate) async fn set_server_totals<R: Runtime>(
     app: AppHandle<R>,
-    subdomain: String,
+    key: Option<String>,
+    subdomain: Option<String>,
     unread: u32,
     waiting: Option<u32>,
 ) -> Result<BadgeSumResponse> {
     app.k2_push().set_server_totals(ServerTotalsRequest {
+        key,
         subdomain,
         unread,
         waiting,
@@ -51,10 +53,11 @@ pub(crate) async fn set_server_totals<R: Runtime>(
 #[command]
 pub(crate) async fn clear_server_totals<R: Runtime>(
     app: AppHandle<R>,
-    subdomain: String,
+    key: Option<String>,
+    subdomain: Option<String>,
 ) -> Result<BadgeSumResponse> {
     app.k2_push()
-        .clear_server_totals(ClearServerTotalsRequest { subdomain })
+        .clear_server_totals(ClearServerTotalsRequest { key, subdomain })
 }
 
 #[command]

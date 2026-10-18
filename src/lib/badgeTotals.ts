@@ -1,6 +1,7 @@
 import { addPluginListener, invoke, isTauri } from "@tauri-apps/api/core";
 import { onServerForget, onServerLeave, useServersStore } from "../stores/servers";
 import { subdomainOfServerUrl } from "./avatarCache";
+import { badgeKeyOf, normalizeBadgeKey, onBadgeKeyChange } from "./badgeKeys";
 import { PUSH_PLUGIN, pushAvailability, type Availability } from "./pushAvailability";
 
 // App-icon badge totals — iOS (K2 0.46.1 contract; dormant until it lands).
@@ -9,15 +10,22 @@ import { PUSH_PLUGIN, pushAvailability, type Availability } from "./pushAvailabi
 // all waiting), kept natively in the App Group (`K2BadgeStore.swift`,
 // shared by the k2-push plugin and the Notification Service Extension):
 //   <AppGroup>/badges/totals.json
-//     {"version":1,"servers":{"<subdomain>":{"unread","waiting","at"}}}
+//     {"version":1,"servers":{"<key>":{"unread","waiting","at"}}}
 // Writers: the NSE (alert pushes carrying totals), the plugin (silent
 // `{kind:"badge"}` pushes) and this module (live frames, list fetches,
 // app open, server removed / signed out). Servers never send `aps.badge`:
 // with several servers on one phone only the phone can sum.
 //
-// Key = the server's tunnel label (`<label>.k2.dev`, lowercased), the
-// same rule as the avatar cache. Servers on any other host never get a
-// push with a subdomain, so they are skipped.
+// Key = the server's `badgeKey` (K2 0.46.1, `./badgeKeys`) when known, else
+// its tunnel label (`<label>.k2.dev`, lowercased; the same rule as the
+// avatar cache). The badgeKey is per person per server, so two logins on
+// one host no longer share (and overwrite) one entry; the owner token and
+// an owner-linked login share one key, so they share one entry. The NSE and
+// the silent handler pick the same way: the push's `badgeKey`, else its
+// `subdomain`. When a server's badgeKey becomes known (or changes), the
+// entry under its old key (tunnel label or previous badgeKey) is cleared
+// and the next update writes the new one. Servers on any other host never
+// get a push with a subdomain, so they are skipped.
 //
 // Best-effort and quiet: updates are coalesced on a short timer (last
 // value per server wins), everything is a no-op unless the push plugin is
@@ -37,7 +45,8 @@ export type BadgeTotals = {
 /** Received pushes for one server on one local day. */
 export type BadgeDayCount = { silent: number; alert: number; lastAt?: number };
 
-/** `<AppGroup>/badges/received.json`: `days["YYYY-MM-DD"][subdomain]`. */
+/** `<AppGroup>/badges/received.json`: `days["YYYY-MM-DD"][subdomain]`
+ *  (diagnostics stay per tunnel label, whatever the totals key). */
 export type BadgeDiagnostics = {
   available: boolean;
   version: number;
@@ -47,7 +56,10 @@ export type BadgeDiagnostics = {
 
 /** The plugin's `badgeTotals` event, plus the saved server it belongs to. */
 export type BadgeTotalsEvent = {
+  /** The push's tunnel label ("" when it carried none). */
   subdomain: string;
+  /** The push's `badgeKey` (K2 0.46.1), or null (an older daemon). */
+  badgeKey: string | null;
   unread: number;
   waiting: number | null;
   sum: number;
@@ -67,6 +79,11 @@ type Deps = {
   call: <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
   listen: (event: string, cb: (payload: unknown) => void) => Promise<Listener>;
   servers: () => { id: string; url: string }[];
+  /** A saved server's learned badgeKey (`./badgeKeys`). */
+  badgeKeyOf: (serverId: string) => string | null;
+  onBadgeKeyChange: (
+    fn: (serverId: string, next: string | null, prev: string | null) => void
+  ) => () => void;
   onForget: (fn: (serverId: string) => void) => () => void;
   onLeave: (fn: (server: { id: string; url: string }) => void) => () => void;
   flushMs: number;
@@ -84,6 +101,8 @@ const defaultDeps: Deps = {
   call: (cmd, args) => invoke(`plugin:${PUSH_PLUGIN}|${cmd}`, args),
   listen: (event, cb) => addPluginListener(PUSH_PLUGIN, event, cb),
   servers: () => useServersStore.getState().servers,
+  badgeKeyOf: (serverId) => badgeKeyOf(serverId),
+  onBadgeKeyChange: (fn) => onBadgeKeyChange(fn),
   onForget: (fn) => onServerForget((id) => fn(id)),
   onLeave: (fn) => onServerLeave((server) => fn(server)),
   flushMs: BADGE_FLUSH_MS,
@@ -91,8 +110,10 @@ const defaultDeps: Deps = {
 
 let deps: Deps = defaultDeps;
 
-/** subdomain → totals to set, or null = clear (last one wins). */
+/** store key → totals to set, or null = clear (last one wins). */
 const pending = new Map<string, { unread: number; waiting?: number } | null>();
+/** server id → the store key it last wrote this session. */
+const lastKey = new Map<string, string>();
 let timer: ReturnType<typeof setTimeout> | null = null;
 let flushing: Promise<void> | null = null;
 /** Native said no (not iOS, no App Group): stop for the session. */
@@ -109,6 +130,41 @@ function count(v: unknown): number | null {
 function subdomainOfServer(serverId: string): string | null {
   const url = deps.servers().find((s) => s.id === serverId)?.url;
   return subdomainOfServerUrl(url);
+}
+
+/** A saved server's App Group key: its badgeKey when known, else its
+ *  tunnel label. Null for a server off `*.k2.dev` (or an unknown id). */
+export function badgeStoreKey(serverId: string): string | null {
+  const sub = subdomainOfServer(serverId);
+  if (!sub) return null;
+  return deps.badgeKeyOf(serverId) ?? sub;
+}
+
+/** Does a saved server other than `serverId` write under `key`? */
+function keyInUseByOther(key: string, serverId: string): boolean {
+  return deps.servers().some((s) => s.id !== serverId && badgeStoreKey(s.id) === key);
+}
+
+/** Keys `serverId` may have written before that are not `key` now: its
+ *  previous key this session and, once it has a badgeKey, its tunnel
+ *  label. A key another saved server still writes is kept. */
+function staleKeys(serverId: string, key: string, sub: string): string[] {
+  const out = new Set<string>();
+  const prev = lastKey.get(serverId);
+  if (prev) out.add(prev);
+  out.add(sub);
+  out.delete(key);
+  return [...out].filter((k) => !keyInUseByOther(k, serverId));
+}
+
+/** Clear everything `serverId` may have written (its key, its tunnel
+ *  label, its previous key), except keys another saved server writes. */
+function clearKeysOf(serverId: string, sub: string): void {
+  const key = deps.badgeKeyOf(serverId) ?? sub;
+  for (const k of [key, ...staleKeys(serverId, key, sub)]) {
+    if (!keyInUseByOther(k, serverId)) enqueue(k, null);
+  }
+  lastKey.delete(serverId);
 }
 
 /** True when badge totals work here: Tauri, push available, iOS. */
@@ -145,7 +201,14 @@ export function setServerTotals(
     const unread = count(totals.unread);
     if (unread === null) return;
     const waiting = count(totals.waiting);
-    enqueue(sub, waiting === null ? { unread } : { unread, waiting });
+    const key = deps.badgeKeyOf(serverId) ?? sub;
+    // First write this session, or the key moved (badgeKey learned or
+    // changed): drop what this server stored under its old key.
+    if (lastKey.get(serverId) !== key) {
+      for (const k of staleKeys(serverId, key, sub)) enqueue(k, null);
+      lastKey.set(serverId, key);
+    }
+    enqueue(key, waiting === null ? { unread } : { unread, waiting });
   } catch (e) {
     console.warn("[badge] set skipped:", e);
   }
@@ -156,18 +219,19 @@ export function clearServerTotals(serverId: string): void {
   try {
     if (disabled || !deps.enabled()) return;
     const sub = subdomainOfServer(serverId);
-    if (sub) enqueue(sub, null);
+    if (sub) clearKeysOf(serverId, sub);
   } catch (e) {
     console.warn("[badge] clear skipped:", e);
   }
 }
 
-/** Same, by server URL (the entry may already be gone from the store). */
-export function clearServerTotalsForUrl(url: string | null | undefined): void {
+/** Same, for a server signed out of or being removed (by its URL: the
+ *  entry may already be gone from the store). */
+export function clearServerTotalsForServer(server: { id: string; url: string }): void {
   try {
     if (disabled || !deps.enabled()) return;
-    const sub = subdomainOfServerUrl(url);
-    if (sub) enqueue(sub, null);
+    const sub = subdomainOfServerUrl(server.url);
+    if (sub) clearKeysOf(server.id, sub);
   } catch (e) {
     console.warn("[badge] clear skipped:", e);
   }
@@ -186,16 +250,16 @@ export function flushBadgeTotals(): Promise<void> {
         return;
       }
       while (pending.size && !disabled) {
-        const [sub, value] = pending.entries().next().value as [
+        const [key, value] = pending.entries().next().value as [
           string,
           { unread: number; waiting?: number } | null,
         ];
-        pending.delete(sub);
+        pending.delete(key);
         let res: SumResult;
         try {
           res = value
-            ? await deps.call<SumResult>("set_server_totals", { subdomain: sub, ...value })
-            : await deps.call<SumResult>("clear_server_totals", { subdomain: sub });
+            ? await deps.call<SumResult>("set_server_totals", { key, ...value })
+            : await deps.call<SumResult>("clear_server_totals", { key });
         } catch (e) {
           // Plugin error: drop it; the next frame / list load sends again.
           console.warn("[badge] totals call failed:", e);
@@ -288,6 +352,26 @@ export function summarizeBadgeDiagnostics(
   return out;
 }
 
+/** Which saved server a `badgeTotals` event is about: the server on the
+ *  push's host whose learned badgeKey equals the push's; else (no key, or
+ *  not learned yet) by tunnel label, preferring a login whose key is not
+ *  known yet. No subdomain: by badgeKey alone (only a refresh hint). Pure. */
+export function serverForBadgeEvent(
+  ev: { subdomain: string; badgeKey: string | null },
+  servers: { id: string; url: string }[],
+  keyOf: (serverId: string) => string | null
+): string | null {
+  const sub = ev.subdomain.toLowerCase();
+  const onHost = sub ? servers.filter((s) => subdomainOfServerUrl(s.url) === sub) : servers;
+  if (ev.badgeKey) {
+    const hit = onHost.find((s) => keyOf(s.id) === ev.badgeKey);
+    if (hit) return hit.id;
+  }
+  if (!sub) return null;
+  const unlearned = ev.badgeKey ? onHost.find((s) => !keyOf(s.id)) : undefined;
+  return (unlearned ?? onHost[0])?.id ?? null;
+}
+
 /** Subscribe to the plugin's `badgeTotals` event (a silent badge push, or
  *  an alert push while the app is open). Resolves to the remover; a no-op
  *  remover when unsupported. Never throws. */
@@ -296,17 +380,19 @@ export async function onBadgeTotals(cb: (e: BadgeTotalsEvent) => void): Promise<
     if (!(await badgeTotalsSupported())) return () => {};
     const l = await deps.listen("badgeTotals", (raw) => {
       const p = (raw ?? {}) as Record<string, unknown>;
-      const subdomain = typeof p.subdomain === "string" ? p.subdomain.toLowerCase() : "";
+      const subdomain = typeof p.subdomain === "string" ? p.subdomain.trim().toLowerCase() : "";
+      const badgeKey = normalizeBadgeKey(p.badgeKey);
       const unread = count(p.unread);
-      if (!subdomain || unread === null) return;
-      const server = deps.servers().find((s) => subdomainOfServerUrl(s.url) === subdomain);
+      if ((!subdomain && !badgeKey) || unread === null) return;
+      const serverId = serverForBadgeEvent({ subdomain, badgeKey }, deps.servers(), deps.badgeKeyOf);
       try {
         cb({
           subdomain,
+          badgeKey,
           unread,
           waiting: count(p.waiting),
           sum: count(p.sum) ?? 0,
-          serverId: server?.id ?? null,
+          serverId,
         });
       } catch (e) {
         console.warn("[badge] listener failed:", e);
@@ -319,13 +405,13 @@ export async function onBadgeTotals(cb: (e: BadgeTotalsEvent) => void): Promise<
 }
 
 /** After a server is forgotten (removed, or its address now points at a
- *  different host): clear every stored subdomain no saved server uses. */
+ *  different host): clear every stored key no saved server writes now. */
 async function clearForgotten(): Promise<void> {
   const t = await getBadgeTotals();
   if (!t) return;
-  const live = new Set(deps.servers().map((s) => subdomainOfServerUrl(s.url)));
-  for (const sub of Object.keys(t.servers ?? {})) {
-    if (!live.has(sub)) enqueue(sub, null);
+  const live = new Set(deps.servers().map((s) => badgeStoreKey(s.id)));
+  for (const key of Object.keys(t.servers ?? {})) {
+    if (!live.has(key)) enqueue(key, null);
   }
 }
 
@@ -333,14 +419,28 @@ async function clearForgotten(): Promise<void> {
  *  returns the remover. Mounted once by <PushBridge/>. */
 export function installBadgeServerHooks(): () => void {
   if (hooksInstalled) return hooksInstalled;
-  const offLeave = deps.onLeave((server) => clearServerTotalsForUrl(server.url));
-  const offForget = deps.onForget(() => {
+  const offLeave = deps.onLeave((server) => clearServerTotalsForServer(server));
+  const offForget = deps.onForget((serverId) => {
+    lastKey.delete(serverId);
     if (disabled || !deps.enabled()) return;
     void clearForgotten().catch(() => {});
+  });
+  // A badgeKey replaced or forgotten: drop the entry under the old one
+  // (unless another saved server writes it). A first-learned key moves
+  // off the tunnel label on the next `setServerTotals`.
+  const offKey = deps.onBadgeKeyChange((serverId, next, prev) => {
+    try {
+      if (!prev || prev === next || disabled || !deps.enabled()) return;
+      if (!keyInUseByOther(prev, serverId)) enqueue(prev, null);
+      if (lastKey.get(serverId) === prev) lastKey.delete(serverId);
+    } catch (e) {
+      console.warn("[badge] key change skipped:", e);
+    }
   });
   const off = () => {
     offLeave();
     offForget();
+    offKey();
     if (hooksInstalled === off) hooksInstalled = null;
   };
   hooksInstalled = off;
@@ -354,6 +454,7 @@ export function __setBadgeTotalsDepsForTests(next: Partial<Deps> | null): void {
   flushing = null;
   disabled = false;
   pending.clear();
+  lastKey.clear();
   hooksInstalled?.();
   hooksInstalled = null;
   deps = next ? { ...defaultDeps, ...next } : defaultDeps;

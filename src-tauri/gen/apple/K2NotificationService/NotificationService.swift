@@ -20,9 +20,11 @@
 //
 // Badge (K2 0.46.1): Thread and project-chat pushes carry the
 // recipient's totals on that server: `unreadTotal`, `waitingTotal`
-// (strings holding integers) plus `subdomain`. We store them in the App
-// Group badge store (K2BadgeStore.swift — the SAME source file as the
-// app's k2-push plugin, added to this target by project.yml) and set the
+// (strings holding integers) plus `subdomain` and, from K2 0.46.1,
+// `badgeKey` (per person per server). We store them in the App Group badge
+// store under `badgeKey`, else `subdomain` (K2BadgeStore.swift — the SAME
+// source file as the app's k2-push plugin, added to this target by
+// project.yml) and set the
 // delivered content's `badge` to the sum across servers. No totals = the
 // badge is left alone. Servers never send `aps.badge`.
 //
@@ -103,7 +105,7 @@ final class NotificationService: UNNotificationServiceExtension {
 
   /// Store this push's totals and count it as an alert delivery. Returns
   /// the new badge sum, or nil when the push has no numeric
-  /// `unreadTotal` + `subdomain` (or there is no App Group).
+  /// `unreadTotal` + a `badgeKey` or `subdomain` (or there is no App Group).
   static func applyBadgeTotals(_ info: [AnyHashable: Any]) -> Int? {
     K2BadgeStore.apply(push: info, source: .alert)?.sum
   }

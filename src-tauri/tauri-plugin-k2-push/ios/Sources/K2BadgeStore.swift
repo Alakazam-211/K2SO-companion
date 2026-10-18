@@ -7,10 +7,15 @@
 //
 // Layout in the App Group container (group.com.alakazamlabs.k2so.companion):
 //   <AppGroup>/badges/totals.json
-//     {"version":1,"servers":{"<subdomain>":{"unread":N,"waiting":N,"at":epochMs}}}
+//     {"version":1,"servers":{"<key>":{"unread":N,"waiting":N,"at":epochMs}}}
 //   <AppGroup>/badges/received.json   (delivery diagnostics)
 //     {"version":1,"days":{"YYYY-MM-DD":{"<subdomain>":{"silent":N,"alert":N,"lastAt":epochMs}}}}
-// Keys are the server's tunnel label (`<label>.k2.dev`), lowercased.
+// Totals key = the push's `badgeKey` (K2 0.46.1: opaque, stable per person
+// per server, so two logins on one host get two entries) when present,
+// else its tunnel label (`<label>.k2.dev`, lowercased) for older daemons.
+// JS picks the same way (badgeTotals.ts: the learned badgeKey, else the
+// label) and moves a server off its label once it learns the key.
+// Diagnostics stay per tunnel label.
 // Badge = sum of `unread` across servers (K2's `unreadTotal` already is
 // "unmuted unread + all waiting"). Servers never send `aps.badge`: with
 // several servers on one phone only the phone can sum. Totals entries are
@@ -60,7 +65,11 @@ enum K2BadgeStore {
 
   /// Totals parsed out of a push payload.
   struct PushTotals: Equatable {
-    var subdomain: String
+    /// The totals.json key: `badgeKey` when present, else `subdomain`.
+    var key: String
+    /// The tunnel label (nil when the push carried none / a bad one).
+    var subdomain: String?
+    var badgeKey: String?
     var unread: Int
     var waiting: Int?
   }
@@ -80,12 +89,31 @@ enum K2BadgeStore {
   // ── Parsing ─────────────────────────────────────────────────────────
 
   /// Lowercased, trimmed tunnel label; nil when empty or not a DNS label.
-  static func key(_ subdomain: String) -> String? {
+  static func label(_ subdomain: String) -> String? {
     let k = subdomain.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
     guard !k.isEmpty, k.count <= 63,
       k.unicodeScalars.allSatisfy({ CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789-").contains($0) })
     else { return nil }
     return k
+  }
+
+  private static let storeKeyChars = CharacterSet(
+    charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~:+/=-")
+
+  /// A totals.json key as given (a badgeKey, or a label JS already
+  /// lowercased): trimmed, 1–128 chars of `[A-Za-z0-9._~:+/=-]`, case
+  /// kept. Same rule as `normalizeBadgeKey` in JS. nil otherwise.
+  static func storeKey(_ raw: String) -> String? {
+    let k = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !k.isEmpty, k.count <= 128, k.unicodeScalars.allSatisfy({ storeKeyChars.contains($0) })
+    else { return nil }
+    return k
+  }
+
+  /// The key a JS command names: `key` (new), else `subdomain` (older JS).
+  static func commandKey(key: String?, subdomain: String?) -> String? {
+    if let k = key.flatMap(storeKey) { return k }
+    return subdomain.flatMap(label)
   }
 
   /// A non-negative integer from a push value: K2 sends strings ("3"),
@@ -105,13 +133,17 @@ enum K2BadgeStore {
     return nil
   }
 
-  /// `{subdomain, unreadTotal, waitingTotal?}` from a push's userInfo
-  /// (custom keys at the top level). nil = no usable totals.
+  /// `{badgeKey?, subdomain?, unreadTotal, waitingTotal?}` from a push's
+  /// userInfo (custom keys at the top level). Keyed by `badgeKey` when it
+  /// is usable, else by `subdomain`. nil = no usable totals or key.
   static func totals(fromPush info: [AnyHashable: Any]) -> PushTotals? {
-    guard let sub = info["subdomain"] as? String, let key = key(sub),
-      let unread = count(info["unreadTotal"])
-    else { return nil }
-    return PushTotals(subdomain: key, unread: unread, waiting: count(info["waitingTotal"]))
+    guard let unread = count(info["unreadTotal"]) else { return nil }
+    let sub = (info["subdomain"] as? String).flatMap(label)
+    let badgeKey = (info["badgeKey"] as? String).flatMap(storeKey)
+    guard let key = badgeKey ?? sub else { return nil }
+    return PushTotals(
+      key: key, subdomain: sub, badgeKey: badgeKey, unread: unread,
+      waiting: count(info["waitingTotal"]))
   }
 
   static func sum(_ totals: Totals) -> Int {
@@ -122,11 +154,12 @@ enum K2BadgeStore {
 
   // ── Totals ──────────────────────────────────────────────────────────
 
-  /// Set one server's totals; `waiting` nil keeps the stored value.
-  /// Returns the new badge sum, or nil when there is no App Group.
+  /// Set one server's totals under `key` (a badgeKey or a tunnel label);
+  /// `waiting` nil keeps the stored value. Returns the new badge sum, or
+  /// nil when there is no App Group.
   @discardableResult
-  static func set(subdomain: String, unread: Int, waiting: Int?, now: Int64 = nowMs()) -> Int? {
-    guard let key = key(subdomain) else { return currentSum() }
+  static func set(key raw: String, unread: Int, waiting: Int?, now: Int64 = nowMs()) -> Int? {
+    guard let key = storeKey(raw) else { return currentSum() }
     return mutateTotals { totals in
       let prev = totals.servers[key]
       totals.servers[key] = ServerTotals(
@@ -134,10 +167,11 @@ enum K2BadgeStore {
     }
   }
 
-  /// Drop one server (removed / signed out). Returns the new sum.
+  /// Drop one entry (server removed / signed out, or moved to a new key).
+  /// Returns the new sum.
   @discardableResult
-  static func clear(subdomain: String) -> Int? {
-    guard let key = key(subdomain) else { return currentSum() }
+  static func clear(key raw: String) -> Int? {
+    guard let key = storeKey(raw) else { return currentSum() }
     return mutateTotals { totals in
       totals.servers[key] = nil
     }
@@ -165,7 +199,7 @@ enum K2BadgeStore {
   /// Count one received push for `subdomain` on the local day. A
   /// duplicate delivery (same collapse id) simply counts again.
   static func recordReceived(subdomain: String, source: Source, now: Date = Date()) {
-    guard let key = key(subdomain), let dir = directory() else { return }
+    guard let key = label(subdomain), let dir = directory() else { return }
     lock.lock()
     defer { lock.unlock() }
     let file = dir.appendingPathComponent("received.json")
@@ -210,13 +244,14 @@ enum K2BadgeStore {
 
   // ── Push entry point (app + NSE) ────────────────────────────────────
 
-  /// Apply a push's totals: update the server's entry, count the
-  /// delivery, and return the new badge sum. nil = the push carried no
-  /// usable totals (or no App Group): leave the badge alone.
+  /// Apply a push's totals: update the entry under its key (badgeKey,
+  /// else subdomain), count the delivery (per subdomain), and return the
+  /// new badge sum. nil = the push carried no usable totals (or no App
+  /// Group): leave the badge alone.
   static func apply(push info: [AnyHashable: Any], source: Source) -> (totals: PushTotals, sum: Int)? {
     guard let t = totals(fromPush: info) else { return nil }
-    guard let s = set(subdomain: t.subdomain, unread: t.unread, waiting: t.waiting) else { return nil }
-    recordReceived(subdomain: t.subdomain, source: source)
+    guard let s = set(key: t.key, unread: t.unread, waiting: t.waiting) else { return nil }
+    if let sub = t.subdomain { recordReceived(subdomain: sub, source: source) }
     return (t, s)
   }
 
