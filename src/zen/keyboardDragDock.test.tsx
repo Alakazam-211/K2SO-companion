@@ -10,7 +10,13 @@ import {
   type KeyboardWill,
 } from "../lib/useViewportHeight";
 import {
+  CORRECTION_EASE,
+  CORRECTION_MAX_MS,
+  CORRECTION_MIN_MS,
+  MAX_CORRECTION_PX,
   RELEASE_GRACE_MS,
+  correctionMs,
+  sampleDiff,
   RETURN_SLOP_PX,
   TOP_ROOM_MARGIN,
   buildStandIn,
@@ -57,6 +63,29 @@ describe("keyboardDragDock math", () => {
     expect(shouldReturn(436 - RETURN_SLOP_PX - 1, 436)).toBe(true);
     expect(shouldReturn(436 - RETURN_SLOP_PX + 1, 436)).toBe(false);
     expect(shouldReturn(0, null)).toBe(false);
+  });
+
+  it("sampleDiff: where the keyboard is minus where the stand-in was, in the sample's frame", () => {
+    // Stand-in's bottom at content y 1400 (viewport y at scrollTop 0).
+    // Native frame: scrolled 890 → stand-in bottom at 510; keyboard top
+    // 516 → it must go 6px down.
+    expect(sampleDiff(1400, { top: 516, scrollY: 890, t: 0 })).toBe(6);
+    // Ahead of the keyboard: negative, it eases back up.
+    expect(sampleDiff(1400, { top: 505, scrollY: 890, t: 0 })).toBe(-5);
+    // Independent of what the page thinks the scroll is: only the
+    // sample's own scrollY enters.
+    expect(sampleDiff(1400, { top: 526, scrollY: 880, t: 0 })).toBe(6);
+    expect(sampleDiff(1400, { top: 516, scrollY: null, t: 0 })).toBeNull();
+    expect(sampleDiff(1400, { top: 510 + MAX_CORRECTION_PX + 1, scrollY: 890, t: 0 })).toBeNull();
+  });
+
+  it("correctionMs: scales with the move, clamped 80–220ms", () => {
+    expect(correctionMs(0)).toBe(CORRECTION_MIN_MS);
+    expect(correctionMs(6)).toBe(122);
+    expect(correctionMs(-6)).toBe(122);
+    expect(correctionMs(18)).toBe(206);
+    expect(correctionMs(400)).toBe(CORRECTION_MAX_MS);
+    expect(correctionMs(Number.NaN)).toBe(CORRECTION_MIN_MS);
   });
 
   it("buildStandIn: same look, inert, no ids / test ids, field values copied", () => {
@@ -278,6 +307,114 @@ describe("installKeyboardDragDock", () => {
     expect(s.style.top).toBe(`${TOP - DOCK_H + scroll + 14}px`);
   });
 
+  function sample(top: number, scrollY: number | null, t: number) {
+    act(() => {
+      (window as unknown as { __k2KeyboardSample: (s: unknown) => void }).__k2KeyboardSample({
+        top,
+        scrollY,
+        t,
+      });
+    });
+  }
+
+  it("the first sample after the attach eases the stand-in onto the keyboard; a confirmation ~100ms later only if it disagrees", () => {
+    mount();
+    const line = TOP - DOCK_H;
+    touch("touchstart", 300);
+    touch("touchmove", line - 1);
+    touch("touchmove", line + 2);
+    const s = standIn()!;
+    // Content-space bottom: layer top (-scroll) + scrollTop + top + height.
+    const scroller = el("scroller");
+    Object.defineProperty(scroller, "scrollTop", { configurable: true, value: scroll });
+    const base = -scroll + scroll + parseFloat(s.style.top) + DOCK_H; // = TOP + scroll
+    expect(base).toBe(TOP + scroll);
+    // Native frame: scrolled 890 (10px less) → stand-in bottom at TOP+10;
+    // keyboard top at TOP+16 → 6px behind: eases down, 122ms ease-out.
+    sample(TOP + 16, scroll - 10, 1000);
+    expect(s.style.transform).toBe("translate3d(0, 6px, 0)");
+    expect(s.style.transition).toBe(`transform 122ms ${CORRECTION_EASE}`);
+    // Early samples after it: nothing (no per-frame follow).
+    sample(TOP + 30, scroll - 25, 1016);
+    sample(TOP + 50, scroll - 45, 1033);
+    expect(s.style.transform).toBe("translate3d(0, 6px, 0)");
+    // Confirmation within tolerance (7 vs 6): nothing.
+    sample(TOP + 87, scroll - 80, 1100);
+    expect(s.style.transform).toBe("translate3d(0, 6px, 0)");
+    // Done: later samples are ignored.
+    sample(TOP + 200, scroll - 150, 1300);
+    expect(s.style.transform).toBe("translate3d(0, 6px, 0)");
+  });
+
+  it("a confirmation that disagrees by more than 2px eases a second correction (either sign)", () => {
+    mount();
+    touch("touchstart", 300);
+    touch("touchmove", TOP - DOCK_H - 1);
+    touch("touchmove", TOP - DOCK_H + 2);
+    const s = standIn()!;
+    Object.defineProperty(el("scroller"), "scrollTop", { configurable: true, value: scroll });
+    sample(TOP + 10 + 4, scroll - 10, 0); // +4
+    expect(s.style.transform).toBe("translate3d(0, 4px, 0)");
+    sample(TOP + 80 - 3, scroll - 80, 100); // -3: 7px off → back up
+    expect(s.style.transform).toBe("translate3d(0, -3px, 0)");
+    expect(s.style.transition).toBe(`transform ${correctionMs(-7)}ms ${CORRECTION_EASE}`);
+  });
+
+  it("reduced motion: the correction lands without easing", () => {
+    window.matchMedia = vi.fn((q: string) => ({
+      matches: q.includes("reduce"),
+      addEventListener() {},
+      removeEventListener() {},
+    })) as unknown as typeof window.matchMedia;
+    mount();
+    touch("touchstart", 300);
+    touch("touchmove", TOP - DOCK_H - 1);
+    touch("touchmove", TOP - DOCK_H + 2);
+    Object.defineProperty(el("scroller"), "scrollTop", { configurable: true, value: scroll });
+    sample(TOP + 15, scroll - 10, 0);
+    expect(standIn()!.style.transform).toBe("translate3d(0, 5px, 0)");
+    expect(standIn()!.style.transition).toBe("none");
+  });
+
+  it("release: the real composer lands on the keyboard's begin frame (true geometry), the correction dropped", () => {
+    mount();
+    touch("touchstart", 300);
+    touch("touchmove", TOP - DOCK_H - 1);
+    touch("touchmove", TOP - DOCK_H + 2);
+    const s = standIn()!;
+    Object.defineProperty(el("scroller"), "scrollTop", { configurable: true, value: scroll });
+    sample(TOP + 16, scroll - 10, 0);
+    // Mid-ease the stand-in's rect is somewhere in between.
+    s.getBoundingClientRect = () => rect(TOP + 120 - DOCK_H + 3, DOCK_H);
+    const col = el("col");
+    const at: string[] = [];
+    Object.defineProperty(col, "offsetHeight", {
+      configurable: true,
+      get() {
+        at.push(col.style.height);
+        return 0;
+      },
+    });
+    will({ height: 0, duration: 200, curve: 7, show: false, fromTop: TOP + 126 });
+    expect(at).toEqual([`${TOP + 126}px`]);
+    expect(standIn()).toBeNull();
+    expect(col.style.transition).toMatch(/^height 200ms /);
+  });
+
+  it("samples before the attach are not used; a sample with no stand-in attaches (fallback)", () => {
+    mount();
+    touch("touchstart", 300);
+    touch("touchmove", TOP - DOCK_H - 1);
+    Object.defineProperty(el("scroller"), "scrollTop", { configurable: true, value: scroll });
+    // The keyboard started a hair before the crossing was seen.
+    sample(TOP + 3, scroll - 3, 0);
+    const s = standIn()!;
+    expect(s).not.toBeNull();
+    expect(s.style.top).toBe(`${TOP - DOCK_H + scroll}px`);
+    // Its own diff: stand-in bottom at TOP+3 in that frame, keyboard TOP+3.
+    expect(s.style.transform).toBe("");
+  });
+
   it("not the iOS shell (Android / browser): never switches", () => {
     mount();
     delete (window as unknown as { __k2KeyboardSetup?: boolean }).__k2KeyboardSetup;
@@ -288,6 +425,7 @@ describe("installKeyboardDragDock", () => {
     act(() => {
       (window as unknown as { __k2KeyboardTrack: (h: number) => void }).__k2KeyboardTrack(KEYBOARD - 14);
     });
+    sample(TOP + 10, 890, 0);
     expect(standIn()).toBeNull();
   });
 
