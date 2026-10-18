@@ -94,9 +94,21 @@ export type ViewportMotion = {
   to: number;
 };
 
+/** Wall-clock ms with sub-ms precision (performance.timeOrigin + now),
+ *  to compare with the shell's timestamps; Date.now() as a fallback. */
+export function nowEpochMs(): number {
+  try {
+    const o = performance.timeOrigin;
+    if (typeof o === "number" && Number.isFinite(o) && o > 0) return o + performance.now();
+  } catch {
+    /* no performance */
+  }
+  return Date.now();
+}
+
 /** CSS transition for a FLIP transform play on the keyboard's timing. */
 export function keyboardFlipTransition(motion: ViewportMotion): string {
-  const delay = motion.elapsed > 0 ? ` -${Math.round(motion.elapsed)}ms` : "";
+  const delay = motion.elapsed > 0 ? ` -${Math.round(motion.elapsed * 10) / 10}ms` : "";
   return `transform ${Math.round(motion.ms)}ms ${motion.easing}${delay}`;
 }
 
@@ -158,7 +170,7 @@ export function viewportTransition(
   prop = "height"
 ): string | undefined {
   if (!motion || motion.ms <= 0) return undefined;
-  const delay = motion.elapsed > 0 ? ` -${Math.round(motion.elapsed)}ms` : "";
+  const delay = motion.elapsed > 0 ? ` -${Math.round(motion.elapsed * 10) / 10}ms` : "";
   return `${prop} ${Math.round(motion.ms)}ms ${motion.easing}${delay}`;
 }
 
@@ -247,6 +259,9 @@ export type KeyboardDragHandler = {
   draggedBottom(): number | null;
   /** Drop the stand-in and show the real composer again. */
   detach(): void;
+  /** A Will* release is handing off (before `draggedBottom`/`detach`);
+   *  `keyboardTop` = the shell's begin frame, if known. */
+  released?(keyboardTop: number | null): void;
 };
 let dragHandler: KeyboardDragHandler | null = null;
 
@@ -288,7 +303,12 @@ export function beginKeyboardDrag(): boolean {
 /** End a drag: in one frame the stand-in goes and the columns take its
  *  bottom as their height (no visible change), then go to `target` with
  *  `transition` (the keyboard's, or none). */
-function finishDrag(target: number, keyboardTop?: number, animate = false): number | null {
+function finishDrag(
+  target: number,
+  keyboardTop?: number,
+  animate = false,
+  release = false
+): number | null {
   if (!state.interactive) return null;
   // The true geometry when the shell reports it (the keyboard's begin
   // frame), else where the stand-in is.
@@ -296,6 +316,7 @@ function finishDrag(target: number, keyboardTop?: number, animate = false): numb
     typeof keyboardTop === "number" && Number.isFinite(keyboardTop) && keyboardTop > 0
       ? Math.min(fullHeight(), keyboardTop)
       : null;
+  if (release) dragHandler?.released?.(known);
   const bottom = known ?? dragHandler?.draggedBottom() ?? null;
   dragHandler?.detach();
   for (const el of padEls) el.style.height = "";
@@ -432,12 +453,12 @@ function keyboardWill(will: KeyboardWill): void {
   const wasInteractive = state.interactive;
   const lag =
     typeof will.at === "number" && Number.isFinite(will.at)
-      ? Math.min(ms, Math.max(0, Date.now() - will.at))
+      ? Math.min(ms, Math.max(0, nowEpochMs() - will.at))
       : 0;
   const remaining = ms - lag;
   const animate = remaining > 0 && !reducedMotion();
   // Released from a drag: the composer starts where the finger left it.
-  const dragged = wasInteractive ? finishDrag(target, will.fromTop, animate) : null;
+  const dragged = wasInteractive ? finishDrag(target, will.fromTop, animate, true) : null;
   const from = dragged ?? state.height;
   const motion: ViewportMotion | null =
     animate && target !== from
