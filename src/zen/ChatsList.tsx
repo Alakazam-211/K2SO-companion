@@ -51,7 +51,8 @@ import {
 } from "./AgentMenu";
 import { FocusGroupPicker } from "./FocusGroupPicker";
 import { AddAgentSheet } from "./AddAgentSheet";
-import { HomeList, openHomeRowOnServer, type RemoteRowLook } from "./HomeList";
+import { HomeList, homeRowTarget, openHomeRowOnServer, type RemoteRowLook } from "./HomeList";
+import { prefetchTargets, useChatPrefetch, type PrefetchTarget } from "./chatPrefetch";
 import { HomeMenu } from "./HomeMenu";
 import { HomeTabToggle } from "./HomeTabToggle";
 import { parseHomeAddress, readListTab, selectedHome, useHomesStore, writeListTab, type ListTab } from "./homes";
@@ -510,6 +511,29 @@ export function ChatsList() {
   };
   const previewFor = (a: StubAgent): ReactNode =>
     source === "stub" ? "STUB" : <RowSnippet preview={rowPreviewOf(a)} />;
+
+  // Chat prefetch: the top Home rows and any row with something unread
+  // are read ahead (each on its own server) so a tap paints from cache.
+  const prefetch = useMemo(() => {
+    const home: PrefetchTarget[] = [];
+    for (const v of homeShown) {
+      const t = homeRowTarget(v, zen.id);
+      if (t) home.push({ serverId: t.serverId, ref: { kind: "thread", addr: t.addr } });
+    }
+    const others: PrefetchTarget[] = [];
+    if (zen.id) {
+      for (const a of agents) {
+        if (a.kind === "group" && a.groupId) others.push({ serverId: zen.id, ref: { kind: "project", groupId: a.groupId } });
+        else if (a.addr) others.push({ serverId: zen.id, ref: { kind: "thread", addr: a.addr } });
+      }
+    }
+    return prefetchTargets(home, others, (t) => {
+      const row = t.ref.kind === "project" ? { kind: "group", groupId: t.ref.groupId } : { addr: t.ref.addr };
+      const u = rowUnreadFor(unreadServers, unreadAddrs, t.serverId, row);
+      return !!u && u.tone !== "muted" && u.count > 0;
+    });
+  }, [homeShown, agents, zen.id, unreadServers, unreadAddrs]);
+  useChatPrefetch(prefetch, zenScreen === "list" && source === "live");
 
   const searching = q.trim().length > 0;
   /** A server's project list: the active one's from the store, another's

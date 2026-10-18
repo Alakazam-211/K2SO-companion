@@ -1,4 +1,5 @@
 import type { ThreadDoc, ThreadItem } from "../api/client";
+import type { ProjectGroupMessage } from "../api/projectGroups";
 import { parseThreadAttachments, type ThreadAttachment } from "../api/threadAttachmentPure";
 
 export type ThreadChoice = {
@@ -186,4 +187,23 @@ export function normaliseThreadItem(
   const m: ThreadMessage = { id, seq, text, from, at, mine: isMine(from, username), kind, choice };
   if (files.length) m.files = files;
   return m;
+}
+
+/** Project chat lines as Thread messages: `seq` is the list position,
+ *  `readSeq` the line's own seq (K2 0.46.1). */
+export function groupMessagesToThread(
+  messages: ProjectGroupMessage[],
+  username: string
+): ThreadMessage[] {
+  return messages.map((m, i) => ({
+    id: m.id,
+    seq: i,
+    text: m.body,
+    from: m.author,
+    at: m.createdAt,
+    mine: isMine(m.author, username),
+    kind: "text",
+    choice: null,
+    ...(typeof m.seq === "number" && Number.isFinite(m.seq) ? { readSeq: m.seq } : null),
+  }));
 }

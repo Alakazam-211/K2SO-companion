@@ -23,7 +23,7 @@ import { useHoldMenu } from "./useHoldMenu";
 import { useRearrange } from "./useRearrange";
 
 /** A Home row's server and Thread (unread marks, Mute). */
-function homeRowTarget(
+export function homeRowTarget(
   v: HomeRowView,
   zenId: string
 ): { serverId: string; addr: string } | null {

@@ -95,6 +95,7 @@ import { useMultiServerList } from "./useMultiServerList";
 import { __resetHealthForTests, healthStore } from "./serverHealth";
 import { __resetRecoveryForTests, reconnectServer } from "./recovery";
 import { __resetRemoteRowsForTests } from "./remoteRows";
+import { setChatCacheForTests } from "../chatCache";
 
 class MockWS {
   readyState = 0;
@@ -137,6 +138,7 @@ const bootCalls = (host: string) => net.calls.filter((c) => c.host === host && c
 const banner = () => screen.queryByTestId("room-banner");
 
 beforeEach(() => {
+  setChatCacheForTests(null);
   vi.useFakeTimers();
   visibility = "visible";
   Object.defineProperty(document, "visibilityState", { configurable: true, get: () => visibility });
