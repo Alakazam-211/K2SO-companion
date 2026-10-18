@@ -17,6 +17,20 @@ import { isHorizontalSwipe, SWIPE_SLOP_PX } from "./useRowSwipe";
 import { useZenStore } from "./zenStore";
 import { useZenScope } from "./zenScope";
 import { useBackHandler } from "../lib/androidBack";
+import { rowUnreadFor, type RowRef } from "./unread";
+import { useUnreadStore } from "./unreadStore";
+import { MuteMenuItems } from "./UnreadMarks";
+
+/** A Home row's server and Thread (unread marks, Mute). */
+function homeRowTarget(
+  v: HomeRowView,
+  zenId: string
+): { serverId: string; addr: string } | null {
+  if (v.kind === "here") return v.agent.addr ? { serverId: zenId, addr: v.agent.addr } : null;
+  if (v.kind !== "remote" || !v.server) return null;
+  const addr = v.resolved?.agent?.addr || parseHomeAddress(v.row.address)?.handle || "";
+  return addr ? { serverId: v.server.id, addr } : null;
+}
 
 /** Trailing (swipe-left) Remove action width. */
 export const HOME_REMOVE_W = 96;
@@ -135,6 +149,8 @@ export function HomeList({
   const lastAtByKey = useZenStore((s) => s.lastAtByKey);
   const zenId = useZenScope().id;
   const setAgent = useZenStore((s) => s.setAgent);
+  const unreadServers = useUnreadStore((s) => s.servers);
+  const unreadAddrs = useUnreadStore((s) => s.addrs);
 
   const [openAddr, setOpenAddr] = useState<string | null>(null);
   const [drag, setDrag] = useState<{ address: string; x: number } | null>(null);
@@ -237,6 +253,8 @@ export function HomeList({
 
   const menuIndex = menu ? views.findIndex((v) => v.row.address === menu.address) : -1;
   const menuView = menuIndex >= 0 ? views[menuIndex] : null;
+  const menuTarget = menuView ? homeRowTarget(menuView, zenId) : null;
+  const menuRef: RowRef | null = menuTarget ? { kind: "thread", addr: menuTarget.addr } : null;
 
   return (
     <div data-testid="home-list">
@@ -283,6 +301,11 @@ export function HomeList({
           "Not on this server's list right now"
         );
         const dim = look ? !!failure || look.dim : v.kind !== "here";
+        const target = source === "live" || v.kind === "remote" ? homeRowTarget(v, zenId) : null;
+        const unread =
+          target && !failure
+            ? rowUnreadFor(unreadServers, unreadAddrs, target.serverId, { addr: target.addr })
+            : null;
         const opacity = look ? (dim ? 0.6 : 1) : dim ? 0.55 : 1;
         const remoteView = v.kind === "remote" ? v : null;
         const action =
@@ -384,6 +407,7 @@ export function HomeList({
                 preview={preview}
                 stub={source === "stub" && v.kind === "here"}
                 serverChip={v.kind === "remote" ? v.serverLabel : hereChip}
+                unread={unread}
               />
             </button>
             {failure && remoteView ? (
@@ -457,6 +481,11 @@ export function HomeList({
                 Move down
               </button>
             ) : null}
+            <MuteMenuItems
+              serverId={menuTarget?.serverId}
+              rowRef={menuRef}
+              onDone={() => setMenu(null)}
+            />
             <button type="button" role="menuitem"
               className="w-full flex items-center text-left bg-transparent border-0 text-[16px]"
               style={{ padding: "10px 12px", minHeight: 44, borderRadius: 10, color: REMOVE_RED }}

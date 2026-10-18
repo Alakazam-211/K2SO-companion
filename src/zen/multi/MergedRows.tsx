@@ -15,6 +15,8 @@ import { zenTextPx } from "../zenFont";
 import type { MergedRow } from "./merge";
 import type { RowFailure } from "./rowStatus";
 import { LOADING_LINE_AFTER_MS } from "./remoteRows";
+import type { RowUnread } from "../unread";
+import { MutedGlyph, RowUnreadCount, UnreadDot } from "../UnreadMarks";
 
 const MUTED = "#8e8e93";
 
@@ -131,6 +133,7 @@ export function RemoteAgentRow({
   onOpen,
   onAction,
   nextAt,
+  unread = null,
 }: {
   row: MergedRow;
   failure: RowFailure | null;
@@ -143,8 +146,12 @@ export function RemoteAgentRow({
   onAction: () => void;
   /** The pool's next check (offline countdown). */
   nextAt?: number | null;
+  /** Unread marks on that server (K2 0.46.1); null = none. */
+  unread?: RowUnread | null;
 }) {
   const a = row.agent;
+  const marks = failure ? null : unread;
+  const strong = !!marks?.emphasis;
   const busyColor = busy ? activityColor(busy) : "var(--success)";
   const second = failure ? (
     <FailureText failure={failure} nextAt={nextAt} />
@@ -156,6 +163,7 @@ export function RemoteAgentRow({
   const body = (
     <>
       <span className="relative shrink-0">
+        <UnreadDot unread={marks} />
         <WorkspaceAvatar initial={a.initial} color={a.color} iconUrl={iconUrl} size={50} fontSize={18} />
         {busy && !failure ? (
           <span
@@ -180,11 +188,17 @@ export function RemoteAgentRow({
           <span className="flex items-baseline min-w-0" style={{ gap: 6 }}>
             <span
               className="min-w-0 truncate font-semibold"
-              style={{ fontSize: zenTextPx(16), letterSpacing: "-0.2px" }}
+              style={{
+                fontSize: zenTextPx(16),
+                letterSpacing: "-0.2px",
+                ...(strong ? { fontWeight: 700 } : null),
+              }}
               data-testid="row-name"
+              data-unread={marks ? marks.tone : undefined}
             >
               {a.name}
             </span>
+            {marks?.muted ? <MutedGlyph /> : null}
           </span>
           {failure ? null : (
             <span
@@ -197,18 +211,22 @@ export function RemoteAgentRow({
             </span>
           )}
         </span>
-        <span
-          className="block truncate"
-          style={{
-            color: failure ? MUTED : busy ? busyColor : MUTED,
-            lineHeight: 1.3,
-            fontSize: zenTextPx(14),
-          }}
-          data-testid={failure ? "row-failure" : busy ? "row-activity" : "row-preview"}
-          data-state={failure?.state}
-          title={failure?.detail ?? undefined}
-        >
-          {second}
+        <span className="flex items-center min-w-0" style={{ gap: 8 }}>
+          <span
+            className="block truncate flex-1 min-w-0"
+            style={{
+              color: failure ? MUTED : busy ? busyColor : strong ? "#f2f2f7" : MUTED,
+              lineHeight: 1.3,
+              fontSize: zenTextPx(14),
+              ...(strong && !busy ? { fontWeight: 600 } : null),
+            }}
+            data-testid={failure ? "row-failure" : busy ? "row-activity" : "row-preview"}
+            data-state={failure?.state}
+            title={failure?.detail ?? undefined}
+          >
+            {second}
+          </span>
+          <RowUnreadCount unread={marks} />
         </span>
       </span>
     </>

@@ -61,6 +61,10 @@ export const DAEMON_FEATURES = [
   // push registration (lib/push `registrationBody`) and Server settings.
   "push-previews-v1",
   "push-environment-v1",
+  // K2 0.46.1: unread counts, read cursors and mutes (`thread/unread`,
+  // `thread/read`, `project-group/read`, `thread/mute`, read frames).
+  // Read by `zen/unreadStore`; absent → no dots, no badge share.
+  "thread-read-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];

@@ -60,6 +60,9 @@ export function ticketEventsUrl(base: string, token: string): string | null {
 type Sub = {
   match: (frame: unknown) => boolean;
   onChange: () => void;
+  /** Frame subscribers get each matching frame at once (no debounce);
+   *  `onChange` then runs only for a re-pull (reopen, restart). */
+  onFrame?: (frame: unknown) => void;
   debounce: ReturnType<typeof setTimeout> | null;
   stopped: boolean;
 };
@@ -211,7 +214,16 @@ function dialHub(hub: Hub): WebSocket | "failed" | null {
       if (next) hub.instanceId = next;
       return;
     }
-    for (const sub of hub.subs) if (sub.match(frame)) bump(sub);
+    for (const sub of hub.subs) {
+      if (!sub.match(frame)) continue;
+      if (sub.onFrame) {
+        try {
+          sub.onFrame(frame);
+        } catch {
+          /* one subscriber never breaks the hub */
+        }
+      } else bump(sub);
+    }
   };
   sock.onclose = (e) => {
     if (hub.dead || hub.ws !== sock) return;
@@ -250,9 +262,10 @@ function dialHub(hub: Hub): WebSocket | "failed" | null {
 export function subscribeAppEvents(
   scope: ServerScope,
   match: (frame: unknown) => boolean,
-  onChange: () => void
+  onChange: () => void,
+  onFrame?: (frame: unknown) => void
 ): TicketEventsHandle {
-  const sub: Sub = { match, onChange, debounce: null, stopped: false };
+  const sub: Sub = { match, onChange, onFrame, debounce: null, stopped: false };
   let connected = false;
   try {
     connected = !!scope.id && !!scope.httpBase() && !!scope.token();

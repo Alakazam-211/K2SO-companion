@@ -11,6 +11,7 @@ import {
   connectProjectEvents,
   connectTicketEvents,
   isProjectsChangedFrame,
+  subscribeAppEvents,
 } from "./ticketEvents";
 
 class MockWS {
@@ -75,6 +76,34 @@ describe("shared sessions/events socket", () => {
     expect(ws.closed).toBe(false);
     pins.stop();
     expect(ws.closed).toBe(true);
+  });
+
+  it("a frame subscriber gets each frame at once; onChange only on a re-pull", () => {
+    const onFrame = vi.fn();
+    const onChange = vi.fn();
+    const h = subscribeAppEvents(
+      HOST,
+      (f) => (f as { kind?: string }).kind === "thread_read",
+      onChange,
+      onFrame
+    );
+    const ws = MockWS.instances[0];
+    ws.onopen?.();
+    ws.deliver({ kind: "thread_read", id: "c1", total: 1 });
+    ws.deliver({ kind: "thread_read", id: "c2", total: 2 });
+    ws.deliver({ kind: "projects_changed" });
+    expect(onFrame).toHaveBeenCalledTimes(2);
+    expect(onFrame.mock.calls[1][0]).toEqual({ kind: "thread_read", id: "c2", total: 2 });
+    vi.advanceTimersByTime(TICKET_EVENT_DEBOUNCE_MS);
+    expect(onChange).not.toHaveBeenCalled();
+    // The socket drops and reopens: frames may be lost, so re-pull.
+    ws.close();
+    vi.advanceTimersByTime(5_000);
+    const ws2 = MockWS.instances[1];
+    ws2.onopen?.();
+    vi.advanceTimersByTime(TICKET_EVENT_DEBOUNCE_MS);
+    expect(onChange).toHaveBeenCalledTimes(1);
+    h.stop();
   });
 
   it("another server gets its own socket", () => {

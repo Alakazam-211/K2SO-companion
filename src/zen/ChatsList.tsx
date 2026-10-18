@@ -35,7 +35,7 @@ import {
   rowFocusGroupId,
 } from "./serverPins";
 import { connectProjectEvents, subscribeAppEvents } from "./ticketEvents";
-import { useRoomElsewhere, useZenScope } from "./zenScope";
+import { useRoomElsewhere, useZenScope, zenScope } from "./zenScope";
 import { mountainListWhen } from "./threadModel";
 import { usePinDrag } from "./usePinDrag";
 import { SWIPE_ACTION_W, swipeReveal, useRowSwipe } from "./useRowSwipe";
@@ -72,6 +72,9 @@ import { useBackHandler } from "../lib/androidBack";
 import { refreshAllServers } from "./multi/recovery";
 import { entryDown, useHealth } from "./multi/serverHealth";
 import { usePullToRefresh } from "./usePullToRefresh";
+import { projectBadgeCount, rowRefOf, rowUnreadFor } from "./unread";
+import { unreadSupported, useUnreadStore } from "./unreadStore";
+import { MuteMenuItems, UnreadDot } from "./UnreadMarks";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -256,7 +259,8 @@ export function ChatsList() {
     [agents, serverProjects]
   );
   const canPin = (id: string) => pinnable.has(id);
-  const pinDrag = usePinDrag(pinsRef, canPin);
+  // Rows get a hold menu (Open, Mute) only on a server with read state.
+  const pinDrag = usePinDrag(pinsRef, canPin, () => unreadSupported(zenScope().id));
   const { ghost, hot, consumeSkipClick, onPinClick, menu: pinMenu, closeMenu } = pinDrag;
   // The pin menu only acts on a fresh press: the release of the hold that
   // opened it (or iOS's synthetic click) must not hit Open / Unpin / close.
@@ -520,7 +524,16 @@ export function ChatsList() {
     [agents]
   );
   useZenStore((s) => s.groupSeenRev);
-  const projectsUnread = unreadGroupCount(zen.id || null, groupIds, lastAtByKey);
+  // Unread (K2 0.46.1 `thread-read-v1`): the server's own counts; an
+  // older server keeps this device's last-seen cursors.
+  const unreadServers = useUnreadStore((s) => s.servers);
+  const unreadAddrs = useUnreadStore((s) => s.addrs);
+  const unreadOn = !!zen.id && !!unreadServers[zen.id] && unreadSupported(zen.id);
+  const rowUnread = (serverId: string | null | undefined, a: StubAgent | null | undefined) =>
+    rowUnreadFor(unreadServers, unreadAddrs, serverId, a ?? null);
+  const projectsUnread = unreadOn
+    ? projectBadgeCount(unreadServers[zen.id])
+    : unreadGroupCount(zen.id || null, groupIds, lastAtByKey);
 
   /** Line two of a row (Agents and Home share it): the main Thread's
    *  newest message, inline Markdown on one line. */
@@ -577,7 +590,12 @@ export function ChatsList() {
         agent: a,
       }));
   const placeholders = multi.on ? multi.placeholders : [];
-  const menuAgent = pinMenu ? pinned.find((a) => a.id === pinMenu.id) ?? null : null;
+  const menuFromList = pinMenu?.from === "list";
+  const menuAgent = pinMenu
+    ? (menuFromList ? agents.find((a) => a.id === pinMenu.id) : pinned.find((a) => a.id === pinMenu.id)) ??
+      null
+    : null;
+  const menuPinned = !!menuAgent && pinned.some((a) => a.id === menuAgent.id);
   const serverListsAt = useRef(Date.now());
   // Pull to refresh (Home and Agents): every saved server is retried at
   // once; a server that is back reconnects (auto reconnect).
@@ -655,8 +673,8 @@ export function ChatsList() {
 
   // A pin that left the grid (unpinned elsewhere, or search) drops its menu.
   useEffect(() => {
-    if (pinMenu && (!showPins || !menuAgent)) closeMenu();
-  }, [pinMenu, showPins, menuAgent, closeMenu]);
+    if (pinMenu && (!menuAgent || (!menuFromList && !showPins))) closeMenu();
+  }, [pinMenu, showPins, menuAgent, menuFromList, closeMenu]);
 
   // Android Back closes the two header-anchored menus drawn here, like
   // their backdrops. Sheets and overlays register in their own components.
@@ -844,6 +862,7 @@ export function ChatsList() {
       <RemoteAgentRow
         key={r.key}
         row={r}
+        unread={rowUnread(r.serverId, r.agent)}
         failure={failure}
         busy={busy}
         when={when}
@@ -1537,6 +1556,7 @@ export function ChatsList() {
             >
               <div className="mb-2 flex justify-center" data-testid="pin-avatar">
                 <span className="relative inline-flex">
+                  {source === "live" ? <UnreadDot unread={rowUnread(zen.id, a)} side={14} /> : null}
                   <WorkspaceAvatar
                     initial={a.initial}
                     color={a.color}
@@ -1756,6 +1776,7 @@ export function ChatsList() {
               when={when}
               preview={preview}
               stub={source === "stub"}
+              unread={source === "live" ? rowUnread(zen.id, a) : null}
             />
           </button>
           </div>
@@ -1827,6 +1848,7 @@ export function ChatsList() {
             >
               <span className="flex-1 text-[16px]">Open</span>
             </button>
+            {menuPinned ? (
             <button
               type="button"
               role="menuitem"
@@ -1845,6 +1867,17 @@ export function ChatsList() {
                 <PinGlyph off />
               </span>
             </button>
+            ) : null}
+            <MuteMenuItems
+              serverId={zen.id}
+              rowRef={rowRefOf(menuAgent)}
+              onDone={closeMenu}
+              guard={() => {
+                if (!pinMenuPressed.current) return false;
+                pinMenuPressed.current = false;
+                return true;
+              }}
+            />
           </div>
         </div>
       ) : null}

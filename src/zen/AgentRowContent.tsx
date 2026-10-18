@@ -1,6 +1,8 @@
 import type { ReactNode } from "react";
 import { activityColor, activityRowText, type RowActivity } from "./agentActivity";
 import { StubMark } from "./StubMark";
+import type { RowUnread } from "./unread";
+import { MutedGlyph, RowUnreadCount, UnreadDot } from "./UnreadMarks";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { zenTextPx } from "./zenFont";
 
@@ -21,6 +23,7 @@ export function AgentRowContent({
   preview,
   stub = false,
   serverChip,
+  unread = null,
 }: {
   name: string;
   initial: string;
@@ -32,11 +35,24 @@ export function AgentRowContent({
   preview: ReactNode;
   stub?: boolean;
   serverChip?: string | null;
+  /** Unread marks (K2 0.46.1 `thread-read-v1`); null = none. */
+  unread?: RowUnread | null;
 }) {
   const busyColor = busy ? activityColor(busy) : "var(--success)";
+  const strong = !!unread?.emphasis;
+  const line2 = (node: ReactNode) =>
+    unread && unread.count > 1 ? (
+      <span className="flex items-center min-w-0" style={{ gap: 8 }}>
+        <span className="flex-1 min-w-0">{node}</span>
+        <RowUnreadCount unread={unread} />
+      </span>
+    ) : (
+      node
+    );
   return (
     <>
       <span className="relative shrink-0">
+        <UnreadDot unread={unread} />
         <WorkspaceAvatar initial={initial} color={color} iconUrl={iconUrl} size={50} fontSize={18} />
         {busy ? (
           <span
@@ -66,11 +82,17 @@ export function AgentRowContent({
           <span className="flex items-baseline min-w-0" style={{ gap: 6 }} data-testid="row-name-group">
             <span
               className="min-w-0 truncate font-semibold"
-              style={{ fontSize: zenTextPx(16), letterSpacing: "-0.2px" }}
+              style={{
+                fontSize: zenTextPx(16),
+                letterSpacing: "-0.2px",
+                ...(strong ? { fontWeight: 700 } : null),
+              }}
               data-testid="row-name"
+              data-unread={unread ? unread.tone : undefined}
             >
               {name}
             </span>
+            {unread?.muted ? <MutedGlyph /> : null}
             {serverChip ? (
               <span
                 className="zen-glass zen-glass-pill shrink-0 truncate"
@@ -102,22 +124,29 @@ export function AgentRowContent({
             </span>
           )}
         </span>
-        {busy ? (
-          <span
-            className="block truncate"
-            style={{ color: busyColor, lineHeight: 1.3, fontSize: zenTextPx(14) }}
-            data-testid="row-activity"
-          >
-            {activityRowText(busy)}
-          </span>
-        ) : (
-          <span
-            className="block truncate"
-            style={{ color: "#8e8e93", lineHeight: 1.3, fontSize: zenTextPx(14) }}
-            data-testid="row-preview"
-          >
-            {preview}
-          </span>
+        {line2(
+          busy ? (
+            <span
+              className="block truncate"
+              style={{ color: busyColor, lineHeight: 1.3, fontSize: zenTextPx(14) }}
+              data-testid="row-activity"
+            >
+              {activityRowText(busy)}
+            </span>
+          ) : (
+            <span
+              className="block truncate"
+              style={{
+                color: strong ? "#f2f2f7" : "#8e8e93",
+                lineHeight: 1.3,
+                fontSize: zenTextPx(14),
+                ...(strong ? { fontWeight: 600 } : null),
+              }}
+              data-testid="row-preview"
+            >
+              {preview}
+            </span>
+          )
         )}
       </span>
     </>

@@ -65,6 +65,10 @@ export interface ProjectGroupMessage {
   body: string;
   /** Unix seconds. */
   createdAt: number;
+  /** K2 0.46.1: the line's number in its chat (read cursors). */
+  seq?: number;
+  /** K2 0.46.1: `person` | `agent` | … */
+  authorKind?: string;
 }
 
 /** One page of the chat stream, oldest-first. `truncated` = more rows

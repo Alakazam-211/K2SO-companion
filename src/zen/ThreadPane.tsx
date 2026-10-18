@@ -60,6 +60,9 @@ import {
 } from "./sendFly";
 import { queueSend, requeueIfUnreachable, shouldQueueSend, useQueuedSendFlush } from "./sendQueue";
 import "./sendFly.css";
+import { newestSeenSeq, type RowRef } from "./unread";
+import { useUnreadStore } from "./unreadStore";
+import { useMarkReadWhileViewing } from "./unreadRead";
 
 /** No workspace folder to upload into (no usable path / no PoC yet). */
 const ATTACH_UNAVAILABLE = "Files need this chat's workspace folder.";
@@ -375,6 +378,9 @@ export function ThreadPane({
   const following = useRef(true);
   // Not following and the agent posted: the "New message" pill.
   const [newBelow, setNewBelow] = useState(false);
+  // The reader sits at (or near) the newest message: what read marking
+  // (K2 0.46.1) counts as "seen". Scrolled up into history = not.
+  const [atNewest, setAtNewest] = useState(true);
   // Our own scrolls: their scroll events must not read as the reader's.
   const ownTop = useRef<number | null>(null);
   const lastTop = useRef(0);
@@ -486,6 +492,7 @@ export function ThreadPane({
       // over it until the reader comes back to the bottom.
       setNewBelow(false);
       following.current = focusSeq == null;
+      setAtNewest(true);
       stick(el);
       follow();
     } else if (following.current) {
@@ -648,6 +655,23 @@ export function ThreadPane({
       document.removeEventListener("visibilitychange", onVis);
     };
   }, [source, conversationId, threadGroupId, zenServer]);
+
+  // Unread (K2 0.46.1 `thread-read-v1`): this Thread's addr ↔ conversation
+  // for the lists, and its read cursor while the reader is at the newest.
+  useEffect(() => {
+    if (zenServer && !groupId) useUnreadStore.getState().noteAddr(zenServer, threadAddr, conversationId);
+  }, [zenServer, groupId, threadAddr, conversationId]);
+  const readRef: RowRef | null = groupId
+    ? { kind: "project", groupId }
+    : threadAddr || conversationId
+      ? { kind: "thread", addr: threadAddr, conversationId }
+      : null;
+  useMarkReadWhileViewing({
+    serverId: zenServer || null,
+    rowRef: readRef,
+    newestSeq: newestSeenSeq(thread, groupId ? "project" : "thread"),
+    viewing: source === "live" && !covered && atNewest && focusSeq == null,
+  });
 
   // Viewing frames (K2 0.45.5 `thread-push-v1` only): while this Thread is
   // on screen the daemon holds its pushes. Older servers never get them.
@@ -979,6 +1003,7 @@ export function ThreadPane({
         }}
         onScroll={(e) => {
           const el = e.currentTarget;
+          setAtNewest(nearNewest(el));
           const top = el.scrollTop;
           const prev = lastTop.current;
           lastTop.current = top;
