@@ -3,6 +3,7 @@ import { parseRowAddress } from "./multi/merge";
 import { canonicalHomeHost } from "./homeServerIds";
 import {
   diffLocal,
+  markSyncedKeys,
   pruneTombstones,
   resolveHomeId,
   withOrderKeys,
@@ -23,7 +24,7 @@ import {
 //
 // Homes sync (K2 0.46.1 `homes-sync-v1`, `./homesSync`): the doc stays
 // `version: 1` and gains optional fields old readers ignore — `order`
-// (fractional index), `updatedAt` / `by` on every Home and row, plus
+// (fractional index), `updatedAt` / `by` / `synced` on every Home and row, plus
 // `tombstones` and `redirects` (first-sync id merges). Every local edit
 // goes through `commit`, which stamps what changed and hands the changes
 // to the sync engine (`onHomesLocalChange`). This copy is always the
@@ -56,6 +57,8 @@ export interface HomeRow {
   order?: string;
   updatedAt?: number;
   by?: string;
+  /** The sync server has seen this row (`./homesMerge` header). */
+  synced?: boolean;
 }
 
 export interface Home {
@@ -65,6 +68,8 @@ export interface Home {
   order?: string;
   updatedAt?: number;
   by?: string;
+  /** The sync server has seen this Home (`./homesMerge` header). */
+  synced?: boolean;
 }
 
 export interface HomesDoc {
@@ -128,7 +133,8 @@ function optStamp(r: Record<string, unknown>): boolean {
   return (
     (r.order === undefined || typeof r.order === "string") &&
     (r.updatedAt === undefined || typeof r.updatedAt === "number") &&
-    (r.by === undefined || typeof r.by === "string")
+    (r.by === undefined || typeof r.by === "string") &&
+    (r.synced === undefined || typeof r.synced === "boolean")
   );
 }
 
@@ -276,7 +282,8 @@ export function withRowsRepaired(homes: Home[], resolve: (row: HomeRow) => HomeR
       }
       homeChanged = true;
       if (address !== r.address && h.rows.some((o) => o.address === address)) continue;
-      rows.push({ ...fresh, address });
+      // Same address = same identity: the server still knows it.
+      rows.push(address === r.address && r.synced ? { ...fresh, address, synced: true } : { ...fresh, address });
     }
     if (!homeChanged) return h;
     changed = true;
@@ -358,6 +365,9 @@ export interface HomesState {
   /** Replace the Homes with a sync result (no stamping, no changes out).
    *  An empty result keeps one Home (seeded as a local edit). */
   applySynced: (state: SyncState) => void;
+  /** Mark these Homes / rows (`homeKey` / `rowKey`) as seen by the sync
+   *  server (a push that carried them was not rejected). No changes out. */
+  markSynced: (keys: string[]) => void;
   /** Sync's view of the Homes. */
   syncState: () => SyncState;
   /** Re-read storage (tests; another window never writes on the phone). */
@@ -501,6 +511,10 @@ export const useHomesStore = create<HomesState>((set, get) => {
         return;
       }
       write(state.homes as Home[], sel, tombstones, state.redirects);
+    },
+    markSynced: (keys) => {
+      const next = markSyncedKeys(get().homes, keys);
+      if (next) write(next as Home[], get().selectedId, get().tombstones, get().redirects);
     },
     syncState: () => ({ homes: get().homes, tombstones: get().tombstones, redirects: get().redirects }),
     reload: () => set(initial()),

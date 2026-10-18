@@ -12,7 +12,7 @@ import { __resetScopesForTests, noteBootStatus } from "../api/scope";
 import { useServersStore } from "../stores/servers";
 import { fakeHomesServer, type FakeHomesServer } from "../test/fakeHomesServer";
 import { useHomeServerIds } from "./homeServerIds";
-import { selectedHome, useHomesStore } from "./homes";
+import { selectedHome, useHomesStore, type Home } from "./homes";
 import {
   FRAME_DEBOUNCE_MS,
   HOMES_OUTBOX_KEY,
@@ -563,6 +563,137 @@ describe("K2 0.46.1 final contract", () => {
       [PHONE, true],
       ["desk-1", false],
     ]);
+  });
+});
+
+describe("full resync: drop what the server no longer holds (K2 rule, as desktop)", () => {
+  const SRV = "0123456789abcdef";
+  const pushes = () => A.calls.filter((c) => c.path === "/cli/me/homes/push");
+  const pulls = () => A.calls.filter((c) => c.path === "/cli/me/homes");
+  const homeOf = (id: string) => useHomesStore.getState().homes.find((h) => h.id === id);
+  const rowOf = (id: string, address: string) => homeOf(id)?.rows.find((r) => r.address === address);
+  /** Make the next pull answer `full:true` (our cursor is below the floor). */
+  const forceFull = () => {
+    A.floor = A.cursor() + 100;
+  };
+  /** Add rows / Homes this phone holds but never sent (no mark, no outbox). */
+  const injectLocal = (fn: (homes: Home[]) => Home[]) => {
+    const h = useHomesStore.getState();
+    h.applySynced({ ...h.syncState(), homes: fn(h.homes) });
+  };
+  let id = "";
+
+  beforeEach(async () => {
+    useHomesStore.getState().ensureSeeded();
+    await enableHomesSync("s1");
+    id = useHomesStore.getState().selectedId;
+    useHomesStore.getState().addRow(id, { address: `kept::${SRV}`, workspaceId: null, label: "kept" });
+    useHomesStore.getState().addRow(id, { address: `gone::${SRV}`, workspaceId: null, label: "gone" });
+    await syncHomesNow();
+    A.calls.length = 0;
+  });
+
+  it("marks what the server has seen (first sync, pushed items) and persists the mark", () => {
+    expect(homeOf(id)?.synced).toBe(true);
+    expect(rowOf(id, `gone::${SRV}`)?.synced).toBe(true);
+    const doc = JSON.parse(localStorage.getItem("k2.homes.v1")!);
+    expect(doc.homes[0].rows.every((r: { synced?: boolean }) => r.synced === true)).toBe(true);
+  });
+
+  it("a full resync drops a synced row and a synced Home the server lacks, with no tombstone push", async () => {
+    const trip = useHomesStore.getState().createHome("Trip")!;
+    useHomesStore.getState().addRow(trip, { address: `t::${SRV}`, workspaceId: null, label: "t" });
+    await syncHomesNow();
+    expect(homeOf(trip)?.synced).toBe(true);
+    A.calls.length = 0;
+    // Deleted elsewhere > 90 days ago: the tombstones aged out.
+    A.forget([`r|${id}|gone::${SRV}`, `h|${trip}`, `r|${trip}|t::${SRV}`]);
+    forceFull();
+    await syncHomesNow();
+    expect(pulls()[0].query.since).toBeTruthy();
+    expect(local()).toEqual([{ name: "Home", rows: [`kept::${SRV}`] }]);
+    const h = useHomesStore.getState();
+    expect(h.tombstones.filter((t) => (t.kind === "home" ? t.id === trip : t.address === `gone::${SRV}`))).toEqual([]);
+    expect(pushes()).toEqual([]);
+    expect(useHomesSyncStore.getState().outbox).toEqual([]);
+    expect(A.items().some((i) => i.address === `gone::${SRV}` || i.id === trip)).toBe(false);
+  });
+
+  it("a full resync keeps and pushes a never-synced local item", async () => {
+    injectLocal((homes) =>
+      homes.map((x) =>
+        x.id === id ? { ...x, rows: [...x.rows, { address: `offline::${SRV}`, workspaceId: null, label: "offline", order: "x", updatedAt: 5 }] } : x
+      )
+    );
+    forceFull();
+    await syncHomesNow();
+    expect(local()[0].rows).toContain(`offline::${SRV}`);
+    expect(pushes().some((p) => JSON.stringify(p.body).includes(`offline::${SRV}`))).toBe(true);
+    expect(A.items().some((i) => i.address === `offline::${SRV}` && !i.deleted)).toBe(true);
+    // Accepted: now synced.
+    expect(rowOf(id, `offline::${SRV}`)?.synced).toBe(true);
+  });
+
+  it("a synced Home the server lacks is kept when it holds local-only rows (its synced rows go)", async () => {
+    A.forget([`h|${id}`, `r|${id}|kept::${SRV}`, `r|${id}|gone::${SRV}`]);
+    injectLocal((homes) =>
+      homes.map((x) =>
+        x.id === id ? { ...x, rows: [...x.rows, { address: `new::${SRV}`, workspaceId: null, label: "new", order: "x", updatedAt: 5 }] } : x
+      )
+    );
+    forceFull();
+    await syncHomesNow();
+    expect(local()).toEqual([{ name: "Home", rows: [`new::${SRV}`] }]);
+    // The Home and its local-only row went back to the server.
+    expect(A.items().some((i) => i.kind === "home" && i.id === id && !i.deleted)).toBe(true);
+    expect(A.items().some((i) => i.homeId === id && i.address === `new::${SRV}` && !i.deleted)).toBe(true);
+    expect(A.items().some((i) => i.address === `kept::${SRV}` || i.address === `gone::${SRV}`)).toBe(false);
+  });
+
+  it("unmarked legacy items (saved before the mark) are kept and pushed", async () => {
+    // Strip every mark, as a doc written by the previous build reads.
+    injectLocal((homes) =>
+      homes.map(({ synced: _s, ...x }) => ({ ...x, rows: x.rows.map(({ synced: _r, ...r }) => r) }))
+    );
+    expect(homeOf(id)?.synced).toBeUndefined();
+    A.forget([`h|${id}`, `r|${id}|kept::${SRV}`, `r|${id}|gone::${SRV}`]);
+    forceFull();
+    await syncHomesNow();
+    expect(local()).toEqual([{ name: "Home", rows: [`kept::${SRV}`, `gone::${SRV}`] }]);
+    expect(A.items().filter((i) => !i.deleted).length).toBe(3);
+  });
+
+  it("a rejected push does not mark the item; the full re-pull keeps it without re-sending it", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    A.rejectNext = [`r|${id}|bad::${SRV}`];
+    useHomesStore.getState().addRow(id, { address: `bad::${SRV}`, workspaceId: null, label: "bad" });
+    await syncHomesNow();
+    await flush(0);
+    expect(rowOf(id, `bad::${SRV}`)).toBeDefined();
+    expect(rowOf(id, `bad::${SRV}`)?.synced).toBeUndefined();
+    // The rejection made the next pull a full one: kept, and not queued
+    // again (the same write would be rejected again).
+    expect(pulls().some((p) => p.query.since === undefined)).toBe(true);
+    expect(pushes()).toHaveLength(1);
+    expect(useHomesSyncStore.getState().outbox).toEqual([]);
+    warn.mockRestore();
+  });
+
+  it("an incremental (non-full) pull never drops anything", async () => {
+    A.forget([`r|${id}|gone::${SRV}`]);
+    await syncHomesNow();
+    expect(pulls()[0].query.since).toBe(String(A.cursor()));
+    expect(local()[0].rows).toContain(`gone::${SRV}`);
+  });
+
+  it("a server that looks wiped (cursor went back) drops nothing", async () => {
+    A.forget([`r|${id}|gone::${SRV}`]);
+    localStorage.setItem(HOMES_SYNC_META_KEY, JSON.stringify({ serverId: "s1", cursor: 999, lastSyncAt: 1, registered: true }));
+    __resetHomesSyncForTests({ deviceId: PHONE });
+    startHomesSync();
+    await flush(0);
+    expect(__homesSyncCursor()).toBe(A.cursor());
+    expect(local()[0].rows).toContain(`gone::${SRV}`);
   });
 });
 

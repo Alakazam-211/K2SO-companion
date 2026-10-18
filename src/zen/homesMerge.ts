@@ -24,6 +24,15 @@
 //     server's id; the local id redirects to it. Rows are unioned: this
 //     phone's rows first, in its order, then the server's other rows.
 //   - `selectedId` (the Home on screen) is never synced.
+//   - `synced` (per Home / row, this phone only, never sent): the sync
+//     server has seen this identity at least once — it came from a pull,
+//     or a push carrying it was not rejected. A local edit keeps it. A
+//     `full:true` pull that no longer holds a synced item drops it here
+//     with no tombstone (it was deleted elsewhere and the server's
+//     tombstone aged out); an item without the mark (never accepted, or
+//     saved before the mark existed) is kept and pushed instead
+//     (`reconcileFull`). First sync clears every mark (another server's
+//     marks mean nothing here).
 
 import { compareOrder, normalizeOrder } from "./fracIndex";
 
@@ -42,6 +51,8 @@ export interface MergeRow extends Stamp {
   workspaceId: string | null;
   label: string;
   order?: string;
+  /** The sync server has seen this row (see the header). */
+  synced?: boolean;
 }
 
 export interface MergeHome extends Stamp {
@@ -49,6 +60,16 @@ export interface MergeHome extends Stamp {
   name: string;
   rows: MergeRow[];
   order?: string;
+  /** The sync server has seen this Home (see the header). */
+  synced?: boolean;
+}
+
+/** `x` with the synced mark set or removed (same object when unchanged). */
+export function withSynced<T extends { synced?: boolean }>(x: T, on: boolean): T {
+  if (!!x.synced === on) return x;
+  if (on) return { ...x, synced: true };
+  const { synced: _synced, ...rest } = x;
+  return rest as T;
 }
 
 export type Tombstone =
@@ -352,7 +373,14 @@ export function applyRemote(state: SyncState, items: ChangeItem[], opts: ApplyOp
       const local = homes.find((h) => h.id === id) ?? null;
       const tomb = tombs.get(homeKey(id));
       const held = local ?? (tomb ? { ...tomb, deleted: true } : null);
-      if (!incomingWins(it, held)) continue;
+      if (!incomingWins(it, held)) {
+        // The server has seen this Home (its tombstone lost to our edit).
+        if (local && !local.synced) {
+          changed = true;
+          homes = homes.map((h) => (h === local ? withSynced(h, true) : h));
+        }
+        continue;
+      }
       changed = true;
       // A merged Home's rows move in the fold below.
       if (resolveHomeId(redirects, id) === id) homes = homes.filter((h) => h.id !== id);
@@ -370,11 +398,20 @@ export function applyRemote(state: SyncState, items: ChangeItem[], opts: ApplyOp
     if (id !== it.id) continue;
     const local = homes.find((h) => h.id === id) ?? null;
     const held = local ?? (tombs.get(homeKey(id)) ? { ...tombs.get(homeKey(id))!, deleted: true } : null);
-    if (!incomingWins(it, held)) continue;
-    if (local && local.name === it.name && local.order === it.order && compareStamp(it, local) === 0) continue;
+    if (
+      !incomingWins(it, held) ||
+      (local && local.name === it.name && local.order === it.order && compareStamp(it, local) === 0)
+    ) {
+      // Ours stands, but the server has seen this Home.
+      if (local && !local.synced) {
+        changed = true;
+        homes = homes.map((h) => (h === local ? withSynced(h, true) : h));
+      }
+      continue;
+    }
     changed = true;
     tombs.delete(homeKey(id));
-    const fields = { name: it.name, order: it.order || undefined, updatedAt: it.updatedAt, by: it.by };
+    const fields = { name: it.name, order: it.order || undefined, updatedAt: it.updatedAt, by: it.by, synced: true };
     if (local) homes = homes.map((h) => (h.id === id ? { ...h, ...fields } : h));
     else homes.push({ id, rows: [], ...fields });
   }
@@ -386,14 +423,16 @@ export function applyRemote(state: SyncState, items: ChangeItem[], opts: ApplyOp
     changed = true;
     homes = homes.filter((x) => x !== h);
     const into = homes.find((x) => x.id === target);
+    // On their new Home the rows are new identities to the server.
     if (into) {
       const have = new Set(into.rows.map((r) => r.address));
-      const add = h.rows.filter((r) => !have.has(r.address));
+      const add = h.rows.filter((r) => !have.has(r.address)).map((r) => withSynced(r, false));
       into.rows = [...into.rows, ...add];
       for (const row of add) movedRows.push({ homeId: target, row });
     } else if (!tombs.has(homeKey(target))) {
-      homes.push({ ...h, id: target, updatedAt: 0, by: undefined });
-      for (const row of h.rows) movedRows.push({ homeId: target, row });
+      const rows = h.rows.map((r) => withSynced(r, false));
+      homes.push({ ...withSynced(h, false), id: target, updatedAt: 0, by: undefined, rows });
+      for (const row of rows) movedRows.push({ homeId: target, row });
     }
   }
 
@@ -410,15 +449,21 @@ export function applyRemote(state: SyncState, items: ChangeItem[], opts: ApplyOp
     const local = home.rows.find((r) => r.address === it.address) ?? null;
     const k = rowKey(homeId, it.address);
     const held = local ?? (tombs.get(k) ? { ...tombs.get(k)!, deleted: true } : null);
-    if (!incomingWins(it, held)) continue;
+    // The server holds exactly this identity (not a row redirected here).
+    const sameIdentity = homeId === it.homeId;
     if (
-      local &&
-      !it.deleted &&
-      local.label === it.label &&
-      local.workspaceId === it.workspaceId &&
-      local.order === it.order &&
-      compareStamp(it, local) === 0
+      !incomingWins(it, held) ||
+      (local &&
+        !it.deleted &&
+        local.label === it.label &&
+        local.workspaceId === it.workspaceId &&
+        local.order === it.order &&
+        compareStamp(it, local) === 0)
     ) {
+      if (local && sameIdentity && !local.synced) {
+        changed = true;
+        home.rows = home.rows.map((r) => (r === local ? withSynced(r, true) : r));
+      }
       continue;
     }
     changed = true;
@@ -435,6 +480,7 @@ export function applyRemote(state: SyncState, items: ChangeItem[], opts: ApplyOp
       order: it.order || undefined,
       updatedAt: it.updatedAt,
       by: it.by,
+      ...(sameIdentity ? { synced: true } : {}),
     };
     home.rows = local ? home.rows.map((r) => (r.address === it.address ? row : r)) : [...home.rows, row];
   }
@@ -479,6 +525,81 @@ export function redirectOutbox(outbox: ChangeItem[], redirects: Record<string, s
     out.push({ ...c, homeId });
   }
   return changed ? coalesceOutbox([], out) : outbox;
+}
+
+// ─── Full resync: drop what the server no longer holds ───
+
+export interface FullResyncResult {
+  state: SyncState;
+  changed: boolean;
+  /** Keys of the items dropped here (no tombstone: the server has none). */
+  dropped: string[];
+  /** Local-only items the server lacks: queue them (Homes before rows). */
+  push: ChangeItem[];
+}
+
+/**
+ * After a `full:true` pull has been merged (`applyRemote`), compare the
+ * full set with what this phone holds. An item missing from it that the
+ * server had seen (`synced`) was deleted elsewhere and its tombstone aged
+ * out: drop it, with no tombstone. An item that never reached the server
+ * (no mark) is kept and pushed — offline work is never lost. A synced
+ * Home the server lacks still stays when it holds a local-only row (the
+ * row keeps its Home; both are pushed); its synced rows go.
+ */
+export function reconcileFull(state: SyncState, full: ChangeItem[]): FullResyncResult {
+  const held = new Set(full.filter((c) => !c.deleted).map(changeKey));
+  const dropped: string[] = [];
+  const push: ChangeItem[] = [];
+  const homes: MergeHome[] = [];
+  for (const h of state.homes) {
+    const rows: MergeRow[] = [];
+    const rowPush: ChangeItem[] = [];
+    const rowDrop: string[] = [];
+    for (const r of h.rows) {
+      const k = rowKey(h.id, r.address);
+      if (held.has(k)) rows.push(r);
+      else if (r.synced) rowDrop.push(k);
+      else {
+        rows.push(r);
+        rowPush.push(rowChange(h.id, r));
+      }
+    }
+    if (!held.has(homeKey(h.id))) {
+      if (h.synced && rowPush.length === 0) {
+        dropped.push(homeKey(h.id), ...h.rows.map((r) => rowKey(h.id, r.address)));
+        continue;
+      }
+      push.push(homeChange(h));
+    }
+    push.push(...rowPush);
+    dropped.push(...rowDrop);
+    homes.push(rows.length === h.rows.length ? h : { ...h, rows });
+  }
+  if (dropped.length === 0) return { state, changed: false, dropped, push };
+  return { state: { ...state, homes }, changed: true, dropped, push };
+}
+
+/** Mark the Homes / rows with these keys as seen by the server. Null when
+ *  nothing changed. */
+export function markSyncedKeys(homes: MergeHome[], keys: Iterable<string>): MergeHome[] | null {
+  const want = new Set(keys);
+  if (want.size === 0) return null;
+  let changed = false;
+  const next = homes.map((h) => {
+    let home = h;
+    if (!h.synced && want.has(homeKey(h.id))) home = withSynced(h, true);
+    let rowsChanged = false;
+    const rows = h.rows.map((r) => {
+      if (r.synced || !want.has(rowKey(h.id, r.address))) return r;
+      rowsChanged = true;
+      return withSynced(r, true);
+    });
+    if (home === h && !rowsChanged) return h;
+    changed = true;
+    return { ...home, rows };
+  });
+  return changed ? next : null;
 }
 
 // ─── First sync: union, never delete ───
@@ -533,7 +654,10 @@ export function firstSyncMerge(
   };
 
   const merged: MergeHome[] = [];
-  for (const l of local.homes) {
+  // Marks from another server mean nothing here; the server's own items
+  // (built by `applyRemote` above) carry theirs.
+  const localHomes = local.homes.map((h) => ({ ...withSynced(h, false), rows: h.rows.map((r) => withSynced(r, false)) }));
+  for (const l of localHomes) {
     const sid = resolveHomeId(redirects, l.id);
     let s = serverById.get(sid) && !used.has(sid) ? serverById.get(sid)! : null;
     if (!s) s = serverHomes.find((h) => !used.has(h.id) && sameName(h.name, l.name)) ?? null;
@@ -555,10 +679,10 @@ export function firstSyncMerge(
       seen.add(r.address);
       const sr = serverRows.get(r.address);
       if (!sr) rows.push(keepAlive(r, rowKey(s.id, r.address)));
-      else rows.push(compareStamp(r, sr) > 0 ? r : sr);
+      else rows.push(compareStamp(r, sr) > 0 ? withSynced(r, true) : sr);
     }
     for (const sr of s.rows) if (!seen.has(sr.address)) rows.push(sr);
-    merged.push({ id: s.id, order: s.order, ...top, rows });
+    merged.push({ id: s.id, order: s.order, ...top, rows, synced: true });
   }
   for (const s of serverHomes) if (!used.has(s.id)) merged.push(s);
 
@@ -634,7 +758,8 @@ export function migrateHomeAddresses(homes: MergeHome[], canon: (address: string
         continue;
       }
       seen.add(address);
-      rows.push(address === r.address ? r : { ...r, address });
+      // A new address is a new identity to the server.
+      rows.push(address === r.address ? r : { ...withSynced(r, false), address });
     }
     if (!homeChanged) return h;
     changed = true;
