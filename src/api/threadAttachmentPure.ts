@@ -43,6 +43,10 @@ export type ThreadAttachment = {
   sha256: string | null;
   line: number | null;
   lineEnd: number | null;
+  /** The wire entry carried no (known) `state`: `state` is a guess, and a
+   *  delta must not let it overwrite a state the phone already knows
+   *  (`keepKnownAttachmentStates`). Absent when the server sent one. */
+  stateMissing?: true;
 };
 
 const STATES = new Set<ThreadAttachmentState>(["ok", "changed", "gone", "hidden"]);
@@ -98,7 +102,9 @@ function parseOne(raw: unknown, n: number): ThreadAttachment | null {
   const size = num(o.size);
   const line = posInt(o.line);
   const lineEndRaw = posInt(o.lineEnd);
+  const missing = !STATES.has(stateRaw as ThreadAttachmentState);
   return {
+    ...(missing ? { stateMissing: true as const } : null),
     n,
     kind,
     state,
@@ -161,10 +167,35 @@ export function withAttachmentState(
   state: ThreadAttachmentState
 ): readonly ThreadAttachment[] {
   const i = list.findIndex((a) => a.n === n);
-  if (i < 0 || list[i].state === state || list[i].state === "hidden") return list;
+  if (i < 0 || list[i].state === "hidden") return list;
+  if (list[i].state === state && !list[i].stateMissing) return list;
   const next = [...list];
-  next[i] = { ...list[i], state };
+  const { stateMissing: _guess, ...known } = list[i];
+  next[i] = { ...known, state };
   return next;
+}
+
+/**
+ * A message's chips as a delta re-delivered them (`next`), over the copy
+ * the phone held (`prev`): an entry that came without a `state` keeps the
+ * state already known for the same file (same `n` and path) instead of
+ * reading as "ok". K2 0.46.1 sends `state` in delta items; this is
+ * defensive. Same array when nothing is filled in.
+ */
+export function keepKnownAttachmentStates(
+  prev: readonly ThreadAttachment[] | undefined,
+  next: readonly ThreadAttachment[] | undefined
+): readonly ThreadAttachment[] | undefined {
+  if (!prev?.length || !next?.length || !next.some((a) => a.stateMissing)) return next;
+  let out: ThreadAttachment[] | null = null;
+  next.forEach((a, i) => {
+    if (!a.stateMissing || !a.path) return;
+    const old = prev.find((p) => p.n === a.n && p.path === a.path && !p.stateMissing);
+    if (!old || old.state === "hidden" || old.state === a.state) return;
+    out ??= [...next];
+    out[i] = { ...a, state: old.state };
+  });
+  return out ?? next;
 }
 
 // ─── The read route ───

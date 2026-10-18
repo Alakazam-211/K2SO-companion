@@ -1,4 +1,4 @@
-import { attachmentsKey } from "../api/threadAttachmentPure";
+import { attachmentsKey, keepKnownAttachmentStates } from "../api/threadAttachmentPure";
 import type { ThreadMessage } from "./threadModel";
 
 // Chat cache merges (stale-while-revalidate). Pure: no store, no I/O.
@@ -111,6 +111,13 @@ export function mergeServerPage(
   return shareUnchanged(current, [...merged, ...keepLocal]);
 }
 
+/** A delta's copy of a message over the one held: a chip the delta sent
+ *  without a `state` keeps the known one (never silently back to "ok"). */
+function overHeld(held: ThreadMessage, d: ThreadMessage): ThreadMessage {
+  const files = keepKnownAttachmentStates(held.files, d.files);
+  return files === d.files ? d : { ...d, files };
+}
+
 /**
  * Merge a delta (`after_seq` read: messages newer than the cache's
  * newest, plus — per K2's delta contract — older messages that CHANGED
@@ -126,7 +133,7 @@ export function mergeDelta(current: ThreadMessage[], delta: ThreadMessage[]): Th
     const d = m.id ? byId.get(m.id) : undefined;
     if (!d) return m;
     seen.add(m.id);
-    return d;
+    return overHeld(m, d);
   });
   // A changed doc may come without an id match only if its id moved;
   // match by seq then (replace in place).
@@ -138,7 +145,7 @@ export function mergeDelta(current: ThreadMessage[], delta: ThreadMessage[]): Th
     if (d.id && seen.has(d.id)) continue;
     const at = d.seq != null ? bySeqAt.get(d.seq) : undefined;
     if (at != null && !local(next[at])) {
-      next[at] = d;
+      next[at] = overHeld(next[at], d);
       continue;
     }
     next.push(d);
