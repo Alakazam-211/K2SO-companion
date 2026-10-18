@@ -13,9 +13,21 @@
 //   - The switch: a passive `touchmove` on the scroller crossing the
 //     keyboard's top (minus the shell's keyboardDismissPadding — the
 //     composer's height, so the drag starts at the composer like iMessage).
-//     Fallback: the shell's "keyboard started moving" signal
-//     (useViewportHeight `keyboardMoved`), placed lower by how far the
-//     keyboard had already gone.
+//     Fallback: the shell's first keyboard sample (or the older shell's
+//     "started moving" signal), placed lower by how far the keyboard had
+//     already gone.
+//   - Exact placement: the shell samples the keyboard only while a dismiss
+//     drag moves it (a few frames, then one ~100ms later), each with the
+//     panning scroll view's contentOffset.y from the same native frame.
+//     The stand-in and the keyboard then move 1:1, so the stand-in's
+//     offset from the keyboard is constant: `sampleDiff` computes it from
+//     the stand-in's content-space bottom and the sample's own scroll
+//     offset (no dependence on when the page last saw the scroll). The
+//     first sample after the attach gives it; the stand-in EASES there by
+//     a transform transition (compositor-only, on top of the native
+//     scroll; 80–220ms by size, ease-out, either sign). One confirmation
+//     sample ~100ms later eases a second small correction if it disagrees
+//     by more than CONFIRM_TOLERANCE_PX. Never per frame.
 //   - The finger going back above the line (keyboard fully up again):
 //     hand back, unanimated. Let go with no Will*: the same, after a grace.
 //   - Release (Will*Hide / Will*Show): useViewportHeight's finishDrag asks
@@ -32,7 +44,9 @@ import {
   keyboardTopNow,
   setKeyboardDragHandler,
   type KeyboardDragHandler,
+  type KeyboardSample,
 } from "../lib/useViewportHeight";
+import { prefersReducedMotion } from "./sendFly";
 
 /** The finger this far back above the line = the keyboard is fully up. */
 export const RETURN_SLOP_PX = 4;
@@ -40,10 +54,24 @@ export const RETURN_SLOP_PX = 4;
 export const RELEASE_GRACE_MS = 300;
 /** Scroll range kept above the view beyond the keyboard's height. */
 export const TOP_ROOM_MARGIN = 48;
-/** Device knob: if the stand-in lands one finger-frame low at the switch
- *  (the web process saw the scroll a frame late), set true to place it
- *  up by the last touch delta. Off until measured on device. */
-export const ATTACH_DRIFT_COMP = false;
+/** Smaller diffs (px) are not worth a move. */
+export const MIN_CORRECTION_PX = 0.5;
+/** Larger ones are a bad reading (another scroll view's offset…). */
+export const MAX_CORRECTION_PX = 48;
+/** The confirmation: a sample this long (ms) after the one used. */
+export const CONFIRM_AFTER_MS = 90;
+/** …that moves the stand-in again only if it disagrees by more (px). */
+export const CONFIRM_TOLERANCE_PX = 2;
+/** Correction ease: duration bounds (ms) and curve (ease-out). */
+export const CORRECTION_MIN_MS = 80;
+export const CORRECTION_MAX_MS = 220;
+export const CORRECTION_EASE = "cubic-bezier(0.2, 0.8, 0.2, 1)";
+
+/** Duration (ms) of a correction ease: longer for a bigger move. */
+export function correctionMs(delta: number): number {
+  const d = Number.isFinite(delta) ? Math.abs(delta) : 0;
+  return Math.round(Math.min(CORRECTION_MAX_MS, Math.max(CORRECTION_MIN_MS, 80 + 7 * d)));
+}
 
 /** The iOS app shell (interactive dismiss is set up natively): lib.rs's
  *  injected `__k2KeyboardSetup`, or (that injection can be lost on a page
@@ -87,6 +115,18 @@ export function standInBox(dock: RectLike, layer: RectLike, lead = 0): Box {
 export function topRoomFor(keyboardInset: number, scrollTop: number, margin = TOP_ROOM_MARGIN): number {
   if (!(keyboardInset > 0)) return 0;
   return Math.max(0, Math.ceil(keyboardInset + margin - Math.max(0, scrollTop)));
+}
+
+/** How far (px) the stand-in must move (down +, up −) to sit on the
+ *  keyboard. `copyBottomContent` is the stand-in's untransformed bottom in
+ *  content space (viewport y at scrollTop 0); at the sample's native frame
+ *  it was at `copyBottomContent - sample.scrollY`, the keyboard's top at
+ *  `sample.top`. Null without a native scroll offset or when implausible. */
+export function sampleDiff(copyBottomContent: number, sample: KeyboardSample): number | null {
+  if (sample.scrollY == null || !Number.isFinite(sample.scrollY)) return null;
+  const d = sample.top - (copyBottomContent - sample.scrollY);
+  if (!Number.isFinite(d) || Math.abs(d) > MAX_CORRECTION_PX) return null;
+  return d;
 }
 
 /** Shall this touchmove switch the composer into the content? */
@@ -174,10 +214,58 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
   let line: number | null = null;
   let lastY: number | null = null;
   let grace: ReturnType<typeof setTimeout> | null = null;
-
   const clearGrace = () => {
     if (grace !== null) clearTimeout(grace);
     grace = null;
+  };
+
+  // This drag's correction: the transform the stand-in eases to (px),
+  // whether the first sample after the attach was used and when.
+  let target = 0;
+  let usedAt: number | null = null;
+  let confirmed = false;
+  const resetSamples = () => {
+    target = 0;
+    usedAt = null;
+    confirmed = false;
+  };
+
+  /** The stand-in's untransformed bottom in content space: the layer's
+   *  rect and the scroller's scrollTop come from the same page snapshot. */
+  const copyBottomContent = (): number | null => {
+    const scroller = parts.scroller();
+    const layer = parts.layer();
+    if (!standIn || !scroller || !layer) return null;
+    const top = parseFloat(standIn.style.top) || 0;
+    const h = parseFloat(standIn.style.height) || 0;
+    return layer.getBoundingClientRect().top + scroller.scrollTop + top + h;
+  };
+
+  /** Ease the stand-in to `next` (px) over the native scroll. */
+  const easeTo = (next: number) => {
+    if (!standIn) return;
+    const ms = correctionMs(next - target);
+    target = next;
+    standIn.style.transition = prefersReducedMotion()
+      ? "none"
+      : `transform ${ms}ms ${CORRECTION_EASE}`;
+    standIn.style.transform = next ? `translate3d(0, ${next}px, 0)` : "translate3d(0, 0, 0)";
+  };
+
+  /** A sample after the attach: the first sets the correction, one
+   *  ~100ms later may refine it. */
+  const useSample = (sample: KeyboardSample) => {
+    if (!standIn || confirmed) return;
+    if (usedAt != null && sample.t - usedAt < CONFIRM_AFTER_MS) return;
+    const base = copyBottomContent();
+    const diff = base == null ? null : sampleDiff(base, sample);
+    if (usedAt == null) {
+      usedAt = sample.t;
+      if (diff != null && Math.abs(diff) >= MIN_CORRECTION_PX) easeTo(diff);
+      return;
+    }
+    confirmed = true;
+    if (diff != null && Math.abs(diff - target) > CONFIRM_TOLERANCE_PX) easeTo(diff);
   };
 
   const attach = (lead: number): boolean => {
@@ -208,6 +296,7 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
 
   const detach = () => {
     clearGrace();
+    resetSamples();
     standIn?.remove();
     standIn = null;
     if (hidden) {
@@ -220,6 +309,18 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
   const handler: KeyboardDragHandler = {
     keyboardMoved(moved) {
       if (!standIn && iosKeyboardShell()) attach(Math.max(0, moved));
+    },
+    keyboardSample(sample) {
+      if (!iosKeyboardShell()) return;
+      if (!standIn) {
+        // Fallback trigger: the keyboard is moving and no touch crossing
+        // was seen. Attach where the dock is; this sample's diff eases it
+        // onto the keyboard.
+        const rest = keyboardTopNow();
+        const moved = rest == null ? 0 : sample.top - rest;
+        if (moved < 0.5 || !attach(0)) return;
+      }
+      useSample(sample);
     },
     draggedBottom() {
       return standIn ? standIn.getBoundingClientRect().bottom : null;
@@ -234,6 +335,7 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
   };
   const onStart = (e: TouchEvent) => {
     clearGrace();
+    if (!standIn) resetSamples();
     const y = yOf(e);
     const top = iosKeyboardShell() ? keyboardTopNow() : null;
     line = top == null ? null : crossLine(top, padding());
@@ -244,7 +346,7 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
     if (y == null) return;
     if (!standIn) {
       if (shouldAttach(y, lastY, line)) {
-        attach(ATTACH_DRIFT_COMP && lastY != null ? -(y - lastY) : 0);
+        attach(0);
       }
     } else if (shouldReturn(y, line)) {
       endKeyboardDrag(); // detaches through the handler
