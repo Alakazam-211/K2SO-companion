@@ -58,14 +58,14 @@ beforeEach(() => {
     openKey: () => open,
     cache: () => cache,
     getThread: vi.fn(async () => page([item(1), item(2)])) as never,
-    fetchThreadDelta: vi.fn(async () => ({ ok: true, data: { items: [item(3)], hasMore: false, conversationId: "c", bytes: 10 } })) as never,
+    fetchThreadDelta: vi.fn(async () => ({ ok: true, data: { items: [item(3)], changed: [], removed: [], hasMore: false, conversationId: "c", bytes: 10 } })) as never,
     fetchProjectGroupMessages: vi.fn(async () => ({
       ok: true,
       data: { messages: [{ id: "g1", groupId: "grp", author: "a", body: "x", createdAt: 1, seq: 7 }], truncated: false },
     })) as never,
     fetchProjectGroupDelta: vi.fn(async () => ({
       ok: true,
-      data: { items: [{ id: "g2", groupId: "grp", author: "a", body: "y", createdAt: 2, seq: 8 }], hasMore: false, conversationId: null, bytes: 1 },
+      data: { items: [{ id: "g2", groupId: "grp", author: "a", body: "y", createdAt: 2, seq: 8 }], changed: [], removed: [], hasMore: false, conversationId: null, bytes: 1 },
     })) as never,
   };
 });
@@ -182,7 +182,7 @@ describe("prefetcher", () => {
 
   it("a delta with has_more falls back to the newest page", async () => {
     cache.remember({ key: "s2|t:a", serverId: "s2", messages: [msg(1)], conversationId: "c", hasMore: false });
-    deps.fetchThreadDelta = vi.fn(async () => ({ ok: true, data: { items: [item(2)], hasMore: true, conversationId: "c", bytes: 1 } })) as never;
+    deps.fetchThreadDelta = vi.fn(async () => ({ ok: true, data: { items: [item(2)], changed: [], removed: [], hasMore: true, conversationId: "c", bytes: 1 } })) as never;
     deps.getThread = vi.fn(async () => page([item(60), item(61)], { has_more: true })) as never;
     const p = createPrefetcher(deps);
     p.request([t("s2", "a")]);

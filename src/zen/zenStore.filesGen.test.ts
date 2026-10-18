@@ -204,7 +204,8 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
     expect(s.screen).toBe("thread");
     expect(s.agentId).toBe("/Users/Baden/Appa");
     expect(s.agentSource).toBe("live");
-    expect(getThread).toHaveBeenCalled();
+    // The chat's read follows a device-cache lookup (a few microtasks).
+    await vi.waitFor(() => expect(getThread).toHaveBeenCalled());
   });
 
   it("ensureLastAt GETs thread limit=1 once and stores created_at", async () => {
@@ -664,7 +665,9 @@ describe("hydrateAgents stays off /cli/skin/agents until owner content is counte
     expect(vi.mocked(getThread)).not.toHaveBeenCalled();
     expect(useZenStore.getState().threadError).toBe("Not chattable");
     useZenStore.getState().setAgent("skin-test-a");
-    expect(vi.mocked(getThread).mock.calls.map((c) => c[1])).toEqual(["skin-test-a"]);
+    await vi.waitFor(() =>
+      expect(vi.mocked(getThread).mock.calls.map((c) => c[1])).toEqual(["skin-test-a"])
+    );
   });
 
   it("a failed send leaves the thread unchanged and shows the wire reason", async () => {

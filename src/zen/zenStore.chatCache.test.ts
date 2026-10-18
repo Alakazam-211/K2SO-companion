@@ -27,7 +27,13 @@ vi.mock("../api/projectGroups", () => ({
   postProjectGroupMessage: vi.fn(),
 }));
 
+vi.mock("../api/threadDelta", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../api/threadDelta")>();
+  return { ...actual, fetchThreadDelta: vi.fn(), fetchProjectGroupDelta: vi.fn() };
+});
+
 import { getAgentList, getThread, type ThreadItem } from "../api/client";
+import { fetchProjectGroupDelta, fetchThreadDelta } from "../api/threadDelta";
 import { fetchProjectGroupMessages } from "../api/projectGroups";
 import { useServersStore } from "../stores/servers";
 import { fakeScope } from "../test/fakeScope";
@@ -313,5 +319,111 @@ describe("wipes", () => {
     useServersStore.getState().removeServer("s2");
     await flushMicro();
     expect(chatCache().peek("s2|t:x")).toBeNull();
+  });
+});
+
+describe("open with thread-delta-v1", () => {
+  beforeEach(() => {
+    setZenScope(fakeScope({ id: "s1", username: "me", token: "tok", features: ["thread-delta-v1"] }));
+    vi.mocked(fetchThreadDelta).mockReset();
+    vi.mocked(fetchProjectGroupDelta).mockReset();
+  });
+
+  const delta = (data: Record<string, unknown>) =>
+    ({ ok: true, data: { items: [], changed: [], removed: [], hasMore: false, conversationId: "conv-a", bytes: 40, ...data } }) as never;
+
+  it("reads only what changed since the cached copy, and that confirms it", async () => {
+    seed("s1|t:appa", [cachedMsg(1), cachedMsg(2)]);
+    const d = deferred<unknown>();
+    vi.mocked(fetchThreadDelta).mockReturnValueOnce(d.promise as never);
+    const done = useZenStore.getState().hydrateThread("appa");
+    expect(useZenStore.getState().threadCached).toBe(true);
+    d.resolve(delta({ items: [item(3)], changed: [item(2, "edited")], removed: [{ id: "m1", seq: 1 }] }));
+    await done;
+    expect(fetchThreadDelta).toHaveBeenCalledWith(expect.anything(), "appa", 2, 50);
+    expect(getThread).not.toHaveBeenCalled();
+    const s = useZenStore.getState();
+    expect(ids()).toEqual(["m2", "m3"]);
+    expect(s.thread[0].text).toBe("edited");
+    expect(s.threadCached).toBe(false); // read marking / answering unblocked
+    expect(s.threadSource).toBe("live");
+    const t = chatOpenTimings("s1")[0];
+    expect(t.mode).toBe("delta");
+    expect([t.items, t.changed, t.removed]).toEqual([1, 1, 1]);
+    expect(chatCache().peek("s1|t:appa")?.messages.map((m) => m.id)).toEqual(["m2", "m3"]);
+  });
+
+  it("the device copy's cursor is used on a cold start", async () => {
+    const backend = memoryBackend();
+    const writer = createChatCache({ backend: () => backend });
+    writer.remember({ key: "s1|t:appa", serverId: "s1", messages: [cachedMsg(4)], conversationId: "conv-a", hasMore: false });
+    await writer.flush();
+    setChatCacheForTests(createChatCache({ backend: () => backend }));
+    vi.mocked(fetchThreadDelta).mockResolvedValueOnce(delta({ items: [item(5)] }));
+    await useZenStore.getState().hydrateThread("appa");
+    expect(fetchThreadDelta).toHaveBeenCalledWith(expect.anything(), "appa", 4, 50);
+    expect(ids()).toEqual(["m4", "m5"]);
+  });
+
+  it("no cached copy: the newest page, never after_seq", async () => {
+    vi.mocked(getThread).mockResolvedValueOnce({ ok: true, data: { conversation_id: "c", items: [item(1)] } } as never);
+    await useZenStore.getState().hydrateThread("appa");
+    expect(fetchThreadDelta).not.toHaveBeenCalled();
+    expect(chatOpenTimings("s1")[0].mode).toBe("page");
+  });
+
+  it("has_more: the newest page over the updated older items", async () => {
+    seed("s1|t:appa", [cachedMsg(1), cachedMsg(2)]);
+    vi.mocked(fetchThreadDelta).mockResolvedValueOnce(delta({ items: [item(3)], changed: [item(1, "fixed")], hasMore: true }));
+    vi.mocked(getThread).mockResolvedValueOnce({ ok: true, data: { conversation_id: "conv-a", has_more: true, items: [item(80), item(81)] } } as never);
+    await useZenStore.getState().hydrateThread("appa");
+    expect(ids()).toEqual(["m1", "m2", "m80", "m81"]);
+    expect(useZenStore.getState().thread[0].text).toBe("fixed");
+    expect(useZenStore.getState().threadHasMore).toBe(true);
+    expect(chatOpenTimings("s1")[0].mode).toBe("delta+page");
+  });
+
+  it("the conversation moved: the copy is dropped for the newest page", async () => {
+    seed("s1|t:appa", [cachedMsg(30), cachedMsg(31)]);
+    vi.mocked(fetchThreadDelta).mockResolvedValueOnce(delta({ conversationId: "conv-b" }));
+    vi.mocked(getThread).mockResolvedValueOnce({ ok: true, data: { conversation_id: "conv-b", items: [item(1), item(2)] } } as never);
+    await useZenStore.getState().hydrateThread("appa");
+    expect(ids()).toEqual(["m1", "m2"]);
+    expect(useZenStore.getState().threadConversationId).toBe("conv-b");
+    expect(chatCache().peek("s1|t:appa")?.conversationId).toBe("conv-b");
+  });
+
+  it("403 / 404: the chat's cache is dropped and the error shows as before", async () => {
+    seed("s1|t:appa", [cachedMsg(1)]);
+    vi.mocked(fetchThreadDelta).mockResolvedValueOnce({ ok: false, status: 403, error: "skin_room" } as never);
+    await useZenStore.getState().hydrateThread("appa");
+    const s = useZenStore.getState();
+    expect(s.threadSource).toBe("error");
+    expect(s.threadError).toBe("skin_room");
+    expect(ids()).toEqual([]);
+    expect(chatCache().peek("s1|t:appa")).toBeNull();
+  });
+
+  it("project chat: delta on open; 404 drops the project's cache", async () => {
+    chatCache().remember({
+      key: "s1|g:grp1",
+      serverId: "s1",
+      messages: [{ ...cachedMsg(0), id: "g1", readSeq: 10 }],
+      conversationId: null,
+      hasMore: false,
+    });
+    vi.mocked(fetchProjectGroupDelta).mockResolvedValueOnce(
+      delta({ conversationId: null, items: [{ id: "g2", groupId: "grp1", author: "me", body: "hi", createdAt: 2, seq: 11 }] })
+    );
+    await useZenStore.getState().hydrateGroup("grp1");
+    expect(fetchProjectGroupDelta).toHaveBeenCalledWith(expect.anything(), "grp1", 10, 50);
+    expect(ids()).toEqual(["g1", "g2"]);
+    expect(useZenStore.getState().threadCached).toBe(false);
+
+    vi.mocked(fetchProjectGroupDelta).mockResolvedValueOnce({ ok: false, status: 404, error: "not found" } as never);
+    await useZenStore.getState().hydrateGroup("grp1");
+    expect(useZenStore.getState().threadSource).toBe("error");
+    expect(ids()).toEqual([]);
+    expect(chatCache().peek("s1|g:grp1")).toBeNull();
   });
 });

@@ -94,10 +94,16 @@ import { groupMessagesToThread, isOwnerAuthored, normaliseThreadItem, type Threa
 import { mergeThreadMessages } from "./threadLive";
 import { mergeServerPage, shareUnchanged } from "./threadCacheMerge";
 import { chatCache } from "./chatCache";
+import {
+  applyGroupRead,
+  applyThreadRead,
+  fetchGroupRead,
+  fetchThreadRead,
+  type ChatRead,
+} from "./chatRevalidate";
 import type { CachedChat } from "./chatCacheBackend";
 import { installChatCacheWiring } from "./chatCacheWiring";
 import {
-  approxBytes,
   beginChatOpen,
   noteCachedPaint,
   notePaintAfterResponse,
@@ -621,22 +627,45 @@ function cachedPatch(e: CachedChat): Partial<ZenState> {
 }
 
 /** Nothing cached in memory: ask the device store, and paint its copy if
- *  this open is still loading when it answers. */
+ *  this open is still loading when it answers. Resolves to the copy (the
+ *  delta cursor), or null. */
+async function deviceCopy(key: string, gen: number, timing: number): Promise<CachedChat | null> {
+  let hit: Awaited<ReturnType<ReturnType<typeof chatCache>["read"]>> = null;
+  try {
+    hit = await chatCache().read(key);
+  } catch {
+    hit = null;
+  }
+  const { getState: get, setState: set } = useZenStore;
+  if (!hit || get().threadGen !== gen) return hit?.entry ?? null;
+  const st = get();
+  // Still loading — or the read already failed for want of a server
+  // (nothing on screen): the cached copy is better than nothing.
+  const down = st.threadSource === "error" && !st.thread.length && looksUnreachable(st.threadError);
+  if (st.threadSource !== "loading" && !down) return hit.entry;
+  set(cachedPatch(hit.entry));
+  noteCachedPaint(timing, hit.from, hit.entry.messages.length);
+  return hit.entry;
+}
+
 function paintFromDevice(key: string, gen: number, timing: number): void {
-  void chatCache()
-    .read(key)
-    .then((hit) => {
-      const { getState: get, setState: set } = useZenStore;
-      if (!hit || get().threadGen !== gen) return;
-      const st = get();
-      // Still loading — or the read already failed for want of a server
-      // (nothing on screen): the cached copy is better than nothing.
-      const down = st.threadSource === "error" && !st.thread.length && looksUnreachable(st.threadError);
-      if (st.threadSource !== "loading" && !down) return;
-      set(cachedPatch(hit.entry));
-      noteCachedPaint(timing, hit.from, hit.entry.messages.length);
-    })
-    .catch(() => undefined);
+  void deviceCopy(key, gen, timing);
+}
+
+/** A read's outcome in the open's timing record. */
+function noteRead(timing: number, read: ChatRead): void {
+  if (!read.ok) {
+    noteResponse(timing, { ok: false, error: read.error });
+    return;
+  }
+  noteResponse(timing, {
+    ok: true,
+    mode: read.mode,
+    items: read.counts.items,
+    changed: read.counts.changed,
+    removed: read.counts.removed,
+    bytes: read.bytes,
+  });
 }
 
 function captureList(s: ZenState): ListSlice {
@@ -1500,7 +1529,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const key = threadRoomKey(scope.id, groupId, null);
     const timing = beginChatOpen(scope.id, key, "project");
     // Its cached copy at once (stale-while-revalidate); the read below
-    // replaces it.
+    // brings it up to date (a delta when the server has one).
     const hit = cachedRoom(key);
     set({
       threadGen: gen,
@@ -1516,43 +1545,43 @@ export const useZenStore = create<ZenState>((set, get) => ({
       ...(hit ? { ...cachedPatch(hit), threadConversationId: null } : null),
     });
     if (hit) noteCachedPaint(timing, "memory", hit.messages.length);
-    else paintFromDevice(key, gen, timing);
-    const username = scope.username();
-    const failed = (msg: string) => {
+    const failed = (msg: string, gone: boolean) => {
+      if (gone) {
+        // The project (or access to it) is gone: so is its cache.
+        chatCache().forget(key);
+        set({ threadSource: "error", thread: [], threadCached: false, threadError: msg });
+        return;
+      }
       if (get().threadCached) {
         // The cached copy stays readable. A server already known to be
-        // down: the banner says why. Otherwise the failure is reported
-        // (recovery watches for it) with the copy still on screen.
+        // down: the banner says why. Otherwise the failure is reported.
         if (!knownDown(scope.id)) set({ threadSource: "error", threadError: msg });
         return;
       }
       set({ threadSource: "error", thread: [], threadCached: false, threadError: msg });
     };
     try {
-      const r = await fetchProjectGroupMessages(scope, groupId, { limit: 50 });
+      // The device copy (the delta cursor) when there may be one; known
+      // absent: the read goes out at once.
+      const pending = hit || chatCache().known(key) === false ? null : deviceCopy(key, gen, timing);
+      const base = pending ? await pending : hit;
       if (get().threadGen !== gen) return;
-      noteResponse(timing, {
-        ok: r.ok,
-        items: r.ok ? r.data?.messages?.length ?? 0 : null,
-        bytes: r.ok ? approxBytes(r.data) : null,
-        error: r.ok ? null : r.error || "project chat failed",
-      });
-      if (!r.ok) {
-        failed(r.error || "project chat failed");
+      const read = await fetchGroupRead(scope, groupId, base);
+      if (get().threadGen !== gen) return;
+      noteRead(timing, read);
+      if (!read.ok) {
+        failed(read.error, read.gone);
         return;
       }
-      // Project chat lines carry list positions as `seq`: the server's
-      // page replaces the cached copy whole (unchanged lines keep their
-      // objects).
-      const items = shareUnchanged(get().thread, groupMessagesToThread(r.data?.messages ?? [], username));
+      const items = applyGroupRead(get().thread, read);
       const lastAt = items[items.length - 1]?.at ?? null;
-      if (!items.length) chatCache().remember({ key, serverId: scope.id, messages: [], conversationId: null, hasMore: false });
+      if (!items.length) chatCache().forget(key);
       set({
         threadSource: "live",
         thread: items,
         threadCached: false,
         threadError: null,
-        threadHasMore: !!r.data?.truncated,
+        threadHasMore: read.hasMore ?? get().threadHasMore,
         threadOldestSeq: items.length ? 0 : null,
         lastAtByKey: { ...get().lastAtByKey, [lastAtKey(scope.id, "group", groupId)]: lastAt },
       });
@@ -1562,7 +1591,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       if (get().threadGen !== gen) return;
       const msg = e instanceof Error ? e.message : String(e);
       noteResponse(timing, { ok: false, error: msg });
-      failed(msg);
+      failed(msg, false);
     }
   },
 
@@ -1586,8 +1615,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const key = threadRoomKey(scope.id, null, addr);
     const timing = beginChatOpen(scope.id, key, "thread");
     // Its cached copy at once (stale-while-revalidate): from memory now,
-    // else from the device store when it answers. The read below is
-    // merged over it (and a server that is down leaves it on screen).
+    // else from the device store when it answers. The read below brings
+    // it up to date — a delta from its newest seq when the server has
+    // `thread-delta-v1`, else the newest page merged over it (a server
+    // that is down leaves it on screen).
     const hit = cachedRoom(key);
     set({
       threadGen: gen,
@@ -1603,9 +1634,13 @@ export const useZenStore = create<ZenState>((set, get) => ({
       ...(hit ? cachedPatch(hit) : null),
     });
     if (hit) noteCachedPaint(timing, "memory", hit.messages.length);
-    else paintFromDevice(key, gen, timing);
-    const username = scope.username();
-    const failed = (msg: string) => {
+    const failed = (msg: string, gone: boolean) => {
+      if (gone) {
+        // The access or the conversation is gone: so is its cache. The
+        // error shows as it always has.
+        chatCache().forget(key);
+        if (get().threadCached) set({ thread: [], threadCached: false });
+      }
       if (get().threadCached) {
         // The cached copy stays readable. A server already known to be
         // down: the banner says why. Otherwise the failure is reported
@@ -1616,59 +1651,49 @@ export const useZenStore = create<ZenState>((set, get) => ({
       set({
         threadSource: "error",
         // The server did not answer: what was read before stays readable.
-        thread: unreachableFallback(scope.id, addr, msg),
+        thread: gone ? [] : unreachableFallback(scope.id, addr, msg),
         threadError: msg,
       });
     };
     const live = watchLive();
     try {
-      const r = await Promise.resolve(getThread(scope, addr)).finally(live.stop);
+      // The device copy (the delta cursor) when there may be one; known
+      // absent: the read goes out at once.
+      const pending = hit || chatCache().known(key) === false ? null : deviceCopy(key, gen, timing);
+      const base = pending ? await pending : hit;
       if (get().threadGen !== gen) return;
-      if (!r.ok || !r.data || !Array.isArray(r.data.items)) {
-        const msg =
-          typeof r.error === "string" && r.error
-            ? r.error
-            : r.error
-              ? JSON.stringify(r.error)
-              : "thread failed";
-        noteResponse(timing, { ok: false, error: msg });
-        failed(msg);
+      const read = await fetchThreadRead(scope, addr, base).finally(live.stop);
+      if (get().threadGen !== gen) return;
+      noteRead(timing, read);
+      if (!read.ok) {
+        failed(read.error, read.gone);
         return;
       }
-      noteResponse(timing, { ok: true, items: r.data.items.length, bytes: approxBytes(r.data) });
-      const page = r.data.items
-        .map((it) => normaliseThreadItem(it, username))
-        .filter((m): m is ThreadMessage => !!m);
-      const conv = (r.data.conversation_id || "").trim() || null;
-      const hasMore = !!r.data.has_more;
+      if (read.mode === "reset") chatCache().forget(key); // the conversation moved
       const cur = get();
-      // Over the cached copy (and any live frame that landed meanwhile):
-      // the server's copy wins inside its window.
-      const thread = mergeServerPage(cur.thread, page, {
-        hasMore,
-        sameConversation: !cur.threadConversationId || !conv || cur.threadConversationId === conv,
+      const thread = applyThreadRead(cur.thread, read, {
         arrivedLive: live.ids,
+        conversationId: cur.threadConversationId,
       });
-      if (!thread.length) {
-        chatCache().remember({ key, serverId: scope.id, messages: [], conversationId: conv, hasMore: false });
-      }
+      if (!thread.length) chatCache().forget(key);
       const last = thread[thread.length - 1];
       set({
         threadSource: "live",
         thread,
         threadCached: false,
         threadError: null,
-        threadConversationId: conv,
-        threadHasMore: hasMore,
+        threadConversationId: read.conversationId ?? cur.threadConversationId,
+        threadHasMore: read.hasMore ?? cur.threadHasMore,
         threadOldestSeq: oldestSeqOf(thread),
         ...threadRowPatch(get(), scope, addr, last),
       });
       notePaintAfterResponse(timing);
     } catch (e) {
+      live.stop();
       if (get().threadGen !== gen) return;
       const msg = e instanceof Error ? e.message : String(e);
       noteResponse(timing, { ok: false, error: msg });
-      failed(msg);
+      failed(msg, false);
     }
   },
 

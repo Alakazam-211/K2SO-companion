@@ -39,6 +39,10 @@ export function installChatCacheWiring(): void {
     }
   });
 
+  // The device index, once the app has drawn (the first open's device
+  // read is then a single lookup).
+  setTimeout(() => chatCache().warm(), 1500);
+
   if (typeof document !== "undefined" && typeof window !== "undefined") {
     const flush = () => void chatCache().flush();
     document.addEventListener("visibilitychange", () => {

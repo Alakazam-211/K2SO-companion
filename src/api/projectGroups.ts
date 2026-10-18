@@ -199,7 +199,7 @@ export async function fetchProjectGroupMessages(
     messages: ProjectGroupMessage[];
     truncated: boolean;
   }>(scope, "/cli/project-group/messages", { params });
-  if (!r.ok) return { ok: false, error: r.error };
+  if (!r.ok) return { ok: false, error: r.error, status: r.status };
   return {
     ok: true,
     data: {

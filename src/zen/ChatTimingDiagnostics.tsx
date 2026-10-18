@@ -41,7 +41,9 @@ export function timingLine(t: ChatOpenTiming): string {
       ? "waiting"
       : t.ok === false
         ? `failed ${ms(t.responseMs)}`
-        : `server ${ms(t.responseMs)} · paint ${ms(t.paintMs)} · ${t.items ?? "—"} items · ${size(t.bytes)}`;
+        : `${t.mode ?? "server"} ${ms(t.responseMs)} · paint ${ms(t.paintMs)} · ${t.items ?? "—"} items` +
+          (t.mode === "delta" || t.mode === "delta+page" ? ` (${t.changed ?? 0} changed, ${t.removed ?? 0} removed)` : "") +
+          ` · ${size(t.bytes)}`;
   return `${cached} · ${server}`;
 }
 

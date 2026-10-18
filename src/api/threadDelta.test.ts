@@ -13,6 +13,7 @@ import {
   deltaSupported,
   fetchProjectGroupDelta,
   fetchThreadDelta,
+  goneStatus,
 } from "./threadDelta";
 import { DAEMON_FEATURES } from "./scope";
 
@@ -39,6 +40,44 @@ describe("thread delta reads (thread-delta-v1)", () => {
     expect(r.data?.hasMore).toBe(true);
     expect(r.data?.conversationId).toBe("c1");
     expect(r.data?.bytes).toBeGreaterThan(0);
+  });
+
+  it("parses changed (upsert) and removed ({id, seq}) on the Thread route", async () => {
+    scoped.mockResolvedValueOnce(
+      ok({
+        conversation_id: "c1",
+        after_seq: 7,
+        items: [],
+        has_more: false,
+        changed: [{ id: "d6", seq: 6, doc: { kind: "choice" } }],
+        removed: [{ id: "d3", seq: 3 }, { id: "", seq: 1 }, "junk", { id: "d4" }],
+      })
+    );
+    const r = await fetchThreadDelta(fakeScope(), "sales", 7);
+    expect(r.data?.changed).toHaveLength(1);
+    expect(r.data?.removed).toEqual([
+      { id: "d3", seq: 3 },
+      { id: "d4", seq: null },
+    ]);
+  });
+
+  it("an answer without changed / removed reads as empty", async () => {
+    scoped.mockResolvedValueOnce(ok({ items: [] }));
+    const r = await fetchThreadDelta(fakeScope(), "a", 1);
+    expect(r.data?.changed).toEqual([]);
+    expect(r.data?.removed).toEqual([]);
+  });
+
+  it("project has_more / truncated mean newer lines remain; 404 = project gone", async () => {
+    scoped.mockResolvedValueOnce(ok({ ok: true, messages: [], has_more: true, truncated: true, changed: [], removed: [] }));
+    expect((await fetchProjectGroupDelta(fakeScope(), "g", 2)).data?.hasMore).toBe(true);
+    scoped.mockResolvedValueOnce({ ok: false, status: 404, text: JSON.stringify({ ok: false, error: { code: "not_found", hint: "no such project" } }) });
+    const r = await fetchProjectGroupDelta(fakeScope(), "g", 2);
+    expect(r.ok).toBe(false);
+    expect(r.status).toBe(404);
+    expect(r.error).toBe("no such project");
+    expect(goneStatus(r.status)).toBe(true);
+    expect(goneStatus(500)).toBe(false);
   });
 
   it("project chats use the same cursor param on the messages route", async () => {

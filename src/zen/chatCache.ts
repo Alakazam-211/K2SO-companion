@@ -44,11 +44,19 @@ export type RememberInput = {
 export interface ChatCache {
   /** Memory only, synchronous (the open's first paint). */
   peek(key: string): CachedChat | null;
+  /** Is `key` cached? Synchronous: true / false once the device index is
+   *  loaded (or it is in memory), null while that is not known yet. */
+  known(key: string): boolean | null;
   /** Memory, else the device store. */
   read(key: string): Promise<CacheHit | null>;
   /** Keep this copy (memory now, device after a short quiet). An empty
    *  chat drops its entry. */
   remember(input: RememberInput): void;
+  /** Drop one chat (its access or the chat itself is gone). */
+  forget(key: string): void;
+  /** Load the device index now (app start, idle): the first open's
+   *  device read is then one lookup. */
+  warm(): void;
   /** Write what is pending now (the app is going to the background). */
   flush(): Promise<void>;
   /** Drop every entry of `serverId` (memory and device). */
@@ -190,6 +198,11 @@ export function createChatCache(opts: Opts = {}): ChatCache {
       return e;
     },
 
+    known(key) {
+      if (memory.has(key) || dirty.has(key)) return true;
+      return index ? index.has(key) : null;
+    },
+
     async read(key) {
       const m = cache.peek(key);
       if (m) return { entry: m, from: "memory" };
@@ -241,6 +254,20 @@ export function createChatCache(opts: Opts = {}): ChatCache {
       touch(entry);
       dirty.set(key, entry);
       schedule();
+    },
+
+    forget(key) {
+      memory.delete(key);
+      dirty.delete(key);
+      void serial(async () => {
+        const idx = await ensureIndex();
+        idx.delete(key);
+        await backend().delete([key]);
+      });
+    },
+
+    warm() {
+      void ensureIndex();
     },
 
     flush() {
