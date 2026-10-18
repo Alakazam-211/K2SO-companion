@@ -204,6 +204,7 @@ export type AttachmentErrorCode =
   | "usage"
   | "forbidden"
   | "missing_capability"
+  | "unauthorized"
   | "not_found"
   | "attachment_gone"
   | "no_preview"
@@ -224,16 +225,16 @@ export type AttachmentError = {
 
 export type AttachmentResult<T> = { ok: true; data: T } | { ok: false; error: AttachmentError };
 
-/** The body's `error` as {code, hint}: `{error:{code,hint}}`, `{error:"…"}`
- *  or `{code}`; anything else is empty. */
-function errorBody(text: string): { code: string; hint: string } {
+/** The body's `error` as {code, hint, cap}: `{error:{code,hint,cap}}`,
+ *  `{error:"…"}` or `{code}`; anything else is empty. */
+function errorBody(text: string): { code: string; hint: string; cap?: string } {
   try {
     const j = JSON.parse(text) as Record<string, unknown>;
     const e = j?.error;
     if (typeof e === "string") return { code: e, hint: e };
     if (e && typeof e === "object") {
       const o = e as Record<string, unknown>;
-      return { code: str(o.code), hint: str(o.hint) || str(o.message) || str(o.code) };
+      return { code: str(o.code), hint: str(o.hint) || str(o.message) || str(o.code), cap: str(o.cap) };
     }
     if (typeof j?.code === "string") return { code: j.code, hint: str(j.hint) || j.code };
   } catch {
@@ -245,10 +246,16 @@ function errorBody(text: string): { code: string; hint: string } {
 
 /** HTTP status + body → a typed error (the contract's errors table). */
 export function mapAttachmentError(status: number, text: string): AttachmentError {
-  const { code, hint } = errorBody(text);
+  const { code, hint, cap } = errorBody(text);
   const err = (c: AttachmentErrorCode): AttachmentError => ({ code: c, status, hint: hint || `HTTP ${status}` });
   if (status === 400) return err("usage");
+  // A revoked guest pass: a bare 401 (go by status).
+  if (status === 401) return err("unauthorized");
   if (status === 403) {
+    // K2 f3da9a8ab: {code:"cap_not_granted", cap:"files:read"|"thread:read"};
+    // "skin_room" (outside the room) and agents' "forbidden" stay as they
+    // are. The old bare "missing capability files:read" still maps.
+    if (code === "cap_not_granted") return err(cap === "files:read" ? "missing_capability" : "forbidden");
     if (/missing capability\s+files:read/i.test(code) || /missing capability\s+files:read/i.test(hint)) {
       return err("missing_capability");
     }
@@ -272,6 +279,8 @@ export function attachmentErrorText(e: AttachmentError): string {
       return "This file isn't shared with you.";
     case "forbidden":
       return "You can't open files on this Thread.";
+    case "unauthorized":
+      return "Your access to this server has ended. Sign in again.";
     case "usage":
       return "The server could not read that request.";
     case "no_preview":
