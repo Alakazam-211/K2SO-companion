@@ -120,10 +120,13 @@ describe("GlassComposer field auto-grow", () => {
       constructor(cb: () => void) {
         fire = cb;
       }
-      observe() {}
+      observe(_el: Element, opts?: { box?: string }) {
+        boxes.push(opts?.box);
+      }
       unobserve() {}
       disconnect() {}
     } as unknown as typeof ResizeObserver;
+    const boxes: (string | undefined)[] = [];
     const heights: number[] = [];
     try {
       render(
@@ -140,6 +143,21 @@ describe("GlassComposer field auto-grow", () => {
       fire();
       fire();
       expect(heights).toEqual([60, 104]);
+      // Padding (the home-indicator inset) counts: the border box.
+      expect(boxes).toEqual(["border-box"]);
+      // The keyboard closing (focus leaves) re-reads on the next frame.
+      px = 130;
+      const raf = globalThis.requestAnimationFrame;
+      globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
+        cb(0);
+        return 0;
+      }) as typeof requestAnimationFrame;
+      try {
+        fireEvent.focusOut(screen.getByTestId("composer-bar").querySelector("textarea")!);
+      } finally {
+        globalThis.requestAnimationFrame = raf;
+      }
+      expect(heights).toEqual([60, 104, 130]);
     } finally {
       globalThis.ResizeObserver = RO;
       if (ownOffset) Object.defineProperty(HTMLElement.prototype, "offsetHeight", ownOffset);
