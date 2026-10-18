@@ -231,7 +231,9 @@ export async function setRememberedPassword(
 
 // ─── Leave hooks (push unregister before a token is dropped) ───
 
-type LeaveHook = (server: ServerEntry, token: string) => void;
+/** May return a promise: the session revoke waits for it (bounded), so a
+ *  hook's request (push unregister) still carries a live token. */
+type LeaveHook = (server: ServerEntry, token: string) => void | Promise<unknown>;
 const leaveHooks = new Set<LeaveHook>();
 
 /** Run `fn(server, token)` just before a signed-in server is removed or
@@ -241,15 +243,45 @@ export function onServerLeave(fn: LeaveHook): () => void {
   return () => leaveHooks.delete(fn);
 }
 
+/** Revoke this device's session on the daemon (`POST /cli/auth/logout`,
+ *  K2 0.46.1: Bearer = the session token, idempotent, other devices stay
+ *  signed in). Fire and forget: an unreachable server just keeps the
+ *  token until it expires; the phone forgets it either way. */
+export function revokeSession(serverUrl: string, token: string): void {
+  const base = serverUrl.replace(/\/+$/, "");
+  void Promise.race([
+    tauriFetch(`${base}/cli/auth/logout`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: "{}",
+    }),
+    new Promise<never>((_, reject) => setTimeout(() => reject(new Error("timeout")), 5000)),
+  ]).catch(() => {});
+}
+
+/** Hooks first (they still need the token), then the revoke. */
+const LEAVE_HOOKS_WAIT_MS = 4000;
+
 function announceLeave(server: ServerEntry | undefined, token: string | undefined): void {
   if (!server || !token) return;
+  const pending: Promise<unknown>[] = [];
   for (const fn of leaveHooks) {
     try {
-      fn(server, token);
+      const r = fn(server, token);
+      if (r && typeof (r as Promise<unknown>).then === "function") pending.push(r as Promise<unknown>);
     } catch {
       /* a hook never blocks the removal */
     }
   }
+  const url = server.url;
+  if (!pending.length) {
+    revokeSession(url, token);
+    return;
+  }
+  void Promise.race([
+    Promise.allSettled(pending),
+    new Promise((resolve) => setTimeout(resolve, LEAVE_HOOKS_WAIT_MS)),
+  ]).then(() => revokeSession(url, token));
 }
 
 // ─── Store ───
