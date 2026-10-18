@@ -165,7 +165,7 @@ export function GlassSearchBar({
         }}
         data-testid={plusTestId}
       >
-        <PlusGlyph />
+        <PlusGlyph bright />
       </button>
       ) : null}
     </div>
