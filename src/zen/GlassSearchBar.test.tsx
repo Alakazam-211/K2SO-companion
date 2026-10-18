@@ -127,3 +127,28 @@ describe("GlassSearchBar + button", () => {
     expect(a.outerHTML).toBe(b.outerHTML);
   });
 });
+
+describe("GlassSearchBar clear", () => {
+  it("shows a glass X at the field's right end once there is text; it clears without blurring", () => {
+    window.scrollTo = vi.fn() as unknown as typeof window.scrollTo;
+    const onQuery = vi.fn();
+    const { rerender } = render(<GlassSearchBar query="" onQuery={onQuery} inputTestId="q" />);
+    expect(screen.queryByTestId("q-clear")).toBeNull();
+    rerender(<GlassSearchBar query="alp" onQuery={onQuery} inputTestId="q" />);
+    const clear = screen.getByTestId("q-clear");
+    expect(clear.className).toContain("zen-glass");
+    // Last in the field, after the input: right-justified.
+    expect(clear.previousElementSibling).toBe(screen.getByTestId("q"));
+    expect(fireEvent.pointerDown(clear)).toBe(false);
+    fireEvent.click(clear);
+    expect(onQuery).toHaveBeenCalledWith("");
+  });
+});
+
+describe("HomeTabToggle", () => {
+  it("draws the selected thumb in blue glass", async () => {
+    const { HomeTabToggle } = await import("./HomeTabToggle");
+    render(<HomeTabToggle tab="agents" onTab={() => {}} />);
+    expect(screen.getByTestId("list-tab-thumb").className).toContain("zen-seg-thumb-blue");
+  });
+});
