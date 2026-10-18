@@ -431,6 +431,10 @@ describe("ThreadWorkingStrip drawer", () => {
     expect(screen.getByTestId("thread-strip-children").textContent).toBe(
       "2 subagents running, 1 done · 1 background task"
     );
+    // Each bit carries its collapsed counter's icon.
+    for (const key of ["read", "search", "cmd", "subagents", "background"]) {
+      expect(screen.getByTestId(`thread-strip-detail-${key}`).querySelector("svg")).not.toBeNull();
+    }
     expect(localStorage.getItem(DRAWER_EXPANDED_KEY)).toBe("1");
     // The room it takes grows with it.
     const expandedSpace = space.mock.calls[space.mock.calls.length - 1]?.[0] as number;
