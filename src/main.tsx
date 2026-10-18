@@ -5,6 +5,7 @@ import { useServersStore } from "./stores/servers";
 import "./styles/index.css";
 import { initZenFont } from "./zen/zenFont";
 import { installAndroidBack } from "./lib/androidBack";
+import { initKbDragRecorder } from "./lib/kbDragRecorder";
 
 // Android's WebView reports env(safe-area-inset-bottom) as 0 while the
 // app draws edge-to-edge behind the system nav — bottom bars need an
@@ -35,6 +36,9 @@ if (/android/i.test(navigator.userAgent)) {
 // <html> before the first render so Meslo users never see a system-font
 // flash and text never jumps size.
 initZenFont();
+
+// Diagnostics → Keyboard drag recorder (off by default: one pref read).
+initKbDragRecorder();
 
 // Test hook for scripts/repro-nav-stress.mjs (dev builds only): lets the
 // harness drive recovery-state churn straight into the store while it

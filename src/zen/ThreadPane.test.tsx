@@ -549,69 +549,134 @@ describe("ThreadPane", () => {
     });
   });
 
-  it("keyboard motion: the newest stays pinned every frame of the column's ease", () => {
-    const frames: FrameRequestCallback[] = [];
-    const raf = globalThis.requestAnimationFrame;
-    const caf = globalThis.cancelAnimationFrame;
-    globalThis.requestAnimationFrame = ((cb: FrameRequestCallback) => {
-      frames.push(cb);
-      return frames.length;
-    }) as typeof requestAnimationFrame;
-    globalThis.cancelAnimationFrame = (() => {}) as typeof cancelAnimationFrame;
-    let now = 10_000;
-    const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
-    const runFrames = () => {
-      for (const f of frames.splice(0)) f(0);
-    };
-    let height = 1800;
-    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+  /** A scroller that clamps like a browser: scrollHeight `sh`, a
+   *  clientHeight that follows `client()`. */
+  function clampingScroller(el: HTMLElement, sh: () => number, client: () => number) {
+    let top = 0;
+    Object.defineProperty(el, "scrollHeight", { configurable: true, get: sh });
+    Object.defineProperty(el, "clientHeight", { configurable: true, get: client });
+    Object.defineProperty(el, "scrollTop", {
       configurable: true,
-      get() {
-        return this.getAttribute?.("data-testid") === "thread-scroller" ? height : 0;
+      get: () => Math.max(0, Math.min(top, sh() - client())),
+      set: (v: number) => {
+        top = Math.max(0, Math.min(v, sh() - client()));
       },
     });
-    try {
-      useZenStore.setState({
-        agentId: "appa",
-        threadSource: "live",
-        threadError: null,
-        threadHasMore: false,
-        thread: [
-          { id: "a", seq: 1, text: "one", from: "appa", at: 1, mine: false, kind: "text", choice: null },
-        ],
-      });
-      const { rerender } = render(<ThreadPane viewportHeight={464} />);
-      // Let mount's own sticking loops (drawer padding) run out first.
-      now += 1000;
-      runFrames();
-      runFrames();
-      expect(frames).toHaveLength(0);
-      const el = screen.getByTestId("thread-scroller");
-      // Keyboard hides: the column eases to full height over 250ms.
-      rerender(<ThreadPane viewportHeight={800} viewportMotionMs={250} />);
-      for (let i = 0; i < 4; i++) {
-        height += 25; // the ease moves the layout each frame
-        now += 50;
-        runFrames();
-        expect(el.scrollTop).toBe(height);
-      }
-      // Past the ease (+80ms slack): the per-frame loop has stopped.
-      now += 400;
-      runFrames();
-      height += 25;
-      runFrames();
-      expect(el.scrollTop).toBe(height - 25);
-    } finally {
-      globalThis.requestAnimationFrame = raf;
-      globalThis.cancelAnimationFrame = caf;
-      clock.mockRestore();
-      Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
-        configurable: true,
-        get() {
-          return 0;
-        },
-      });
-    }
+  }
+  const EASE = "cubic-bezier(0.38, 0.7, 0.125, 1)";
+  const motion = (from: number, to: number, ms = 250, elapsed = 0) => ({
+    ms,
+    easing: EASE,
+    elapsed,
+    from,
+    to,
+  });
+  function seedThread() {
+    useZenStore.setState({
+      agentId: "appa",
+      threadSource: "live",
+      threadError: null,
+      threadHasMore: false,
+      thread: [
+        { id: "a", seq: 1, text: "one", from: "appa", at: 1, mine: false, kind: "text", choice: null },
+      ],
+    });
+  }
+
+  it("keyboard hide (FLIP): final layout at once; composer and list start where they were drawn and play to 0 on the keyboard's timing", () => {
+    seedThread();
+    let client = 400;
+    const { rerender } = render(<ThreadPane viewportHeight={464} />);
+    const el = screen.getByTestId("thread-scroller");
+    clampingScroller(el, () => 2400, () => client);
+    el.scrollTop = 99999;
+    fireEvent.scroll(el); // at the newest: following
+    expect(el.scrollTop).toBe(2000);
+    const dock = screen.getByTestId("thread-composer-dock");
+    const content = screen.getByTestId("thread-content");
+    let inverted: string[] = [];
+    dock.getBoundingClientRect = () => {
+      inverted = [dock.style.transform, dock.style.transition, content.style.transform];
+      return new DOMRect();
+    };
+    // The keyboard hides: the column is already full height (Zen).
+    client = 736;
+    rerender(<ThreadPane viewportHeight={800} viewportMotion={motion(464, 800, 250, 12)} />);
+    // Re-stuck at once (the list moved down 336 at the commit)…
+    expect(el.scrollTop).toBe(1664);
+    // …and, at the flush, both drawn back where they were:
+    expect(inverted).toEqual(["translate3d(0, -336px, 0)", "none", "translate3d(0, -336px, 0)"]);
+    // then played to 0 on the keyboard's duration + curve (mid-curve by
+    // the bridge hop).
+    expect(dock.style.transform).toBe("");
+    expect(dock.style.transition).toBe(`transform 250ms ${EASE} -12ms`);
+    expect(content.style.transform).toBe("");
+    expect(content.style.transition).toBe(`transform 250ms ${EASE} -12ms`);
+    // Motion over: transforms cleared, no transition left.
+    rerender(<ThreadPane viewportHeight={800} viewportMotion={null} />);
+    expect(dock.style.transition).toBe("none");
+    expect(content.style.transition).toBe("none");
+    expect(el.scrollTop).toBe(1664);
+  });
+
+  it("keyboard hide while reading history: only the composer plays; the list stays put", () => {
+    seedThread();
+    let client = 400;
+    const { rerender } = render(<ThreadPane viewportHeight={464} />);
+    const el = screen.getByTestId("thread-scroller");
+    clampingScroller(el, () => 2400, () => client);
+    el.scrollTop = 99999;
+    fireEvent.scroll(el);
+    el.scrollTop = 500;
+    fireEvent.scroll(el); // scrolled up: not following
+    const content = screen.getByTestId("thread-content");
+    client = 736;
+    rerender(<ThreadPane viewportHeight={800} viewportMotion={motion(464, 800)} />);
+    expect(el.scrollTop).toBe(500);
+    expect(content.style.transform).toBe("");
+    expect(content.style.transition).toBe("");
+    expect(screen.getByTestId("thread-composer-dock").style.transition).toBe(`transform 250ms ${EASE}`);
+  });
+
+  it("keyboard show: the column is held; composer and list play up to the new layout, which commits as the motion clears", () => {
+    seedThread();
+    let client = 736;
+    const { rerender } = render(<ThreadPane viewportHeight={800} />);
+    const el = screen.getByTestId("thread-scroller");
+    clampingScroller(el, () => 2400, () => client);
+    el.scrollTop = 99999;
+    fireEvent.scroll(el);
+    expect(el.scrollTop).toBe(1664);
+    const dock = screen.getByTestId("thread-composer-dock");
+    const content = screen.getByTestId("thread-content");
+    rerender(<ThreadPane viewportHeight={464} viewportMotion={motion(800, 464)} />);
+    // Nothing re-laid out yet (Zen holds the column at 800).
+    expect(el.scrollTop).toBe(1664);
+    expect(dock.style.transform).toBe("translate3d(0, -336px, 0)");
+    expect(dock.style.transition).toBe(`transform 250ms ${EASE}`);
+    expect(content.style.transform).toBe("translate3d(0, -336px, 0)");
+    // The motion clears: the column takes 464, transforms go, re-stuck —
+    // same picture.
+    client = 400;
+    rerender(<ThreadPane viewportHeight={464} viewportMotion={null} />);
+    expect(dock.style.transform).toBe("");
+    expect(content.style.transform).toBe("");
+    expect(el.scrollTop).toBe(2000);
+  });
+
+  it("reduced motion (no motion object): final layout, no transforms", () => {
+    seedThread();
+    let client = 400;
+    const { rerender } = render(<ThreadPane viewportHeight={464} />);
+    const el = screen.getByTestId("thread-scroller");
+    clampingScroller(el, () => 2400, () => client);
+    el.scrollTop = 99999;
+    fireEvent.scroll(el);
+    client = 736;
+    rerender(<ThreadPane viewportHeight={800} />);
+    expect(screen.getByTestId("thread-composer-dock").style.transform).toBe("");
+    expect(screen.getByTestId("thread-content").style.transform).toBe("");
+    expect(el.scrollTop).toBe(1664);
   });
 
   it("interactive keyboard dismiss: no re-pin under the finger nor over the release; pinning resumes after", () => {
@@ -642,11 +707,26 @@ describe("ThreadPane", () => {
       height = 1900;
       rerender(<ThreadPane viewportHeight={500} viewportInteractive />);
       expect(el.scrollTop).toBe(1750);
-      // Released (WillHide): the finger's scroll (and its momentum) stands.
-      rerender(<ThreadPane viewportHeight={800} viewportMotionMs={200} />);
+      // Released (WillHide): the finger's scroll (and its momentum)
+      // stands; only the composer plays.
+      const motion = (from: number, to: number) => ({
+        ms: 200,
+        easing: "ease-out",
+        elapsed: 0,
+        from,
+        to,
+      });
+      const content = screen.getByTestId("thread-content");
+      rerender(<ThreadPane viewportHeight={800} viewportMotion={motion(560, 800)} />);
+      expect(el.scrollTop).toBe(1750);
+      expect(content.style.transform).toBe("");
+      expect(screen.getByTestId("thread-composer-dock").style.transition).toBe("transform 200ms ease-out");
+      // …nor when that motion ends.
+      rerender(<ThreadPane viewportHeight={800} viewportMotion={null} />);
       expect(el.scrollTop).toBe(1750);
       // The next keyboard change pins again (following).
-      rerender(<ThreadPane viewportHeight={464} viewportMotionMs={200} />);
+      rerender(<ThreadPane viewportHeight={464} viewportMotion={motion(800, 464)} />);
+      rerender(<ThreadPane viewportHeight={464} viewportMotion={null} />);
       expect(el.scrollTop).toBe(1900);
     } finally {
       Object.defineProperty(HTMLElement.prototype, "scrollHeight", {

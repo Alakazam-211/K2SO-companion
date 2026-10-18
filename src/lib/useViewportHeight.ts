@@ -35,9 +35,11 @@
 // Hide,ChangeFrame} (src-tauri/src/lib.rs → `window.__k2KeyboardWill` →
 // `k2-keyboard-will`) with the keyboard's overlap, animation duration and
 // curve. The store jumps straight to the height the keyboard is heading
-// for and publishes `motion` ({ms, easing, elapsed}); a screen that sets
-// `transition: viewportTransition(motion)` glides its column with the
-// keyboard instead of stepping through WebKit's visualViewport updates.
+// for and publishes `motion` ({ms, easing, elapsed, from, to}). The
+// Thread plays it on the compositor (ThreadPane's FLIP: final layout +
+// a transform eased on the keyboard's own duration and curve, no
+// per-frame layout); simpler screens may still `transition:
+// viewportTransition(motion)` their height (the chats list).
 // Until the keyboard lands, measurements may reset the page pan and
 // report offsetTop but do not move the height (they would fight the
 // glide); once it has, a normal re-measure settles it. Reduced motion:
@@ -65,15 +67,20 @@
 //     the stand-in exactly on the keyboard and as a fallback trigger;
 //     (`__k2KeyboardTrack(overlap)`, the older shell's "started moving"
 //     signal, still works as a fallback trigger);
-//   - on release iOS posts WillHide / WillShow: in one frame the stand-in
-//     goes, the columns take its current bottom as their height (the real
-//     composer lands exactly where the stand-in was), pads clear, then the
-//     columns ease to the target on the keyboard curve (spring back to the
-//     old height included). Scroll momentum carries on without it.
+//   - on release iOS posts WillHide / WillShow: the stand-in goes, pads
+//     clear, and the motion starts at the keyboard's begin frame (else
+//     the stand-in's bottom): hide — the columns go final at once and the
+//     Thread FLIPs the composer down from there; spring back — the columns
+//     hold the dragged height while the composer plays up, then commit.
+//     No height transition. Scroll momentum carries on without it.
 
 import { useRef, useSyncExternalStore } from "react";
 
-/** The iOS keyboard is animating `height` to its current value. */
+/** The iOS keyboard is animating: the keyboard's top (as a column
+ *  height) goes `from` → `to`. Hide: `height` is already `to`; show:
+ *  `height` is `to` too, but a screen that animates on the compositor
+ *  (Zen's Thread, FLIP) keeps its column at `from` until the motion
+ *  clears, so nothing is clipped while the keyboard rises. */
 export type ViewportMotion = {
   /** Full keyboard animation duration (ms). */
   ms: number;
@@ -82,7 +89,28 @@ export type ViewportMotion = {
   /** How far into the animation the page heard about it (ms): the
    *  bridge hop. A negative transition-delay starts mid-curve, in step. */
   elapsed: number;
+  /** Column height (keyboard top) where the animation starts / ends. */
+  from: number;
+  to: number;
 };
+
+/** Wall-clock ms with sub-ms precision (performance.timeOrigin + now),
+ *  to compare with the shell's timestamps; Date.now() as a fallback. */
+export function nowEpochMs(): number {
+  try {
+    const o = performance.timeOrigin;
+    if (typeof o === "number" && Number.isFinite(o) && o > 0) return o + performance.now();
+  } catch {
+    /* no performance */
+  }
+  return Date.now();
+}
+
+/** CSS transition for a FLIP transform play on the keyboard's timing. */
+export function keyboardFlipTransition(motion: ViewportMotion): string {
+  const delay = motion.elapsed > 0 ? ` -${Math.round(motion.elapsed * 10) / 10}ms` : "";
+  return `transform ${Math.round(motion.ms)}ms ${motion.easing}${delay}`;
+}
 
 export type ViewportState = {
   /** Height for a fixed, top:0 container. */
@@ -142,7 +170,7 @@ export function viewportTransition(
   prop = "height"
 ): string | undefined {
   if (!motion || motion.ms <= 0) return undefined;
-  const delay = motion.elapsed > 0 ? ` -${Math.round(motion.elapsed)}ms` : "";
+  const delay = motion.elapsed > 0 ? ` -${Math.round(motion.elapsed * 10) / 10}ms` : "";
   return `${prop} ${Math.round(motion.ms)}ms ${motion.easing}${delay}`;
 }
 
@@ -231,6 +259,9 @@ export type KeyboardDragHandler = {
   draggedBottom(): number | null;
   /** Drop the stand-in and show the real composer again. */
   detach(): void;
+  /** A Will* release is handing off (before `draggedBottom`/`detach`);
+   *  `keyboardTop` = the shell's begin frame, if known. */
+  released?(keyboardTop: number | null): void;
 };
 let dragHandler: KeyboardDragHandler | null = null;
 
@@ -272,40 +303,50 @@ export function beginKeyboardDrag(): boolean {
 /** End a drag: in one frame the stand-in goes and the columns take its
  *  bottom as their height (no visible change), then go to `target` with
  *  `transition` (the keyboard's, or none). */
-function finishDrag(target: number, transition: string, keyboardTop?: number): void {
-  if (state.interactive) {
-    // The true geometry when the shell reports it (the keyboard's begin
-    // frame), else where the stand-in is.
-    const known =
-      typeof keyboardTop === "number" && Number.isFinite(keyboardTop) && keyboardTop > 0
-        ? Math.min(fullHeight(), keyboardTop)
-        : null;
-    const bottom = known ?? dragHandler?.draggedBottom() ?? null;
-    dragHandler?.detach();
-    for (const el of trackEls) {
-      const top = el.getBoundingClientRect().top;
-      const h =
-        bottom != null && Number.isFinite(bottom)
-          ? bottom - top
-          : fullHeight() - Math.max(0, latestOverlap) - top;
-      el.style.transition = "none";
-      el.style.height = `${Math.round(Math.max(0, h))}px`;
-    }
-    for (const el of padEls) el.style.height = "";
-    // The transition must start from the dragged height.
-    for (const el of trackEls) void el.offsetHeight;
-  }
+function finishDrag(
+  target: number,
+  keyboardTop?: number,
+  animate = false,
+  release = false
+): number | null {
+  if (!state.interactive) return null;
+  // The true geometry when the shell reports it (the keyboard's begin
+  // frame), else where the stand-in is.
+  const known =
+    typeof keyboardTop === "number" && Number.isFinite(keyboardTop) && keyboardTop > 0
+      ? Math.min(fullHeight(), keyboardTop)
+      : null;
+  if (release) dragHandler?.released?.(known);
+  const bottom = known ?? dragHandler?.draggedBottom() ?? null;
+  dragHandler?.detach();
+  for (const el of padEls) el.style.height = "";
+  let from: number | null = null;
   for (const el of trackEls) {
-    el.style.transition = transition;
-    el.style.height = `${target}px`;
+    const top = el.getBoundingClientRect().top;
+    const h =
+      bottom != null && Number.isFinite(bottom)
+        ? bottom - top
+        : fullHeight() - Math.max(0, latestOverlap) - top;
+    const dragged = Math.round(Math.max(0, h));
+    if (from == null) from = dragged;
+    // The final layout now (hide), or held at the dragged height while
+    // the keyboard springs back (show; the screen plays it by transform
+    // and the column takes `target` when the motion clears). No height
+    // transition: no per-frame layout.
+    el.style.transition = "";
+    el.style.height = `${animate && target < dragged ? dragged : target}px`;
   }
+  if (from == null && bottom != null && Number.isFinite(bottom)) {
+    from = Math.round(bottom - state.offsetTop);
+  }
+  return from;
 }
 
 /** The finger went back above the keyboard (it is fully up again) or
  *  let go without a Will*: hand everything back, unanimated. */
 export function endKeyboardDrag(): void {
   if (!state.interactive) return;
-  finishDrag(state.height, "");
+  finishDrag(state.height);
   set({ ...state, interactive: false });
 }
 
@@ -409,18 +450,19 @@ function keyboardWill(will: KeyboardWill): void {
   }
   // WillChangeFrame + WillShow/Hide both arrive for one animation.
   if (animating && target === state.height) return;
-  // After a drag the columns sit at the tracked height, not state.height.
   const wasInteractive = state.interactive;
-  // After a drag the composer is wherever the finger left it: always ease.
-  const from = wasInteractive ? Number.NaN : state.height;
   const lag =
     typeof will.at === "number" && Number.isFinite(will.at)
-      ? Math.min(ms, Math.max(0, Date.now() - will.at))
+      ? Math.min(ms, Math.max(0, nowEpochMs() - will.at))
       : 0;
   const remaining = ms - lag;
+  const animate = remaining > 0 && !reducedMotion();
+  // Released from a drag: the composer starts where the finger left it.
+  const dragged = wasInteractive ? finishDrag(target, will.fromTop, animate, true) : null;
+  const from = dragged ?? state.height;
   const motion: ViewportMotion | null =
-    remaining > 0 && target !== from && !reducedMotion()
-      ? { ms, easing: keyboardEasing(will.curve), elapsed: lag }
+    animate && target !== from
+      ? { ms, easing: keyboardEasing(will.curve), elapsed: lag, from, to: target }
       : null;
   resetScroll();
   animating = true;
@@ -430,9 +472,6 @@ function keyboardWill(will: KeyboardWill): void {
     animating = false;
     measure();
   }, remaining + SETTLE_SLOP_MS);
-  // Released: finish from where the finger left it (also a spring back
-  // to the old height, which React alone would not rewrite).
-  if (wasInteractive) finishDrag(target, viewportTransition(motion) ?? "", will.fromTop);
   set({ height: target, offsetTop: state.offsetTop, motion, interactive: false });
 }
 

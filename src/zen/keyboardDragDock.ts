@@ -206,6 +206,25 @@ export type DockParts = {
   padding?: () => number;
 };
 
+/** Optional watcher (the drag recorder, kbDragRecorder.ts): told about
+ *  attaches, corrections and the release; free when unset. */
+export type KeyboardDragObserver = {
+  attached(via: "touch" | "sample"): void;
+  corrected(diff: number, ms: number): void;
+  released(keyboardTop: number | null, copyBottom: number | null): void;
+  detached(): void;
+};
+let observer: KeyboardDragObserver | null = null;
+export function setKeyboardDragObserver(o: KeyboardDragObserver | null): void {
+  observer = o;
+}
+/** The composer's bottom (viewport px) now: the stand-in while attached,
+ *  else the real dock. Null with no Thread mounted. */
+let probe: (() => number | null) | null = null;
+export function composerBottomNow(): number | null {
+  return probe ? probe() : null;
+}
+
 /** Wire the switch for one Thread; returns the teardown. */
 export function installKeyboardDragDock(parts: DockParts): () => void {
   const padding = parts.padding ?? dismissPaddingPx;
@@ -246,9 +265,9 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
     if (!standIn) return;
     const ms = correctionMs(next - target);
     target = next;
-    standIn.style.transition = prefersReducedMotion()
-      ? "none"
-      : `transform ${ms}ms ${CORRECTION_EASE}`;
+    const still = prefersReducedMotion();
+    standIn.style.transition = still ? "none" : `transform ${ms}ms ${CORRECTION_EASE}`;
+    observer?.corrected(next, still ? 0 : ms);
     standIn.style.transform = next ? `translate3d(0, ${next}px, 0)` : "translate3d(0, 0, 0)";
   };
 
@@ -268,7 +287,7 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
     if (diff != null && Math.abs(diff - target) > CONFIRM_TOLERANCE_PX) easeTo(diff);
   };
 
-  const attach = (lead: number): boolean => {
+  const attach = (lead: number, via: "touch" | "sample" = "touch"): boolean => {
     if (standIn) return true;
     const dock = parts.dock();
     const layer = parts.layer();
@@ -291,12 +310,14 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
     dock.style.pointerEvents = "none";
     standIn = clone;
     hidden = dock;
+    observer?.attached(via);
     return true;
   };
 
   const detach = () => {
     clearGrace();
     resetSamples();
+    if (standIn) observer?.detached();
     standIn?.remove();
     standIn = null;
     if (hidden) {
@@ -308,7 +329,7 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
 
   const handler: KeyboardDragHandler = {
     keyboardMoved(moved) {
-      if (!standIn && iosKeyboardShell()) attach(Math.max(0, moved));
+      if (!standIn && iosKeyboardShell()) attach(Math.max(0, moved), "sample");
     },
     keyboardSample(sample) {
       if (!iosKeyboardShell()) return;
@@ -318,7 +339,7 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
         // onto the keyboard.
         const rest = keyboardTopNow();
         const moved = rest == null ? 0 : sample.top - rest;
-        if (moved < 0.5 || !attach(0)) return;
+        if (moved < 0.5 || !attach(0, "sample")) return;
       }
       useSample(sample);
     },
@@ -326,8 +347,17 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
       return standIn ? standIn.getBoundingClientRect().bottom : null;
     },
     detach,
+    released(keyboardTop) {
+      observer?.released(keyboardTop, standIn ? standIn.getBoundingClientRect().bottom : null);
+    },
   };
   setKeyboardDragHandler(handler);
+  const ownProbe = () => {
+    if (standIn) return standIn.getBoundingClientRect().bottom;
+    const dock = parts.dock();
+    return dock ? dock.getBoundingClientRect().bottom : null;
+  };
+  probe = ownProbe;
 
   const yOf = (e: TouchEvent): number | null => {
     const t = e.touches[0] ?? e.changedTouches[0];
@@ -377,5 +407,6 @@ export function installKeyboardDragDock(parts: DockParts): () => void {
     if (standIn) endKeyboardDrag();
     detach();
     setKeyboardDragHandler(null);
+    if (probe === ownProbe) probe = null;
   };
 }
