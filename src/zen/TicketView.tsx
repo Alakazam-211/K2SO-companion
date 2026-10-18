@@ -21,7 +21,7 @@ import { isMyAuthor } from "../lib/sessionAuthor";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { useFeedbackStore } from "../stores/feedback";
 import { BriefCard, BriefReader, useBriefDoc } from "./TicketBrief";
-import { GlassComposer } from "./GlassComposer";
+import { GlassComposer, settledHeight } from "./GlassComposer";
 import { NEW_BELOW_SETTLE_MS, threadBottomPadding } from "./ThreadPane";
 import {
   FOOTER_BLUR_FADE_PX,
@@ -35,8 +35,7 @@ import { ticketsScope, useTicketsScope } from "./zenScope";
 import { mountainTime } from "./threadModel";
 import { nearNewest, stickToNewest, type MessageAnchor } from "./threadScroll";
 import {
-  fontPxOf,
-  glideList,
+  flySourceOfField,
   prefersReducedMotion,
   rectOf,
   runSendFly,
@@ -510,7 +509,6 @@ export function TicketView({
     /** The newest row and its top before Send: how far the list moves. */
     anchor: MessageAnchor | null;
   } | null>(null);
-  const stopGlide = useRef<() => void>(() => {});
 
   const brief = entry?.state === "ready" ? entry.brief : null;
   const doc = useBriefDoc(brief);
@@ -611,7 +609,8 @@ export function TicketView({
     const dock = dockRef.current;
     if (!dock) return;
     const read = () => {
-      const px = dock.offsetHeight;
+      // Settled: a send's clear-collapse reports its end height.
+      const px = settledHeight(dock);
       if (px === dockPxRef.current) return;
       dockPxRef.current = px;
       setDockPx(px);
@@ -698,9 +697,7 @@ export function TicketView({
     const st = useFeedbackStore.getState();
     if (commentInFlight(st.commentOutbox, roomKey)) return;
     // Where the text sits now, before it is cleared (the FLIP "first").
-    const field = composerRef.current;
-    const rect = rectOf(field);
-    const fontPx = fontPxOf(field);
+    const flySource: FlySource | null = flySourceOfField(composerRef.current);
     // The newest row's top now: after the new row is in, how far it moved.
     const rowsNow = scrollerRef.current?.querySelectorAll<HTMLElement>("[data-ticket-msg]");
     const lastRow =
@@ -715,12 +712,12 @@ export function TicketView({
     const localId = st.queueComment({ roomKey, text: body, beforeCount: comments.length });
     const canFly =
       !prefersReducedMotion() &&
-      rect != null &&
+      flySource != null &&
       typeof Element !== "undefined" &&
       typeof Element.prototype.animate === "function";
     setFly({
       localId,
-      source: canFly ? { rect, fontPx: Number.isFinite(fontPx) ? fontPx : 17 } : null,
+      source: canFly ? flySource : null,
       fade: !canFly,
       anchor: canFly ? anchor : null,
     });
@@ -775,11 +772,13 @@ export function TicketView({
     // The cleared field shrank the dock in this commit, but its
     // ResizeObserver reports a frame later: take the new height now so the
     // slot is final before the bubble is aimed.
+    // A multi-line field eases shut over the flight: pad for its end.
     const dock = dockRef.current;
-    if (el && dock && dock.offsetHeight > 0 && dock.offsetHeight !== dockPxRef.current) {
-      dockPxRef.current = dock.offsetHeight;
-      el.style.paddingBottom = threadBottomPadding(dock.offsetHeight, 0);
-      setDockPx(dock.offsetHeight);
+    const dockNow = dock ? settledHeight(dock) : 0;
+    if (el && dock && dockNow > 0 && dockNow !== dockPxRef.current) {
+      dockPxRef.current = dockNow;
+      el.style.paddingBottom = threadBottomPadding(dockNow, 0);
+      setDockPx(dockNow);
     }
     if (el) stickToNewest(el);
     if (fly.fade || !fly.source) {
@@ -796,14 +795,13 @@ export function TicketView({
     const a = fly.anchor;
     const now = a && a.el.isConnected ? rectOf(a.el) : null;
     const dy = a && now ? a.top - now.top : 0;
-    stopGlide.current();
-    stopGlide.current =
-      el && dy >= 1 && dy <= el.clientHeight ? glideList(contentRef.current, dy) : () => {};
-    return runSendFly({ root, bubble, target, source: fly.source, done: clear });
+    const glide =
+      el && Math.abs(dy) >= 1 && Math.abs(dy) <= el.clientHeight
+        ? { content: contentRef.current, dy }
+        : undefined;
+    return runSendFly({ root, bubble, target, source: fly.source, done: clear, glide });
     // Once per send: a re-render mid-flight must not restart it.
   }, [flyKey]);
-
-  useEffect(() => () => stopGlide.current(), []);
 
   const setStatus = async (next: FeedbackStatus) => {
     setMenu(null);
@@ -1085,7 +1083,7 @@ export function TicketView({
                         </span>
                       ) : null}
                       <div
-                        className={`px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden${flying && fly?.fade ? " zen-bubble-fade" : ""}`}
+                        className={`px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden${flying && fly?.fade ? " zen-bubble-fade" : !flying && out?.status === "sending" ? " zen-bubble-breathe" : ""}`}
                         data-testid="ticket-bubble"
                         data-fly-target={hidden ? "true" : undefined}
                         style={{
@@ -1209,6 +1207,7 @@ export function TicketView({
                 attach={false}
                 sendReady={sendReady}
                 textareaRef={composerRef}
+                smoothClear
                 testIdPrefix="ticket-composer"
                 onFocus={() => {
                   const el = scrollerRef.current;

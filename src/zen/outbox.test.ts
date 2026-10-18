@@ -111,9 +111,11 @@ describe("outbox helpers", () => {
       { left: 200, top: 500, width: 80, height: 36 },
       17 / 14
     );
-    expect(f[0].transform).toBe("translate(-195px, 190px) scale(1.214)");
-    expect(f[1].transform).toBe("translate(0px, 0px) scale(1)");
-    expect(flyKeyframes({ left: 0, top: 0, width: 1, height: 1 }, { left: 0, top: 0, width: 1, height: 1 }, 9)[0].transform).toContain("scale(2.000)");
+    // Transform only (compositor work), translate3d + one uniform scale.
+    expect(f[0].transform).toBe("translate3d(-194.57px, 190.29px, 0px) scale(1.2143)");
+    expect(f[f.length - 1].transform).toBe("translate3d(0px, 0px, 0px) scale(1)");
+    expect(Object.keys(f[0]).sort()).toEqual(["offset", "transform"]);
+    expect(flyKeyframes({ left: 0, top: 0, width: 1, height: 1 }, { left: 0, top: 0, width: 1, height: 1 }, 9)[0].transform).toContain("scale(2)");
   });
 });
 

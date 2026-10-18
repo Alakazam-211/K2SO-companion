@@ -34,6 +34,7 @@ vi.mock("../stores/notifyPrefs", () => ({
 import { getThread, postThread, uploadFsBinary } from "../api/client";
 import { postProjectGroupMessage } from "../api/projectGroups";
 import { ThreadPane, threadBottomPadding } from "./ThreadPane";
+import { FLY_BLUE_AT, FLY_BLUE_FROM, FLY_CORRECT_MS, FLY_MS } from "./sendFly";
 import { useZenStore } from "./zenStore";
 import { RECENT_SENT_KEY, useRecentFirstStore } from "./recentFirst";
 import { fakeScope } from "../test/fakeScope";
@@ -81,9 +82,19 @@ function send() {
   fireEvent.submit(screen.getByTestId("composer-form"));
 }
 
+// The bubble's padding as the app's CSS draws it (Tailwind is not loaded
+// here): the fly reads it to find the bubble's text origin.
+const BUBBLE_PAD_CSS = ".px-3{padding-left:12px;padding-right:12px}.py-2{padding-top:8px;padding-bottom:8px}";
+
 beforeEach(() => {
   setZenScope(fakeScope({ id: "s1", username: "baden" }));
   openRoom();
+  if (!document.getElementById("bubble-pad")) {
+    const style = document.createElement("style");
+    style.id = "bubble-pad";
+    style.textContent = BUBBLE_PAD_CSS;
+    document.head.appendChild(style);
+  }
 });
 
 afterEach(() => {
@@ -331,19 +342,47 @@ describe("send animation (FLIP)", () => {
     render(<ThreadPane />);
     type("hello");
     send();
-    expect(animate).toHaveBeenCalledTimes(1);
-    const [frames, timing] = animate.mock.calls[0] as unknown as [Keyframe[], KeyframeAnimationOptions];
+    const clone = screen.getByTestId("send-fly-clone");
+    const calls = animate.mock.calls as unknown as [Keyframe[], KeyframeAnimationOptions][];
+    const ctx = animate.mock.contexts as unknown as Element[];
+    // One transform animation, on the clone.
+    const flyIdx = calls.findIndex(([f]) => f[0].transform != null);
+    expect(ctx[flyIdx]).toBe(clone);
+    expect(calls.filter(([f]) => f[0].transform != null)).toHaveLength(1);
+    const [frames, timing] = calls[flyIdx];
     // Bubble text origin (200+12, 500+8) onto the composer's (20, 700).
-    expect(frames[0].transform).toBe("translate(-192px, 192px) scale(1.000)");
-    expect(frames[1].transform).toBe("translate(0px, 0px) scale(1)");
-    expect(frames[1].backgroundColor).toBe("rgb(10, 132, 255)");
-    expect(timing.duration).toBeGreaterThanOrEqual(300);
-    expect(timing.duration).toBeLessThanOrEqual(380);
+    expect(frames[0].transform).toBe("translate3d(-192px, 192px, 0px) scale(1)");
+    expect(frames[frames.length - 1].transform).toBe("translate3d(0px, 0px, 0px) scale(1)");
+    expect(timing.duration).toBe(FLY_MS);
+    expect(FLY_MS).toBeGreaterThanOrEqual(450);
+    expect(FLY_MS).toBeLessThanOrEqual(520);
+    // The blue is its own layer: from a faint tint, in by blueAt, held.
+    const backdrop = clone.querySelector('[data-fly-part="backdrop"]')!;
+    const blueIdx = ctx.indexOf(backdrop);
+    expect(blueIdx).toBeGreaterThanOrEqual(0);
+    const blue = calls[blueIdx][0];
+    expect(blue.map((k) => k.offset)).toEqual([0, FLY_BLUE_AT, 1]);
+    expect(blue.map((k) => k.opacity)).toEqual([FLY_BLUE_FROM, 1, 1]);
+    expect(blue[0].easing).toBe("ease-out");
+    expect(FLY_BLUE_FROM).toBeGreaterThan(0);
+    // Compositor-only: transform and opacity, nothing else animates.
+    for (const [f] of calls) {
+      for (const k of f) {
+        for (const prop of Object.keys(k)) expect(["transform", "opacity", "offset", "easing"]).toContain(prop);
+      }
+    }
+    // Above the composer dock (z 2) and its footer blur; under the Zen
+    // column's floating header (z 10), like the real bubble.
+    expect(Number(clone.style.zIndex)).toBeGreaterThan(
+      Number(screen.getByTestId("thread-composer-dock").style.zIndex)
+    );
+    expect(Number(clone.style.zIndex)).toBeLessThan(10);
+    expect(clone.parentElement).toBe(screen.getByTestId("thread-scroller").parentElement);
     // In flight: the real bubble is laid out but hidden; one clone flies.
     expect(bubbles()).toHaveLength(1);
     expect(bubbles()[0].style.visibility).toBe("hidden");
     expect(screen.getAllByTestId("send-fly-clone")).toHaveLength(1);
-    act(() => anims[0].onfinish?.());
+    act(() => anims[flyIdx].onfinish?.());
     expect(bubbles()).toHaveLength(1);
     expect(bubbles()[0].style.visibility).toBe("");
     expect(screen.queryByTestId("send-fly-clone")).toBeNull();
@@ -574,8 +613,9 @@ describe("one element from Send to delivered (no snap, no jostle)", () => {
   });
 });
 
-describe("the fly lands exactly on the bubble", () => {
+describe("the takeoff and the landing", () => {
   type FakeAnim = { onfinish: (() => void) | null; oncancel: (() => void) | null; cancel: () => void };
+  type Call = { el: Element; frames: Keyframe[]; timing: KeyframeAnimationOptions; anim: FakeAnim };
   let frames: FrameRequestCallback[] = [];
   function runFrames() {
     const now = frames;
@@ -591,51 +631,33 @@ describe("the fly lands exactly on the bubble", () => {
     vi.spyOn(window, "cancelAnimationFrame").mockImplementation(() => {});
   });
 
-  function animateSpy() {
-    const calls: { el: Element; frames: Keyframe[]; anim: FakeAnim }[] = [];
-    Element.prototype.animate = vi.fn(function (this: Element, kf: Keyframe[]) {
+  function animateSpy(onCall?: (c: Call) => void) {
+    const calls: Call[] = [];
+    Element.prototype.animate = vi.fn(function (
+      this: Element,
+      kf: Keyframe[],
+      timing: KeyframeAnimationOptions
+    ) {
       const anim: FakeAnim = { onfinish: null, oncancel: null, cancel: vi.fn() };
-      calls.push({ el: this, frames: kf, anim });
+      const c = { el: this, frames: kf, timing, anim };
+      calls.push(c);
+      onCall?.(c);
       return anim;
     }) as never;
     return calls;
   }
+  const isClone = (el: Element) => el.getAttribute("data-testid") === "send-fly-clone";
+  const flyOf = (calls: Call[]) => calls.find((c) => isClone(c.el) && c.frames[0].transform != null)!;
+  const glideOf = (calls: Call[]) =>
+    calls.find((c) => c.el.getAttribute("data-testid") === "thread-content");
 
-  it("the clone follows the real bubble when the list moves mid-flight", () => {
-    const bubbleRect = { left: 200, top: 500, width: 80, height: 36 };
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
-      this: HTMLElement
-    ) {
-      const id = this.getAttribute("data-testid");
-      const r =
-        id === "composer-input"
-          ? { left: 20, top: 700, width: 300, height: 24 }
-          : id === "thread-bubble"
-            ? bubbleRect
-            : { left: 0, top: 0, width: 390, height: 844 };
-      return { ...r, right: r.left + r.width, bottom: r.top + r.height, x: r.left, y: r.top, toJSON: () => r };
-    });
-    const calls = animateSpy();
-    vi.mocked(postThread).mockReturnValue(new Promise(() => {}));
-    render(<ThreadPane />);
-    type("hello");
-    send();
-    const clone = screen.getByTestId("send-fly-clone");
-    expect(clone.style.top).toBe("500px");
-    // The composer / working drawer moves the list 30px up mid-flight.
-    bubbleRect.top = 470;
-    act(() => runFrames());
-    expect(clone.style.top).toBe("470px");
-    expect(clone.style.left).toBe("200px");
-    // Hand-off: the bubble is shown in the same step the clone goes.
-    const fly = calls.find((c) => c.el === clone)!;
-    fly.anim.onfinish?.();
-    expect(screen.queryByTestId("send-fly-clone")).toBeNull();
-    expect(bubbles()[0].style.visibility).toBe("");
-  });
-
-  it("the list glides up by the room the new row took, instead of jumping", () => {
-    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+  /** Geometry: the composer field, the sent bubble (`geo.bubbleTop`), an
+   *  older row whose top moves once the new row is in. */
+  const geo = { bubbleTop: 500, glided: false, olderBefore: 600, olderAfter: 540 };
+  function stubGeometry() {
+    geo.bubbleTop = 500;
+    geo.glided = false;
+    return vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
       this: HTMLElement
     ) {
       const id = this.getAttribute("data-testid");
@@ -644,31 +666,247 @@ describe("the fly lands exactly on the bubble", () => {
         id === "composer-input"
           ? { left: 20, top: 700, width: 300, height: 24 }
           : id === "thread-bubble"
-            ? { left: 200, top: 560, width: 80, height: 36 }
+            ? // A real browser applies a started glide's first frame to
+              // layout reads: model that (+60 while gliding).
+              { left: 200, top: geo.bubbleTop + (geo.glided ? 60 : 0), width: 80, height: 36 }
             : this.hasAttribute("data-thread-msg") && !this.hasAttribute("data-outgoing")
-              ? { left: 10, top: sentRow ? 540 : 600, width: 200, height: 40 }
+              ? { left: 10, top: sentRow ? geo.olderAfter : geo.olderBefore, width: 200, height: 40 }
               : { left: 0, top: 0, width: 390, height: 844 };
       return { ...r, right: r.left + r.width, bottom: r.top + r.height, x: r.left, y: r.top, toJSON: () => r };
     });
+  }
+  function withOlderRow() {
     openRoom({
       thread: [
         { id: "a1", seq: 1, text: "hi there", from: "appa", at: 1, mine: false, kind: "text", choice: null },
       ],
     });
-    const calls = animateSpy();
-    vi.mocked(postThread).mockReturnValue(new Promise(() => {}));
-    render(<ThreadPane />);
+  }
+  function tallScroller() {
     Object.defineProperty(screen.getByTestId("thread-scroller"), "clientHeight", {
       configurable: true,
       value: 700,
     });
+  }
+
+  it("no per-frame tracking: after takeoff nothing reads the bubble's rect or writes the clone's box", () => {
+    const rects = stubGeometry();
+    const calls = animateSpy();
+    vi.mocked(postThread).mockReturnValue(new Promise(() => {}));
+    render(<ThreadPane />);
     type("hello");
     send();
-    const glide = calls.find((c) => c.el === screen.getByTestId("thread-content"));
+    const clone = screen.getByTestId("send-fly-clone");
+    const box = clone.getAttribute("style");
+    const reads = () =>
+      rects.mock.contexts.filter((el) => (el as HTMLElement).getAttribute("data-testid") === "thread-bubble").length;
+    // Takeoff: the resting rect is read once.
+    expect(reads()).toBe(1);
+    // The list moves under it mid-flight; frames go by.
+    geo.bubbleTop = 470;
+    act(() => {
+      for (let i = 0; i < 10; i++) runFrames();
+    });
+    expect(reads()).toBe(1);
+    expect(clone.getAttribute("style")).toBe(box);
+    expect(clone.style.top).toBe("500px");
+    // Landing: one more read (the end correction check), then nothing.
+    act(() => flyOf(calls).anim.onfinish?.());
+    expect(reads()).toBe(2);
+    expect(screen.queryByTestId("send-fly-clone")).toBeNull();
+  });
+
+  it("aims at the bubble's glide-free resting rect; the glide and the fly share one curve", () => {
+    stubGeometry();
+    geo.olderBefore = 600;
+    geo.olderAfter = 540;
+    withOlderRow();
+    const calls = animateSpy((c) => {
+      if (c.el.getAttribute("data-testid") === "thread-content") geo.glided = true;
+    });
+    vi.mocked(postThread).mockReturnValue(new Promise(() => {}));
+    render(<ThreadPane />);
+    tallScroller();
+    type("hello");
+    send();
+    const glide = glideOf(calls)!;
+    const fly = flyOf(calls);
     expect(glide).toBeDefined();
-    expect(glide!.frames[0].transform).toBe("translateY(60px)");
-    expect(glide!.frames[1].transform).toBe("translateY(0px)");
-    expect(calls.filter((c) => c.el.getAttribute("data-testid") === "send-fly-clone")).toHaveLength(1);
+    // Measured before the glide started: 500, not 560.
+    expect(screen.getByTestId("send-fly-clone").style.top).toBe("500px");
+    expect(fly.frames[0].transform).toBe("translate3d(-192px, 192px, 0px) scale(1)");
+    // The list starts where it was (60px lower) and glides home.
+    expect(glide.frames[0].transform).toBe("translate3d(0px, 60px, 0px)");
+    expect(glide.frames[glide.frames.length - 1].transform).toBe("translate3d(0px, 0px, 0px)");
+    expect(screen.getByTestId("thread-content").style.willChange).toBe("transform");
+    // Same duration, easing and keyframe times: they arrive together.
+    expect(glide.timing.duration).toBe(fly.timing.duration);
+    expect(glide.timing.easing).toBe(fly.timing.easing);
+    expect(glide.frames.map((k) => k.offset)).toEqual(fly.frames.map((k) => k.offset));
+    // Same progress at every keyframe (no overshoot: never past the end).
+    const glideP = glide.frames.map((k) => 1 - parseFloat(/, ([-\d.]+)px/.exec(String(k.transform))![1]) / 60);
+    const flyP = fly.frames.map((k) => 1 - parseFloat(/, ([-\d.]+)px/.exec(String(k.transform))![1]) / 192);
+    glideP.forEach((p, i) => expect(p).toBeCloseTo(flyP[i], 2));
+    glideP.forEach((p) => expect(p).toBeLessThanOrEqual(1));
+    // Started in the same frame, after the clone was placed.
+    expect(calls.indexOf(glide)).toBeLessThan(calls.indexOf(fly));
+    expect(calls.slice(0, calls.indexOf(glide)).some((c) => isClone(c.el))).toBe(false);
+    // will-change only while it runs.
+    act(() => glide.anim.onfinish?.());
+    expect(screen.getByTestId("thread-content").style.willChange).toBe("");
+  });
+
+  it("a multi-line composer that shrank more than the row took: the list glides down instead of jumping", () => {
+    stubGeometry();
+    geo.olderBefore = 600;
+    geo.olderAfter = 640;
+    withOlderRow();
+    const calls = animateSpy();
+    vi.mocked(postThread).mockReturnValue(new Promise(() => {}));
+    render(<ThreadPane />);
+    tallScroller();
+    type("one\ntwo\nthree");
+    send();
+    expect(glideOf(calls)!.frames[0].transform).toBe("translate3d(0px, -40px, 0px)");
+  });
+
+  it("same-frame hand-off: the field clears in the very commit the clone mounts, on the composer's text", () => {
+    stubGeometry();
+    let commits = 0;
+    let clearedAt = -1;
+    let flewAt = -1;
+    let seen: { value: string; ghost: string | null; hidden: string | undefined } | null = null;
+    animateSpy((c) => {
+      if (!isClone(c.el) || c.frames[0].transform == null) return;
+      flewAt = commits;
+      seen = {
+        value: input().value,
+        ghost: c.el.querySelector('[data-fly-part="ghost"]')?.textContent ?? null,
+        hidden: bubbles()[0]?.style.visibility,
+      };
+    });
+    vi.mocked(postThread).mockReturnValue(new Promise(() => {}));
+    render(
+      <Profiler id="pane" onRender={() => commits++}>
+        <ThreadPane />
+      </Profiler>
+    );
+    type("hello");
+    const field = input();
+    // The field's text box: inside its padding.
+    field.style.paddingTop = "4px";
+    field.style.paddingLeft = "8px";
+    field.style.color = "rgb(228, 228, 231)";
+    const proto = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "value")!;
+    Object.defineProperty(field, "value", {
+      configurable: true,
+      get() {
+        return proto.get!.call(this);
+      },
+      set(v: string) {
+        if (v === "" && clearedAt < 0) clearedAt = commits;
+        proto.set!.call(this, v);
+      },
+    });
+    send();
+    expect(seen).toEqual({ value: "", ghost: "hello", hidden: "hidden" });
+    expect(clearedAt).toBeGreaterThanOrEqual(0);
+    expect(flewAt).toBe(clearedAt);
+    // Frame 0 is the composer text: its origin (20+8, 700+4), its colour.
+    const clone = screen.getByTestId("send-fly-clone");
+    const ghostText = clone.querySelector<HTMLElement>('[data-fly-part="ghost"] > div')!;
+    expect(ghostText.style.color).toBe("rgb(228, 228, 231)");
+    expect(ghostText.style.whiteSpace).not.toBe("");
+    const ghost = clone.querySelector<HTMLElement>('[data-fly-part="ghost"]')!;
+    expect(ghost.style.left).toBe("12px");
+    expect(ghost.style.top).toBe("8px");
+    const calls = (Element.prototype.animate as unknown as { mock: { calls: [Keyframe[]][]; contexts: Element[] } }).mock;
+    const i = calls.contexts.findIndex((el, n) => isClone(el) && calls.calls[n][0][0].transform != null);
+    expect(calls.calls[i][0][0].transform).toBe("translate3d(-184px, 196px, 0px) scale(1)");
+    // The composer's look hands over to the bubble's text in a few frames.
+    const body = clone.querySelector('[data-fly-part="body"]')!;
+    const bodyFade = calls.calls[calls.contexts.indexOf(body)][0];
+    expect(bodyFade[0].opacity).toBe(0);
+    expect(Number(bodyFade[1].offset)).toBeLessThanOrEqual(0.2);
+    field.removeAttribute("style");
+    delete (field as unknown as { value?: string }).value;
+  });
+
+  it("lands without a correction when the bubble stayed put", () => {
+    stubGeometry();
+    const calls = animateSpy();
+    vi.mocked(postThread).mockReturnValue(new Promise(() => {}));
+    render(<ThreadPane />);
+    type("hello");
+    send();
+    const bubble = bubbles()[0];
+    act(() => flyOf(calls).anim.onfinish?.());
+    expect(calls.filter((c) => c.el === bubble)).toHaveLength(0);
+    expect(bubble.style.visibility).toBe("");
+  });
+
+  it("the bubble moved mid-flight (the drawer opened): one short slide from where the clone sat", () => {
+    stubGeometry();
+    const calls = animateSpy();
+    vi.mocked(postThread).mockReturnValue(new Promise(() => {}));
+    render(<ThreadPane />);
+    type("hello");
+    send();
+    const bubble = bubbles()[0];
+    geo.bubbleTop = 470;
+    act(() => flyOf(calls).anim.onfinish?.());
+    const fix = calls.filter((c) => c.el === bubble);
+    expect(fix).toHaveLength(1);
+    expect(fix[0].frames.map((k) => k.transform)).toEqual([
+      "translate3d(0px, 30px, 0px)",
+      "translate3d(0px, 0px, 0px)",
+    ]);
+    expect(fix[0].timing.duration).toBe(FLY_CORRECT_MS);
+    expect(screen.queryByTestId("send-fly-clone")).toBeNull();
+  });
+
+  it("delivered mid-flight: no polling; it brightens from the clone's dim after the reveal", async () => {
+    stubGeometry();
+    const calls = animateSpy();
+    vi.mocked(postThread).mockResolvedValue({ ok: true, data: { id: "n1", seq: 5 } });
+    vi.mocked(getThread).mockResolvedValue({
+      ok: true,
+      data: { items: [wireItem("n1", 5, "hello")] },
+    });
+    render(<ThreadPane />);
+    type("hello");
+    send();
+    const clone = screen.getByTestId("send-fly-clone");
+    // The clone dims to the "Sending…" bubble with the blue.
+    const dim = calls.find((c) => c.el === clone && c.frames[0].opacity != null)!;
+    expect(dim.frames.map((k) => k.opacity)).toEqual([1, 0.7, 0.7]);
+    await waitFor(() => expect(useZenStore.getState().outbox).toEqual([]));
+    const bubble = bubbles()[0];
+    expect(bubble.style.opacity).toBe("1");
+    act(() => flyOf(calls).anim.onfinish?.());
+    const brighten = calls.filter((c) => c.el === bubble);
+    expect(brighten).toHaveLength(1);
+    expect(brighten[0].frames).toEqual([{ opacity: 0.7 }, { opacity: 1 }]);
+  });
+
+  it("sending after it lands: a gentle breathe (not while flying), gone once delivered", async () => {
+    stubGeometry();
+    const calls = animateSpy();
+    const post = deferred<{ ok: boolean; data: { id: string; seq: number } }>();
+    vi.mocked(postThread).mockReturnValue(post.promise as never);
+    vi.mocked(getThread).mockResolvedValue({
+      ok: true,
+      data: { items: [wireItem("n1", 5, "hello")] },
+    });
+    render(<ThreadPane />);
+    type("hello");
+    send();
+    expect(bubbles()[0].className).not.toContain("zen-bubble-breathe");
+    act(() => flyOf(calls).anim.onfinish?.());
+    expect(bubbles()[0].className).toContain("zen-bubble-breathe");
+    await act(async () => post.resolve({ ok: true, data: { id: "n1", seq: 5 } }));
+    await waitFor(() => expect(bubbles()[0].className).not.toContain("zen-bubble-breathe"));
+    expect(bubbles()[0].style.opacity).toBe("1");
   });
 
   it("the composer's shrink is applied before the bubble is aimed (no ease under it)", () => {

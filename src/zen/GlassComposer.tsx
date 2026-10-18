@@ -19,6 +19,7 @@ import { zenTextPx } from "./zenFont";
 import { PlusGlyph } from "./PlusGlyph";
 import { sidecarSuffix } from "./sidecarRows";
 import { AttachMenu, type AttachChoice } from "./AttachMenu";
+import { alongCurve, curveEasing, flyMotion, prefersReducedMotion } from "./sendFly";
 import {
   isUnsupportedPick,
   nativePick,
@@ -74,6 +75,24 @@ export function fitComposerField(field: HTMLTextAreaElement, bar: HTMLElement | 
   field.style.height = `${h}px`;
   if (bar) bar.style.minHeight = held;
   return h;
+}
+
+/** Set on the textarea while a send's clear eases it shut: its final
+ *  height (px). `settledHeight` reads past the animation with it. */
+export const SETTLED_HEIGHT_ATTR = "data-settled-height";
+
+/** A composer block's height once any clear-collapse inside it is done:
+ *  what the list's bottom padding must be NOW, so the sent bubble is
+ *  aimed at its final slot while the field still eases down over it. */
+export function settledHeight(block: HTMLElement): number {
+  const fields = block.querySelectorAll<HTMLElement>(`[${SETTLED_HEIGHT_ATTR}]`);
+  if (!fields.length) return block.offsetHeight;
+  let h = block.getBoundingClientRect().height;
+  fields.forEach((f) => {
+    const settled = parseFloat(f.getAttribute(SETTLED_HEIGHT_ATTR) ?? "");
+    if (Number.isFinite(settled)) h -= Math.max(0, f.getBoundingClientRect().height - settled);
+  });
+  return Math.round(h);
 }
 
 /** The field's corner radius (px). The drawer's geometry derives from it. */
@@ -135,8 +154,12 @@ export interface GlassComposerProps {
   drawerRoom?: number;
   /** The whole composer block's height (px): rows above the field,
    *  drawer room, the field, and the bar's safe-area / keyboard gap.
-   *  Reported on mount and on every resize (ResizeObserver). */
+   *  Reported on mount and on every resize (ResizeObserver), settled
+   *  (a clear-collapse in progress reports its end height). */
   onBlockHeight?: (px: number) => void;
+  /** A send clearing a multi-line draft: the field eases shut on the send
+   *  flight's curve instead of snapping (sendFly's flyMotion). */
+  smoothClear?: boolean;
 }
 
 /** The Zen glass composer: one full-width rounded tile field holding a
@@ -164,6 +187,7 @@ export function GlassComposer({
   drawer,
   drawerRoom = 0,
   onBlockHeight,
+  smoothClear = false,
 }: GlassComposerProps) {
   const ownRef = useRef<HTMLTextAreaElement>(null);
   const barRef = useRef<HTMLDivElement>(null);
@@ -258,11 +282,57 @@ export function GlassComposer({
     latest.current.onChange(appendRef(latest.current.value, pendingInsert.text));
   }, [pendingInsert]);
 
+  // The clear-collapse (smoothClear) in flight, and the last value fitted.
+  const collapse = useRef<Animation | null>(null);
+  const fittedValue = useRef(value);
   useLayoutEffect(() => {
     const el = ref.current;
     if (!el) return;
-    fitComposerField(el, barRef.current);
-  }, [value, ref]);
+    // Typing again mid-collapse: measure the real field, not the ease.
+    if (collapse.current) {
+      const anim = collapse.current;
+      collapse.current = null;
+      anim.cancel();
+    }
+    el.removeAttribute(SETTLED_HEIGHT_ATTR);
+    const before = parseFloat(el.style.height);
+    const cleared = value === "" && fittedValue.current !== "";
+    fittedValue.current = value;
+    const h = fitComposerField(el, barRef.current);
+    if (
+      !smoothClear ||
+      !cleared ||
+      !(before > h + 0.5) ||
+      typeof el.animate !== "function" ||
+      prefersReducedMotion()
+    ) {
+      return;
+    }
+    const motion = flyMotion();
+    if (!motion.collapse) return;
+    // Same duration and curve as the bubble leaving it. Its parent reads
+    // the end height through `settledHeight` (the list pads for it now).
+    el.setAttribute(SETTLED_HEIGHT_ATTR, String(h));
+    let anim: Animation;
+    try {
+      anim = el.animate(
+        alongCurve(motion, (p) => ({ height: `${Math.round((before + (h - before) * p) * 100) / 100}px` })),
+        { duration: motion.ms, easing: curveEasing(motion) }
+      );
+    } catch {
+      el.removeAttribute(SETTLED_HEIGHT_ATTR);
+      return;
+    }
+    collapse.current = anim;
+    const end = () => {
+      if (collapse.current !== anim) return;
+      collapse.current = null;
+      el.removeAttribute(SETTLED_HEIGHT_ATTR);
+    };
+    anim.onfinish = end;
+    anim.oncancel = end;
+  }, [value, ref, smoothClear]);
+  useEffect(() => () => collapse.current?.cancel(), []);
 
   const blockCb = useRef(onBlockHeight);
   blockCb.current = onBlockHeight;
@@ -272,7 +342,7 @@ export function GlassComposer({
     if (!bar || !watchBlock) return;
     let last = -1;
     const report = () => {
-      const px = bar.offsetHeight;
+      const px = settledHeight(bar);
       if (px === last) return;
       last = px;
       blockCb.current?.(px);
