@@ -3,7 +3,8 @@
 Default permissions for the k2-push plugin: availability probe,
 permission request, token fetch, launch-tap read, the notification
 avatar cache (Communication Notifications), the app-icon badge
-totals and their delivery diagnostics, and the event listener
+totals and their delivery diagnostics, the composer's attach
+pickers (photo library, document picker), and the event listener
 plumbing for `tap`/`tokenRefresh`/`badgeTotals`.
 
 #### This default permission set includes the following:
@@ -17,6 +18,8 @@ plumbing for `tap`/`tokenRefresh`/`badgeTotals`.
 - `allow-clear-server-totals`
 - `allow-get-badge-totals`
 - `allow-get-badge-diagnostics`
+- `allow-pick-media`
+- `allow-pick-documents`
 - `allow-register-listener`
 - `allow-remove-listener`
 
@@ -207,6 +210,58 @@ Enables the is_available command without any pre-configured scope.
 <td>
 
 Denies the is_available command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:allow-pick-documents`
+
+</td>
+<td>
+
+Enables the pick_documents command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:deny-pick-documents`
+
+</td>
+<td>
+
+Denies the pick_documents command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:allow-pick-media`
+
+</td>
+<td>
+
+Enables the pick_media command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:deny-pick-media`
+
+</td>
+<td>
+
+Denies the pick_media command without any pre-configured scope.
 
 </td>
 </tr>

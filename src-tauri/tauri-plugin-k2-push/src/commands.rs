@@ -68,3 +68,34 @@ pub(crate) async fn get_badge_diagnostics<R: Runtime>(
 ) -> Result<BadgeDiagnosticsResponse> {
     app.k2_push().get_badge_diagnostics()
 }
+
+#[command]
+pub(crate) async fn pick_media<R: Runtime>(
+    app: AppHandle<R>,
+    limit: Option<u32>,
+    max_bytes: Option<u64>,
+    max_total_bytes: Option<u64>,
+) -> Result<PickResponse> {
+    app.k2_push()
+        .pick_media(PickRequest {
+            limit,
+            max_bytes,
+            max_total_bytes,
+        })
+        .await
+}
+
+#[command]
+pub(crate) async fn pick_documents<R: Runtime>(
+    app: AppHandle<R>,
+    max_bytes: Option<u64>,
+    max_total_bytes: Option<u64>,
+) -> Result<PickResponse> {
+    app.k2_push()
+        .pick_documents(PickRequest {
+            limit: None,
+            max_bytes,
+            max_total_bytes,
+        })
+        .await
+}

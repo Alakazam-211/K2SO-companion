@@ -216,6 +216,20 @@ class K2PushPlugin(private val activity: Activity) : Plugin(activity) {
     invoke.resolve(res)
   }
 
+  // ── Attach pickers (iOS-only for now) ────────────────────────────────
+  // TODO(Jeremie): native photo / document pickers. The composer's attach
+  // menu uses the web file input when these reject `unsupported`.
+
+  @Command
+  fun pickMedia(invoke: Invoke) {
+    invoke.reject("unsupported: native attach pickers are iOS-only")
+  }
+
+  @Command
+  fun pickDocuments(invoke: Invoke) {
+    invoke.reject("unsupported: native attach pickers are iOS-only")
+  }
+
   // ── Helpers ──────────────────────────────────────────────────────────
 
   /** The dormancy gate: no initialized default FirebaseApp (no

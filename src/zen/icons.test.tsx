@@ -3,12 +3,15 @@ import { afterEach, describe, expect, it } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import {
   AgentIcon,
+  CameraIcon,
   CheckIcon,
   CogIcon,
   FileIcon,
+  FolderIcon,
   GaugeIcon,
   HomeIcon,
   PencilIcon,
+  PhotoIcon,
   SearchIcon,
   TerminalIcon,
 } from "./icons";
@@ -41,6 +44,9 @@ const ALL = {
   search: SearchIcon,
   check: CheckIcon,
   gauge: GaugeIcon,
+  photo: PhotoIcon,
+  camera: CameraIcon,
+  folder: FolderIcon,
 };
 
 describe("shared icons", () => {

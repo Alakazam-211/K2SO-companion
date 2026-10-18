@@ -9,6 +9,10 @@ pub enum Error {
     /// on `is_available()` first; this is the graceful fallback.
     #[error("push notifications unavailable: {0}")]
     Unavailable(String),
+    /// A native feature this platform does not have (the attach pickers
+    /// on desktop / Android). JS falls back to the web file input.
+    #[error("unsupported: {0}")]
+    Unsupported(String),
     /// The native (Swift/Kotlin) layer rejected the call.
     #[cfg(mobile)]
     #[error(transparent)]

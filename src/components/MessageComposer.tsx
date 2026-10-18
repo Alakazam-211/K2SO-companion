@@ -44,6 +44,8 @@ export interface MessageComposerProps {
   /** Zen only: files picked from `＋` (or pasted). Without it `＋` is
    *  disabled. */
   onAttach?: (files: File[]) => void;
+  /** Zen only: a pick left files out or failed (GlassComposer). */
+  onAttachError?: (message: string) => void;
   /** Zen only: hard-disable `＋` (e.g. an upload is in flight). */
   attachDisabled?: boolean;
   /** Zen only: GlassComposer test-id prefix. */
@@ -66,6 +68,7 @@ export function MessageComposer({
   lift,
   variant = "default",
   onAttach,
+  onAttachError,
   attachDisabled,
   testIdPrefix,
   onFocus,
@@ -80,6 +83,7 @@ export function MessageComposer({
           if (sendReady) onSend();
         }}
         onAttach={onAttach}
+        onAttachError={onAttachError}
         placeholder={placeholder}
         canSend
         sendReady={sendReady}

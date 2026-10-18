@@ -281,6 +281,27 @@ html, body, #root {
   border-radius: 22px;
 }
 
+/* Composer attach menu (AttachMenu.tsx): grows out of the ＋ corner. */
+.k2-attach-menu {
+  transform-origin: 19px calc(100% + 27px);
+  animation: k2-attach-menu-in 180ms cubic-bezier(0.2, 0.9, 0.3, 1.05) both;
+}
+@keyframes k2-attach-menu-in {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .k2-attach-menu {
+    animation: k2-fade-in 120ms ease-out both;
+  }
+}
+
 /* Zen chat header — iMessage progressive blur. The header floats over
    the thread from y=0; blur and darkness are strongest under the status
    bar and fade to nothing at the header's bottom edge. Stacked layers,

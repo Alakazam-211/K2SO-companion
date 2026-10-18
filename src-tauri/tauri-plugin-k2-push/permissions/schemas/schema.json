@@ -379,6 +379,30 @@
           "markdownDescription": "Denies the is_available command without any pre-configured scope."
         },
         {
+          "description": "Enables the pick_documents command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pick-documents",
+          "markdownDescription": "Enables the pick_documents command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the pick_documents command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pick-documents",
+          "markdownDescription": "Denies the pick_documents command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the pick_media command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-pick-media",
+          "markdownDescription": "Enables the pick_media command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the pick_media command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-pick-media",
+          "markdownDescription": "Denies the pick_media command without any pre-configured scope."
+        },
+        {
           "description": "Enables the register_listener command without any pre-configured scope.",
           "type": "string",
           "const": "allow-register-listener",
@@ -427,10 +451,10 @@
           "markdownDescription": "Denies the set_server_totals command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), the app-icon badge\ntotals and their delivery diagnostics, and the event listener\nplumbing for `tap`/`tokenRefresh`/`badgeTotals`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-set-server-totals`\n- `allow-clear-server-totals`\n- `allow-get-badge-totals`\n- `allow-get-badge-diagnostics`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), the app-icon badge\ntotals and their delivery diagnostics, the composer's attach\npickers (photo library, document picker), and the event listener\nplumbing for `tap`/`tokenRefresh`/`badgeTotals`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-set-server-totals`\n- `allow-clear-server-totals`\n- `allow-get-badge-totals`\n- `allow-get-badge-diagnostics`\n- `allow-pick-media`\n- `allow-pick-documents`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), the app-icon badge\ntotals and their delivery diagnostics, and the event listener\nplumbing for `tap`/`tokenRefresh`/`badgeTotals`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-set-server-totals`\n- `allow-clear-server-totals`\n- `allow-get-badge-totals`\n- `allow-get-badge-diagnostics`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), the app-icon badge\ntotals and their delivery diagnostics, the composer's attach\npickers (photo library, document picker), and the event listener\nplumbing for `tap`/`tokenRefresh`/`badgeTotals`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-set-server-totals`\n- `allow-clear-server-totals`\n- `allow-get-badge-totals`\n- `allow-get-badge-diagnostics`\n- `allow-pick-media`\n- `allow-pick-documents`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }

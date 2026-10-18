@@ -21,7 +21,10 @@ export type IconName =
   | "file"
   | "search"
   | "check"
-  | "gauge";
+  | "gauge"
+  | "photo"
+  | "camera"
+  | "folder";
 
 function Icon({
   name,
@@ -143,6 +146,37 @@ export function GaugeIcon(props: IconProps) {
       <path d="M4.5 18.5a9 9 0 1 1 15 0" />
       <path d="m12 13.5 4-4.5" />
       <circle cx="12" cy="14.5" r="1.25" />
+    </Icon>
+  );
+}
+
+/** A framed landscape (SF "photo"): the attach menu's Photo Library. */
+export function PhotoIcon(props: IconProps) {
+  return (
+    <Icon name="photo" {...props}>
+      <rect x="3" y="4.5" width="18" height="15" rx="2.5" />
+      <circle cx="8.5" cy="9.5" r="1.5" />
+      <path d="m21 15.5-5-5-9.5 9" />
+    </Icon>
+  );
+}
+
+/** Camera body and lens (SF "camera"): the attach menu's Take Photo or
+ *  Video. */
+export function CameraIcon(props: IconProps) {
+  return (
+    <Icon name="camera" {...props}>
+      <path d="M3 8.5A2.5 2.5 0 0 1 5.5 6h2l1.5-2h6l1.5 2h2A2.5 2.5 0 0 1 21 8.5v9a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z" />
+      <circle cx="12" cy="13" r="3.5" />
+    </Icon>
+  );
+}
+
+/** Folder (SF "folder"): the attach menu's Choose Files. */
+export function FolderIcon(props: IconProps) {
+  return (
+    <Icon name="folder" {...props}>
+      <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.6l2 2.2h7.4A2.5 2.5 0 0 1 21 9.7v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z" />
     </Icon>
   );
 }

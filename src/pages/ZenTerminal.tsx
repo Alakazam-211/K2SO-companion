@@ -531,6 +531,7 @@ export function ZenTerminal() {
             onSend={handleSend}
             busy={sendBusy || uploading}
             onAttach={canAttach ? handleAttach : undefined}
+            onAttachError={setSendError}
             attachDisabled={uploading || sendBusy}
             placeholder={composerPlaceholder({
               name: agentName,
