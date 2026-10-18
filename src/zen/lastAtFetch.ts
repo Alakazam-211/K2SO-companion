@@ -11,6 +11,7 @@ import { fetchProjectGroupMessages } from "../api/projectGroups";
 import { scopeFor, serverMemory, type ServerScope } from "../api/scope";
 import type { RowLast } from "./rowPreview";
 import { isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
+import { noteThreadAddr } from "./unreadStore";
 
 // Multi-server (MA6): every key is `<serverId>|t:<addr>` or
 // `<serverId>|g:<groupId>`, so the same addr on two servers is two rows,
@@ -146,6 +147,8 @@ export async function fetchLastAt(
     }
     const r = await getThread(scope, id, 1);
     if (!r.ok) return null;
+    // Unread rows match by conversation (K2 0.46.1).
+    noteThreadAddr(scope.id, id, r.data?.conversation_id);
     return threadLastAt(r.data?.items);
   } finally {
     release(scope.id);
@@ -261,6 +264,8 @@ export async function fetchThreadLasts(
       for (const item of items) {
         if (item && typeof item.addr === "string" && chunk.includes(item.addr)) {
           lasts.set(item.addr, rowLastFromLatest(item, username));
+          // Unread rows match by conversation (K2 0.46.1).
+          if (!item.error) noteThreadAddr(scope.id, item.addr, item.conversationId);
         }
       }
     }
@@ -270,7 +275,10 @@ export async function fetchThreadLasts(
       await acquire(scope.id);
       try {
         const r = await getThread(scope, addr, 1);
-        if (r.ok) lasts.set(addr, threadRowLast(r.data?.items, addr, username));
+        if (r.ok) {
+          lasts.set(addr, threadRowLast(r.data?.items, addr, username));
+          noteThreadAddr(scope.id, addr, r.data?.conversation_id);
+        }
       } catch {
         /* keep what is on screen */
       } finally {

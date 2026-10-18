@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { ServerUnreadPill } from "./UnreadMarks";
 import { connectServer } from "../lib/revive";
 import { hostLabel, useServersStore, type RecoveryState, type ServerEntry } from "../stores/servers";
 import { GlassSearchBar } from "./GlassSearchBar";
@@ -436,6 +437,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
               <span className="flex-1 min-w-0">
                 <span className="flex items-center gap-2">
                   <span className="truncate text-[16px] font-semibold">{labelOf(pinned)}</span>
+                  <ServerUnreadPill serverId={pinned.id} />
                   <span
                     className="shrink-0 flex items-center text-[11px] uppercase"
                     style={{
@@ -563,7 +565,10 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                     data-testid={isConnecting ? "overlay-server-connecting" : undefined}
                   />
                   <span className="flex-1 min-w-0">
-                    <span className="truncate block text-[16px] font-semibold">{label}</span>
+                    <span className="flex items-center min-w-0" style={{ gap: 8 }}>
+                      <span className="truncate block text-[16px] font-semibold">{label}</span>
+                      <ServerUnreadPill serverId={server.id} />
+                    </span>
                     <span
                       className="block text-[14px] truncate"
                       style={{ color: "#8e8e93", lineHeight: 1.3 }}

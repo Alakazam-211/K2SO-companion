@@ -15,6 +15,10 @@ type Drag = {
   x: number;
   y: number;
   lifted: boolean;
+  /** `listMenu` was on at press time. */
+  rowMenu?: boolean;
+  /** A list row that cannot lift (sidecar): a still hold opens its menu. */
+  menuOnly?: boolean;
   timer: ReturnType<typeof setTimeout> | null;
   /** Where the pressed pin sits, for placing its menu. */
   rect: PinRect | null;
@@ -22,13 +26,18 @@ type Drag = {
 
 export type PinRect = { left: number; top: number; right: number; bottom: number; width: number };
 
-/** The long-press menu on a pin avatar (Open / Unpin). */
-export type PinMenu = { id: string; rect: PinRect | null };
+/** The long-press menu on a pin avatar (Open / Unpin), or — with
+ *  `listMenu` on — on a list row (`from: "list"`: Open, Mute). */
+export type PinMenu = { id: string; rect: PinRect | null; from?: "pin" | "list" };
 
 export function usePinDrag(
   pinsRef: { current: HTMLElement | null },
   /** Server pins are per workspace: a sidecar / group row cannot lift. */
-  canPin: (id: string) => boolean = () => true
+  canPin: (id: string) => boolean = () => true,
+  /** Rows get a hold menu too (K2 0.46.1 Mute): a lifted row released
+   *  where it was picked up, or a still hold on a row that cannot lift.
+   *  Read at press time; off = today's gestures exactly. */
+  listMenu: () => boolean = () => false
 ) {
   const pinChat = useZenStore((s) => s.pinChat);
   const movePin = useZenStore((s) => s.movePin);
@@ -84,10 +93,10 @@ export function usePinDrag(
   /** A still hold on a pin: open its menu. The release's click is eaten. */
   const openMenu = () => {
     const d = dragRef.current;
-    if (!d || d.lifted || d.from !== "pin") return;
+    if (!d || d.lifted || (d.from !== "pin" && !d.menuOnly)) return;
     d.timer = null;
     skipClick.current = true;
-    setMenu({ id: d.id, rect: d.rect });
+    setMenu({ id: d.id, rect: d.rect, from: d.from });
   };
 
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -104,11 +113,13 @@ export function usePinDrag(
     if (pin?.dataset.placeholder === "1") return;
     const id = node.dataset.pinId;
     if (!id) return;
-    if (!pin && !canPin(id)) return;
+    const rowMenu = !pin && listMenu();
+    const menuOnly = !pin && !canPin(id);
+    if (menuOnly && !rowMenu) return;
     e.currentTarget.setPointerCapture(e.pointerId);
     let rect: PinRect | null = null;
-    if (pin) {
-      const r = pin.getBoundingClientRect();
+    if (pin || rowMenu) {
+      const r = node.getBoundingClientRect();
       rect = { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width };
     }
     // A list row lifts on a short hold (the swipe and the pan need the
@@ -119,9 +130,12 @@ export function usePinDrag(
       x: e.clientX,
       y: e.clientY,
       lifted: false,
-      timer: pin
-        ? setTimeout(openMenu, PIN_MENU_MS)
-        : setTimeout(() => liftAt(e.clientX, e.clientY), PIN_HOLD_MS),
+      menuOnly,
+      rowMenu,
+      timer:
+        pin || menuOnly
+          ? setTimeout(openMenu, PIN_MENU_MS)
+          : setTimeout(() => liftAt(e.clientX, e.clientY), PIN_HOLD_MS),
       rect,
     };
   };
@@ -133,7 +147,7 @@ export function usePinDrag(
     const dy = e.clientY - d.y;
     if (!d.lifted) {
       if (Math.hypot(dx, dy) > PIN_LIFT_PX) {
-        if (d.from === "list" && isListPan(dx, dy)) {
+        if (d.menuOnly || (d.from === "list" && isListPan(dx, dy))) {
           cancel();
           return;
         }
@@ -153,7 +167,16 @@ export function usePinDrag(
     if (!d) return;
     const wasLifted = d.lifted;
     const { id, from } = d;
-    if (wasLifted) {
+    // A row lifted and let go where it was picked up: its menu.
+    const heldInPlace =
+      wasLifted &&
+      from === "list" &&
+      !!d.rowMenu &&
+      Math.hypot(e.clientX - d.x, e.clientY - d.y) <= PIN_LIFT_PX;
+    if (heldInPlace) {
+      skipClick.current = true;
+      setMenu({ id, rect: d.rect, from: "list" });
+    } else if (wasLifted) {
       const zone = dropIsPins(
         e.clientX,
         e.clientY,

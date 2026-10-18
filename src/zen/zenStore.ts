@@ -407,6 +407,7 @@ function groupMessagesToThread(
     mine: isMine(m.author, username),
     kind: "text",
     choice: null,
+    ...(typeof m.seq === "number" && Number.isFinite(m.seq) ? { readSeq: m.seq } : null),
   }));
 }
 

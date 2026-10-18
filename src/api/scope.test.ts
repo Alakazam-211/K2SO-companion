@@ -136,8 +136,9 @@ describe("activeScope shim (MS5)", () => {
 });
 
 describe("feature memory (MS31 / MA15)", () => {
-  it("lists all 16 daemon features (0.46.1 adds push-previews-v1, push-environment-v1)", () => {
-    expect(DAEMON_FEATURES).toHaveLength(16);
+  it("lists all 17 daemon features (0.46.1 adds push-previews-v1, push-environment-v1, thread-read-v1)", () => {
+    expect(DAEMON_FEATURES).toHaveLength(17);
+    expect(DAEMON_FEATURES).toContain("thread-read-v1");
   });
 
   it("unknown supports nothing; boot-status features decide per server", () => {

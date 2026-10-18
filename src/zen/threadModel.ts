@@ -17,6 +17,9 @@ export type ThreadMessage = {
   choice: ThreadChoice | null;
   pending?: boolean;
   failed?: boolean;
+  /** A project chat line's own seq (K2 0.46.1); `seq` there is the
+   *  list position. What a read cursor is posted with. */
+  readSeq?: number | null;
 };
 
 const TZ = "America/Denver";

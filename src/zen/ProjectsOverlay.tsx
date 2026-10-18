@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchProjectGroups, type ProjectGroup } from "../api/projectGroups";
 import { useZenScope } from "./zenScope";
 import { GroupChatAvatar } from "./GroupChatAvatar";
@@ -16,6 +16,12 @@ import { mountainListWhen } from "./threadModel";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 import { useZenStore } from "./zenStore";
 import { useBackHandler } from "../lib/androidBack";
+import { rowUnreadFor, toneColor } from "./unread";
+import { unreadSupported, useUnreadStore } from "./unreadStore";
+import { MutedGlyph, MuteMenuItems, RowUnreadCount } from "./UnreadMarks";
+
+/** A still press this long opens a project row's menu (Mute). */
+const PROJECT_HOLD_MS = 500;
 
 // Zen Projects: the Agents header's Projects button opens this sheet of
 // project chats (one per project group: a named set of workspaces with
@@ -50,6 +56,20 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState<string | null>(null);
   const [q, setQ] = useState("");
   const [headerRef, headerPx] = useMeasuredHeight(PROJECTS_HEADER_PX);
+  // Unread (K2 0.46.1 `thread-read-v1`): the server's counts and Mute; an
+  // older server keeps this device's last-seen dot.
+  const unreadServers = useUnreadStore((s) => s.servers);
+  const unreadAddrs = useUnreadStore((s) => s.addrs);
+  const unreadOn = !!serverId && !!unreadServers[serverId] && unreadSupported(serverId);
+  const [menu, setMenu] = useState<{ groupId: string; top: number } | null>(null);
+  const hold = useRef<{ timer: ReturnType<typeof setTimeout>; x: number; y: number } | null>(null);
+  const skipClick = useRef(false);
+  const clearHold = () => {
+    if (hold.current) clearTimeout(hold.current.timer);
+    hold.current = null;
+  };
+  useEffect(() => clearHold, []);
+  useBackHandler(menu !== null, () => setMenu(null));
   // Android Back = Done. A project chat opened from here registers on
   // top, so its Back lands back on this sheet first.
   useBackHandler(true, onClose);
@@ -189,24 +209,69 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
           {visible.map((g) => {
             const lastAt = groupLastAtOf(lastAtByKey, serverId, g.id);
             const preview = groupPreviewText(previews[g.id]);
-            const unread = isGroupUnread(serverId, g.id, lastAt);
+            const marks = unreadOn
+              ? rowUnreadFor(unreadServers, unreadAddrs, serverId, { kind: "group", groupId: g.id })
+              : null;
+            const unread = unreadOn
+              ? !!marks && (marks.tone !== "muted" || marks.count > 0)
+              : isGroupUnread(serverId, g.id, lastAt);
+            const strong = !!marks?.emphasis;
             return (
               <button
                 key={g.id}
                 type="button"
                 className="w-full min-w-0 text-left k2-tile flex items-center"
-                style={{ padding: "10px 12px", borderRadius: 14, gap: 12 }}
-                onClick={() => useZenStore.getState().openGroupChat(g)}
+                style={{ padding: "10px 12px", borderRadius: 14, gap: 12, WebkitTouchCallout: "none" }}
+                onClick={() => {
+                  if (skipClick.current) {
+                    skipClick.current = false;
+                    return;
+                  }
+                  useZenStore.getState().openGroupChat(g);
+                }}
+                onPointerDown={(e) => {
+                  skipClick.current = false;
+                  clearHold();
+                  if (!unreadOn) return;
+                  const el = e.currentTarget;
+                  hold.current = {
+                    x: e.clientX,
+                    y: e.clientY,
+                    timer: setTimeout(() => {
+                      hold.current = null;
+                      skipClick.current = true;
+                      setMenu({ groupId: g.id, top: el.getBoundingClientRect().bottom + 4 });
+                    }, PROJECT_HOLD_MS),
+                  };
+                }}
+                onPointerMove={(e) => {
+                  const h = hold.current;
+                  if (h && Math.hypot(e.clientX - h.x, e.clientY - h.y) > 10) clearHold();
+                }}
+                onPointerUp={clearHold}
+                onPointerCancel={clearHold}
+                onContextMenu={(e) => {
+                  if (!unreadOn) return;
+                  e.preventDefault();
+                  clearHold();
+                  setMenu({ groupId: g.id, top: e.currentTarget.getBoundingClientRect().bottom + 4 });
+                }}
                 data-testid="project-row"
                 data-group-id={g.id}
-                aria-label={`${g.name}, ${memberCountText(g.memberCount)}${unread ? ", unread" : ""}`}
+                aria-label={`${g.name}, ${memberCountText(g.memberCount)}${
+                  marks?.tone === "waiting" ? ", waiting on you" : unread ? ", unread" : ""
+                }${marks?.muted ? ", muted" : ""}`}
               >
                 <GroupChatAvatar groupId={g.id} name={g.name} color={g.color} size={AVATAR_PX} fontSize={18} />
                 <span className="flex-1 min-w-0 flex flex-col" style={{ gap: 2 }}>
                   <span className="w-full min-w-0 flex items-center" style={{ gap: 8 }}>
-                    <span className="flex-1 min-w-0 text-[16px] font-semibold truncate">
+                    <span
+                      className="flex-1 min-w-0 text-[16px] font-semibold truncate"
+                      style={strong ? { fontWeight: 700 } : undefined}
+                    >
                       {g.name}
                     </span>
+                    {marks?.muted ? <MutedGlyph /> : null}
                     {lastAt != null ? (
                       <span
                         className="shrink-0 text-[13px] tabular-nums"
@@ -220,17 +285,25 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
                   <span className="w-full min-w-0 flex items-center" style={{ gap: 8 }}>
                     <span
                       className="flex-1 min-w-0 text-[14px] truncate"
-                      style={{ color: "#a1a1aa" }}
+                      style={strong ? { color: "#f2f2f7", fontWeight: 600 } : { color: "#a1a1aa" }}
                       data-testid="project-preview"
                     >
                       {preview || memberCountText(g.memberCount)}
                     </span>
-                    {unread ? (
+                    {marks && marks.count > 1 ? (
+                      <RowUnreadCount unread={marks} />
+                    ) : unread ? (
                       <span
                         aria-hidden
                         className="shrink-0"
                         data-testid="project-unread"
-                        style={{ width: 9, height: 9, borderRadius: "50%", background: "#0a84ff" }}
+                        data-tone={marks?.tone}
+                        style={{
+                          width: 9,
+                          height: 9,
+                          borderRadius: "50%",
+                          background: marks ? toneColor(marks.tone) : "#0a84ff",
+                        }}
                       />
                     ) : null}
                   </span>
@@ -245,6 +318,38 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
           })}
         </div>
       </div>
+      {menu ? (
+        <div>
+          <button
+            type="button"
+            aria-label="Close menu"
+            className="fixed inset-0 bg-transparent border-0 p-0"
+            style={{ zIndex: 29 }}
+            onClick={() => setMenu(null)}
+            data-testid="project-menu-backdrop"
+          />
+          <div
+            role="menu"
+            className="zen-glass fixed"
+            data-testid="project-row-menu"
+            style={{
+              zIndex: 30,
+              top: `min(${menu.top}px, calc(100vh - 220px))`,
+              right: 16,
+              width: 230,
+              borderRadius: 16,
+              padding: 6,
+              color: "#fff",
+            }}
+          >
+            <MuteMenuItems
+              serverId={serverId}
+              rowRef={{ kind: "project", groupId: menu.groupId }}
+              onDone={() => setMenu(null)}
+            />
+          </div>
+        </div>
+      ) : null}
       <GlassSearchBar
         query={q}
         onQuery={setQ}
