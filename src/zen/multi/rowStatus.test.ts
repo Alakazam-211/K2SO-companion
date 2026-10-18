@@ -206,10 +206,11 @@ describe("failure rows (MS35 copy table): exactly one action each", () => {
   it("maps every failure state to its copy and at most one action", () => {
     const table: [Partial<RowStatusInput>, string, string, string | null][] = [
       [{ entry: undefined }, "checking", "Checking…", null],
-      [{ entry: probe({ reach: "offline", nextAt: now + 12_000 }) }, "offline", "Offline · retrying in 12 s", "retry"],
+      [{ entry: probe({ reach: "offline", nextAt: now + 12_000 }) }, "offline", "Reconnecting…", "retry"],
       [{ entry: probe({ reach: "starting" }) }, "restarting", "Restarting…", "retry"],
       [{ hasLogin: false }, "signin-required", "Sign in to Box B", "sign-in"],
-      [{ entry: probe({ auth: "signin-required" }) }, "signin-required", "Sign in to Box B", "sign-in"],
+      // The phone holds a login the server no longer takes: sign in AGAIN.
+      [{ entry: probe({ auth: "signin-required" }) }, "signin-required", "Sign in again to Box B", "sign-in"],
       [{ entry: probe({ auth: "kicked" }) }, "kicked", "Removed from Box B", "sign-in"],
       [{ entry: probe({ auth: "rotate-required" }) }, "rotate-required", "Change password on Box B", "sign-in"],
       [{ entry: probe({ boot: { ...probe({}).boot!, version: "0.40.0" } }) }, "too-old", "Box B needs an update", "switch"],
@@ -228,8 +229,14 @@ describe("failure rows (MS35 copy table): exactly one action each", () => {
     expect(fail({ entry: probe({ activity: [{ workspaceId: "pb", status: "working" }] }) })).toBe(null);
   });
 
-  it("the offline countdown never goes negative and drops when unscheduled", () => {
-    expect(fail({ entry: probe({ reach: "offline", nextAt: now - 5 }) })?.copy).toBe("Offline · retrying in 0 s");
-    expect(fail({ entry: probe({ reach: "offline", nextAt: null }) })?.copy).toBe("Offline");
+  it("an offline row says it is reconnecting, whenever the next check is", () => {
+    expect(fail({ entry: probe({ reach: "offline", nextAt: now - 5 }) })?.copy).toBe("Reconnecting…");
+    expect(fail({ entry: probe({ reach: "offline", nextAt: null }) })?.copy).toBe("Reconnecting…");
+  });
+
+  it("an expired login says Sign in again; no login at all says Sign in", () => {
+    expect(fail({ entry: probe({ auth: "signin-required" }) })?.actionLabel).toBe("Sign in again");
+    expect(fail({ hasLogin: false })?.actionLabel).toBe("Sign in");
+    expect(fail({ entry: probe({ auth: "kicked" }) })?.actionLabel).toBe("Sign in");
   });
 });

@@ -11,9 +11,14 @@
 //     the activity snapshot and the Thread; the sockets reopen themselves
 //     through the dial queue.
 //   - MS27: a lagged / reopened socket on the room's server re-pulls.
-//   - MS36: a room on a non-active server checks that server through the
-//     pool (offline retries at 5 s / 15 s / 30 s) and folds the pool's
-//     entry into the banner. One action, scoped to that server.
+//   - MS36 + auto reconnect: a room on any server folds that server's pool
+//     entry and its down / reconnect state (`multi/serverHealth`) into ONE
+//     banner. Opening the room checks a non-active server (and a down one)
+//     at once; the pool loop keeps checking the room's server (5 s / 15 s /
+//     30 s while down) and reconnects it when it answers. While it is down
+//     the banner says "Reconnecting to {server}…", then "{server} is
+//     offline. We'll keep trying · Retry now"; input stays on and sends
+//     wait. One action, scoped to that server.
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
@@ -23,7 +28,10 @@ import { onAppLifecycle } from "../../lib/appLifecycle";
 import { connectServer } from "../../lib/revive";
 import { useServersStore } from "../../stores/servers";
 import { useMultiServerPrefs } from "../multi/prefs";
-import { nextCheckDelayMs, pool, usePoolEntries } from "../multi/pool";
+import { pool, usePoolEntries } from "../multi/pool";
+import { retryServerNow } from "../multi/poolLoop";
+import { retryServerFromUser } from "../multi/recovery";
+import { serverDown, useHealth } from "../multi/serverHealth";
 import { labelOf } from "../multi/useMultiServerList";
 import type { StubAgent } from "../stubData";
 import { useZenStore } from "../zenStore";
@@ -91,43 +99,48 @@ export function useRoomLife(opts: { open: boolean; agent: StubAgent | undefined 
   const [now, setNow] = useState(() => Date.now());
   const live = on && opts.open && !!serverId;
 
-  // ── MS36: check a non-active room's server; retry while it is down ──
+  // ── MS36: opening the room checks its server now (a non-active one
+  //    always, a down one as the user's own try); the pool loop keeps
+  //    checking it while the room is open and reconnects it ──
   useEffect(() => {
-    if (!live || !elsewhere) return;
-    let timer: ReturnType<typeof setTimeout> | null = null;
-    let stopped = false;
-    const run = async () => {
-      const e = await pool.check(serverId);
-      if (stopped) return;
-      const down = !e || e.reach === "offline" || e.reach === "starting" || e.reach === "unknown";
-      if (!down) {
-        pool.schedule(serverId, null);
-        return;
-      }
-      const delay = nextCheckDelayMs(e);
-      pool.schedule(serverId, Date.now() + delay);
-      timer = setTimeout(() => void run(), delay);
-    };
-    void run();
-    return () => {
-      stopped = true;
-      if (timer) clearTimeout(timer);
-    };
+    if (!live) return;
+    if (serverDown(serverId, pool.entry(serverId))) retryServerFromUser(serverId);
+    else if (elsewhere) retryServerNow(serverId);
   }, [live, elsewhere, serverId]);
 
-  // The offline countdown ticks once a second while it shows.
+  const downSince = useHealth((h) => h.downSince[serverId] ?? null);
+  const retryAt = useHealth((h) => h.retryAt[serverId] ?? null);
+  const reconnecting = useHealth((h) => h.reconnecting[serverId] === true);
+  const expired = useHealth((h) => h.expired[serverId] === true);
+
+  // The "Reconnecting…" → "offline" switch ticks once a second while down.
   const failure = useMemo(
     () =>
-      live && elsewhere
-        ? roomFailure({ saved, hasLogin, entry, serverLabel: label, signingIn: signInOpen, now })
+      live
+        ? roomFailure({
+            saved,
+            hasLogin,
+            entry,
+            serverLabel: label,
+            signingIn: signInOpen,
+            now,
+            active: !elsewhere,
+            downSince,
+            retryAt,
+            reconnecting,
+            expired,
+          })
         : null,
-    [live, elsewhere, saved, hasLogin, entry, label, signInOpen, now]
+    [live, elsewhere, saved, hasLogin, entry, label, signInOpen, now, downSince, retryAt, reconnecting, expired]
   );
+  const ticking =
+    failure?.state === "offline" || failure?.state === "reconnecting" || failure?.state === "restarting";
   useEffect(() => {
-    if (failure?.state !== "offline") return;
+    if (!ticking) return;
+    setNow(Date.now());
     const t = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(t);
-  }, [failure?.state]);
+  }, [ticking]);
 
   // ── MS24: keep-alive for the open row's workspace on its server ──
   const serverProjects = useZenStore((s) => s.serverProjects);
@@ -158,7 +171,7 @@ export function useRoomLife(opts: { open: boolean; agent: StubAgent | undefined 
     return onAppLifecycle((phase) => {
       if (phase !== "foreground") return;
       void roomForeground(scope);
-      if (elsewhere) void pool.check(scope.id);
+      if (elsewhere) retryServerNow(scope.id);
     });
   }, [live, scope, elsewhere]);
 
@@ -181,7 +194,7 @@ export function useRoomLife(opts: { open: boolean; agent: StubAgent | undefined 
   const act = useCallback(() => {
     const action = failure?.action;
     if (action === "retry") {
-      void pool.check(serverId);
+      retryServerFromUser(serverId);
     } else if (action === "sign-in") {
       setSignInOpen(true);
     } else if (action === "switch") {

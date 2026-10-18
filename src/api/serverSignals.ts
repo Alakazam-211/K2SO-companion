@@ -11,8 +11,10 @@
 //   - `lagged`   — a sessions/events socket closed 4008: re-pull snapshots.
 //   - `reopened` — a socket for that server re-opened after a drop: frames
 //                  may be missing, re-pull what the room shows.
+//   - `recovered` — auto reconnect: the server answers again and its login
+//                  stands. Sockets waiting on a backoff reopen now.
 
-export type ServerSignal = "kicked" | "signin" | "lagged" | "reopened";
+export type ServerSignal = "kicked" | "signin" | "lagged" | "reopened" | "recovered";
 type Listener = (serverId: string, signal: ServerSignal) => void;
 
 const listeners = new Set<Listener>();

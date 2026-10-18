@@ -57,6 +57,7 @@ import {
   runSendFly,
   type FlySource,
 } from "./sendFly";
+import { queueSend, requeueIfUnreachable, shouldQueueSend, useQueuedSendFlush } from "./sendQueue";
 import "./sendFly.css";
 
 /** No workspace folder to upload into (no usable path / no PoC yet). */
@@ -244,6 +245,7 @@ export function ThreadPane({
   topInset,
   covered = false,
   roomBanner = null,
+  roomQueuesInput = false,
   onComposerInput,
 }: {
   viewportHeight?: number;
@@ -254,6 +256,9 @@ export function ThreadPane({
   /** Multi-server room failure (MS36): shown above the composer; while
    *  set, input is off and the last messages stay. */
   roomBanner?: ReactNode;
+  /** The banner is a server that is down (auto reconnect): input stays on
+   *  and sends are queued until it is back. */
+  roomQueuesInput?: boolean;
   /** A send in this room (the keep-alive's idle clock, MS24). */
   onComposerInput?: () => void;
 } = {}) {
@@ -280,7 +285,7 @@ export function ThreadPane({
   const landedKeys = useZenStore((s) => s.landedKeys);
   const sendError = useZenStore((s) => s.sendError);
   const openFileFromPath = useZenStore((s) => s.openFileFromPath);
-  const roomBlocked = Boolean(roomBanner);
+  const roomBlocked = Boolean(roomBanner) && !roomQueuesInput;
   const canSend =
     !roomBlocked &&
     (source === "live" ||
@@ -723,9 +728,21 @@ export function ThreadPane({
     await loadEarlier();
   }
 
+  /** Deliver, or queue while the room's server is down (auto reconnect):
+   *  a send that failed because the server did not answer waits too. */
+  async function deliver(localId: string) {
+    const server = zenScope().id;
+    if (shouldQueueSend(server)) {
+      queueSend(localId);
+      return;
+    }
+    await deliverNow(localId);
+    requeueIfUnreachable(server, localId);
+  }
+
   /** Upload what is left of an outgoing message's files, then POST it.
    *  Any failure leaves its bubble "Not sent" (retry / put back). */
-  async function deliver(localId: string) {
+  async function deliverNow(localId: string) {
     const store = useZenStore.getState;
     const entry = store().outbox.find((o) => o.localId === localId);
     if (!entry) return;
@@ -773,6 +790,9 @@ export function ThreadPane({
       { localId }
     );
   }
+
+  // Sends queued while the server was down go out once it is back.
+  useQueuedSendFlush(zenServer, roomKey, deliver);
 
   /** Send tap: clear the field at once (focus and keyboard stay), show
    *  the bubble "Sending…", fly the text into it, deliver behind it. */
@@ -1101,6 +1121,8 @@ export function ThreadPane({
                               </button>
                             ) : null}
                           </span>
+                        ) : out?.status === "queued" ? (
+                          "Waiting for connection…"
                         ) : out ? (
                           "Sending…"
                         ) : m.failed ? (

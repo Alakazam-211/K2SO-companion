@@ -544,6 +544,27 @@ html, body, #root {
   animation: k2-pulse 1.6s ease-out infinite;
 }
 
+/* Auto reconnect: a small amber dot that breathes (rows of a server that
+   is down), and a ring spinner (the room banner's "Reconnecting…"). */
+.k2-reconnect-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #f59e0b;
+  vertical-align: middle;
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.k2-spinner {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.25);
+  border-top-color: #fff;
+  animation: spin 0.9s linear infinite;
+}
+
 /* "Thinking… 8s": a light sweep across the words. */
 @keyframes k2-shimmer {
   from {
@@ -646,8 +667,12 @@ html, body, #root {
 
 @media (prefers-reduced-motion: reduce) {
   .k2-pulse::after,
-  .k2-shimmer {
+  .k2-shimmer,
+  .k2-reconnect-dot {
     animation: none;
+  }
+  .k2-spinner {
+    animation-duration: 2.4s;
   }
   /* No movement: a short highlight fade only. */
   .k2-server-just-connected::after {

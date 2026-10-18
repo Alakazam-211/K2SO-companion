@@ -691,6 +691,7 @@ export function Zen() {
               roomBanner={
                 room.failure ? <RoomBanner failure={room.failure} onAction={room.act} /> : null
               }
+              roomQueuesInput={room.failure?.queuesInput === true}
               onComposerInput={noteRoomInput}
             />
           </PaneErrorBoundary>

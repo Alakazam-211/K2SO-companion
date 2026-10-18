@@ -69,6 +69,9 @@ import type { MergedRow } from "./multi/merge";
 import type { RowActivity } from "./agentActivity";
 import { CheckIcon, CogIcon } from "./icons";
 import { useBackHandler } from "../lib/androidBack";
+import { refreshAllServers } from "./multi/recovery";
+import { entryDown, useHealth } from "./multi/serverHealth";
+import { usePullToRefresh } from "./usePullToRefresh";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -576,6 +579,22 @@ export function ChatsList() {
   const placeholders = multi.on ? multi.placeholders : [];
   const menuAgent = pinMenu ? pinned.find((a) => a.id === pinMenu.id) ?? null : null;
   const serverListsAt = useRef(Date.now());
+  // Pull to refresh (Home and Agents): every saved server is retried at
+  // once; a server that is back reconnects (auto reconnect).
+  const ptr = usePullToRefresh(listRef, refreshAllServers, servers.length > 0 && !ghost);
+  // The active server is down: its list says it is reconnecting instead of
+  // showing the read's error.
+  const activeDownHealth = useHealth((h) =>
+    activeServerId ? h.downSince[activeServerId] !== undefined : false
+  );
+  const activeDown =
+    multi.on && !!activeServerId && (activeDownHealth || entryDown(multi.entries[activeServerId]));
+  const reconnectingLine = (
+    <span className="inline-flex items-center" style={{ gap: 6 }} data-testid="chats-reconnecting">
+      <span aria-hidden className="k2-reconnect-dot" />
+      {`Reconnecting to ${serverLabel}…`}
+    </span>
+  );
 
   // Agent status: re-read the activity snapshot while the list is up. The
   // list stays mounted (hidden) under an open Thread; it does not poll then.
@@ -1350,6 +1369,37 @@ export function ChatsList() {
         </div>
       ) : null}
 
+      {ptr.pull > 0 || ptr.refreshing ? (
+        // Pull to refresh: a spinner under the header; it never moves rows.
+        <div
+          className="absolute left-0 right-0 flex justify-center pointer-events-none"
+          style={{
+            top: `calc(env(safe-area-inset-top) + ${headerPx}px + 6px)`,
+            zIndex: 4,
+            opacity: ptr.refreshing ? 1 : 0.3 + 0.7 * ptr.pull,
+          }}
+          data-testid="chats-pull-refresh"
+          data-state={ptr.refreshing ? "refreshing" : ptr.pull >= 1 ? "armed" : "pulling"}
+          aria-hidden
+        >
+          <span
+            className={ptr.refreshing ? "k2-spinner" : undefined}
+            style={
+              ptr.refreshing
+                ? undefined
+                : {
+                    display: "inline-block",
+                    width: 14,
+                    height: 14,
+                    borderRadius: "50%",
+                    border: "2px solid rgba(255,255,255,.25)",
+                    borderTopColor: "#fff",
+                    transform: `rotate(${Math.round(ptr.pull * 270)}deg)`,
+                  }
+            }
+          />
+        </div>
+      ) : null}
       <div
         ref={listRef}
         className="flex-1 min-h-0 overflow-y-auto"
@@ -1393,6 +1443,7 @@ export function ChatsList() {
             if (at >= 0 && from >= 0 && to >= 0) useHomesStore.getState().moveRow(home.id, from, to);
           }}
           hereChip={multi.on && multi.chips ? serverLabel : null}
+          activeDown={activeDown}
           remoteLook={multi.on ? homeRemoteLook : undefined}
           onRemoteAction={(v, action) => {
             if (!v.server) return;
@@ -1539,9 +1590,9 @@ export function ChatsList() {
             Loading
           </p>
         ) : null}
-        {source !== "loading" && agentError && (rows.length > 0 || showPins) ? (
-          <p className="py-3 text-[14px]" style={{ ...LIST_LINE_SIDES, color: "#f59e0b" }}>
-            {agentError}
+        {source !== "loading" && (agentError || activeDown) && (rows.length > 0 || showPins) ? (
+          <p className="py-3 text-[14px]" style={{ ...LIST_LINE_SIDES, color: activeDown ? "#8e8e93" : "#f59e0b" }}>
+            {activeDown ? reconnectingLine : agentError}
           </p>
         ) : null}
         {multi.on ? <LoadingLines loads={multi.loads} inset={ZEN_LIST_CONTENT_INSET} /> : null}
@@ -1551,7 +1602,7 @@ export function ChatsList() {
             style={{ ...LIST_LINE_SIDES, color: "#8e8e93" }}
             data-testid="chats-empty"
           >
-            {agentError || "No agents on this list."}
+            {activeDown && source !== "stub" ? reconnectingLine : agentError || "No agents on this list."}
           </p>
         ) : null}
         {listItems.map((item) => {
