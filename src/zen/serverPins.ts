@@ -156,6 +156,36 @@ export function withOrder(projects: ServerProject[], ids: string[]): ServerProje
   return projects.map((p) => (at.has(p.id) ? { ...p, tabOrder: at.get(p.id)! } : p));
 }
 
+/**
+ * Put `subset` (some of `order`'s ids, in their new order) into the slots
+ * those ids hold in `order`; every other id keeps its slot. Desktop's
+ * Agents-nav drag does the same: a filtered view (Pinned, a focus group)
+ * reorders only what it shows. Ids in `subset` missing from `order` are
+ * ignored.
+ */
+export function slotOrder(order: string[], subset: string[]): string[] {
+  const inOrder = new Set(order);
+  const moved = subset.filter((id, i) => inOrder.has(id) && subset.indexOf(id) === i);
+  const movedSet = new Set(moved);
+  let k = 0;
+  return order.map((id) => (movedSet.has(id) ? moved[k++] : id));
+}
+
+/**
+ * The full `projects/reorder` body (desktop parity: every project, so
+ * `tab_order` stays unique) after the list shows `visible` (project ids)
+ * in this order. Starts from the server order (`tabOrder`, then list
+ * position) with the pins in their own order, so the pin grid and every
+ * project the list does not show keep their places.
+ */
+export function fullProjectOrder(projects: ServerProject[], visible: string[]): string[] {
+  const base = projects
+    .map((p, i) => ({ p, i }))
+    .sort((a, b) => a.p.tabOrder - b.p.tabOrder || a.i - b.i)
+    .map(({ p }) => p.id);
+  return slotOrder(slotOrder(base, pinnedProjectOrder(projects)), visible);
+}
+
 /** Optimistic `focus-groups/assign {projectId, focusGroupId}`. */
 export function withFocusGroup(
   projects: ServerProject[],

@@ -58,6 +58,7 @@ import {
   focusGroupOf,
   focusGroupsOf,
   focusSettingsOf,
+  fullProjectOrder,
   pinProjectIdForRow,
   pinnedProjectOrder,
   focusGroupStorageKey,
@@ -271,6 +272,12 @@ type ZenState = {
   /** `POST /cli/projects/reorder` with the pinned ids only. */
   movePin: (id: string, beforeId: string | null) => Promise<void>;
   unpinChat: (id: string) => Promise<void>;
+  /** Agents-list Rearrange: the list now shows these row ids (unpinned
+   *  main chats) in this order. One `POST /cli/projects/reorder` with the
+   *  FULL project order (desktop's Agents-nav drag): the shown rows take
+   *  each other's slots; pins and rows not shown keep theirs. Optimistic;
+   *  rolls back with `pinError` on failure. */
+  reorderRows: (ids: string[]) => Promise<void>;
   /** Re-read `/cli/projects/list` for pins and group membership. */
   refreshPins: () => Promise<void>;
   /** Focus groups: on/off from `settings/get`, names from `focus-groups/list`. */
@@ -731,6 +738,22 @@ export const useZenStore = create<ZenState>((set, get) => ({
     await writePins(withOrder(s.serverProjects, order), "Could not reorder pins", async (scope) => {
       const r = await reorderProjects(scope, order);
       if (!r.ok) throw r.error || "Could not reorder pins";
+    });
+  },
+  reorderRows: async (ids) => {
+    const s = get();
+    const visible: string[] = [];
+    for (const id of ids) {
+      const pid = pinProjectIdForRow(s.agents.find((a) => a.id === id), s.serverProjects);
+      if (pid && !visible.includes(pid)) visible.push(pid);
+    }
+    if (visible.length < 2) return;
+    const current = fullProjectOrder(s.serverProjects, []);
+    const order = fullProjectOrder(s.serverProjects, visible);
+    if (order.join("\n") === current.join("\n")) return;
+    await writePins(withOrder(s.serverProjects, order), "Could not reorder", async (scope) => {
+      const r = await reorderProjects(scope, order);
+      if (!r.ok) throw r.error || "Could not reorder";
     });
   },
   unpinChat: async (id) => {

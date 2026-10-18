@@ -35,10 +35,20 @@ import {
   rowFocusGroupId,
 } from "./serverPins";
 import { connectProjectEvents, subscribeAppEvents } from "./ticketEvents";
-import { useRoomElsewhere, useZenScope, zenScope } from "./zenScope";
+import { useRoomElsewhere, useZenScope } from "./zenScope";
 import { mountainListWhen } from "./threadModel";
 import { usePinDrag } from "./usePinDrag";
-import { SWIPE_ACTION_W, swipeReveal, useRowSwipe } from "./useRowSwipe";
+import { useHoldMenu } from "./useHoldMenu";
+import { useRearrange } from "./useRearrange";
+import { GripHandle, RearrangeDone, rearrangePadLeft } from "./RearrangeBits";
+import {
+  AgentMenu,
+  GroupGlyph,
+  OpenGlyph,
+  PinGlyph,
+  RearrangeGlyph,
+  type AgentMenuEntry,
+} from "./AgentMenu";
 import { FocusGroupPicker } from "./FocusGroupPicker";
 import { AddAgentSheet } from "./AddAgentSheet";
 import { HomeList, openHomeRowOnServer, type RemoteRowLook } from "./HomeList";
@@ -51,7 +61,6 @@ import { dismissHomesSyncNotice, useHomesSyncBadge, useHomesSyncStore } from "./
 import { OtherServerSection } from "./multi/OtherServerSection";
 import { otherServersForPicker } from "./multi/homePicker";
 import type { StubAgent } from "./stubData";
-import "./swipePin.css";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { ZenSettings } from "./ZenSettings";
 import { homeViewRecent, orderRecentFirst, recentSentKey, useRecentFirstStore } from "./recentFirst";
@@ -76,7 +85,7 @@ import { entryDown, useHealth } from "./multi/serverHealth";
 import { usePullToRefresh } from "./usePullToRefresh";
 import { projectBadgeCount, rowRefOf, rowUnreadFor } from "./unread";
 import { unreadSupported, useUnreadStore } from "./unreadStore";
-import { MuteMenuItems, UnreadDot } from "./UnreadMarks";
+import { UnreadDot } from "./UnreadMarks";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -92,9 +101,7 @@ const ACTIVITY_POLL_MS = 5_000;
 /** How often the list re-reads server pins and focus groups while up. */
 export const SERVER_LISTS_POLL_MS = 30_000;
 
-/** iOS system yellow, the Messages pin action. */
-const PIN_YELLOW = "#ffd60a";
-const SWIPE_HINT_ID = "chats-swipe-hint";
+const ROW_HINT_ID = "chats-row-hint";
 /** How long "Moved to Work · Undo" stays up after a group change. */
 export const GROUP_TOAST_MS = 4000;
 /** How long a just-created workspace row stays highlighted. */
@@ -153,7 +160,7 @@ export function zenPinnedGroupInsetPx(containerPx: number): number {
 
 /**
  * The same inset as CSS, with 100% = the list's width. Rows, search hits,
- * the "Drop to pin" strip and the empty lines all use it (pins or not), so
+ * the Rearrange grips and the empty lines all use it (pins or not), so
  * list content spans exactly the pinned avatars' visible width.
  */
 export const ZEN_LIST_CONTENT_INSET =
@@ -164,61 +171,8 @@ const LIST_LINE_SIDES = {
   paddingRight: ZEN_LIST_CONTENT_INSET,
 } as const;
 
-/** Swipe-right action: lucide "folders" (stacked folders). */
-function GroupGlyph() {
-  return (
-    <svg
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      data-testid="group-glyph"
-    >
-      <path d="M20 17a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3.9a2 2 0 0 1-1.69-.9l-.81-1.2a2 2 0 0 0-1.67-.9H8a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2Z" />
-      <path d="M2 8v11a2 2 0 0 0 2 2h14" />
-    </svg>
-  );
-}
-
-function PinGlyph({ off }: { off: boolean }) {
-  return (
-    <svg
-      width="22"
-      height="22"
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth="2"
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden
-      data-testid={off ? "unpin-glyph" : "pin-glyph"}
-    >
-      {/* lucide "pin" / "pin-off". */}
-      {off ? (
-        <>
-          <path d="M12 17v5" />
-          <path d="M15 9.34V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H7.89" />
-          <path d="m2 2 20 20" />
-          <path d="M9 9v1.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h11" />
-        </>
-      ) : (
-        <>
-          <path d="M12 17v5" />
-          <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
-        </>
-      )}
-    </svg>
-  );
-}
-
 /** One list or pin-grid entry: an active-server row (ChatsList's own row,
- *  with swipe and pin drag) or, with multi-server on, another server's. */
+ *  with its hold menu) or, with multi-server on, another server's. */
 type ListItem =
   | { active: true; key: string; agent: StubAgent }
   | { active: false; key: string; row: MergedRow };
@@ -261,23 +215,19 @@ export function ChatsList() {
     [agents, serverProjects]
   );
   const canPin = (id: string) => pinnable.has(id);
-  // Rows get a hold menu (Open, Mute) only on a server with read state.
-  const pinDrag = usePinDrag(pinsRef, canPin, () => unreadSupported(zenScope().id));
-  const { ghost, hot, consumeSkipClick, onPinClick, menu: pinMenu, closeMenu } = pinDrag;
-  // The pin menu only acts on a fresh press: the release of the hold that
-  // opened it (or iOS's synthetic click) must not hit Open / Unpin / close.
-  const pinMenuPressed = useRef(false);
-  useEffect(() => {
-    pinMenuPressed.current = false;
-  }, [pinMenu]);
-  const pinMenuAct = (fn: () => void) => {
-    if (!pinMenuPressed.current) return;
-    pinMenuPressed.current = false;
-    fn();
-  };
+  // Rearrange mode ("Recent agents first" off): which list has grips.
+  const [rearrangeTab, setRearrangeTab] = useState<ListTab | null>(null);
+  const rearrangeRef = useRef(rearrangeTab);
+  rearrangeRef.current = rearrangeTab;
+  // The pin grid: a still hold is the agent menu, hold-and-drag reorders
+  // the pins. Off while rearranging the list.
+  const pinDrag = usePinDrag(pinsRef, () => rearrangeRef.current === null);
+  const { ghost, hot, onPinClick, menu: pinMenu, closeMenu } = pinDrag;
+  // List rows: press and hold for the same agent menu.
+  const rowHold = useHoldMenu();
   const [scrolled, setScrolled] = useState(false);
-  // Swipe right assigns the row's workspace to a focus group. Groups off:
-  // no swipe action at all. Same rows as pins (groups are per workspace).
+  // Move to group… (menu) assigns the row's workspace to a focus group.
+  // Groups off: no such item. Same rows as pins (groups are per workspace).
   const groupsOn = focus.enabled || focusGroupsEnabled;
   const canGroup = (id: string) => groupsOn && pinnable.has(id);
   const [groupPick, setGroupPick] = useState<string | null>(null);
@@ -289,7 +239,6 @@ export function ChatsList() {
   const openGroupPicker = (id: string) => {
     if (canGroup(id)) setGroupPick(id);
   };
-  const swipe = useRowSwipe(openGroupPicker, canGroup);
   const groupName = (gid: string | null) =>
     (gid && focus.groups.find((g) => g.id === gid)?.name) || "";
   const showGroupToast = (id: string, prev: string | null, next: string | null) => {
@@ -305,7 +254,6 @@ export function ChatsList() {
       useZenStore.getState().serverProjects
     );
     setGroupPick(null);
-    swipe.close();
     if (prev === next) return;
     showGroupToast(id, prev, next);
     void useZenStore
@@ -323,7 +271,6 @@ export function ChatsList() {
     const ok = await useZenStore.getState().createFocusGroupFor(id, name);
     if (!ok) return false;
     setGroupPick(null);
-    swipe.close();
     setGroupToast({ id, prev, text: `Moved to ${name.trim()}` });
     return true;
   };
@@ -442,7 +389,8 @@ export function ChatsList() {
     setTabState(next);
     setGroupMenu(false);
     setHomeMenu(false);
-    swipe.close();
+    setRearrangeTab(null);
+    rowHold.close();
     closeMenu();
   };
   // Owner 2026-10: the nickname pill opens the Servers sheet on both tabs
@@ -604,16 +552,76 @@ export function ChatsList() {
         agent: a,
       }));
   const placeholders = multi.on ? multi.placeholders : [];
-  const menuFromList = pinMenu?.from === "list";
-  const menuAgent = pinMenu
-    ? (menuFromList ? agents.find((a) => a.id === pinMenu.id) : pinned.find((a) => a.id === pinMenu.id)) ??
-      null
-    : null;
-  const menuPinned = !!menuAgent && pinned.some((a) => a.id === menuAgent.id);
+  // Rearrange (Agents, "Recent agents first" off): the active server's
+  // unpinned main chats, in list order. Sidecars and other servers' rows
+  // have no server order to write, so they get no grip.
+  const reorderItems = listItems.filter(
+    (it): it is Extract<ListItem, { active: true }> => it.active && canPin(it.agent.id)
+  );
+  const reorderIds = new Set(reorderItems.map((it) => it.agent.id));
+  const agentsCanRearrange = !recentOn && !searching && reorderItems.length > 1;
+  const agentsRearranging = !onHome && rearrangeTab === "agents";
+  const homeRearranging = onHome && rearrangeTab === "home";
+  const rearranging = agentsRearranging || homeRearranging;
+  const rearrange = useRearrange({
+    keys: reorderItems.map((it) => it.key),
+    scrollRef: listRef,
+    enabled: agentsRearranging,
+    onCommit: (order) => {
+      const idOf = new Map(reorderItems.map((it) => [it.key, it.agent.id]));
+      const ids = order.map((k) => idOf.get(k)).filter((id): id is string => !!id);
+      void useZenStore.getState().reorderRows(ids);
+    },
+  });
+  const pinMenuOn = pinMenu && !rearranging ? pinMenu : null;
+  const pinMenuAgent = pinMenuOn ? pinned.find((a) => a.id === pinMenuOn.id) ?? null : null;
+  const rowMenuOn = rowHold.menu && !rearranging ? rowHold.menu : null;
+  const rowMenuAgent = rowMenuOn ? agents.find((a) => a.id === rowMenuOn.id) ?? null : null;
+  /** The one agent menu (rows and pins): only what applies to this agent. */
+  const agentMenuEntries = (a: StubAgent, inGrid: boolean): AgentMenuEntry[] => {
+    const entries: AgentMenuEntry[] = [
+      { key: "open", label: "Open", icon: <OpenGlyph />, onSelect: () => setAgent(a.id) },
+    ];
+    if (pinnedIds.includes(a.id)) {
+      entries.push({
+        key: "unpin",
+        label: "Unpin",
+        icon: <PinGlyph off />,
+        onSelect: () => void useZenStore.getState().unpinChat(a.id),
+      });
+    } else if (canPin(a.id)) {
+      entries.push({
+        key: "pin",
+        label: "Pin",
+        icon: <PinGlyph off={false} />,
+        onSelect: () => void useZenStore.getState().pinChat(a.id),
+      });
+    }
+    entries.push({ key: "mute", mute: { serverId: zen.id, rowRef: rowRefOf(a) } });
+    if (canGroup(a.id)) {
+      const gid = rowFocusGroupId(a, serverProjects);
+      const g = gid ? focus.groups.find((x) => x.id === gid) ?? null : null;
+      entries.push({
+        key: "group",
+        label: "Move to group…",
+        icon: <GroupGlyph color={g?.color} />,
+        onSelect: () => openGroupPicker(a.id),
+      });
+    }
+    if (!inGrid && agentsCanRearrange && reorderIds.has(a.id)) {
+      entries.push({
+        key: "rearrange",
+        label: "Rearrange",
+        icon: <RearrangeGlyph />,
+        onSelect: () => setRearrangeTab("agents"),
+      });
+    }
+    return entries;
+  };
   const serverListsAt = useRef(Date.now());
   // Pull to refresh (Home and Agents): every saved server is retried at
   // once; a server that is back reconnects (auto reconnect).
-  const ptr = usePullToRefresh(listRef, refreshAllServers, servers.length > 0 && !ghost);
+  const ptr = usePullToRefresh(listRef, refreshAllServers, servers.length > 0 && !ghost && !rearranging);
   // The active server is down: its list says it is reconnecting instead of
   // showing the read's error.
   const activeDownHealth = useHealth((h) =>
@@ -687,12 +695,19 @@ export function ChatsList() {
 
   // A pin that left the grid (unpinned elsewhere, or search) drops its menu.
   useEffect(() => {
-    if (pinMenu && (!menuAgent || (!menuFromList && !showPins))) closeMenu();
-  }, [pinMenu, showPins, menuAgent, menuFromList, closeMenu]);
+    if (pinMenu && (!pinMenuAgent || !showPins)) closeMenu();
+  }, [pinMenu, showPins, pinMenuAgent, closeMenu]);
 
-  // Android Back closes the two header-anchored menus drawn here, like
-  // their backdrops. Sheets and overlays register in their own components.
-  useBackHandler(Boolean(pinMenu && menuAgent), closeMenu);
+  // Rearrange ends on its own when the list can no longer be rearranged
+  // ("Recent agents first" turned on, a search typed).
+  useEffect(() => {
+    if (rearrangeTab && (recentOn || searching)) setRearrangeTab(null);
+  }, [rearrangeTab, recentOn, searching]);
+
+  // Android Back: ends Rearrange, and closes the header-anchored focus
+  // menu (the agent menus register in AgentMenu; sheets and overlays in
+  // their own components).
+  useBackHandler(rearranging, () => setRearrangeTab(null));
   useBackHandler(Boolean(!onHome && group && groupMenu), () => setGroupMenu(false));
 
   // The header floats over the list; the list's top padding tracks its
@@ -984,25 +999,10 @@ export function ChatsList() {
         fontFamily: "var(--zen-font)",
       }}
       data-testid="chats-home"
-      onPointerDown={(e) => {
-        swipe.onPointerDown(e);
-        pinDrag.onPointerDown(e);
-      }}
-      onPointerMove={(e) => {
-        if (swipe.onPointerMove(e, pinDrag.isLifted())) {
-          pinDrag.abort();
-          return;
-        }
-        pinDrag.onPointerMove(e);
-      }}
-      onPointerUp={(e) => {
-        swipe.onPointerUp();
-        pinDrag.onPointerUp(e);
-      }}
-      onPointerCancel={(e) => {
-        swipe.onPointerCancel();
-        pinDrag.onPointerUp(e);
-      }}
+      onPointerDown={pinDrag.onPointerDown}
+      onPointerMove={pinDrag.onPointerMove}
+      onPointerUp={pinDrag.onPointerUp}
+      onPointerCancel={pinDrag.onPointerUp}
     >
       <div
         className="flex flex-col relative overflow-hidden"
@@ -1378,33 +1378,6 @@ export function ChatsList() {
         </>
       ) : null}
 
-      {/* No pins: a hold-drag still needs somewhere to land. A zero-height
-          anchor at the header's bottom edge, so the strip floats over the
-          list (and above the header blur) without shifting the row under
-          the finger. */}
-      {!onHome && !searching && pinItems.length === 0 && hot ? (
-        <div
-          className="absolute left-0 right-0"
-          style={{
-            top: `calc(env(safe-area-inset-top) + ${headerPx}px)`,
-            height: 0,
-            zIndex: 5,
-          }}
-          data-no-pin="1"
-        >
-          <div
-            ref={pinsRef}
-            className="k2-pin-drop absolute"
-            // The pinned avatars' width: where the grid's avatars will land.
-            style={{ top: 4, left: ZEN_LIST_CONTENT_INSET, right: ZEN_LIST_CONTENT_INSET }}
-            data-testid="chats-pin-drop"
-          >
-            <PinGlyph off={false} />
-            Drop to pin
-          </div>
-        </div>
-      ) : null}
-
       {ptr.pull > 0 || ptr.refreshing ? (
         // Pull to refresh: a spinner under the header; it never moves rows.
         <div
@@ -1453,7 +1426,6 @@ export function ChatsList() {
         }}
         data-testid="chats-list"
         onScroll={(e) => {
-          if (swipe.openId) swipe.close();
           // At rest the first row sits right at the header's bottom edge;
           // the early blur strip below the header waits for a scroll.
           setScrolled(e.currentTarget.scrollTop > 0);
@@ -1464,20 +1436,24 @@ export function ChatsList() {
           views={homeShown.filter((v) => homeRowMatches(v, q))}
           homeName={home.name}
           searching={searching}
-          // Recent agents first sorts the Home itself: no Move up / down.
-          reorderable={!recentOn}
+          // Recent agents first sorts the Home itself: no Rearrange.
+          canRearrange={!recentOn}
+          rearranging={homeRearranging}
+          onRearrange={() => setRearrangeTab("home")}
+          scrollRef={listRef}
+          onReorder={(order, moved) => {
+            // The moved row takes the slot of the row shown there before
+            // (hidden flag-off rows keep their places in storage). Same
+            // Home write as any edit, so Homes sync carries it.
+            const shown = homeViews.map((v) => v.row.address);
+            const next = shown[order.indexOf(moved)];
+            const from = home.rows.findIndex((r) => r.address === moved);
+            const to = home.rows.findIndex((r) => r.address === next);
+            if (from >= 0 && to >= 0) useHomesStore.getState().moveRow(home.id, from, to);
+          }}
           inset={ZEN_LIST_CONTENT_INSET}
           previewFor={previewFor}
           onRemove={(address) => useHomesStore.getState().removeRow(home.id, address)}
-          onMove={(address, delta) => {
-            // Step past the shown neighbour (hidden flag-off rows keep
-            // their places in storage).
-            const at = homeViews.findIndex((v) => v.row.address === address);
-            const next = homeViews[at + delta]?.row.address;
-            const from = home.rows.findIndex((r) => r.address === address);
-            const to = home.rows.findIndex((r) => r.address === next);
-            if (at >= 0 && from >= 0 && to >= 0) useHomesStore.getState().moveRow(home.id, from, to);
-          }}
           hereChip={multi.on && multi.chips ? serverLabel : null}
           activeDown={activeDown}
           remoteLook={multi.on ? homeRemoteLook : undefined}
@@ -1508,10 +1484,10 @@ export function ChatsList() {
         />
       ) : (
       <>
-      <span id={SWIPE_HINT_ID} className="sr-only">
-        {groupsOn ? "Swipe right to add to a focus group. " : ""}
-        Press and hold, then drag to the top to pin.
-        Press and hold a pinned agent for Open and Unpin.
+      <span id={ROW_HINT_ID} className="sr-only">
+        {agentsRearranging
+          ? "Drag a handle to reorder. Tap Done when finished."
+          : "Press and hold an agent for options. Hold and drag a pinned agent to reorder."}
       </span>
       {/* Pins only when there are pins: an empty tray is dead space. */}
       {showPins ? (
@@ -1556,19 +1532,16 @@ export function ChatsList() {
               data-pin-from="pin"
               aria-label={`Pinned ${a.name}` + (pinBusy ? `, ${activityRowText(pinBusy)}` : "")}
               aria-haspopup="menu"
-              aria-expanded={pinMenu?.id === a.id}
-              onClick={() => onPinClick(a.id)}
+              aria-expanded={pinMenuOn?.id === a.id}
+              aria-describedby={ROW_HINT_ID}
+              onClick={() => {
+                if (rearranging) return;
+                onPinClick(a.id);
+              }}
               onContextMenu={(e) => {
                 // Desktop right-click / Android long-press: same menu.
                 e.preventDefault();
-                const r = e.currentTarget.getBoundingClientRect();
-                pinDrag.openMenuFor(a.id, {
-                  left: r.left,
-                  top: r.top,
-                  right: r.right,
-                  bottom: r.bottom,
-                  width: r.width,
-                });
+                if (!rearranging) pinDrag.openMenuFor(a.id, e.currentTarget);
               }}
             >
               <div className="mb-2 flex justify-center" data-testid="pin-avatar">
@@ -1655,101 +1628,38 @@ export function ChatsList() {
             source === "live"
               ? activityForRow(a, activity, isOverlayExtraAddr(a.addr), chatSessions)
               : null;
-          const rowCanGroup = canGroup(a.id);
-          const rowGroupId = rowCanGroup ? rowFocusGroupId(a, serverProjects) : null;
-          const rowGroup = rowGroupId
-            ? focus.groups.find((g) => g.id === rowGroupId) ?? null
-            : null;
-          const sw = swipe.offsetFor(a.id);
-          const reveal = swipeReveal(sw.x, swipe.reduced);
           const fresh =
             !!newRowPath && !!a.path && posixNormalize(a.path) === newRowPath;
+          const grip = agentsRearranging && reorderIds.has(a.id);
+          const shift = rearrange.offsetFor(item.key);
           return (
           <div
             key={item.key}
-            // Full width, so the tap / swipe target is the whole line; the
+            // Full width, so the tap / hold target is the whole line; the
             // row's content is inset to the pinned avatars' width below.
-            className="relative overflow-hidden"
-            data-swipe-row={a.id}
+            className="relative"
+            data-agent-row={a.id}
+            data-rearrange-key={grip ? item.key : undefined}
+            data-dragging={shift.dragging ? "1" : undefined}
             data-new-workspace={fresh ? "1" : undefined}
-            style={fresh ? { background: "rgba(10,132,255,.22)", transition: "background 600ms" } : undefined}
-          >
-          {/* Leading swipe action: a round glass Group button revealed as
-              the row slides right. The button is the whole revealed strip
-              (row height, so the hit target stays over 44px); the strip
-              itself is clear, only the glass circle is drawn. None with
-              groups off, or on rows that are not a workspace (sidecars,
-              project groups). It starts at the content inset, so the glass
-              sits right beside the slid avatar, and stays above the row's
-              left padding while revealed so the whole circle is tappable. */}
-          {rowCanGroup ? (
-          <button
-            type="button"
-            className="absolute top-0 bottom-0 overflow-hidden border-0 p-0 bg-transparent"
             style={{
-              left: ZEN_LIST_CONTENT_INSET,
-              width: sw.x,
-              zIndex: sw.x > 0 ? 1 : undefined,
-              background: "transparent",
-              transition: swipe.transition(sw.dragging, ["width"]),
+              background: shift.dragging
+                ? "rgba(44,44,46,.92)"
+                : fresh
+                  ? "rgba(10,132,255,.22)"
+                  : undefined,
+              transform: shift.y ? `translateY(${shift.y}px)` : undefined,
+              transition:
+                [fresh ? "background 600ms" : "", shift.transition === "none" ? "" : shift.transition]
+                  .filter(Boolean)
+                  .join(", ") || undefined,
+              zIndex: shift.dragging ? 3 : undefined,
+              boxShadow: shift.dragging ? "0 10px 28px rgba(0,0,0,.45)" : undefined,
+              borderRadius: shift.dragging ? 14 : undefined,
             }}
-            onClick={() => {
-              swipe.close();
-              openGroupPicker(a.id);
-            }}
-            aria-label={
-              rowGroup ? `Group ${a.name}, in ${rowGroup.name}` : `Group ${a.name}`
-            }
-            data-swipe-action="1"
-            data-no-pin="1"
-            data-testid={`swipe-action-${a.id}`}
           >
-            <span
-              className="absolute top-0 bottom-0 flex flex-col items-center justify-center"
-              style={{
-                width: SWIPE_ACTION_W,
-                // Sits at the left while revealing; on an over-swipe it
-                // rides the avatar's leading edge.
-                left: Math.max(0, sw.x - SWIPE_ACTION_W),
-                gap: 4,
-                opacity: reveal.opacity,
-                transition: swipe.transition(sw.dragging, ["opacity", "left"]),
-              }}
-              aria-hidden
-              data-testid="swipe-action-reveal"
-            >
-              <span
-                className="k2-swipe-pin k2-swipe-group"
-                style={{
-                  color: rowGroup?.color || "#fff",
-                  transform: `scale(${reveal.scale})`,
-                  transition: swipe.reduced
-                    ? "none"
-                    : swipe.transition(sw.dragging, ["transform"]),
-                }}
-                data-armed={sw.full ? "1" : undefined}
-                data-testid="swipe-action-glass"
-              >
-                <span
-                  className="flex"
-                  style={{
-                    transform: sw.full && !swipe.reduced ? "scale(1.2)" : "scale(1)",
-                    transition: swipe.reduced ? "none" : "transform 160ms cubic-bezier(.3,1.6,.5,1)",
-                  }}
-                  data-testid="swipe-action-glyph"
-                >
-                  <GroupGlyph />
-                </span>
-              </span>
-              <span
-                className="k2-swipe-pin-label truncate text-center"
-                style={{ maxWidth: SWIPE_ACTION_W - 8 }}
-                data-testid="swipe-action-label"
-              >
-                {rowGroup?.name || "Group"}
-              </span>
-            </span>
-          </button>
+          {grip ? (
+            <GripHandle name={a.name} inset={ZEN_LIST_CONTENT_INSET} handlers={rearrange.handleProps(item.key)} />
           ) : null}
           <button
             type="button"
@@ -1760,19 +1670,22 @@ export function ChatsList() {
               // outer edges of the first and third pinned avatars.
               paddingTop: 12,
               paddingBottom: 12,
-              paddingLeft: ZEN_LIST_CONTENT_INSET,
+              paddingLeft: rearrangePadLeft(ZEN_LIST_CONTENT_INSET, agentsRearranging),
               paddingRight: ZEN_LIST_CONTENT_INSET,
               touchAction: ghost ? "none" : "pan-y",
-              transform: `translateX(${sw.x}px)`,
-              transition: swipe.transition(sw.dragging, ["transform"]),
+              userSelect: "none",
+              WebkitUserSelect: "none",
+              WebkitTouchCallout: "none",
+              transition: rearrange.reduced ? undefined : "padding-left 200ms cubic-bezier(.2,.9,.25,1)",
             }}
+            {...rowHold.bind(a.id, !rearranging)}
             onClick={() => {
-              const swiped = swipe.consumeSkipClick();
-              const held = consumeSkipClick();
-              if (swiped || held) return;
+              if (rowHold.consumeSkipClick() || rearranging) return;
               setAgent(a.id);
             }}
-            aria-describedby={SWIPE_HINT_ID}
+            aria-describedby={ROW_HINT_ID}
+            aria-haspopup={rearranging ? undefined : "menu"}
+            aria-expanded={rearranging ? undefined : rowMenuOn?.id === a.id}
             aria-label={
               source === "stub"
                 ? `STUB ${a.name}`
@@ -1817,86 +1730,24 @@ export function ChatsList() {
       )}
       </div>
 
-      {pinMenu && menuAgent ? (
-        <div
-          data-no-pin="1"
-          onPointerDownCapture={() => {
-            pinMenuPressed.current = true;
-          }}
-        >
-          <button
-            type="button"
-            aria-label="Close pin menu"
-            className="fixed inset-0 bg-transparent border-0 p-0"
-            style={{ zIndex: 29 }}
-            onClick={() => pinMenuAct(closeMenu)}
-            data-testid="pin-menu-backdrop"
-          />
-          <div
-            role="menu"
-            aria-label={`${menuAgent.name} pin`}
-            className="zen-glass fixed"
-            data-testid="pin-menu"
-            style={{
-              zIndex: 30,
-              // Under the avatar, so the holding finger is not on an item.
-              top: (pinMenu.rect?.bottom ?? 120) + 6,
-              left: `clamp(12px, ${
-                pinMenu.rect ? pinMenu.rect.left + pinMenu.rect.width / 2 : 0
-              }px - 100px, calc(100vw - 212px))`,
-              width: 200,
-              borderRadius: 16,
-              padding: 6,
-              color: "#fff",
-            }}
-          >
-            <button
-              type="button"
-              role="menuitem"
-              className="w-full flex items-center text-left bg-transparent border-0"
-              style={{ gap: 10, padding: "10px 12px", minHeight: 44, borderRadius: 10, color: "#fff" }}
-              onClick={() =>
-                pinMenuAct(() => {
-                  closeMenu();
-                  setAgent(menuAgent.id);
-                })
-              }
-              data-testid="pin-menu-open"
-            >
-              <span className="flex-1 text-[16px]">Open</span>
-            </button>
-            {menuPinned ? (
-            <button
-              type="button"
-              role="menuitem"
-              className="w-full flex items-center text-left bg-transparent border-0"
-              style={{ gap: 10, padding: "10px 12px", minHeight: 44, borderRadius: 10, color: "#fff" }}
-              onClick={() =>
-                pinMenuAct(() => {
-                  closeMenu();
-                  void useZenStore.getState().unpinChat(menuAgent.id);
-                })
-              }
-              data-testid="pin-menu-unpin"
-            >
-              <span className="flex-1 text-[16px]">Unpin</span>
-              <span aria-hidden className="flex shrink-0" style={{ color: PIN_YELLOW }}>
-                <PinGlyph off />
-              </span>
-            </button>
-            ) : null}
-            <MuteMenuItems
-              serverId={zen.id}
-              rowRef={rowRefOf(menuAgent)}
-              onDone={closeMenu}
-              guard={() => {
-                if (!pinMenuPressed.current) return false;
-                pinMenuPressed.current = false;
-                return true;
-              }}
-            />
-          </div>
-        </div>
+      {pinMenuOn && pinMenuAgent ? (
+        <AgentMenu
+          label={`Options for pinned ${pinMenuAgent.name}`}
+          menu={pinMenuOn}
+          entries={agentMenuEntries(pinMenuAgent, true)}
+          onClose={closeMenu}
+          align="center"
+          testId="pin-menu"
+        />
+      ) : null}
+      {rowMenuOn && rowMenuAgent ? (
+        <AgentMenu
+          label={`Options for ${rowMenuAgent.name}`}
+          menu={rowMenuOn}
+          entries={agentMenuEntries(rowMenuAgent, false)}
+          onClose={rowHold.close}
+          testId="row-menu"
+        />
       ) : null}
 
       {ghost ? (
@@ -1968,12 +1819,11 @@ export function ChatsList() {
           currentId={rowFocusGroupId(pickAgent, serverProjects)}
           onPick={(gid) => assignGroup(pickAgent.id, gid)}
           onCreate={(name) => createGroup(pickAgent.id, name)}
-          onClose={() => {
-            setGroupPick(null);
-            swipe.close();
-          }}
+          onClose={() => setGroupPick(null)}
         />
       ) : null}
+
+      {rearranging ? <RearrangeDone onDone={() => setRearrangeTab(null)} /> : null}
 
       <GlassSearchBar
         query={q}

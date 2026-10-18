@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import * as pinChats from "./pinChats";
 
-const { LEGACY_PIN_STORAGE_KEY, clearLegacyPinStore, dropIsPins, insertPinned, isListPan } = pinChats;
+const { LEGACY_PIN_STORAGE_KEY, clearLegacyPinStore, dropIsPins, insertPinned } = pinChats;
 
 describe("pinChats", () => {
   it("the per-device pin store is gone: no read/write, and the old key is cleared", () => {
@@ -32,11 +32,6 @@ describe("pinChats", () => {
     expect(dropIsPins(50, 90, r)).toBe(true);
     expect(dropIsPins(50, 100, r)).toBe(false);
     expect(dropIsPins(-1, 40, r)).toBe(false);
-  });
-
-  it("a mostly-vertical move is a list pan, not a lift", () => {
-    expect(isListPan(2, 20)).toBe(true);
-    expect(isListPan(20, 2)).toBe(false);
   });
 
   it("reorders a pin before another, or to the end", () => {

@@ -203,6 +203,39 @@ describe("server pins", () => {
     expect(useZenStore.getState().pinError).toBe("busy");
   });
 
+  it("Rearrange: reorderRows sends the FULL order; the shown rows swap slots, pins and the rest stay", async () => {
+    vi.mocked(getCliProjectsList).mockResolvedValue(projects({ pb: { pinned: 0 } }) as never);
+    await hydrate();
+    // Server order: pa (0), pc (2, pinned), pb (5), pa1 (9).
+    const done = useZenStore.getState().reorderRows(["/b", "/a"]);
+    expect(reorderProjects).toHaveBeenCalledWith(expect.anything(), ["pb", "pc", "pa", "pa1"]);
+    // Optimistic: tab_order = index before the server answers.
+    const order = Object.fromEntries(useZenStore.getState().serverProjects.map((p) => [p.id, p.tabOrder]));
+    expect(order).toEqual({ pb: 0, pc: 1, pa: 2, pa1: 3 });
+    expect(useZenStore.getState().pinnedIds).toEqual(["/c"]);
+    await done;
+    expect(setProjectPinned).not.toHaveBeenCalled();
+  });
+
+  it("Rearrange: an unchanged order, one row, or rows with no workspace write nothing", async () => {
+    vi.mocked(getCliProjectsList).mockResolvedValue(projects({ pb: { pinned: 0 } }) as never);
+    await hydrate();
+    await useZenStore.getState().reorderRows(["/a", "/b"]);
+    await useZenStore.getState().reorderRows(["/a"]);
+    await useZenStore.getState().reorderRows(["group:x", "/nowhere"]);
+    expect(reorderProjects).not.toHaveBeenCalled();
+  });
+
+  it("Rearrange: a failed reorder puts the old order back with the short error", async () => {
+    vi.mocked(getCliProjectsList).mockResolvedValue(projects({ pb: { pinned: 0 } }) as never);
+    await hydrate();
+    vi.mocked(reorderProjects).mockResolvedValue({ ok: false, error: "busy" });
+    await useZenStore.getState().reorderRows(["/b", "/a"]);
+    const order = Object.fromEntries(useZenStore.getState().serverProjects.map((p) => [p.id, p.tabOrder]));
+    expect(order).toEqual({ pa: 0, pb: 5, pc: 2, pa1: 9 });
+    expect(useZenStore.getState().pinError).toBe("busy");
+  });
+
   it("a hold-drag drop at a spot pins, then reorders the pinned ids", async () => {
     await hydrate();
     const done = useZenStore.getState().pinChat("/a", "/b");
