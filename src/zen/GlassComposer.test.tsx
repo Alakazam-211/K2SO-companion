@@ -97,7 +97,9 @@ describe("GlassComposer field auto-grow", () => {
       render(
         <GlassComposer value={"a\nb\nc\nd"} onChange={() => {}} onSubmit={() => {}} canSend sendReady />
       );
-      expect(seen).toEqual(["auto|70px"]);
+      // The measuring read happens with the bar held; later reads (keeping
+      // the caret in view) come after the field is sized.
+      expect(seen[0]).toBe("auto|70px");
       expect(screen.getByTestId("composer-input").style.height).toBe("88px");
       expect(screen.getByTestId("composer-bar").style.minHeight).toBe("");
     } finally {
@@ -313,5 +315,34 @@ describe("GlassComposer + lit", () => {
     expect(plus.getAttribute("aria-expanded")).toBe("true");
     expect(plus.hasAttribute("data-lit")).toBe(true);
     expect(plus.style.background).toContain("rgba(255, 255, 255, 0.2)");
+  });
+});
+
+describe("GlassComposer keeps the caret in view at max height", () => {
+  it("a caret at the end scrolls the full-height field to its last line", async () => {
+    const { keepCaretInView } = await import("./GlassComposer");
+    const ta = document.createElement("textarea");
+    document.body.appendChild(ta);
+    Object.defineProperty(ta, "scrollHeight", { configurable: true, get: () => 300 });
+    Object.defineProperty(ta, "clientHeight", { configurable: true, get: () => 132 });
+    ta.value = "a\nb\nc\nd\ne\nf\n\n";
+    ta.focus();
+    ta.setSelectionRange(ta.value.length, ta.value.length);
+    ta.scrollTop = 0;
+    keepCaretInView(ta, 0);
+    expect(ta.scrollTop).toBeGreaterThan(0);
+    ta.remove();
+  });
+
+  it("an unfocused field keeps its own scroll", async () => {
+    const { keepCaretInView } = await import("./GlassComposer");
+    const ta = document.createElement("textarea");
+    document.body.appendChild(ta);
+    Object.defineProperty(ta, "scrollHeight", { configurable: true, get: () => 300 });
+    Object.defineProperty(ta, "clientHeight", { configurable: true, get: () => 132 });
+    ta.value = "a\nb\nc";
+    keepCaretInView(ta, 40);
+    expect(ta.scrollTop).toBe(40);
+    ta.remove();
   });
 });

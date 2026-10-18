@@ -70,11 +70,38 @@ export function composerHeight(scrollHeight: number, maxPx = COMPOSER_MAX_PX): n
 export function fitComposerField(field: HTMLTextAreaElement, bar: HTMLElement | null): number {
   const held = bar ? bar.style.minHeight : "";
   if (bar) bar.style.minHeight = `${bar.offsetHeight}px`;
+  // Measuring at `auto` resets the field's own scroll to the top; at the
+  // max height that left the caret below the visible lines (two returns
+  // and you had to scroll the field yourself). Keep the caret in view.
+  const scrolled = field.scrollTop;
   field.style.height = "auto";
   const h = composerHeight(field.scrollHeight);
   field.style.height = `${h}px`;
   if (bar) bar.style.minHeight = held;
+  keepCaretInView(field, scrolled);
   return h;
+}
+
+/** After a refit: a caret at the end of the text (typing, a return) shows
+ *  the last line; otherwise the field keeps its scroll, moved just enough
+ *  to show the caret's line (estimated by newlines; wrapped lines are
+ *  close enough for a scroll that only has to reveal it). */
+export function keepCaretInView(field: HTMLTextAreaElement, scrolled: number): void {
+  if (field.scrollHeight <= field.clientHeight + 1) return;
+  const focused = typeof document !== "undefined" && document.activeElement === field;
+  const end = field.selectionEnd ?? field.value.length;
+  if (focused && end >= field.value.length) {
+    field.scrollTop = field.scrollHeight;
+    return;
+  }
+  field.scrollTop = scrolled;
+  if (!focused) return;
+  const line = parseFloat(getComputedStyle(field).lineHeight) || 22;
+  const caretTop = (field.value.slice(0, end).split("\n").length - 1) * line;
+  if (caretTop < field.scrollTop) field.scrollTop = caretTop;
+  else if (caretTop + line > field.scrollTop + field.clientHeight) {
+    field.scrollTop = caretTop + line - field.clientHeight;
+  }
 }
 
 /** Set on the textarea while a send's clear eases it shut: its final
