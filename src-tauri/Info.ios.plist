@@ -28,6 +28,11 @@
 	<string>K2 uses the camera so you can attach a photo or video to a message.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>K2 uses the microphone to record sound when you attach a video to a message.</string>
+	<!-- Export compliance: only Apple's HTTPS/TLS (exempt), so App Store
+	     Connect does not hold each TestFlight build for the question.
+	     Mirrored in gen/apple/project.yml. -->
+	<key>ITSAppUsesNonExemptEncryption</key>
+	<false/>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<!-- MUST stay true. tao 0.35.3 only registers the scene delegate
