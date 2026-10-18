@@ -334,9 +334,10 @@ export function GlassComposer({
                     : "k2-tile-raised text-[var(--text-muted)] opacity-60"
                 }`}
                 style={{
-                  width: 30,
+                  // A short pill, 8px wider than the + (Rosson 2026-10-17).
+                  width: 38,
                   height: 30,
-                  borderRadius: "50%",
+                  borderRadius: 15,
                   ...(sendReady
                     ? { background: "#0a84ff", borderColor: "#0a84ff" }
                     : {}),
