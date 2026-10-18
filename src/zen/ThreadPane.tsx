@@ -63,6 +63,9 @@ import "./sendFly.css";
 import { newestSeenSeq, type RowRef } from "./unread";
 import { useUnreadStore } from "./unreadStore";
 import { useMarkReadWhileViewing } from "./unreadRead";
+import { MessageFiles, patchThreadFileState, useThreadFilesOn } from "./ThreadFiles";
+import { AttachmentSheet, type OpenAttachment } from "./AttachmentSheet";
+import type { ThreadAttachment } from "../api/threadAttachmentPure";
 
 /** No workspace folder to upload into (no usable path / no PoC yet). */
 const ATTACH_UNAVAILABLE = "Files need this chat's workspace folder.";
@@ -428,6 +431,19 @@ export function ThreadPane({
   useEffect(() => {
     if (serverId) void useNotifyPrefsStore.getState().probe(serverId);
   }, [serverId]);
+  // Files on Thread messages (K2 0.46.1 `thread-attachments-v1`): chips
+  // only when the room's server lists the feature; a tap opens the file
+  // through that server (the scope captured at the tap).
+  const filesOn = useThreadFilesOn(useZenScope());
+  const [openFile, setOpenFile] = useState<OpenAttachment | null>(null);
+  useEffect(() => {
+    setOpenFile(null);
+  }, [agentId, zenServer]);
+  function openAttachment(m: ThreadMessage, a: ThreadAttachment) {
+    if (!m.id || groupId) return;
+    const scope = zenScope();
+    setOpenFile({ scope, ref: { addr: threadAddr, conversationId, id: m.id }, file: a });
+  }
 
   function setFollowing(on: boolean) {
     following.current = on;
@@ -1076,6 +1092,13 @@ export function ThreadPane({
                 </button>
               ) : null}
               {rows.map(({ key, m, out }) => {
+                // Files ride Thread messages only (not project chat lines,
+                // not this phone's own optimistic sends).
+                const files = filesOn && !out && !groupId && m.files?.length ? m.files : null;
+                const wordless = !m.text.trim() && !m.choice;
+                // Files-only, on a server without the feature: nothing to draw.
+                if (wordless && !files && !out && m.files?.length) return null;
+                const bubble = !(files && wordless);
                 const flying = fly?.localId === key;
                 const highlighted = highlightSeq != null && m.seq != null && m.seq === highlightSeq;
                 return (
@@ -1112,23 +1135,33 @@ export function ThreadPane({
                         </span>
                       </span>
                     ) : null}
-                    <Bubble
-                      m={m}
-                      onFileLink={openFileFromPath}
-                      canAnswer={
-                        !out &&
-                        canSend &&
-                        !threadGroupId &&
-                        (source === "live" || source === "error")
-                      }
-                      answering={!out && answeringId === m.id}
-                      answerError={!out && answerErrorId === m.id ? answerError : null}
-                      onAnswer={(option) => void answerChoice(m.id, option)}
-                      attachments={out?.files.length ? out.files.map(uploadFilename) : undefined}
-                      flying={flying && !fly?.fade}
-                      fadeIn={flying && fly?.fade}
-                      breathe={out?.status === "sending"}
-                    />
+                    {bubble ? (
+                      <Bubble
+                        m={m}
+                        onFileLink={openFileFromPath}
+                        canAnswer={
+                          !out &&
+                          canSend &&
+                          !threadGroupId &&
+                          (source === "live" || source === "error")
+                        }
+                        answering={!out && answeringId === m.id}
+                        answerError={!out && answerErrorId === m.id ? answerError : null}
+                        onAnswer={(option) => void answerChoice(m.id, option)}
+                        attachments={out?.files.length ? out.files.map(uploadFilename) : undefined}
+                        flying={flying && !fly?.fade}
+                        fadeIn={flying && fly?.fade}
+                        breathe={out?.status === "sending"}
+                      />
+                    ) : null}
+                    {files ? (
+                      <MessageFiles
+                        files={files}
+                        mine={m.mine}
+                        hasBubble={bubble}
+                        onOpen={(a) => openAttachment(m, a)}
+                      />
+                    ) : null}
                     {m.mine ? (
                       // One box from Send to delivered: "Sending…", then the
                       // time (or "Not sent · Retry"). Fixed height, so the
@@ -1283,6 +1316,16 @@ export function ThreadPane({
           </GlassComposer>
         </div>
       </div>
+      {openFile ? (
+        <AttachmentSheet
+          key={`${openFile.scope.id}|${openFile.ref.id}|${openFile.file.n}`}
+          open={openFile}
+          onClose={() => setOpenFile(null)}
+          onState={(state) =>
+            patchThreadFileState(openFile.scope.id, openFile.ref.id, openFile.file.n, state)
+          }
+        />
+      ) : null}
     </div>
   );
 }

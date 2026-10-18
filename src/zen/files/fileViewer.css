@@ -156,3 +156,9 @@
 .fv-dxf * {
   vector-effect: non-scaling-stroke;
 }
+
+/* A Thread attachment's `line..lineEnd` (CodeView `line`). */
+.fv-code .line.fv-line-hl {
+  background: rgba(245, 158, 11, 0.16);
+  box-shadow: inset 2px 0 0 #f59e0b;
+}

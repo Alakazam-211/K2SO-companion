@@ -127,6 +127,13 @@ describe("code and JSON", () => {
     expect(screen.getByTestId("file-code").className).toContain("fv-code-wrap");
   });
 
+  it("line..lineEnd highlights in the plain view too (Thread attachments)", () => {
+    render(<FileBody file={text("/ws/notes.txt", "a\nb\nc\nd")} source stub={false} line={2} lineEnd={3} />);
+    const hl = Array.from(document.querySelectorAll("[data-hl='true']")).map((e) => e.textContent?.trim());
+    expect(hl).toEqual(["b", "c"]);
+    expect(screen.getByTestId("file-code").textContent).toBe("a\nb\nc\nd");
+  });
+
   it("very large text is cut with a note", () => {
     const big = "x".repeat(TEXT_VIEW_MAX_CHARS + 10);
     render(<FileBody file={text("/ws/big.txt", big)} source={false} stub={false} />);

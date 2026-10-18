@@ -1,4 +1,5 @@
 import type { ThreadDoc, ThreadItem } from "../api/client";
+import { parseThreadAttachments, type ThreadAttachment } from "../api/threadAttachmentPure";
 
 export type ThreadChoice = {
   prompt: string;
@@ -20,6 +21,9 @@ export type ThreadMessage = {
   /** A project chat line's own seq (K2 0.46.1); `seq` there is the
    *  list position. What a read cursor is posted with. */
   readSeq?: number | null;
+  /** K2 0.46.1: files riding this message (`doc.attachments`). Absent
+   *  when none. Shown only on a server listing `thread-attachments-v1`. */
+  files?: readonly ThreadAttachment[];
 };
 
 const TZ = "America/Denver";
@@ -172,10 +176,14 @@ export function normaliseThreadItem(
   // Skin: item.doc.body ?? item.doc.text. Never item.text when doc exists.
   const textRaw = doc.body ?? doc.text ?? "";
   const text = typeof textRaw === "string" ? textRaw : "";
-  if (!text && kind === "text") return null;
-  if (!text && !choice) return null;
+  // Files may ride a message with an empty body (chips, no bubble).
+  const files = parseThreadAttachments(doc.attachments);
+  if (!text && !files.length && kind === "text") return null;
+  if (!text && !choice && !files.length) return null;
   const from = String(doc.from || "");
   const atRaw = doc.created_at;
   const at = typeof atRaw === "number" && Number.isFinite(atRaw) ? atRaw : null;
-  return { id, seq, text, from, at, mine: isMine(from, username), kind, choice };
+  const m: ThreadMessage = { id, seq, text, from, at, mine: isMine(from, username), kind, choice };
+  if (files.length) m.files = files;
+  return m;
 }

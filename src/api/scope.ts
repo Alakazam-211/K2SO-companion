@@ -70,6 +70,10 @@ export const DAEMON_FEATURES = [
   // (`/cli/me/homes*`, `homes_changed` frames, `serverId` in boot-status).
   // Read by the Homes sync engine and Server settings.
   "homes-sync-v1",
+  // K2 0.46.1: files on Thread messages (`doc.attachments`,
+  // `GET /cli/thread/attachment`, `attachmentCount` on thread/latest).
+  // Read by the Thread's file chips; absent → no chips.
+  "thread-attachments-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];

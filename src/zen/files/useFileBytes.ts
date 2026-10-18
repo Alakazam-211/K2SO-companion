@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useContext, useEffect, useState } from "react";
+import { FileBytesSourceContext } from "./bytesSource";
 import { loadFileBytes } from "./fileBytes";
 import { useZenScope } from "../zenScope";
 
@@ -13,6 +14,8 @@ export type BytesState = {
 export function useFileBytes(path: string | null, ranged = false): BytesState {
   // The file lives on the room's server (MS23).
   const scope = useZenScope();
+  // A Thread attachment's sheet supplies its own bytes (bytesSource.ts).
+  const source = useContext(FileBytesSourceContext);
   const [state, setState] = useState<BytesState>({ bytes: null, error: null, progress: null });
 
   useEffect(() => {
@@ -22,13 +25,14 @@ export function useFileBytes(path: string | null, ranged = false): BytesState {
       setState({ bytes: null, error: "This file is not readable from here.", progress: null });
       return;
     }
-    loadFileBytes(scope, path, {
+    const opts = {
       ranged,
       isCancelled: () => cancelled,
-      onProgress: (r) => {
+      onProgress: (r: number) => {
         if (!cancelled) setState((s) => ({ ...s, progress: r }));
       },
-    }).then(
+    };
+    (source ? source(path, opts) : loadFileBytes(scope, path, opts)).then(
       (bytes) => {
         if (!cancelled) setState({ bytes, error: null, progress: null });
       },
@@ -41,7 +45,7 @@ export function useFileBytes(path: string | null, ranged = false): BytesState {
     return () => {
       cancelled = true;
     };
-  }, [path, ranged, scope]);
+  }, [path, ranged, scope, source]);
 
   return state;
 }

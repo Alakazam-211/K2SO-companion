@@ -9,6 +9,7 @@ import {
 } from "../api/client";
 import { fetchProjectGroupMessages } from "../api/projectGroups";
 import { scopeFor, serverMemory, type ServerScope } from "../api/scope";
+import { attachmentCountLabel } from "../api/threadAttachmentPure";
 import type { RowLast } from "./rowPreview";
 import { isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import { noteThreadAddr } from "./unreadStore";
@@ -180,12 +181,15 @@ export function rowLastFromMessage(
   username: string
 ): RowLast {
   const kind = m.kind || "text";
+  let text = kind === "secret" ? "" : kind === "choice" ? m.choice?.prompt || m.text : m.text;
+  // A files-only message (K2 0.46.1): `[file]` / `[N files]`, never names.
+  if (kind !== "secret" && !text.trim() && m.files?.length) text = attachmentCountLabel(m.files.length);
   return {
     at: m.at,
     seq: m.seq,
     mine: isOwnerAuthored(m.from, username, addr),
     kind,
-    text: kind === "secret" ? "" : kind === "choice" ? m.choice?.prompt || m.text : m.text,
+    text,
   };
 }
 
@@ -203,6 +207,12 @@ export function rowLastFromLatest(
   let text = typeof item.preview === "string" ? item.preview : "";
   if (kind === "secret") text = "";
   else if (kind === "choice") text = text.replace(/^Asked:\s*/, "");
+  // A files-only message (K2 0.46.1 `attachmentCount`): `[file]` /
+  // `[N files]` when the server sent no words of its own. Never names.
+  if (kind !== "secret" && !text.trim()) {
+    const count = finite(item.attachmentCount);
+    if (count != null && count > 0) text = attachmentCountLabel(count);
+  }
   const from = (item.from || "").trim();
   return {
     at,
