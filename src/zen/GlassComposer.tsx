@@ -283,6 +283,12 @@ export function GlassComposer({
                 data-testid={id("attach")}
                 aria-label="Add file"
                 disabled={Boolean(attachDisabled)}
+                // Keep the textarea focused: a blur here drops the keyboard,
+                // the composer slides down mid-tap and the click misses the
+                // button, so the picker never opened. iOS dismisses the
+                // keyboard itself when the picker presents.
+                onPointerDown={(e) => e.preventDefault()}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => fileRef.current?.click()}
                 className="shrink-0 flex items-center justify-center bg-transparent border-0 text-[var(--text-muted)] disabled:opacity-40"
                 style={{
@@ -319,7 +325,7 @@ export function GlassComposer({
                 data-testid={id("send")}
                 disabled={!sendReady}
                 // Keep focus in the textarea so the iOS keyboard stays up
-                // (AccessoryBar pattern). Not on attach — it opens a picker.
+                // (AccessoryBar pattern). Attach does the same (see above).
                 onPointerDown={(e) => e.preventDefault()}
                 onMouseDown={(e) => e.preventDefault()}
                 className={`shrink-0 flex items-center justify-center k2-tile ${
