@@ -49,6 +49,7 @@ import { OverlayAddServer } from "../zen/OverlayAddServer";
 import { pool } from "../zen/multi/pool";
 import { FileIcon, TerminalIcon } from "../zen/icons";
 import { LlmIcon } from "../zen/LlmIcon";
+import { harnessKey, recallHarness, rememberHarness } from "../zen/harnessMemory";
 import { harnessForRow } from "../zen/agentActivity";
 import { normalizeHarness } from "../zen/llmHarness";
 import { readListTab } from "../zen/homes";
@@ -124,8 +125,9 @@ export function Zen() {
   const centreTitle =
     extraChat || drawerPicked ? threadSessionHeaderTitle(agent, drawerPicked) : headerTitle;
   /** The chat's LLM, left of the header avatar (none for a project chat
-   *  or when the snapshot cannot tell). */
-  const headerHarness = useZenStore((s) =>
+   *  or when nothing tells). Live: the snapshot, else the row's launch
+   *  command; else the last one seen for this chat (below). */
+  const liveHarness = useZenStore((s) =>
     !agent || groupChat
       ? null
       : normalizeHarness(harnessForRow(agent, s.activity, extraChat, s.chatSessions)) ??
@@ -139,6 +141,11 @@ export function Zen() {
   const [renameError, setRenameError] = useState<string | null>(null);
   const serverProjects = useZenStore((s) => s.serverProjects);
   const zen = useZenScope();
+  const harnessAt = !agent || groupChat ? "" : harnessKey(zen.id, agent);
+  useEffect(() => {
+    if (liveHarness) rememberHarness(harnessAt, liveHarness);
+  }, [harnessAt, liveHarness]);
+  const headerHarness = liveHarness ?? (harnessAt ? recallHarness(harnessAt) : null);
   // Unread counts (K2 0.46.1 `thread-read-v1`): summaries, frames, badge.
   useUnreadSync();
   const openAddr = useZenStore((s) => s.threadAddr);
