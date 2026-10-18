@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, createEvent, fireEvent, render, screen } from "@testing-library/react";
 import {
   COMPOSER_DRAWER_INSET_PX,
   COMPOSER_DRAWER_RADIUS_PX,
@@ -138,5 +138,24 @@ describe("GlassComposer field auto-grow", () => {
       globalThis.ResizeObserver = RO;
       if (ownOffset) Object.defineProperty(HTMLElement.prototype, "offsetHeight", ownOffset);
     }
+  });
+});
+
+describe("GlassComposer attach (+)", () => {
+  it("does not take focus from the textarea (keyboard stays up), and still opens the picker", () => {
+    renderComposer();
+    const attach = screen.getByTestId("composer-attach");
+    for (const type of ["pointerDown", "mouseDown"] as const) {
+      const ev = createEvent[type](attach);
+      fireEvent(attach, ev);
+      expect(ev.defaultPrevented).toBe(true);
+    }
+    const input = document.querySelector('input[type="file"]') as HTMLInputElement;
+    let opened = 0;
+    input.click = () => {
+      opened += 1;
+    };
+    fireEvent.click(attach);
+    expect(opened).toBe(1);
   });
 });
