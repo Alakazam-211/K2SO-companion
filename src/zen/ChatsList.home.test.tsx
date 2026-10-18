@@ -292,7 +292,7 @@ describe("+ on Home: Add Agent (HM5)", () => {
     expect(screen.getByTestId("add-agent")).not.toBeNull();
     expect(screen.getByTestId("add-agent-row-/a").getAttribute("aria-pressed")).toBe("true");
     expect(within(screen.getByTestId("add-agent-row-/a")).getByTestId("add-agent-check")).not.toBeNull();
-    expect(storedRows()).toEqual([{ address: `alpha::${HOST}`, workspaceId: "pa", label: "alpha" }]);
+    expect(storedRows()).toEqual([expect.objectContaining({ address: `alpha::${HOST}`, workspaceId: "pa", label: "alpha" })]);
     // Uncheck: off the Home, back to the empty ring; a re-tap adds it again.
     expect(screen.getByRole("button", { name: "Remove alpha from Home" })).not.toBeNull();
     fireEvent.click(screen.getByTestId("add-agent-row-/a"));
@@ -301,7 +301,7 @@ describe("+ on Home: Add Agent (HM5)", () => {
     expect(within(screen.getByTestId("add-agent-row-/a")).queryByTestId("add-agent-check")).toBeNull();
     expect(screen.getByTestId("add-agent")).not.toBeNull();
     fireEvent.click(screen.getByTestId("add-agent-row-/a"));
-    expect(storedRows()).toEqual([{ address: `alpha::${HOST}`, workspaceId: "pa", label: "alpha" }]);
+    expect(storedRows()).toEqual([expect.objectContaining({ address: `alpha::${HOST}`, workspaceId: "pa", label: "alpha" })]);
     // Search over name / path / handle.
     fireEvent.change(screen.getByTestId("add-agent-search"), { target: { value: "brav" } });
     expect(screen.queryByTestId("add-agent-row-/a")).toBeNull();

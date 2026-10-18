@@ -46,6 +46,8 @@ import { HomeMenu } from "./HomeMenu";
 import { HomeTabToggle } from "./HomeTabToggle";
 import { parseHomeAddress, readListTab, selectedHome, useHomesStore, writeListTab, type ListTab } from "./homes";
 import { homeRowMatches, renameRepairFor, resolveHomeRows, type HomeRowView } from "./homeView";
+import { boxIdForSaved, homeHostFor, useHomeServerIds } from "./homeServerIds";
+import { dismissHomesSyncNotice, useHomesSyncBadge, useHomesSyncStore } from "./homesSync";
 import { OtherServerSection } from "./multi/OtherServerSection";
 import { otherServersForPicker } from "./multi/homePicker";
 import type { StubAgent } from "./stubData";
@@ -466,10 +468,18 @@ export function ChatsList() {
   const home = selectedHome({ homes, selectedId: homeSelectedId });
   const [homeMenu, setHomeMenu] = useState(false);
   const [addAgent, setAddAgent] = useState(false);
+  // Homes sync (K2 0.46.1): which server Home syncs from, and the one-time
+  // "removed" notice. Home itself always renders from the local copy.
+  const homeSync = useHomesSyncBadge();
+  const homeSyncNotice = useHomesSyncStore((s) => s.notice);
   useEffect(() => {
     if (onHome) useHomesStore.getState().ensureSeeded();
   }, [onHome]);
   const activeHostKey = activeServer ? serverHostKey(activeServer) : null;
+  // Box ids (K2 0.46.1): rows may name a server by its `serverId`; a new
+  // row uses it once known (`homeServerIds`).
+  const boxIds = useHomeServerIds((s) => s.bySaved);
+  const activeHomeHost = activeServer ? homeHostFor(activeServer) : null;
   const tokens = useServersStore((s) => s.tokens);
   // Flag on (S3b, HM3): rows from other servers resolve against THAT
   // server's own lists. Off (owner 2026-10): Home is the active server's
@@ -484,7 +494,7 @@ export function ChatsList() {
       remote: multi.on ? { byServer: multi.byServer, tokens } : undefined,
     });
     return multi.on ? views : views.filter((v) => v.kind !== "remote");
-  }, [home.rows, activeHostKey, agents, serverProjects, servers, multi.on, multi.byServer, tokens]);
+  }, [home.rows, activeHostKey, agents, serverProjects, servers, multi.on, multi.byServer, tokens, boxIds]);
   // "Recent agents first": this phone's latest sends, then the Home's own
   // order. Home has no pin grid, so pins are not held at the top (they
   // would look frozen). Off: the Home's own order.
@@ -504,17 +514,21 @@ export function ChatsList() {
   const roomElsewhere = useRoomElsewhere();
   useEffect(() => {
     if (!multi.on || roomElsewhere || source !== "live" || !activeHostKey || serverProjects.length === 0) return;
-    useHomesStore.getState().repairRows(renameRepairFor(activeHostKey, serverProjects, agents));
-  }, [multi.on, roomElsewhere, source, activeHostKey, serverProjects, agents]);
+    useHomesStore
+      .getState()
+      .repairRows(renameRepairFor(activeHostKey, serverProjects, agents, boxIdForSaved(activeServerId)));
+  }, [multi.on, roomElsewhere, source, activeHostKey, serverProjects, agents, activeServerId, boxIds]);
   useEffect(() => {
     if (!multi.on) return;
     for (const sv of servers) {
       if (sv.id === activeServerId) continue;
       const r = multi.byServer[sv.id];
       if (!r || r.loadedAt === null || r.error || r.serverProjects.length === 0) continue;
-      useHomesStore.getState().repairRows(renameRepairFor(serverHostKey(sv), r.serverProjects, r.agents));
+      useHomesStore
+        .getState()
+        .repairRows(renameRepairFor(serverHostKey(sv), r.serverProjects, r.agents, boxIdForSaved(sv.id)));
     }
-  }, [multi.on, multi.byServer, servers, activeServerId]);
+  }, [multi.on, multi.byServer, servers, activeServerId, boxIds]);
 
   // Projects badge: project chats with a message newer than this device
   // saw (shared last-seen cursors), off the list's own group last-at
@@ -1283,6 +1297,9 @@ export function ChatsList() {
         <HomeMenu
           homes={homes}
           currentId={home.id}
+          syncedFrom={homeSync?.label ?? null}
+          syncNotice={homeSyncNotice?.label ?? null}
+          onDismissSyncNotice={dismissHomesSyncNotice}
           onSelect={(id) => useHomesStore.getState().selectHome(id)}
           onCreate={(name) => useHomesStore.getState().createHome(name)}
           onRename={(name) => useHomesStore.getState().renameHome(home.id, name)}
@@ -1982,7 +1999,7 @@ export function ChatsList() {
       {addAgent && onHome ? (
         <AddAgentSheet
           home={home}
-          hostKey={activeHostKey}
+          hostKey={activeHomeHost}
           agents={chatRows}
           projects={serverProjects}
           groups={groupsOn && focus.groups.length > 0 ? focus.groups : null}

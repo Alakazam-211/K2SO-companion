@@ -65,6 +65,10 @@ export const DAEMON_FEATURES = [
   // `thread/read`, `project-group/read`, `thread/mute`, read frames).
   // Read by `zen/unreadStore`; absent → no dots, no badge share.
   "thread-read-v1",
+  // K2 0.46.1: Homes sync through one server the person picks
+  // (`/cli/me/homes*`, `homes_changed` frames, `serverId` in boot-status).
+  // Read by the Homes sync engine and Server settings.
+  "homes-sync-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];
@@ -114,10 +118,32 @@ export interface BootInfo {
   airgap?: boolean;
   /** `standalone` | `bundled-app` | `unknown`, or null when absent. */
   installKind?: string | null;
+  /** K2 0.46.1: the box's stable id (16 hex), the same on every client —
+   *  unlike the host key ("local" on the laptop, "rosson.k2.dev" here).
+   *  Null from an older daemon. */
+  serverId?: string | null;
   at: number;
 }
 
 const bootInfo = new Map<string, BootInfo>();
+
+/** A box id as `/boot-status` spells it: 16 hex characters (lowercased). */
+export function parseBoxServerId(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const t = v.trim().toLowerCase();
+  return /^[0-9a-f]{16}$/.test(t) ? t : null;
+}
+
+type BootListener = (savedServerId: string, info: BootInfo) => void;
+const bootListeners = new Set<BootListener>();
+
+/** Hear every recorded `/boot-status` (Homes sync learns `serverId`). */
+export function onBootInfo(fn: BootListener): () => void {
+  bootListeners.add(fn);
+  return () => {
+    bootListeners.delete(fn);
+  };
+}
 
 /** Record what a server's `/boot-status` said (the S2 pool calls this on
  *  every check; `ensureBootStatus` does in S1). */
@@ -135,9 +161,17 @@ export function noteBootStatus(serverId: string, body: unknown): BootInfo {
       typeof b.airgap === "object" &&
       (b.airgap as Record<string, unknown>).enabled === true,
     installKind: typeof b.installKind === "string" ? b.installKind : null,
+    serverId: parseBoxServerId(b.serverId),
     at: Date.now(),
   };
   bootInfo.set(serverId, info);
+  for (const fn of [...bootListeners]) {
+    try {
+      fn(serverId, info);
+    } catch {
+      /* a listener never breaks the memory */
+    }
+  }
   return info;
 }
 

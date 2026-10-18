@@ -13,7 +13,8 @@
 
 import { useEffect } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { serverHostKey, useServersStore, type ServerEntry } from "../../stores/servers";
+import { useServersStore, type ServerEntry } from "../../stores/servers";
+import { homeHostFor } from "../homeServerIds";
 import { CandidateRow } from "../AddAgentSheet";
 import { homeHasAddress, type Home, type HomeRow } from "../homes";
 import { candidateMatches, homeRowFor, isHomeCandidate } from "../homeView";
@@ -106,7 +107,8 @@ export function OtherServerSection({
   const icons = useRemoteIcons((s) => s.icons);
   const input = { label, hasLogin, signingIn, entry, rows };
   const state = pickerSectionState(input);
-  const hostKey = serverHostKey(server);
+  // The row's host: the box id once known (K2 0.46.1), else the host key.
+  const hostKey = homeHostFor(server);
 
   // Ask this server for its lists when they are missing or old. Never on
   // its own after a failed read (Retry does that), so a dead server is not

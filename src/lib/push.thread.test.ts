@@ -39,6 +39,7 @@ import { noteBootStatus, __resetScopesForTests } from "../api/scope";
 import { useMultiServerPrefs } from "../zen/multi/prefs";
 import { connectServer } from "./revive";
 import { useHomesStore } from "../zen/homes";
+import { useHomeServerIds } from "../zen/homeServerIds";
 import { signOutServer, useServersStore, type ServerEntry } from "../stores/servers";
 import {
   attachPushNavigation,
@@ -347,6 +348,26 @@ describe("routeTap with rooms (flag on, MA23)", () => {
     homeWith("k2::work.k2.dev");
     expect(agentInSelectedHome({ url: "https://work.k2.dev" }, "K2/reviewer")).toBe(true);
     expect(agentInSelectedHome({ url: "https://rosson.k2.dev" }, "k2/reviewer")).toBe(false);
+  });
+
+  it("Homes sync (K2 0.46.1): a row spelt with the box serverId counts as that server, old hostKey rows still do", async () => {
+    // work.k2.dev (s2) reported serverId 0123456789abcdef in /boot-status.
+    noteBootStatus("s2", { version: "0.46.1", serverId: "0123456789ABCDEF" });
+    expect(useHomeServerIds.getState().bySaved.s2).toBe("0123456789abcdef");
+    homeWith("k2::0123456789abcdef");
+    const s2 = useServersStore.getState().servers.find((s) => s.id === "s2")!;
+    expect(agentInSelectedHome(s2, "k2/reviewer")).toBe(true);
+    expect(agentInSelectedHome({ url: "https://work.k2.dev" }, "k2/reviewer")).toBe(false); // no id: no box
+    const s1 = useServersStore.getState().servers.find((s) => s.id === "s1")!;
+    expect(agentInSelectedHome(s1, "k2/reviewer")).toBe(false);
+    const navigate = vi.fn();
+    await routeTap(THREAD, navigate);
+    expect(navigate).toHaveBeenCalledWith("/zen?addr=k2%2Freviewer&seq=418&server=work.k2.dev");
+    expect(connectServer).not.toHaveBeenCalled();
+    // The old form still resolves until it is migrated.
+    homeWith("k2::work.k2.dev");
+    expect(agentInSelectedHome(s2, "k2/reviewer")).toBe(true);
+    useHomeServerIds.setState({ bySaved: {}, hostByBox: {} });
   });
 
   it("a server known to be below the floor (0.41.6) still switches, the old way", async () => {

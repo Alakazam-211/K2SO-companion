@@ -6,6 +6,7 @@ import { fakeScope } from "../test/fakeScope";
 const SCOPE = fakeScope({ id: "s1", base: "https://host.k2.dev", token: "tok" });
 
 import { connectOverlayEvents, OVERLAY_POLL_MS, VIEWING_REPEAT_MS } from "./overlayEvents";
+import { onHomesFrame } from "../api/homesSync";
 
 class MockWS {
   static last: MockWS | null = null;
@@ -70,6 +71,20 @@ describe("connectOverlayEvents", () => {
       seq: 1,
       doc: { from: "appa", body: "hi" },
     });
+    h.stop();
+  });
+
+  it("Homes sync frames go to the sync engine, never into the Thread", () => {
+    const onItem = vi.fn();
+    const seen: string[] = [];
+    const stopFrames = onHomesFrame((sid, f) => seen.push(`${sid}:${f.type}`));
+    const h = connectOverlayEvents({ scope: SCOPE, conversationId: "conv-1", onItem, onNeedCatchUp: vi.fn() });
+    MockWS.last?.openNow();
+    MockWS.last?.deliver({ kind: "homes_changed" });
+    MockWS.last?.deliver({ kind: "homes_device_removed", deviceId: "d1" });
+    expect(seen).toEqual(["s1:changed", "s1:device_removed"]);
+    expect(onItem).not.toHaveBeenCalled();
+    stopFrames();
     h.stop();
   });
 

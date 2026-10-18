@@ -1,5 +1,6 @@
 import { hostLabel, serverHostKey, type ServerEntry } from "../stores/servers";
 import { homeAddress, parseHomeAddress, type HomeRow } from "./homes";
+import { entryMatchesHomeHost, homeHostLabel } from "./homeServerIds";
 import { workspaceIdForRow } from "./multi/merge";
 import { pinProjectIdForRow, type ServerProject } from "./serverPins";
 import type { StubAgent } from "./stubData";
@@ -67,16 +68,17 @@ export function serverDisplayName(s: ServerEntry): string {
   return s.nickname || hostLabel(s.url);
 }
 
-/** The saved server a host key points at. One host-key rule for the
- *  whole app: `stores/servers` `serverHostKey` (MS1, MA1). Two entries
- *  can share a key (MA35): the one holding a login wins (MS2), else the
- *  first. */
+/** The saved server a row host points at. One host-key rule for the
+ *  whole app: `stores/servers` `serverHostKey` (MS1, MA1); a box
+ *  `serverId` (K2 0.46.1, `./homeServerIds`) names the saved server that
+ *  reported it. Two entries can share a key (MA35): the one holding a
+ *  login wins (MS2), else the first. */
 export function savedServerForHost(
   servers: ServerEntry[],
   host: string,
   tokens?: Record<string, string>
 ): ServerEntry | null {
-  const hits = servers.filter((s) => serverHostKey(s) === host);
+  const hits = servers.filter((s) => entryMatchesHomeHost(s, host));
   if (tokens) {
     const signed = hits.find((s) => (tokens[s.id] ?? "").length > 0);
     if (signed) return signed;
@@ -121,10 +123,17 @@ export function resolveHomeRows(
   }
 ): HomeRowView[] {
   const out: HomeRowView[] = [];
+  const activeEntries = ctx.activeHostKey
+    ? ctx.servers.filter((s) => serverHostKey(s) === ctx.activeHostKey)
+    : [];
   for (const row of rows) {
     const parsed = parseHomeAddress(row.address);
     if (!parsed) continue;
-    if (ctx.activeHostKey && parsed.host === ctx.activeHostKey) {
+    // Either spelling of the active server: host key or box id.
+    if (
+      ctx.activeHostKey &&
+      (parsed.host === ctx.activeHostKey || activeEntries.some((s) => entryMatchesHomeHost(s, parsed.host)))
+    ) {
       const agent = findAgentForRow(row, ctx.agents, ctx.projects);
       out.push(agent ? { kind: "here", row, agent } : { kind: "missing", row });
       continue;
@@ -134,7 +143,7 @@ export function resolveHomeRows(
       kind: "remote",
       row,
       server,
-      serverLabel: server ? serverDisplayName(server) : parsed.host,
+      serverLabel: server ? serverDisplayName(server) : homeHostLabel(parsed.host),
     };
     if (ctx.remote && server) {
       const lists = ctx.remote.byServer[server.id];
@@ -153,18 +162,21 @@ export function resolveHomeRows(
 
 /**
  * Rename repair for one server's rows (desktop `repairFromList`): a row on
- * `hostKey` whose handle is no longer on that server, while a workspace
- * with its stored `workspaceId` is, moves to that workspace's handle
- * (`handle::hostKey`) and takes its name. The handle wins: a row whose
- * handle is still listed is never touched. Feed it a list that loaded
- * (an empty or failed read repairs nothing).
+ * `hostKey` (or on that server's box id `boxId`, K2 0.46.1) whose handle
+ * is no longer on that server, while a workspace with its stored
+ * `workspaceId` is, moves to that workspace's handle (`handle::boxId`,
+ * else `handle::hostKey`) and takes its name. The handle wins: a row
+ * whose handle is still listed is never touched. Feed it a list that
+ * loaded (an empty or failed read repairs nothing).
  */
 export function renameRepairFor(
   hostKey: string,
   projects: ServerProject[],
-  agents: StubAgent[] = []
+  agents: StubAgent[] = [],
+  boxId: string | null = null
 ): (row: HomeRow) => HomeRow | null {
   const host = hostKey.trim().toLowerCase();
+  const box = (boxId ?? "").trim().toLowerCase();
   const handles = new Set<string>();
   for (const p of projects) if (p.handle) handles.add(p.handle.trim().toLowerCase());
   for (const a of agents) {
@@ -174,11 +186,12 @@ export function renameRepairFor(
   return (row) => {
     if (!host || projects.length === 0) return null;
     const parsed = parseHomeAddress(row.address);
-    if (!parsed || parsed.host !== host || handles.has(parsed.handle) || !row.workspaceId) return null;
+    if (!parsed || (parsed.host !== host && (!box || parsed.host !== box))) return null;
+    if (handles.has(parsed.handle) || !row.workspaceId) return null;
     const p = projects.find((x) => x.id === row.workspaceId);
     const handle = (p?.handle || "").trim().toLowerCase();
     if (!p || !handle || handle === parsed.handle) return null;
-    return { address: homeAddress(handle, host), workspaceId: p.id, label: p.name || row.label };
+    return { address: homeAddress(handle, box || host), workspaceId: p.id, label: p.name || row.label };
   };
 }
 

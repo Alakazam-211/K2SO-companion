@@ -8,6 +8,7 @@ import { serverBellStatus, useNotifyPrefsStore } from "../stores/notifyPrefs";
 import { usePushPreviewsStore } from "../stores/pushPreviews";
 import { hostLabel, signOutServer, useServersStore, type RecoveryState } from "../stores/servers";
 import { BadgeDiagnosticsRow } from "./BadgeDiagnostics";
+import { HomeSyncSection } from "./HomeSyncSection";
 import { RECOVERY_DOT, STATE_LABEL } from "./serverList";
 import { ServerUpdateSection } from "./ServerUpdateSection";
 import { Switch } from "./ZenSettings";
@@ -34,7 +35,8 @@ export function identityRole(
 /** Server settings (Servers card → gear): one saved server's nickname,
  *  address, who this phone is signed in as and with which role, its
  *  connection state, its K2 version and remote update (`ServerUpdateSection`,
- *  Owner / Admin), shortcuts to its notifications and Usage, and
+ *  Owner / Admin), shortcuts to its notifications and Usage, Home sync
+ *  (`HomeSyncSection`, K2 0.46.1 `homes-sync-v1`), and
  *  sign out / remove. A full page over the Servers sheet like Usage: the
  *  glass back chevron, Android Back and the left-edge swipe all go back. */
 export function ServerSettingsPage({
@@ -170,6 +172,8 @@ export function ServerSettingsPage({
         </Group>
 
         <ShortcutsGroup serverId={serverId} label={label} hasToken={!!token} onOpenUsage={onOpenUsage} />
+
+        <HomeSyncSection serverId={serverId} label={label} />
 
         <Group label="Danger zone" testId="server-settings-danger">
           {token ? (

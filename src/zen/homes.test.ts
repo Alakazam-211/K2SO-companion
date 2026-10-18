@@ -151,7 +151,7 @@ describe("rename repair (S3b, desktop repairRows)", () => {
       "kept::example.k2.dev",
       "twin::example.k2.dev",
     ]);
-    expect(rows[0]).toEqual({ address: "new::example.k2.dev", workspaceId: "w-old", label: "New" });
+    expect(rows[0]).toMatchObject({ address: "new::example.k2.dev", workspaceId: "w-old", label: "New" });
   });
 
   it("writes nothing when no row changes", () => {
