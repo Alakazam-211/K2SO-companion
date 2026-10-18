@@ -1,47 +1,37 @@
 import { useCallback, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
-import {
-  PIN_HOLD_MS,
-  PIN_LIFT_PX,
-  PIN_MENU_MS,
-  dropIsPins,
-  isListPan,
-  pinBeforeId,
-} from "./pinChats";
+import { PIN_LIFT_PX, PIN_MENU_MS, dropIsPins, pinBeforeId } from "./pinChats";
+import { rectOf, type HeldMenu, type MenuRect } from "./useHoldMenu";
 import { useZenStore } from "./zenStore";
 
 type Drag = {
   id: string;
-  from: "pin" | "list";
   x: number;
   y: number;
   lifted: boolean;
-  /** `listMenu` was on at press time. */
-  rowMenu?: boolean;
-  /** A list row that cannot lift (sidecar): a still hold opens its menu. */
-  menuOnly?: boolean;
   timer: ReturnType<typeof setTimeout> | null;
   /** Where the pressed pin sits, for placing its menu. */
-  rect: PinRect | null;
+  rect: MenuRect | null;
 };
 
-export type PinRect = { left: number; top: number; right: number; bottom: number; width: number };
+export type PinRect = MenuRect;
 
-/** The long-press menu on a pin avatar (Open / Unpin), or — with
- *  `listMenu` on — on a list row (`from: "list"`: Open, Mute). */
-export type PinMenu = { id: string; rect: PinRect | null; from?: "pin" | "list" };
-
+/**
+ * The pin grid's gestures (Agents page). Press and hold a pinned avatar:
+ *
+ *   - still for PIN_MENU_MS: its menu (the same agent menu rows get);
+ *   - move past PIN_LIFT_PX (before or after the menu opens): the pin
+ *     lifts and drags; a drop inside the grid reorders the pins on the
+ *     server (`movePin` → `projects/reorder`). A drop anywhere else puts
+ *     it back (Unpin is in the menu).
+ *
+ * List rows no longer lift into the grid: Pin is in their menu.
+ */
 export function usePinDrag(
   pinsRef: { current: HTMLElement | null },
-  /** Server pins are per workspace: a sidecar / group row cannot lift. */
-  canPin: (id: string) => boolean = () => true,
-  /** Rows get a hold menu too (K2 0.46.1 Mute): a lifted row released
-   *  where it was picked up, or a still hold on a row that cannot lift.
-   *  Read at press time; off = today's gestures exactly. */
-  listMenu: () => boolean = () => false
+  /** Read at press time: false (Rearrange mode) = pins ignore presses. */
+  enabled: () => boolean = () => true
 ) {
-  const pinChat = useZenStore((s) => s.pinChat);
   const movePin = useZenStore((s) => s.movePin);
-  const unpinChat = useZenStore((s) => s.unpinChat);
   const skipClick = useRef(false);
   const dragRef = useRef<Drag | null>(null);
   const [ghost, setGhost] = useState<{
@@ -54,7 +44,7 @@ export function usePinDrag(
     y: number;
   } | null>(null);
   const [hot, setHot] = useState(false);
-  const [menu, setMenu] = useState<PinMenu | null>(null);
+  const [menu, setMenu] = useState<HeldMenu | null>(null);
 
   const consumeSkipClick = () => {
     if (!skipClick.current) return false;
@@ -90,13 +80,13 @@ export function usePinDrag(
     setHot(true);
   };
 
-  /** A still hold on a pin: open its menu. The release's click is eaten. */
+  /** A still hold: the pin's menu. The release's click is eaten. */
   const openMenu = () => {
     const d = dragRef.current;
-    if (!d || d.lifted || (d.from !== "pin" && !d.menuOnly)) return;
+    if (!d || d.lifted) return;
     d.timer = null;
     skipClick.current = true;
-    setMenu({ id: d.id, rect: d.rect, from: d.from });
+    setMenu({ id: d.id, rect: d.rect ?? { left: 0, top: 0, right: 0, bottom: 0, width: 0 }, armed: false });
   };
 
   const closeMenu = useCallback(() => setMenu(null), []);
@@ -104,54 +94,30 @@ export function usePinDrag(
   const onPointerDown = (e: ReactPointerEvent<HTMLElement>) => {
     skipClick.current = false;
     if (e.button && e.button !== 0) return;
+    if (!enabled()) return;
     const target = e.target as HTMLElement;
     if (target.closest("input,textarea,[data-no-pin]")) return;
     const pin = target.closest("[data-pin-id][data-pin-from='pin']") as HTMLElement | null;
-    const row = target.closest("[data-pin-id][data-pin-from='list']") as HTMLElement | null;
-    const node = pin || row;
-    if (!node) return;
-    if (pin?.dataset.placeholder === "1") return;
-    const id = node.dataset.pinId;
+    if (!pin || pin.dataset.placeholder === "1") return;
+    const id = pin.dataset.pinId;
     if (!id) return;
-    const rowMenu = !pin && listMenu();
-    const menuOnly = !pin && !canPin(id);
-    if (menuOnly && !rowMenu) return;
     e.currentTarget.setPointerCapture(e.pointerId);
-    let rect: PinRect | null = null;
-    if (pin || rowMenu) {
-      const r = node.getBoundingClientRect();
-      rect = { left: r.left, top: r.top, right: r.right, bottom: r.bottom, width: r.width };
-    }
-    // A list row lifts on a short hold (the swipe and the pan need the
-    // move). A pin lifts on movement only, so a still hold is its menu.
     dragRef.current = {
       id,
-      from: pin ? "pin" : "list",
       x: e.clientX,
       y: e.clientY,
       lifted: false,
-      menuOnly,
-      rowMenu,
-      timer:
-        pin || menuOnly
-          ? setTimeout(openMenu, PIN_MENU_MS)
-          : setTimeout(() => liftAt(e.clientX, e.clientY), PIN_HOLD_MS),
-      rect,
+      timer: setTimeout(openMenu, PIN_MENU_MS),
+      rect: rectOf(pin),
     };
   };
 
   const onPointerMove = (e: ReactPointerEvent<HTMLElement>) => {
     const d = dragRef.current;
     if (!d) return;
-    const dx = e.clientX - d.x;
-    const dy = e.clientY - d.y;
     if (!d.lifted) {
-      if (Math.hypot(dx, dy) > PIN_LIFT_PX) {
-        if (d.menuOnly || (d.from === "list" && isListPan(dx, dy))) {
-          cancel();
-          return;
-        }
-        // Hold then drag still works: moving off an open menu lifts the pin.
+      if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > PIN_LIFT_PX) {
+        // Hold then drag: moving off an open menu lifts the pin.
         setMenu(null);
         liftAt(e.clientX, e.clientY);
       }
@@ -165,29 +131,9 @@ export function usePinDrag(
   const onPointerUp = (e: ReactPointerEvent<HTMLElement>) => {
     const d = dragRef.current;
     if (!d) return;
-    const wasLifted = d.lifted;
-    const { id, from } = d;
-    // A row lifted and let go where it was picked up: its menu.
-    const heldInPlace =
-      wasLifted &&
-      from === "list" &&
-      !!d.rowMenu &&
-      Math.hypot(e.clientX - d.x, e.clientY - d.y) <= PIN_LIFT_PX;
-    if (heldInPlace) {
-      skipClick.current = true;
-      setMenu({ id, rect: d.rect, from: "list" });
-    } else if (wasLifted) {
-      const zone = dropIsPins(
-        e.clientX,
-        e.clientY,
-        pinsRef.current?.getBoundingClientRect() ?? null
-      )
-        ? "pins"
-        : "list";
-      const before = pinBeforeId(e.clientX, e.clientY, pinsRef.current);
-      if (from === "list" && zone === "pins") void pinChat(id, before);
-      if (from === "pin" && zone === "pins") void movePin(id, before);
-      if (from === "pin" && zone === "list") void unpinChat(id);
+    if (d.lifted) {
+      const inPins = dropIsPins(e.clientX, e.clientY, pinsRef.current?.getBoundingClientRect() ?? null);
+      if (inPins) void movePin(d.id, pinBeforeId(e.clientX, e.clientY, pinsRef.current));
     }
     if (e.currentTarget.hasPointerCapture(e.pointerId)) {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -200,14 +146,6 @@ export function usePinDrag(
     useZenStore.getState().setAgent(id);
   };
 
-  /** True once the hold has lifted a ghost (a swipe must not start then). */
-  const isLifted = () => !!dragRef.current?.lifted;
-
-  /** Drop a not-yet-lifted hold (a row swipe took the gesture). */
-  const abort = () => {
-    if (dragRef.current && !dragRef.current.lifted) cancel();
-  };
-
   return {
     onPointerDown,
     onPointerMove,
@@ -216,10 +154,16 @@ export function usePinDrag(
     hot,
     consumeSkipClick,
     onPinClick,
-    isLifted,
-    abort,
     menu,
-    openMenuFor: (id: string, rect: PinRect | null) => setMenu({ id, rect }),
+    /** Desktop right-click / Android long-press. A press in flight (the
+     *  touch is still down) leaves the menu unarmed. */
+    openMenuFor: (id: string, el: Element) => {
+      const pressing = !!dragRef.current;
+      if (dragRef.current?.timer) clearTimeout(dragRef.current.timer);
+      if (dragRef.current) dragRef.current.timer = null;
+      if (pressing) skipClick.current = true;
+      setMenu({ id, rect: rectOf(el), armed: !pressing });
+    },
     closeMenu,
   };
 }

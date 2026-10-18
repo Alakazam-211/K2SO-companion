@@ -1,6 +1,6 @@
 // The multi-server Agents list's own pieces (multi-server S2, MS35, MS39).
 // Only rendered with `zen.multiServer` on. The active server's rows keep
-// ChatsList's own row (swipe, pin drag, last-at); these are the rows of a
+// ChatsList's own row (hold menu, pins, last-at); these are the rows of a
 // NON-active server (only with no active server saved), a server's
 // placeholder row and the "Loading {server}…" line.
 //

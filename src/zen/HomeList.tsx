@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent, type ReactNode } from "react";
+import type { ReactNode } from "react";
 import { connectServer } from "../lib/revive";
 import { useServersStore } from "../stores/servers";
 import { activityForRow } from "./agentActivity";
@@ -13,13 +13,14 @@ import type { RowActivity } from "./agentActivity";
 import { lastAtKeyFor } from "./lastAtFetch";
 import type { StubAgent } from "./stubData";
 import { mountainListWhen } from "./threadModel";
-import { isHorizontalSwipe, SWIPE_SLOP_PX } from "./useRowSwipe";
 import { useZenStore } from "./zenStore";
 import { useZenScope } from "./zenScope";
-import { useBackHandler } from "../lib/androidBack";
 import { rowUnreadFor, type RowRef } from "./unread";
 import { useUnreadStore } from "./unreadStore";
-import { MuteMenuItems } from "./UnreadMarks";
+import { AgentMenu, OpenGlyph, RearrangeGlyph, RemoveGlyph, type AgentMenuEntry } from "./AgentMenu";
+import { GripHandle, rearrangePadLeft } from "./RearrangeBits";
+import { useHoldMenu } from "./useHoldMenu";
+import { useRearrange } from "./useRearrange";
 
 /** A Home row's server and Thread (unread marks, Mute). */
 function homeRowTarget(
@@ -32,19 +33,8 @@ function homeRowTarget(
   return addr ? { serverId: v.server.id, addr } : null;
 }
 
-/** Trailing (swipe-left) Remove action width. */
-export const HOME_REMOVE_W = 96;
-/** A still press this long opens the row's menu. */
-export const HOME_HOLD_MS = 500;
-const REMOVE_RED = "#ff453a";
-
 export const HOME_EMPTY_TITLE = "Your Home is empty";
 export const HOME_EMPTY_BODY = "Tap + to add agents from your servers.";
-
-/** Where a swipe-left settles on release. */
-export function homeSwipeRelease(x: number): "open" | "close" {
-  return x <= -HOME_REMOVE_W / 2 ? "open" : "close";
-}
 
 /**
  * Open a Home row that lives on another saved server.
@@ -96,21 +86,24 @@ export interface RemoteRowLook {
   dim: boolean;
 }
 
-type Track = { address: string; x0: number; y0: number; base: number; committed: boolean };
-
 /**
  * The Home tab's list (HM3/HM6/HM7): the current Home's rows with the
- * Agents row look. No pin grid, no swipe-right-to-group, no hold-to-pin
- * (rows carry no `data-pin-id`, so the list's pin/group gestures never
- * see them). Swipe left, or press and hold, for Remove from Home.
+ * Agents row look. No pin grid. Press and hold a row for its menu (Open,
+ * Mute, Rearrange, Remove from Home); rows carry no `data-pin-id`, so the
+ * pin grid's gestures never see them. Rearrange mode puts a grip left of
+ * each avatar; a drag reorders the Home (`onReorder`, synced by Homes
+ * sync like any Home edit).
  */
 export function HomeList({
   views,
   homeName,
   searching,
-  reorderable = true,
+  canRearrange = true,
+  rearranging = false,
+  onRearrange,
+  onReorder,
+  scrollRef,
   onRemove,
-  onMove,
   onOpenRemote,
   previewFor,
   remoteLook,
@@ -122,12 +115,18 @@ export function HomeList({
   views: HomeRowView[];
   homeName: string;
   searching: boolean;
-  /** Menu Move up / Move down shown (off while "Recent agents first"
-   *  orders the list). */
-  reorderable?: boolean;
+  /** Menu Rearrange shown (off while "Recent agents first" orders the
+   *  list, and while searching). */
+  canRearrange?: boolean;
+  /** Rearrange mode: grips on, taps and the hold menu off. */
+  rearranging?: boolean;
+  onRearrange?: () => void;
+  /** A Rearrange drop: the shown rows' addresses in their new order, and
+   *  the row that moved. */
+  onReorder?: (order: string[], moved: string) => void;
+  /** The scrolling list (Rearrange measures rows and auto-scrolls it). */
+  scrollRef?: { current: HTMLElement | null };
   onRemove: (address: string) => void;
-  /** Reorder within the Home (menu Move up / Move down; not while searching). */
-  onMove: (address: string, delta: -1 | 1) => void;
   onOpenRemote: (view: Extract<HomeRowView, { kind: "remote" }>) => void;
   /** Line two of an active-server row: the Agents list's own preview. */
   previewFor: (agent: StubAgent) => ReactNode;
@@ -152,85 +151,14 @@ export function HomeList({
   const unreadServers = useUnreadStore((s) => s.servers);
   const unreadAddrs = useUnreadStore((s) => s.addrs);
 
-  const [openAddr, setOpenAddr] = useState<string | null>(null);
-  const [drag, setDrag] = useState<{ address: string; x: number } | null>(null);
-  const [menu, setMenu] = useState<{ address: string; top: number } | null>(null);
-  const track = useRef<Track | null>(null);
-  const hold = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const skipClick = useRef(false);
-
-  const clearHold = () => {
-    if (hold.current) clearTimeout(hold.current);
-    hold.current = null;
-  };
-  useEffect(() => clearHold, []);
-  // Android Back closes the row menu, like its backdrop. Only while it
-  // shows (its row may have left the list).
-  useBackHandler(
-    menu !== null && views.some((v) => v.row.address === menu.address),
-    () => setMenu(null)
-  );
-
-  const openMenu = (address: string, el: HTMLElement) => {
-    const r = el.getBoundingClientRect();
-    setOpenAddr(null);
-    setMenu({ address, top: r.bottom + 4 });
-  };
-
-  const onDown = (address: string) => (e: ReactPointerEvent<HTMLElement>) => {
-    skipClick.current = false;
-    if (e.button && e.button !== 0) return;
-    if (openAddr && openAddr !== address) {
-      setOpenAddr(null);
-      skipClick.current = true;
-    }
-    const base = openAddr === address ? -HOME_REMOVE_W : 0;
-    if (base) skipClick.current = true;
-    track.current = { address, x0: e.clientX, y0: e.clientY, base, committed: false };
-    const el = e.currentTarget;
-    clearHold();
-    hold.current = setTimeout(() => {
-      hold.current = null;
-      if (track.current?.committed) return;
-      track.current = null;
-      skipClick.current = true;
-      openMenu(address, el);
-    }, HOME_HOLD_MS);
-  };
-
-  const onMoveRow = (e: ReactPointerEvent<HTMLElement>) => {
-    const t = track.current;
-    if (!t) return;
-    const dx = e.clientX - t.x0;
-    const dy = e.clientY - t.y0;
-    if (!t.committed) {
-      if (Math.abs(dx) > SWIPE_SLOP_PX || Math.abs(dy) > SWIPE_SLOP_PX) clearHold();
-      if (Math.abs(dy) > SWIPE_SLOP_PX && Math.abs(dy) >= Math.abs(dx)) {
-        track.current = null;
-        return;
-      }
-      if (!isHorizontalSwipe(dx, dy)) return;
-      // Trailing action only: a right drag on a closed row is not a swipe.
-      if (dx > 0 && t.base === 0) {
-        track.current = null;
-        return;
-      }
-      t.committed = true;
-      skipClick.current = true;
-    }
-    const x = Math.min(0, Math.max(-HOME_REMOVE_W * 1.5, t.base + dx));
-    setDrag({ address: t.address, x });
-  };
-
-  const onUp = () => {
-    clearHold();
-    const t = track.current;
-    track.current = null;
-    if (!t?.committed) return;
-    const x = drag?.address === t.address ? drag.x : t.base;
-    setDrag(null);
-    setOpenAddr(homeSwipeRelease(x) === "open" ? t.address : null);
-  };
+  const hold = useHoldMenu();
+  const noScroll = { current: null as HTMLElement | null };
+  const rearrange = useRearrange({
+    keys: views.map((v) => v.row.address),
+    scrollRef: scrollRef ?? noScroll,
+    enabled: rearranging,
+    onCommit: (order, moved) => onReorder?.(order, moved),
+  });
 
   if (views.length === 0) {
     return searching ? (
@@ -251,25 +179,68 @@ export function HomeList({
     );
   }
 
-  const menuIndex = menu ? views.findIndex((v) => v.row.address === menu.address) : -1;
-  const menuView = menuIndex >= 0 ? views[menuIndex] : null;
+  const menu = hold.menu && !rearranging ? hold.menu : null;
+  const menuView = menu ? views.find((v) => v.row.address === menu.id) ?? null : null;
   const menuTarget = menuView ? homeRowTarget(menuView, zenId) : null;
   const menuRef: RowRef | null = menuTarget ? { kind: "thread", addr: menuTarget.addr } : null;
 
+  /** What a row's tap does (and the menu's Open). */
+  const openRow = (v: HomeRowView, failure: RowFailure | null, action: (() => void) | null) => {
+    if (v.kind === "here") setAgent(v.agent.id);
+    else if (v.kind === "remote") {
+      // Flag on: a server in trouble runs its one fix instead — except one
+      // that is down: the chat opens with what is cached and reconnects
+      // (auto reconnect, its banner).
+      if (failure && failure.state !== "offline" && failure.state !== "restarting") action?.();
+      else onOpenRemote(v);
+    }
+  };
+
+  const rowState = (v: HomeRowView) => {
+    const look = v.kind === "remote" && remoteLook ? remoteLook(v) : null;
+    const failure = look?.failure ?? null;
+    const remoteView = v.kind === "remote" ? v : null;
+    const action =
+      remoteView && failure?.action && onRemoteAction
+        ? () => onRemoteAction(remoteView, failure.action as FailureActionKind)
+        : null;
+    return { look, failure, action };
+  };
+
+  const menuEntries = (v: HomeRowView): AgentMenuEntry[] => {
+    const { failure, action } = rowState(v);
+    const canOpen = v.kind === "here" || v.kind === "remote";
+    return [
+      ...(canOpen
+        ? [{ key: "open", label: "Open", icon: <OpenGlyph />, onSelect: () => openRow(v, failure, action) }]
+        : []),
+      { key: "mute" as const, mute: { serverId: menuTarget?.serverId, rowRef: menuRef } },
+      ...(canRearrange && !searching && views.length > 1 && onRearrange
+        ? [{ key: "rearrange", label: "Rearrange", icon: <RearrangeGlyph />, onSelect: onRearrange }]
+        : []),
+      {
+        key: "remove",
+        label: "Remove from Home",
+        icon: <RemoveGlyph />,
+        danger: true,
+        onSelect: () => onRemove(v.row.address),
+      },
+    ];
+  };
+
   return (
-    <div data-testid="home-list">
+    <div data-testid="home-list" data-rearranging={rearranging ? "1" : undefined}>
       <span id="home-row-hint" className="sr-only">
-        Swipe left, or press and hold, to remove from {homeName}.
+        {rearranging
+          ? "Drag a handle to reorder. Tap Done when finished."
+          : `Press and hold for options, like Remove from ${homeName}.`}
       </span>
       {views.map((v) => {
         const address = v.row.address;
         const handle = parseHomeAddress(address)?.handle ?? "";
-        const x = drag?.address === address ? drag.x : openAddr === address ? -HOME_REMOVE_W : 0;
-        const dragging = drag?.address === address;
         const here = v.kind === "here" ? v.agent : null;
-        const look = v.kind === "remote" && remoteLook ? remoteLook(v) : null;
+        const { look, failure, action } = rowState(v);
         const there = v.kind === "remote" ? v.resolved?.agent ?? null : null;
-        const failure = look?.failure ?? null;
         const busy = look
           ? look.busy
           : here && source === "live"
@@ -308,41 +279,29 @@ export function HomeList({
             : null;
         const opacity = look ? (dim ? 0.6 : 1) : dim ? 0.55 : 1;
         const remoteView = v.kind === "remote" ? v : null;
-        const action =
-          remoteView && failure?.action && onRemoteAction
-            ? () => onRemoteAction(remoteView, failure.action as FailureActionKind)
-            : null;
+        const shift = rearrange.offsetFor(address);
         return (
           <div
             key={address}
-            className="relative overflow-hidden"
+            className="relative"
             data-home-row={address}
             data-home-kind={v.kind}
             data-server-id={v.kind === "remote" ? v.server?.id : undefined}
             data-greyed={look && dim ? "1" : undefined}
+            data-rearrange-key={address}
+            data-dragging={shift.dragging ? "1" : undefined}
+            style={{
+              transform: shift.y ? `translateY(${shift.y}px)` : undefined,
+              transition: shift.transition,
+              zIndex: shift.dragging ? 3 : undefined,
+              background: shift.dragging ? "rgba(44,44,46,.92)" : undefined,
+              boxShadow: shift.dragging ? "0 10px 28px rgba(0,0,0,.45)" : undefined,
+              borderRadius: shift.dragging ? 14 : undefined,
+            }}
           >
-            <button
-              type="button"
-              className="absolute top-0 bottom-0 right-0 flex items-center justify-center border-0 text-[15px] font-semibold"
-              style={{
-                width: Math.max(0, -x),
-                background: REMOVE_RED,
-                color: "#fff",
-                overflow: "hidden",
-                transition: dragging ? "none" : "width 260ms cubic-bezier(.2,.9,.25,1)",
-              }}
-              tabIndex={x < 0 ? 0 : -1}
-              aria-hidden={x < 0 ? undefined : true}
-              aria-label={`Remove ${name} from ${homeName}`}
-              data-no-pin="1"
-              data-testid={`home-remove-${handle}`}
-              onClick={() => {
-                setOpenAddr(null);
-                onRemove(address);
-              }}
-            >
-              Remove
-            </button>
+            {rearranging ? (
+              <GripHandle name={name} inset={inset} handlers={rearrange.handleProps(address)} />
+            ) : null}
             <button
               type="button"
               className="w-full flex items-center text-left relative"
@@ -350,51 +309,29 @@ export function HomeList({
                 gap: 10,
                 paddingTop: 12,
                 paddingBottom: 12,
-                paddingLeft: inset,
+                paddingLeft: rearrangePadLeft(inset, rearranging),
                 paddingRight: failure?.action ? `calc(${inset} + 96px)` : inset,
                 opacity,
                 touchAction: "pan-y",
                 userSelect: "none",
                 WebkitUserSelect: "none",
                 WebkitTouchCallout: "none",
-                transform: `translateX(${x}px)`,
-                transition: dragging ? "none" : "transform 260ms cubic-bezier(.2,.9,.25,1)",
+                transition: rearrange.reduced ? undefined : "padding-left 200ms cubic-bezier(.2,.9,.25,1)",
               }}
               data-no-pin="1"
               data-testid={`home-row-${handle}`}
               aria-describedby="home-row-hint"
+              aria-haspopup={rearranging ? undefined : "menu"}
+              aria-expanded={rearranging ? undefined : menu?.id === address}
               aria-label={
                 v.kind === "remote"
                   ? `${name}, on ${v.serverLabel}` + (failure ? `, ${failure.copy}` : "")
                   : name
               }
-              onPointerDown={onDown(address)}
-              onPointerMove={onMoveRow}
-              onPointerUp={onUp}
-              onPointerCancel={onUp}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                clearHold();
-                track.current = null;
-                openMenu(address, e.currentTarget);
-              }}
+              {...hold.bind(address, !rearranging)}
               onClick={() => {
-                if (skipClick.current) {
-                  skipClick.current = false;
-                  return;
-                }
-                if (openAddr) {
-                  setOpenAddr(null);
-                  return;
-                }
-                if (v.kind === "here") setAgent(v.agent.id);
-                else if (v.kind === "remote") {
-                  // Flag on: a server in trouble runs its one fix instead —
-                  // except one that is down: the chat opens with what is
-                  // cached and reconnects (auto reconnect, its banner).
-                  if (failure && failure.state !== "offline" && failure.state !== "restarting") action?.();
-                  else onOpenRemote(v);
-                }
+                if (hold.consumeSkipClick() || rearranging) return;
+                openRow(v, failure, action);
               }}
             >
               <AgentRowContent
@@ -410,15 +347,10 @@ export function HomeList({
                 unread={unread}
               />
             </button>
-            {failure && remoteView ? (
+            {failure && remoteView && !rearranging ? (
               <span
                 className="absolute flex items-center"
-                style={{
-                  right: inset,
-                  top: "50%",
-                  transform: `translate(${x}px, -50%)`,
-                  transition: dragging ? "none" : "transform 260ms cubic-bezier(.2,.9,.25,1)",
-                }}
+                style={{ right: inset, top: "50%", transform: "translateY(-50%)" }}
                 data-no-pin="1"
               >
                 <FailureAction
@@ -433,71 +365,13 @@ export function HomeList({
       })}
 
       {menu && menuView ? (
-        <div data-no-pin="1">
-          <button
-            type="button"
-            aria-label="Close menu"
-            className="fixed inset-0 bg-transparent border-0 p-0"
-            style={{ zIndex: 29 }}
-            onClick={() => setMenu(null)}
-            data-testid="home-menu-backdrop"
-          />
-          <div
-            role="menu"
-            aria-label={`${menuView.row.label} on ${homeName}`}
-            className="zen-glass fixed"
-            data-testid="home-row-menu"
-            style={{
-              zIndex: 30,
-              top: `min(${menu.top}px, calc(100vh - 200px))`,
-              right: 16,
-              width: 220,
-              borderRadius: 16,
-              padding: 6,
-              color: "#fff",
-            }}
-          >
-            {reorderable && !searching && menuIndex > 0 ? (
-              <button type="button" role="menuitem"
-                className="w-full flex items-center text-left bg-transparent border-0 text-[16px]"
-                style={{ padding: "10px 12px", minHeight: 44, borderRadius: 10, color: "#fff" }}
-                data-testid="home-menu-up"
-                onClick={() => {
-                  setMenu(null);
-                  onMove(menuView.row.address, -1);
-                }}>
-                Move up
-              </button>
-            ) : null}
-            {reorderable && !searching && menuIndex < views.length - 1 ? (
-              <button type="button" role="menuitem"
-                className="w-full flex items-center text-left bg-transparent border-0 text-[16px]"
-                style={{ padding: "10px 12px", minHeight: 44, borderRadius: 10, color: "#fff" }}
-                data-testid="home-menu-down"
-                onClick={() => {
-                  setMenu(null);
-                  onMove(menuView.row.address, 1);
-                }}>
-                Move down
-              </button>
-            ) : null}
-            <MuteMenuItems
-              serverId={menuTarget?.serverId}
-              rowRef={menuRef}
-              onDone={() => setMenu(null)}
-            />
-            <button type="button" role="menuitem"
-              className="w-full flex items-center text-left bg-transparent border-0 text-[16px]"
-              style={{ padding: "10px 12px", minHeight: 44, borderRadius: 10, color: REMOVE_RED }}
-              data-testid="home-menu-remove"
-              onClick={() => {
-                setMenu(null);
-                onRemove(menuView.row.address);
-              }}>
-              Remove from Home
-            </button>
-          </div>
-        </div>
+        <AgentMenu
+          label={`Options for ${menuView.row.label} on ${homeName}`}
+          menu={menu}
+          entries={menuEntries(menuView)}
+          onClose={hold.close}
+          testId="home-row-menu"
+        />
       ) : null}
     </div>
   );

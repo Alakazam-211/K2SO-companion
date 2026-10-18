@@ -4,7 +4,7 @@ import { CheckIcon } from "./icons";
 import { useBackHandler } from "../lib/androidBack";
 
 /**
- * Swipe-right "Group" sheet on the Agents list: put one workspace in a
+ * "Move to group…" sheet (the agent menu): put one workspace in a
  * focus group (server-wide, like desktop), take it out ("No group"), or
  * make a new group and put it there. Groups arrive in `tabOrder`.
  * Sits inside the visualViewport-sized column, so the name field stays

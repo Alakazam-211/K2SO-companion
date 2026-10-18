@@ -67,8 +67,3 @@ export function dropIsPins(
   if (!r) return false;
   return x >= r.left && x <= r.right && y >= r.top && y <= r.bottom + 12;
 }
-
-/** Vertical list pan should not start a pin drag. */
-export function isListPan(dx: number, dy: number): boolean {
-  return Math.abs(dy) > Math.abs(dx) * 1.5;
-}
