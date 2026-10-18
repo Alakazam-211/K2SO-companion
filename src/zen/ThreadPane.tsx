@@ -1005,11 +1005,25 @@ export function ThreadPane({
     apply(inBar(document.activeElement));
     const onIn = (e: FocusEvent) => apply(inBar(e.target));
     const onOut = (e: FocusEvent) => apply(inBar(e.relatedTarget));
+    // The keyboard going away on its own (an interactive drag-dismiss,
+    // the app backgrounding) can leave WebKit's field focused: the bar
+    // would keep the 8px typing gap and sit on the home indicator, and a
+    // tap would not bring the keyboard back. Blur it, as UIKit resigns
+    // the first responder.
+    const onKeyboardWill = (e: Event) => {
+      const d = (e as CustomEvent<{ show?: boolean }>).detail;
+      if (!d || d.show !== false) return;
+      const el = document.activeElement;
+      if (el instanceof HTMLElement && inBar(el)) el.blur();
+      apply(false);
+    };
     root.addEventListener("focusin", onIn);
     root.addEventListener("focusout", onOut);
+    window.addEventListener("k2-keyboard-will", onKeyboardWill);
     return () => {
       root.removeEventListener("focusin", onIn);
       root.removeEventListener("focusout", onOut);
+      window.removeEventListener("k2-keyboard-will", onKeyboardWill);
     };
   }, []);
 
