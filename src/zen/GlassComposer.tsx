@@ -355,6 +355,7 @@ export function GlassComposer({
   }, [value, ref, smoothClear]);
   useEffect(() => () => collapse.current?.cancel(), []);
 
+  const [sendPressed, setSendPressed] = useState(false);
   const blockCb = useRef(onBlockHeight);
   blockCb.current = onBlockHeight;
   const watchBlock = Boolean(onBlockHeight);
@@ -551,7 +552,13 @@ export function GlassComposer({
                 disabled={!sendReady}
                 // Keep focus in the textarea so the iOS keyboard stays up
                 // (AccessoryBar pattern). Attach does the same (see above).
-                onPointerDown={(e) => e.preventDefault()}
+                onPointerDown={(e) => {
+                  e.preventDefault();
+                  if (sendReady) setSendPressed(true);
+                }}
+                onPointerUp={() => setSendPressed(false)}
+                onPointerCancel={() => setSendPressed(false)}
+                onPointerLeave={() => setSendPressed(false)}
                 onMouseDown={(e) => e.preventDefault()}
                 className={`shrink-0 flex items-center justify-center k2-tile ${
                   sendReady
@@ -566,6 +573,10 @@ export function GlassComposer({
                   ...(sendReady
                     ? { background: "#0a84ff", borderColor: "#0a84ff" }
                     : {}),
+                  // Pressed: a little brighter (Rosson 2026-10-18). preventDefault
+                  // above keeps the keyboard up but also skips :active on iOS.
+                  filter: sendPressed && sendReady ? "brightness(1.25)" : undefined,
+                  transition: "filter 90ms ease-out",
                 }}
               >
                 <svg
