@@ -13,19 +13,11 @@ import {
 } from "./composerAttach";
 import { loadGroupPoc, type GroupPoc } from "./groupPoc";
 import { GlassComposer, composerBlockHeight, composerPlaceholder } from "./GlassComposer";
-import {
-  fullViewportHeight,
-  keyboardFlipTransition,
-  keyboardMotionMs,
-  useViewportPadRef,
-  type ViewportMotion,
-} from "../lib/useViewportHeight";
-import {
-  installKeyboardDragDock,
-  iosKeyboardShell,
-  syncDismissPadding,
-  topRoomFor,
-} from "./keyboardDragDock";
+import { keyboardMotionMs, useViewportPadRef, type ViewportMotion } from "../lib/useViewportHeight";
+import { useKeyboardFlip } from "../kit/mobileChat/useKeyboardFlip";
+import { COMPOSER_FOCUSED_ATTR, useComposerFocusGap } from "../kit/mobileChat/useComposerFocusGap";
+import { useScrollRoom } from "../kit/mobileChat/useScrollRoom";
+import { useKeyboardDrag } from "../kit/mobileChat/useKeyboardDrag";
 import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
 import { StubMark } from "./StubMark";
 import { mountainTime, type ThreadMessage } from "./threadModel";
@@ -100,8 +92,6 @@ export { COMPOSER_MAX_PX, composerHeight } from "./GlassComposer";
 const BUBBLE_TEXT_PX = 14;
 /** How long the "New message ↓" glide gets before a jump finishes it. */
 export const NEW_BELOW_SETTLE_MS = 450;
-/** The keyboard's top room goes once scrolling has been idle this long. */
-const TOP_ROOM_IDLE_MS = 200;
 /** Progressive first paint: a chat that opens with more than this many
  *  messages draws its newest `PROGRESSIVE_FIRST` first and the rest on the
  *  next idle frame (prepended above, the view pinned to the bottom). */
@@ -291,10 +281,7 @@ export function threadBottomPadding(composerPx: number, drawerCover: number): st
   return `${THREAD_BOTTOM_PAD + threadBottomInset(composerPx, drawerCover)}px`;
 }
 
-/** Set on the pane root while focus is in the composer bar: the bar's
- *  bottom gap and the scroller's matching spacer collapse together
- *  (index.css `.zen-thread-pane`). */
-export const COMPOSER_FOCUSED_ATTR = "data-composer-focused";
+export { COMPOSER_FOCUSED_ATTR };
 
 export function ThreadPane({
   viewportHeight,
@@ -463,17 +450,13 @@ export function ThreadPane({
   const dockRef = useRef<HTMLDivElement>(null);
   const dragLayerRef = useRef<HTMLDivElement>(null);
   const topRoomRef = useRef<HTMLDivElement>(null);
-  const topRoomPx = useRef(0);
   const kbPadRef = useViewportPadRef();
-  // The next keyboard ease ends a drag: the reader's scroll stands.
-  const afterDrag = useRef(false);
   // Last reader/native scroll (Date.now()): the top room waits for idle.
   const lastScrollAt = useRef(0);
   // Interactive keyboard dismiss in progress: the reader's finger owns
   // the scroll (iMessage) — no automatic sticking of any kind.
   const interactiveRef = useRef(viewportInteractive);
   interactiveRef.current = viewportInteractive;
-  if (viewportInteractive) afterDrag.current = true;
   // Height (px) the working drawer stands on the composer field. The part
   // above the bar floats over the scroller, which pads its bottom by it
   // (same 200ms ease).
@@ -900,186 +883,53 @@ export function ThreadPane({
     };
   }, [viewingAllowed, covered, source, conversationId, threadGroupId, zenServer]);
 
-  // Keyboard open/close, on the compositor (FLIP), with no per-frame
-  // layout or scroll writes:
-  //   - hide: the column is already at its final height. Re-stick if the
-  //     reader was at the newest; then the dock (composer + blur) and,
-  //     if the commit moved the list (re-stick / clamp), the list's
-  //     children start translated back to where they were drawn and
-  //     play to 0 on the keyboard's duration + curve;
-  //   - show: Zen holds the column at its old height; the dock (and the
-  //     list, if the reader is at the newest) play up to where the new
-  //     layout will put them; when the motion clears the column takes
-  //     its height and the transforms go in the same commit (re-stuck).
-  // After an interactive drag the finger owns the scroll: the list is
-  // never moved or re-stuck, only the composer plays.
-  const flipList = useRef(0);
-  // The running motion is a drag's release (its end must not re-stick).
-  const dragMotion = useRef(false);
-  useLayoutEffect(() => {
-    const el = scrollerRef.current;
-    const dock = dockRef.current;
-    if (viewportHeight == null || !el || !dock) return;
-    const listEls = () => Array.from(el.children) as HTMLElement[];
-    const setT = (els: HTMLElement[], y: number, transition: string) => {
-      for (const x of els) {
-        x.style.transition = transition;
-        x.style.transform = y ? `translate3d(0, ${y}px, 0)` : "";
-      }
-    };
-    const m = viewportMotion;
-    const dragged = (afterDrag.current && !viewportInteractive) || (!!m && dragMotion.current);
-    if (!m) {
-      // No motion / the motion is over: final layout, no transforms.
-      const moved = flipList.current !== 0;
-      setT([dock], 0, "none");
-      if (moved) setT(listEls(), 0, "none");
-      flipList.current = 0;
-      if (dragged || dragMotion.current) {
-        afterDrag.current = false;
-        dragMotion.current = false;
-      } else if (moved || following.current) follow();
-      return;
-    }
-    dragMotion.current = dragged;
-    const play = keyboardFlipTransition(m);
-    if (m.to > m.from) {
-      // Hide (FLIP): layout is final; invert, then play to 0.
-      const before = lastTop.current;
-      if (!dragged) follow();
-      const shift = before - el.scrollTop; // the list moved down by this
-      setT([dock], m.from - m.to, "none");
-      flipList.current = !dragged && Math.abs(shift) >= 0.5 ? -shift : 0;
-      if (flipList.current) setT(listEls(), flipList.current, "none");
-      void dock.getBoundingClientRect(); // flush: start from the inverted spot
-      setT([dock], 0, play);
-      if (flipList.current) setT(listEls(), 0, play);
-      return;
-    }
-    // Show: play forward to the layout the motion's end will commit.
-    const growth = m.from - m.to; // the list's viewport shrinks by this
-    const maxNow = el.scrollHeight - el.clientHeight;
-    const rise =
-      !dragged && following.current && !pendingAnchor.current
-        ? Math.max(0, Math.min(growth, maxNow + growth - el.scrollTop))
-        : 0;
-    setT([dock], m.to - m.from, play);
-    flipList.current = rise ? -rise : 0;
-    if (rise) setT(listEls(), -rise, play);
-  }, [viewportHeight, viewportMotion]);
-  // A drag that ended without a height change (spring back): done too.
-  useLayoutEffect(() => {
-    if (!viewportInteractive) afterDrag.current = false;
-  }, [viewportInteractive]);
+  // Keyboard open/close on the compositor (FLIP; mobile chat kit). After
+  // an interactive drag the finger owns the scroll: only the composer
+  // plays, the list is never moved or re-stuck.
+  useKeyboardFlip({
+    viewportHeight,
+    motion: viewportMotion,
+    interactive: viewportInteractive,
+    scroller: () => scrollerRef.current,
+    docks: () => [dockRef.current],
+    list: {
+      isFollowing: () => following.current,
+      lastScrollTop: () => lastTop.current,
+      stick: () => follow(),
+      held: () => !!pendingAnchor.current,
+    },
+  });
 
-  // Keyboard up: keep at least its height (+ margin) of real scroll range
-  // above the view, so an interactive dismiss drag is a 1:1 native scroll
-  // (the composer's stand-in rides it), never a rubber band. A short chat
-  // also gets min-height 100% so the room is reachable. Added and removed
-  // with scrollTop compensated: nothing on screen moves.
-  const keyboardInset =
-    viewportHeight == null ? 0 : Math.max(0, fullViewportHeight() - viewportHeight);
-  // iOS only (interactive dismiss); Android scrolls as it always did.
-  const keyboardUp = keyboardInset > 100 && iosKeyboardShell();
-  useLayoutEffect(() => {
-    const el = scrollerRef.current;
-    const room = topRoomRef.current;
-    const content = contentRef.current;
-    if (!el || !room || !content) return;
-    if (keyboardUp) {
-      const px = topRoomFor(keyboardInset, el.scrollTop);
-      if (px <= 0 || topRoomPx.current > 0) return;
-      topRoomPx.current = px;
-      content.style.minHeight = "100%";
-      room.style.height = `${px}px`;
-      el.scrollTop += px;
-      ownTop.current = el.scrollTop;
-      lastTop.current = el.scrollTop;
-      return;
-    }
-    // Keyboard gone: drop the room once scrolling is idle (a programmatic
-    // scroll would stop a release's momentum).
-    let t: ReturnType<typeof setTimeout> | null = null;
-    const drop = () => {
-      t = null;
-      const px = topRoomPx.current;
-      if (px <= 0) return;
-      if (Date.now() - lastScrollAt.current < TOP_ROOM_IDLE_MS) {
-        t = setTimeout(drop, TOP_ROOM_IDLE_MS);
-        return;
-      }
-      topRoomPx.current = 0;
-      room.style.height = "";
-      content.style.minHeight = "";
-      el.scrollTop = Math.max(0, el.scrollTop - px);
-      ownTop.current = el.scrollTop;
-      lastTop.current = el.scrollTop;
-    };
-    drop();
-    return () => {
-      if (t !== null) clearTimeout(t);
-    };
-  }, [keyboardUp]);
+  // Keyboard up: real scroll range above the view (kit useScrollRoom).
+  useScrollRoom({
+    viewportHeight,
+    scroller: () => scrollerRef.current,
+    room: () => topRoomRef.current,
+    content: () => contentRef.current,
+    lastScrollAt: () => lastScrollAt.current,
+    onScrollWrite: (top) => {
+      ownTop.current = top;
+      lastTop.current = top;
+    },
+  });
 
-  // The switch into the content and back (keyboardDragDock).
-  useEffect(
-    () =>
-      installKeyboardDragDock({
-        scroller: () => scrollerRef.current,
-        dock: () => dockRef.current,
-        layer: () => dragLayerRef.current,
-      }),
-    []
-  );
+  // Interactive dismiss: the composer copy rides the scrolled content;
+  // iOS 17+ starts the drag at the composer's top (iMessage).
+  useKeyboardDrag({
+    scroller: () => scrollerRef.current,
+    dock: () => dockRef.current,
+    layer: () => dragLayerRef.current,
+    composerPx: composerPx > 0 ? composerPx + 8 : 0,
+  });
 
-  // iOS 17+: the dismiss drag starts at the composer's top (iMessage).
-  useEffect(() => {
-    if (composerPx > 0) void syncDismissPadding(composerPx + 8);
-  }, [composerPx]);
-
-  // Focus into / out of the composer: the bar's bottom gap (home
-  // indicator at rest, 8px over the keyboard) and the scroller's spacer
-  // ease together on the keyboard's timing. Flip the root attribute in
-  // the focus event itself, so both start in the same style pass as the
-  // bar's :focus-within, and stick through the ease.
-  useEffect(() => {
-    const root = rootRef.current;
-    if (!root) return;
-    const bar = () => root.querySelector<HTMLElement>('[data-testid="composer-bar"]');
-    const apply = (on: boolean) => {
-      if (root.hasAttribute(COMPOSER_FOCUSED_ATTR) === on) return;
-      if (on) root.setAttribute(COMPOSER_FOCUSED_ATTR, "");
-      else root.removeAttribute(COMPOSER_FOCUSED_ATTR);
-      followFor(keyboardMotionMs() + 80);
-    };
-    const inBar = (n: EventTarget | null) => {
-      const b = bar();
-      return Boolean(b && n instanceof Node && b.contains(n));
-    };
-    apply(inBar(document.activeElement));
-    const onIn = (e: FocusEvent) => apply(inBar(e.target));
-    const onOut = (e: FocusEvent) => apply(inBar(e.relatedTarget));
-    // The keyboard going away on its own (an interactive drag-dismiss,
-    // the app backgrounding) can leave WebKit's field focused: the bar
-    // would keep the 8px typing gap and sit on the home indicator, and a
-    // tap would not bring the keyboard back. Blur it, as UIKit resigns
-    // the first responder.
-    const onKeyboardWill = (e: Event) => {
-      const d = (e as CustomEvent<{ show?: boolean }>).detail;
-      if (!d || d.show !== false) return;
-      const el = document.activeElement;
-      if (el instanceof HTMLElement && inBar(el)) el.blur();
-      apply(false);
-    };
-    root.addEventListener("focusin", onIn);
-    root.addEventListener("focusout", onOut);
-    window.addEventListener("k2-keyboard-will", onKeyboardWill);
-    return () => {
-      root.removeEventListener("focusin", onIn);
-      root.removeEventListener("focusout", onOut);
-      window.removeEventListener("k2-keyboard-will", onKeyboardWill);
-    };
-  }, []);
+  // The composer's bottom gap (home indicator ↔ 8px) eases with the
+  // keyboard; stick through the ease. Blur when the keyboard hides on its
+  // own.
+  useComposerFocusGap({
+    root: () => rootRef.current,
+    bar: () => rootRef.current?.querySelector<HTMLElement>('[data-testid="composer-bar"]') ?? null,
+    onChange: () => followFor(keyboardMotionMs() + 80),
+  });
 
   // The floating header growing (sidecar line, banner) adds top padding,
   // which pushes the tail down by the same amount. Keep the newest in view.
@@ -1407,7 +1257,7 @@ export function ThreadPane({
   return (
     <div
       ref={rootRef}
-      className="zen-thread-pane relative flex flex-col flex-1 min-h-0 min-w-0 overflow-x-hidden"
+      className="zen-thread-pane mchat-pane relative flex flex-col flex-1 min-h-0 min-w-0 overflow-x-hidden"
       style={{ fontFamily: "var(--zen-font)" }}
     >
       <div
@@ -1647,7 +1497,7 @@ export function ThreadPane({
             content ResizeObserver does not fire through the ease. */}
         <div
           aria-hidden="true"
-          className="zen-composer-gap shrink-0"
+          className="zen-composer-gap mchat-gap shrink-0"
           data-testid="thread-composer-gap"
         />
         {/* The keyboard's height while a finger drags it down (else empty):

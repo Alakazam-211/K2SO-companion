@@ -404,7 +404,7 @@ export function GlassComposer({
     // typing so it is not a gap above the keyboard (.input-bar idiom).
     <div
       ref={barRef}
-      className="shrink-0 min-w-0 w-full overflow-hidden px-3 pt-2 zen-composer-bar"
+      className="shrink-0 min-w-0 w-full overflow-hidden px-3 pt-2 zen-composer-bar mchat-bar"
       // A drawer or the attach menu stands above the bar: let it show.
       style={drawer || menuShown ? { overflow: "visible" } : undefined}
       data-testid={id("bar")}
