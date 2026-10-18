@@ -136,9 +136,13 @@ export type KeyboardWill = {
   show: boolean;
   /** Date.now() when UIKit posted it. */
   at?: number;
-  /** The keyboard's top (viewport px) as the animation begins (its begin
-   *  frame): after an interactive drag, where the finger left it. */
+  /** The keyboard's top (viewport px) per its begin frame. After an
+   *  interactive drag iOS may report the resting frame here: only a
+   *  fallback for where the composer is. */
   fromTop?: number;
+  /** The dragged list's contentOffset.y in the same native frame (a
+   *  dismiss drag was sampled): places the stand-in exactly. */
+  scrollY?: number | null;
 };
 
 /** UIKit's private keyboard curve (UIViewAnimationCurve 7). */
@@ -255,10 +259,15 @@ export type KeyboardDragHandler = {
    *  trigger when touch events did not catch the crossing). `moved` is
    *  how far (px) it had gone when sampled. */
   keyboardMoved(moved: number): void;
-  /** Viewport y (px) of the stand-in's bottom: where the keyboard is. */
-  draggedBottom(): number | null;
-  /** Drop the stand-in and show the real composer again. */
-  detach(): void;
+  /** Viewport y (px) of the stand-in's bottom as drawn — at the native
+   *  frame of `nativeScrollY` (the list's offset) when given, else as the
+   *  page sees it now. */
+  draggedBottom(nativeScrollY?: number): number | null;
+  /** Drop the stand-in and show the real composer again. With `drawnAt`
+   *  (viewport y of the stand-in's bottom at a release), the real
+   *  composer is first translated there — in the same style commit as it
+   *  is shown — so no frame shows it at its layout spot. */
+  detach(drawnAt?: number): void;
   /** A Will* release is handing off (before `draggedBottom`/`detach`);
    *  `keyboardTop` = the shell's begin frame, if known. */
   released?(keyboardTop: number | null): void;
@@ -307,18 +316,26 @@ function finishDrag(
   target: number,
   keyboardTop?: number,
   animate = false,
-  release = false
+  release = false,
+  nativeScrollY?: number | null
 ): number | null {
   if (!state.interactive) return null;
-  // The true geometry when the shell reports it (the keyboard's begin
-  // frame), else where the stand-in is.
   const known =
     typeof keyboardTop === "number" && Number.isFinite(keyboardTop) && keyboardTop > 0
       ? Math.min(fullHeight(), keyboardTop)
       : null;
   if (release) dragHandler?.released?.(known);
-  const bottom = known ?? dragHandler?.draggedBottom() ?? null;
-  dragHandler?.detach();
+  // Where the composer IS on screen: the stand-in (it coasts with the
+  // list's momentum between the lift and this Will*). Not the shell's
+  // begin frame: after an interactive dismiss iOS can report the
+  // keyboard's resting (keyboard-up) frame there, and starting the
+  // composer from it showed it snap up, then down (TestFlight 1320).
+  // The begin frame only stands in when there is no stand-in.
+  const drawn =
+    dragHandler?.draggedBottom(
+      typeof nativeScrollY === "number" && Number.isFinite(nativeScrollY) ? nativeScrollY : undefined
+    ) ?? null;
+  const bottom = drawn ?? known;
   for (const el of padEls) el.style.height = "";
   let from: number | null = null;
   for (const el of trackEls) {
@@ -339,6 +356,9 @@ function finishDrag(
   if (from == null && bottom != null && Number.isFinite(bottom)) {
     from = Math.round(bottom - state.offsetTop);
   }
+  // Layout final (or held); now swap the stand-in for the real composer,
+  // drawn where the stand-in was (release) — one style commit.
+  dragHandler?.detach(release && animate && bottom != null ? bottom : undefined);
   return from;
 }
 
@@ -458,7 +478,9 @@ function keyboardWill(will: KeyboardWill): void {
   const remaining = ms - lag;
   const animate = remaining > 0 && !reducedMotion();
   // Released from a drag: the composer starts where the finger left it.
-  const dragged = wasInteractive ? finishDrag(target, will.fromTop, animate, true) : null;
+  const dragged = wasInteractive
+    ? finishDrag(target, will.fromTop, animate, true, will.scrollY)
+    : null;
   const from = dragged ?? state.height;
   const motion: ViewportMotion | null =
     animate && target !== from
