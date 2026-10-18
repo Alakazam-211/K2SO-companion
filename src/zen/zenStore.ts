@@ -100,6 +100,7 @@ import {
   fetchGroupRead,
   fetchThreadRead,
   type ChatRead,
+  type ReadMode,
 } from "./chatRevalidate";
 import type { CachedChat } from "./chatCacheBackend";
 import { deltaSupported } from "../api/threadDelta";
@@ -107,6 +108,7 @@ import { entryForRow, type RowRef } from "./unread";
 import { useUnreadStore } from "./unreadStore";
 import { RETURN_HOLD_MS, holdFirstPaint, knownServerNewest } from "./returnHold";
 import { installChatCacheWiring } from "./chatCacheWiring";
+import { attachRefreshDue } from "./attachmentRefresh";
 import {
   beginChatOpen,
   noteCachedPaint,
@@ -764,6 +766,48 @@ function noteRead(timing: number, read: ChatRead): void {
     removed: read.counts.removed,
     bytes: read.bytes,
   });
+}
+
+/**
+ * After a Thread read of the open chat: when it was a delta and the newest
+ * window holds files, one throttled background plain read (the newest
+ * page) so chip states (ok / changed / gone) catch up — a file edit never
+ * lands in a delta's `changed` (`attachmentRefresh`). Merged with the
+ * usual "server wins in its window" rule: rows keep their objects unless
+ * a chip changed, so nothing scrolls or glides. Not an open (no timing
+ * record) and no read marking: only the rows and their previews.
+ */
+function maybeRefreshAttachments(
+  scope: ServerScope,
+  addr: string,
+  key: string,
+  mode: ReadMode
+): void {
+  const { getState: get, setState: set } = useZenStore;
+  if (!attachRefreshDue(key, mode, get().thread)) return;
+  const gen = get().threadGen;
+  const still = () => get().threadGen === gen && get().threadAddr === addr && !get().threadGroupId;
+  void (async () => {
+    const live = watchLive();
+    try {
+      const prevConv = get().threadConversationId;
+      const read = await fetchThreadRead(scope, addr, null).finally(live.stop);
+      if (!still() || !read.ok) return;
+      // The conversation moved: the next revalidation resets it properly.
+      if (read.conversationId && prevConv && read.conversationId !== prevConv) return;
+      const cur = get().thread;
+      const thread = applyThreadRead(cur, read, { arrivedLive: live.ids, conversationId: prevConv });
+      if (thread === cur) return;
+      set({
+        thread,
+        threadOldestSeq: oldestSeqOf(thread) ?? get().threadOldestSeq,
+        ...threadRowPatch(get(), scope, addr, thread[thread.length - 1]),
+      });
+    } catch {
+      live.stop();
+      /* keep what is on screen */
+    }
+  })();
 }
 
 function captureList(s: ZenState): ListSlice {
@@ -1825,6 +1869,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         ...threadRowPatch(get(), scope, addr, last),
       });
       notePaintAfterResponse(timing);
+      maybeRefreshAttachments(scope, addr, key, read.mode);
     } catch (e) {
       live.stop();
       if (get().threadGen !== gen) return;
@@ -2233,11 +2278,17 @@ export const useZenStore = create<ZenState>((set, get) => ({
       }
       if (read.mode === "reset") chatCache().forget(key);
       const conv = read.conversationId ?? prevConv;
+      const refreshAfter = () => {
+        if (still()) maybeRefreshAttachments(scope, a, key, read.mode);
+      };
       const thread = applyThreadRead(get().thread, read, {
         arrivedLive: live.ids,
         conversationId: prevConv,
       });
-      if (thread === get().thread && conv === prevConv && !get().threadCached) return;
+      if (thread === get().thread && conv === prevConv && !get().threadCached) {
+        refreshAfter();
+        return;
+      }
       const last = thread[thread.length - 1];
       set({
         thread,
@@ -2251,6 +2302,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadOldestSeq: oldestSeqOf(thread) ?? get().threadOldestSeq,
         ...threadRowPatch(get(), scope, a, last),
       });
+      refreshAfter();
     } catch {
       live.stop();
       /* keep what is on screen */

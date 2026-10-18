@@ -177,6 +177,17 @@ describe("prefetcher", () => {
     expect(cache.peek("s2|t:a")?.messages.map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
   });
 
+  it("cached files never add a plain read to a prefetch delta (attachment refresh is for the open chat)", async () => {
+    const file = { n: 0, kind: "file", path: "a.txt", name: "a.txt", size: 1, mime: "text/plain", modifiedAt: null, sha256: null, line: null, lineEnd: null, state: "ok" as const };
+    cache.remember({ key: "s2|t:a", serverId: "s2", messages: [msg(1), { ...msg(2), files: [file] }], conversationId: "c", hasMore: false });
+    const p = createPrefetcher(deps);
+    p.request([t("s2", "a")]);
+    await settle();
+    await settle();
+    expect(deps.fetchThreadDelta).toHaveBeenCalledTimes(1);
+    expect(deps.getThread).not.toHaveBeenCalled();
+  });
+
   it("without the key: the normal newest-page read", async () => {
     cache.remember({ key: "s1|t:a", serverId: "s1", messages: [msg(1)], conversationId: "c", hasMore: false });
     const p = createPrefetcher(deps);

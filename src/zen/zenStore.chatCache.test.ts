@@ -41,6 +41,7 @@ import { setZenScope } from "../test/zenScopeMock";
 import { chatCache, createChatCache, setChatCacheForTests } from "./chatCache";
 import { memoryBackend } from "./chatCacheBackend";
 import { chatOpenTimings, resetChatTimings } from "./chatTiming";
+import { ATTACH_REFRESH_MIN_MS, resetAttachRefreshForTests } from "./attachmentRefresh";
 import { healthStore } from "./multi/serverHealth";
 import type { ThreadMessage } from "./threadModel";
 import { useZenStore } from "./zenStore";
@@ -489,6 +490,109 @@ describe("foreground re-read (refreshOpenThread)", () => {
     expect(ids()).toEqual([]);
     expect(useZenStore.getState().threadSource).toBe("error");
     expect(chatCache().peek("s1|t:appa")).toBeNull();
+  });
+});
+
+describe("attachment states after a delta (a file edit is not a doc change)", () => {
+  const wireFile = (state?: string) => ({ kind: "file", path: "docs/a.md", name: "a.md", size: 3, mime: "text/markdown", ...(state ? { state } : null) });
+  const heldFile = (state: "ok" | "changed" | "gone") =>
+    ({ n: 0, kind: "file", path: "docs/a.md", name: "a.md", size: 3, mime: "text/markdown", modifiedAt: null, sha256: null, line: null, lineEnd: null, state });
+  const withFile = (seq: number, state: "ok" | "changed" | "gone" = "ok"): ThreadMessage => ({ ...cachedMsg(seq), files: [heldFile(state)] });
+  const delta = (data: Record<string, unknown>) =>
+    ({ ok: true, data: { items: [], changed: [], removed: [], hasMore: false, conversationId: "conv-a", bytes: 40, ...data } }) as never;
+  const settleAll = async () => {
+    for (let i = 0; i < 5; i++) await flushMicro();
+  };
+  let clock = 10_000_000;
+
+  beforeEach(() => {
+    setZenScope(fakeScope({ id: "s1", username: "me", token: "tok", features: ["thread-delta-v1"] }));
+    vi.mocked(fetchThreadDelta).mockReset();
+    resetAttachRefreshForTests();
+    clock = 10_000_000;
+    vi.spyOn(Date, "now").mockImplementation(() => clock);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("open: a delta with files in the window runs one background plain read; the chip goes ok → changed in place", async () => {
+    seed("s1|t:appa", [cachedMsg(1), withFile(2)]);
+    vi.mocked(fetchThreadDelta).mockResolvedValueOnce(delta({ items: [item(3)] }));
+    vi.mocked(getThread).mockResolvedValueOnce({
+      ok: true,
+      data: { conversation_id: "conv-a", items: [item(1), item(2, "msg 2", { attachments: [wireFile("changed")] }), item(3)] },
+    } as never);
+    await useZenStore.getState().hydrateThread("appa");
+    const afterDelta = useZenStore.getState().thread;
+    expect(afterDelta[1].files?.[0].state).toBe("ok");
+    await settleAll();
+    expect(getThread).toHaveBeenCalledTimes(1);
+    const t = useZenStore.getState().thread;
+    expect(t.map((m) => m.id)).toEqual(["m1", "m2", "m3"]);
+    expect(t[1].files?.[0].state).toBe("changed");
+    expect(t[0]).toBe(afterDelta[0]); // untouched rows keep their objects (no glide)
+    expect(t[2]).toBe(afterDelta[2]);
+    // Not a second open in the timing record.
+    expect(chatOpenTimings("s1")).toHaveLength(1);
+    expect(chatOpenTimings("s1")[0].mode).toBe("delta");
+  });
+
+  it("no files in the window: no extra read", async () => {
+    seed("s1|t:appa", [cachedMsg(1), cachedMsg(2)]);
+    vi.mocked(fetchThreadDelta).mockResolvedValueOnce(delta({ items: [item(3)] }));
+    await useZenStore.getState().hydrateThread("appa");
+    await settleAll();
+    expect(getThread).not.toHaveBeenCalled();
+  });
+
+  it("throttled per chat: a second delta soon after does not read again; after the gap it does", async () => {
+    seed("s1|t:appa", [cachedMsg(1), withFile(2)]);
+    const page = { ok: true, data: { conversation_id: "conv-a", items: [item(1), item(2, "msg 2", { attachments: [wireFile("gone")] })] } } as never;
+    vi.mocked(getThread).mockResolvedValue(page);
+    vi.mocked(fetchThreadDelta).mockResolvedValue(delta({}));
+    await useZenStore.getState().hydrateThread("appa");
+    await settleAll();
+    expect(getThread).toHaveBeenCalledTimes(1);
+    expect(useZenStore.getState().thread[1].files?.[0].state).toBe("gone");
+    clock += 60_000;
+    await useZenStore.getState().refreshOpenThread();
+    await settleAll();
+    expect(getThread).toHaveBeenCalledTimes(1);
+    clock += ATTACH_REFRESH_MIN_MS;
+    await useZenStore.getState().refreshOpenThread();
+    await settleAll();
+    expect(getThread).toHaveBeenCalledTimes(2);
+  });
+
+  it("a plain read (no cursor) counts as the refresh: the next delta within the gap reads nothing more", async () => {
+    vi.mocked(getThread).mockResolvedValueOnce({
+      ok: true,
+      data: { conversation_id: "conv-a", items: [item(1), item(2, "msg 2", { attachments: [wireFile("ok")] })] },
+    } as never);
+    await useZenStore.getState().hydrateThread("appa");
+    expect(getThread).toHaveBeenCalledTimes(1);
+    vi.mocked(fetchThreadDelta).mockResolvedValueOnce(delta({ items: [item(3)] }));
+    await useZenStore.getState().refreshOpenThread();
+    await settleAll();
+    expect(fetchThreadDelta).toHaveBeenCalledTimes(1);
+    expect(getThread).toHaveBeenCalledTimes(1);
+  });
+
+  it("a delta item without a state keeps the known chip state (never back to ok)", async () => {
+    seed("s1|t:appa", [cachedMsg(1), withFile(2, "gone")]);
+    vi.mocked(fetchThreadDelta).mockResolvedValueOnce(
+      delta({ changed: [item(2, "msg 2 edited", { attachments: [wireFile()] })], items: [item(3)] })
+    );
+    // The background refresh's page also omits it; it must not matter here.
+    vi.mocked(getThread).mockResolvedValueOnce({ ok: false, error: "Could not reach server: x" } as never);
+    await useZenStore.getState().hydrateThread("appa");
+    const t = useZenStore.getState().thread;
+    expect(t[1].text).toBe("msg 2 edited");
+    expect(t[1].files?.[0].state).toBe("gone");
+    await settleAll();
+    expect(useZenStore.getState().thread[1].files?.[0].state).toBe("gone");
   });
 });
 
