@@ -1,5 +1,6 @@
-/** The time + chevron grey; the divider matches it (Rosson 2026-10-18). */
-export const ROW_DIVIDER_COLOR = "#8e8e93";
+/** A dim separator grey (iOS dark separator); dimmer than the time and
+ *  chevron, per Rosson 2026-10-18. */
+export const ROW_DIVIDER_COLOR = "rgba(84,84,88,0.65)";
 /** Avatar (50px) + the row's gap (10px): where the text column starts. */
 export const ROW_DIVIDER_AVATAR_OFFSET = 60;
 
