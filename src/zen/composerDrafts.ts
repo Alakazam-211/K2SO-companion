@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { threadRoomKey } from "./outbox";
+import { ticketRoomKey } from "./ticketOutbox";
 
 // Composer drafts: what you typed in a Thread chat and did not send, so
 // leaving the chat (or relaunching the app) and coming back puts it back.
@@ -9,7 +10,8 @@ import { threadRoomKey } from "./outbox";
 // for a main chat or a sidecar (`handle/2` is its own addr), and
 // `<serverId>|g:<groupId>` for a project chat. The same handle on two
 // servers is two drafts. A room with no server or no addr/group yet
-// (still opening) keeps nothing.
+// (still opening) keeps nothing. A ticket's comment composer keeps its
+// own per ticket: `<serverId>|ticket:<id>` (`ticketDraftKey`).
 //
 // Stored in `k2.zen.drafts.v1` as `{key: {text, at}}`; the newest
 // DRAFTS_MAX are kept and an empty draft is dropped. Typing updates memory
@@ -35,6 +37,15 @@ export function composerDraftKey(
   if (!serverId) return null;
   if (!(groupId || "").trim() && !(addr || "").trim()) return null;
   return threadRoomKey(serverId, groupId, addr);
+}
+
+/** A ticket's comment draft key, or null without a server or ticket id. */
+export function ticketDraftKey(
+  serverId: string | null | undefined,
+  ticketId: string | null | undefined
+): string | null {
+  if (!serverId || !(ticketId || "").trim()) return null;
+  return ticketRoomKey(serverId, ticketId);
 }
 
 /** `{key: {text, at}}`; anything else reads as empty. */

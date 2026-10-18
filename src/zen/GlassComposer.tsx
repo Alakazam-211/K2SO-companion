@@ -97,6 +97,8 @@ export interface GlassComposerProps {
   disabled?: boolean;
   /** Show `＋` and the send bubble (the thread hides both when it can't send). */
   canSend: boolean;
+  /** Offer `＋` at all (default true). A ticket comment is text only. */
+  attach?: boolean;
   /** Send bubble active (blue) — otherwise grey and disabled. */
   sendReady: boolean;
   attachDisabled?: boolean;
@@ -136,6 +138,7 @@ export function GlassComposer({
   placeholder = "Message",
   disabled,
   canSend,
+  attach = true,
   sendReady,
   attachDisabled,
   children,
@@ -153,6 +156,7 @@ export function GlassComposer({
   const ref = textareaRef ?? ownRef;
   const fileRef = useRef<HTMLInputElement>(null);
   const id = (s: string) => `${testIdPrefix}-${s}`;
+  const showAttach = canSend && attach;
   // Files drawer drag: the field is the drop target. A drop (or a
   // direct insert) queues a file reference; this composer appends it.
   const dragging = useFileDrag((s) => s.drag !== null);
@@ -277,7 +281,7 @@ export function GlassComposer({
                 : {}),
             }}
           >
-            {canSend ? (
+            {showAttach ? (
               <button
                 type="button"
                 data-testid={id("attach")}
@@ -309,7 +313,7 @@ export function GlassComposer({
               onFocus={onFocus}
               onPaste={onPasteFiles}
               placeholder={placeholder}
-              className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--text)] outline-none py-1 placeholder:whitespace-nowrap placeholder:overflow-hidden placeholder:text-ellipsis ${canSend ? "" : "px-2"}`}
+              className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--text)] outline-none py-1 placeholder:whitespace-nowrap placeholder:overflow-hidden placeholder:text-ellipsis ${showAttach ? "" : "px-2"}`}
               style={{
                 maxHeight: COMPOSER_MAX_PX,
                 fontSize: zenTextPx(17),
