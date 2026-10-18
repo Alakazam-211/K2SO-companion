@@ -133,10 +133,23 @@ transitions (no keyboard timing from the shell).
   range — and so what is on screen — does not change and the copy is not
   clipped.
 - **Scroll room** (`useScrollRoom`): while the keyboard is up the list
-  keeps keyboard height + 48px of real scroll range above the view (a
-  short list gets `min-height: 100%`), scrollTop compensated, so the drag
-  is a true 1:1 scroll, never a top rubber band. Removed once scrolling is
-  idle (a programmatic scroll would stop momentum).
+  keeps keyboard height + 48px of real scroll range above the view,
+  scrollTop compensated, so the drag is a true 1:1 scroll, never a top
+  rubber band. Removed once scrolling is idle (a programmatic scroll would
+  stop momentum).
+- **Short lists** (`CHAT_CONTENT_CLASS`, `.mchat-content`): the list's
+  content block ALWAYS has `min-height: calc(100% − gap − drag pad)`,
+  easing with the gap spacer. A short list fills the view exactly (no
+  phantom scroll range), the room is reachable above it, and the room
+  coming and going never moves it. A chat list adds
+  `justify-content: flex-end` so a short conversation sits at the bottom,
+  right above the composer, keyboard up or down (iMessage), and tells the
+  FLIP it is `bottomAnchored` (the newest then rides the composer on
+  show / hide even when nothing scrolls). A document-like list (a ticket:
+  brief and answers lead) stays top-aligned. Dead end: a `min-height`
+  that came and went with the room — a short chat dropped back to its
+  natural top-aligned layout ~200ms after the keyboard closed (the snap
+  up).
 - **Exact placement — one eased correction:** the shell samples the
   keyboard only during the drag (see native), each sample carrying the
   keyboard top **and the panning scroll view's `contentOffset.y` from the
@@ -243,7 +256,7 @@ const columnRef = useViewportTrackRef();        // the fixed column (drag sizes 
     <div ref={scroller} style={{ overflowY: "auto" }}>
       <div ref={room} />                         {/* useScrollRoom */}
       <div ref={layer} style={{ position: "relative", height: 0, zIndex: 3 }} /> {/* drag layer */}
-      <div ref={content}>…messages…</div>
+      <div ref={content} className="mchat-content" /* + justify-end for a chat */>…messages…</div>
       <div className="mchat-gap" />              {/* focus gap spacer */}
       <div ref={useViewportPadRef()} />          {/* drag pad */}
     </div>
@@ -261,7 +274,8 @@ useTapToDismiss({ area: scroller, composer: bar /*, dismissOnTap, canDismiss */ 
 
 The list contract: `isFollowing()` (at the newest), `lastScrollTop()`
 (scrollTop before this commit, from onScroll / own writes), `stick()`
-(re-stick if following), `held()` (an anchor is being restored). Pause
+(re-stick if following), `held()` (an anchor is being restored),
+`bottomAnchored` (content pushed to the bottom — a chat). Pause
 your own "stick to newest" while `vp.interactive`.
 
 ## Timing constants and curves
