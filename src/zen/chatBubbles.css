@@ -1,0 +1,102 @@
+/* iMessage bubble tails and the "Delivered" / "Read" receipt
+   (chatReceipt.ts). */
+
+/* The tail: on the last bubble of a run only. A vector mask (crisp at any
+   scale in WKWebView) filled with the bubble's colour (`--k2-bubble`),
+   tucked under the bubble's bottom corner. Inside the bubble's own box
+   (a pseudo-element), so the bubble's opacity — the "Sending…" dim and
+   breathe — applies to bubble and tail as one. `.zen-tail-solo` is the
+   same tail as a real element: the send flight carries it on its blue. */
+.zen-tail::after,
+.zen-tail-solo {
+  content: "";
+  position: absolute;
+  bottom: 0;
+  width: 20px;
+  height: 20px;
+  background: var(--k2-bubble, #0a84ff);
+  pointer-events: none;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M0 0H14V8C14 13 16 17 20 19.6C15.5 20.2 11.5 18.6 9 16.2C7 18.5 3.5 20 0 20Z'/%3E%3C/svg%3E")
+    center / 100% 100% no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M0 0H14V8C14 13 16 17 20 19.6C15.5 20.2 11.5 18.6 9 16.2C7 18.5 3.5 20 0 20Z'/%3E%3C/svg%3E")
+    center / 100% 100% no-repeat;
+}
+.zen-tail[data-tail="mine"]::after,
+.zen-tail-solo[data-tail="mine"] {
+  right: -6px;
+}
+.zen-tail[data-tail="theirs"]::after,
+.zen-tail-solo[data-tail="theirs"] {
+  left: -6px;
+  transform: scaleX(-1);
+}
+
+/* The receipt: drawn over the newest confirmed outgoing message's fixed-
+   height status line (`data-receipt`), so moving it to a newer message, or
+   Delivered becoming Read, is a crossfade with no layout change. Going: a
+   quick fade (160ms). Coming: after a beat (120ms), a 240ms fade and a
+   3px drop into place, growing from the right edge (iMessage). The line's
+   own words (the time, "Sending…") step out at once so the time never
+   flashes between "Sending…" and "Delivered". ≈ 0.36s in all. */
+.zen-receipt {
+  position: relative;
+}
+.zen-receipt-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  transition: opacity 240ms ease-out 120ms;
+}
+.zen-receipt[data-receipt] .zen-receipt-status {
+  opacity: 0;
+  transition: none;
+}
+.zen-receipt::before,
+.zen-receipt::after {
+  position: absolute;
+  top: 0;
+  right: 0.5rem;
+  line-height: inherit;
+  white-space: nowrap;
+  pointer-events: none;
+  opacity: 0;
+  transform: translate3d(0, -3px, 0) scale(0.92);
+  transform-origin: 100% 50%;
+  transition:
+    opacity 160ms ease-in,
+    transform 160ms ease-in;
+}
+/* Hidden copies say nothing to VoiceOver ("/ ''" alt text); browsers
+   without the alt syntax keep the plain declaration before it. */
+.zen-receipt::before {
+  content: "Delivered";
+  content: "Delivered" / "";
+}
+.zen-receipt::after {
+  content: "Read";
+  content: "Read" / "";
+}
+.zen-receipt[data-receipt="delivered"]::before,
+.zen-receipt[data-receipt="read"]::after {
+  opacity: 1;
+  transform: none;
+  transition:
+    opacity 240ms ease-out 120ms,
+    transform 240ms cubic-bezier(0.22, 1, 0.36, 1) 120ms;
+}
+.zen-receipt[data-receipt="delivered"]::before {
+  content: "Delivered";
+}
+.zen-receipt[data-receipt="read"]::after {
+  content: "Read";
+}
+@media (prefers-reduced-motion: reduce) {
+  .zen-receipt-status,
+  .zen-receipt::before,
+  .zen-receipt::after,
+  .zen-receipt[data-receipt="delivered"]::before,
+  .zen-receipt[data-receipt="read"]::after {
+    transition: none;
+    transform: none;
+  }
+}

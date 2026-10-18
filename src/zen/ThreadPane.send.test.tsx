@@ -34,7 +34,15 @@ vi.mock("../stores/notifyPrefs", () => ({
 import { getThread, postThread, uploadFsBinary } from "../api/client";
 import { postProjectGroupMessage } from "../api/projectGroups";
 import { ThreadPane, threadBottomPadding } from "./ThreadPane";
-import { FLY_BLUE_AT, FLY_BLUE_FROM, FLY_CORRECT_MS, FLY_MS } from "./sendFly";
+import {
+  FLY_BLUE_AT,
+  FLY_BLUE_FROM,
+  FLY_CORRECT_MS,
+  FLY_MS,
+  FLY_TEXT_AT,
+  FLY_TEXT_BLUR_PX,
+} from "./sendFly";
+import { SENDING_OPACITY } from "./useDeliverBrighten";
 import { useZenStore } from "./zenStore";
 import { RECENT_SENT_KEY, useRecentFirstStore } from "./recentFirst";
 import { fakeScope } from "../test/fakeScope";
@@ -128,7 +136,7 @@ describe("optimistic send", () => {
     expect(document.activeElement).toBe(input());
     expect(bubbles()).toHaveLength(1);
     expect(bubbles()[0].textContent).toContain("hello");
-    expect(bubbles()[0].style.opacity).toBe("0.7");
+    expect(bubbles()[0].style.opacity).toBe(String(SENDING_OPACITY));
     expect(screen.getByText("Sending…")).not.toBeNull();
     await act(async () => post.resolve({ ok: true, data: { id: "n1", seq: 5, body: "hello" } }));
     await waitFor(() => expect(screen.queryByText("Sending…")).toBeNull());
@@ -322,15 +330,18 @@ describe("send animation (FLIP)", () => {
       const r =
         id === "composer-input"
           ? { left: 20, top: 700, width: 300, height: 24 }
-          : id === "thread-bubble"
-            ? { left: 200, top: 500, width: 80, height: 36 }
-            : { left: 0, top: 0, width: 390, height: 844 };
+          : id === "composer-field"
+            ? { left: 12, top: 692, width: 366, height: 40 }
+            : id === "thread-bubble"
+              ? { left: 200, top: 500, width: 80, height: 36 }
+              : { left: 0, top: 0, width: 390, height: 844 };
       return { ...r, right: r.left + r.width, bottom: r.top + r.height, x: r.left, y: r.top, toJSON: () => r };
     });
   }
 
-  it("flies a clone from the composer rect to the bubble rect, then reveals the bubble", () => {
+  it("flies from the whole composer field pill to the bubble, then reveals the bubble", () => {
     stubGeometry();
+    vi.stubGlobal("CSS", { supports: () => true });
     const anims: FakeAnim[] = [];
     const animate = vi.fn(() => {
       const a: FakeAnim = { onfinish: null, oncancel: null, cancel: vi.fn() };
@@ -345,30 +356,61 @@ describe("send animation (FLIP)", () => {
     const clone = screen.getByTestId("send-fly-clone");
     const calls = animate.mock.calls as unknown as [Keyframe[], KeyframeAnimationOptions][];
     const ctx = animate.mock.contexts as unknown as Element[];
-    // One transform animation, on the clone.
+    // Two transform animations: the text (the clone) and the blue shape.
     const flyIdx = calls.findIndex(([f]) => f[0].transform != null);
     expect(ctx[flyIdx]).toBe(clone);
-    expect(calls.filter(([f]) => f[0].transform != null)).toHaveLength(1);
+    expect(calls.filter(([f]) => f[0].transform != null)).toHaveLength(2);
     const [frames, timing] = calls[flyIdx];
     // Bubble text origin (200+12, 500+8) onto the composer's (20, 700).
     expect(frames[0].transform).toBe("translate3d(-192px, 192px, 0px) scale(1)");
     expect(frames[frames.length - 1].transform).toBe("translate3d(0px, 0px, 0px) scale(1)");
     expect(timing.duration).toBe(FLY_MS);
-    expect(FLY_MS).toBeGreaterThanOrEqual(450);
-    expect(FLY_MS).toBeLessThanOrEqual(520);
-    // The blue is its own layer: from a faint tint, in by blueAt, held.
-    const backdrop = clone.querySelector('[data-fly-part="backdrop"]')!;
-    const blueIdx = ctx.indexOf(backdrop);
-    expect(blueIdx).toBeGreaterThanOrEqual(0);
-    const blue = calls[blueIdx][0];
+    // iMessage: ~0.42s from tap to settled.
+    expect(FLY_MS).toBe(420);
+    // The blue is its own layer (the shape), not part of the text clone.
+    expect(clone.querySelector('[data-fly-part="backdrop"]')).toBeNull();
+    const shape = screen.getByTestId("send-fly-shape");
+    const fill = shape.querySelector('[data-fly-part="backdrop"]')!;
+    // Frame 1 is the whole field pill (12,692 366×40, radius 20), faint:
+    // the box is anchored at the bubble's bottom-right (280,536), the
+    // translate puts that corner on the field's (378,732), the clip leaves
+    // the field's size with its own round ends.
+    expect(shape.style.left).toBe(`${280 - 366}px`);
+    expect(shape.style.top).toBe(`${536 - 40}px`);
+    expect(shape.style.width).toBe("366px");
+    const move = calls[ctx.indexOf(shape)][0];
+    expect(move[0].transform).toBe("translate3d(98px, 196px, 0px)");
+    expect(move[move.length - 1].transform).toBe("translate3d(0px, 0px, 0px)");
+    const clip = calls[ctx.indexOf(fill)][0];
+    expect(clip[0].clipPath).toBe("inset(0px 0px 0px 0px round 20px)");
+    expect(clip[clip.length - 1].clipPath).toBe("inset(4px 0px 0px 286px round 18px)");
+    expect(calls[ctx.indexOf(fill)][1].duration).toBe(FLY_MS);
+    // From a faint tint, solid by blueAt, then the bubble's Sending… opacity.
+    const blue = calls.find(([f], i) => ctx[i] === shape && f[0].opacity != null)![0];
     expect(blue.map((k) => k.offset)).toEqual([0, FLY_BLUE_AT, 1]);
-    expect(blue.map((k) => k.opacity)).toEqual([FLY_BLUE_FROM, 1, 1]);
+    expect(blue.map((k) => k.opacity)).toEqual([FLY_BLUE_FROM, SENDING_OPACITY, SENDING_OPACITY]);
     expect(blue[0].easing).toBe("ease-out");
     expect(FLY_BLUE_FROM).toBeGreaterThan(0);
-    // Compositor-only: transform and opacity, nothing else animates.
+    expect(shape.style.opacity).toBe(String(FLY_BLUE_FROM));
+    // The text re-wraps soft: the field's text blurs out as the bubble's
+    // sharpens in, by textAt.
+    const ghost = clone.querySelector('[data-fly-part="ghost"]')!;
+    const body = clone.querySelector('[data-fly-part="body"]')!;
+    const ghostKf = calls[ctx.indexOf(ghost)][0];
+    const bodyKf = calls[ctx.indexOf(body)][0];
+    expect(ghostKf[0]).toMatchObject({ opacity: 1, filter: "blur(0px)" });
+    expect(ghostKf[2]).toMatchObject({ opacity: 0, offset: FLY_TEXT_AT });
+    expect(bodyKf[0]).toMatchObject({ opacity: 0, filter: `blur(${FLY_TEXT_BLUR_PX}px)` });
+    expect(bodyKf[2]).toMatchObject({ opacity: 1, filter: "blur(0px)", offset: FLY_TEXT_AT });
+    // The tail rides the shape (the bubble is the last of its run).
+    expect(shape.querySelector('[data-fly-part="tail"]')).not.toBeNull();
+    expect(clone.classList.contains("zen-tail")).toBe(false);
+    // Compositor-only (plus the shape's clip): no box properties animate.
     for (const [f] of calls) {
       for (const k of f) {
-        for (const prop of Object.keys(k)) expect(["transform", "opacity", "offset", "easing"]).toContain(prop);
+        for (const prop of Object.keys(k)) {
+          expect(["transform", "opacity", "filter", "clipPath", "offset", "easing"]).toContain(prop);
+        }
       }
     }
     // Above the composer dock (z 2) and its footer blur; under the Zen
@@ -378,6 +420,8 @@ describe("send animation (FLIP)", () => {
     );
     expect(Number(clone.style.zIndex)).toBeLessThan(10);
     expect(clone.parentElement).toBe(screen.getByTestId("thread-scroller").parentElement);
+    expect(Number(shape.style.zIndex)).toBe(Number(clone.style.zIndex));
+    expect(shape.parentElement).toBe(clone.parentElement);
     // In flight: the real bubble is laid out but hidden; one clone flies.
     expect(bubbles()).toHaveLength(1);
     expect(bubbles()[0].style.visibility).toBe("hidden");
@@ -386,6 +430,8 @@ describe("send animation (FLIP)", () => {
     expect(bubbles()).toHaveLength(1);
     expect(bubbles()[0].style.visibility).toBe("");
     expect(screen.queryByTestId("send-fly-clone")).toBeNull();
+    expect(screen.queryByTestId("send-fly-shape")).toBeNull();
+    vi.unstubAllGlobals();
   });
 
   it("reduced motion: no animate(), the bubble just fades in", () => {
@@ -744,11 +790,11 @@ describe("the takeoff and the landing", () => {
     expect(glide.timing.duration).toBe(fly.timing.duration);
     expect(glide.timing.easing).toBe(fly.timing.easing);
     expect(glide.frames.map((k) => k.offset)).toEqual(fly.frames.map((k) => k.offset));
-    // Same progress at every keyframe (no overshoot: never past the end).
+    // Same progress at every keyframe (the same ~2px settle, never more).
     const glideP = glide.frames.map((k) => 1 - parseFloat(/, ([-\d.]+)px/.exec(String(k.transform))![1]) / 60);
     const flyP = fly.frames.map((k) => 1 - parseFloat(/, ([-\d.]+)px/.exec(String(k.transform))![1]) / 192);
     glideP.forEach((p, i) => expect(p).toBeCloseTo(flyP[i], 2));
-    glideP.forEach((p) => expect(p).toBeLessThanOrEqual(1));
+    glideP.forEach((p) => expect(p).toBeLessThanOrEqual(1.01));
     // Started in the same frame, after the clone was placed.
     expect(calls.indexOf(glide)).toBeLessThan(calls.indexOf(fly));
     expect(calls.slice(0, calls.indexOf(glide)).some((c) => isClone(c.el))).toBe(false);
@@ -880,14 +926,14 @@ describe("the takeoff and the landing", () => {
     const clone = screen.getByTestId("send-fly-clone");
     // The clone dims to the "Sending…" bubble with the blue.
     const dim = calls.find((c) => c.el === clone && c.frames[0].opacity != null)!;
-    expect(dim.frames.map((k) => k.opacity)).toEqual([1, 0.7, 0.7]);
+    expect(dim.frames.map((k) => k.opacity)).toEqual([1, SENDING_OPACITY, SENDING_OPACITY]);
     await waitFor(() => expect(useZenStore.getState().outbox).toEqual([]));
     const bubble = bubbles()[0];
     expect(bubble.style.opacity).toBe("1");
     act(() => flyOf(calls).anim.onfinish?.());
     const brighten = calls.filter((c) => c.el === bubble);
     expect(brighten).toHaveLength(1);
-    expect(brighten[0].frames).toEqual([{ opacity: 0.7 }, { opacity: 1 }]);
+    expect(brighten[0].frames).toEqual([{ opacity: SENDING_OPACITY }, { opacity: 1 }]);
   });
 
   it("sending after it lands: a gentle breathe (not while flying), gone once delivered", async () => {

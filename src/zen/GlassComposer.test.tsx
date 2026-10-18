@@ -11,7 +11,7 @@ import {
   composerBlockHeight,
   settledHeight,
 } from "./GlassComposer";
-import { FLY_MS } from "./sendFly";
+import { FLY_MS, SEND_FLY_DEBUG_KEY } from "./sendFly";
 
 afterEach(() => {
   cleanup();
@@ -211,7 +211,7 @@ describe("GlassComposer attach (+)", () => {
   });
 });
 
-describe("smoothClear: a send's clear eases the field shut", () => {
+describe("a send's clear: instant by default (iMessage), eased only with the DEV collapse override", () => {
   function Harness({ value, smooth }: { value: string; smooth: boolean }) {
     return (
       <GlassComposer value={value} onChange={() => {}} onSubmit={() => {}} canSend sendReady smoothClear={smooth} />
@@ -231,7 +231,34 @@ describe("smoothClear: a send's clear eases the field shut", () => {
     };
   }
 
-  it("a multi-line draft cleared: the height eases on the flight's curve; settledHeight reads its end", () => {
+  it("default: a multi-line draft snaps to one empty line in the same commit (placeholder back at once)", () => {
+    let lines = 3;
+    const restore = stubField(() => lines);
+    const animate = vi.fn();
+    Element.prototype.animate = animate as never;
+    try {
+      const { rerender } = render(<Harness value={"a\nb\nc"} smooth />);
+      const field = screen.getByTestId("composer-input") as HTMLTextAreaElement;
+      expect(field.style.height).toBe("74px");
+      lines = 1;
+      rerender(<Harness value="" smooth />);
+      // Same commit: empty, one line, nothing easing, no settled marker.
+      expect(field.value).toBe("");
+      expect(field.style.height).toBe("30px");
+      expect(animate).not.toHaveBeenCalled();
+      expect(field.hasAttribute(SETTLED_HEIGHT_ATTR)).toBe(false);
+    } finally {
+      vi.unstubAllEnvs();
+      localStorage.removeItem(SEND_FLY_DEBUG_KEY);
+      restore();
+      // @ts-expect-error test cleanup
+      delete Element.prototype.animate;
+    }
+  });
+
+  it("DEV collapse override: the height eases on the flight's curve; settledHeight reads its end", () => {
+    vi.stubEnv("DEV", true);
+    localStorage.setItem(SEND_FLY_DEBUG_KEY, JSON.stringify({ collapse: true }));
     let lines = 3;
     const restore = stubField(() => lines);
     const anim = { onfinish: null as null | (() => void), oncancel: null, cancel: vi.fn() };

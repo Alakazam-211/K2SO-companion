@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
-import { useDeliverBrighten } from "./useDeliverBrighten";
+import { SENDING_OPACITY, useDeliverBrighten } from "./useDeliverBrighten";
+import { chatRuns, receiptFor, receiptRow } from "./chatReceipt";
 import { getThreadActivity, uploadFsBinary } from "../api/client";
 import { ChatMessageBody } from "../components/ChatMessage";
 import { asErrorText } from "../lib/apiError";
@@ -77,6 +78,7 @@ import {
 } from "./listGlide";
 import { queueSend, requeueIfUnreachable, shouldQueueSend, useQueuedSendFlush } from "./sendQueue";
 import "./sendFly.css";
+import "./chatBubbles.css";
 import { newestSeenSeq, type RowRef } from "./unread";
 import { useUnreadStore } from "./unreadStore";
 import { useMarkReadWhileViewing } from "./unreadRead";
@@ -111,6 +113,7 @@ function Bubble({
   flying,
   fadeIn,
   breathe,
+  tail,
 }: {
   m: ThreadMessage;
   onFileLink?: (ref: string) => void;
@@ -129,6 +132,8 @@ function Bubble({
   fadeIn?: boolean;
   /** Sending (landed, not yet delivered): a gentle opacity breathe. */
   breathe?: boolean;
+  /** The last bubble of its run: an iMessage tail (chatBubbles.css). */
+  tail?: "mine" | "theirs" | null;
 }) {
   const secret = m.kind === "secret";
   const choice = secret ? null : m.choice;
@@ -140,21 +145,26 @@ function Bubble({
   return (
     <div
       ref={bubbleRef}
-      className={`px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden${fadeIn ? " zen-bubble-fade" : breathing ? " zen-bubble-breathe" : ""}`}
+      // Not overflow-hidden itself (the tail sits outside its box): the
+      // content clips inside.
+      className={`relative px-3 py-2 leading-snug break-words min-w-0 max-w-full${tail ? " zen-tail" : ""}${fadeIn ? " zen-bubble-fade" : breathing ? " zen-bubble-breathe" : ""}`}
       data-testid="thread-bubble"
       data-fly-target={flying ? "true" : undefined}
+      data-tail={tail || undefined}
       style={{
         visibility: flying ? "hidden" : undefined,
         // Settings → Text Size; the markdown body below scales the same way.
         fontSize: zenTextPx(17),
         borderRadius: 18,
         background: m.mine ? "#0a84ff" : "#3a3a3c",
+        ["--k2-bubble" as string]: m.mine ? "#0a84ff" : "#3a3a3c",
         color: "#fff",
         // Sending: dimmed. Delivered: it only brightens, gradually
         // (useDeliverBrighten); nothing moves.
-        opacity: m.pending ? 0.7 : 1,
+        opacity: m.pending ? SENDING_OPACITY : 1,
       }}
     >
+      <div className="min-w-0 max-w-full overflow-hidden" data-bubble-body="">
       {choice ? (
         <div>
           {choice.prompt ? (
@@ -230,6 +240,7 @@ function Bubble({
           ) : null}
         </>
       )}
+      </div>
     </div>
   );
 }
@@ -1195,8 +1206,9 @@ export function ThreadPane({
     // this same commit, but its ResizeObserver reports a frame later and
     // the padding would then ease down under a bubble already aimed. Take
     // the new height now, unanimated, so the slot is final before paint.
-    // A multi-line field eases shut over the flight (smoothClear): pad for
-    // where it ends, so the bubble is aimed at its final slot.
+    // (The field snaps to one empty line in the Send commit, iMessage; with
+    // the DEV `collapse` override it eases shut instead and this pads for
+    // where it ends, so the bubble is aimed at its final slot either way.)
     const bar = root?.querySelector<HTMLElement>('[data-testid="composer-bar"]');
     const barPx = bar ? composerBlockHeight(bar) : 0;
     if (el && bar && barPx > 0 && barPx !== composerPxRef.current) {
@@ -1252,6 +1264,18 @@ export function ThreadPane({
     rows.push({ key: rowKeys.get(m.id) ?? (m.id || `seq-${m.seq ?? i}`), m, out: null });
   }
   for (const o of outgoing) rows.push({ key: o.localId, m: outgoingBubble(o), out: o });
+  // iMessage runs (tails, tighter spacing, one meta line per run) and the
+  // one "Delivered" / "Read" receipt (chatReceipt.ts). A send still flying
+  // in (or fading in) is not confirmed yet: the label moves once it lands.
+  const runs = chatRuns(rows.map(({ m }) => ({ mine: m.mine, from: m.from, at: m.at })));
+  const receiptRows = rows.map(({ key, m, out }) => ({
+    mine: m.mine,
+    confirmed: !out && !m.pending && !m.failed && key !== fly?.localId,
+    at: m.at,
+  }));
+  const receiptIdx = receiptRow(receiptRows);
+  // Agent Threads only: a project chat has no one reader to say "Read".
+  const receipt = receiptFor(receiptRows, receiptIdx, { readSignals: !groupId, turn });
 
   // Last of the layout effects: what this commit drew, for the next one's
   // arrival check.
@@ -1382,7 +1406,8 @@ export function ThreadPane({
                   {loadingEarlier ? "Loading…" : "Load earlier messages"}
                 </button>
               ) : null}
-              {rows.map(({ key, m, out }) => {
+              {rows.map(({ key, m, out }, i) => {
+                const run = runs[i];
                 // Files ride Thread messages only (not project chat lines,
                 // not this phone's own optimistic sends).
                 const files = filesOn && !out && !groupId && m.files?.length ? m.files : null;
@@ -1400,17 +1425,20 @@ export function ThreadPane({
                     data-seq={m.seq ?? undefined}
                     data-outgoing={out?.status}
                     data-highlight={highlighted ? "true" : undefined}
-                    className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}`}
+                    data-run={run.first && run.last ? "solo" : run.first ? "first" : run.last ? "last" : "middle"}
+                    className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}${run.first && i > 0 ? " mt-1.5" : ""}`}
                     style={
                       highlighted
                         ? { borderRadius: 20, boxShadow: "0 0 0 2px rgba(10,132,255,.85)", transition: "box-shadow .4s" }
                         : undefined
                     }
                   >
-                    {/* Theirs: name and time on one line above the bubble.
-                        Mine: no name; the time (or Sending… / Not sent) stays
-                        below, where the outgoing status and its actions sit. */}
-                    {!m.mine ? (
+                    {/* Theirs: name and time on one line above the first
+                        bubble of a run. Mine: no name; the time (or
+                        Sending… / Not sent, or the receipt) below the last
+                        of a run, where the outgoing status and its actions
+                        sit — and below any send still in progress. */}
+                    {!m.mine && run.first ? (
                       <span
                         className="flex items-baseline gap-1.5 text-[11px] text-[var(--text-muted)] px-3 mb-0.5 min-w-0 max-w-full"
                         data-testid="thread-msg-meta"
@@ -1445,6 +1473,7 @@ export function ThreadPane({
                         flying={flying && !fly?.fade}
                         fadeIn={flying && fly?.fade}
                         breathe={out?.status === "sending"}
+                        tail={run.last ? (m.mine ? "mine" : "theirs") : null}
                       />
                     ) : null}
                     {files ? (
@@ -1455,15 +1484,19 @@ export function ThreadPane({
                         onOpen={(a) => openAttachment(m, a)}
                       />
                     ) : null}
-                    {m.mine ? (
+                    {m.mine && (run.last || out != null || m.pending || m.failed) ? (
                       // One box from Send to delivered: "Sending…", then the
-                      // time (or "Not sent · Retry"). Fixed height, so the
-                      // swap never moves the bubble or the rows around it.
+                      // time (or "Not sent · Retry"), or the chat's one
+                      // receipt — "Delivered" / "Read", drawn over it by CSS
+                      // (chatBubbles.css). Fixed height, so no swap ever
+                      // moves the bubble or the rows around it.
                       <span
-                        className="flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] text-[var(--text-muted)] px-2 mt-0.5"
+                        className="zen-receipt flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] text-[var(--text-muted)] px-2 mt-0.5"
                         data-testid="thread-msg-time"
                         data-status={out?.status ?? (m.failed ? "failed" : m.pending ? "sending" : "sent")}
+                        data-receipt={i === receiptIdx && receipt ? receipt : undefined}
                       >
+                        <span className="zen-receipt-status">
                         {out?.status === "failed" ? (
                           <span className="contents" data-testid="outgoing-failed">
                             <button
@@ -1497,6 +1530,7 @@ export function ThreadPane({
                         ) : (
                           mountainTime(m.at)
                         )}
+                        </span>
                       </span>
                     ) : null}
                   </div>

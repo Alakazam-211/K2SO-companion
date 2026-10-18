@@ -205,8 +205,10 @@ export interface GlassComposerProps {
    *  it on the keyboard's timing (index.css `.zen-thread-pane`). Reported on mount and on every resize (ResizeObserver), settled
    *  (a clear-collapse in progress reports its end height). */
   onBlockHeight?: (px: number) => void;
-  /** A send clearing a multi-line draft: the field eases shut on the send
-   *  flight's curve instead of snapping (sendFly's flyMotion). */
+  /** A send clearing a multi-line draft may ease the field shut on the
+   *  send flight's curve — only when the DEV `collapse` override asks for
+   *  it. By default a send snaps the field to one empty line in the same
+   *  commit (iMessage: the placeholder is back on the next frame). */
   smoothClear?: boolean;
 }
 
@@ -512,6 +514,8 @@ export function GlassComposer({
           <div
             className="relative w-full min-w-0 overflow-hidden flex items-end gap-1 pl-1 pr-1 py-1 k2-tile"
             data-testid={id("field")}
+            // The send flight's first frame is this pill (sendFly).
+            data-composer-field=""
             data-k2-drop="composer"
             data-drop-target={dragging ? (dropHot ? "hot" : "armed") : undefined}
             style={{
