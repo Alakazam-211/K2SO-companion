@@ -881,7 +881,7 @@ describe("ChatsList", () => {
     const preview = screen.getByTestId("row-preview");
     expect(preview.textContent).toBe("Tests pass on main.");
     expect(preview.querySelector("strong")?.textContent).toBe("main");
-    expect(screen.getByTestId("row-when").textContent).toMatch(/›/);
+    expect(screen.getByTestId("row-when").querySelector("[data-testid=row-chevron]")).not.toBeNull();
     expect(screen.getByTestId("row-when").textContent).toMatch(/\d{1,2}:\d{2}/);
   });
 
@@ -998,7 +998,8 @@ describe("ChatsList", () => {
       screen: "list",
     });
     mount();
-    expect(screen.getByTestId("row-when").textContent?.replace(/\s/g, "")).toBe("›");
+    expect(screen.getByTestId("row-when").textContent?.replace(/\s/g, "")).toBe("");
+    expect(screen.getByTestId("row-when").querySelector("[data-testid=row-chevron]")).not.toBeNull();
   });
 
   it("a sidecar row keeps the name on line one and the chat title on line two", () => {
