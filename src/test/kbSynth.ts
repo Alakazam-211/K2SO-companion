@@ -64,6 +64,10 @@ export type FingerScript = {
   startY: number;
   moves: [number, number][];
   release: { show: boolean; ms: number };
+  /** UIKit's Will* begin frame reports the keyboard's RESTING (keyboard-
+   *  up) frame after an interactive dismiss, not where the finger left
+   *  it (seen on device, TestFlight 1320). */
+  beginFrameAtRest?: boolean;
 };
 
 export function synthTrace(script: FingerScript): KbTrace {
@@ -119,7 +123,13 @@ export function synthTrace(script: FingerScript): KbTrace {
     samples.push([r1(tt), r1(top), r1(scroll)]);
   }
   events.push({ t: r1(liftAt), k: "lift" });
-  events.push({ t: r1(liftAt), k: "will", show: script.release.show, ms: script.release.ms });
+  events.push({
+    t: r1(liftAt),
+    k: "will",
+    show: script.release.show,
+    ms: script.release.ms,
+    fromTop: script.beginFrameAtRest ? rest : r1(kbAtLift),
+  });
   events.sort((a, b) => a.t - b.t);
   return {
     v: TRACE_VERSION,
@@ -161,6 +171,17 @@ export const SYNTH_SCRIPTS: FingerScript[] = [
       [300, 640],
     ],
     release: { show: false, ms: 250 },
+  },
+  {
+    // Let go mid-way while still moving: the list coasts on with momentum
+    // and iOS reports the keyboard-up frame as the begin frame. Before
+    // 1320's fix the composer snapped up to the keyboard-up spot, then
+    // down.
+    name: "synthetic-release-mid-drag-momentum",
+    startY: 320,
+    moves: [[260, 610]],
+    release: { show: false, ms: 250 },
+    beginFrameAtRest: true,
   },
   {
     name: "synthetic-spring-back",

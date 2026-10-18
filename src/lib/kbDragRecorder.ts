@@ -294,9 +294,14 @@ function onRec(e: Event): void {
 
 function onWill(e: Event): void {
   if (!session) return;
-  const d = (e as CustomEvent<{ show?: boolean; duration?: number }>).detail;
+  const d = (e as CustomEvent<{ show?: boolean; duration?: number; fromTop?: number | null }>).detail;
   const ms = typeof d?.duration === "number" ? d.duration : 250;
-  event({ k: "will", show: !!d?.show, ms: Math.round(ms) });
+  event({
+    k: "will",
+    show: !!d?.show,
+    ms: Math.round(ms),
+    fromTop: typeof d?.fromTop === "number" ? r1(d.fromTop) : null,
+  });
   session.endAt = Math.min(session.endAt, nowMs() + ms + AFTER_WILL_MS);
 }
 
