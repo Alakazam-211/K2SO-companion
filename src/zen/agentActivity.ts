@@ -19,8 +19,14 @@ export type ActivityCounts = { subagents: number; tools: number; commands: numbe
 
 export type RowActivity = { display: ActivityDisplay; counts: ActivityCounts };
 
-/** `harness` is the snapshot's LLM id for that PTY (`claude`, `grok`, …). */
-export type SessionActivity = RowActivity & { path?: string; agentName?: string; harness?: string };
+/** `harness` is the snapshot's LLM id for that PTY (`claude`, `grok`, …);
+ *  `at` its newest evidence (ms), to pick between sessions. */
+export type SessionActivity = RowActivity & {
+  path?: string;
+  agentName?: string;
+  harness?: string;
+  at?: number;
+};
 
 export type ActivitySnapshot = {
   byPath: Record<string, RowActivity>;
@@ -58,6 +64,20 @@ function trimPath(p: string): string {
   return p.replace(/\/+$/, "");
 }
 
+/** A row's newest evidence: its lead turn's `since`, else `evidenceAt`. */
+function newestAt(r: Record<string, unknown>): number | null {
+  const lead = r.lead && typeof r.lead === "object" ? (r.lead as Record<string, unknown>) : null;
+  const since = typeof lead?.since === "number" ? lead.since : 0;
+  const ev = typeof r.evidenceAt === "number" ? r.evidenceAt : 0;
+  const at = Math.max(since, ev);
+  return at > 0 ? at : null;
+}
+
+/** A heartbeat's session (`<id>:hb:<name>`), not the agent's chat. */
+function isHeartbeat(r: SessionActivity): boolean {
+  return !!r.agentName && r.agentName.includes(":hb:");
+}
+
 export function parseActivitySnapshot(body: unknown): ActivitySnapshot {
   if (!body || typeof body !== "object") return EMPTY_ACTIVITY;
   const b = body as { rows?: unknown; workspaces?: unknown };
@@ -78,6 +98,7 @@ export function parseActivitySnapshot(body: unknown): ActivitySnapshot {
           : {}),
         ...(typeof r.agentName === "string" && r.agentName ? { agentName: r.agentName } : {}),
         ...(typeof r.harness === "string" && r.harness ? { harness: r.harness } : {}),
+        ...(newestAt(r) ? { at: newestAt(r)! } : {}),
       };
     }
     // An idle session's finished turn is not "now".
@@ -188,7 +209,8 @@ function sidecarActivity(
 
 /** The LLM a chat row runs (its session's snapshot `harness`), busy or
  *  idle. Main: the main-chat PTY, else the workspace's one non-sidecar
- *  session. Null when unknown or ambiguous (several candidates). */
+ *  session (heartbeats skipped); two LLMs there = the most recent. Null
+ *  when no session tells. */
 export function harnessForRow(
   row: { path?: string; terminalId?: string | null; addr?: string | null },
   snap: ActivitySnapshot,
@@ -201,9 +223,13 @@ export function harnessForRow(
   const here = Object.entries(snap.bySession).filter(([, r]) => r.path === path && !!r.harness);
   const mainIds = sessions.mainByPath[path] ?? [];
   let mine = here.filter(([id]) => mainIds.includes(id));
-  if (!mine.length) mine = here.filter(([id]) => !sessions.notMain[id]);
+  if (!mine.length) mine = here.filter(([id, r]) => !sessions.notMain[id] && !isHeartbeat(r));
+  if (!mine.length) return null;
   const kinds = new Set(mine.map(([, r]) => r.harness));
-  return kinds.size === 1 ? [...kinds][0]! : null;
+  if (kinds.size === 1) return [...kinds][0]!;
+  // Two LLMs on the workspace (a Claude chat beside a Grok sidecar): the
+  // one used most recently.
+  return [...mine].sort(([, a], [, b]) => (b.at ?? 0) - (a.at ?? 0))[0]![1].harness ?? null;
 }
 
 /** The activity a Chats row shows, or null (idle or unknown). */
