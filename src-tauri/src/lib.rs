@@ -362,7 +362,11 @@ mod ios_keyboard {
     // with no Will* animation in flight, tells the page
     // (`window.__k2KeyboardTrack(overlap)`): the composer rides it. On
     // release UIKit posts WillHide / WillShow with the rest of the
-    // animation, which takes over (keyboard_will).
+    // animation, which takes over (keyboard_will). Every frame the top
+    // moved is posted, never gated on the previous call's completion (a
+    // round trip per update capped it far below the display rate and the
+    // composer trailed in steps); the page applies the latest once per
+    // frame.
     //
     // Keyboard top: UIKeyboardLayoutGuide (public, iOS 15+) first. If it
     // sits still while the keyboard's host view moves (it did not follow
@@ -374,17 +378,12 @@ mod ios_keyboard {
     /// Re-apply the dismiss mode every this many frames (WebKit creates
     /// child scroll views lazily, and recreates them on re-layering).
     const REAPPLY_TICKS: u32 = 45;
-    /// A track call never answered (page busy / navigating) stops
-    /// blocking after this long.
-    const IN_FLIGHT_TIMEOUT: Duration = Duration::from_millis(150);
 
     use std::cell::RefCell;
-    use std::sync::atomic::AtomicBool;
     use std::time::{Duration, Instant};
 
     static OBSERVER: AtomicPtr<AnyObject> = AtomicPtr::new(std::ptr::null_mut());
     static LINK: AtomicPtr<AnyObject> = AtomicPtr::new(std::ptr::null_mut());
-    static TRACK_IN_FLIGHT: AtomicBool = AtomicBool::new(false);
 
     #[derive(Clone, Copy, PartialEq)]
     enum TrackSource {
@@ -402,7 +401,6 @@ mod ios_keyboard {
         sent: f64,
         source: TrackSource,
         ticks: u32,
-        sent_at: Option<Instant>,
         guide_configured: bool,
     }
 
@@ -416,7 +414,6 @@ mod ios_keyboard {
             sent: 0.0,
             source: TrackSource::Guide,
             ticks: 0,
-            sent_at: None,
             guide_configured: false,
         });
     }
@@ -574,20 +571,7 @@ mod ios_keyboard {
             "window.__k2KeyboardTrack && window.__k2KeyboardTrack({:.1});",
             overlap
         );
-        let Ok(c) = std::ffi::CString::new(js) else {
-            return;
-        };
-        unsafe {
-            let s: *mut AnyObject = msg_send![class!(NSString), stringWithUTF8String: c.as_ptr()];
-            if s.is_null() {
-                return;
-            }
-            let done = block2::RcBlock::new(|_result: *mut AnyObject, _error: *mut AnyObject| {
-                TRACK_IN_FLIGHT.store(false, Ordering::Release);
-            });
-            TRACK_IN_FLIGHT.store(true, Ordering::Release);
-            let _: () = msg_send![wk, evaluateJavaScript: s, completionHandler: &*done];
-        }
+        eval_js(wk, &js);
     }
 
     extern "C-unwind" fn on_keyboard_tick(_this: &AnyObject, _cmd: Sel, _link: *mut AnyObject) {
@@ -647,13 +631,7 @@ mod ios_keyboard {
             if (cur - t.sent).abs() < 0.5 {
                 return None;
             }
-            let busy = TRACK_IN_FLIGHT.load(Ordering::Acquire)
-                && t.sent_at.map_or(false, |at| now.duration_since(at) < IN_FLIGHT_TIMEOUT);
-            if busy {
-                return None; // the next frame sends the latest
-            }
             t.sent = cur;
-            t.sent_at = Some(now);
             Some(cur)
         });
         if let Some(overlap) = send {
@@ -697,7 +675,6 @@ mod ios_keyboard {
                 let _: () = msg_send![link, invalidate];
             }
         }
-        TRACK_IN_FLIGHT.store(false, Ordering::Release);
     }
 
     fn live_webview() -> Option<*mut AnyObject> {

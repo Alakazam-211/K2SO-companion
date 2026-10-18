@@ -670,6 +670,12 @@ describe("ThreadPane", () => {
     const gap = screen.getByTestId("thread-composer-gap");
     expect(gap.parentElement).toBe(scroller);
     expect(gap.className).toMatch(/\bzen-composer-gap\b/);
+    // Interactive keyboard dismiss: the drag pad ends the scroller (empty
+    // at rest); the dock carries no transform at rest.
+    const pad = screen.getByTestId("thread-kb-drag-pad");
+    expect(pad.parentElement).toBe(scroller);
+    expect(pad.style.height).toBe("");
+    expect(screen.getByTestId("thread-composer-dock").style.transform).toBe("");
     const ta = screen.getByTestId("composer-bar").querySelector("textarea")!;
     expect(root.hasAttribute("data-composer-focused")).toBe(false);
     fireEvent.focusIn(ta);

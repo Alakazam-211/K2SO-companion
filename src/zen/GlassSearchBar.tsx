@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import { PlusGlyph } from "./PlusGlyph";
 import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
+import { useViewportDockRef } from "../lib/useViewportHeight";
 
 /** Gap between the bar and the iOS keyboard while typing — the same 8px
  *  the thread composer keeps (`.zen-composer-bar:focus-within`). */
@@ -29,7 +30,12 @@ export function GlassSearchBar({
   plusTestId,
   plusBlockedNote,
   leading,
+  followKeyboard = false,
 }: {
+  /** Ride the keyboard by transform while a finger drags it down
+   *  (interactive dismiss) — set when the bar's column is tracked
+   *  (useViewportTrackRef) and on screen. */
+  followKeyboard?: boolean;
   query: string;
   onQuery: (value: string) => void;
   placeholder?: string;
@@ -51,6 +57,8 @@ export function GlassSearchBar({
   // viewport, so the home-indicator inset would be a dead gap over the
   // keyboard; drop to the composer's 8px instead.
   const [typing, setTyping] = useState(false);
+  const blurDockRef = useViewportDockRef();
+  const barDockRef = useViewportDockRef();
   const bottom = typing ? `${SEARCH_BAR_KEYBOARD_GAP}px` : SEARCH_BAR_REST_BOTTOM;
   const [noteUp, setNoteUp] = useState(false);
   useEffect(() => {
@@ -62,6 +70,7 @@ export function GlassSearchBar({
   return (
     <>
     <ZenFooterBlur
+      elRef={followKeyboard ? blurDockRef : undefined}
       testId={testId ? `${testId}-blur` : "search-bar-blur"}
       style={{
         left: 0,
@@ -74,6 +83,7 @@ export function GlassSearchBar({
       }}
     />
     <div
+      ref={followKeyboard ? barDockRef : undefined}
       className="absolute left-3 right-3 flex items-center"
       data-no-pin="1"
       data-testid={testId}
