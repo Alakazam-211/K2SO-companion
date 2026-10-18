@@ -1043,9 +1043,9 @@ export function ChatsList() {
       <div
         className="flex flex-col relative overflow-hidden"
         // On screen (not under an open Thread): Search rides the keyboard —
-        // eased with Will*, per frame under an interactive dismiss. Hidden
-        // under the Thread it just takes the final height (no hidden
-        // per-frame layout).
+        // eased with Will*; under an interactive dismiss the column is full
+        // height and Search follows by transform (followKeyboard). Hidden
+        // under the Thread it just takes the final height.
         ref={zenScreen !== "thread" ? columnTrackRef : undefined}
         style={{
           height: containerHeight,
@@ -1885,6 +1885,7 @@ export function ChatsList() {
         onPlus={() => (onHome ? setAddAgent(true) : setNewWorkspace(true))}
         plusLabel={onHome ? "Add agent" : "New workspace"}
         plusBlockedNote={onHome || canCreate ? null : createRoleNote()}
+        followKeyboard={zenScreen !== "thread"}
       />
 
       {projectsOpen ? <ProjectsOverlay onClose={() => setProjectsOpen(false)} /> : null}

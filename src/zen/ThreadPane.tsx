@@ -13,7 +13,7 @@ import {
 } from "./composerAttach";
 import { loadGroupPoc, type GroupPoc } from "./groupPoc";
 import { GlassComposer, composerBlockHeight, composerPlaceholder } from "./GlassComposer";
-import { keyboardMotionMs } from "../lib/useViewportHeight";
+import { keyboardMotionMs, useViewportDockRef, useViewportPadRef } from "../lib/useViewportHeight";
 import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
 import { StubMark } from "./StubMark";
 import { mountainTime, type ThreadMessage } from "./threadModel";
@@ -442,6 +442,11 @@ export function ThreadPane({
   const drawerRaf = useRef(0);
   // Until when (Date.now()) followFor keeps sticking every frame.
   const followUntil = useRef(0);
+  // Interactive keyboard dismiss: the composer dock rides the keyboard by
+  // transform; the pad keeps the list's scroll range while the column is
+  // full height (useViewportHeight).
+  const dockRef = useViewportDockRef();
+  const kbPadRef = useViewportPadRef();
   // Interactive keyboard dismiss in progress: the reader's finger owns
   // the scroll (iMessage) — no automatic sticking of any kind.
   const interactiveRef = useRef(viewportInteractive);
@@ -1460,12 +1465,22 @@ export function ThreadPane({
           className="zen-composer-gap shrink-0"
           data-testid="thread-composer-gap"
         />
+        {/* The keyboard's height while a finger drags it down (else empty):
+            the column is full height then, and this keeps the list's
+            scroll range — and so what is on screen — where it was. */}
+        <div
+          ref={kbPadRef}
+          aria-hidden="true"
+          className="shrink-0"
+          data-testid="thread-kb-drag-pad"
+        />
       </div>
       {/* The composer floats over the scroller's bottom, on the header's
           blur stack flipped: messages pass under it and soften instead of
           stopping at its top edge. The pane is sized to the visual
           viewport, so bottom 0 is the keyboard's top while typing. */}
       <div
+        ref={dockRef}
         className="absolute left-0 right-0 bottom-0"
         style={{ zIndex: 2 }}
         data-testid="thread-composer-dock"

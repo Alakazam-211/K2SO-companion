@@ -47,16 +47,25 @@
 // Interactive dismiss (iOS, iMessage-style): dragging a native-scrolling
 // list down into the keyboard moves it with the finger. The shell tracks
 // the keyboard's top every frame and calls `window.__k2KeyboardTrack(
-// overlap)` (→ `k2-keyboard-track`). That is too often for a React render
-// (the Thread re-renders every message), so the store writes the height
-// straight onto the columns registered with `useViewportTrackRef`, with
-// no transition, and only flips `interactive` (one render at the start)
-// so the Thread stops re-pinning under the finger. Everyone else keeps
-// the held height (the terminal does not re-fit every frame). On release
-// iOS posts WillHide / WillShow with the rest of the animation: the store
-// writes that target + transition onto the same columns (so it starts
-// from the dragged height, also when the target equals the old height —
-// a spring back) and publishes it as usual.
+// overlap)` (→ `k2-keyboard-track`) on every frame it moved. Neither a
+// React render nor a column re-layout per frame keeps up (the Thread is
+// heavy), so the drag is compositor-only:
+//   - drag start (first frame): registered columns (`useViewportTrackRef`)
+//     go to the full height once, registered pads (`useViewportPadRef`,
+//     the scroller's tail) grow by the keyboard's height so the list's
+//     scroll range and what is on screen do not move, and registered docks
+//     (`useViewportDockRef`: the composer, its blur) are translated back
+//     up to where they were;
+//   - every frame (one rAF, latest value wins): docks get
+//     `translate3d(0, -overlap, 0)` — they ride the keyboard;
+//   - `interactive` flips once (one render), so the Thread stops
+//     re-pinning under the finger; the published height holds (the
+//     terminal does not re-fit per frame).
+// On release iOS posts WillHide / WillShow with the rest of the
+// animation: in one frame the columns take the dragged height, pads and
+// transforms clear (no visible change), then the columns ease to the
+// target on the keyboard curve — the existing path, from where the
+// composer is (a spring back to the old height included).
 
 import { useRef, useSyncExternalStore } from "react";
 
@@ -190,36 +199,116 @@ let animating = false;
 let settleTimer: ReturnType<typeof setTimeout> | null = null;
 /** Last keyboard duration the shell reported (ms). */
 let keyboardMs = KEYBOARD_MS;
-/** Columns sized per frame during an interactive dismiss. */
+/** Interactive dismiss: viewport-sized columns (full height while the
+ *  finger drags the keyboard). */
 const trackEls = new Set<HTMLElement>();
-/** The height last written onto them while interactive. */
-let trackedHeight = 0;
+/** Bottom-anchored blocks that ride the keyboard by transform. */
+const dockEls = new Set<HTMLElement>();
+/** Scroller tails that keep the scroll range while the column is full. */
+const padEls = new Set<HTMLElement>();
+/** Latest keyboard overlap from the shell during a drag (px). */
+let latestOverlap = 0;
+/** The drag's layout is in place (columns full, pads grown). */
+let drag: { full: number } | null = null;
+let dragFrame: number | null = null;
 
-function writeTracked(height: number, transition: string): void {
+function cancelDragFrame(): void {
+  if (dragFrame === null) return;
+  if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(dragFrame);
+  clearTimeout(dragFrame as unknown as ReturnType<typeof setTimeout>);
+  dragFrame = null;
+}
+
+/** One rAF per frame applies the latest overlap (the shell may post
+ *  more than one per frame, or a frame late). */
+function scheduleDragFrame(): void {
+  if (dragFrame !== null) return;
+  const run = () => {
+    dragFrame = null;
+    applyDrag();
+  };
+  dragFrame = (
+    typeof requestAnimationFrame === "function" ? requestAnimationFrame(run) : setTimeout(run, 0)
+  ) as unknown as number;
+}
+
+function applyDrag(): void {
+  if (!state.interactive) return;
+  if (!drag) {
+    // Once: full-height columns; the pads take up the keyboard's height
+    // so the scroll range (and so the list on screen) stays put.
+    const full = fullHeight();
+    const k = Math.max(0, full - state.height);
+    drag = { full };
+    for (const el of trackEls) {
+      el.style.transition = "none";
+      el.style.height = `${full}px`;
+    }
+    for (const el of padEls) el.style.height = `${k}px`;
+    for (const el of dockEls) el.style.willChange = "transform";
+  }
+  const lift = Math.round(Math.min(drag.full, Math.max(0, latestOverlap)) * 10) / 10;
+  const transform = lift > 0 ? `translate3d(0, ${-lift}px, 0)` : "";
+  for (const el of dockEls) el.style.transform = transform;
+}
+
+/** End a drag: in one frame put the columns at the dragged height with
+ *  the transforms / pads cleared (no visible change), then go to
+ *  `target` with `transition` (the keyboard's, or none). */
+function finishDrag(target: number, transition: string): void {
+  cancelDragFrame();
+  if (drag) {
+    const dragged = Math.round(drag.full - Math.min(drag.full, Math.max(0, latestOverlap)));
+    for (const el of trackEls) {
+      el.style.transition = "none";
+      el.style.height = `${dragged}px`;
+    }
+    for (const el of padEls) el.style.height = "";
+    for (const el of dockEls) {
+      el.style.transform = "";
+      el.style.willChange = "";
+    }
+    // The transition must start from the dragged height.
+    for (const el of trackEls) void el.offsetHeight;
+    drag = null;
+  }
   for (const el of trackEls) {
     el.style.transition = transition;
-    el.style.height = `${height}px`;
+    el.style.height = `${target}px`;
   }
 }
 
-/** Callback ref for a viewport-sized column that should follow the
- *  keyboard under the finger (interactive dismiss) without re-rendering.
- *  Stable across renders. */
-export function trackViewportElement(el: HTMLElement | null, prev: HTMLElement | null): void {
-  if (prev && prev !== el) trackEls.delete(prev);
-  if (el) trackEls.add(el);
+function registryRef(set: Set<HTMLElement>): (el: HTMLElement | null) => void {
+  let current: HTMLElement | null = null;
+  return (el) => {
+    if (current && current !== el) set.delete(current);
+    if (el) set.add(el);
+    current = el;
+  };
 }
 
-export function useViewportTrackRef(): (el: HTMLElement | null) => void {
+function useRegistryRef(set: Set<HTMLElement>): (el: HTMLElement | null) => void {
   const cb = useRef<((el: HTMLElement | null) => void) | null>(null);
-  if (!cb.current) {
-    let current: HTMLElement | null = null;
-    cb.current = (el) => {
-      trackViewportElement(el, current);
-      current = el;
-    };
-  }
+  if (!cb.current) cb.current = registryRef(set);
   return cb.current;
+}
+
+/** Callback ref (stable) for a viewport-sized column: full height while
+ *  the finger drags the keyboard, then eased from the dragged height. */
+export function useViewportTrackRef(): (el: HTMLElement | null) => void {
+  return useRegistryRef(trackEls);
+}
+
+/** Callback ref (stable) for a block anchored to its column's bottom
+ *  (composer, its blur): rides the keyboard by transform during a drag. */
+export function useViewportDockRef(): (el: HTMLElement | null) => void {
+  return useRegistryRef(dockEls);
+}
+
+/** Callback ref (stable) for an empty block at the end of a scroller in a
+ *  tracked column: takes the keyboard's height during a drag. */
+export function useViewportPadRef(): (el: HTMLElement | null) => void {
+  return useRegistryRef(padEls);
 }
 
 /** Duration (ms) of the keyboard's animation, as last reported. Screens
@@ -255,25 +344,24 @@ function measure(): void {
   set({ height: heightFor(visible), offsetTop, motion: null, interactive: false });
 }
 
-/** The keyboard's top under the finger (interactive dismiss): size the
- *  tracked columns now, unanimated; no React render per frame. */
+/** The keyboard's top under the finger (interactive dismiss): keep the
+ *  latest, apply it on the next frame (transform only); no React render
+ *  per frame. */
 function keyboardTrack(overlap: number): void {
   if (!Number.isFinite(overlap)) return;
-  const full = fullHeight();
   // No KEYBOARD_SLOP here: the finger moves it continuously to 0.
-  const h = Math.round(full - Math.min(full, Math.max(0, overlap)));
+  latestOverlap = Math.max(0, overlap);
   clearSettle();
   animating = false;
-  trackedHeight = h;
-  writeTracked(h, "none");
   if (!state.interactive) set({ ...state, motion: null, interactive: true });
+  scheduleDragFrame();
 }
 
 /** A native resync (keyboard did show / hide) with no Will* after a drag:
  *  hand the columns back to the published height. */
 function endInteractive(): void {
   if (!state.interactive) return;
-  writeTracked(state.height, "");
+  finishDrag(state.height, "");
   set({ ...state, interactive: false });
 }
 
@@ -304,7 +392,9 @@ function keyboardWill(will: KeyboardWill): void {
   if (animating && target === state.height) return;
   // After a drag the columns sit at the tracked height, not state.height.
   const wasInteractive = state.interactive;
-  const from = wasInteractive ? trackedHeight : state.height;
+  const from = wasInteractive
+    ? Math.round(full - Math.min(full, latestOverlap))
+    : state.height;
   const lag =
     typeof will.at === "number" && Number.isFinite(will.at)
       ? Math.min(ms, Math.max(0, Date.now() - will.at))
@@ -324,7 +414,7 @@ function keyboardWill(will: KeyboardWill): void {
   }, remaining + SETTLE_SLOP_MS);
   // Released: finish from where the finger left it (also a spring back
   // to the old height, which React alone would not rewrite).
-  if (wasInteractive) writeTracked(target, viewportTransition(motion) ?? "");
+  if (wasInteractive) finishDrag(target, viewportTransition(motion) ?? "");
   set({ height: target, offsetTop: state.offsetTop, motion, interactive: false });
 }
 
@@ -412,6 +502,7 @@ function install(): () => void {
     for (const t of timers) clearTimeout(t);
     timers.clear();
     clearSettle();
+    cancelDragFrame();
     animating = false;
     if (frame !== null) {
       if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
@@ -477,6 +568,10 @@ export function __resetViewportForTests(): void {
   animating = false;
   keyboardMs = KEYBOARD_MS;
   trackEls.clear();
-  trackedHeight = 0;
+  dockEls.clear();
+  padEls.clear();
+  cancelDragFrame();
+  drag = null;
+  latestOverlap = 0;
   state = { height: window.innerHeight, offsetTop: 0, motion: null, interactive: false };
 }
