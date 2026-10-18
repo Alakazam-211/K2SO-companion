@@ -299,15 +299,65 @@ your own "stick to newest" while `vp.interactive`.
 
 All compositor-only (transform / opacity), K2 code in `src/zen/`:
 
-- **Send fly** (`sendFly.ts`): FLIP of a clone from the composer into the
-  bubble's final slot; 480ms critically damped spring, blue in by 25%;
-  the list glides to make room on the same curve; a multi-line draft's
-  field eases shut on it (`smoothClear`), and the list pads for the
-  field's *end* height (`settledHeight`) so the bubble aims at its final
-  slot.
-- **Deliver brighten** (`useDeliverBrighten.ts`): the dim "Sending…"
-  bubble (0.7 ↔ 0.8 breathe) brightens to 1 over 700ms from the frame on
-  screen.
+- **Send fly** (`sendFly.ts`), matched frame by frame to a 30 fps screen
+  recording of iMessage (tap → settled ≈ 0.42 s, 13 frames):
+  - *Frame 1*: the whole composer field pill (`data-composer-field`, its
+    full width, radius and padding) is a faint blue bubble in place
+    (opacity `FLY_BLUE_FROM` 0.25); in the same commit the real field is
+    empty, one line, placeholder showing — no eased collapse (the DEV
+    `collapse: true` override brings the old `smoothClear` ease back for
+    an A/B).
+  - *First quarter*: the blue is solid by `FLY_BLUE_AT` 0.25 (then the
+    bubble's Sending… opacity); the shape shrinks in width toward the
+    right edge while it starts rising; the field's text blurs
+    (`FLY_TEXT_BLUR_PX` 1.5px) and crossfades to the bubble's line breaks
+    by `FLY_TEXT_AT` 0.3.
+  - *Glide*: 420ms (`FLY_MS`) on `spring(0.85)` (`FLY_EASING`): ~0.6%
+    overshoot, i.e. a ~2px settle on a 300px flight, peaking past the
+    middle; the list glides on the same keyframes.
+  - Two layers. The **shape** is a box anchored at the bubble's
+    bottom-right corner: position = compositor `translate3d`, size and
+    corner radius = `clip-path: inset(… round r)` (a non-uniform scale
+    would squash the pill ends; old WebKit without animatable clip-path
+    falls back to that scale). The **text** is a transparent clone of the
+    bubble on `translate3d + uniform scale` with the field's "ghost" text.
+    The tail (if the bubble has one) rides the shape and grows in.
+  - The list pads for the composer's new height before the bubble is
+    aimed (the field snapped in the Send commit), so the newest stays
+    pinned and nothing jumps.
+  - DEV override (`localStorage["k2.debug.sendFly"]`, debug builds only):
+    `{ ms, easing, blueAt, blueFrom, textAt, blurPx, collapse }`.
+- **Deliver brighten** (`useDeliverBrighten.ts`): kept, subtler now that
+  the receipt says it in words: the Sending… bubble rests at 0.85 and
+  breathes 0.85 ↔ 0.95; on delivery it brightens to 1 over 500ms from the
+  frame on screen.
+- **Receipt** (`chatReceipt.ts`, `chatBubbles.css`): one "Delivered"
+  (11px, muted, right-aligned) under the newest outgoing message the
+  server has confirmed — never under a pending one (it breathes and says
+  Sending…), never under one still flying in. A newer confirmed send takes
+  it: the old label fades out (160ms) and the new fades in after a beat
+  (120ms delay, 240ms, 3px drop, grows from the right edge) — ≈0.36s, like
+  iMessage's ~0.3s. It is CSS generated content over the message's
+  fixed-height status line (`data-receipt`), so it moves with **no layout
+  change** (iMessage nudges its list ~3px because its label adds a line;
+  ours never moves the list, so there is nothing to glide). "Read" (agent
+  Threads only) once the agent replied after it, or its turn (activity
+  frames) started at or after the message (2s slack) and got past
+  `delivering`; no activity feature → stays Delivered. Project chats:
+  always Delivered. Tickets: Delivered (POST ok or shown back), never
+  Read. Failed sends keep "Not sent · Retry". Reduced motion: no
+  transitions, the label still shows.
+- **Runs and tails** (`chatReceipt.ts` `chatRuns`): consecutive messages
+  from one sender ≤120s apart are a run. Only a run's last bubble has an
+  iMessage tail (an SVG mask, `--k2-bubble` colour, outside the bubble's
+  box — the bubble's content clips in an inner wrapper). Inside a run rows
+  sit 4px apart with no meta line between (theirs: name • time on the
+  first; mine: the status line on the last, or under any send still
+  Sending… / Not sent); runs start 6px further down. A send joining my run
+  takes the tail (and the previous row's status line) in the Send commit,
+  inside the send glide; so a still-labelled previous message in the same
+  run loses its "Delivered" at Send, and the new one gains it on
+  confirmation.
 - **Incoming glide** (`listGlide.ts`): while following, new agent rows
   keep the old content in place and the list glides up by their height
   (320ms spring) as each row fades in and rises 8px (260ms, 40ms stagger,
@@ -382,6 +432,15 @@ Brief; see the files:
   end; tap the output in safe send closes the keyboard; in direct typing a
   tap types.
 - Tickets: same as the chat. Chats list search: bar rides the keyboard.
+- Send (screen-record at 30/60 fps next to iMessage): frame 1 is the whole
+  field as a faint blue pill with the placeholder already back; blue solid
+  by ~0.1s, shrinking toward the right; text soft while it re-wraps; lands
+  with a ~2px settle at ~0.42s, the list in sync; pill ends never squashed
+  (clip-path), no hitch if the main thread is busy (clip-path is not
+  guaranteed compositor-only in WebKit). Multi-line draft: no jump.
+- Delivered: appears under the new bubble when confirmed, leaves the old
+  one; Read once the agent starts working; no list movement either way.
+  Tails: only the last bubble of a run; crisp at Text Size extremes.
 - Reduced motion: final layout, no animation, still correct.
 - Run the recorder for a few drags; copy one trace into the replay suite.
 

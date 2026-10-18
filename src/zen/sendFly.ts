@@ -1,31 +1,39 @@
-// iMessage-style send: the text lifts out of the composer and flies into
-// its outgoing bubble (FLIP). The real bubble is laid out at its final
-// spot but hidden; a clone of it starts over the composer text and
-// animates back to identity, then the real bubble is revealed.
+// iMessage-style send (frame-matched to a 30 fps recording of iMessage):
+// - Frame 1: the WHOLE composer field (its pill, padding and all) is a
+//   faint translucent blue bubble in place; the real field is already
+//   empty, one line, placeholder showing (no eased collapse).
+// - First ~quarter: the blue goes solid while the shape shrinks in width
+//   toward the right edge (an outgoing bubble) and starts rising; the
+//   field's text blurs a little and crossfades to the bubble's line breaks.
+// - Then it glides into its slot, the list sliding up in sync, and lands
+//   with a ~2 px settle (an under-damped spring). ~420 ms in all.
 //
-// Smoothness rules (WKWebView):
+// How (WKWebView):
 // - The bubble's resting rect is measured ONCE, before the list glide
-//   starts (so it is glide-free). The clone then runs a single
-//   compositor-only transform (translate3d + scale) to it. No per-frame
-//   rect reads or style writes: nothing chases a moving target.
-// - The list glide and the clone share the exact duration and curve
-//   (flyMotion), start in the same frame and land together.
-// - Frame 0 is the composer text, pixel for pixel: a "ghost" of the
-//   field's text (its font, line height, colour and line breaks, counter-
-//   scaled inside the clone) sits exactly where the textarea drew it,
-//   while the bubble's own text (its line breaks) crossfades in over a
-//   few frames. The bubble's blue starts as a faint tint and ramps in
-//   early (by `blueAt`), so the bubble never pops in late.
-// - Opacity / transform only, on the clone's parts; will-change only
-//   while flying.
+//   starts (so it is glide-free). Nothing reads rects per frame.
+// - Two layers, both sampled on one curve (flyMotion), started in the
+//   same frame as the list glide (same duration and curve):
+//   * the SHAPE: a blue box anchored at its bottom-right corner. Its
+//     position is a compositor translate3d; its size (field → bubble,
+//     corner radius field → bubble) is a clip-path inset with round
+//     corners, so the pill ends never distort (a non-uniform scale would
+//     squash them). The tail (if the bubble has one) rides the anchor.
+//   * the TEXT: a transparent clone of the bubble, translate3d + uniform
+//     scale (letters keep their shape) from the field's text origin to
+//     the bubble's; a "ghost" of the field's text (its font and line
+//     breaks) blurs and fades out while the bubble's own text un-blurs in.
+// - Opacity / transform / filter on the layers, plus the shape's clip.
+//   will-change only while flying.
 // - At the end, one rect read: if the real bubble moved mid-flight (the
 //   working drawer, a landing), it slides the last few px itself.
 //
 // DEV tuning on the phone (debug builds only, ignored in production):
-//   localStorage.setItem("k2.debug.sendFly",
-//     JSON.stringify({ ms: 480, easing: "spring", blueAt: 0.25, collapse: true }))
+//   localStorage.setItem("k2.debug.sendFly", JSON.stringify({ ms: 420,
+//     easing: "spring(0.85)", blueAt: 0.25, blueFrom: 0.25, textAt: 0.3,
+//     blurPx: 1.5, collapse: false }))
 // `easing` is "spring", "spring(<damping ratio 0.3–1>)" or any CSS easing
-// ("cubic-bezier(0.22, 1, 0.36, 1)"). Read on every send: no rebuild or
+// ("cubic-bezier(0.22, 1, 0.36, 1)"). `collapse: true` brings back the old
+// eased composer collapse for an A/B. Read on every send: no rebuild or
 // reload. Remove the key to go back to the defaults below.
 
 export type FlyRect = { left: number; top: number; width: number; height: number };
@@ -49,38 +57,55 @@ export type FlyGhost = {
   wordBreak: string;
 };
 
-/** The composer text at Send: where its text box sat and how big it was
- *  drawn (and, for a text field, the text itself as laid out there). */
-export type FlySource = { rect: FlyRect; fontPx: number; ghost?: FlyGhost | null };
+/** The composer at Send: where its text box sat and how big it was
+ *  drawn (and, for a text field, the text itself as laid out there), and
+ *  the field pill around it (the blue's first frame). */
+export type FlySource = {
+  rect: FlyRect;
+  fontPx: number;
+  ghost?: FlyGhost | null;
+  /** The whole composer field (its rounded pill, padding included). */
+  field?: { rect: FlyRect; radius: number } | null;
+};
 
 export type FlyMotion = {
-  /** Flight (and list glide, and composer collapse) duration. */
+  /** Flight (and list glide) duration. */
   ms: number;
   /** "spring", "spring(<zeta>)" or a CSS easing. Shared by every part. */
   easing: string;
-  /** Fraction of the flight by which the bubble's blue is fully in. */
+  /** Fraction of the flight by which the bubble's blue is solid. */
   blueAt: number;
-  /** Ease the composer's own collapse (a multi-line draft) too. */
+  /** The blue's opacity on the first frame (a faint tint over the field). */
+  blueFrom: number;
+  /** Fraction of the flight by which the field's text has crossfaded to
+   *  the bubble's. */
+  textAt: number;
+  /** The text's blur at the crossfade's midpoint, px. */
+  blurPx: number;
+  /** Ease the composer's own collapse (a multi-line draft) too. Off: the
+   *  field snaps to one empty line in the Send commit (iMessage). */
   collapse: boolean;
 };
 
-/** Calm on purpose: delivery takes a moment anyway (Rosson, 2026-10-17). */
-export const FLY_MS = 480;
-/** A critically damped spring from rest: no jolt leaving the composer,
- *  no overshoot on landing. Baked into keyframes (linear between). */
-export const FLY_EASING = "spring";
-/** The blue is fully in a quarter of the way through… */
+/** iMessage's send is ~0.42 s from tap to settled (13 frames at 30 fps). */
+export const FLY_MS = 420;
+/** Slightly under-damped: ~0.6% overshoot, i.e. a ~2 px settle on a
+ *  typical 300 px flight (iMessage's soft landing). Baked into keyframes
+ *  (linear between) and shared with the list glide. */
+export const FLY_EASING = "spring(0.85)";
+/** The blue is solid a quarter of the way through… */
 export const FLY_BLUE_AT = 0.25;
-/** …starting from a faint tint, never from nothing. */
-export const FLY_BLUE_FROM = 0.15;
-/** The text keeps the composer look for only a few frames. */
-export const FLY_TEXT_AT = 0.15;
+/** …starting from a faint translucent tint over the field on frame 1. */
+export const FLY_BLUE_FROM = 0.25;
+/** The text keeps the composer look for the first ~30% (re-wrapping). */
+export const FLY_TEXT_AT = 0.3;
+/** A soft blur while the text re-wraps (filter: compositor in WebKit). */
+export const FLY_TEXT_BLUR_PX = 1.5;
 /** The end correction when the real bubble moved mid-flight. */
 export const FLY_CORRECT_MS = 180;
-/** A delivered-mid-flight bubble brightens after the reveal. */
 /** A bubble delivered mid-flight brightens after the reveal (matches
  *  useDeliverBrighten's DELIVER_BRIGHTEN_MS). */
-export const FLY_BRIGHTEN_MS = 700;
+export const FLY_BRIGHTEN_MS = 500;
 /** Spring decay rate per flight (zeta * omega): ~99.7% there at the end. */
 export const SPRING_DECAY = 8;
 /** The clone's stacking: the pane root is not a stacking context, so this
@@ -98,7 +123,10 @@ export const DEFAULT_FLY_MOTION: Readonly<FlyMotion> = Object.freeze({
   ms: FLY_MS,
   easing: FLY_EASING,
   blueAt: FLY_BLUE_AT,
-  collapse: true,
+  blueFrom: FLY_BLUE_FROM,
+  textAt: FLY_TEXT_AT,
+  blurPx: FLY_TEXT_BLUR_PX,
+  collapse: false,
 });
 
 export function prefersReducedMotion(): boolean {
@@ -146,6 +174,9 @@ export function flyMotion(): FlyMotion {
     if (typeof o.ms === "number" && o.ms >= 80 && o.ms <= 3000) base.ms = o.ms;
     if (typeof o.easing === "string" && validEasing(o.easing)) base.easing = o.easing;
     if (typeof o.blueAt === "number" && o.blueAt >= 0.05 && o.blueAt <= 1) base.blueAt = o.blueAt;
+    if (typeof o.blueFrom === "number" && o.blueFrom >= 0 && o.blueFrom <= 1) base.blueFrom = o.blueFrom;
+    if (typeof o.textAt === "number" && o.textAt >= 0.05 && o.textAt <= 1) base.textAt = o.textAt;
+    if (typeof o.blurPx === "number" && o.blurPx >= 0 && o.blurPx <= 8) base.blurPx = o.blurPx;
     if (typeof o.collapse === "boolean") base.collapse = o.collapse;
     return base;
   } catch {
@@ -212,6 +243,20 @@ const num = (v: string | undefined | null, fallback = 0) => {
 /** The FLIP "first" for a text field, read once at Send before it clears:
  *  its text box (inside padding and border, minus its own scroll) and the
  *  text as drawn there. */
+/** The composer field pill a text field sits in (GlassComposer marks it
+ *  `data-composer-field`): its rect and corner radius. */
+export const COMPOSER_FIELD_ATTR = "data-composer-field";
+
+export function fieldPillOf(field: Element | null | undefined): { rect: FlyRect; radius: number } | null {
+  const pill = field?.closest(`[${COMPOSER_FIELD_ATTR}]`) ?? null;
+  const rect = rectOf(pill);
+  if (!pill || !rect || !(rect.width > 0) || !(rect.height > 0)) return null;
+  const cs = getComputedStyle(pill);
+  const radius =
+    num(cs.borderTopLeftRadius) || num((pill as HTMLElement).style?.borderRadius) || rect.height / 2;
+  return { rect, radius: Math.min(radius, rect.height / 2, rect.width / 2) };
+}
+
 export function flySourceOfField(field: HTMLTextAreaElement | null | undefined): FlySource | null {
   const r = rectOf(field);
   if (!field || !r) return null;
@@ -226,6 +271,7 @@ export function flySourceOfField(field: HTMLTextAreaElement | null | undefined):
   return {
     rect: { left: r.left + padL, top: r.top + padT, width, height },
     fontPx,
+    field: fieldPillOf(field),
     ghost: {
       text: field.value,
       width,
@@ -309,13 +355,72 @@ export function glideList(
   };
 }
 
-/** Fly a clone of `bubble` from `source` into place inside `root` (the
- *  pane: positioned, so the clone shares its CSS variables and stacks above
- *  the composer dock and its footer blur). `glide` moves the list on the
- *  same curve, started after the bubble's resting rect is measured.
- *  `target` finds the real bubble at the end (default: `bubble`). Reveals
- *  it and calls `done` once, after the motion — or at once when it cannot
- *  run. Returns a cancel (the glide too). */
+/** The blue shape's flight from the field pill (`from`) to the bubble
+ *  (`to`), all in the same coordinates. The box is the larger of the two,
+ *  anchored at the bubble's bottom-right corner (so it shrinks toward the
+ *  right edge, like an outgoing bubble). Its position rides a translate3d
+ *  (compositor); its size and corner radius ride a clip-path inset with
+ *  round corners (never a non-uniform scale: the pill ends keep their
+ *  shape). Exported for tests: `visibleAt(p)` is the rect it draws. */
+export function shapeFlight(
+  from: FlyRect,
+  to: FlyRect,
+  radius: { from: number; to: number },
+  motion: FlyMotion = DEFAULT_FLY_MOTION
+): {
+  box: FlyRect;
+  move: Keyframe[];
+  clip: Keyframe[];
+  visibleAt: (p: number) => FlyRect;
+} {
+  const W = Math.max(from.width, to.width);
+  const H = Math.max(from.height, to.height);
+  const right = to.left + to.width;
+  const bottom = to.top + to.height;
+  const box = { left: right - W, top: bottom - H, width: W, height: H };
+  const lerp = (a: number, b: number, p: number) => a + (b - a) * p;
+  const visibleAt = (p: number): FlyRect => {
+    const w = lerp(from.width, to.width, p);
+    const h = lerp(from.height, to.height, p);
+    const r = lerp(from.left + from.width, right, p);
+    const b = lerp(from.top + from.height, bottom, p);
+    return { left: r - w, top: b - h, width: w, height: h };
+  };
+  const dx = from.left + from.width - right;
+  const dy = from.top + from.height - bottom;
+  const move = alongCurve(motion, (p) => ({
+    transform: `translate3d(${px(dx * (1 - p))}, ${px(dy * (1 - p))}, 0px)`,
+  }));
+  const clip = alongCurve(motion, (p) => {
+    const w = lerp(from.width, to.width, p);
+    const h = lerp(from.height, to.height, p);
+    const r = Math.max(0, Math.min(lerp(radius.from, radius.to, p), w / 2, h / 2));
+    return {
+      clipPath: `inset(${px(Math.max(0, H - h))} 0px 0px ${px(Math.max(0, W - w))} round ${px(r)})`,
+    };
+  });
+  return { box, move, clip, visibleAt };
+}
+
+function clipPathSupported(): boolean {
+  try {
+    return (
+      typeof CSS !== "undefined" &&
+      typeof CSS.supports === "function" &&
+      CSS.supports("clip-path", "inset(1px 0px 0px 1px round 4px)")
+    );
+  } catch {
+    return false;
+  }
+}
+
+/** Fly the text into `bubble` from `source` inside `root` (the pane:
+ *  positioned, so the layers share its CSS variables and stack above the
+ *  composer dock and its footer blur). `glide` moves the list on the same
+ *  curve, started after the bubble's resting rect is measured. `target`
+ *  finds the real bubble at the end (default: `bubble`). Reveals it and
+ *  calls `done` once, after the motion — or at once when it cannot run.
+ *  Returns a cancel (the glide too). */
 export function runSendFly(opts: {
   root: HTMLElement;
   bubble: HTMLElement;
@@ -334,7 +439,7 @@ export function runSendFly(opts: {
   const { root, bubble, source, done } = opts;
   const motion = opts.motion ?? flyMotion();
   let finished = false;
-  let clone: HTMLElement | null = null;
+  let layers: HTMLElement[] = [];
   let timer: ReturnType<typeof setTimeout> | null = null;
   let stopGlide = () => {};
   const real = (): HTMLElement | null => {
@@ -350,15 +455,15 @@ export function runSendFly(opts: {
     if (finished) return;
     finished = true;
     if (timer) clearTimeout(timer);
-    // Reveal the real bubble in the same step the clone goes (React's own
+    // Reveal the real bubble in the same step the layers go (React's own
     // re-render to un-hide it can land a frame later: never a blank frame).
     const el = real();
     if (el) {
       el.style.visibility = "";
       if (landed && to && base) settle(el, root, to, base, endOpacity);
     }
-    clone?.remove();
-    clone = null;
+    for (const l of layers) l.remove();
+    layers = [];
     done();
   };
   const cancel = () => {
@@ -374,54 +479,89 @@ export function runSendFly(opts: {
     const pad = { x: num(cs.paddingLeft, PAD_X), y: num(cs.paddingTop, PAD_Y) };
     endOpacity = num(bubble.style.opacity || cs.opacity, 1);
     const blue = cs.backgroundColor || "rgb(10, 132, 255)";
+    const bubbleRadius = num(cs.borderTopLeftRadius) || num(bubble.style.borderRadius) || 18;
     const bubbleFont = fontPxOf(bubble.querySelector(".chat-markdown") ?? bubble);
     const s = clampScale(source.fontPx / bubbleFont);
-
-    clone = bubble.cloneNode(true) as HTMLElement;
-    clone.setAttribute("data-testid", "send-fly-clone");
-    clone.removeAttribute("data-fly-target");
-    clone.setAttribute("aria-hidden", "true");
-    // The bubble's own content, in its own line breaks.
-    const body = document.createElement("div");
-    body.setAttribute("data-fly-part", "body");
-    while (clone.firstChild) body.appendChild(clone.firstChild);
-    clone.appendChild(body);
-    // The blue, as its own layer (opacity only), under the text.
-    const backdrop = document.createElement("div");
-    backdrop.setAttribute("data-fly-part", "backdrop");
-    Object.assign(backdrop.style, {
+    const timing = { duration: motion.ms, fill: "both" as const };
+    const blueAt = Math.min(Math.max(motion.blueAt, 0.05), 1);
+    const textAt = Math.min(Math.max(motion.textAt, 0.05), 1);
+    const blur = Math.max(0, motion.blurPx);
+    const tail = bubble.getAttribute("data-tail");
+    const rel = (r: FlyRect): FlyRect => ({ ...r, left: r.left - base.left, top: r.top - base.top });
+    const layerStyle = {
       position: "absolute",
-      top: "0",
-      right: "0",
-      bottom: "0",
-      left: "0",
-      borderRadius: "inherit",
-      background: blue,
-      zIndex: "-1",
-      pointerEvents: "none",
-      opacity: String(FLY_BLUE_FROM),
-    } satisfies Partial<CSSStyleDeclaration>);
-    clone.insertBefore(backdrop, body);
-    Object.assign(clone.style, {
-      position: "absolute",
-      left: `${to.left - base.left}px`,
-      top: `${to.top - base.top}px`,
-      width: `${to.width}px`,
-      height: `${to.height}px`,
       margin: "0",
-      maxWidth: "none",
-      boxSizing: "border-box",
-      visibility: "visible",
       pointerEvents: "none",
       // Above the composer dock (z 2) and its footer blur the whole way;
       // under the floating header (z 10) and side panes, exactly where the
       // real bubble paints: no pop at the hand-off.
       zIndex: String(FLY_Z),
+      transition: "none",
+    } satisfies Partial<CSSStyleDeclaration>;
+
+    // ── The shape: the field pill on frame 1, the bubble at the end. ──
+    const fromShape = source.field ?? { rect: source.rect, radius: bubbleRadius };
+    const flight = shapeFlight(rel(fromShape.rect), rel(to), { from: fromShape.radius, to: bubbleRadius }, motion);
+    const shape = document.createElement("div");
+    shape.setAttribute("data-testid", "send-fly-shape");
+    shape.setAttribute("aria-hidden", "true");
+    Object.assign(shape.style, {
+      ...layerStyle,
+      left: `${flight.box.left}px`,
+      top: `${flight.box.top}px`,
+      width: `${flight.box.width}px`,
+      height: `${flight.box.height}px`,
+      willChange: "transform, opacity",
+      opacity: String(motion.blueFrom),
+    } satisfies Partial<CSSStyleDeclaration>);
+    const fill = document.createElement("div");
+    fill.setAttribute("data-fly-part", "backdrop");
+    Object.assign(fill.style, {
+      position: "absolute",
+      top: "0",
+      right: "0",
+      bottom: "0",
+      left: "0",
+      background: blue,
+    } satisfies Partial<CSSStyleDeclaration>);
+    shape.appendChild(fill);
+    let tailEl: HTMLElement | null = null;
+    if (tail) {
+      // The real bubble's tail (chatBubbles.css), riding the bottom-right
+      // anchor; it grows in as the shape becomes a bubble.
+      tailEl = document.createElement("div");
+      tailEl.setAttribute("data-fly-part", "tail");
+      tailEl.className = "zen-tail-solo";
+      tailEl.setAttribute("data-tail", tail);
+      tailEl.style.setProperty("--k2-bubble", blue);
+      shape.appendChild(tailEl);
+    }
+
+    // ── The text: a transparent clone of the bubble (its own line
+    // breaks), and the field's text as drawn (the ghost). ──
+    const clone = bubble.cloneNode(true) as HTMLElement;
+    clone.setAttribute("data-testid", "send-fly-clone");
+    clone.removeAttribute("data-fly-target");
+    clone.removeAttribute("data-tail");
+    clone.classList.remove("zen-tail");
+    clone.setAttribute("aria-hidden", "true");
+    const body = document.createElement("div");
+    body.setAttribute("data-fly-part", "body");
+    while (clone.firstChild) body.appendChild(clone.firstChild);
+    clone.appendChild(body);
+    Object.assign(clone.style, {
+      ...layerStyle,
+      left: `${to.left - base.left}px`,
+      top: `${to.top - base.top}px`,
+      width: `${to.width}px`,
+      height: `${to.height}px`,
+      maxWidth: "none",
+      boxSizing: "border-box",
+      visibility: "visible",
       transformOrigin: "0 0",
       willChange: "transform, opacity",
       background: "transparent",
       overflow: "visible",
-      transition: "none",
       opacity: "1",
     } satisfies Partial<CSSStyleDeclaration>);
     // The composer's text exactly as the field drew it: counter-scaled so
@@ -463,28 +603,61 @@ export function runSendFly(opts: {
       ghost.appendChild(text);
       clone.appendChild(ghost);
     }
+    root.appendChild(shape);
     root.appendChild(clone);
-    // The list starts moving in the same frame as the clone, on its curve.
+    layers = [shape, clone];
+    // The list starts moving in the same frame as the layers, on their curve.
     const gl = opts.glide;
     stopGlide = gl ? (gl.run ? gl.run(gl.dy, motion) : glideList(gl.content, gl.dy, motion)) : () => {};
 
-    const timing = { duration: motion.ms, fill: "both" as const };
-    const blueAt = Math.min(Math.max(motion.blueAt, 0.05), 1);
-    const textAt = Math.min(FLY_TEXT_AT, blueAt);
     const fly = clone.animate(flyKeyframes(source.rect, to, s, motion, pad), {
       ...timing,
       easing: curveEasing(motion),
     });
-    // Blue from a faint tint, mostly in early (ease-out), then held.
-    backdrop.animate(
+    shape.animate(flight.move, { ...timing, easing: curveEasing(motion) });
+    if (clipPathSupported()) {
+      fill.animate(flight.clip, { ...timing, easing: curveEasing(motion) });
+    } else {
+      // Old WebKit: no animatable clip-path. The fill is the bubble's box
+      // and a scale takes it from the field's (the ends squash a little).
+      const v0 = flight.visibleAt(0);
+      Object.assign(fill.style, {
+        left: "auto",
+        top: "auto",
+        width: `${to.width}px`,
+        height: `${to.height}px`,
+        borderRadius: `${bubbleRadius}px`,
+        transformOrigin: "100% 100%",
+      } satisfies Partial<CSSStyleDeclaration>);
+      fill.animate(
+        alongCurve(motion, (p) => {
+          const sx = (v0.width + (to.width - v0.width) * p) / Math.max(1, to.width);
+          const sy = (v0.height + (to.height - v0.height) * p) / Math.max(1, to.height);
+          return { transform: `scale(${Math.round(sx * 10000) / 10000}, ${Math.round(sy * 10000) / 10000})` };
+        }),
+        { ...timing, easing: curveEasing(motion) }
+      );
+    }
+    // Blue from a faint tint over the field, solid early (ease-out), held;
+    // then the bubble's own "Sending…" opacity, like the text.
+    shape.animate(
       [
-        { opacity: FLY_BLUE_FROM, offset: 0, easing: "ease-out" },
-        { opacity: 1, offset: blueAt },
+        { opacity: motion.blueFrom, offset: 0, easing: "ease-out" },
+        { opacity: endOpacity, offset: blueAt },
+        { opacity: endOpacity, offset: 1 },
+      ],
+      { ...timing, easing: "linear" }
+    );
+    tailEl?.animate(
+      [
+        { opacity: 0, offset: 0 },
+        { opacity: 0, offset: Math.min(blueAt, 0.2), easing: "ease-out" },
+        { opacity: 1, offset: Math.min(0.6, Math.max(blueAt, 0.2) + 0.3) },
         { opacity: 1, offset: 1 },
       ],
       { ...timing, easing: "linear" }
     );
-    // Composer-bright text → the bubble's "Sending…" dim, with the blue.
+    // Composer-bright text → the bubble's "Sending…" opacity, with the blue.
     clone.animate(
       [
         { opacity: 1, offset: 0, easing: "ease-out" },
@@ -494,19 +667,23 @@ export function runSendFly(opts: {
       { ...timing, easing: "linear" }
     );
     if (ghost) {
+      // The field's text softens and goes as the bubble's sharpens in.
+      const half = Math.round(textAt * 500) / 1000;
       ghost.animate(
         [
-          { opacity: 1, offset: 0, easing: "ease-in" },
-          { opacity: 0, offset: textAt },
-          { opacity: 0, offset: 1 },
+          { opacity: 1, filter: "blur(0px)", offset: 0, easing: "ease-in" },
+          { opacity: 0.5, filter: `blur(${blur}px)`, offset: half },
+          { opacity: 0, filter: `blur(${blur}px)`, offset: textAt },
+          { opacity: 0, filter: `blur(${blur}px)`, offset: 1 },
         ],
         { ...timing, easing: "linear" }
       );
       body.animate(
         [
-          { opacity: 0, offset: 0, easing: "ease-out" },
-          { opacity: 1, offset: textAt },
-          { opacity: 1, offset: 1 },
+          { opacity: 0, filter: `blur(${blur}px)`, offset: 0, easing: "ease-out" },
+          { opacity: 0.5, filter: `blur(${blur}px)`, offset: half },
+          { opacity: 1, filter: "blur(0px)", offset: textAt },
+          { opacity: 1, filter: "blur(0px)", offset: 1 },
         ],
         { ...timing, easing: "linear" }
       );

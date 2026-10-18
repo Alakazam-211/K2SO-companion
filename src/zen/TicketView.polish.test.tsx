@@ -4,6 +4,7 @@
 // optimistic comment that flies in and only brightens on delivery, the
 // "New comment ↓" pill and a draft per ticket.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { SENDING_OPACITY } from "./useDeliverBrighten";
 import { act, cleanup, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 
 vi.mock("../api/client", () => ({
@@ -281,7 +282,7 @@ describe("Optimistic comment", () => {
     const row = last();
     expect(row.getAttribute("data-mine")).toBe("1");
     expect(row.getAttribute("data-outgoing")).toBe("sending");
-    expect(bubbleOf(row).style.opacity).toBe("0.7");
+    expect(bubbleOf(row).style.opacity).toBe(String(SENDING_OPACITY));
     expect(bubbleOf(row).style.transition).toBe("");
     expect(statusOf(row).textContent).toBe("Sending…");
     // Typing stays open while it sends; a second send waits.
@@ -303,6 +304,10 @@ describe("Optimistic comment", () => {
     expect(statusOf(row).textContent).not.toBe("Sending…");
     expect(useFeedbackStore.getState().commentOutbox).toHaveLength(0);
     expect(Object.keys(useFeedbackStore.getState().commentLandedKeys)).toHaveLength(1);
+    // Landed: the one "Delivered" is under it (tickets never say "Read"),
+    // and nowhere else.
+    await waitFor(() => expect(statusOf(row).getAttribute("data-receipt")).toBe("delivered"));
+    expect(document.querySelectorAll("[data-receipt]")).toHaveLength(1);
   });
 
   it("a refetch showing the comment before the POST answers keeps the same element too", async () => {

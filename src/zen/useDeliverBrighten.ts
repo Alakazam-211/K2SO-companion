@@ -1,12 +1,14 @@
 import { useLayoutEffect, useRef, type RefObject } from "react";
 import { prefersReducedMotion } from "./sendFly";
 
-/** Delivered: the dim "Sending…" bubble brightens to full over this long. */
-export const DELIVER_BRIGHTEN_MS = 700;
+/** Delivered: the "Sending…" bubble brightens to full over this long.
+ *  Subtler since the "Delivered" receipt (chatReceipt.ts) says it in
+ *  words: a lighter dim and a shorter brighten. */
+export const DELIVER_BRIGHTEN_MS = 500;
 export const DELIVER_BRIGHTEN_EASING = "cubic-bezier(0.4, 0, 0.2, 1)";
 /** The sending opacity and the breathe (`.zen-bubble-breathe` in
- *  sendFly.css: 0.7 ↔ 0.8, 1.2 s, ease-in-out, alternate). */
-export const SENDING_OPACITY = 0.7;
+ *  sendFly.css: 0.85 ↔ 0.95, 1.2 s, ease-in-out, alternate). */
+export const SENDING_OPACITY = 0.85;
 const BREATHE_SPAN = 0.1;
 const BREATHE_MS = 1200;
 

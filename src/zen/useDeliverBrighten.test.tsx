@@ -30,7 +30,10 @@ describe("useDeliverBrighten", () => {
     const [frames, opts] = animate.mock.calls[0];
     expect(frames[1]).toEqual({ opacity: 1 });
     expect(frames[0].opacity).toBeGreaterThanOrEqual(SENDING_OPACITY);
-    expect(frames[0].opacity).toBeLessThanOrEqual(0.8);
+    expect(frames[0].opacity).toBeLessThanOrEqual(SENDING_OPACITY + 0.1);
+    // Subtler since the "Delivered" receipt says it in words.
+    expect(SENDING_OPACITY).toBeCloseTo(0.85);
+    expect(DELIVER_BRIGHTEN_MS).toBe(500);
     expect(opts.duration).toBe(DELIVER_BRIGHTEN_MS);
   });
 
@@ -48,10 +51,10 @@ describe("useDeliverBrighten", () => {
     expect(animate).not.toHaveBeenCalled();
   });
 
-  it("follows the breathe curve (0.7 ↔ 0.8, 1.2 s, alternate)", () => {
-    expect(breatheOpacityAt(0)).toBeCloseTo(0.7);
-    expect(breatheOpacityAt(600)).toBeCloseTo(0.75);
-    expect(breatheOpacityAt(1200)).toBeCloseTo(0.8);
-    expect(breatheOpacityAt(2400)).toBeCloseTo(0.7);
+  it("follows the breathe curve (0.85 ↔ 0.95, 1.2 s, alternate)", () => {
+    expect(breatheOpacityAt(0)).toBeCloseTo(0.85);
+    expect(breatheOpacityAt(600)).toBeCloseTo(0.9);
+    expect(breatheOpacityAt(1200)).toBeCloseTo(0.95);
+    expect(breatheOpacityAt(2400)).toBeCloseTo(0.85);
   });
 });

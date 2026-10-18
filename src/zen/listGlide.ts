@@ -20,7 +20,8 @@ import {
   type FlyMotion,
 } from "./sendFly";
 
-/** The arrival glide: shorter than a send's flight (480ms), same spring. */
+/** The arrival glide: shorter than a send's flight (420ms); a critically
+ *  damped spring (no settle: an arrival is not a landing). */
 export const INCOMING_MS = 320;
 export const INCOMING_EASING = "spring";
 /** Each new row rises this far (px) as it fades in… */

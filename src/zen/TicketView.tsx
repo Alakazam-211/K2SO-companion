@@ -1,5 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
-import { useDeliverBrighten } from "./useDeliverBrighten";
+import { SENDING_OPACITY, useDeliverBrighten } from "./useDeliverBrighten";
+import { receiptRow } from "./chatReceipt";
 import {
   assignFeedback,
   commentFeedback,
@@ -49,6 +50,7 @@ import {
   type FlySource,
 } from "./sendFly";
 import "./sendFly.css";
+import "./chatBubbles.css";
 import {
   commentInFlight,
   commentRowId,
@@ -598,6 +600,16 @@ export function TicketView({
   for (const o of outgoing) {
     rows.push({ key: o.localId, author: "", body: o.text, at: o.at, mine: true, out: o });
   }
+  // The one "Delivered" (chatReceipt.ts): under the newest comment of mine
+  // the server has taken (POST ok — `sent` — or shown back), once it has
+  // landed. Tickets have no read signal: never "Read".
+  const receiptIdx = receiptRow(
+    rows.map((r) => ({
+      mine: r.mine,
+      confirmed: (!r.out || r.out.status === "sent") && r.key !== fly?.localId,
+      at: r.at,
+    }))
+  );
   const inFlight = commentInFlight(outbox, roomKey);
 
   // A send that showed up in `show`: remember its row key, drop the entry.
@@ -878,7 +890,8 @@ export function TicketView({
     // The cleared field shrank the dock in this commit, but its
     // ResizeObserver reports a frame later: take the new height now so the
     // slot is final before the bubble is aimed.
-    // A multi-line field eases shut over the flight: pad for its end.
+    // (The field snaps shut in the Send commit; the DEV `collapse`
+    // override eases it instead, and this pads for its end.)
     const dock = dockRef.current;
     const dockNow = dock ? ticketDockBlockPx(dock) : 0;
     if (el && dock && dockNow > 0 && dockNow !== dockPxRef.current) {
@@ -1180,7 +1193,7 @@ export function TicketView({
 
             {rows.length > 0 ? (
               <div className="flex flex-col gap-1 pt-1" data-testid="ticket-comments">
-                {rows.map((r) => {
+                {rows.map((r, i) => {
                   const out = r.out;
                   const flying = fly?.localId === r.key;
                   const hidden = flying && !fly?.fade;
@@ -1225,7 +1238,7 @@ export function TicketView({
                           color: "#fff",
                           // Sending: dimmed. Delivered: it only brightens,
                           // gradually (useDeliverBrighten).
-                          opacity: out?.status === "sending" ? 0.7 : 1,
+                          opacity: out?.status === "sending" ? SENDING_OPACITY : 1,
                         }}
                       >
                         <ChatMessageBody
@@ -1236,14 +1249,17 @@ export function TicketView({
                       </TicketBubbleBox>
                       {r.mine ? (
                         // One box from Send to delivered: "Sending…", then the
-                        // time (or "Not sent · Retry"). Fixed height, so the
-                        // swap never moves the bubble or the rows around it.
+                        // time (or "Not sent · Retry"), or "Delivered" drawn
+                        // over it by CSS (chatBubbles.css). Fixed height, so
+                        // no swap moves the bubble or the rows around it.
                         <span
-                          className="flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] px-2 mt-0.5"
+                          className="zen-receipt flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] px-2 mt-0.5"
                           style={{ color: "#8e8e93" }}
                           data-testid="ticket-comment-status"
                           data-status={out?.status ?? "sent"}
+                          data-receipt={i === receiptIdx ? "delivered" : undefined}
                         >
+                          <span className="zen-receipt-status">
                           {out?.status === "failed" ? (
                             <span className="contents" data-testid="comment-failed">
                               <button
@@ -1274,6 +1290,7 @@ export function TicketView({
                           ) : (
                             mountainTime(r.at)
                           )}
+                          </span>
                         </span>
                       ) : null}
                     </div>
