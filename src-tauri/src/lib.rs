@@ -357,16 +357,17 @@ mod ios_keyboard {
     // native child UIScrollView (WKChildScrollView). With
     // keyboardDismissMode = .interactive, dragging it down into the
     // keyboard moves the keyboard with the finger. UIKit posts no
-    // notifications while the finger drags it, so while the keyboard is
-    // up a CADisplayLink reads its top every frame and, when it moved
-    // with no Will* animation in flight, tells the page
-    // (`window.__k2KeyboardTrack(overlap)`): the composer rides it. On
-    // release UIKit posts WillHide / WillShow with the rest of the
-    // animation, which takes over (keyboard_will). Every frame the top
-    // moved is posted, never gated on the previous call's completion (a
-    // round trip per update capped it far below the display rate and the
-    // composer trailed in steps); the page applies the latest once per
-    // frame.
+    // notifications while the finger drags it. The page does not move
+    // the composer per frame (IPC jitter): it switches a stand-in of it
+    // into the natively scrolled list content as the drag starts
+    // (src/zen/keyboardDragDock.ts), normally on a touchmove crossing the
+    // keyboard's top minus keyboardDismissPadding (iOS 17+, the composer's
+    // height, set from the page: ios_keyboard_dismiss_padding). As a
+    // fallback trigger, while the keyboard is up a CADisplayLink reads its
+    // top every frame and posts ONE `window.__k2KeyboardTrack(overlap)`
+    // when it leaves its rest with no Will* animation in flight (re-armed
+    // back at rest). On release UIKit posts WillHide / WillShow with the
+    // rest of the animation, which takes over (keyboard_will).
     //
     // Keyboard top: UIKeyboardLayoutGuide (public, iOS 15+) first. If it
     // sits still while the keyboard's host view moves (it did not follow
@@ -380,6 +381,29 @@ mod ios_keyboard {
     const REAPPLY_TICKS: u32 = 45;
 
     use std::cell::RefCell;
+    use std::sync::atomic::AtomicU64;
+
+    /// keyboardDismissPadding (iOS 17+) for every scroll view: the
+    /// composer's height, so a dismiss drag starts at its top (f64 bits).
+    static DISMISS_PADDING: AtomicU64 = AtomicU64::new(0);
+
+    /// Whether this iOS has `UIScrollView.keyboardDismissPadding`.
+    pub fn dismiss_padding_supported() -> bool {
+        let Some(cls) = AnyClass::get(c"UIScrollView") else {
+            return false;
+        };
+        unsafe { msg_send![cls, instancesRespondToSelector: sel!(setKeyboardDismissPadding:)] }
+    }
+
+    /// Store the padding and apply it to the live web view's scroll views.
+    pub fn set_dismiss_padding(webview_ptr: *mut std::ffi::c_void, px: f64) {
+        let px = if px.is_finite() { px.clamp(0.0, 400.0) } else { 0.0 };
+        DISMISS_PADDING.store(px.to_bits(), Ordering::Release);
+        let wk: *mut AnyObject = webview_ptr.cast();
+        if !wk.is_null() {
+            set_interactive_dismiss(wk);
+        }
+    }
     use std::time::{Duration, Instant};
 
     static OBSERVER: AtomicPtr<AnyObject> = AtomicPtr::new(std::ptr::null_mut());
@@ -398,10 +422,13 @@ mod ios_keyboard {
         rebase: bool,
         prev_guide: f64,
         prev_host: f64,
+        /// The keyboard's resting overlap (baseline at the last rebase).
         sent: f64,
         source: TrackSource,
         ticks: u32,
         guide_configured: bool,
+        /// "Started moving" already posted for this excursion from rest.
+        signaled: bool,
     }
 
     thread_local! {
@@ -415,6 +442,7 @@ mod ios_keyboard {
             source: TrackSource::Guide,
             ticks: 0,
             guide_configured: false,
+            signaled: false,
         });
     }
 
@@ -448,6 +476,17 @@ mod ios_keyboard {
                 let mode: isize = msg_send![view, keyboardDismissMode];
                 if mode != UI_SCROLL_VIEW_KEYBOARD_DISMISS_MODE_INTERACTIVE {
                     let _: () = msg_send![view, setKeyboardDismissMode: UI_SCROLL_VIEW_KEYBOARD_DISMISS_MODE_INTERACTIVE];
+                }
+                let pad = f64::from_bits(DISMISS_PADDING.load(Ordering::Acquire));
+                if pad > 0.0 {
+                    let can: bool =
+                        msg_send![view, respondsToSelector: sel!(setKeyboardDismissPadding:)];
+                    if can {
+                        let cur: f64 = msg_send![view, keyboardDismissPadding];
+                        if (cur - pad).abs() >= 0.5 {
+                            let _: () = msg_send![view, setKeyboardDismissPadding: pad];
+                        }
+                    }
                 }
             }
         }
@@ -609,6 +648,7 @@ mod ios_keyboard {
                 }
                 t.sent = guide.or(host).unwrap_or(t.sent);
                 t.source = TrackSource::Guide;
+                t.signaled = false;
                 return None;
             }
             let guide_moved = guide.map_or(false, |g| (g - t.prev_guide).abs() >= 0.5);
@@ -628,10 +668,17 @@ mod ios_keyboard {
                 TrackSource::Guide => guide.or(host),
                 TrackSource::Host => host.or(guide),
             }?;
+            // Only the start of an excursion is posted: the page moves the
+            // composer into the natively scrolled content then, and
+            // scrolling carries it (no per-frame IPC). Back at rest re-arms.
             if (cur - t.sent).abs() < 0.5 {
+                t.signaled = false;
                 return None;
             }
-            t.sent = cur;
+            if t.signaled {
+                return None;
+            }
+            t.signaled = true;
             Some(cur)
         });
         if let Some(overlap) = send {
@@ -945,6 +992,28 @@ mod ios_open {
     }
 }
 
+/// The composer's height (px) as the scroll views' keyboardDismissPadding
+/// (iOS 17+): an interactive dismiss drag starts at the composer's top.
+/// Returns whether this iOS supports it (false elsewhere).
+#[tauri::command]
+fn ios_keyboard_dismiss_padding(px: f64, webview: tauri::WebviewWindow) -> bool {
+    #[cfg(target_os = "ios")]
+    {
+        let supported = ios_keyboard::dismiss_padding_supported();
+        if supported {
+            let _ = webview.with_webview(move |wv| {
+                ios_keyboard::set_dismiss_padding(wv.inner(), px);
+            });
+        }
+        supported
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = (px, webview);
+        false
+    }
+}
+
 #[tauri::command]
 fn ios_strip_accessory_bar(webview: tauri::WebviewWindow) {
     #[cfg(target_os = "ios")]
@@ -996,6 +1065,7 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             greet,
             ios_strip_accessory_bar,
+            ios_keyboard_dismiss_padding,
             open_external_url,
             aps_environment
         ])

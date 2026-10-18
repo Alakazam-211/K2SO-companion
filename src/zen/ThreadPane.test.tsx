@@ -614,7 +614,7 @@ describe("ThreadPane", () => {
     }
   });
 
-  it("interactive keyboard dismiss: no re-pin under the finger; pinning resumes after", () => {
+  it("interactive keyboard dismiss: no re-pin under the finger nor over the release; pinning resumes after", () => {
     let height = 1800;
     Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
       configurable: true,
@@ -642,10 +642,83 @@ describe("ThreadPane", () => {
       height = 1900;
       rerender(<ThreadPane viewportHeight={500} viewportInteractive />);
       expect(el.scrollTop).toBe(1750);
-      // Released (WillHide): the keyboard's tail pins again if following.
+      // Released (WillHide): the finger's scroll (and its momentum) stands.
       rerender(<ThreadPane viewportHeight={800} viewportMotionMs={200} />);
+      expect(el.scrollTop).toBe(1750);
+      // The next keyboard change pins again (following).
+      rerender(<ThreadPane viewportHeight={464} viewportMotionMs={200} />);
       expect(el.scrollTop).toBe(1900);
     } finally {
+      Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+        configurable: true,
+        get() {
+          return 0;
+        },
+      });
+    }
+  });
+
+  it("keyboard up: real scroll range above (top room), compensated; dropped once idle after it closes", () => {
+    let height = 400;
+    Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.getAttribute?.("data-testid") === "thread-scroller" ? height : 0;
+      },
+    });
+    const full = window.innerHeight;
+    try {
+      useZenStore.setState({
+        agentId: "appa",
+        threadSource: "live",
+        threadError: null,
+        threadHasMore: false,
+        thread: [
+          { id: "a", seq: 1, text: "one", from: "appa", at: 1, mine: false, kind: "text", choice: null },
+        ],
+      });
+      (window as unknown as { __k2KeyboardSetup?: boolean }).__k2KeyboardSetup = true;
+      // A short chat, keyboard closed: no room.
+      const { rerender } = render(<ThreadPane viewportHeight={full} />);
+      const el = screen.getByTestId("thread-scroller");
+      const room = screen.getByTestId("thread-kb-top-room");
+      const content = screen.getByTestId("thread-content");
+      el.scrollTop = 0;
+      fireEvent.scroll(el);
+      // Reading at the top (not following): the room must not move the view.
+      el.scrollTop = 0;
+      const inset = 336;
+      rerender(<ThreadPane viewportHeight={full - inset} />);
+      expect(room.style.height).toBe(`${inset + 48}px`);
+      expect(content.style.minHeight).toBe("100%");
+      // jsdom does not clamp: the compensation is the whole room.
+      expect(el.scrollTop).toBeGreaterThanOrEqual(inset + 48);
+      // The drag layer sits in the scrolled content.
+      expect(screen.getByTestId("thread-kb-drag-layer").parentElement).toBe(el);
+      // Keyboard closes; the room stays while scrolling continues…
+      const now = Date.now();
+      const clock = vi.spyOn(Date, "now").mockImplementation(() => now);
+      fireEvent.scroll(el);
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      const before = el.scrollTop;
+      rerender(<ThreadPane viewportHeight={full} />);
+      expect(room.style.height).toBe(`${inset + 48}px`);
+      // …and goes once idle, scrollTop compensated.
+      clock.mockImplementation(() => now + 1000);
+      act(() => {
+        vi.advanceTimersByTime(1000);
+      });
+      vi.useRealTimers();
+      clock.mockRestore();
+      expect(room.style.height).toBe("");
+      expect(content.style.minHeight).toBe("");
+      expect(el.scrollTop).toBe(Math.max(0, before - (inset + 48)));
+      // Not the iOS shell (Android): no room at all.
+      delete (window as unknown as { __k2KeyboardSetup?: boolean }).__k2KeyboardSetup;
+      rerender(<ThreadPane viewportHeight={full - inset} />);
+      expect(room.style.height).toBe("");
+    } finally {
+      delete (window as unknown as { __k2KeyboardSetup?: boolean }).__k2KeyboardSetup;
       Object.defineProperty(HTMLElement.prototype, "scrollHeight", {
         configurable: true,
         get() {

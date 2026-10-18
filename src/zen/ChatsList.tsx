@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
-import { useViewport, useViewportTrackRef, viewportTransition } from "../lib/useViewportHeight";
+import { useViewport, viewportTransition } from "../lib/useViewportHeight";
 import { useFeedbackStore } from "../stores/feedback";
 import { ticketsAriaLabel, ticketsBadge } from "../api/feedbackPure";
 import { hostLabel, serverHostKey, useServersStore, type RecoveryState } from "../stores/servers";
@@ -187,7 +187,6 @@ export function ChatsList() {
     offsetTop: viewportTop,
     motion: viewportMotion,
   } = useViewport();
-  const columnTrackRef = useViewportTrackRef();
   const agents = useZenStore((s) => s.agents);
   const chatRows = useMemo(() => agents.filter((a) => a.kind !== "group"), [agents]);
   const source = useZenStore((s) => s.agentSource);
@@ -1042,11 +1041,9 @@ export function ChatsList() {
     >
       <div
         className="flex flex-col relative overflow-hidden"
-        // On screen (not under an open Thread): Search rides the keyboard —
-        // eased with Will*; under an interactive dismiss the column is full
-        // height and Search follows by transform (followKeyboard). Hidden
-        // under the Thread it just takes the final height.
-        ref={zenScreen !== "thread" ? columnTrackRef : undefined}
+        // On screen (not under an open Thread): Search eases with the
+        // keyboard's Will*. An interactive dismiss here lands on release.
+        // Hidden under the Thread it just takes the final height.
         style={{
           height: containerHeight,
           transition: zenScreen !== "thread" ? viewportTransition(viewportMotion) : undefined,
@@ -1885,7 +1882,6 @@ export function ChatsList() {
         onPlus={() => (onHome ? setAddAgent(true) : setNewWorkspace(true))}
         plusLabel={onHome ? "Add agent" : "New workspace"}
         plusBlockedNote={onHome || canCreate ? null : createRoleNote()}
-        followKeyboard={zenScreen !== "thread"}
       />
 
       {projectsOpen ? <ProjectsOverlay onClose={() => setProjectsOpen(false)} /> : null}
