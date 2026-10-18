@@ -21,6 +21,9 @@ type Mode = { kind: "list" } | { kind: "new" } | { kind: "rename" } | { kind: "d
 export function HomeMenu({
   homes,
   currentId,
+  syncedFrom = null,
+  syncNotice = null,
+  onDismissSyncNotice,
   onSelect,
   onCreate,
   onRename,
@@ -29,6 +32,11 @@ export function HomeMenu({
 }: {
   homes: Home[];
   currentId: string;
+  /** The server Home syncs from (K2 0.46.1), or null when not syncing. */
+  syncedFrom?: string | null;
+  /** "This phone was removed from Home sync on {server}." (one-time). */
+  syncNotice?: string | null;
+  onDismissSyncNotice?: () => void;
   onSelect: (id: string) => void;
   onCreate: (name: string) => void;
   onRename: (name: string) => void;
@@ -130,6 +138,34 @@ export function HomeMenu({
           </form>
         ) : (
           <>
+            {syncNotice ? (
+              <div
+                className="flex items-start text-[13px]"
+                style={{ gap: 8, padding: "8px 12px", color: "#ffd60a", lineHeight: 1.35 }}
+                data-testid="home-menu-sync-notice"
+              >
+                <span className="flex-1 min-w-0">This phone was removed from Home sync on {syncNotice}.</span>
+                {onDismissSyncNotice ? (
+                  <button
+                    type="button"
+                    className="shrink-0 bg-transparent border-0 p-0 font-semibold"
+                    style={{ color: "#0a84ff" }}
+                    onClick={onDismissSyncNotice}
+                    data-testid="home-menu-sync-notice-ok"
+                  >
+                    OK
+                  </button>
+                ) : null}
+              </div>
+            ) : syncedFrom ? (
+              <div
+                className="text-[13px] truncate"
+                style={{ padding: "6px 12px 4px", color: "#8e8e93" }}
+                data-testid="home-menu-synced-from"
+              >
+                Synced from {syncedFrom}
+              </div>
+            ) : null}
             {homes.map((h) => {
               const on = h.id === current.id;
               return (

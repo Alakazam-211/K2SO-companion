@@ -15,7 +15,7 @@ import {
 } from "../stores/servers";
 import { connectServer } from "./revive";
 import { parseHomeAddress, selectedHome, useHomesStore } from "../zen/homes";
-import { serverHostKey } from "../stores/servers";
+import { entryMatchesHomeHost } from "../zen/homeServerIds";
 import { zenProjectPath, zenTicketPath } from "../zen/terminalJump";
 import { pushAvailability, pushIsAvailable } from "./pushAvailability";
 import {
@@ -646,15 +646,19 @@ async function switchToServer(serverId: string): Promise<boolean> {
 }
 
 /** Is the Thread's agent a row of the Home on screen? `addr` may be a
- *  sidecar (`handle/sidecar`): its workspace's handle is what Home holds. */
-export function agentInSelectedHome(server: Pick<ServerEntry, "url">, addr: string): boolean {
+ *  sidecar (`handle/sidecar`): its workspace's handle is what Home holds.
+ *  A row's host may be the host key or the box's `serverId` (K2 0.46.1,
+ *  `zen/homeServerIds`); either names this server. */
+export function agentInSelectedHome(
+  server: Pick<ServerEntry, "url"> & { id?: string; hostKey?: string },
+  addr: string
+): boolean {
   const handle = addr.trim().toLowerCase().split("/")[0];
   if (!handle) return false;
-  const host = serverHostKey(server).toLowerCase();
   const home = selectedHome(useHomesStore.getState());
   return home.rows.some((r) => {
     const a = parseHomeAddress(r.address);
-    return !!a && a.handle === handle && a.host === host;
+    return !!a && a.handle === handle && entryMatchesHomeHost(server, a.host);
   });
 }
 

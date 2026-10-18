@@ -319,7 +319,7 @@ describe("Add Agent → Other servers (HM5, flag on)", () => {
     const docs = await screen.findByTestId("add-agent-row-b:/srv/docs");
     expect(docs.getAttribute("aria-pressed")).toBe("false");
     fireEvent.click(docs);
-    expect(storedRows()).toEqual([{ address: "docs::bravo.k2.dev", workspaceId: "pd", label: "docs" }]);
+    expect(storedRows()).toEqual([expect.objectContaining({ address: "docs::bravo.k2.dev", workspaceId: "pd", label: "docs" })]);
     expect(screen.getByTestId("add-agent-row-b:/srv/docs").getAttribute("aria-pressed")).toBe("true");
     // Uncheck takes it off the Home; a re-tap adds it once again.
     fireEvent.click(screen.getByTestId("add-agent-row-b:/srv/docs"));
@@ -507,7 +507,7 @@ describe("Home list across servers (HM3, flag on)", () => {
     mount();
     goHome();
     await waitFor(() =>
-      expect(storedRows()).toEqual([{ address: "docs::bravo.k2.dev", workspaceId: "pd", label: "Docs" }])
+      expect(storedRows()).toEqual([expect.objectContaining({ address: "docs::bravo.k2.dev", workspaceId: "pd", label: "Docs" })])
     );
     expect(screen.getByTestId("home-row-docs")).not.toBeNull();
   });
