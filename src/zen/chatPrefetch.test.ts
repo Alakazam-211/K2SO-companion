@@ -180,17 +180,30 @@ describe("prefetcher", () => {
     expect(deps.getThread).toHaveBeenCalledTimes(1);
   });
 
-  it("a delta with has_more falls back to the newest page", async () => {
+  it("deltas page forward; past four pages the newest page replaces the cached copy", async () => {
     cache.remember({ key: "s2|t:a", serverId: "s2", messages: [msg(1)], conversationId: "c", hasMore: false });
-    deps.fetchThreadDelta = vi.fn(async () => ({ ok: true, data: { items: [item(2)], changed: [], removed: [], hasMore: true, conversationId: "c", bytes: 1 } })) as never;
+    deps.fetchThreadDelta = vi.fn(async (_s: unknown, _a: string, after: number) => ({
+      ok: true,
+      data: { items: [item(after + 1)], changed: [], removed: [], hasMore: true, conversationId: "c", bytes: 1 },
+    })) as never;
     deps.getThread = vi.fn(async () => page([item(60), item(61)], { has_more: true })) as never;
     const p = createPrefetcher(deps);
     p.request([t("s2", "a")]);
-    await settle();
+    await new Promise((r) => setTimeout(r, 5));
+    expect(deps.fetchThreadDelta).toHaveBeenCalledTimes(4);
     expect(deps.getThread).toHaveBeenCalledTimes(1);
-    // The old cached message is older than the page and the server has
-    // more: kept (the gap fills on Load earlier).
-    expect(cache.peek("s2|t:a")?.messages.map((m) => m.id)).toEqual(["m1", "m60", "m61"]);
+    const e = cache.peek("s2|t:a");
+    expect(e?.messages.map((m) => m.id)).toEqual(["m60", "m61"]);
+    expect(e?.hasMore).toBe(true);
+  });
+
+  it("a 404 drops the prefetched chat's cache", async () => {
+    cache.remember({ key: "s2|t:a", serverId: "s2", messages: [msg(1)], conversationId: "c", hasMore: false });
+    deps.fetchThreadDelta = vi.fn(async () => ({ ok: false, status: 404, error: "gone" })) as never;
+    const p = createPrefetcher(deps);
+    p.request([t("s2", "a")]);
+    await settle();
+    expect(cache.peek("s2|t:a")).toBeNull();
   });
 
   it("project chats: full page, then deltas by the line's own seq", async () => {

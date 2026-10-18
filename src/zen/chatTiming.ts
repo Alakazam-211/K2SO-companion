@@ -30,10 +30,10 @@ export type ChatOpenTiming = {
   items: number | null;
   ok: boolean | null;
   error: string | null;
-  /** How the server was read: a delta (`thread-delta-v1`), a delta then
-   *  the newest page (more new than one delta), the newest page, or a
-   *  reset (the conversation moved). */
-  mode: "delta" | "delta+page" | "page" | "reset" | null;
+  /** How the server was read: deltas (`thread-delta-v1`, paged forward),
+   *  the newest page replacing the copy (more new than the delta pages),
+   *  the newest page merged, or a reset (the conversation moved). */
+  mode: "delta" | "replace" | "page" | "reset" | null;
   /** Delta parts: rewritten older items, and removed ones. */
   changed: number | null;
   removed: number | null;

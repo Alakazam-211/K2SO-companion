@@ -372,15 +372,29 @@ describe("open with thread-delta-v1", () => {
     expect(chatOpenTimings("s1")[0].mode).toBe("page");
   });
 
-  it("has_more: the newest page over the updated older items", async () => {
+  it("has_more: pages forward until caught up", async () => {
     seed("s1|t:appa", [cachedMsg(1), cachedMsg(2)]);
-    vi.mocked(fetchThreadDelta).mockResolvedValueOnce(delta({ items: [item(3)], changed: [item(1, "fixed")], hasMore: true }));
+    vi.mocked(fetchThreadDelta)
+      .mockResolvedValueOnce(delta({ items: [item(3)], changed: [item(1, "fixed")], hasMore: true }))
+      .mockResolvedValueOnce(delta({ items: [item(4)], changed: [item(1, "fixed")] }));
+    await useZenStore.getState().hydrateThread("appa");
+    expect(vi.mocked(fetchThreadDelta).mock.calls.map((c) => c[2])).toEqual([2, 3]);
+    expect(getThread).not.toHaveBeenCalled();
+    expect(ids()).toEqual(["m1", "m2", "m3", "m4"]);
+    expect(useZenStore.getState().thread[0].text).toBe("fixed");
+    expect(chatOpenTimings("s1")[0].mode).toBe("delta");
+  });
+
+  it("more than four pages new: the newest page replaces the copy; Load earlier pages back from it", async () => {
+    seed("s1|t:appa", [cachedMsg(1), cachedMsg(2)]);
+    vi.mocked(fetchThreadDelta).mockImplementation(async (_s, _a, after) => delta({ items: [item(after + 1)], hasMore: true }));
     vi.mocked(getThread).mockResolvedValueOnce({ ok: true, data: { conversation_id: "conv-a", has_more: true, items: [item(80), item(81)] } } as never);
     await useZenStore.getState().hydrateThread("appa");
-    expect(ids()).toEqual(["m1", "m2", "m80", "m81"]);
-    expect(useZenStore.getState().thread[0].text).toBe("fixed");
+    expect(fetchThreadDelta).toHaveBeenCalledTimes(4);
+    expect(ids()).toEqual(["m80", "m81"]);
     expect(useZenStore.getState().threadHasMore).toBe(true);
-    expect(chatOpenTimings("s1")[0].mode).toBe("delta+page");
+    expect(useZenStore.getState().threadOldestSeq).toBe(80);
+    expect(chatOpenTimings("s1")[0].mode).toBe("replace");
   });
 
   it("the conversation moved: the copy is dropped for the newest page", async () => {
@@ -425,5 +439,75 @@ describe("open with thread-delta-v1", () => {
     expect(useZenStore.getState().threadSource).toBe("error");
     expect(ids()).toEqual([]);
     expect(chatCache().peek("s1|g:grp1")).toBeNull();
+  });
+});
+
+describe("foreground re-read (refreshOpenThread)", () => {
+  beforeEach(() => {
+    vi.mocked(fetchThreadDelta).mockReset();
+  });
+
+  it("with the key: a delta from the newest seq on screen — a card answered while away lands", async () => {
+    setZenScope(fakeScope({ id: "s1", username: "me", token: "tok", features: ["thread-delta-v1"] }));
+    const pendingCard: ThreadMessage = { ...cachedMsg(2, ""), kind: "choice", choice: { prompt: "Ship?", options: ["Ship", "Hold"], answer: null } };
+    useZenStore.setState({ threadAddr: "appa", threadConversationId: "conv-a", threadSource: "live", thread: [cachedMsg(1), pendingCard] });
+    vi.mocked(fetchThreadDelta).mockResolvedValueOnce({
+      ok: true,
+      data: {
+        items: [item(3)],
+        changed: [item(2, "", { kind: "choice", choice: { prompt: "Ship?", options: ["Ship", "Hold"], answer: "Ship" } })],
+        removed: [],
+        hasMore: false,
+        conversationId: "conv-a",
+        bytes: 1,
+      },
+    } as never);
+    await useZenStore.getState().refreshOpenThread();
+    expect(fetchThreadDelta).toHaveBeenCalledWith(expect.anything(), "appa", 2, 50);
+    expect(getThread).not.toHaveBeenCalled();
+    expect(ids()).toEqual(["m1", "m2", "m3"]);
+    expect(useZenStore.getState().thread[1].choice?.answer).toBe("Ship");
+  });
+
+  it("without the key: the full newest page, as before", async () => {
+    useZenStore.setState({ threadAddr: "appa", threadConversationId: "conv-a", threadSource: "live", thread: [cachedMsg(1)] });
+    vi.mocked(getThread).mockResolvedValueOnce({ ok: true, data: { conversation_id: "conv-a", items: [item(1), item(2)] } } as never);
+    await useZenStore.getState().refreshOpenThread();
+    expect(fetchThreadDelta).not.toHaveBeenCalled();
+    expect(ids()).toEqual(["m1", "m2"]);
+  });
+
+  it("a failure keeps the screen; 403 / 404 clears the chat and its cache", async () => {
+    setZenScope(fakeScope({ id: "s1", username: "me", token: "tok", features: ["thread-delta-v1"] }));
+    seed("s1|t:appa", [cachedMsg(1)]);
+    useZenStore.setState({ threadAddr: "appa", threadConversationId: "conv-a", threadSource: "live", thread: [cachedMsg(1)] });
+    vi.mocked(fetchThreadDelta).mockResolvedValueOnce({ ok: false, error: "Could not reach server: x" } as never);
+    await useZenStore.getState().refreshOpenThread();
+    expect(ids()).toEqual(["m1"]);
+    vi.mocked(fetchThreadDelta).mockResolvedValueOnce({ ok: false, status: 404, error: "gone" } as never);
+    await useZenStore.getState().refreshOpenThread();
+    expect(ids()).toEqual([]);
+    expect(useZenStore.getState().threadSource).toBe("error");
+    expect(chatCache().peek("s1|t:appa")).toBeNull();
+  });
+});
+
+describe("live frames", () => {
+  it("a frame for a message already shown replaces it (the card's new state), keeping its file states", () => {
+    const file = { n: 0, kind: "file", path: "a.txt", name: "a.txt", size: 1, mime: "text/plain", modifiedAt: null, sha256: null, line: null, lineEnd: null, state: "gone" as const };
+    const pendingCard: ThreadMessage = { ...cachedMsg(2, "Ship?"), kind: "choice", choice: { prompt: "Ship?", options: ["Ship"], answer: null }, files: [file] };
+    useZenStore.setState({ threadAddr: "appa", threadSource: "live", thread: [cachedMsg(1), pendingCard] });
+    useZenStore.getState().ingestThreadRaw(
+      item(2, "Ship?", { kind: "choice", choice: { prompt: "Ship?", options: ["Ship"], answer: "Ship" } })
+    );
+    const t = useZenStore.getState().thread;
+    expect(t.map((m) => m.id)).toEqual(["m1", "m2"]);
+    expect(t[1].choice?.answer).toBe("Ship");
+    expect(t[1].files?.[0].state).toBe("gone");
+    const before = useZenStore.getState().thread;
+    useZenStore.getState().ingestThreadRaw(
+      item(2, "Ship?", { kind: "choice", choice: { prompt: "Ship?", options: ["Ship"], answer: "Ship" } })
+    );
+    expect(useZenStore.getState().thread).toBe(before); // nothing new: no re-render
   });
 });

@@ -210,9 +210,12 @@ export function mergeGroupPage(
     opts.hasMore && lo != null
       ? current.filter((m) => !pageIds.has(m.id) && typeof m.readSeq === "number" && m.readSeq < lo)
       : [];
-  const ordered = [...older, ...page].sort(
-    (a, b) => (a.readSeq ?? Number.MAX_SAFE_INTEGER) - (b.readSeq ?? Number.MAX_SAFE_INTEGER) || (a.at ?? 0) - (b.at ?? 0)
-  );
+  // The page is already in order; only cached lines in front need sorting.
+  const ordered = older.length
+    ? [...older, ...page].sort(
+        (a, b) => (a.readSeq ?? Number.MAX_SAFE_INTEGER) - (b.readSeq ?? Number.MAX_SAFE_INTEGER) || (a.at ?? 0) - (b.at ?? 0)
+      )
+    : page;
   return shareUnchanged(
     current,
     ordered.map((m, i) => (m.seq === i ? m : { ...m, seq: i }))

@@ -19,16 +19,18 @@ import {
 } from "./threadCacheMerge";
 import { groupMessagesToThread, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 
-// Revalidating a cached chat (open and prefetch share this), per the K2
-// 0.46.1 delta contract:
+// Revalidating a chat (open, foreground re-read and prefetch share this),
+// per the K2 0.46.1 delta contract:
 //
-//   key `thread-delta-v1` + a cached cursor (Thread: and its conversation id)
-//     → `after_seq=<highest cached seq>&limit=50`
-//       apply `removed` (delete), then `changed` (upsert by id), then append
-//       `items`;
-//       `has_more` (newer remain) → reload the newest page and merge it,
-//       keeping only cached items <= the cursor (already brought up to date
-//       by changed / removed) older than that page;
+//   key `thread-delta-v1` + a cursor (Thread: and its conversation id)
+//     → `after_seq=<highest seq held>&limit=50`, paged forward from the
+//       last item's seq while `has_more` (newer remain), up to
+//       `DELTA_MAX_PAGES` pages; each page's `removed` (delete), `changed`
+//       (upsert by id), then `items` are applied in order (changed /
+//       removed are complete on every page; re-applying is idempotent);
+//       still more after that → the newest page REPLACES the copy (the
+//       older block is dropped, so there is never an invisible hole: Load
+//       earlier pages back from the newest page as usual);
 //       another `conversation_id` (Thread) → the conversation moved: drop
 //       the copy, take the newest page;
 //   otherwise → the newest page, merged ("the server wins in its window").
@@ -39,22 +41,26 @@ import { groupMessagesToThread, normaliseThreadItem, type ThreadMessage } from "
 // frames that landed meanwhile are kept).
 
 export const PAGE_LIMIT = 50;
+/** Delta pages read forward before giving up on the gap (200 new items). */
+export const DELTA_MAX_PAGES = 4;
 
-export type ReadMode = "delta" | "delta+page" | "page" | "reset";
+/** delta: the deltas closed the gap. page: the newest page merged.
+ *  replace: more new than `DELTA_MAX_PAGES` deltas — the newest page
+ *  replaces the copy. reset: the conversation moved. */
+export type ReadMode = "delta" | "replace" | "page" | "reset";
 
-export type ReadCounts = { items: number; changed: number; removed: number };
+export type ReadCounts = { items: number; changed: number; removed: number; pages: number };
+
+/** One delta page, applied in this order. */
+export type DeltaStep = { removedIds: string[]; changed: ThreadMessage[]; items: ThreadMessage[] };
 
 export type ChatRead =
   | {
       ok: true;
       mode: ReadMode;
-      /** Delta parts (empty for a page read). */
-      removedIds: string[];
-      changed: ThreadMessage[];
-      items: ThreadMessage[];
-      /** The delta's cursor (delta modes). */
-      afterSeq: number | null;
-      /** The newest page (page, reset and delta+page modes). */
+      /** Delta pages, oldest first ("delta" mode). */
+      steps: DeltaStep[];
+      /** The newest page (page, replace and reset modes). */
       page: ThreadMessage[] | null;
       /** Older history exists on the server — null: unchanged (delta). */
       hasMore: boolean | null;
@@ -63,6 +69,8 @@ export type ChatRead =
       bytes: number | null;
     }
   | { ok: false; error: string; status?: number; gone: boolean };
+
+export type OkRead = Extract<ChatRead, { ok: true }>;
 
 export type ReadDeps = {
   getThread: typeof getThread;
@@ -79,7 +87,7 @@ export const defaultReadDeps: ReadDeps = {
   fetchProjectGroupDelta: (...a) => fetchProjectGroupDelta(...a),
 };
 
-/** What the cache knows: its messages and conversation id. */
+/** What the phone holds: its messages and conversation id. */
 export type CacheBase = { messages: ThreadMessage[]; conversationId: string | null } | null;
 
 function approx(data: unknown): number | null {
@@ -95,16 +103,74 @@ function fail(error: string | undefined, status: number | undefined): ChatRead {
   return { ok: false, error: e, status, gone: goneStatus(status) };
 }
 
-/** Thread cursor: the highest cached seq, only with a conversation id. */
+/** Thread cursor: the highest seq held, only with a conversation id. */
 export function threadCursor(base: CacheBase): number | null {
   if (!base || !base.conversationId) return null;
   return newestSeq(base.messages);
 }
 
-/** Project cursor: the highest cached line seq (every line must carry one). */
+/** Project cursor: the highest line seq held (every line must carry one). */
 export function groupCursor(base: CacheBase): number | null {
   if (!base || !base.messages.length || !base.messages.every((m) => typeof m.readSeq === "number")) return null;
   return newestSeq(base.messages, "readSeq");
+}
+
+type RawDelta<T> = {
+  items: T[];
+  changed: T[];
+  removed: { id: string }[];
+  hasMore: boolean;
+  conversationId: string | null;
+  bytes: number | null;
+};
+
+/**
+ * Page deltas forward from `cursor`. `null` = fall back to the newest page
+ * (a refused delta); a failure that means gone / unreachable is returned.
+ */
+async function pageDeltas<T>(
+  cursor: number,
+  fetchPage: (after: number) => Promise<{ ok: boolean; data?: RawDelta<T>; error?: string; status?: number }>,
+  toMessages: (raw: T[]) => ThreadMessage[],
+  seqOf: (m: ThreadMessage) => number | null | undefined
+): Promise<
+  | { kind: "steps"; steps: DeltaStep[]; hasMore: boolean; conversationId: string | null; bytes: number }
+  | { kind: "fallback" }
+  | { kind: "fail"; read: ChatRead }
+> {
+  const steps: DeltaStep[] = [];
+  let after = cursor;
+  let bytes = 0;
+  let conversationId: string | null = null;
+  for (let i = 0; i < DELTA_MAX_PAGES; i++) {
+    const d = await fetchPage(after);
+    if (!d.ok || !d.data) {
+      if (goneStatus(d.status) || looksUnreachable(d.error)) return { kind: "fail", read: fail(d.error, d.status) };
+      return { kind: "fallback" };
+    }
+    const items = toMessages(d.data.items ?? []);
+    steps.push({
+      removedIds: (d.data.removed ?? []).map((r) => r.id),
+      changed: toMessages(d.data.changed ?? []),
+      items,
+    });
+    bytes += d.data.bytes ?? 0;
+    conversationId = d.data.conversationId ?? conversationId;
+    const last = items.length ? seqOf(items[items.length - 1]) : null;
+    if (!d.data.hasMore) return { kind: "steps", steps, hasMore: false, conversationId, bytes };
+    if (typeof last !== "number" || last <= after) break; // no progress: stop paging
+    after = last;
+  }
+  return { kind: "steps", steps, hasMore: true, conversationId, bytes };
+}
+
+function countSteps(steps: DeltaStep[]): ReadCounts {
+  return {
+    items: steps.reduce((n, s) => n + s.items.length, 0),
+    changed: steps.reduce((n, s) => n + s.changed.length, 0),
+    removed: steps.reduce((n, s) => n + s.removedIds.length, 0),
+    pages: steps.length,
+  };
 }
 
 export async function fetchThreadRead(
@@ -117,7 +183,7 @@ export async function fetchThreadRead(
   const norm = (raw: unknown[]) =>
     raw.map((it) => normaliseThreadItem(it as never, username)).filter((m): m is ThreadMessage => !!m);
 
-  const pageRead = async (mode: "page" | "reset"): Promise<ChatRead> => {
+  const pageRead = async (mode: "page" | "reset" | "replace", pages = 0): Promise<ChatRead> => {
     const r = await deps.getThread(scope, addr); // the newest PAGE_LIMIT (its default)
     if (!r.ok || !r.data || !Array.isArray(r.data.items)) {
       const msg =
@@ -128,74 +194,63 @@ export async function fetchThreadRead(
     return {
       ok: true,
       mode,
-      removedIds: [],
-      changed: [],
-      items: [],
-      afterSeq: null,
+      steps: [],
       page,
       hasMore: !!r.data.has_more,
       conversationId: (r.data.conversation_id || "").trim() || null,
-      counts: { items: page.length, changed: 0, removed: 0 },
+      counts: { items: page.length, changed: 0, removed: 0, pages },
       bytes: approx(r.data),
     };
   };
 
   const cursor = threadCursor(base);
   if (cursor == null || !deltaSupported(scope)) return pageRead("page");
-  const d = await deps.fetchThreadDelta(scope, addr, cursor, DELTA_LIMIT);
-  if (!d.ok || !d.data) {
-    if (goneStatus(d.status) || looksUnreachable(d.error)) return fail(d.error, d.status);
-    return pageRead("page"); // a refused delta (usage) still has the page
+  const got = await pageDeltas(
+    cursor,
+    (after) => deps.fetchThreadDelta(scope, addr, after, DELTA_LIMIT),
+    (raw) => norm(raw),
+    (m) => m.seq
+  );
+  if (got.kind === "fail") return got.read;
+  if (got.kind === "fallback") return pageRead("page");
+  if (got.conversationId && base?.conversationId && got.conversationId !== base.conversationId) {
+    return pageRead("reset", got.steps.length);
   }
-  const delta = d.data;
-  if (delta.conversationId && base?.conversationId && delta.conversationId !== base.conversationId) {
-    return pageRead("reset");
-  }
-  const changed = norm(delta.changed ?? []);
-  const items = norm(delta.items ?? []);
-  const removedIds = (delta.removed ?? []).map((r) => r.id);
-  const counts = { items: items.length, changed: changed.length, removed: removedIds.length };
-  const conversationId = delta.conversationId ?? base?.conversationId ?? null;
-  if (!delta.hasMore) {
-    return {
-      ok: true,
-      mode: "delta",
-      removedIds,
-      changed,
-      items,
-      afterSeq: cursor,
-      page: null,
-      hasMore: null,
-      conversationId,
-      counts,
-      bytes: delta.bytes,
-    };
-  }
-  // More new than one delta: the newest page, over the updated older items.
-  const p = await pageRead("page");
-  if (!p.ok) return p;
+  if (got.hasMore) return pageRead("replace", got.steps.length);
   return {
-    ...p,
-    mode: "delta+page",
-    removedIds,
-    changed,
-    items,
-    afterSeq: cursor,
-    conversationId: p.conversationId ?? conversationId,
-    counts: { items: items.length + p.counts.items, changed: changed.length, removed: removedIds.length },
-    bytes: (delta.bytes ?? 0) + (p.bytes ?? 0),
+    ok: true,
+    mode: "delta",
+    steps: got.steps,
+    page: null,
+    hasMore: null,
+    conversationId: got.conversationId ?? base?.conversationId ?? null,
+    counts: countSteps(got.steps),
+    bytes: got.bytes,
   };
+}
+
+/** Optimistic rows and live frames that landed while the read ran: what
+ *  a replacing page keeps from the screen. */
+function keepFromScreen(current: ThreadMessage[], arrivedLive?: ReadonlySet<string>): ThreadMessage[] {
+  return current.filter((m) => m.pending || m.failed || !!arrivedLive?.has(m.id));
 }
 
 /** The new Thread over `current` (what is on screen now). */
 export function applyThreadRead(
   current: ThreadMessage[],
-  read: Extract<ChatRead, { ok: true }>,
+  read: OkRead,
   opts: { arrivedLive?: ReadonlySet<string>; conversationId?: string | null } = {}
 ): ThreadMessage[] {
   const { arrivedLive } = opts;
   if (read.mode === "reset") {
     return mergeServerPage(current, read.page ?? [], { hasMore: !!read.hasMore, sameConversation: false });
+  }
+  if (read.mode === "replace") {
+    // Too much new to page through: the newest page alone (no hole).
+    return mergeServerPage(keepFromScreen(current, arrivedLive), read.page ?? [], {
+      hasMore: !!read.hasMore,
+      arrivedLive,
+    });
   }
   if (read.mode === "page") {
     return mergeServerPage(current, read.page ?? [], {
@@ -204,18 +259,13 @@ export function applyThreadRead(
       arrivedLive,
     });
   }
-  // removed, then changed, then the new items.
-  let t = removeIds(current, read.removedIds);
-  t = mergeDelta(t, read.changed);
-  t = mergeDelta(t, read.items);
-  if (read.mode === "delta") return t;
-  // delta+page: drop the gap — keep cached items <= the cursor (updated
-  // above), live frames, and the newest page.
-  const cut = read.afterSeq ?? -Infinity;
-  const base = t.filter(
-    (m) => m.pending || m.failed || m.seq == null || m.seq <= cut || !!arrivedLive?.has(m.id)
-  );
-  return mergeServerPage(base, read.page ?? [], { hasMore: !!read.hasMore, arrivedLive });
+  let t = current;
+  for (const s of read.steps) {
+    t = removeIds(t, s.removedIds);
+    t = mergeDelta(t, s.changed);
+    t = mergeDelta(t, s.items);
+  }
+  return t;
 }
 
 export async function fetchGroupRead(
@@ -225,75 +275,55 @@ export async function fetchGroupRead(
   deps: ReadDeps = defaultReadDeps
 ): Promise<ChatRead> {
   const username = scope.username();
-  const pageRead = async (): Promise<ChatRead> => {
+  const pageRead = async (mode: "page" | "replace", pages = 0): Promise<ChatRead> => {
     const r = await deps.fetchProjectGroupMessages(scope, groupId, { limit: PAGE_LIMIT });
     if (!r.ok) return fail(r.error || "project chat failed", r.status);
     const page = groupMessagesToThread(r.data?.messages ?? [], username);
     return {
       ok: true,
-      mode: "page",
-      removedIds: [],
-      changed: [],
-      items: [],
-      afterSeq: null,
+      mode,
+      steps: [],
       page,
       hasMore: !!r.data?.truncated,
       conversationId: null,
-      counts: { items: page.length, changed: 0, removed: 0 },
+      counts: { items: page.length, changed: 0, removed: 0, pages },
       bytes: approx(r.data),
     };
   };
   const cursor = groupCursor(base);
-  if (cursor == null || !deltaSupported(scope)) return pageRead();
-  const d = await deps.fetchProjectGroupDelta(scope, groupId, cursor, DELTA_LIMIT);
-  if (!d.ok || !d.data) {
-    if (goneStatus(d.status) || looksUnreachable(d.error)) return fail(d.error, d.status);
-    return pageRead();
-  }
-  const items = groupMessagesToThread(d.data.items ?? [], username);
-  const changed = groupMessagesToThread(d.data.changed ?? [], username);
-  const removedIds = (d.data.removed ?? []).map((r) => r.id);
-  const counts = { items: items.length, changed: changed.length, removed: removedIds.length };
-  if (!d.data.hasMore) {
-    return {
-      ok: true,
-      mode: "delta",
-      removedIds,
-      changed,
-      items,
-      afterSeq: cursor,
-      page: null,
-      hasMore: null,
-      conversationId: null,
-      counts,
-      bytes: d.data.bytes,
-    };
-  }
-  const p = await pageRead();
-  if (!p.ok) return p;
+  if (cursor == null || !deltaSupported(scope)) return pageRead("page");
+  const got = await pageDeltas(
+    cursor,
+    (after) => deps.fetchProjectGroupDelta(scope, groupId, after, DELTA_LIMIT),
+    (raw) => groupMessagesToThread(raw, username),
+    (m) => m.readSeq
+  );
+  if (got.kind === "fail") return got.read;
+  if (got.kind === "fallback") return pageRead("page");
+  if (got.hasMore) return pageRead("replace", got.steps.length);
   return {
-    ...p,
-    mode: "delta+page",
-    removedIds,
-    changed,
-    items,
-    afterSeq: cursor,
-    counts: { items: items.length + p.counts.items, changed: changed.length, removed: removedIds.length },
-    bytes: (d.data.bytes ?? 0) + (p.bytes ?? 0),
+    ok: true,
+    mode: "delta",
+    steps: got.steps,
+    page: null,
+    hasMore: null,
+    conversationId: null,
+    counts: countSteps(got.steps),
+    bytes: got.bytes,
   };
 }
 
 /** The new project chat over `current`. */
-export function applyGroupRead(current: ThreadMessage[], read: Extract<ChatRead, { ok: true }>): ThreadMessage[] {
-  if (read.mode === "page" || read.mode === "reset") {
-    // The non-delta path: the newest page replaces the copy (as before).
+export function applyGroupRead(current: ThreadMessage[], read: OkRead): ThreadMessage[] {
+  if (read.mode !== "delta") {
+    // The newest page replaces the copy (as the non-delta path always did).
     return mergeGroupPage(current, read.page ?? [], { hasMore: false });
   }
-  let t = removeIds(current, read.removedIds);
-  t = mergeGroupDelta(t, read.changed);
-  t = mergeGroupDelta(t, read.items);
-  if (read.mode === "delta") return t;
-  const cut = read.afterSeq ?? -Infinity;
-  const base = t.filter((m) => typeof m.readSeq === "number" && m.readSeq <= cut);
-  return mergeGroupPage(base, read.page ?? [], { hasMore: !!read.hasMore });
+  let t = current;
+  for (const s of read.steps) {
+    t = removeIds(t, s.removedIds);
+    t = mergeGroupDelta(t, s.changed);
+    t = mergeGroupDelta(t, s.items);
+  }
+  return t;
 }
