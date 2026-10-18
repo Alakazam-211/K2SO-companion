@@ -627,6 +627,14 @@ describe("Ticket content: top-aligned, always filling the view (no jump when the
     const content = screen.getByTestId("ticket-content");
     expect(content.className).toMatch(/\bmchat-content\b/);
     expect(content.className).not.toMatch(/justify-end/);
+    // A short ticket: the content fills the view (700px), its rows 300px.
+    const scroller = screen.getByTestId("ticket-scroller");
+    Object.defineProperty(scroller, "scrollHeight", { configurable: true, value: 700 });
+    Object.defineProperty(scroller, "clientHeight", { configurable: true, value: 700 });
+    Object.defineProperty(content, "offsetHeight", { configurable: true, value: 700 });
+    const kids = Array.from(content.children) as HTMLElement[];
+    kids[0].getBoundingClientRect = () => ({ top: 0, bottom: 10 }) as DOMRect;
+    kids[kids.length - 1].getBoundingClientRect = () => ({ top: 280, bottom: 300 }) as DOMRect;
     act(() => {
       (window as unknown as { __k2KeyboardWill: (d: unknown) => void }).__k2KeyboardWill({
         height: 336,
