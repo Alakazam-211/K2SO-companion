@@ -4,7 +4,7 @@ import { act, cleanup, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 import { isDismissTap, useTapToDismiss } from "./useTapToDismiss";
 import { useKeyboardForwardPlay } from "./useKeyboardForwardPlay";
-import { keyboardColumnHeight } from "./useKeyboardFlip";
+import { keyboardColumnHeight, useKeyboardFlip } from "./useKeyboardFlip";
 import type { ViewportMotion } from "../../lib/useViewportHeight";
 
 afterEach(() => {
@@ -165,6 +165,48 @@ describe("useKeyboardForwardPlay", () => {
     expect(mover.style.transition).toBe("none");
     rerender(<Term m={null} begin={begin} end={end} />);
     expect(end).toHaveBeenCalledTimes(1);
+  });
+});
+
+function Home({ m, h, enabled }: { m: ViewportMotion | null; h: number; enabled: boolean }) {
+  const list = useRef<HTMLDivElement>(null);
+  const bar = useRef<HTMLDivElement>(null);
+  useKeyboardFlip({
+    viewportHeight: h,
+    motion: m,
+    scroller: () => list.current,
+    docks: () => [bar.current],
+    enabled,
+  });
+  return (
+    <div>
+      <div ref={list} data-testid="home-list" />
+      <div ref={bar} data-testid="home-bar" />
+    </div>
+  );
+}
+
+describe("useKeyboardFlip enabling mid-motion", () => {
+  it("a hide that began while disabled (hidden under a thread) is not replayed: no snap", () => {
+    const hide = motion(508, 844);
+    const { rerender } = render(<Home m={null} h={508} enabled={false} />);
+    // The thread's swipe-back blurs the composer: the hide starts while
+    // the list is hidden (disabled), then Back lands mid-motion.
+    rerender(<Home m={hide} h={844} enabled={false} />);
+    rerender(<Home m={hide} h={844} enabled />);
+    const bar = screen.getByTestId("home-bar");
+    // Final layout at once: not inverted up to the old keyboard top.
+    expect(bar.style.transform).toBe("");
+    rerender(<Home m={null} h={844} enabled />);
+    expect(bar.style.transform).toBe("");
+  });
+
+  it("a hide that begins while enabled still plays (invert, then glide)", () => {
+    const { rerender } = render(<Home m={null} h={508} enabled />);
+    rerender(<Home m={motion(508, 844)} h={844} enabled />);
+    const bar = screen.getByTestId("home-bar");
+    expect(bar.style.transform).toBe("");
+    expect(bar.style.transition).toBe("transform 250ms ease-out");
   });
 });
 

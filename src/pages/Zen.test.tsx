@@ -790,6 +790,21 @@ describe("Zen thread left-edge swipe", () => {
     expect(home.style.transform).toBe("translateX(695px)");
     // The list under the thread shows while it is dragged aside.
     expect(screen.getByTestId("chats-layer").hasAttribute("data-peek")).toBe(true);
+    // Parallax + dim go on ChatsList's own fixed root. No ANCESTOR of it
+    // carries a transform / will-change (that would make it the fixed
+    // root's containing block: the list would sit off its real spot for
+    // the slide and snap into place the frame the transform clears).
+    const chatsHome = screen.getByTestId("chats-home");
+    expect(chatsHome.style.transform).toMatch(/^translateX\(-/);
+    expect(Number(chatsHome.style.opacity)).toBeLessThan(1);
+    const noContainingBlockAbove = () => {
+      for (let n = chatsHome.parentElement; n; n = n.parentElement) {
+        expect(n.style.transform).toBe("");
+        expect(n.style.willChange).toBe("");
+        expect(n.style.filter).toBe("");
+      }
+    };
+    noContainingBlockAbove();
     act(() => {
       release(home, 700);
     });
@@ -799,13 +814,22 @@ describe("Zen thread left-edge swipe", () => {
     expect(home.style.transform).toBe("translateX(1024px)");
     expect(home.style.transition).toMatch(/^transform \d+ms cubic-bezier/);
     expect(screen.getByTestId("chats-layer").hasAttribute("data-peek")).toBe(true);
+    // The list animates to exact identity: its last slide frame is its
+    // first frame after Back.
+    expect(chatsHome.style.transform).toBe("");
+    expect(chatsHome.style.opacity).toBe("");
+    noContainingBlockAbove();
     // ...then Back lands.
     await waitFor(() => expect(useZenStore.getState().screen).toBe("list"));
     expect(screen.queryByTestId("thread-home")).toBeNull();
     const chats = screen.getByTestId("chats-layer");
-    // The underlay's parallax/dim is cleared once it is the screen.
+    // Same element, nothing left on it (no transition on the reset).
+    expect(screen.getByTestId("chats-home")).toBe(chatsHome);
+    expect(chatsHome.style.transform).toBe("");
+    expect(chatsHome.style.opacity).toBe("");
+    expect(chatsHome.style.transition).toBe("");
+    expect(chatsHome.style.willChange).toBe("");
     expect(chats.style.transform).toBe("");
-    expect(chats.style.opacity).toBe("");
     expect(chats.hasAttribute("data-peek")).toBe(false);
     expect(chats.getAttribute("aria-hidden")).not.toBe("true");
     expect(chats.style.visibility).toBe("");
