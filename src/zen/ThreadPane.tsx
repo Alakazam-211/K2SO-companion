@@ -1618,9 +1618,11 @@ export function ThreadPane({
   const reconcileRef = useRef(reconcileWindow);
   reconcileRef.current = reconcileWindow;
 
-  /** Rows leave only once scrolling has been quiet a while. */
+  /** Rows leave only once scrolling has been quiet a while. A check
+   *  already pending stays (frequent commits — live frames — must not
+   *  keep pushing it back); it waits out the quiet itself. */
   function scheduleWindowIdle(delay = WINDOW_IDLE_MS) {
-    if (winTimer.current) clearTimeout(winTimer.current);
+    if (winTimer.current) return;
     winTimer.current = setTimeout(() => {
       winTimer.current = null;
       const quiet = Date.now() - lastScrollAt.current;
