@@ -10,6 +10,7 @@ import { hostLabel, signOutServer, useServersStore, type RecoveryState } from ".
 import { BadgeDiagnosticsRow } from "./BadgeDiagnostics";
 import { ChatTimingRow } from "./ChatTimingDiagnostics";
 import { KeyboardDragRow } from "./KeyboardDragDiagnostics";
+import { LightBlurRow } from "./LightBlurDiagnostics";
 import { HomeSyncSection } from "./HomeSyncSection";
 import { RECOVERY_DOT, STATE_LABEL } from "./serverList";
 import { ServerUpdateSection } from "./ServerUpdateSection";
@@ -180,6 +181,7 @@ export function ServerSettingsPage({
         <Group label="Diagnostics" testId="server-settings-diagnostics">
           <ChatTimingRow serverId={serverId} />
           <KeyboardDragRow />
+          <LightBlurRow />
         </Group>
 
         <Group label="Danger zone" testId="server-settings-danger">

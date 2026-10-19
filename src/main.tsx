@@ -6,6 +6,7 @@ import "./styles/index.css";
 import { initZenFont } from "./zen/zenFont";
 import { installAndroidBack } from "./lib/androidBack";
 import { initKbDragRecorder } from "./lib/kbDragRecorder";
+import { initLightBlur } from "./lib/lightBlur";
 
 // Android's WebView reports env(safe-area-inset-bottom) as 0 while the
 // app draws edge-to-edge behind the system nav — bottom bars need an
@@ -39,6 +40,9 @@ initZenFont();
 
 // Diagnostics → Keyboard drag recorder (off by default: one pref read).
 initKbDragRecorder();
+
+// Diagnostics → Light blur (A/B, off by default: one pref read).
+initLightBlur();
 
 // Test hook for scripts/repro-nav-stress.mjs (dev builds only): lets the
 // harness drive recovery-state churn straight into the store while it

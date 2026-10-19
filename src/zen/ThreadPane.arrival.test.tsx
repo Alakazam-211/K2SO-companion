@@ -126,7 +126,9 @@ const scroller = () => screen.getByTestId("thread-scroller");
 const bottom = () => height - CLIENT;
 const socket = () => vi.mocked(connectOverlayEvents).mock.calls[0][0];
 const isContent = (el: Element) => el.getAttribute("data-testid") === "thread-content";
-const glides = () => calls.filter((c) => isContent(c.el));
+// The list glide (transform). The composer gap's ease (focus moving into
+// the field) is a separate `translate` (easeGapShift).
+const glides = () => calls.filter((c) => isContent(c.el) && c.frames[0]?.transform != null);
 const rowFades = () => calls.filter((c) => c.el.hasAttribute("data-thread-msg"));
 const firstY = (c: Call) => parseFloat(/, ([-\d.]+)px, 0px\)/.exec(String(c.frames[0].transform))![1]);
 
