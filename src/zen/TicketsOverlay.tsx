@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import {
   assigneeInitials,
   collapseWs,
@@ -75,7 +75,10 @@ function refetchLive(): void {
   void useFeedbackStore.getState().refetchOpen();
 }
 
-export function TicketsOverlay({
+/** Memoized (with a stable `onClose` from ChatsList): the Agents list's own
+ *  re-renders — activity polls, unread, previews — skip the Tickets screen
+ *  and the ticket open in it. */
+export const TicketsOverlay = memo(function TicketsOverlay({
   onClose,
   initialTicketId,
 }: {
@@ -135,15 +138,18 @@ export function TicketsOverlay({
   const grouped = groupByStatus(visible);
   const openRow = openId ? rows.find((r) => r.id === openId) : undefined;
 
-  const open = (row: FeedbackListRow) => {
+  // Stable, so a refresh (new row objects, same tickets) re-renders no
+  // card that did not change (TicketCard is memoized) and not the open
+  // ticket.
+  const open = useCallback((row: FeedbackListRow) => {
     setOpenId(row.id);
     void useFeedbackStore.getState().openThread(row.id, { withBrief: row.hasBrief === true });
-  };
+  }, []);
 
-  const back = () => {
+  const back = useCallback(() => {
     setOpenId(null);
     useFeedbackStore.getState().closeThread();
-  };
+  }, []);
   // Android Back = Done. Off while a ticket is open: TicketView takes
   // Back itself (a deep link mounts both at once, and the child's
   // handler would otherwise register first and lose).
@@ -295,7 +301,7 @@ export function TicketsOverlay({
       ) : null}
     </div>
   );
-}
+});
 
 function TicketSection({
   label,
@@ -316,21 +322,43 @@ function TicketSection({
       </div>
       <div className="flex flex-col gap-2.5">
         {rows.map((row) => (
-          <TicketCard key={row.id} row={row} nowSec={nowSec} onOpen={onOpen} />
+          <TicketCard key={row.id} row={row} age={relativeAge(row.createdAt, nowSec)} onOpen={onOpen} />
         ))}
       </div>
     </div>
   );
 }
 
+/** What a card draws of its row: a refresh hands over new objects for the
+ *  same tickets, and only a change here re-renders the card. */
+function sameCard(
+  a: { row: FeedbackListRow; age: string; onOpen: unknown },
+  b: { row: FeedbackListRow; age: string; onOpen: unknown }
+): boolean {
+  const x = a.row;
+  const y = b.row;
+  return (
+    a.age === b.age &&
+    a.onOpen === b.onOpen &&
+    (x === y ||
+      (x.id === y.id &&
+        x.title === y.title &&
+        x.body === y.body &&
+        x.status === y.status &&
+        x.hasBrief === y.hasBrief &&
+        (x.assignees ?? []).join("\n") === (y.assignees ?? []).join("\n")))
+  );
+}
+
 /** Three lines at most: title / one-line body / status · HTML · people · age. */
-function TicketCard({
+const TicketCard = memo(function TicketCard({
   row,
-  nowSec,
+  age,
   onOpen,
 }: {
   row: FeedbackListRow;
-  nowSec: number;
+  /** Relative age, already worded. */
+  age: string;
   onOpen: (row: FeedbackListRow) => void;
 }) {
   const summary = collapseWs(row.body);
@@ -385,8 +413,8 @@ function TicketCard({
             ))}
           </span>
         ) : null}
-        <span className="tabular-nums shrink-0">{relativeAge(row.createdAt, nowSec)}</span>
+        <span className="tabular-nums shrink-0">{age}</span>
       </span>
     </button>
   );
-}
+}, sameCard);
