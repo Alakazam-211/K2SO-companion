@@ -7,6 +7,16 @@ import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
 export const SEARCH_BAR_KEYBOARD_GAP = 8;
 /** Resting offset: clear the home indicator (as `.zen-composer-bar`). */
 export const SEARCH_BAR_REST_BOTTOM = "max(14px, var(--safe-bottom))";
+/** Android, typing: --safe-bottom is 0 under a docked keyboard (so the
+ *  8px gap), but a floating or hardware keyboard leaves the nav bar
+ *  exposed and the bar must still clear it (as `.zen-composer-bar`). */
+export const SEARCH_BAR_ANDROID_TYPING_BOTTOM = `max(${SEARCH_BAR_KEYBOARD_GAP}px, var(--safe-bottom))`;
+
+function typingBottom(): string {
+  return document.documentElement.classList.contains("platform-android")
+    ? SEARCH_BAR_ANDROID_TYPING_BOTTOM
+    : `${SEARCH_BAR_KEYBOARD_GAP}px`;
+}
 /** Bar row height (the round `+`). */
 export const SEARCH_BAR_HEIGHT = 44;
 
@@ -57,7 +67,7 @@ export function GlassSearchBar({
   // viewport, so the home-indicator inset would be a dead gap over the
   // keyboard; drop to the composer's 8px instead.
   const [typing, setTyping] = useState(false);
-  const bottom = typing ? `${SEARCH_BAR_KEYBOARD_GAP}px` : SEARCH_BAR_REST_BOTTOM;
+  const bottom = typing ? typingBottom() : SEARCH_BAR_REST_BOTTOM;
   const [noteUp, setNoteUp] = useState(false);
   useEffect(() => {
     if (!noteUp) return;
