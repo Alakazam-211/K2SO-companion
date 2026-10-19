@@ -26,6 +26,7 @@ import { useServersStore } from "../stores/servers";
 import { PROGRESSIVE_FIRST, ThreadPane } from "./ThreadPane";
 import type { ThreadMessage } from "./threadModel";
 import { useZenStore } from "./zenStore";
+import { WINDOW_ROWS } from "./threadWindow";
 
 function msg(seq: number, over: Partial<ThreadMessage> = {}): ThreadMessage {
   return { id: `m${seq}`, seq, text: `message ${seq}`, from: "k2", at: 1, mine: false, kind: "text", choice: null, ...over };
@@ -105,7 +106,10 @@ describe("progressive first paint", () => {
     const first = document.querySelectorAll("[data-thread-msg]");
     expect(first).toHaveLength(PROGRESSIVE_FIRST);
     expect(first[first.length - 1].getAttribute("data-seq")).toBe("50");
-    await waitFor(() => expect(document.querySelectorAll("[data-thread-msg]")).toHaveLength(50));
+    // The rest of the render window (threadWindow.ts), not all 50.
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-thread-msg]")).toHaveLength(WINDOW_ROWS)
+    );
   });
 
   it("a short chat draws everything at once", () => {
@@ -114,9 +118,12 @@ describe("progressive first paint", () => {
     expect(document.querySelectorAll("[data-thread-msg]")).toHaveLength(20);
   });
 
-  it("a push tap to a seq draws everything at once (the target may be old)", () => {
+  it("a push tap to a seq draws it at once, with its neighbours (the target may be old)", () => {
     useZenStore.setState({ thread: many(50), threadFocusSeq: 3 });
     render(<ThreadPane />);
-    expect(document.querySelectorAll("[data-thread-msg]")).toHaveLength(50);
+    const rows = document.querySelectorAll("[data-thread-msg]");
+    expect(document.querySelector('[data-seq="3"]')).not.toBeNull();
+    expect(rows[0].getAttribute("data-seq")).toBe("1");
+    expect(rows.length).toBeLessThanOrEqual(WINDOW_ROWS);
   });
 });

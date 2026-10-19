@@ -3,6 +3,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useReducer,
   useRef,
   useState,
   type ReactNode,
@@ -99,6 +100,22 @@ import { useMarkReadWhileViewing } from "./unreadRead";
 import { MessageFiles, patchThreadFileState, useThreadFilesOn } from "./ThreadFiles";
 import { AttachmentSheet, type OpenAttachment } from "./AttachmentSheet";
 import { sameMessage } from "./threadCacheMerge";
+import {
+  WINDOW_EXTEND,
+  WINDOW_IDLE_MS,
+  WINDOW_KEEP_SCREENS,
+  WINDOW_RESPAWN_SCREENS,
+  WINDOW_ROWS,
+  WINDOW_TRIM_MIN,
+  measureRows,
+  pinWindow,
+  resolveWindow,
+  spacerAbove,
+  spacerBelow,
+  windowAround,
+  type ThreadWindow,
+  type WindowRange,
+} from "./threadWindow";
 import type { ThreadAttachment } from "../api/threadAttachmentPure";
 
 /** No workspace folder to upload into (no usable path / no PoC yet). */
@@ -297,6 +314,7 @@ const Bubble = memo(function Bubble({
  *  callback it gets is stable (ThreadPane's `stableHandler`). */
 const ThreadRow = memo(function ThreadRow({
   rowKey,
+  windowed,
   m,
   out,
   files,
@@ -320,6 +338,8 @@ const ThreadRow = memo(function ThreadRow({
   onOpenFile,
 }: {
   rowKey: string;
+  /** A thread message (in the render window), not an outgoing send. */
+  windowed: boolean;
   m: ThreadMessage;
   out: OutgoingMessage | null;
   files: readonly ThreadAttachment[] | null;
@@ -351,6 +371,7 @@ const ThreadRow = memo(function ThreadRow({
     <div
       data-thread-msg=""
       data-row-key={rowKey}
+      data-win-row={windowed ? "" : undefined}
       data-seq={m.seq ?? undefined}
       data-outgoing={out?.status}
       data-highlight={highlighted ? "true" : undefined}
@@ -775,6 +796,21 @@ export function ThreadPane({
   }
   const limited =
     limitedFor.current === agentId && expandedFor !== agentId && focusSeq == null && thread.length > PROGRESSIVE_FIRST;
+  const focusSeqRef = useRef(focusSeq);
+  focusSeqRef.current = focusSeq;
+  // The render window (threadWindow.ts): which messages are in the DOM,
+  // pinned by key; the measured height of each row that left it (its
+  // spacer); what the last commit drew; the row to hold still across a
+  // window change; stick once it is in (back at the newest).
+  const winRef = useRef<{ agent: string; win: ThreadWindow } | null>(null);
+  const winHeights = useRef<{ agent: string; px: Map<string, number> }>({ agent: "", px: new Map() });
+  if (winHeights.current.agent !== agentId) winHeights.current = { agent: agentId, px: new Map() };
+  const winDrawn = useRef<(WindowRange & { keys: string[]; limited: boolean }) | null>(null);
+  const winAnchor = useRef<{ el: HTMLElement; top: number } | null>(null);
+  const winStick = useRef(false);
+  const winTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const winRaf = useRef(0);
+  const [, bumpWindow] = useReducer((n: number) => n + 1, 0);
   // The working strip's turn. The gate drops a catch-up answer that raced
   // an activity frame (the frame is newer) or a later catch-up (a late
   // `{turn:null}` must not clear a live strip).
@@ -1290,6 +1326,12 @@ export function ThreadPane({
     const el = scrollerRef.current;
     // Opening history is reading it: stop following the tail.
     following.current = false;
+    // Still in memory (above the render window): draw it, no fetch.
+    const view = winDrawn.current;
+    if (view && !view.limited && view.lo > 0) {
+      setWindow(pinWindow(view.keys, { lo: Math.max(0, view.lo - WINDOW_EXTEND), hi: view.hi }), true);
+      return;
+    }
     if (el) {
       const msgs = Array.from(
         el.querySelectorAll<HTMLElement>("[data-thread-msg]")
@@ -1419,6 +1461,8 @@ export function ThreadPane({
     });
     // The reader just spoke: the agent's reply must come into view.
     setFollowing(true);
+    const view = winDrawn.current;
+    if (view && view.hi < view.keys.length) setWindow(null, false);
     composerRef.current?.focus({ preventScroll: true });
     void deliver(localId);
   }
@@ -1430,6 +1474,14 @@ export function ThreadPane({
     const el = scrollerRef.current;
     setFollowing(true);
     if (!el) return;
+    // The newest are not drawn (the reader went far up): the window moves
+    // back to them and the view jumps there.
+    const view = winDrawn.current;
+    if (view && view.hi < view.keys.length) {
+      winStick.current = true;
+      setWindow(null, false);
+      return;
+    }
     if (typeof el.scrollTo === "function" && !prefersReducedMotion()) {
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
       window.setTimeout(() => {
@@ -1457,6 +1509,145 @@ export function ThreadPane({
   }
 
   const flyKey = fly ? fly.localId : "";
+  const flyBusy = useRef(false);
+  flyBusy.current = fly != null;
+
+  /** Draw another window (null: the newest WINDOW_ROWS). `hold`: keep the
+   *  row under the reader's eye where it is. */
+  function setWindow(win: ThreadWindow | null, hold: boolean) {
+    winRef.current = win ? { agent: agentId, win } : null;
+    winAnchor.current = hold ? captureWindowAnchor() : null;
+    bumpWindow();
+  }
+
+  function windowRows(): HTMLElement[] {
+    const content = contentRef.current;
+    return content ? Array.from(content.querySelectorAll<HTMLElement>("[data-win-row]")) : [];
+  }
+
+  /** The first drawn row still (partly) on screen, by layout offset. */
+  function captureWindowAnchor(): { el: HTMLElement; top: number } | null {
+    const el = scrollerRef.current;
+    if (!el) return null;
+    const top = el.getBoundingClientRect().top;
+    for (const r of windowRows()) {
+      if (r.getBoundingClientRect().bottom > top + 1) return { el: r, top: r.offsetTop };
+    }
+    return null;
+  }
+
+  /** Rows leaving the window: remember what each adds to the list. */
+  function rememberHeights(leaving: HTMLElement[]) {
+    const px = measureRows(leaving);
+    leaving.forEach((r, i) => {
+      const key = r.getAttribute("data-row-key");
+      if (key) winHeights.current.px.set(key, px[i]);
+    });
+  }
+
+  /** Grow or shrink the window to what the reader is near. `idle`: no
+   *  scroll for a while — rows may also leave. "busy": try again later. */
+  function reconcileWindow(idle: boolean): "busy" | "done" {
+    const el = scrollerRef.current;
+    const view = winDrawn.current;
+    if (!el || !view || view.limited || !view.keys.length) return "done";
+    if (
+      pendingAnchor.current ||
+      interactiveRef.current ||
+      flyBusy.current ||
+      focusSeqRef.current != null ||
+      glider.moving() ||
+      glider.holding()
+    ) {
+      return "busy";
+    }
+    const { keys, lo, hi } = view;
+    const len = keys.length;
+    const drawn = windowRows();
+    if (!drawn.length) return "done";
+    const indexOf = (r: HTMLElement) => keys.indexOf(r.getAttribute("data-row-key") ?? "");
+    if (following.current) {
+      if (hi < len) {
+        // Back at the newest: draw through it.
+        winStick.current = true;
+        setWindow(pinWindow(keys, { lo, hi: len }), false);
+        return "done";
+      }
+      if (hi - lo <= WINDOW_ROWS) return "done";
+      if (!idle) return "busy";
+      // The oldest drawn drop off, far above the view.
+      const start = Math.max(0, len - WINDOW_ROWS);
+      const leaving = drawn.filter((r) => {
+        const at = indexOf(r);
+        return at >= 0 && at < start;
+      });
+      rememberHeights(leaving);
+      // Held, not re-stuck: a reader resting a little above the newest
+      // (still following) must not be moved.
+      setWindow(pinWindow(keys, { lo: start, hi: len }), true);
+      return "done";
+    }
+    const ch = el.clientHeight;
+    if (!(ch > 0)) return "done";
+    const st = el.scrollTop;
+    const scTop = el.getBoundingClientRect().top;
+    const y = (r: HTMLElement) => r.getBoundingClientRect().top - scTop + st;
+    const first = drawn[0];
+    const last = drawn[drawn.length - 1];
+    // Near a drawn edge with more in memory: bring rows back first.
+    if (lo > 0 && y(first) > st - WINDOW_RESPAWN_SCREENS * ch) {
+      setWindow(pinWindow(keys, { lo: Math.max(0, lo - WINDOW_EXTEND), hi }), true);
+      return "done";
+    }
+    if (hi < len && y(last) + last.offsetHeight < st + ch + WINDOW_RESPAWN_SCREENS * ch) {
+      setWindow(pinWindow(keys, { lo, hi: Math.min(len, hi + WINDOW_EXTEND) }), true);
+      return "done";
+    }
+    if (!idle) return "done";
+    // Far past the view (and enough of them): they leave.
+    const keepFrom = st - WINDOW_KEEP_SCREENS * ch;
+    const keepTo = st + ch + WINDOW_KEEP_SCREENS * ch;
+    let above = 0;
+    while (above < drawn.length - 1 && y(drawn[above]) + drawn[above].offsetHeight < keepFrom) above++;
+    let below = 0;
+    while (below < drawn.length - 1 - above && y(drawn[drawn.length - 1 - below]) > keepTo) below++;
+    if (above < WINDOW_TRIM_MIN) above = 0;
+    if (below < WINDOW_TRIM_MIN) below = 0;
+    if (!above && !below) return "done";
+    const leaving = [...drawn.slice(0, above), ...drawn.slice(drawn.length - below)];
+    rememberHeights(leaving);
+    const nextLo = above ? indexOf(drawn[above]) : lo;
+    const nextHi = below ? indexOf(drawn[drawn.length - 1 - below]) + 1 : hi;
+    if (nextLo < 0 || nextHi <= nextLo) return "done";
+    setWindow(pinWindow(keys, { lo: nextLo, hi: nextHi }), true);
+    return "done";
+  }
+  const reconcileRef = useRef(reconcileWindow);
+  reconcileRef.current = reconcileWindow;
+
+  /** Rows leave only once scrolling has been quiet a while. */
+  function scheduleWindowIdle(delay = WINDOW_IDLE_MS) {
+    if (winTimer.current) clearTimeout(winTimer.current);
+    winTimer.current = setTimeout(() => {
+      winTimer.current = null;
+      const quiet = Date.now() - lastScrollAt.current;
+      if (quiet < WINDOW_IDLE_MS) {
+        scheduleWindowIdle(WINDOW_IDLE_MS - quiet + 10);
+        return;
+      }
+      if (reconcileRef.current(true) === "busy") scheduleWindowIdle();
+    }, delay);
+  }
+
+  useEffect(
+    () => () => {
+      if (winTimer.current) clearTimeout(winTimer.current);
+      if (winRaf.current && typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(winRaf.current);
+      }
+    },
+    []
+  );
 
   // The rows' callbacks: stable, so a re-render of the pane leaves
   // unchanged rows alone (ThreadRow is memoized).
@@ -1537,13 +1728,36 @@ export function ThreadPane({
   // from tap to delivered (the server's copy inherits it), so it is the
   // same element throughout — no remount, never two, never none.
   const rowKeys = landedRowKeys(outbox, thread, roomKey, landedKeys);
-  const firstShown = limited ? thread.length - PROGRESSIVE_FIRST : 0;
+  // Every message in memory (runs, the receipt and arrivals look at all of
+  // them); only the render window's are drawn (threadWindow.ts).
   const rows: { key: string; m: ThreadMessage; out: OutgoingMessage | null }[] = [];
-  for (let i = firstShown; i < thread.length; i++) {
+  const threadKeys: string[] = [];
+  for (let i = 0; i < thread.length; i++) {
     const m = thread[i];
-    rows.push({ key: rowKeys.get(m.id) ?? (m.id || `seq-${m.seq ?? i}`), m, out: null });
+    const key = rowKeys.get(m.id) ?? (m.id || `seq-${m.seq ?? i}`);
+    threadKeys.push(key);
+    rows.push({ key, m, out: null });
   }
   for (const o of outgoing) rows.push({ key: o.localId, m: outgoingBubble(o), out: o });
+
+  // The render window. A push-tap target outside it: drawn around it.
+  if (winRef.current && winRef.current.agent !== agentId) winRef.current = null;
+  let winSpec = winRef.current?.win ?? null;
+  let range = resolveWindow(threadKeys, winSpec);
+  if (focusSeq != null) {
+    const at = thread.findIndex((m) => m.seq === focusSeq);
+    if (at >= 0 && (at < range.lo || at >= range.hi)) {
+      winSpec = windowAround(threadKeys, at);
+      winRef.current = { agent: agentId, win: winSpec };
+      range = resolveWindow(threadKeys, winSpec);
+    }
+  }
+  // Progressive first paint: just the newest few on the first frame.
+  const firstShown = limited ? Math.max(range.lo, thread.length - PROGRESSIVE_FIRST) : range.lo;
+  const lastShown = limited ? thread.length : range.hi;
+  const topSpacer = spacerAbove(threadKeys, firstShown, winHeights.current.px);
+  const bottomSpacer = spacerBelow(threadKeys, lastShown, winHeights.current.px);
+  const winView = { keys: threadKeys, lo: firstShown, hi: lastShown, limited };
   // iMessage runs (tails, tighter spacing, one meta line per run) and the
   // one "Delivered" / "Read" receipt (chatReceipt.ts). A send still flying
   // in (or fading in) is not confirmed yet: the label moves once it lands.
@@ -1561,6 +1775,33 @@ export function ThreadPane({
   // arrival check.
   useLayoutEffect(() => {
     committedRows.current = { agent: agentId, keys: new Set(rows.map((r) => r.key)) };
+    // The window this commit drew, pinned by key (arrivals and earlier
+    // pages do not move it). The first frame of a progressive paint is not
+    // the window.
+    winDrawn.current = winView;
+    if (!winView.limited) {
+      winRef.current = thread.length
+        ? { agent: agentId, win: pinWindow(winView.keys, winView) }
+        : null;
+    }
+    // A window change keeps the row under the reader's eye where it was
+    // (a no-op when the spacer it replaced was exact).
+    const a = winAnchor.current;
+    winAnchor.current = null;
+    const el = scrollerRef.current;
+    if (a && el && a.el.isConnected) {
+      const dy = a.el.offsetTop - a.top;
+      if (Math.abs(dy) >= 1) {
+        el.scrollTop += dy;
+        ownTop.current = el.scrollTop;
+        lastTop.current = el.scrollTop;
+      }
+    }
+    if (winStick.current) {
+      winStick.current = false;
+      if (el && following.current) stick(el);
+    }
+    scheduleWindowIdle();
   });
 
   const empty =
@@ -1591,6 +1832,15 @@ export function ThreadPane({
         onScroll={(e) => {
           const el = e.currentTarget;
           lastScrollAt.current = Date.now();
+          // The render window: rows come back before the reader gets to
+          // them (next frame); rows far away leave once it is quiet.
+          if (!winRaf.current && typeof requestAnimationFrame === "function") {
+            winRaf.current = requestAnimationFrame(() => {
+              winRaf.current = 0;
+              reconcileRef.current(false);
+            });
+          }
+          scheduleWindowIdle();
           // Mid interactive dismiss the finger scrolls every frame: no
           // state churn (it catches up on the next scroll after).
           if (!interactiveRef.current) setAtNewest(nearNewest(el));
@@ -1675,7 +1925,7 @@ export function ThreadPane({
                   No messages yet
                 </span>
               ) : null}
-              {hasMore && source === "live" && !limited ? (
+              {!limited && ((hasMore && source === "live") || firstShown > 0) ? (
                 <button
                   type="button"
                   data-testid="load-earlier"
@@ -1686,7 +1936,30 @@ export function ThreadPane({
                   {loadingEarlier ? "Loading…" : "Load earlier messages"}
                 </button>
               ) : null}
+              {topSpacer > 0 ? (
+                <div
+                  key="__win-above"
+                  aria-hidden="true"
+                  className="shrink-0"
+                  data-testid="thread-window-above"
+                  // Exactly its height in the flow: the gap after it is
+                  // taken back (the rows it stands for had theirs).
+                  style={{ height: topSpacer, marginBottom: "calc(var(--spacing, 0.25rem) * -1)" }}
+                />
+              ) : null}
               {rows.map(({ key, m, out }, i) => {
+                // Outside the render window: not drawn (a spacer stands in).
+                if (!out && (i < firstShown || i >= lastShown)) {
+                  return i === thread.length - 1 && bottomSpacer > 0 ? (
+                    <div
+                      key="__win-below"
+                      aria-hidden="true"
+                      className="shrink-0"
+                      data-testid="thread-window-below"
+                      style={{ height: bottomSpacer, marginTop: "calc(var(--spacing, 0.25rem) * -1)" }}
+                    />
+                  ) : null;
+                }
                 const run = runs[i];
                 // Files ride Thread messages only (not project chat lines,
                 // not this phone's own optimistic sends).
@@ -1699,6 +1972,7 @@ export function ThreadPane({
                   <ThreadRow
                     key={key}
                     rowKey={key}
+                    windowed={!out}
                     m={m}
                     out={out}
                     files={files}
