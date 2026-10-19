@@ -71,6 +71,7 @@ import type { FeedbackComment, FeedbackShow } from "../api/feedback";
 import { useFeedbackStore } from "../stores/feedback";
 import { useComposerDrafts } from "./composerDrafts";
 import { TicketView } from "./TicketView";
+import { WINDOW_ROWS } from "./threadWindow";
 
 const NOW = Math.floor(Date.now() / 1000);
 let N = 50;
@@ -123,6 +124,7 @@ const reset = () => {
 };
 const snap = () => ({ ...counts });
 const input = () => screen.getByTestId("ticket-composer-input") as HTMLTextAreaElement;
+const drawnRows = () => Math.min(N, WINDOW_ROWS);
 
 function mount(viewportHeight?: number) {
   const t = performance.now();
@@ -151,6 +153,13 @@ for (const size of [50, 300]) describe(`Ticket render cost (${size} comments)`, 
   beforeEach(() => {
     N = size;
     useFeedbackStore.setState({ openId: "t1", openItem: ticket(), commentOutbox: [] });
+  });
+
+  it("opens with the comment rows capped by the render window", () => {
+    mount();
+    expect(screen.getAllByTestId("ticket-comment").length).toBe(drawnRows());
+    // The brief leads the ticket: the window starts at the oldest comment.
+    expect(screen.getAllByTestId("ticket-comment")[0].textContent).toContain("line 0?");
   });
 
   it("a keystroke re-renders no comment row and parses no markdown", () => {
@@ -198,10 +207,16 @@ for (const size of [50, 300]) describe(`Ticket render cost (${size} comments)`, 
     // Following the newest (the reader scrolled to the bottom).
     const scroller = screen.getByTestId("ticket-scroller");
     fireEvent.scroll(scroller);
+    const arrive = (body: string) => {
+      const cur = useFeedbackStore.getState().openItem as FeedbackShow;
+      const next = { ...cur, comments: [...cur.comments, { author: "sales", body, at: NOW }] };
+      act(() => useFeedbackStore.setState({ openItem: next }));
+    };
+    // The first arrival brings the window down to the newest (it opened at
+    // the oldest); the next draws only itself.
+    arrive("One **thing**");
     reset();
-    const next = ticket();
-    next.comments = [...next.comments, { author: "sales", body: "One more **thing**", at: NOW }];
-    act(() => useFeedbackStore.setState({ openItem: next }));
+    arrive("One more **thing**");
     console.info(
       `[render-cost] ticket N=${N} 1 arrival: bubbles=${counts.bubble} parses=${counts.parse} pane=${counts.pane}`
     );
