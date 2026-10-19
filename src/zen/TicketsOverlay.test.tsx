@@ -621,7 +621,8 @@ describe("Left-edge swipe", () => {
     render(<TicketsOverlay onClose={onClose} />);
     await openTicket("Which pricing tier for Acme?");
     act(() => edgeSwipe(screen.getByTestId("ticket-view")));
-    expect(screen.queryByTestId("ticket-view")).toBeNull();
+    // Slides the rest of the way off, then goes back.
+    await waitFor(() => expect(screen.queryByTestId("ticket-view")).toBeNull());
     expect(screen.getByText("Which pricing tier for Acme?")).not.toBeNull();
     expect(onClose).not.toHaveBeenCalled();
   });

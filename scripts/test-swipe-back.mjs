@@ -56,6 +56,11 @@ assert(
   "micro-twitch below the flick floor -> spring back even at speed"
 );
 
+assert(
+  shouldComplete(W * 0.8, -FLICK_VELOCITY_PX_PER_MS, W) === false,
+  "past the threshold but flicking back left -> spring back"
+);
+
 // ── Headless simulation: full gesture sequences over the phase machine ──
 const run = (moves) => {
   let phase = "armed";
