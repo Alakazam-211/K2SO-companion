@@ -1,4 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 import { SENDING_OPACITY, useDeliverBrighten } from "./useDeliverBrighten";
 import { receiptRow } from "./chatReceipt";
 import {
@@ -23,14 +32,20 @@ import { isMyAuthor } from "../lib/sessionAuthor";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { useFeedbackStore } from "../stores/feedback";
 import { BriefCard, BriefReader, useBriefDoc } from "./TicketBrief";
-import { GlassComposer, settledHeight } from "./GlassComposer";
+import { settledHeight } from "./GlassComposer";
 import { useViewport, useViewportPadRef } from "../lib/useViewportHeight";
 import { useKeyboardFlip } from "../kit/mobileChat/useKeyboardFlip";
 import { easeGapShift, useComposerFocusGap } from "../kit/mobileChat/useComposerFocusGap";
 import { CHAT_CONTENT_CLASS, useScrollRoom } from "../kit/mobileChat/useScrollRoom";
 import { useKeyboardDrag } from "../kit/mobileChat/useKeyboardDrag";
 import { useTapToDismiss } from "../kit/mobileChat/useTapToDismiss";
-import { NEW_BELOW_SETTLE_MS, threadBottomPadding } from "./ThreadPane";
+import {
+  bubbleBodyStyle,
+  NEW_BELOW_SETTLE_MS,
+  threadBottomPadding,
+  ThreadDraftComposer,
+  type DraftApi,
+} from "./ThreadPane";
 import {
   FOOTER_BLUR_FADE_PX,
   underHeaderPadding,
@@ -486,13 +501,13 @@ export function TicketView({
   const [sheet, setSheet] = useState<"reassign" | "agreed" | null>(null);
   const [reader, setReader] = useState(false);
   // The comment composer's text, kept per ticket (composerDrafts): going
-  // back to the list or relaunching and coming back puts it back.
+  // back to the list or relaunching and coming back puts it back. The text
+  // lives in the composer (ThreadDraftComposer, the Thread's): a keystroke
+  // re-renders the composer only; the ticket hears blank <-> not blank and
+  // reads the text on Send / Edit.
   const draftKey = ticketDraftKey(scope.id, id);
-  const [draft, setDraftText] = useState(() => composerDraftOf(draftKey));
-  function setDraft(text: string) {
-    setDraftText(text);
-    useComposerDrafts.getState().setDraft(draftKey, text);
-  }
+  const draftApi = useRef<DraftApi | null>(null);
+  const [draftBlank, setDraftBlank] = useState(() => !composerDraftOf(draftKey).trim());
   const [picking, setPicking] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -556,10 +571,6 @@ export function TicketView({
   useEffect(() => {
     if (item && item.hasBrief && !entry) void useFeedbackStore.getState().loadBrief(item.id);
   }, [item, entry]);
-
-  useLayoutEffect(() => {
-    setDraftText(composerDraftOf(draftKey));
-  }, [draftKey]);
 
   // Typing is written to storage after a short quiet; leaving the ticket
   // or the app going to the background writes it now.
@@ -809,7 +820,7 @@ export function TicketView({
    *  bubble "Sending…", fly the text into it, POST behind it. */
   function onSend() {
     if (!item || !linked) return;
-    const body = draft.trim();
+    const body = (draftApi.current?.get() ?? "").trim();
     if (!body) return;
     const st = useFeedbackStore.getState();
     if (commentInFlight(st.commentOutbox, roomKey)) return;
@@ -823,7 +834,7 @@ export function TicketView({
         : (contentRef.current?.lastElementChild as HTMLElement | null | undefined) ?? null;
     const anchorRect = rectOf(lastRow);
     const anchor = lastRow && anchorRect ? { el: lastRow, top: anchorRect.top } : null;
-    setDraft("");
+    draftApi.current?.set("");
     setError(null);
     setReceipt(null);
     const localId = st.queueComment({ roomKey, text: body, beforeCount: comments.length });
@@ -851,8 +862,8 @@ export function TicketView({
 
   /** "Not sent" → back into an empty composer (the bubble goes). */
   function onRestore(o: OutgoingComment) {
-    if (draft.trim()) return;
-    setDraft(o.text);
+    if ((draftApi.current?.get() ?? "").trim()) return;
+    draftApi.current?.set(o.text);
     setError(null);
     useFeedbackStore.getState().dropComment(o.localId);
     composerRef.current?.focus({ preventScroll: true });
@@ -874,6 +885,13 @@ export function TicketView({
       stickToNewest(el);
     }
   }
+
+  // The rows' callbacks: stable, so a re-render of the ticket leaves
+  // unchanged rows alone (TicketCommentRow is memoized).
+  const handlers = useRef({ onRetry, onRestore });
+  handlers.current = { onRetry, onRestore };
+  const onRetryRow = useCallback((localId: string) => handlers.current.onRetry(localId), []);
+  const onRestoreRow = useCallback((o: OutgoingComment) => handlers.current.onRestore(o), []);
 
   const flyKey = fly ? fly.localId : "";
 
@@ -945,7 +963,6 @@ export function TicketView({
   const menuStatuses: readonly FeedbackStatus[] = linked
     ? SETTABLE_STATUSES
     : ["resolved", "dismissed"];
-  const sendReady = Boolean(draft.trim()) && !inFlight;
   const composerLabel = error ?? (receipt?.from === "text" ? receipt.line : null);
 
   return (
@@ -1193,106 +1210,22 @@ export function TicketView({
             {rows.length > 0 ? (
               <div className="flex flex-col gap-1 pt-1" data-testid="ticket-comments">
                 {rows.map((r, i) => {
-                  const out = r.out;
                   const flying = fly?.localId === r.key;
-                  const hidden = flying && !fly?.fade;
                   return (
-                    <div
+                    <TicketCommentRow
                       key={r.key}
-                      data-ticket-msg=""
-                      data-testid="ticket-comment"
-                      data-mine={r.mine ? "1" : "0"}
-                      data-outgoing={out?.status}
-                      className={`flex flex-col max-w-[82%] min-w-0 ${r.mine ? "self-end items-end" : "self-start items-start"}`}
-                    >
-                      {/* Theirs: name • time above the bubble (the Thread's
-                          meta line). Mine: the status line below. */}
-                      {!r.mine ? (
-                        <span
-                          className="flex items-baseline gap-1.5 text-[11px] px-3 mb-0.5 min-w-0 max-w-full"
-                          style={{ color: "#8e8e93" }}
-                          data-testid="ticket-comment-meta"
-                        >
-                          <span className="truncate min-w-0">{r.author}</span>
-                          <span className="shrink-0" aria-hidden>
-                            •
-                          </span>
-                          <span className="shrink-0" data-testid="ticket-comment-time">
-                            {mountainTime(r.at)}
-                          </span>
-                        </span>
-                      ) : null}
-                      <TicketBubbleBox
-                        pending={out?.status === "sending"}
-                        flying={hidden}
-                        fade={Boolean(flying && fly?.fade)}
-                        className={`px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden${flying && fly?.fade ? " zen-bubble-fade" : !flying && out?.status === "sending" ? " zen-bubble-breathe" : ""}`}
-                        data-fly-target={hidden ? "true" : undefined}
-                        style={{
-                          visibility: hidden ? "hidden" : undefined,
-                          // Settings → Text Size.
-                          fontSize: zenTextPx(17),
-                          borderRadius: 18,
-                          background: r.mine ? "#0a84ff" : "#3a3a3c",
-                          color: "#fff",
-                          // Sending: dimmed. Delivered: it only brightens,
-                          // gradually (useDeliverBrighten).
-                          opacity: out?.status === "sending" ? SENDING_OPACITY : 1,
-                        }}
-                      >
-                        <ChatMessageBody
-                          text={r.body}
-                          className="!p-0 text-white"
-                          style={{ color: "#fff", fontSize: zenTextPx(14) }}
-                        />
-                      </TicketBubbleBox>
-                      {r.mine ? (
-                        // One box from Send to delivered: "Sending…", then the
-                        // time (or "Not sent · Retry"), or "Delivered" drawn
-                        // over it by CSS (chatBubbles.css). Fixed height, so
-                        // no swap moves the bubble or the rows around it.
-                        <span
-                          className="zen-receipt flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] px-2 mt-0.5"
-                          style={{ color: "#8e8e93" }}
-                          data-testid="ticket-comment-status"
-                          data-status={out?.status ?? "sent"}
-                          data-receipt={i === receiptIdx ? "delivered" : undefined}
-                        >
-                          <span className="zen-receipt-status">
-                          {out?.status === "failed" ? (
-                            <span className="contents" data-testid="comment-failed">
-                              <button
-                                type="button"
-                                className="bg-transparent border-0 p-0"
-                                style={{ color: "var(--warning)" }}
-                                data-testid="comment-retry"
-                                aria-label="Not sent. Tap to retry"
-                                title={out.error || undefined}
-                                onClick={() => onRetry(out.localId)}
-                              >
-                                Not sent · Retry
-                              </button>
-                              {!draft.trim() ? (
-                                <button
-                                  type="button"
-                                  className="bg-transparent border-0 p-0"
-                                  style={{ color: "#8e8e93" }}
-                                  data-testid="comment-restore"
-                                  onClick={() => onRestore(out)}
-                                >
-                                  Edit
-                                </button>
-                              ) : null}
-                            </span>
-                          ) : out?.status === "sending" ? (
-                            "Sending…"
-                          ) : (
-                            mountainTime(r.at)
-                          )}
-                          </span>
-                        </span>
-                      ) : null}
-                    </div>
+                      author={r.author}
+                      body={r.body}
+                      at={r.at}
+                      mine={r.mine}
+                      out={r.out}
+                      hidden={flying && !fly?.fade}
+                      fade={Boolean(flying && fly?.fade)}
+                      receipt={i === receiptIdx}
+                      canRestore={r.out?.status === "failed" && draftBlank}
+                      onRetry={onRetryRow}
+                      onRestore={onRestoreRow}
+                    />
                   );
                 })}
               </div>
@@ -1349,15 +1282,17 @@ export function TicketView({
           {/* Above the blur (positioned, z 0): its own stacking layer. */}
           <div className="relative" style={{ zIndex: 1 }}>
             {linked ? (
-              <GlassComposer
-                value={draft}
-                onChange={setDraft}
+              <ThreadDraftComposer
+                draftKey={draftKey}
+                apiRef={draftApi}
+                onBlankChange={setDraftBlank}
+                hasAttachments={false}
+                inFlight={inFlight}
                 onSubmit={onSend}
                 placeholder="Pick an option to answer, or write a message to start a discussion"
                 ariaLabel="Message"
                 canSend
                 attach={false}
-                sendReady={sendReady}
                 textareaRef={composerRef}
                 smoothClear
                 testIdPrefix="ticket-composer"
@@ -1376,7 +1311,7 @@ export function TicketView({
                     {composerLabel}
                   </p>
                 ) : null}
-              </GlassComposer>
+              </ThreadDraftComposer>
             ) : (
               <div
                 className="px-3 pt-3"
@@ -1455,6 +1390,138 @@ export function TicketView({
     </div>
   );
 }
+
+/** One comment row: the meta line (theirs), the bubble, the status /
+ *  receipt line (mine). Memoized on plain values and stable callbacks:
+ *  typing, the keyboard, a refetch handing over new-but-equal comments and
+ *  the ticket's own state re-render the ticket, not the rows (and their
+ *  markdown) that did not change. */
+const TicketCommentRow = memo(function TicketCommentRow({
+  author,
+  body,
+  at,
+  mine,
+  out,
+  hidden,
+  fade,
+  receipt,
+  canRestore,
+  onRetry,
+  onRestore,
+}: {
+  author: string;
+  body: string;
+  at: number;
+  mine: boolean;
+  /** A send the server has not shown back yet. */
+  out: OutgoingComment | null;
+  /** Laid out but hidden while its send flies in. */
+  hidden: boolean;
+  /** Reduced motion: the send just fades in. */
+  fade: boolean;
+  /** The ticket's one "Delivered" sits on this row. */
+  receipt: boolean;
+  /** A "Not sent" send can go back into the (empty) composer. */
+  canRestore: boolean;
+  onRetry: (localId: string) => void;
+  onRestore: (o: OutgoingComment) => void;
+}) {
+  const flying = hidden || fade;
+  return (
+    <div
+      data-ticket-msg=""
+      data-testid="ticket-comment"
+      data-mine={mine ? "1" : "0"}
+      data-outgoing={out?.status}
+      className={`flex flex-col max-w-[82%] min-w-0 ${mine ? "self-end items-end" : "self-start items-start"}`}
+    >
+      {/* Theirs: name • time above the bubble (the Thread's meta line).
+          Mine: the status line below. */}
+      {!mine ? (
+        <span
+          className="flex items-baseline gap-1.5 text-[11px] px-3 mb-0.5 min-w-0 max-w-full"
+          style={{ color: "#8e8e93" }}
+          data-testid="ticket-comment-meta"
+        >
+          <span className="truncate min-w-0">{author}</span>
+          <span className="shrink-0" aria-hidden>
+            •
+          </span>
+          <span className="shrink-0" data-testid="ticket-comment-time">
+            {mountainTime(at)}
+          </span>
+        </span>
+      ) : null}
+      <TicketBubbleBox
+        pending={out?.status === "sending"}
+        flying={hidden}
+        fade={fade}
+        className={`px-3 py-2 leading-snug break-words min-w-0 max-w-full overflow-hidden${fade ? " zen-bubble-fade" : !flying && out?.status === "sending" ? " zen-bubble-breathe" : ""}`}
+        data-fly-target={hidden ? "true" : undefined}
+        style={{
+          visibility: hidden ? "hidden" : undefined,
+          // Settings → Text Size.
+          fontSize: zenTextPx(17),
+          borderRadius: 18,
+          background: mine ? "#0a84ff" : "#3a3a3c",
+          color: "#fff",
+          // Sending: dimmed. Delivered: it only brightens, gradually
+          // (useDeliverBrighten).
+          opacity: out?.status === "sending" ? SENDING_OPACITY : 1,
+        }}
+      >
+        {/* The Thread's memoized body and style: parsed once per text. */}
+        <ChatMessageBody text={body} className="!p-0 text-white" style={bubbleBodyStyle()} />
+      </TicketBubbleBox>
+      {mine ? (
+        // One box from Send to delivered: "Sending…", then the time (or
+        // "Not sent · Retry"), or "Delivered" drawn over it by CSS
+        // (chatBubbles.css). Fixed height, so no swap moves the bubble or
+        // the rows around it.
+        <span
+          className="zen-receipt flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] px-2 mt-0.5"
+          style={{ color: "#8e8e93" }}
+          data-testid="ticket-comment-status"
+          data-status={out?.status ?? "sent"}
+          data-receipt={receipt ? "delivered" : undefined}
+        >
+          <span className="zen-receipt-status">
+            {out?.status === "failed" ? (
+              <span className="contents" data-testid="comment-failed">
+                <button
+                  type="button"
+                  className="bg-transparent border-0 p-0"
+                  style={{ color: "var(--warning)" }}
+                  data-testid="comment-retry"
+                  aria-label="Not sent. Tap to retry"
+                  title={out.error || undefined}
+                  onClick={() => onRetry(out.localId)}
+                >
+                  Not sent · Retry
+                </button>
+                {canRestore ? (
+                  <button
+                    type="button"
+                    className="bg-transparent border-0 p-0"
+                    style={{ color: "#8e8e93" }}
+                    data-testid="comment-restore"
+                    onClick={() => onRestore(out)}
+                  >
+                    Edit
+                  </button>
+                ) : null}
+              </span>
+            ) : out?.status === "sending" ? (
+              "Sending…"
+            ) : (
+              mountainTime(at)
+            )}
+          </span>
+        </span>
+      ) : null}
+    </div>
+  );
+});
 
 /** An open ticket's comment bubble: the delivered brighten needs a hook,
  *  so the box is its own component. */
