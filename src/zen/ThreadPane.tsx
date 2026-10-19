@@ -29,9 +29,13 @@ import {
   composerPlaceholder,
   type GlassComposerProps,
 } from "./GlassComposer";
-import { keyboardMotionMs, useViewportPadRef, type ViewportMotion } from "../lib/useViewportHeight";
+import { useViewportPadRef, type ViewportMotion } from "../lib/useViewportHeight";
 import { useKeyboardFlip } from "../kit/mobileChat/useKeyboardFlip";
-import { COMPOSER_FOCUSED_ATTR, useComposerFocusGap } from "../kit/mobileChat/useComposerFocusGap";
+import {
+  COMPOSER_FOCUSED_ATTR,
+  easeGapShift,
+  useComposerFocusGap,
+} from "../kit/mobileChat/useComposerFocusGap";
 import { CHAT_CONTENT_CLASS, useScrollRoom } from "../kit/mobileChat/useScrollRoom";
 import { useKeyboardDrag } from "../kit/mobileChat/useKeyboardDrag";
 import { useTapToDismiss } from "../kit/mobileChat/useTapToDismiss";
@@ -514,7 +518,7 @@ export function drawerOverScroller(drawerSpace: number, rowsAboveField: boolean)
 
 /** How far (px) the newest message rests above the pane's bottom, less
  *  the bar's safe-area / keyboard gap (the scroller's `.zen-composer-gap`
- *  spacer adds that, easing with the keyboard): the composer block
+ *  spacer adds that, changing with the keyboard): the composer block
  *  floating over the scroller's bottom (rows above the field, the field)
  *  plus what the working drawer covers above the bar. */
 export function threadBottomInset(composerPx: number, drawerCover: number): number {
@@ -742,9 +746,6 @@ export function ThreadPane({
   const ownTop = useRef<number | null>(null);
   const lastTop = useRef(0);
   const followRaf = useRef(0);
-  const drawerRaf = useRef(0);
-  // Until when (Date.now()) followFor keeps sticking every frame.
-  const followUntil = useRef(0);
   // Interactive keyboard dismiss (keyboardDragDock): a stand-in of the
   // dock rides the scrolled content (the drag layer) with the finger; the
   // pad keeps the list's scroll range while the column is full height;
@@ -870,23 +871,16 @@ export function ThreadPane({
     });
   }
 
-  /** follow(), then keep sticking every frame for `ms` (or longer, if a
-   *  loop already running goes on past that): the scroller's bottom
-   *  padding is easing with the drawer, or the column / composer gap with
-   *  the keyboard. */
-  function followFor(ms: number) {
+  /** The composer gap changed (keyboard focus / blur): the scroller's
+   *  spacer has its new height already. Following, re-stick once and play
+   *  the move on the keyboard's timing (easeGapShift) — no per-frame
+   *  sticking or layout. */
+  function followGap() {
+    const el = scrollerRef.current;
+    if (!el || !following.current || pendingAnchor.current || interactiveRef.current) return;
+    const before = lastTop.current;
     follow();
-    if (typeof requestAnimationFrame !== "function") return;
-    const until = Math.max(followUntil.current, Date.now() + ms);
-    followUntil.current = until;
-    const tick = () => {
-      const el = scrollerRef.current;
-      if (!el || !following.current || pendingAnchor.current || interactiveRef.current) return;
-      stick(el);
-      if (Date.now() < until) drawerRaf.current = requestAnimationFrame(tick);
-    };
-    cancelAnimationFrame(drawerRaf.current);
-    drawerRaf.current = requestAnimationFrame(tick);
+    easeGapShift(contentRef.current, el.scrollTop - before);
   }
 
   /** Agent messages arrived while following (a live frame, a read, a
@@ -1014,7 +1008,6 @@ export function ThreadPane({
       ro.disconnect();
       if (typeof cancelAnimationFrame === "function") {
         cancelAnimationFrame(followRaf.current);
-        cancelAnimationFrame(drawerRaf.current);
       }
     };
   }, []);
@@ -1238,13 +1231,13 @@ export function ThreadPane({
     composerPx: composerPx > 0 ? composerPx + 8 : 0,
   });
 
-  // The composer's bottom gap (home indicator ↔ 8px) eases with the
-  // keyboard; stick through the ease. Blur when the keyboard hides on its
-  // own.
+  // The composer's bottom gap (home indicator ↔ 8px) changes with the
+  // keyboard; the list follows it once, eased on the compositor. Blur when
+  // the keyboard hides on its own.
   useComposerFocusGap({
     root: () => rootRef.current,
     bar: () => rootRef.current?.querySelector<HTMLElement>('[data-testid="composer-bar"]') ?? null,
-    onChange: () => followFor(keyboardMotionMs() + 80),
+    onChange: followGap,
   });
 
   // A tap on the conversation (not on a link / button / chip, not a
@@ -2006,9 +1999,9 @@ export function ThreadPane({
           )}
         </div>
         {/* Room for the composer bar's bottom gap (home indicator at
-            rest, 8px over the keyboard): eases with the bar's padding on
-            the keyboard's timing (index.css). Outside the content, so the
-            content ResizeObserver does not fire through the ease. */}
+            rest, 8px over the keyboard): takes the new gap at once as the
+            bar's padding eases (index.css); a following list plays the
+            move on the compositor (easeGapShift). Outside the content. */}
         <div
           aria-hidden="true"
           className="zen-composer-gap mchat-gap shrink-0"
