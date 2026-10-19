@@ -124,8 +124,8 @@ export function settledHeight(block: HTMLElement): number {
 
 /** The block's height above its bottom padding (the home-indicator /
  *  keyboard gap), settled like `settledHeight`. The Thread pads for that
- *  gap with its own spacer on the same CSS transition, so this stays put
- *  while the gap eases with the keyboard (no per-frame reports). */
+ *  gap with its own spacer (index.css), so this stays put while the
+ *  bar's padding eases with the keyboard (no per-frame reports). */
 export function composerBlockHeight(block: HTMLElement): number {
   let pad = 0;
   try {
@@ -201,8 +201,8 @@ export interface GlassComposerProps {
   drawerRoom?: number;
   /** The composer block's height (px) above its bottom gap: rows above
    *  the field, drawer room, the field (composerBlockHeight). The bar's
-   *  safe-area / keyboard gap is left out: the Thread's spacer eases with
-   *  it on the keyboard's timing (index.css `.zen-thread-pane`). Reported on mount and on every resize (ResizeObserver), settled
+   *  safe-area / keyboard gap is left out: the Thread's spacer pads for it
+   *  (index.css `.zen-thread-pane`). Reported on mount and on every resize (ResizeObserver), settled
    *  (a clear-collapse in progress reports its end height). */
   onBlockHeight?: (px: number) => void;
   /** A send clearing a multi-line draft may ease the field shut on the

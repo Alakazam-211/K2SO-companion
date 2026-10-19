@@ -268,10 +268,14 @@ html, body, #root {
    (.mchat-pane; the Thread's is also .zen-thread-pane) gets
    `data-composer-focused` in the same focus event that flips
    :focus-within (useComposerFocusGap), and its scroller ends in a spacer
-   (.mchat-gap) of the same gap: the bar's bottom padding (.mchat-bar) and
-   the room the list leaves for it ease together, on the keyboard's timing
-   (useViewportHeight sets --k2-kb-* from the native UIKeyboardWill*
-   notifications), so the newest message stays just above the field. */
+   (.mchat-gap) of the same gap. The bar's bottom padding (.mchat-bar, in
+   the absolutely placed dock: no column layout) eases on the keyboard's
+   timing (useViewportHeight sets --k2-kb-* from the native
+   UIKeyboardWill* notifications). The spacer and the list's min-height
+   take the new gap at once (one layout, not one per frame); a following
+   list re-sticks once and plays the difference as a `translate` on the
+   same timing (easeGapShift), so the newest message rides just above the
+   field as before. */
 :root {
   --k2-kb-ms: 250ms;
   --k2-kb-ease: cubic-bezier(0.38, 0.7, 0.125, 1);
@@ -298,38 +302,27 @@ html, body, #root {
 .mchat-pane .mchat-gap,
 .zen-thread-pane .zen-composer-gap {
   height: var(--mchat-composer-gap);
-  transition: height var(--k2-kb-ms) var(--k2-kb-ease);
 }
 /* The list's content: always the scroller's height minus the gap spacer
-   (and minus the drag pad during an interactive dismiss), easing with the
-   spacer — a short list fills the view exactly and never moves when the
-   keyboard's scroll room comes or goes (useScrollRoom). Percentages
-   resolve at layout: a column resize does not animate it; only the gap
-   does (the drag pad switches the ease off: --mchat-content-ms). */
+   (and minus the drag pad during an interactive dismiss), changing with
+   the spacer in the same layout — a short list fills the view exactly and
+   never moves when the keyboard's scroll room comes or goes
+   (useScrollRoom). */
 .mchat-pane .mchat-content,
 .zen-thread-pane .mchat-content {
   min-height: calc(100% - var(--mchat-composer-gap) - var(--mchat-drag-pad, 0px));
-  transition: min-height var(--mchat-content-ms, var(--k2-kb-ms)) var(--k2-kb-ease);
 }
 /* Android: no keyboard timing from the shell; the inset follows the
    system bars (k2-insets) as before, unanimated. */
 .platform-android .mchat-pane .mchat-bar,
-.platform-android .mchat-pane .mchat-gap,
-.platform-android .mchat-pane .mchat-content,
-.platform-android .zen-thread-pane .mchat-content,
-.platform-android .zen-thread-pane .zen-composer-bar,
-.platform-android .zen-thread-pane .zen-composer-gap {
+.platform-android .zen-thread-pane .zen-composer-bar {
   transition: none;
 }
 @media (prefers-reduced-motion: reduce) {
   .mchat-pane .mchat-bar,
   .mchat-pane .mchat-bar:focus-within,
-  .mchat-pane .mchat-gap,
-  .mchat-pane .mchat-content,
-  .zen-thread-pane .mchat-content,
   .zen-thread-pane .zen-composer-bar,
-  .zen-thread-pane .zen-composer-bar:focus-within,
-  .zen-thread-pane .zen-composer-gap {
+  .zen-thread-pane .zen-composer-bar:focus-within {
     transition: none;
   }
 }
