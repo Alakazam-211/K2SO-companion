@@ -1,7 +1,11 @@
 // iMessage-style send (frame-matched to a 30 fps recording of iMessage):
-// - Frame 1: the WHOLE composer field (its pill, padding and all) is a
-//   faint translucent blue bubble in place; the real field is already
-//   empty, one line, placeholder showing (no eased collapse).
+// - Frame 1: the typed text's own extent in the field (its widest line,
+//   the bubble's padding around it, the field's height and corner radius)
+//   is a faint translucent blue bubble in place — the text lifting out.
+//   Our field is nearly edge to edge (iMessage's is not), so starting from
+//   the whole field pill made a short message shrink a long way in from
+//   the left. The real field is already empty, one line, placeholder
+//   showing (no eased collapse).
 // - First ~quarter: the blue goes solid while the shape shrinks in width
 //   toward the right edge (an outgoing bubble) and starts rising; the
 //   field's text blurs a little and crossfades to the bubble's line breaks.
@@ -30,10 +34,11 @@
 // DEV tuning on the phone (debug builds only, ignored in production):
 //   localStorage.setItem("k2.debug.sendFly", JSON.stringify({ ms: 420,
 //     easing: "spring(0.85)", blueAt: 0.25, blueFrom: 0.25, textAt: 0.3,
-//     blurPx: 1.5, collapse: false }))
+//     blurPx: 1.5, collapse: false, start: "text" }))
 // `easing` is "spring", "spring(<damping ratio 0.3–1>)" or any CSS easing
 // ("cubic-bezier(0.22, 1, 0.36, 1)"). `collapse: true` brings back the old
-// eased composer collapse for an A/B. Read on every send: no rebuild or
+// eased composer collapse for an A/B. `start: "field"` starts the blue on
+// the whole composer field pill instead of the text's extent. Read on every send: no rebuild or
 // reload. Remove the key to go back to the defaults below.
 
 export type FlyRect = { left: number; top: number; width: number; height: number };
@@ -66,7 +71,15 @@ export type FlySource = {
   ghost?: FlyGhost | null;
   /** The whole composer field (its rounded pill, padding included). */
   field?: { rect: FlyRect; radius: number } | null;
+  /** The typed text's widest line (px, at the field's font; the text box
+   *  width when it wraps). Null: not measured (the blue starts on the
+   *  field pill). */
+  textWidth?: number | null;
 };
+
+/** Where the blue shape starts: the typed text's extent ("text") or the
+ *  whole composer field pill ("field"). */
+export type FlyStart = "text" | "field";
 
 export type FlyMotion = {
   /** Flight (and list glide) duration. */
@@ -85,6 +98,8 @@ export type FlyMotion = {
   /** Ease the composer's own collapse (a multi-line draft) too. Off: the
    *  field snaps to one empty line in the Send commit (iMessage). */
   collapse: boolean;
+  /** The blue's first frame: the text's extent or the whole field. */
+  start: FlyStart;
 };
 
 /** iMessage's send is ~0.42 s from tap to settled (13 frames at 30 fps). */
@@ -101,6 +116,8 @@ export const FLY_BLUE_FROM = 0.25;
 export const FLY_TEXT_AT = 0.3;
 /** A soft blur while the text re-wraps (filter: compositor in WebKit). */
 export const FLY_TEXT_BLUR_PX = 1.5;
+/** The blue starts on the typed text's extent, not the whole field. */
+export const FLY_START: FlyStart = "text";
 /** The end correction when the real bubble moved mid-flight. */
 export const FLY_CORRECT_MS = 180;
 /** A bubble delivered mid-flight brightens after the reveal (matches
@@ -127,6 +144,7 @@ export const DEFAULT_FLY_MOTION: Readonly<FlyMotion> = Object.freeze({
   textAt: FLY_TEXT_AT,
   blurPx: FLY_TEXT_BLUR_PX,
   collapse: false,
+  start: FLY_START,
 });
 
 export function prefersReducedMotion(): boolean {
@@ -178,6 +196,7 @@ export function flyMotion(): FlyMotion {
     if (typeof o.textAt === "number" && o.textAt >= 0.05 && o.textAt <= 1) base.textAt = o.textAt;
     if (typeof o.blurPx === "number" && o.blurPx >= 0 && o.blurPx <= 8) base.blurPx = o.blurPx;
     if (typeof o.collapse === "boolean") base.collapse = o.collapse;
+    if (o.start === "text" || o.start === "field") base.start = o.start;
     return base;
   } catch {
     return base;
@@ -268,10 +287,17 @@ export function flySourceOfField(field: HTMLTextAreaElement | null | undefined):
   const fontPx = num(cs.fontSize, 17);
   const width = Math.max(0, r.width - padL - padR);
   const height = Math.max(0, r.height - padT - padB);
+  const letterSpacingPx = num(cs.letterSpacing);
   return {
     rect: { left: r.left + padL, top: r.top + padT, width, height },
     fontPx,
     field: fieldPillOf(field),
+    textWidth: textWidthOf(
+      field.value,
+      `${cs.fontStyle || "normal"} ${cs.fontWeight || "400"} ${fontPx}px ${cs.fontFamily || "sans-serif"}`,
+      letterSpacingPx,
+      width
+    ),
     ghost: {
       text: field.value,
       width,
@@ -279,7 +305,7 @@ export function flySourceOfField(field: HTMLTextAreaElement | null | undefined):
       scrollTop: field.scrollTop || 0,
       fontPx,
       lineHeightPx: num(cs.lineHeight, fontPx * 1.2),
-      letterSpacingPx: num(cs.letterSpacing),
+      letterSpacingPx,
       fontFamily: cs.fontFamily,
       fontWeight: cs.fontWeight,
       fontStyle: cs.fontStyle,
@@ -289,6 +315,88 @@ export function flySourceOfField(field: HTMLTextAreaElement | null | undefined):
       wordBreak: cs.wordBreak,
     },
   };
+}
+
+/** A 2D context for text metrics (no layout: canvas measureText). Null
+ *  where there is no canvas (tests); looked up once. */
+let measureCtx: { measureText(t: string): { width: number }; font: string } | null | undefined;
+function textMeasurer() {
+  if (measureCtx !== undefined) return measureCtx;
+  measureCtx = null;
+  try {
+    if (typeof OffscreenCanvas !== "undefined") {
+      measureCtx = new OffscreenCanvas(1, 1).getContext("2d") ?? null;
+    } else if (typeof document !== "undefined") {
+      measureCtx = document.createElement("canvas").getContext("2d") ?? null;
+    }
+  } catch {
+    measureCtx = null;
+  }
+  return measureCtx;
+}
+
+/** The widest line of `text` as a field draws it (`font`, letter spacing),
+ *  capped at the text box width `boxWidth` (a line that long wraps, so the
+ *  text spans the box). Each hard line is measured on a canvas: no layout
+ *  read. `measure` is injectable for tests. Null when it cannot measure. */
+export function textWidthOf(
+  text: string,
+  font: string,
+  letterSpacingPx: number,
+  boxWidth: number,
+  measure: ((line: string, font: string) => number) | null = null
+): number | null {
+  const m =
+    measure ??
+    (() => {
+      const ctx = textMeasurer();
+      if (!ctx) return null;
+      return (line: string, f: string) => {
+        if (ctx.font !== f) ctx.font = f;
+        return ctx.measureText(line).width;
+      };
+    })();
+  if (!m || !(boxWidth > 0)) return null;
+  let widest = 0;
+  try {
+    for (const line of text.replace(/\s+$/, "").split("\n")) {
+      const w = m(line, font) + letterSpacingPx * [...line].length;
+      if (!Number.isFinite(w)) return null;
+      widest = Math.max(widest, w);
+      if (widest >= boxWidth) return boxWidth;
+    }
+  } catch {
+    return null;
+  }
+  return widest;
+}
+
+/** The blue's first frame. "field": the composer field pill. "text": the
+ *  typed text lifting out of it — from the text's left edge less the
+ *  bubble's left padding, as wide as the widest line plus the bubble's
+ *  side paddings (at least `minWidth`, at most the field, kept inside it),
+ *  the field's height and corner radius. Text that wraps spans its box,
+ *  so a long message starts on the whole text block (the field less the
+ *  `＋` beside it). `padX` is the bubble's side
+ *  padding at the field's scale. Falls back to the field without a
+ *  measured text width, and to the text box without a field. */
+export function flyStartShape(
+  source: FlySource,
+  start: FlyStart,
+  padX: number,
+  minWidth: number,
+  fallbackRadius: number
+): { rect: FlyRect; radius: number } {
+  const field = source.field;
+  if (!field) return { rect: source.rect, radius: fallbackRadius };
+  const tw = source.textWidth;
+  if (start !== "text" || tw == null || !Number.isFinite(tw) || tw < 0) return field;
+  const f = field.rect;
+  const lo = Math.min(f.width, Math.max(minWidth, f.height, 0));
+  const width = Math.min(f.width, Math.max(lo, tw + 2 * padX));
+  const left = Math.min(Math.max(source.rect.left - padX, f.left), f.left + f.width - width);
+  const rect = { left, top: f.top, width, height: f.height };
+  return { rect, radius: Math.min(field.radius, width / 2, f.height / 2) };
 }
 
 function clampScale(scale: number): number {
@@ -355,7 +463,8 @@ export function glideList(
   };
 }
 
-/** The blue shape's flight from the field pill (`from`) to the bubble
+/** The blue shape's flight from its first frame (`from`: the text's
+ *  extent or the field pill, flyStartShape) to the bubble
  *  (`to`), all in the same coordinates. The box is the larger of the two,
  *  anchored at the bubble's bottom-right corner (so it shrinks toward the
  *  right edge, like an outgoing bubble). Its position rides a translate3d
@@ -499,8 +608,9 @@ export function runSendFly(opts: {
       transition: "none",
     } satisfies Partial<CSSStyleDeclaration>;
 
-    // ── The shape: the field pill on frame 1, the bubble at the end. ──
-    const fromShape = source.field ?? { rect: source.rect, radius: bubbleRadius };
+    // ── The shape: the text's extent (or the field pill) on frame 1, the
+    // bubble at the end. ──
+    const fromShape = flyStartShape(source, motion.start, pad.x * s, num(cs.minWidth), bubbleRadius);
     const flight = shapeFlight(rel(fromShape.rect), rel(to), { from: fromShape.radius, to: bubbleRadius }, motion);
     const shape = document.createElement("div");
     shape.setAttribute("data-testid", "send-fly-shape");

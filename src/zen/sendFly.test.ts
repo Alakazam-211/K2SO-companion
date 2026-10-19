@@ -12,7 +12,11 @@ import {
   FLY_MS,
   FLY_TEXT_AT,
   FLY_TEXT_BLUR_PX,
+  FLY_START,
   fieldPillOf,
+  flyStartShape,
+  textWidthOf,
+  type FlySource,
   flySourceOfField,
   shapeFlight,
   SEND_FLY_DEBUG_KEY,
@@ -40,7 +44,9 @@ describe("the curve", () => {
       textAt: FLY_TEXT_AT,
       blurPx: FLY_TEXT_BLUR_PX,
       collapse: false,
+      start: "text",
     });
+    expect(FLY_START).toBe("text");
     expect(FLY_MS).toBe(420);
     expect(FLY_EASING).toBe("spring(0.85)");
     expect(FLY_BLUE_FROM).toBeCloseTo(0.25);
@@ -134,6 +140,7 @@ describe("DEV tuning override (k2.debug.sendFly)", () => {
         textAt: 0.4,
         blurPx: 2,
         collapse: true,
+        start: "field",
       })
     );
     expect(flyMotion()).toEqual({
@@ -144,6 +151,7 @@ describe("DEV tuning override (k2.debug.sendFly)", () => {
       textAt: 0.4,
       blurPx: 2,
       collapse: true,
+      start: "field",
     });
     localStorage.setItem(SEND_FLY_DEBUG_KEY, JSON.stringify({ ms: 420 }));
     expect(flyMotion()).toEqual({ ...DEFAULT_FLY_MOTION, ms: 420 });
@@ -161,7 +169,7 @@ describe("DEV tuning override (k2.debug.sendFly)", () => {
     expect(flyMotion()).toEqual(DEFAULT_FLY_MOTION);
     localStorage.setItem(
       SEND_FLY_DEBUG_KEY,
-      JSON.stringify({ ms: 5, blueAt: 3, easing: 7, blueFrom: -1, textAt: 9, blurPx: 40 })
+      JSON.stringify({ ms: 5, blueAt: 3, easing: 7, blueFrom: -1, textAt: 9, blurPx: 40, start: "pill" })
     );
     expect(flyMotion()).toEqual(DEFAULT_FLY_MOTION);
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
@@ -235,5 +243,70 @@ describe("the fly source", () => {
     document.body.appendChild(ta);
     expect(fieldPillOf(ta)).toBeNull();
     ta.remove();
+  });
+});
+
+describe("the blue's first frame: the typed text's extent (default) or the field", () => {
+  // A nearly edge-to-edge field (ours), its text box inside the + button.
+  const field = { rect: { left: 12, top: 700, width: 366, height: 44 }, radius: 22 };
+  const textBox = { left: 50, top: 711, width: 290, height: 22 };
+  const src = (textWidth: number | null, height = 44): FlySource => ({
+    rect: { ...textBox, height: height - 22 },
+    fontPx: 17,
+    field: { ...field, rect: { ...field.rect, top: 744 - height, height } },
+    textWidth,
+  });
+  // Monospace-ish measure: 8px a character.
+  const measure = (line: string) => line.length * 8;
+
+  it("a short message: narrow, from the text's left edge less the bubble padding", () => {
+    const tw = textWidthOf("Ok gotcha", "17px sans-serif", 0, textBox.width, measure)!;
+    expect(tw).toBe(72);
+    const start = flyStartShape(src(tw), "text", 12, 0, 18);
+    expect(start.rect).toEqual({ left: 38, top: 700, width: 96, height: 44 });
+    expect(start.radius).toBe(22);
+    expect(start.rect.width).toBeLessThan(field.rect.width / 3);
+  });
+
+  it("a long multi-line message (wraps): the whole text block, the field's full height", () => {
+    const text = "This is a much longer message that wraps\nacross several lines in the composer field";
+    const tw = textWidthOf(text, "17px sans-serif", 0, textBox.width, measure)!;
+    expect(tw).toBe(textBox.width);
+    const start = flyStartShape(src(tw, 132), "text", 12, 0, 18);
+    // From the text's left edge (less the bubble padding) to the field's
+    // right edge: the field less the + beside the text.
+    expect(start.rect).toEqual({ left: 38, top: 612, width: 314, height: 132 });
+    // A field whose text box spans it: exactly the field's width.
+    const wide = { ...src(342, 132), rect: { left: 24, top: 623, width: 342, height: 110 } };
+    expect(flyStartShape(wide, "text", 12, 0, 18).rect).toEqual({ left: 12, top: 612, width: 366, height: 132 });
+  });
+
+  it("the widest hard line counts, plus letter spacing; at least the bubble's min width (a pill, not a sliver)", () => {
+    expect(textWidthOf("ab\nabcd\nabc\n\n", "f", 0.5, 290, measure)).toBe(34);
+    const tiny = flyStartShape(src(8), "text", 12, 0, 18);
+    expect(tiny.rect.width).toBe(44);
+    expect(flyStartShape(src(8), "text", 12, 60, 18).rect.width).toBe(60);
+    expect(textWidthOf("x", "f", 0, 290, () => NaN)).toBeNull();
+  });
+
+  it("the DEV override \"field\" restores the field-pill start; unmeasured text falls back to it", () => {
+    expect(flyStartShape(src(72), "field", 12, 0, 18)).toEqual(field);
+    expect(flyStartShape(src(null), "text", 12, 0, 18)).toEqual(field);
+    // No field pill: the text box itself.
+    const bare = { rect: textBox, fontPx: 17, textWidth: 72 };
+    expect(flyStartShape(bare, "text", 12, 0, 18)).toEqual({ rect: textBox, radius: 18 });
+    vi.stubEnv("DEV", true);
+    localStorage.setItem(SEND_FLY_DEBUG_KEY, JSON.stringify({ start: "field" }));
+    expect(flyMotion().start).toBe("field");
+    vi.stubEnv("DEV", false);
+    expect(flyMotion().start).toBe("text");
+  });
+
+  it("the flight from the text's extent still lands exactly on the bubble", () => {
+    const start = flyStartShape(src(72), "text", 12, 0, 18);
+    const bubble = { left: 280, top: 600, width: 98, height: 38 };
+    const f = shapeFlight(start.rect, bubble, { from: start.radius, to: 18 });
+    expect(f.visibleAt(0)).toEqual(start.rect);
+    expect(f.visibleAt(1)).toEqual(bubble);
   });
 });
