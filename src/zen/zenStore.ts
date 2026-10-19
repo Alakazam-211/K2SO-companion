@@ -2245,17 +2245,19 @@ export const useZenStore = create<ZenState>((set, get) => ({
         const incoming = applyGroupRead(cur, read);
         if (incoming === cur && !get().threadCached) return;
         const last = incoming[incoming.length - 1];
+        const atKey = lastAtKey(scope.id, "group", groupId);
+        const lastAt = last?.at ?? get().lastAtByKey[atKey] ?? null;
         set({
           thread: incoming,
           threadCached: false,
           threadSource: "live",
           threadError: null,
           ...(read.mode === "replace" ? { threadHasMore: !!read.hasMore } : null),
-          lastAtByKey: {
-            ...get().lastAtByKey,
-            [lastAtKey(scope.id, "group", groupId)]:
-              last?.at ?? get().lastAtByKey[lastAtKey(scope.id, "group", groupId)] ?? null,
-          },
+          // Same time: the same map, so the lists behind the chat (which
+          // subscribe to it) do not re-render on every group frame.
+          ...(get().lastAtByKey[atKey] === lastAt
+            ? null
+            : { lastAtByKey: { ...get().lastAtByKey, [atKey]: lastAt } }),
         });
         get().markGroupSeen(groupId, last?.at ?? null);
       } catch {

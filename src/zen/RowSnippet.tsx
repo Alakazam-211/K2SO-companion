@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { memo, type ReactNode } from "react";
 import { NO_MESSAGES_TEXT, YOU_PREFIX, type InlineNode, type RowPreview } from "./rowPreview";
 
 /**
@@ -6,7 +6,20 @@ import { NO_MESSAGES_TEXT, YOU_PREFIX, type InlineNode, type RowPreview } from "
  * `truncate` (nowrap + hidden + ellipsis) keeps it to one line. The base
  * colour is the parent's muted grey; bold and italics sit on top.
  */
-export function RowSnippet({ preview }: { preview: RowPreview }) {
+/** Same line two: the same parsed snippet (lastPreview caches it), or the
+ *  same plain kind / label. */
+function samePreview(a: { preview: RowPreview }, b: { preview: RowPreview }): boolean {
+  const x = a.preview;
+  const y = b.preview;
+  if (x === y) return true;
+  if (x.kind !== y.kind) return false;
+  if (x.kind === "label" && y.kind === "label") return x.text === y.text;
+  return x.kind === "loading" || x.kind === "empty";
+}
+
+/** Memoized: the Agents / Home lists re-render on activity polls, search
+ *  keystrokes and unread changes; a row's line two only when it changed. */
+export const RowSnippet = memo(function RowSnippet({ preview }: { preview: RowPreview }) {
   switch (preview.kind) {
     case "loading":
       // Keeps the line's height without placeholder text that then jumps.
@@ -27,7 +40,7 @@ export function RowSnippet({ preview }: { preview: RowPreview }) {
         </>
       );
   }
-}
+}, samePreview);
 
 function renderNodes(nodes: InlineNode[]): ReactNode[] {
   return nodes.map((n, i) => {

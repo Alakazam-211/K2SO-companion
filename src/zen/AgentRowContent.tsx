@@ -1,5 +1,5 @@
 import { RowChevron } from "./RowChevron";
-import type { ReactNode } from "react";
+import { isValidElement, memo, type ReactNode } from "react";
 import { activityColor, activityRowText, type RowActivity } from "./agentActivity";
 import { StubMark } from "./StubMark";
 import type { RowUnread } from "./unread";
@@ -7,14 +7,51 @@ import { MutedGlyph, RowUnreadCount, UnreadDot } from "./UnreadMarks";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { zenTextPx } from "./zenFont";
 
+function sameUnread(a: RowUnread | null | undefined, b: RowUnread | null | undefined): boolean {
+  if (a === b || (!a && !b)) return true;
+  return (
+    !!a && !!b && a.tone === b.tone && a.count === b.count && a.emphasis === b.emphasis && a.muted === b.muted
+  );
+}
+
+/** Same line two: the same node, or the same element with the same props
+ *  (the lists build `<RowSnippet preview={…} />` afresh every render). */
+function sameNode(a: ReactNode, b: ReactNode): boolean {
+  if (Object.is(a, b)) return true;
+  if (!isValidElement(a) || !isValidElement(b) || a.type !== b.type || a.key !== b.key) return false;
+  const pa = a.props as Record<string, unknown>;
+  const pb = b.props as Record<string, unknown>;
+  const ka = Object.keys(pa);
+  return ka.length === Object.keys(pb).length && ka.every((k) => Object.is(pa[k], pb[k]));
+}
+
+type RowProps = Parameters<typeof AgentRowContentInner>[0];
+function sameRow(a: RowProps, b: RowProps): boolean {
+  const keys = new Set([...Object.keys(a), ...Object.keys(b)] as (keyof RowProps)[]);
+  for (const k of keys) {
+    if (k === "unread") {
+      if (!sameUnread(a.unread, b.unread)) return false;
+    } else if (k === "preview") {
+      if (!sameNode(a.preview, b.preview)) return false;
+    } else if (!Object.is(a[k], b[k])) return false;
+  }
+  return true;
+}
+
 /**
  * The inside of one Agents-list row: glass-edged avatar with its activity
  * dot, the name over the status line (activity, else preview), and the
  * time + chevron. Shared by the Agents list and the Home list so both
  * look the same. `serverChip` names the row's server (Home rows with several
  * servers); it sits right after the name, not by the time.
+ *
+ * Memoized: the lists re-render on activity polls, search keystrokes,
+ * unread and preview changes; a row only when what it draws changed
+ * (`unread` by value, `preview` by element props).
  */
-export function AgentRowContent({
+export const AgentRowContent = memo(AgentRowContentInner, sameRow);
+
+function AgentRowContentInner({
   name,
   initial,
   color,
