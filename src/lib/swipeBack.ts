@@ -3,6 +3,10 @@
 // arm at the left edge, lock to the dominant axis, complete on distance
 // or a velocity flick. The DOM/touch plumbing lives in useSwipeBack.ts.
 //
+// The release (complete vs cancel, and the animation that carries the
+// screen from the finger's position to the end state) is decided here
+// too: shouldComplete + releaseAnimation + underlayFrame.
+//
 // IMPORT-SAFE: no DOM / react / tauri imports, so everything here runs
 // under a plain Node test runner (scripts/test-swipe-back.mjs — the
 // test-bottom-anchor.mjs idiom).
@@ -21,8 +25,10 @@ export const AXIS_LOCK_PX = 10;
 export const COMPLETE_FRACTION = 0.35;
 
 /** A release moving rightward at least this fast (px/ms) is a flick —
- *  completes even short of the distance threshold... */
-export const FLICK_VELOCITY_PX_PER_MS = 0.3;
+ *  completes even short of the distance threshold. The same speed
+ *  LEFTWARD cancels even past it (the finger is taking the screen back,
+ *  UINavigationController's interactive pop does the same). */
+export const FLICK_VELOCITY_PX_PER_MS = 0.5;
 
 /** ...but never from a near-zero drag (guards twitchy micro-touches). */
 export const FLICK_MIN_DX_PX = 30;
@@ -82,8 +88,72 @@ export function velocityFromSamples(
   return dt > 0 ? (last.x - first.x) / dt : 0;
 }
 
-/** The release decision: far enough OR a genuine rightward flick. */
+/** The release decision: far enough OR a genuine rightward flick —
+ *  unless the finger is flicking back LEFT, which always cancels. */
 export function shouldComplete(dx: number, velocity: number, viewportWidth: number): boolean {
+  if (velocity <= -FLICK_VELOCITY_PX_PER_MS) return false;
   if (dx >= viewportWidth * COMPLETE_FRACTION) return true;
   return velocity >= FLICK_VELOCITY_PX_PER_MS && dx >= FLICK_MIN_DX_PX;
+}
+
+// ── Release animation ───────────────────────────────────────────────────
+// After the finger lifts, the screen carries on from where it is to the
+// end state (off to the right, or home at 0) at the finger's speed: the
+// duration is the remaining distance over the release speed, clamped,
+// and the curve's initial slope matches that speed so there is no hitch
+// between the drag and the animation. Compositor-only (transform).
+
+/** Release animations never run shorter / longer than this (ms). */
+export const RELEASE_MIN_MS = 180;
+export const RELEASE_MAX_MS = 350;
+/** A release slower than this (px/ms) — or moving away from the target —
+ *  animates as if it moved at this speed (a resting finger still glides). */
+export const RELEASE_MIN_SPEED_PX_PER_MS = 1;
+/** Reduced motion: no further sliding, just a short fade (ms). */
+export const REDUCED_MOTION_FADE_MS = 120;
+
+/** Control-point abscissa of the release curve (cubic-bezier x1). */
+const CURVE_X1 = 0.25;
+
+/** Duration + CSS easing for animating from `from` to `to` (px) after a
+ *  release moving at `velocity` px/ms (signed, rightward positive). */
+export function releaseAnimation(
+  from: number,
+  to: number,
+  velocity: number
+): { durationMs: number; easing: string } {
+  const distance = Math.abs(to - from);
+  // Speed in the direction of travel (negative = moving away from it).
+  const toward = to >= from ? velocity : -velocity;
+  const speed = Math.max(toward, RELEASE_MIN_SPEED_PX_PER_MS);
+  const durationMs = Math.round(
+    Math.min(RELEASE_MAX_MS, Math.max(RELEASE_MIN_MS, distance / speed))
+  );
+  // The curve's starting slope (progress per unit time, normalised) is
+  // y1/x1; match it to the finger's speed. Floor at 1 (a linear start,
+  // then the ease-out tail) so a still finger doesn't ease IN.
+  const slope = distance > 0 ? (Math.max(toward, 0) * durationMs) / distance : 0;
+  const y1 = Math.min(1, Math.max(CURVE_X1, CURVE_X1 * slope));
+  return {
+    durationMs,
+    easing: `cubic-bezier(${CURVE_X1}, ${Number(y1.toFixed(3))}, 0.25, 1)`,
+  };
+}
+
+/** The screen underneath (the list a back lands on) trails the drag:
+ *  it starts this fraction of the width to the left... */
+export const UNDERLAY_PARALLAX = 0.3;
+/** ...and dimmed to this opacity over black, and reaches (0, 1) as the
+ *  pushed screen leaves. */
+export const UNDERLAY_MIN_OPACITY = 0.8;
+
+/** The underlay's translateX (px) and opacity for the pushed screen at
+ *  `offset` px of a `width`-px viewport. */
+export function underlayFrame(offset: number, width: number): { x: number; opacity: number } {
+  const p = width > 0 ? Math.min(1, Math.max(0, offset / width)) : 1;
+  const x = -UNDERLAY_PARALLAX * width * (1 - p);
+  return {
+    x: Math.round(x * 100) / 100 || 0,
+    opacity: Math.round((UNDERLAY_MIN_OPACITY + (1 - UNDERLAY_MIN_OPACITY) * p) * 1000) / 1000,
+  };
 }

@@ -793,9 +793,19 @@ describe("Zen thread left-edge swipe", () => {
     act(() => {
       release(home, 700);
     });
-    expect(useZenStore.getState().screen).toBe("list");
+    // The release animates the rest of the way off first (no snap): the
+    // thread is still mounted, sliding to the full width, the list under it.
+    expect(useZenStore.getState().screen).toBe("thread");
+    expect(home.style.transform).toBe("translateX(1024px)");
+    expect(home.style.transition).toMatch(/^transform \d+ms cubic-bezier/);
+    expect(screen.getByTestId("chats-layer").hasAttribute("data-peek")).toBe(true);
+    // ...then Back lands.
+    await waitFor(() => expect(useZenStore.getState().screen).toBe("list"));
     expect(screen.queryByTestId("thread-home")).toBeNull();
     const chats = screen.getByTestId("chats-layer");
+    // The underlay's parallax/dim is cleared once it is the screen.
+    expect(chats.style.transform).toBe("");
+    expect(chats.style.opacity).toBe("");
     expect(chats.hasAttribute("data-peek")).toBe(false);
     expect(chats.getAttribute("aria-hidden")).not.toBe("true");
     expect(chats.style.visibility).toBe("");
@@ -829,8 +839,8 @@ describe("Zen thread left-edge swipe", () => {
     act(() => {
       release(home, 700);
     });
+    await waitFor(() => expect(useZenStore.getState().agentId).toBe(STUB_AGENTS[1].id));
     expect(useZenStore.getState().screen).toBe("thread");
-    expect(useZenStore.getState().agentId).toBe(STUB_AGENTS[1].id);
     expect(useZenStore.getState().drawerOrigin).toBeNull();
   });
 
@@ -865,7 +875,7 @@ describe("Zen thread left-edge swipe", () => {
       dragTo(home, 700);
       release(home, 700);
     });
-    expect(useZenStore.getState().screen).toBe("list");
+    await waitFor(() => expect(useZenStore.getState().screen).toBe("list"));
     expect(backHandlerCount()).toBe(0);
   });
 

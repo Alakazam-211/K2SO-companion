@@ -355,6 +355,9 @@ export function Zen() {
     if (on) el.setAttribute("data-peek", "1");
     else el.removeAttribute("data-peek");
   };
+  /** The peeking list trails the drag (parallax + dim) and finishes with
+   *  the release animation (useSwipeBack's underlay). */
+  const chatsUnderlay = () => chatsLayerRef.current;
 
   const closeRename = () => {
     if (renameBusy) return;
@@ -416,6 +419,7 @@ export function Zen() {
           onSwipeBack={drawerPicked ? returnToDrawerOrigin : backToChats}
           swipeEnabled={() => !filesPaneOpen && !sessionsOpen && threadOnTop()}
           onSwipeDrag={drawerPicked ? undefined : peekChats}
+          swipeUnderlay={drawerPicked ? undefined : chatsUnderlay}
           top={viewportTop}
         >
         <div
@@ -942,6 +946,7 @@ function ThreadHome({
   onSwipeBack,
   swipeEnabled,
   onSwipeDrag,
+  swipeUnderlay,
   top = 0,
 }: {
   children: ReactNode;
@@ -949,10 +954,16 @@ function ThreadHome({
   /** Read at each touch start. */
   swipeEnabled: () => boolean;
   onSwipeDrag?: (dragging: boolean) => void;
+  /** The layer the swipe reveals (parallax + dim while dragging). */
+  swipeUnderlay?: () => HTMLElement | null;
   /** visualViewport.offsetTop left after the scroll reset (0 normally). */
   top?: number;
 }) {
-  const swipeRef = useSwipeBack(onSwipeBack, { enabled: swipeEnabled, onDragChange: onSwipeDrag });
+  const swipeRef = useSwipeBack(onSwipeBack, {
+    enabled: swipeEnabled,
+    onDragChange: onSwipeDrag,
+    underlay: swipeUnderlay,
+  });
   return (
     <div
       ref={swipeRef}
