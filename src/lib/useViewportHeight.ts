@@ -74,7 +74,7 @@
 //     hold the dragged height while the composer plays up, then commit.
 //     No height transition. Scroll momentum carries on without it.
 
-import { useRef, useSyncExternalStore } from "react";
+import { useCallback, useRef, useSyncExternalStore } from "react";
 
 /** The iOS keyboard is animating: the keyboard's top (as a column
  *  height) goes `from` → `to`. Hide: `height` is already `to`; show:
@@ -667,6 +667,30 @@ if (typeof window !== "undefined") {
  *  viewport-anchored column. */
 export function useViewport(): ViewportState {
   return useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+}
+
+/** `useViewport` for a view that stays mounted while hidden (the Chats
+ *  list behind an open chat): while `hidden` it re-renders only when the
+ *  viewport settles (no keyboard motion, no interactive drag), not on each
+ *  step of a keyboard show / hide / drag. Shown, it is `useViewport`. */
+export function useViewportSettledWhile(hidden: boolean): ViewportState {
+  const last = useRef(state);
+  const snap = useCallback(() => {
+    if (!hidden) {
+      last.current = state;
+    } else if (!animating && !state.interactive && state.motion == null) {
+      const was = last.current;
+      // Settled where it was: nothing to re-render for.
+      const same =
+        was.height === state.height &&
+        was.offsetTop === state.offsetTop &&
+        was.motion == null &&
+        !was.interactive;
+      if (!same) last.current = state;
+    }
+    return last.current;
+  }, [hidden]);
+  return useSyncExternalStore(subscribe, snap, snap);
 }
 
 export function useViewportHeight(): number {
