@@ -154,6 +154,8 @@ import { activityForRow } from "./agentActivity";
  *  `existingAddrs` adds server addrs the agents list may not hold (hidden
  *  sidecars, drawer rows) so `nextSidecarAddr` never reuses one;
  *  `fromDrawer` keeps the Sessions drawer's Done origin. */
+export type LoadEarlierResult = "loaded" | "failed" | "skipped";
+
 export type OpenSidecarOpts = {
   launch?: { command: string; args: string[] };
   existingAddrs?: string[];
@@ -240,7 +242,11 @@ type ZenState = {
   groupSeenRev: number;
   /** The open project chat is on screen: its messages up to `lastAt` are seen. */
   markGroupSeen: (groupId: string, lastAt?: number | null) => void;
-  loadEarlier: () => Promise<void>;
+  /** The page of the open Thread older than its oldest message (one at a
+   *  time). "loaded": it landed (maybe empty); "failed": the server did
+   *  not give it; "skipped": nothing to do (none left, one in flight, a
+   *  project chat, or the chat changed meanwhile). */
+  loadEarlier: () => Promise<LoadEarlierResult>;
   /** Send `text` to the open Thread. Optimistic: an outbox bubble shows
    *  "Sending…" at once, then gives way to the server's item, or turns
    *  "Not sent". `localId` sends an entry `queueOutgoing` already made
@@ -1882,9 +1888,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
   loadEarlier: async () => {
     const { threadAddr, threadOldestSeq, threadHasMore, threadLoadingEarlier, agentSource } =
       get();
-    if (agentSource === "stub") return;
+    if (agentSource === "stub") return "skipped";
     if (!threadAddr || threadOldestSeq == null || !threadHasMore || threadLoadingEarlier) {
-      return;
+      return "skipped";
     }
     const gen = get().threadGen;
     set({ threadLoadingEarlier: true });
@@ -1892,10 +1898,15 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const username = scope.username();
     try {
       const r = await getThread(scope, threadAddr, 50, threadOldestSeq);
-      if (get().threadGen !== gen) return;
+      // Another chat opened meanwhile: this page is not its; the one-at-a-
+      // time flag must not stay up for it.
+      if (get().threadGen !== gen) {
+        set({ threadLoadingEarlier: false });
+        return "skipped";
+      }
       if (!r.ok || !r.data || !Array.isArray(r.data.items)) {
         set({ threadLoadingEarlier: false });
-        return;
+        return "failed";
       }
       const seen = new Set(get().thread.map((m) => m.id));
       const older = r.data.items
@@ -1909,9 +1920,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
         threadOldestSeq: oldestSeqOf(thread),
         threadLoadingEarlier: false,
       });
+      return "loaded";
     } catch {
-      if (get().threadGen !== gen) return;
       set({ threadLoadingEarlier: false });
+      return get().threadGen !== gen ? "skipped" : "failed";
     }
   },
 

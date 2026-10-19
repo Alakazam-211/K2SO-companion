@@ -313,8 +313,8 @@ describe("Thread follows the newest", () => {
     expect(scroller().scrollTop).toBe(bottom());
   });
 
-  it("load earlier keeps the top message anchored, not yanked to the tail", async () => {
-    // Messages are 100px rows under a 50px "Load earlier" button.
+  it("an older page fetched as the reader nears the top lands without yanking the view", async () => {
+    // Messages are 100px rows under the 32px top slot.
     vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
       this: HTMLElement
     ) {
@@ -322,35 +322,42 @@ describe("Thread follows the newest", () => {
       let h = CLIENT;
       if (this.hasAttribute("data-thread-msg")) {
         const all = Array.from(document.querySelectorAll("[data-thread-msg]"));
-        top = 50 + all.indexOf(this) * 100 - scroller().scrollTop;
+        top = 32 + all.indexOf(this) * 100 - scroller().scrollTop;
         h = 100;
       }
       return { top, bottom: top + h, left: 0, right: 390, width: 390, height: h, x: 0, y: top, toJSON: () => ({}) };
     });
     const older = Array.from({ length: 5 }, (_, i) => msg(`o${i + 1}`, i - 10, `older ${i + 1}`));
     let finish!: () => void;
-    openRoom({
-      threadHasMore: true,
-      loadEarlier: () =>
-        new Promise<void>((done) => {
+    const loadEarlier = vi.fn(
+      () =>
+        new Promise<"loaded">((done) => {
+          useZenStore.setState({ threadLoadingEarlier: true });
           finish = () => {
-            height = 1550;
-            useZenStore.setState({ thread: [...older, ...useZenStore.getState().thread] });
-            done();
+            useZenStore.setState({
+              thread: [...older, ...useZenStore.getState().thread],
+              threadLoadingEarlier: false,
+            });
+            done("loaded");
           };
-        }),
-    });
-    height = 1050;
+        })
+    );
+    openRoom({ threadHasMore: true, loadEarlier });
+    height = 1032;
     render(<ThreadPane />);
-    expect(scroller().scrollTop).toBe(450);
+    expect(scroller().scrollTop).toBe(432);
+    flushRaf();
+    expect(loadEarlier).not.toHaveBeenCalled();
     userScrollTo(0);
-    fireEvent.click(screen.getByTestId("load-earlier"));
+    flushRaf();
+    expect(loadEarlier).toHaveBeenCalledTimes(1);
     await act(async () => finish());
-    // "message 1" sat at 50px; it still does after five rows land above it.
-    expect(scroller().scrollTop).toBe(500);
+    // The page waits above the drawn rows: the view has not moved.
+    expect(scroller().scrollTop).toBe(0);
+    expect(screen.queryByText("older 1")).toBeNull();
     fireResize();
     flushRaf();
-    expect(scroller().scrollTop).toBe(500);
+    expect(scroller().scrollTop).toBe(0);
   });
 
   it("a push-tap seq is not overridden by following", () => {

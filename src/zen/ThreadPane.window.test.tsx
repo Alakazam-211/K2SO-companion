@@ -2,8 +2,10 @@
 // The Thread's render window (threadWindow.ts): a long chat keeps every
 // message in memory but draws only a window. At the newest: the newest
 // WINDOW_ROWS, the oldest dropping off as messages arrive. Scrolled up:
-// rows come back (from memory first, then "Load earlier") before the
-// reader reaches them, and rows far below leave. Nothing on screen moves.
+// rows come back (from memory first, then the server's older page,
+// fetched on its own) before the reader reaches them; at most
+// WINDOW_MAX_ROWS are drawn, rows at the far end leaving. Nothing on
+// screen moves.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
@@ -32,7 +34,14 @@ import { connectOverlayEvents } from "./overlayEvents";
 import { ThreadPane } from "./ThreadPane";
 import type { ThreadMessage } from "./threadModel";
 import { useZenStore } from "./zenStore";
-import { WINDOW_EXTEND, WINDOW_IDLE_MS, WINDOW_ROWS } from "./threadWindow";
+import {
+  OLDER_COOLDOWN_MS,
+  WINDOW_EXTEND,
+  WINDOW_IDLE_MS,
+  WINDOW_MAX_ROWS,
+  WINDOW_ROWS,
+} from "./threadWindow";
+import type { LoadEarlierResult } from "./zenStore";
 import { fakeScope } from "../test/fakeScope";
 import { setZenScope } from "../test/zenScopeMock";
 
@@ -134,6 +143,15 @@ function firstVisible(): number {
   const at = layout();
   for (const r of drawn()) if ((at.get(r) ?? 0) + ROW > top + 1) return Number(r.getAttribute("data-seq"));
   return -1;
+}
+
+/** Last drawn row whose box starts on screen. */
+function lastVisible(): number {
+  const top = scroller().scrollTop;
+  const at = layout();
+  let seq = -1;
+  for (const r of drawn()) if ((at.get(r) ?? 0) < top + CLIENT - 1) seq = Number(r.getAttribute("data-seq"));
+  return seq;
 }
 
 async function mount() {
@@ -248,38 +266,68 @@ describe("Thread render window", () => {
     expect(atBottom()).toBe(true);
   });
 
-  it("scrolling up brings rows back from memory first, the visible row held still; then Load earlier fetches", async () => {
-    const loadEarlier = vi.fn(async () => {});
-    openRoom({ threadHasMore: true, loadEarlier });
+  it("opening draws the newest WINDOW_ROWS; scrolling up grows from memory, the visible row held still, never past WINDOW_MAX_ROWS", async () => {
+    openRoom({ thread: many(300) });
     await mount();
-    expect(seqs()[0]).toBe(100 - WINDOW_ROWS + 1);
+    expect(drawn()).toHaveLength(WINDOW_ROWS);
     // Toward the top of what is drawn.
     userScrollTo(200);
     const seen = firstVisible();
     const before = rectTop(seen);
-    // (The window grew on that scroll's frame.)
-    expect(seqs()[0]).toBe(100 - WINDOW_ROWS - WINDOW_EXTEND + 1);
+    // (The window grew on that scroll's frame, to the most ever drawn.)
+    expect(seqs()[0]).toBe(300 - WINDOW_ROWS - WINDOW_EXTEND + 1);
+    expect(drawn()).toHaveLength(WINDOW_MAX_ROWS);
     expect(rectTop(seen)).toBe(before);
-    expect(loadEarlier).not.toHaveBeenCalled();
-    // Up again until memory runs out.
-    for (let i = 0; i < 5 && seqs()[0] > 1; i++) userScrollTo(scroller().scrollTop - 1200);
-    expect(seqs()[0]).toBe(1);
-    expect(loadEarlier).not.toHaveBeenCalled();
-    act(() => {
-      fireEvent.click(screen.getByTestId("load-earlier"));
-    });
-    expect(loadEarlier).toHaveBeenCalledTimes(1);
+    // Up again: rows come in at the top and leave at the bottom (a spacer
+    // of their height keeps the geometry); never more than the cap.
+    for (let i = 0; i < 4; i++) {
+      userScrollTo(scroller().scrollTop - 800);
+      expect(drawn().length).toBeLessThanOrEqual(WINDOW_MAX_ROWS);
+    }
+    expect(seqs()).not.toContain(300);
+    expect(screen.getByTestId("thread-window-below")).not.toBeNull();
+    const seen2 = firstVisible();
+    const before2 = rectTop(seen2);
+    userScrollTo(scroller().scrollTop - 300);
+    expect(rectTop(seen2) - before2).toBe(300);
   });
 
-  it("Load earlier tapped with more in memory draws it, no fetch", async () => {
-    const loadEarlier = vi.fn(async () => {});
-    openRoom({ threadHasMore: true, loadEarlier });
+  it("scrolling back down brings the bottom rows back and drops the top, never past WINDOW_MAX_ROWS", async () => {
+    openRoom({ thread: many(300) });
     await mount();
+    for (let i = 0; i < 8; i++) userScrollTo(scroller().scrollTop - 800);
+    expect(seqs()).not.toContain(300);
+    const height = contentHeight();
+    for (let i = 0; i < 60 && !seqs().includes(300); i++) {
+      // A row in the lower half of the view: still in view after.
+      const seen = lastVisible();
+      const before = rectTop(seen);
+      userScrollTo(scroller().scrollTop + 300);
+      expect(drawn().length).toBeLessThanOrEqual(WINDOW_MAX_ROWS);
+      // The row in view moved exactly as far as the scroll.
+      expect(before - rectTop(seen)).toBe(300);
+    }
+    expect(seqs()).toContain(300);
+    expect(contentHeight()).toBe(height);
+    // The rows that left the top stand as a spacer of their height.
+    expect(screen.getByTestId("thread-window-above")).not.toBeNull();
+  });
+
+  it("leaving the chat and coming back draws the newest WINDOW_ROWS again", async () => {
+    openRoom({ thread: many(300) });
+    await mount();
+    for (let i = 0; i < 6; i++) userScrollTo(scroller().scrollTop - 800);
+    expect(seqs()).not.toContain(300);
+    act(() => useZenStore.setState({ agentId: "", thread: [] }));
+    act(() => useZenStore.setState({ agentId: "appa", thread: many(300) }));
+    flushRaf();
     act(() => {
-      fireEvent.click(screen.getByTestId("load-earlier"));
+      vi.advanceTimersByTime(1);
     });
-    expect(loadEarlier).not.toHaveBeenCalled();
-    expect(seqs()[0]).toBe(100 - WINDOW_ROWS - WINDOW_EXTEND + 1);
+    flushRaf();
+    expect(drawn()).toHaveLength(WINDOW_ROWS);
+    expect(seqs()[seqs().length - 1]).toBe(300);
+    expect(atBottom()).toBe(true);
   });
 
   it("rows far below the view leave once quiet and come back before the reader gets there", async () => {
@@ -347,5 +395,223 @@ describe("Thread render window under a busy stream", () => {
     }
     expect(drawn().length).toBeLessThanOrEqual(WINDOW_ROWS + 3);
     expect(seqs()[seqs().length - 1]).toBe(110);
+  });
+});
+
+/** A stand-in for the store's `loadEarlier`: one page at a time, landed
+ *  (or failed) by the test. */
+function pager() {
+  let settle: ((r: LoadEarlierResult) => void) | null = null;
+  const fn = vi.fn(
+    () =>
+      new Promise<LoadEarlierResult>((done) => {
+        useZenStore.setState({ threadLoadingEarlier: true });
+        settle = done;
+      })
+  );
+  const land = async (older: ThreadMessage[], more: boolean) => {
+    await act(async () => {
+      useZenStore.setState({
+        thread: [...older, ...useZenStore.getState().thread],
+        threadHasMore: more,
+        threadLoadingEarlier: false,
+      });
+      settle?.("loaded");
+    });
+  };
+  const fail = async () => {
+    await act(async () => {
+      useZenStore.setState({ threadLoadingEarlier: false });
+      settle?.("failed");
+    });
+  };
+  return { fn, land, fail };
+}
+const olderPage = (from: number, n: number) =>
+  Array.from({ length: n }, (_, i) => msg(from + i));
+/** Up until everything in memory is drawn. */
+function scrollToTopOfMemory() {
+  for (let i = 0; i < 12 && seqs()[0] !== useZenStore.getState().thread[0].seq; i++) {
+    userScrollTo(scroller().scrollTop - 800);
+  }
+  expect(seqs()[0]).toBe(useZenStore.getState().thread[0].seq);
+}
+/** Past the rest after a page (the next may go out). */
+function rest() {
+  act(() => {
+    vi.advanceTimersByTime(OLDER_COOLDOWN_MS + 1);
+  });
+}
+
+describe("Thread lazy loading (older pages as the reader scrolls up)", () => {
+  it("nearing the top fetches exactly one page, and only once memory is drawn", async () => {
+    const p = pager();
+    openRoom({ thread: many(100), threadHasMore: true, loadEarlier: p.fn });
+    await mount();
+    scrollToTopOfMemory();
+    expect(p.fn).not.toHaveBeenCalled();
+    // The next scroll near the top: the page goes out.
+    userScrollTo(100);
+    expect(p.fn).toHaveBeenCalledTimes(1);
+    // More scrolling while it is out: still one.
+    userScrollTo(scroller().scrollTop + 40);
+    userScrollTo(0);
+    userScrollTo(5);
+    expect(p.fn).toHaveBeenCalledTimes(1);
+    // A small spinner in the top slot; no "Load earlier" button anywhere.
+    expect(screen.getByTestId("thread-older-loading")).not.toBeNull();
+    expect(screen.queryByText(/load earlier/i)).toBeNull();
+  });
+
+  it("the page lands above the window: nothing moves; it is drawn once the scroll settles, the visible row held still", async () => {
+    const p = pager();
+    openRoom({ thread: many(100), threadHasMore: true, loadEarlier: p.fn });
+    await mount();
+    scrollToTopOfMemory();
+    userScrollTo(100);
+    expect(p.fn).toHaveBeenCalledTimes(1);
+    const seen = firstVisible();
+    const before = rectTop(seen);
+    const top = scroller().scrollTop;
+    await p.land(olderPage(-49, 50), true);
+    // Held out of the DOM: same rows, same place.
+    expect(seqs()[0]).toBe(1);
+    expect(scroller().scrollTop).toBe(top);
+    expect(rectTop(seen)).toBe(before);
+    expect(screen.queryByTestId("thread-older-loading")).toBeNull();
+    // Mid-scroll (a fling) with the top still more than half a screen
+    // away: the never-drawn rows wait…
+    userScrollTo(500);
+    const seen2 = firstVisible();
+    const before2 = rectTop(seen2);
+    expect(seqs()[0]).toBe(1);
+    // …and come in once it is quiet, the row in view not moving.
+    idle();
+    expect(seqs()[0]).toBeLessThan(1);
+    expect(drawn().length).toBeLessThanOrEqual(WINDOW_MAX_ROWS);
+    expect(rectTop(seen2)).toBe(before2);
+  });
+
+  it("near the drawn top mid-scroll, a landed page comes in at once (no wall)", async () => {
+    const p = pager();
+    openRoom({ thread: many(100), threadHasMore: true, loadEarlier: p.fn });
+    await mount();
+    scrollToTopOfMemory();
+    userScrollTo(0);
+    await p.land(olderPage(-49, 50), true);
+    userScrollTo(40);
+    const seen = firstVisible();
+    const before = rectTop(seen);
+    userScrollTo(scroller().scrollTop - 10);
+    expect(seqs()[0]).toBeLessThan(1);
+    expect(rectTop(seen) - before).toBe(10);
+  });
+
+  it("the next page goes out on a later scroll near the top, after a short rest", async () => {
+    const p = pager();
+    openRoom({ thread: many(100), threadHasMore: true, loadEarlier: p.fn });
+    await mount();
+    scrollToTopOfMemory();
+    userScrollTo(0);
+    await p.land(olderPage(-49, 50), true);
+    idle();
+    rest();
+    scrollToTopOfMemory();
+    userScrollTo(100);
+    userScrollTo(0);
+    expect(p.fn).toHaveBeenCalledTimes(2);
+  });
+
+  it("no fetch on open, on the progressive first paint, or while following at the bottom", async () => {
+    const p = pager();
+    // A short chat: everything in memory is drawn from the start.
+    openRoom({ thread: many(20), threadHasMore: true, loadEarlier: p.fn });
+    render(<ThreadPane />);
+    flushRaf();
+    idle();
+    expect(p.fn).not.toHaveBeenCalled();
+    expect(atBottom()).toBe(true);
+    // The reader's own scroll at the bottom: still following, no fetch.
+    userScrollTo(scroller().scrollTop);
+    userScrollTo(scroller().scrollTop - 5);
+    idle();
+    expect(p.fn).not.toHaveBeenCalled();
+    cleanup();
+    // A long chat on its first (progressive) frame.
+    openRoom({ thread: many(100), threadHasMore: true, loadEarlier: p.fn });
+    render(<ThreadPane />);
+    userScrollTo(0);
+    expect(p.fn).not.toHaveBeenCalled();
+  });
+
+  it("a failed page shows a Retry line instead of trying again; tapping it fetches again", async () => {
+    const p = pager();
+    openRoom({ thread: many(100), threadHasMore: true, loadEarlier: p.fn });
+    await mount();
+    scrollToTopOfMemory();
+    userScrollTo(100);
+    expect(p.fn).toHaveBeenCalledTimes(1);
+    const slot = screen.getByTestId("thread-older").style.height;
+    await p.fail();
+    const retry = screen.getByTestId("thread-older-retry");
+    expect(retry.textContent).toMatch(/Couldn.t load earlier · Retry/);
+    expect(screen.getByTestId("thread-older").style.height).toBe(slot);
+    // No loop: scrolling near the top again does not fetch.
+    rest();
+    userScrollTo(scroller().scrollTop + 30);
+    userScrollTo(0);
+    idle();
+    expect(p.fn).toHaveBeenCalledTimes(1);
+    act(() => {
+      fireEvent.click(retry);
+    });
+    expect(p.fn).toHaveBeenCalledTimes(2);
+    expect(screen.queryByTestId("thread-older-retry")).toBeNull();
+    expect(screen.getByTestId("thread-older-loading")).not.toBeNull();
+  });
+
+  it("nothing more on the server: no fetch, and no top slot", async () => {
+    const p = pager();
+    openRoom({ thread: many(100), threadHasMore: false, loadEarlier: p.fn });
+    await mount();
+    scrollToTopOfMemory();
+    userScrollTo(0);
+    userScrollTo(20);
+    idle();
+    expect(p.fn).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("thread-older")).toBeNull();
+  });
+
+  it("the last page: the slot keeps its room (empty), so the rows do not jump", async () => {
+    const p = pager();
+    openRoom({ thread: many(100), threadHasMore: true, loadEarlier: p.fn });
+    await mount();
+    scrollToTopOfMemory();
+    userScrollTo(100);
+    const seen = firstVisible();
+    const before = rectTop(seen);
+    await p.land([], false);
+    expect(screen.getByTestId("thread-older").textContent).toBe("");
+    expect(rectTop(seen)).toBe(before);
+    rest();
+    userScrollTo(0);
+    expect(p.fn).toHaveBeenCalledTimes(1);
+  });
+
+  it("a project chat (no older reads) grows from memory but never fetches", async () => {
+    const p = pager();
+    openRoom({
+      thread: many(100),
+      threadHasMore: true,
+      threadAddr: null,
+      threadGroupId: "g1",
+      loadEarlier: p.fn,
+    });
+    await mount();
+    scrollToTopOfMemory();
+    userScrollTo(0);
+    idle();
+    expect(p.fn).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("thread-older")).toBeNull();
   });
 });

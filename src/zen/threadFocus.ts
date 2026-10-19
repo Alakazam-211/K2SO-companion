@@ -3,7 +3,7 @@ import { useZenStore } from "./zenStore";
 
 /** Query key a push tap adds to `/zen?addr=`: the message to land on. */
 export const ZEN_SEQ_PARAM = "seq";
-/** At most this many "Load earlier" pages while looking for the seq. */
+/** At most this many older pages fetched while looking for the seq. */
 export const FOCUS_MAX_PAGES = 4;
 /** How long the landed message stays highlighted. */
 export const FOCUS_HIGHLIGHT_MS = 2000;

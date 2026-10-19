@@ -2,8 +2,12 @@
 // cache) but only a window of rows in the DOM. Two-ended:
 //   - following at the newest: the newest WINDOW_ROWS; as messages come in,
 //     the oldest drop off (at an idle moment, far above the view);
-//   - scrolled up: rows far above or below the view drop off too, and come
-//     back (WINDOW_EXTEND at a time) before the reader reaches them.
+//   - scrolled up: rows come back (WINDOW_EXTEND at a time) before the
+//     reader reaches them — from memory first, then the server's older
+//     page (fetched on its own as the top nears; no "Load earlier" tap);
+//   - never more than WINDOW_MAX_ROWS drawn: growing at one end drops rows
+//     at the other (never one on screen), and rows far past the view drop
+//     off once scrolling is quiet.
 // Rows that left are replaced by a spacer of their measured height, so
 // scrollHeight and what is on screen never move; a row never measured
 // (above: older than anything drawn; below: an arrival while scrolled up)
@@ -12,20 +16,32 @@
 //
 // The window is kept by row keys, not indices: messages arriving (end) or
 // loaded earlier (start) do not move it. `lo: null` = from the first
-// message in memory (a "Load earlier" page shows at once); `hi: null` =
+// message in memory (an older page shows at once, unless ThreadPane holds
+// it above the window until the reader nears it); `hi: null` =
 // through the newest (arrivals show at once).
 
-/** Rows drawn while following the newest. The one knob: the rest derive
- *  from it. */
+/** Rows drawn on opening a chat (and coming back to it), and while
+ *  following the newest. */
 export const WINDOW_ROWS = 30;
+/** The most rows ever drawn: growing past it drops rows at the far end. */
+export const WINDOW_MAX_ROWS = 50;
 /** Rows brought back at a time as the reader nears an edge. */
-export const WINDOW_EXTEND = WINDOW_ROWS;
+export const WINDOW_EXTEND = WINDOW_MAX_ROWS - WINDOW_ROWS;
 /** A push-tap target outside the window: drawn with this many above… */
 export const WINDOW_FOCUS_ABOVE = Math.round(WINDOW_ROWS / 3);
 /** …and this many below. */
 export const WINDOW_FOCUS_BELOW = WINDOW_ROWS - WINDOW_FOCUS_ABOVE - 1;
 /** Bring rows back when the drawn edge is within this many screens. */
 export const WINDOW_RESPAWN_SCREENS = 1.5;
+/** Rows never drawn yet (no measured height: they move what is on
+ *  screen when they come in) wait for scrolling to stop — a fling keeps
+ *  its momentum — unless the drawn top is closer than this many screens. */
+export const WINDOW_SETTLE_SCREENS = 0.5;
+/** Fetch the server's older page once the top of everything in memory is
+ *  within this many screens of the view. */
+export const OLDER_PREFETCH_SCREENS = WINDOW_RESPAWN_SCREENS;
+/** Quiet time (ms) after an older page before the next may be fetched. */
+export const OLDER_COOLDOWN_MS = 250;
 /** Drop rows more than this many screens past the view… */
 export const WINDOW_KEEP_SCREENS = 2;
 /** …once that is at least this many rows (no churn for a few). */
@@ -66,6 +82,30 @@ export function pinWindow(keys: readonly string[], range: WindowRange): ThreadWi
     lo: range.lo <= 0 ? null : keys[range.lo] ?? null,
     hi: range.hi >= keys.length ? null : keys[range.hi - 1] ?? null,
   };
+}
+
+/** Grow `range` by `extend` rows at `edge`, keeping at most `max` drawn:
+ *  past it, rows at the other end leave — but never one of `keep` (the
+ *  rows on screen), which may leave the window a little over `max`.
+ *  Returns `range` itself when there is nothing to add at that edge. */
+export function growWindow(
+  range: WindowRange,
+  len: number,
+  edge: "top" | "bottom",
+  keep: WindowRange,
+  extend = WINDOW_EXTEND,
+  max = WINDOW_MAX_ROWS
+): WindowRange {
+  if (edge === "top") {
+    if (range.lo <= 0) return range;
+    const lo = Math.max(0, range.lo - extend);
+    const hi = Math.max(Math.min(range.hi, lo + max), Math.min(range.hi, keep.hi));
+    return { lo, hi };
+  }
+  if (range.hi >= len) return range;
+  const hi = Math.min(len, range.hi + extend);
+  const lo = Math.min(Math.max(range.lo, hi - max), Math.max(range.lo, keep.lo));
+  return { lo, hi };
 }
 
 /** A window drawing message `idx` (a push-tap target) with some context. */

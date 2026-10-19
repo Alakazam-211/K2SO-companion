@@ -61,7 +61,7 @@ import {
 } from "./threadTurn";
 import { ThreadWorkingStrip } from "./ThreadWorkingStrip";
 import { isSendableAddr } from "./sendGate";
-import { sourceWord, useZenStore } from "./zenStore";
+import { sourceWord, useZenStore, type LoadEarlierResult } from "./zenStore";
 import { SESSION_UNAVAILABLE } from "./sessionReturn";
 import { zenTextPx } from "./zenFont";
 import { useZenScope, zenScope } from "./zenScope";
@@ -105,12 +105,16 @@ import { MessageFiles, patchThreadFileState, useThreadFilesOn } from "./ThreadFi
 import { AttachmentSheet, type OpenAttachment } from "./AttachmentSheet";
 import { sameMessage } from "./threadCacheMerge";
 import {
-  WINDOW_EXTEND,
+  OLDER_COOLDOWN_MS,
+  OLDER_PREFETCH_SCREENS,
   WINDOW_IDLE_MS,
   WINDOW_KEEP_SCREENS,
+  WINDOW_MAX_ROWS,
   WINDOW_RESPAWN_SCREENS,
   WINDOW_ROWS,
+  WINDOW_SETTLE_SCREENS,
   WINDOW_TRIM_MIN,
+  growWindow,
   measureRows,
   pinWindow,
   resolveWindow,
@@ -136,6 +140,23 @@ export const NEW_BELOW_SETTLE_MS = 450;
  *  next idle frame (prepended above, the view pinned to the bottom). */
 export const PROGRESSIVE_MIN = 30;
 export const PROGRESSIVE_FIRST = 15;
+/** Height (px) of the top slot (older-page spinner / Retry). */
+const OLDER_SLOT_PX = 32;
+
+/** The open Thread can fetch an older page from its server: an agent
+ *  Thread (a project chat has no "before" read — its window still grows
+ *  from memory), live, with more there, none in flight. */
+function canPageOlder(s: ReturnType<typeof useZenStore.getState>): boolean {
+  return (
+    s.agentSource !== "stub" &&
+    s.threadSource === "live" &&
+    !s.threadHolding &&
+    s.threadHasMore &&
+    !!s.threadAddr &&
+    !(s.threadGroupId || "").trim() &&
+    !s.threadLoadingEarlier
+  );
+}
 
 /** Same message as far as a row draws it (the store may hand over a new
  *  object for an unchanged message: a re-read, a cache swap). */
@@ -636,7 +657,6 @@ export function ThreadPane({
   const doneMode = Boolean(drawerOrigin) && drawerOrigin !== agentId;
   const hasMore = useZenStore((s) => s.threadHasMore);
   const loadingEarlier = useZenStore((s) => s.threadLoadingEarlier);
-  const loadEarlier = useZenStore((s) => s.loadEarlier);
   const answerChoice = useZenStore((s) => s.answerChoice);
   const answeringId = useZenStore((s) => s.answeringId);
   const answerError = useZenStore((s) => s.answerError);
@@ -812,6 +832,25 @@ export function ThreadPane({
   const winTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const winRaf = useRef(0);
   const [, bumpWindow] = useReducer((n: number) => n + 1, 0);
+  // Older pages (lazy, as the reader nears the top): one in flight; a
+  // short rest after each; the reader's own scroll asks for the check;
+  // the first message in memory when the fetch went out — the page lands
+  // above it, outside the window, so nothing on screen moves until the
+  // window grows over it (held still, after a fling stops). A failure
+  // shows "Retry" for this chat instead of trying again by itself.
+  const olderBusy = useRef(false);
+  const olderRest = useRef(0);
+  const olderAsk = useRef(false);
+  const olderHold = useRef<{ agent: string; key: string } | null>(null);
+  const [olderFailed, setOlderFailed] = useState<string | null>(null);
+  const olderFailedRef = useRef(olderFailed);
+  olderFailedRef.current = olderFailed;
+  // The keyboard moving: no fetch then.
+  const motionRef = useRef(viewportMotion);
+  motionRef.current = viewportMotion;
+  // The top slot (spinner / Retry): once shown in this chat it keeps its
+  // height, so its content coming and going never moves the rows.
+  const olderSlotFor = useRef<string | null>(null);
   // The working strip's turn. The gate drops a catch-up answer that raced
   // an activity frame (the frame is newer) or a later catch-up (a late
   // `{turn:null}` must not clear a live strip).
@@ -1088,6 +1127,9 @@ export function ThreadPane({
     setAttachments([]);
     setAttachError(null);
     setFly(null);
+    setOlderFailed(null);
+    olderHold.current = null;
+    olderAsk.current = false;
     glider.cancel();
   }, [agentId]);
 
@@ -1315,24 +1357,62 @@ export function ThreadPane({
     });
   }
 
-  async function onLoadEarlier() {
+  /** Fetch the next older page (the lazy load, or Retry's tap). */
+  async function fetchOlder() {
+    if (olderBusy.current || !canPageOlder(useZenStore.getState())) return;
+    const agent = agentId;
+    const first = winDrawn.current?.keys[0];
+    olderBusy.current = true;
+    olderHold.current = first ? { agent, key: first } : null;
+    setOlderFailed(null);
+    const before = useZenStore.getState().thread.length;
+    let result: LoadEarlierResult = "skipped";
+    try {
+      result = await useZenStore.getState().loadEarlier();
+    } finally {
+      olderBusy.current = false;
+      olderRest.current = Date.now() + OLDER_COOLDOWN_MS;
+      // Nothing landed above it: nothing to hold.
+      if (result !== "loaded" || useZenStore.getState().thread.length === before) {
+        olderHold.current = null;
+      }
+    }
+    if (result === "failed" && useZenStore.getState().agentId === agent) setOlderFailed(agent);
+  }
+
+  /** The reader (not our own scroll) is near the top of everything in
+   *  memory, scrolled up, and the server has more: fetch it. Not while
+   *  following, during a glide, a send, a push-tap landing, an anchor
+   *  restore or keyboard motion; not on the progressive first paint;
+   *  not again after a failure (Retry). */
+  function maybeLoadOlder() {
     const el = scrollerRef.current;
-    // Opening history is reading it: stop following the tail.
-    following.current = false;
-    // Still in memory (above the render window): draw it, no fetch.
     const view = winDrawn.current;
-    if (view && !view.limited && view.lo > 0) {
-      setWindow(pinWindow(view.keys, { lo: Math.max(0, view.lo - WINDOW_EXTEND), hi: view.hi }), true);
+    if (!el || !view || view.limited || view.lo > 0 || !view.keys.length) return;
+    if (following.current || olderBusy.current || Date.now() < olderRest.current) return;
+    if (olderFailedRef.current === agentId) return;
+    if (
+      pendingAnchor.current ||
+      interactiveRef.current ||
+      motionRef.current ||
+      flyBusy.current ||
+      focusSeqRef.current != null ||
+      glider.moving() ||
+      glider.holding()
+    ) {
       return;
     }
-    if (el) {
-      const msgs = Array.from(
-        el.querySelectorAll<HTMLElement>("[data-thread-msg]")
-      );
-      pendingAnchor.current = captureTopMessage(el, msgs);
-    }
-    await loadEarlier();
+    if (!canPageOlder(useZenStore.getState())) return;
+    const first = windowRows()[0];
+    const ch = el.clientHeight;
+    if (!first || !(ch > 0)) return;
+    const st = el.scrollTop;
+    const y = first.getBoundingClientRect().top - el.getBoundingClientRect().top + st;
+    if (y <= st - OLDER_PREFETCH_SCREENS * ch) return;
+    void fetchOlder();
   }
+  const olderCheckRef = useRef(maybeLoadOlder);
+  olderCheckRef.current = maybeLoadOlder;
 
   /** Deliver, or queue while the room's server is down (auto reconnect):
    *  a send that failed because the server did not answer waits too. */
@@ -1567,7 +1647,8 @@ export function ThreadPane({
         return "done";
       }
       if (hi - lo <= WINDOW_ROWS) return "done";
-      if (!idle) return "busy";
+      // Past the most ever drawn (a burst of arrivals): trim now.
+      if (!idle && hi - lo <= WINDOW_MAX_ROWS) return "busy";
       // The oldest drawn drop off, far above the view.
       const start = Math.max(0, len - WINDOW_ROWS);
       const leaving = drawn.filter((r) => {
@@ -1587,13 +1668,40 @@ export function ThreadPane({
     const y = (r: HTMLElement) => r.getBoundingClientRect().top - scTop + st;
     const first = drawn[0];
     const last = drawn[drawn.length - 1];
-    // Near a drawn edge with more in memory: bring rows back first.
-    if (lo > 0 && y(first) > st - WINDOW_RESPAWN_SCREENS * ch) {
-      setWindow(pinWindow(keys, { lo: Math.max(0, lo - WINDOW_EXTEND), hi }), true);
-      return "done";
+    // The rows on screen: never dropped to make room (none: no limit).
+    const seen: WindowRange = { lo: len, hi: 0 };
+    for (const r of drawn) {
+      const top = y(r);
+      if (top + r.offsetHeight <= st || top >= st + ch) continue;
+      const at = indexOf(r);
+      if (at < 0) continue;
+      seen.lo = Math.min(seen.lo, at);
+      seen.hi = Math.max(seen.hi, at + 1);
     }
-    if (hi < len && y(last) + last.offsetHeight < st + ch + WINDOW_RESPAWN_SCREENS * ch) {
-      setWindow(pinWindow(keys, { lo, hi: Math.min(len, hi + WINDOW_EXTEND) }), true);
+    /** Draw `next`; rows leaving it (the far end, past WINDOW_MAX_ROWS)
+     *  leave their measured height behind. */
+    const resize = (next: WindowRange) => {
+      const leaving = drawn.filter((r) => {
+        const at = indexOf(r);
+        return at >= 0 && (at < next.lo || at >= next.hi);
+      });
+      rememberHeights(leaving);
+      setWindow(pinWindow(keys, next), true);
+    };
+    // Near a drawn edge with more in memory: bring rows back first. Rows
+    // never drawn (an older page; above a fresh open's window) move what
+    // is on screen as they come in: mid-scroll — a fling — they wait for
+    // it to stop, unless the drawn top is already close.
+    if (lo > 0 && y(first) > st - WINDOW_RESPAWN_SCREENS * ch) {
+      const next = growWindow({ lo, hi }, len, "top", seen);
+      const heights = winHeights.current.px;
+      const unmeasured = keys.slice(next.lo, lo).some((k) => !heights.has(k));
+      if (!unmeasured || idle || y(first) > st - WINDOW_SETTLE_SCREENS * ch) {
+        resize(next);
+        return "done";
+      }
+    } else if (hi < len && y(last) + last.offsetHeight < st + ch + WINDOW_RESPAWN_SCREENS * ch) {
+      resize(growWindow({ lo, hi }, len, "bottom", seen));
       return "done";
     }
     if (!idle) return "done";
@@ -1747,6 +1855,13 @@ export function ThreadPane({
       range = resolveWindow(threadKeys, winSpec);
     }
   }
+  // An older page just landed above the window's top: it stays out of the
+  // DOM (no spacer: never measured) until the reader nears it.
+  const hold = olderHold.current;
+  if (hold && hold.agent === agentId && focusSeq == null && range.lo === 0) {
+    const at = threadKeys.indexOf(hold.key);
+    if (at > 0) range = { lo: at, hi: Math.max(range.hi, at + 1) };
+  }
   // Progressive first paint: just the newest few on the first frame.
   const firstShown = limited ? Math.max(range.lo, thread.length - PROGRESSIVE_FIRST) : range.lo;
   const lastShown = limited ? thread.length : range.hi;
@@ -1778,6 +1893,9 @@ export function ThreadPane({
       winRef.current = thread.length
         ? { agent: agentId, win: pinWindow(winView.keys, winView) }
         : null;
+      // The held page is outside the window now, pinned by key: done.
+      const held = olderHold.current;
+      if (held && winView.lo > 0 && winView.keys[winView.lo] === held.key) olderHold.current = null;
     }
     // A window change keeps the row under the reader's eye where it was
     // (a no-op when the spacer it replaced was exact).
@@ -1798,6 +1916,16 @@ export function ThreadPane({
     }
     scheduleWindowIdle();
   });
+
+  // The top slot: a spinner while an older page loads, "Retry" after one
+  // failed, else empty (its room kept once shown, so nothing moves).
+  const olderFailedHere = olderFailed === agentId;
+  const olderPageable =
+    source === "live" && hasMore && !!threadAddr && !groupId && !holding;
+  const olderSlot =
+    !limited &&
+    (olderPageable || loadingEarlier || olderFailedHere || olderSlotFor.current === agentId);
+  if (olderSlot) olderSlotFor.current = agentId;
 
   const empty =
     (source === "live" || source === "stub") &&
@@ -1833,6 +1961,11 @@ export function ThreadPane({
             winRaf.current = requestAnimationFrame(() => {
               winRaf.current = 0;
               reconcileRef.current(false);
+              // The reader's scroll near the top: the next older page.
+              if (olderAsk.current) {
+                olderAsk.current = false;
+                olderCheckRef.current();
+              }
             });
           }
           scheduleWindowIdle();
@@ -1851,6 +1984,8 @@ export function ThreadPane({
             // The reader scrolled up past the threshold.
             following.current = false;
           }
+          // Checked on the next frame (with the window's own check).
+          if (!following.current) olderAsk.current = true;
         }}
       >
         {/* Scroll range above the view while the keyboard is up (empty,
@@ -1920,16 +2055,30 @@ export function ThreadPane({
                   No messages yet
                 </span>
               ) : null}
-              {!limited && ((hasMore && source === "live") || firstShown > 0) ? (
-                <button
-                  type="button"
-                  data-testid="load-earlier"
-                  onClick={() => void onLoadEarlier()}
-                  disabled={loadingEarlier}
-                  className="self-center text-[13px] text-[var(--text-muted)] py-2"
+              {olderSlot ? (
+                <div
+                  className="shrink-0 flex items-center justify-center"
+                  style={{ height: OLDER_SLOT_PX }}
+                  data-testid="thread-older"
                 >
-                  {loadingEarlier ? "Loading…" : "Load earlier messages"}
-                </button>
+                  {loadingEarlier ? (
+                    <span
+                      role="status"
+                      aria-label="Loading earlier messages"
+                      data-testid="thread-older-loading"
+                      className="block w-4 h-4 rounded-full border-2 border-[var(--text-muted)] border-t-transparent opacity-60 animate-spin motion-reduce:animate-none"
+                    />
+                  ) : olderFailedHere ? (
+                    <button
+                      type="button"
+                      data-testid="thread-older-retry"
+                      onClick={() => void fetchOlder()}
+                      className="text-[12px] text-[var(--text-muted)] px-3 py-1"
+                    >
+                      Couldn’t load earlier · Retry
+                    </button>
+                  ) : null}
+                </div>
               ) : null}
               {topSpacer > 0 ? (
                 <div
