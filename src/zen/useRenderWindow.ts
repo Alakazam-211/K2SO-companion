@@ -5,12 +5,9 @@ import {
   resolveWindow,
   spacerAbove,
   spacerBelow,
-  WINDOW_EXTEND,
   WINDOW_IDLE_MS,
-  WINDOW_KEEP_SCREENS,
   WINDOW_RESPAWN_SCREENS,
   WINDOW_ROWS,
-  WINDOW_TRIM_MIN,
   type ThreadWindow,
   type WindowRange,
 } from "./threadWindow";
@@ -20,18 +17,33 @@ import {
 // comments). ThreadPane runs the same rules inline, woven into its
 // progressive paint, earlier pages and push-tap targets.
 //
+// Sizes (Rosson, 2026-10-18): a list opens with RENDER_WINDOW_OPEN_ROWS
+// (30) drawn; reading on, rows are drawn RENDER_WINDOW_STEP at a time
+// before the reader reaches a drawn edge, and the window grows to at most
+// RENDER_WINDOW_MAX_ROWS (50). Past that, each step drops as many rows at
+// the far end (the end the reader is reading away from), a spacer of their
+// measured height standing in; reading back draws them again and drops
+// from the other end. Leaving the list and coming back: 30 again.
+//
 // A fresh list is drawn from its FIRST row (a ticket is top-aligned: it
-// opens on the brief, the oldest comments under it): the first WINDOW_ROWS,
-// and arrivals draw at once while that is the whole list. Following the
-// newest (after Send, "New comment ↓"), the window is the newest
-// WINDOW_ROWS and the oldest drop off once scrolling is quiet. Anywhere
-// else, rows come back (WINDOW_EXTEND at a time) before the reader reaches
-// a drawn edge and rows far past the view leave once quiet. Rows that left
-// are a spacer of their measured height (never measured: 0 above, an
-// estimate below), and a window change holds the row under the reader's
-// eye where it was.
+// opens on the brief, the oldest comments under it), and arrivals draw at
+// once while that is the whole list. Following the newest (after Send,
+// "New comment ↓"), the window is the newest 30 and the oldest drop off
+// once scrolling is quiet. Rows never measured count 0 above and an
+// estimate below; a window change holds the row under the reader's eye
+// where it was. Only the edge the reader is scrolling toward grows (a
+// window at the cap would otherwise see-saw between its two edges), and a
+// row still on screen never drops, even if that leaves the window a
+// little over 50 (rows shorter than a screen / 50).
 //
 // Rows in the window carry `data-win-row` and `data-row-key`.
+
+/** Rows drawn when a list opens (and while following the newest). */
+export const RENDER_WINDOW_OPEN_ROWS = WINDOW_ROWS;
+/** The most rows drawn at once while reading through a list. */
+export const RENDER_WINDOW_MAX_ROWS = 50;
+/** Rows drawn (and, at the cap, dropped at the far end) per step. */
+export const RENDER_WINDOW_STEP = RENDER_WINDOW_MAX_ROWS - RENDER_WINDOW_OPEN_ROWS;
 
 export type RenderWindowOptions = {
   /** The list's identity (the ticket): a new one starts a fresh window. */
@@ -74,6 +86,9 @@ export function useRenderWindow(o: RenderWindowOptions): RenderWindow {
   const stickNext = useRef(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const raf = useRef(0);
+  /** Which way the reader last scrolled: -1 up, 1 down, 0 not yet. */
+  const dir = useRef(0);
+  const lastTop = useRef(0);
   const [, bump] = useReducer((n: number) => n + 1, 0);
 
   const { room, keys } = o;
@@ -83,7 +98,7 @@ export function useRenderWindow(o: RenderWindowOptions): RenderWindow {
   if (!winRef.current && keys.length) {
     winRef.current = {
       room,
-      win: pinWindow(keys, { lo: 0, hi: Math.min(keys.length, WINDOW_ROWS) }),
+      win: pinWindow(keys, { lo: 0, hi: Math.min(keys.length, RENDER_WINDOW_OPEN_ROWS) }),
     };
   }
   const range = resolveWindow(keys, winRef.current?.win ?? null);
@@ -139,9 +154,9 @@ export function useRenderWindow(o: RenderWindowOptions): RenderWindow {
         setWindow(pinWindow(k, { lo, hi: len }), false);
         return "done";
       }
-      if (hi - lo <= WINDOW_ROWS) return "done";
+      if (hi - lo <= RENDER_WINDOW_OPEN_ROWS) return "done";
       if (!idle) return "busy";
-      const start = Math.max(0, len - WINDOW_ROWS);
+      const start = Math.max(0, len - RENDER_WINDOW_OPEN_ROWS);
       rememberHeights(
         shown.filter((r) => {
           const at = indexOf(r);
@@ -158,29 +173,39 @@ export function useRenderWindow(o: RenderWindowOptions): RenderWindow {
     const y = (r: HTMLElement) => r.getBoundingClientRect().top - scTop + st;
     const first = shown[0];
     const last = shown[shown.length - 1];
-    if (lo > 0 && y(first) > st - WINDOW_RESPAWN_SCREENS * ch) {
-      setWindow(pinWindow(k, { lo: Math.max(0, lo - WINDOW_EXTEND), hi }), true);
+    // Rows that may drop: wholly off screen.
+    const clearAbove = (r: HTMLElement) => y(r) + r.offsetHeight <= st;
+    const clearBelow = (r: HTMLElement) => y(r) >= st + ch;
+    const up = dir.current <= 0;
+    const down = dir.current >= 0;
+    if (up && lo > 0 && y(first) > st - WINDOW_RESPAWN_SCREENS * ch) {
+      // Reading up: draw a step above; at the cap, drop as many below.
+      const nextLo = Math.max(0, lo - RENDER_WINDOW_STEP);
+      let nextHi = hi;
+      const leaving: HTMLElement[] = [];
+      for (let i = shown.length - 1; i > 0 && nextHi - nextLo > RENDER_WINDOW_MAX_ROWS; i--) {
+        if (!clearBelow(shown[i]) || indexOf(shown[i]) !== nextHi - 1) break;
+        leaving.push(shown[i]);
+        nextHi--;
+      }
+      rememberHeights(leaving);
+      setWindow(pinWindow(k, { lo: nextLo, hi: nextHi }), true);
       return "done";
     }
-    if (hi < len && y(last) + last.offsetHeight < st + ch + WINDOW_RESPAWN_SCREENS * ch) {
-      setWindow(pinWindow(k, { lo, hi: Math.min(len, hi + WINDOW_EXTEND) }), true);
+    if (down && hi < len && y(last) + last.offsetHeight < st + ch + WINDOW_RESPAWN_SCREENS * ch) {
+      // Reading down: draw a step below; at the cap, drop as many above.
+      const nextHi = Math.min(len, hi + RENDER_WINDOW_STEP);
+      let nextLo = lo;
+      const leaving: HTMLElement[] = [];
+      for (let i = 0; i < shown.length - 1 && nextHi - nextLo > RENDER_WINDOW_MAX_ROWS; i++) {
+        if (!clearAbove(shown[i]) || indexOf(shown[i]) !== nextLo) break;
+        leaving.push(shown[i]);
+        nextLo++;
+      }
+      rememberHeights(leaving);
+      setWindow(pinWindow(k, { lo: nextLo, hi: nextHi }), true);
       return "done";
     }
-    if (!idle) return "done";
-    const keepFrom = st - WINDOW_KEEP_SCREENS * ch;
-    const keepTo = st + ch + WINDOW_KEEP_SCREENS * ch;
-    let up = 0;
-    while (up < shown.length - 1 && y(shown[up]) + shown[up].offsetHeight < keepFrom) up++;
-    let down = 0;
-    while (down < shown.length - 1 - up && y(shown[shown.length - 1 - down]) > keepTo) down++;
-    if (up < WINDOW_TRIM_MIN) up = 0;
-    if (down < WINDOW_TRIM_MIN) down = 0;
-    if (!up && !down) return "done";
-    rememberHeights([...shown.slice(0, up), ...shown.slice(shown.length - down)]);
-    const nextLo = up ? indexOf(shown[up]) : lo;
-    const nextHi = down ? indexOf(shown[shown.length - 1 - down]) + 1 : hi;
-    if (nextLo < 0 || nextHi <= nextLo) return "done";
-    setWindow(pinWindow(k, { lo: nextLo, hi: nextHi }), true);
     return "done";
   }
   const reconcileRef = useRef(reconcile);
@@ -232,7 +257,7 @@ export function useRenderWindow(o: RenderWindowOptions): RenderWindow {
         onScrollWrite?.(el.scrollTop);
       }
     }
-    if (k.length > WINDOW_ROWS || range.lo > 0 || range.hi < k.length) scheduleIdle.current();
+    if (k.length > RENDER_WINDOW_OPEN_ROWS || range.lo > 0 || range.hi < k.length) scheduleIdle.current();
   });
 
   return {
@@ -247,9 +272,15 @@ export function useRenderWindow(o: RenderWindowOptions): RenderWindow {
       rememberHeights(rows());
       stickNext.current = stick;
       const k = view?.keys ?? opts.current.keys;
-      setWindow(pinWindow(k, { lo: Math.max(0, k.length - WINDOW_ROWS), hi: k.length }), false);
+      setWindow(pinWindow(k, { lo: Math.max(0, k.length - RENDER_WINDOW_OPEN_ROWS), hi: k.length }), false);
     },
     onScroll() {
+      const el = opts.current.scroller();
+      if (el) {
+        const top = el.scrollTop;
+        if (top !== lastTop.current) dir.current = top < lastTop.current ? -1 : 1;
+        lastTop.current = top;
+      }
       if (!raf.current && typeof requestAnimationFrame === "function") {
         raf.current = requestAnimationFrame(() => {
           raf.current = 0;

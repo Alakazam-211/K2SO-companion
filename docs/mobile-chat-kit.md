@@ -475,6 +475,27 @@ DOM. The logic is in `threadWindow.ts`, which has one knob:
   at the oldest comment and grows down as the reader goes. The brief and
   answer cards are outside the window and always drawn. Sends not yet shown
   back are always drawn.
+- **The ticket's sizes** (`useRenderWindow.ts`, Rosson 2026-10-18):
+  - It opens with `RENDER_WINDOW_OPEN_ROWS` (30) rows. Reading on draws
+    `RENDER_WINDOW_STEP` (20) more at a time, up to
+    `RENDER_WINDOW_MAX_ROWS` (50).
+  - Past 50, each step drops as many rows at the far end (the end the
+    reader is moving away from), with a measured spacer in their place.
+    Reading back redraws them and drops rows from the other end.
+  - Only the edge the reader is scrolling toward grows, because a window
+    at the cap would otherwise see-saw between its edges.
+  - A row still on screen never drops.
+  - Leaving and coming back starts at 30 again.
+- **Pages load themselves.** No list has a "Show more" or "Load more"
+  button. The Sessions drawer's History loads its next page within 240px
+  of the bottom:
+  - single-flight;
+  - never on the first paint;
+  - a small spinner while loading, nothing at the end;
+  - "Couldn't load more · Retry" if the page failed.
+
+  The ticket's comments and the Tickets list are not paged: `show` and the
+  list return everything, and the window keeps the DOM small.
 - The Thread's first paint is also progressive: a chat that opens with
   more than 30 messages draws its newest 15 first and the rest on the next
   frame.

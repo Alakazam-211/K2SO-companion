@@ -36,7 +36,8 @@ import type { FeedbackComment, FeedbackShow } from "../api/feedback";
 import { useFeedbackStore } from "../stores/feedback";
 import { useComposerDrafts } from "./composerDrafts";
 import { TicketView } from "./TicketView";
-import { WINDOW_EST_ROW_PX, WINDOW_EXTEND, WINDOW_IDLE_MS, WINDOW_ROWS } from "./threadWindow";
+import { WINDOW_EST_ROW_PX, WINDOW_IDLE_MS, WINDOW_ROWS } from "./threadWindow";
+import { RENDER_WINDOW_MAX_ROWS, RENDER_WINDOW_OPEN_ROWS, RENDER_WINDOW_STEP } from "./useRenderWindow";
 
 // ── A tiny layout: the scroller is 600 tall at the top of the screen; its
 // content is the comment list's children stacked (a row is 50px, a spacer
@@ -243,32 +244,61 @@ describe("Ticket render window", () => {
     expect(screen.queryByTestId("ticket-window-below")).toBeNull();
   });
 
-  it("reading down brings rows back from memory before the reader gets there, nothing moving", () => {
+  it("opens at 30, grows to 50 at most (constants)", () => {
+    expect(RENDER_WINDOW_OPEN_ROWS).toBe(30);
+    expect(RENDER_WINDOW_MAX_ROWS).toBe(50);
+    expect(WINDOW_ROWS).toBe(RENDER_WINDOW_OPEN_ROWS);
+  });
+
+  it("reading down draws more from memory before the reader gets there, up to 50, nothing moving", () => {
     mount(300);
     userScrollTo(200);
     const seen = firstVisible();
     const before = rectTop(seen);
-    expect(drawn()).toHaveLength(WINDOW_ROWS + WINDOW_EXTEND);
-    expect(nums()[nums().length - 1]).toBe(WINDOW_ROWS + WINDOW_EXTEND);
+    expect(drawn()).toHaveLength(RENDER_WINDOW_OPEN_ROWS + RENDER_WINDOW_STEP);
+    expect(drawn()).toHaveLength(RENDER_WINDOW_MAX_ROWS);
+    expect(nums()[0]).toBe(1);
     expect(rectTop(seen)).toBe(before);
   });
 
-  it("rows far above leave once quiet: a spacer of their measured height, the view held still", () => {
+  it("past 50 the far end (above) drops for a spacer of its measured height; reading back up redraws it and drops below", () => {
     mount(300);
-    for (let i = 0; i < 6; i++) userScrollTo(scroller().scrollTop + 1000);
-    const height = contentHeight();
-    const top = scroller().scrollTop;
-    const seen = firstVisible();
-    const before = rectTop(seen);
-    idle();
+    for (let i = 0; i < 6; i++) {
+      const target = scroller().scrollTop + 1000;
+      const seen = firstVisible();
+      userScrollTo(target);
+      // Each step: never over 50, and the window change (rows drawn below,
+      // rows dropped above for a spacer) moves nothing on screen.
+      expect(drawn().length).toBeLessThanOrEqual(RENDER_WINDOW_MAX_ROWS);
+      expect(scroller().scrollTop).toBe(target);
+      expect(seen).toBeGreaterThan(0);
+    }
     expect(nums()[0]).toBeGreaterThan(1);
     const above = screen.getByTestId("ticket-window-above");
     expect(above.style.height).toBe(`${(nums()[0] - 1) * ROW}px`);
-    expect(contentHeight()).toBe(height);
-    expect(scroller().scrollTop).toBe(top);
-    expect(rectTop(seen)).toBe(before);
-    // And they come back on the way up.
-    for (let i = 0; i < 40 && nums()[0] > 1; i++) userScrollTo(scroller().scrollTop - 400);
+    // A window change holds the view: same content height above the view.
+    const seen = firstVisible();
+    const before = rectTop(seen);
+    const top = scroller().scrollTop;
+    userScrollTo(top + 1);
+    expect(rectTop(seen)).toBe(before - 1);
+    // Back up: rows come back above, the far end (below) drops; ≤ 50 throughout.
+    for (let i = 0; i < 60 && nums()[0] > 1; i++) {
+      userScrollTo(scroller().scrollTop - 400);
+      expect(drawn().length).toBeLessThanOrEqual(RENDER_WINDOW_MAX_ROWS);
+    }
+    expect(nums()[0]).toBe(1);
+    expect(drawn()).toHaveLength(RENDER_WINDOW_MAX_ROWS);
+    expect(screen.queryByTestId("ticket-window-above")).toBeNull();
+  });
+
+  it("leaving the ticket and coming back opens at 30 again", () => {
+    mount(300);
+    for (let i = 0; i < 3; i++) userScrollTo(scroller().scrollTop + 1000);
+    expect(drawn().length).toBeGreaterThan(RENDER_WINDOW_OPEN_ROWS);
+    cleanup();
+    mount(300);
+    expect(drawn()).toHaveLength(RENDER_WINDOW_OPEN_ROWS);
     expect(nums()[0]).toBe(1);
   });
 
