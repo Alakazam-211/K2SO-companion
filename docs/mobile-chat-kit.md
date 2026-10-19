@@ -107,7 +107,12 @@ height excludes that padding (`composerBlockHeight`), so nothing
 re-measures per frame. **Blur on own hide:** an interactive dismiss or
 backgrounding can hide the keyboard while WebKit keeps the field focused
 (8px gap stays, a tap no longer raises the keyboard) — on a Will*Hide we
-blur the field, as UIKit resigns the first responder. Android: no
+blur the field, as UIKit resigns the first responder. Never while the app
+is leaving the screen (the shell sends `active:false` on that Will* and
+skips its own `endEditing`): a focus change in the background can hang
+UIKit's keyboard queue until the watchdog kills the app (0x8BADF00D,
+TestFlight 202610181404). That blur waits until the app is back, unless
+iOS brings the keyboard back first. Android: no
 transitions (no keyboard timing from the shell).
 
 ### 4. Interactive dismiss — attach to scroll (`useKeyboardDrag`, `keyboardDragDock.ts`)

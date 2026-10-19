@@ -515,8 +515,8 @@ mod ios_keyboard {
             _ => "null".to_string(),
         };
         let js = format!(
-            "window.__k2KeyboardWill && window.__k2KeyboardWill({{height:{:.1},duration:{:.0},curve:{},show:{},at:{:.2},fromTop:{},scrollY:{}}});",
-            overlap, duration_ms, curve, show, at, from, scroll
+            "window.__k2KeyboardWill && window.__k2KeyboardWill({{height:{:.1},duration:{:.0},curve:{},show:{},at:{:.2},fromTop:{},scrollY:{},active:{}}});",
+            overlap, duration_ms, curve, show, at, from, scroll, app_active()
         );
         eval_js(wk, &js);
     }
@@ -1092,6 +1092,24 @@ mod ios_keyboard {
         });
     }
 
+    /// True while the app is in the foreground (UIApplicationStateActive).
+    /// A keyboard hide that comes from the app leaving the screen (Home,
+    /// app switcher, lock) must not end the input session from here: in the
+    /// background UIKit's keyboard task queue can wait forever on a
+    /// programmatic focus change, which hangs the main thread until the
+    /// watchdog kills the app (0x8BADF00D, TestFlight 202610181404). iOS
+    /// puts the keyboard back on its own when the app returns.
+    fn app_active() -> bool {
+        unsafe {
+            let app: *mut AnyObject = msg_send![class!(UIApplication), sharedApplication];
+            if app.is_null() {
+                return true;
+            }
+            let state: i64 = msg_send![app, applicationState];
+            state == 0
+        }
+    }
+
     fn live_webview() -> Option<*mut AnyObject> {
         let wk = WEBVIEW.load(Ordering::Acquire);
         if wk.is_null() {
@@ -1120,7 +1138,7 @@ mod ios_keyboard {
             stop_sampling();
         }
         if let Some(wk) = live_webview() {
-            if !coming_back {
+            if !coming_back && app_active() {
                 // The keyboard is gone. If it went by an interactive dismiss
                 // (or on its own), WebKit's content view can still be the
                 // first responder with its input view hidden: the next tap on
