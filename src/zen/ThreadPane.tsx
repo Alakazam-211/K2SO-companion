@@ -179,7 +179,7 @@ function sameRowProps<P extends { m: ThreadMessage }>(a: P, b: P): boolean {
  *  memoized body is not re-rendered for a new-but-equal style. */
 type BodyStyle = { color: string; fontSize: string };
 const bodyStyles = new Map<string, BodyStyle>();
-function bubbleBodyStyle(): BodyStyle {
+export function bubbleBodyStyle(): BodyStyle {
   const px = zenTextPx(BUBBLE_TEXT_PX);
   let st = bodyStyles.get(px);
   if (!st) {
@@ -558,13 +558,14 @@ export function threadBottomPadding(composerPx: number, drawerCover: number): st
 export { COMPOSER_FOCUSED_ATTR };
 
 /** The pane's handle on the composer's text (read on Send / Edit). */
-type DraftApi = { get(): string; set(text: string): void };
+export type DraftApi = { get(): string; set(text: string): void };
 
 /** GlassComposer holding the room's draft (kept per room, composerDrafts)
- *  in its own state: typing re-renders this, not the Thread around it.
+ *  in its own state: typing re-renders this, not the Thread (or the open
+ *  ticket) around it.
  *  `onBlankChange` fires (in the same batch) only when the text turns
  *  blank or not blank. */
-function ThreadDraftComposer({
+export function ThreadDraftComposer({
   draftKey,
   apiRef,
   onBlankChange,

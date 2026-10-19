@@ -37,13 +37,15 @@ export type RowPreview =
   | { kind: "label"; text: string }
   | { kind: "snippet"; mine: boolean; nodes: InlineNode[] };
 
+const PROJECT_CHAT_LABEL: RowPreview = { kind: "label", text: "Project Chat" };
+
 /** Line two for a row. `last` (from `previewByKey`): undefined = not
  *  fetched yet; null = the Thread has no messages. Render with `RowSnippet`. */
 export function rowPreviewFor(
   row: OverlayPreviewInput,
   last?: RowLast | null
 ): RowPreview {
-  if (row.kind === "group") return { kind: "label", text: "Project Chat" };
+  if (row.kind === "group") return PROJECT_CHAT_LABEL;
   if (row.joinMiss) return { kind: "label", text: row.joinMiss };
   const addr = (row.addr || "").trim();
   if (addr.includes("/")) {
@@ -59,9 +61,33 @@ export function overlayRowPreview(row: OverlayPreviewInput, last?: RowLast | nul
   return rowPreviewText(rowPreviewFor(row, last));
 }
 
+const LOADING: RowPreview = { kind: "loading" };
+const EMPTY: RowPreview = { kind: "empty" };
+/** Line two per `last` entry: the lists re-render often (activity polls,
+ *  search keystrokes, unread), and a row's snippet is parsed once per
+ *  message, not once per render — and is the same object, so a memoized
+ *  RowSnippet skips. Checked against the fields it was made from. */
+const parsed = new WeakMap<RowLast, { from: RowLast; preview: RowPreview }>();
+
 export function lastPreview(last: RowLast | null | undefined): RowPreview {
-  if (last === undefined) return { kind: "loading" };
-  if (last === null) return { kind: "empty" };
+  if (last === undefined) return LOADING;
+  if (last === null) return EMPTY;
+  const hit = parsed.get(last);
+  if (
+    hit &&
+    hit.from.text === last.text &&
+    hit.from.kind === last.kind &&
+    hit.from.mine === last.mine &&
+    hit.from.flat === last.flat
+  ) {
+    return hit.preview;
+  }
+  const preview = parseLastPreview(last);
+  parsed.set(last, { from: { ...last }, preview });
+  return preview;
+}
+
+function parseLastPreview(last: RowLast): RowPreview {
   if (last.kind === "secret") {
     return { kind: "snippet", mine: last.mine, nodes: [SECRET_TEXT] };
   }
