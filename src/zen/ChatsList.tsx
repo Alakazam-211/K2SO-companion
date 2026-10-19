@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode }
 import { useSearchParams } from "react-router-dom";
 import {
   fullViewportHeight,
-  useViewport,
+  useViewportSettledWhile,
   useViewportTrackRef,
 } from "../lib/useViewportHeight";
 import { keyboardColumnHeight, useKeyboardFlip } from "../kit/mobileChat/useKeyboardFlip";
@@ -188,7 +188,10 @@ type ListItem =
 const PIN_SHIFT_TRANSITION = "transform 220ms cubic-bezier(.2,.8,.2,1)";
 
 export function ChatsList() {
-  const viewport = useViewport();
+  const zenScreen = useZenStore((s) => s.screen);
+  // Behind an open chat the list stays mounted but hidden: it follows the
+  // viewport only once the keyboard settles, not every step of it.
+  const viewport = useViewportSettledWhile(zenScreen === "thread");
   const {
     height: containerHeight,
     offsetTop: viewportTop,
@@ -211,7 +214,6 @@ export function ChatsList() {
   const previewByKey = useZenStore((s) => s.previewByKey);
   const activity = useZenStore((s) => s.activity);
   const chatSessions = useZenStore((s) => s.chatSessions);
-  const zenScreen = useZenStore((s) => s.screen);
   const refreshActivity = useZenStore((s) => s.refreshActivity);
   const pinnedIds = useZenStore((s) => s.pinnedIds);
   const serverProjects = useZenStore((s) => s.serverProjects);

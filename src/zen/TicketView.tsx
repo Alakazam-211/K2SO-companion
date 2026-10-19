@@ -24,9 +24,9 @@ import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { useFeedbackStore } from "../stores/feedback";
 import { BriefCard, BriefReader, useBriefDoc } from "./TicketBrief";
 import { GlassComposer, settledHeight } from "./GlassComposer";
-import { keyboardMotionMs, useViewport, useViewportPadRef } from "../lib/useViewportHeight";
+import { useViewport, useViewportPadRef } from "../lib/useViewportHeight";
 import { useKeyboardFlip } from "../kit/mobileChat/useKeyboardFlip";
-import { useComposerFocusGap } from "../kit/mobileChat/useComposerFocusGap";
+import { easeGapShift, useComposerFocusGap } from "../kit/mobileChat/useComposerFocusGap";
 import { CHAT_CONTENT_CLASS, useScrollRoom } from "../kit/mobileChat/useScrollRoom";
 import { useKeyboardDrag } from "../kit/mobileChat/useKeyboardDrag";
 import { useTapToDismiss } from "../kit/mobileChat/useTapToDismiss";
@@ -437,8 +437,8 @@ const NO_COMMENTS: FeedbackComment[] = [];
 
 
 /** The dock's height above the composer bar's bottom gap: the scroller's
- *  `.mchat-gap` spacer adds that gap and eases with it (mobile chat kit),
- *  so this stays put while the gap eases with the keyboard. */
+ *  `.mchat-gap` spacer adds that gap (mobile chat kit), so this stays put
+ *  while the bar's padding eases with the keyboard. */
 export function ticketDockBlockPx(dock: HTMLElement): number {
   const h = settledHeight(dock);
   const bar = dock.querySelector<HTMLElement>('[data-testid="ticket-composer-bar"]');
@@ -691,13 +691,15 @@ export function TicketView({
     return () => ro.disconnect();
   }, []);
 
-  const stickIfFollowing = () => {
+  /** Re-stick if following; true when it did. */
+  const stickIfFollowing = (): boolean => {
     const el = scrollerRef.current;
-    if (!el || interactiveRef.current) return;
+    if (!el || interactiveRef.current) return false;
     const follow = following.current ?? nearNewest(el);
-    if (!follow) return;
+    if (!follow) return false;
     stickToNewest(el);
     lastTop.current = el.scrollTop;
+    return true;
   };
   const scrollRoom = useRef<{ dropNow(): void } | null>(null);
   // Keyboard show / hide on the compositor (FLIP).
@@ -739,19 +741,16 @@ export function TicketView({
     composerPx: dockPx > 0 ? dockPx + 8 : 0,
     enabled: item != null && linked,
   });
-  // The composer's bottom gap eases with the keyboard; stick through it.
+  // The composer's bottom gap changes with the keyboard (the spacer at
+  // once): re-stick once and ease the move on the compositor.
   useComposerFocusGap({
     root: () => swipeRef.current,
     bar: () =>
       swipeRef.current?.querySelector<HTMLElement>('[data-testid="ticket-composer-bar"]') ?? null,
     onChange: () => {
-      stickIfFollowing();
-      const until = Date.now() + keyboardMotionMs() + 80;
-      const tick = () => {
-        stickIfFollowing();
-        if (Date.now() < until) requestAnimationFrame(tick);
-      };
-      if (typeof requestAnimationFrame === "function") requestAnimationFrame(tick);
+      const before = lastTop.current;
+      const el = scrollerRef.current;
+      if (el && stickIfFollowing()) easeGapShift(contentRef.current, el.scrollTop - before);
     },
   });
   // A tap on the conversation (not on a control) closes the keyboard.
@@ -1301,7 +1300,7 @@ export function TicketView({
           </>
         )}
         </div>
-        {/* The composer's bottom gap (eases with the bar's padding,
+        {/* The composer's bottom gap (the bar's padding's, at once;
             mobile chat kit) and the keyboard's height during a drag. */}
         {item && linked ? (
           <div aria-hidden="true" className="mchat-gap" data-testid="ticket-composer-gap" />

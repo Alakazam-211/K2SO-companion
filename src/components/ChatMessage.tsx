@@ -2,13 +2,21 @@
 // Port of K2 `src/renderer/components/common/ChatMessage.tsx`:
 // full-width attributed cards (not left/right bubbles) + GFM markdown.
 
-import type { CSSProperties, ReactNode } from "react";
+import { memo, useMemo, type CSSProperties, type ReactNode } from "react";
 import remarkGfm from "remark-gfm";
 import Markdown from "./Markdown";
 import { authorTint } from "../lib/authorTint";
 import { linkifyFileMentions } from "../zen/chatLinks";
 
-export function ChatMessageBody({
+/** One plugin list for every body: a new array each render would rebuild
+ *  ReactMarkdown's processor for nothing. */
+const REMARK_PLUGINS = [remarkGfm];
+
+/** A message body. Memoized: the markdown is parsed again only when its
+ *  text (or link handler) changes, not on every re-render of the list
+ *  around it (typing, the keyboard, activity frames). Pass a stable
+ *  `style` object to skip the re-render altogether. */
+export const ChatMessageBody = memo(function ChatMessageBody({
   text,
   className = "",
   style,
@@ -19,17 +27,23 @@ export function ChatMessageBody({
   style?: CSSProperties;
   onFileLink?: (ref: string) => void;
 }) {
+  const body = useMemo(
+    () => (
+      <Markdown remarkPlugins={REMARK_PLUGINS} onFileLink={onFileLink}>
+        {linkifyFileMentions(text)}
+      </Markdown>
+    ),
+    [text, onFileLink]
+  );
   return (
     <div
       className={`markdown-content chat-markdown ${className}`.trim()}
       style={style}
     >
-      <Markdown remarkPlugins={[remarkGfm]} onFileLink={onFileLink}>
-        {linkifyFileMentions(text)}
-      </Markdown>
+      {body}
     </div>
   );
-}
+});
 
 export function ChatMessage({
   author,

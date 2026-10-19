@@ -503,10 +503,9 @@ mod ios_keyboard {
         if !rec_tail(duration_ms) {
             stop_sampling();
         }
+        // The scroll views get interactive dismiss on DidShow (one walk
+        // per show), not on every Will* (WillShow + WillChangeFrame).
         KEYBOARD_UP.store(show, Ordering::Release);
-        if show {
-            set_interactive_dismiss(wk);
-        }
         let from = match from_top {
             Some(v) if v.is_finite() => format!("{:.2}", v),
             _ => "null".to_string(),
@@ -584,10 +583,14 @@ mod ios_keyboard {
         unsafe { msg_send![cls, instancesRespondToSelector: sel!(setKeyboardDismissPadding:)] }
     }
 
-    /// Store the padding and apply it to the live web view's scroll views.
+    /// Store the padding; with the keyboard up, apply it to the live web
+    /// view's scroll views now (else the next DidShow walk applies it).
     pub fn set_dismiss_padding(webview_ptr: *mut std::ffi::c_void, px: f64) {
         let px = if px.is_finite() { px.clamp(0.0, 400.0) } else { 0.0 };
-        DISMISS_PADDING.store(px.to_bits(), Ordering::Release);
+        let was = DISMISS_PADDING.swap(px.to_bits(), Ordering::AcqRel);
+        if was == px.to_bits() || !KEYBOARD_UP.load(Ordering::Acquire) {
+            return;
+        }
         let wk: *mut AnyObject = webview_ptr.cast();
         if !wk.is_null() {
             set_interactive_dismiss(wk);
@@ -675,6 +678,9 @@ mod ios_keyboard {
         started: Option<std::time::Instant>,
         /// Recorder only: the release animation is being recorded until then.
         tail_until: Option<std::time::Instant>,
+        /// The keyboard's host view and its window, found once per run
+        /// (not by searching the scene's windows every frame).
+        host: Option<(objc2::rc::Retained<AnyObject>, objc2::rc::Retained<AnyObject>)>,
     }
 
     thread_local! {
@@ -689,6 +695,7 @@ mod ios_keyboard {
             pan_view: None,
             started: None,
             tail_until: None,
+            host: None,
         });
     }
 
@@ -818,8 +825,9 @@ mod ios_keyboard {
         None
     }
 
-    /// Keyboard overlap of the web view per the keyboard's host view.
-    fn host_overlap(wk: *mut AnyObject) -> Option<f64> {
+    /// The keyboard's host view (and its window) in the web view's scene,
+    /// by class name; None when there is none.
+    fn find_keyboard_host(wk: *mut AnyObject) -> Option<(*mut AnyObject, *mut AnyObject)> {
         unsafe {
             let window: *mut AnyObject = msg_send![wk, window];
             if window.is_null() {
@@ -839,26 +847,67 @@ mod ios_keyboard {
                 if w.is_null() || w == window {
                     continue;
                 }
-                let Some(host) = find_view_named(w, b"UIInputSetHostView", 0) else {
-                    continue;
-                };
-                let hb: CGRect = msg_send![host, bounds];
-                let in_window: CGRect =
-                    msg_send![host, convertRect: hb, toView: std::ptr::null_mut::<AnyObject>()];
                 let screen: *mut AnyObject = msg_send![w, screen];
                 if screen.is_null() {
                     continue;
                 }
-                let space: *mut AnyObject = msg_send![screen, coordinateSpace];
-                if space.is_null() {
-                    continue;
+                if let Some(host) = find_view_named(w, b"UIInputSetHostView", 0) {
+                    return Some((host, w));
                 }
-                let on_screen: CGRect =
-                    msg_send![w, convertRect: in_window, toCoordinateSpace: space];
-                return Some(keyboard_overlap(wk, on_screen));
             }
             None
         }
+    }
+
+    /// Keyboard overlap of the web view per a host view found by
+    /// `find_keyboard_host`; None once it left its window (re-find then).
+    fn host_overlap_of(wk: *mut AnyObject, host: *mut AnyObject, w: *mut AnyObject) -> Option<f64> {
+        unsafe {
+            let in_w: *mut AnyObject = msg_send![host, window];
+            if in_w != w {
+                return None;
+            }
+            let hb: CGRect = msg_send![host, bounds];
+            if hb.size.height <= 0.0 {
+                return None;
+            }
+            let in_window: CGRect =
+                msg_send![host, convertRect: hb, toView: std::ptr::null_mut::<AnyObject>()];
+            let screen: *mut AnyObject = msg_send![w, screen];
+            if screen.is_null() {
+                return None;
+            }
+            let space: *mut AnyObject = msg_send![screen, coordinateSpace];
+            if space.is_null() {
+                return None;
+            }
+            let on_screen: CGRect = msg_send![w, convertRect: in_window, toCoordinateSpace: space];
+            Some(keyboard_overlap(wk, on_screen))
+        }
+    }
+
+    /// Keyboard overlap of the web view per the keyboard's host view: the
+    /// one cached for this sampling run while it is still in place, else
+    /// found again (and cached).
+    fn host_overlap(wk: *mut AnyObject) -> Option<f64> {
+        let cached = TRACK.with(|t| {
+            t.borrow()
+                .host
+                .as_ref()
+                .map(|(h, w)| (objc2::rc::Retained::as_ptr(h) as *mut AnyObject, objc2::rc::Retained::as_ptr(w) as *mut AnyObject))
+        });
+        if let Some((h, w)) = cached {
+            if let Some(o) = host_overlap_of(wk, h, w) {
+                return Some(o);
+            }
+        }
+        let found = find_keyboard_host(wk);
+        let retained = found.and_then(|(h, w)| unsafe {
+            Some((objc2::rc::Retained::retain(h)?, objc2::rc::Retained::retain(w)?))
+        });
+        TRACK.with(|t| t.borrow_mut().host = retained);
+        let (h, w) = found?;
+        host_overlap_of(wk, h, w)
     }
 
     /// One sample to the page: the keyboard's top (web view px) and the
@@ -1005,6 +1054,7 @@ mod ios_keyboard {
             t.fresh = true;
             t.sampler.reset();
             t.started = Some(std::time::Instant::now());
+            t.host = None;
         });
         unsafe {
             let link: *mut AnyObject = msg_send![link_class, displayLinkWithTarget: observer, selector: sel!(k2KeyboardTick:)];
@@ -1038,6 +1088,7 @@ mod ios_keyboard {
             t.pan_view = None;
             t.started = None;
             t.tail_until = None;
+            t.host = None;
         });
     }
 

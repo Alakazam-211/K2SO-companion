@@ -1,4 +1,14 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useReducer,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { SENDING_OPACITY, useDeliverBrighten } from "./useDeliverBrighten";
 import { chatRuns, receiptFor, receiptRow } from "./chatReceipt";
 import { getThreadActivity, uploadFsBinary } from "../api/client";
@@ -13,10 +23,19 @@ import {
   workspaceHandleOf,
 } from "./composerAttach";
 import { loadGroupPoc, type GroupPoc } from "./groupPoc";
-import { GlassComposer, composerBlockHeight, composerPlaceholder } from "./GlassComposer";
-import { keyboardMotionMs, useViewportPadRef, type ViewportMotion } from "../lib/useViewportHeight";
+import {
+  GlassComposer,
+  composerBlockHeight,
+  composerPlaceholder,
+  type GlassComposerProps,
+} from "./GlassComposer";
+import { useViewportPadRef, type ViewportMotion } from "../lib/useViewportHeight";
 import { useKeyboardFlip } from "../kit/mobileChat/useKeyboardFlip";
-import { COMPOSER_FOCUSED_ATTR, useComposerFocusGap } from "../kit/mobileChat/useComposerFocusGap";
+import {
+  COMPOSER_FOCUSED_ATTR,
+  easeGapShift,
+  useComposerFocusGap,
+} from "../kit/mobileChat/useComposerFocusGap";
 import { CHAT_CONTENT_CLASS, useScrollRoom } from "../kit/mobileChat/useScrollRoom";
 import { useKeyboardDrag } from "../kit/mobileChat/useKeyboardDrag";
 import { useTapToDismiss } from "../kit/mobileChat/useTapToDismiss";
@@ -84,6 +103,23 @@ import { useUnreadStore } from "./unreadStore";
 import { useMarkReadWhileViewing } from "./unreadRead";
 import { MessageFiles, patchThreadFileState, useThreadFilesOn } from "./ThreadFiles";
 import { AttachmentSheet, type OpenAttachment } from "./AttachmentSheet";
+import { sameMessage } from "./threadCacheMerge";
+import {
+  WINDOW_EXTEND,
+  WINDOW_IDLE_MS,
+  WINDOW_KEEP_SCREENS,
+  WINDOW_RESPAWN_SCREENS,
+  WINDOW_ROWS,
+  WINDOW_TRIM_MIN,
+  measureRows,
+  pinWindow,
+  resolveWindow,
+  spacerAbove,
+  spacerBelow,
+  windowAround,
+  type ThreadWindow,
+  type WindowRange,
+} from "./threadWindow";
 import type { ThreadAttachment } from "../api/threadAttachmentPure";
 
 /** No workspace folder to upload into (no usable path / no PoC yet). */
@@ -101,7 +137,38 @@ export const NEW_BELOW_SETTLE_MS = 450;
 export const PROGRESSIVE_MIN = 30;
 export const PROGRESSIVE_FIRST = 15;
 
-function Bubble({
+/** Same message as far as a row draws it (the store may hand over a new
+ *  object for an unchanged message: a re-read, a cache swap). */
+function sameRowMessage(a: ThreadMessage, b: ThreadMessage): boolean {
+  return a === b || sameMessage(a, b);
+}
+
+/** Props equal, `m` by content: a row re-renders only when it changed. */
+function sameRowProps<P extends { m: ThreadMessage }>(a: P, b: P): boolean {
+  for (const k in a) {
+    if (k === "m") {
+      if (!sameRowMessage(a.m, b.m)) return false;
+    } else if (!Object.is(a[k], b[k])) return false;
+  }
+  for (const k in b) if (!(k in a)) return false;
+  return true;
+}
+
+/** The markdown body's style for a text size: one object per size, so the
+ *  memoized body is not re-rendered for a new-but-equal style. */
+type BodyStyle = { color: string; fontSize: string };
+const bodyStyles = new Map<string, BodyStyle>();
+function bubbleBodyStyle(): BodyStyle {
+  const px = zenTextPx(BUBBLE_TEXT_PX);
+  let st = bodyStyles.get(px);
+  if (!st) {
+    st = { color: "#fff", fontSize: px };
+    bodyStyles.set(px, st);
+  }
+  return st;
+}
+
+const Bubble = memo(function Bubble({
   m,
   onFileLink,
   canAnswer,
@@ -123,9 +190,9 @@ function Bubble({
   answerHeld?: boolean;
   answering: boolean;
   answerError: string | null;
-  onAnswer: (option: string) => void;
-  /** An outgoing bubble's file names (uploads may still be running). */
-  attachments?: string[];
+  onAnswer: (id: string, option: string) => void;
+  /** An outgoing bubble's files (uploads may still be running). */
+  attachments?: readonly File[];
   /** Laid out but hidden while its send animation flies in. */
   flying?: boolean;
   /** Reduced motion: just fade in. */
@@ -171,7 +238,7 @@ function Bubble({
             <ChatMessageBody
               text={choice.prompt}
               className="!p-0 text-white"
-              style={{ color: "#fff", fontSize: zenTextPx(BUBBLE_TEXT_PX) }}
+              style={bubbleBodyStyle()}
               onFileLink={onFileLink}
             />
           ) : null}
@@ -187,7 +254,7 @@ function Bubble({
                     type="button"
                     disabled={!tappable}
                     aria-pressed={picked}
-                    onClick={() => onAnswer(o)}
+                    onClick={() => onAnswer(m.id, o)}
                     className="rounded-full px-3 py-1.5 text-[15px] leading-none border"
                     style={{
                       borderColor: picked ? "#fff" : "rgba(255,255,255,0.4)",
@@ -218,7 +285,7 @@ function Bubble({
             <ChatMessageBody
               text={m.text}
               className="!p-0 text-white"
-              style={{ color: "#fff", fontSize: zenTextPx(BUBBLE_TEXT_PX) }}
+              style={bubbleBodyStyle()}
               onFileLink={onFileLink}
             />
           ) : null}
@@ -227,13 +294,13 @@ function Bubble({
               className={`flex flex-col gap-0.5 ${m.text.trim() ? "mt-1" : ""}`}
               data-testid="bubble-attachments"
             >
-              {attachments.map((name, i) => (
+              {attachments.map((f, i) => (
                 <span
-                  key={`${name}-${i}`}
+                  key={`${uploadFilename(f)}-${i}`}
                   className="text-[13px] opacity-90 truncate"
                   data-testid="bubble-attachment"
                 >
-                  {name}
+                  {uploadFilename(f)}
                 </span>
               ))}
             </div>
@@ -243,7 +310,181 @@ function Bubble({
       </div>
     </div>
   );
-}
+}, sameRowProps);
+
+/** One message row: the meta line, the bubble, its files and the status
+ *  / receipt line. Memoized: typing, the keyboard, activity frames and the
+ *  drawer re-render the pane, not the rows that did not change. Every
+ *  callback it gets is stable (ThreadPane's `stableHandler`). */
+const ThreadRow = memo(function ThreadRow({
+  rowKey,
+  windowed,
+  m,
+  out,
+  files,
+  runFirst,
+  runLast,
+  spaced,
+  stub,
+  highlighted,
+  receipt,
+  canAnswer,
+  answerHeld,
+  answering,
+  answerError,
+  flying,
+  fadeIn,
+  canRestore,
+  onFileLink,
+  onAnswer,
+  onRetry,
+  onRestore,
+  onOpenFile,
+}: {
+  rowKey: string;
+  /** A thread message (in the render window), not an outgoing send. */
+  windowed: boolean;
+  m: ThreadMessage;
+  out: OutgoingMessage | null;
+  files: readonly ThreadAttachment[] | null;
+  runFirst: boolean;
+  runLast: boolean;
+  /** First of a run, not the first row: a little space above. */
+  spaced: boolean;
+  stub: boolean;
+  highlighted: boolean;
+  /** The chat's one "Delivered" / "Read" receipt sits on this row. */
+  receipt: string | undefined;
+  canAnswer: boolean;
+  answerHeld: boolean;
+  answering: boolean;
+  answerError: string | null;
+  flying: boolean;
+  fadeIn: boolean;
+  /** A "Not sent" send can go back into the (empty) composer. */
+  canRestore: boolean;
+  onFileLink?: (ref: string) => void;
+  onAnswer: (id: string, option: string) => void;
+  onRetry: (localId: string) => void;
+  onRestore: (o: OutgoingMessage) => void;
+  onOpenFile: (m: ThreadMessage, a: ThreadAttachment) => void;
+}) {
+  const wordless = !m.text.trim() && !m.choice;
+  const bubble = !(files && wordless);
+  return (
+    <div
+      data-thread-msg=""
+      data-row-key={rowKey}
+      data-win-row={windowed ? "" : undefined}
+      data-seq={m.seq ?? undefined}
+      data-outgoing={out?.status}
+      data-highlight={highlighted ? "true" : undefined}
+      data-run={runFirst && runLast ? "solo" : runFirst ? "first" : runLast ? "last" : "middle"}
+      className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}${spaced ? " mt-1.5" : ""}`}
+      style={
+        highlighted
+          ? { borderRadius: 20, boxShadow: "0 0 0 2px rgba(10,132,255,.85)", transition: "box-shadow .4s" }
+          : undefined
+      }
+    >
+      {/* Theirs: name and time on one line above the first
+          bubble of a run. Mine: no name; the time (or
+          Sending… / Not sent, or the receipt) below the last
+          of a run, where the outgoing status and its actions
+          sit — and below any send still in progress. */}
+      {!m.mine && runFirst ? (
+        <span
+          className="flex items-baseline gap-1.5 text-[11px] text-[var(--text-muted)] px-3 mb-0.5 min-w-0 max-w-full"
+          data-testid="thread-msg-meta"
+        >
+          <span className="truncate min-w-0">
+            {stub ? <StubMark /> : null}
+            {m.from}
+          </span>
+          <span className="shrink-0" aria-hidden>
+            •
+          </span>
+          <span className="shrink-0" data-testid="thread-msg-time">
+            {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
+          </span>
+        </span>
+      ) : null}
+      {bubble ? (
+        <Bubble
+          m={m}
+          onFileLink={onFileLink}
+          canAnswer={canAnswer}
+          answerHeld={answerHeld}
+          answering={answering}
+          answerError={answerError}
+          onAnswer={onAnswer}
+          attachments={out?.files.length ? out.files : undefined}
+          flying={flying}
+          fadeIn={fadeIn}
+          breathe={out?.status === "sending"}
+          tail={runLast ? (m.mine ? "mine" : "theirs") : null}
+        />
+      ) : null}
+      {files ? (
+        <MessageFiles
+          files={files}
+          mine={m.mine}
+          hasBubble={bubble}
+          onOpen={(a) => onOpenFile(m, a)}
+        />
+      ) : null}
+      {m.mine && (runLast || out != null || m.pending || m.failed) ? (
+        // One box from Send to delivered: "Sending…", then the
+        // time (or "Not sent · Retry"), or the chat's one
+        // receipt — "Delivered" / "Read", drawn over it by CSS
+        // (chatBubbles.css). Fixed height, so no swap ever
+        // moves the bubble or the rows around it.
+        <span
+          className="zen-receipt flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] text-[var(--text-muted)] px-2 mt-0.5"
+          data-testid="thread-msg-time"
+          data-status={out?.status ?? (m.failed ? "failed" : m.pending ? "sending" : "sent")}
+          data-receipt={receipt}
+        >
+          <span className="zen-receipt-status">
+          {out?.status === "failed" ? (
+            <span className="contents" data-testid="outgoing-failed">
+              <button
+                type="button"
+                className="text-[var(--warning)]"
+                data-testid="outgoing-retry"
+                aria-label="Not sent. Tap to retry"
+                title={out.error || undefined}
+                onClick={() => onRetry(out.localId)}
+              >
+                Not sent · Retry
+              </button>
+              {canRestore ? (
+                <button
+                  type="button"
+                  data-testid="outgoing-restore"
+                  onClick={() => onRestore(out)}
+                >
+                  Edit
+                </button>
+              ) : null}
+            </span>
+          ) : out?.status === "queued" ? (
+            "Waiting for connection…"
+          ) : out ? (
+            "Sending…"
+          ) : m.failed ? (
+            "Not sent"
+          ) : m.pending ? (
+            "Sending…"
+          ) : (
+            mountainTime(m.at)
+          )}
+          </span>
+        </span>
+      ) : null}
+    </div>
+  );
+}, sameRowProps);
 
 /**
  * Overlay thread pane. LOOK: iMessage in/out bubbles + Mountain Time.
@@ -277,7 +518,7 @@ export function drawerOverScroller(drawerSpace: number, rowsAboveField: boolean)
 
 /** How far (px) the newest message rests above the pane's bottom, less
  *  the bar's safe-area / keyboard gap (the scroller's `.zen-composer-gap`
- *  spacer adds that, easing with the keyboard): the composer block
+ *  spacer adds that, changing with the keyboard): the composer block
  *  floating over the scroller's bottom (rows above the field, the field)
  *  plus what the working drawer covers above the bar. */
 export function threadBottomInset(composerPx: number, drawerCover: number): number {
@@ -294,6 +535,60 @@ export function threadBottomPadding(composerPx: number, drawerCover: number): st
 }
 
 export { COMPOSER_FOCUSED_ATTR };
+
+/** The pane's handle on the composer's text (read on Send / Edit). */
+type DraftApi = { get(): string; set(text: string): void };
+
+/** GlassComposer holding the room's draft (kept per room, composerDrafts)
+ *  in its own state: typing re-renders this, not the Thread around it.
+ *  `onBlankChange` fires (in the same batch) only when the text turns
+ *  blank or not blank. */
+function ThreadDraftComposer({
+  draftKey,
+  apiRef,
+  onBlankChange,
+  hasAttachments,
+  inFlight,
+  ...props
+}: Omit<GlassComposerProps, "value" | "onChange" | "sendReady"> & {
+  draftKey: string | null;
+  apiRef: RefObject<DraftApi | null>;
+  onBlankChange: (blank: boolean) => void;
+  hasAttachments: boolean;
+  /** One send in flight per room: Send waits. */
+  inFlight: boolean;
+}) {
+  const [draft, setDraftText] = useState(() => composerDraftOf(draftKey));
+  const textRef = useRef(draft);
+  const blankRef = useRef(!draft.trim());
+  const keyRef = useRef(draftKey);
+  keyRef.current = draftKey;
+  const blankCb = useRef(onBlankChange);
+  blankCb.current = onBlankChange;
+  const show = useCallback((text: string) => {
+    textRef.current = text;
+    setDraftText(text);
+    const blank = !text.trim();
+    if (blank !== blankRef.current) {
+      blankRef.current = blank;
+      blankCb.current(blank);
+    }
+  }, []);
+  const setDraft = useCallback(
+    (text: string) => {
+      show(text);
+      useComposerDrafts.getState().setDraft(keyRef.current, text);
+    },
+    [show]
+  );
+  // Another room: its own draft.
+  useLayoutEffect(() => {
+    show(composerDraftOf(draftKey));
+  }, [draftKey, show]);
+  apiRef.current = { get: () => textRef.current, set: setDraft };
+  const sendReady = (Boolean(draft.trim()) || hasAttachments) && !inFlight;
+  return <GlassComposer {...props} value={draft} onChange={setDraft} sendReady={sendReady} />;
+}
 
 export function ThreadPane({
   viewportHeight,
@@ -392,12 +687,12 @@ export function ThreadPane({
   const canAttach = canSend && Boolean(attachWorkspace) && Boolean(attachDir);
   // The composer's text, kept per room (composerDrafts): leaving the chat
   // or relaunching the app and coming back puts an unsent draft back.
+  // The text itself lives in the composer (ThreadDraftComposer): a
+  // keystroke re-renders the field, not this pane and its rows. The pane
+  // reads it on Send / Edit and only hears when it turns blank or not.
   const draftKey = composerDraftKey(zenServer, threadGroupId, threadAddr);
-  const [draft, setDraftText] = useState(() => composerDraftOf(draftKey));
-  function setDraft(text: string) {
-    setDraftText(text);
-    useComposerDrafts.getState().setDraft(draftKey, text);
-  }
+  const draftApi = useRef<DraftApi | null>(null);
+  const [draftBlank, setDraftBlank] = useState(() => !composerDraftOf(draftKey).trim());
   const [attachments, setAttachments] = useState<File[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   // Optimistic sends (iMessage): this room's bubbles not yet confirmed.
@@ -405,7 +700,6 @@ export function ThreadPane({
   const outgoing = visibleOutgoing(outbox, thread, roomKey);
   // Double-send guard: one send in flight per room. Typing stays open.
   const inFlight = outgoing.some((o) => o.status === "sending");
-  const sendReady = Boolean(draft.trim() || attachments.length) && !inFlight;
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const chipsRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -452,9 +746,6 @@ export function ThreadPane({
   const ownTop = useRef<number | null>(null);
   const lastTop = useRef(0);
   const followRaf = useRef(0);
-  const drawerRaf = useRef(0);
-  // Until when (Date.now()) followFor keeps sticking every frame.
-  const followUntil = useRef(0);
   // Interactive keyboard dismiss (keyboardDragDock): a stand-in of the
   // dock rides the scrolled content (the drag layer) with the finger; the
   // pad keeps the list's scroll range while the column is full height;
@@ -506,6 +797,21 @@ export function ThreadPane({
   }
   const limited =
     limitedFor.current === agentId && expandedFor !== agentId && focusSeq == null && thread.length > PROGRESSIVE_FIRST;
+  const focusSeqRef = useRef(focusSeq);
+  focusSeqRef.current = focusSeq;
+  // The render window (threadWindow.ts): which messages are in the DOM,
+  // pinned by key; the measured height of each row that left it (its
+  // spacer); what the last commit drew; the row to hold still across a
+  // window change; stick once it is in (back at the newest).
+  const winRef = useRef<{ agent: string; win: ThreadWindow } | null>(null);
+  const winHeights = useRef<{ agent: string; px: Map<string, number> }>({ agent: "", px: new Map() });
+  if (winHeights.current.agent !== agentId) winHeights.current = { agent: agentId, px: new Map() };
+  const winDrawn = useRef<(WindowRange & { keys: string[]; limited: boolean }) | null>(null);
+  const winAnchor = useRef<{ el: HTMLElement; top: number } | null>(null);
+  const winStick = useRef(false);
+  const winTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const winRaf = useRef(0);
+  const [, bumpWindow] = useReducer((n: number) => n + 1, 0);
   // The working strip's turn. The gate drops a catch-up answer that raced
   // an activity frame (the frame is newer) or a later catch-up (a late
   // `{turn:null}` must not clear a live strip).
@@ -565,23 +871,16 @@ export function ThreadPane({
     });
   }
 
-  /** follow(), then keep sticking every frame for `ms` (or longer, if a
-   *  loop already running goes on past that): the scroller's bottom
-   *  padding is easing with the drawer, or the column / composer gap with
-   *  the keyboard. */
-  function followFor(ms: number) {
+  /** The composer gap changed (keyboard focus / blur): the scroller's
+   *  spacer has its new height already. Following, re-stick once and play
+   *  the move on the keyboard's timing (easeGapShift) — no per-frame
+   *  sticking or layout. */
+  function followGap() {
+    const el = scrollerRef.current;
+    if (!el || !following.current || pendingAnchor.current || interactiveRef.current) return;
+    const before = lastTop.current;
     follow();
-    if (typeof requestAnimationFrame !== "function") return;
-    const until = Math.max(followUntil.current, Date.now() + ms);
-    followUntil.current = until;
-    const tick = () => {
-      const el = scrollerRef.current;
-      if (!el || !following.current || pendingAnchor.current || interactiveRef.current) return;
-      stick(el);
-      if (Date.now() < until) drawerRaf.current = requestAnimationFrame(tick);
-    };
-    cancelAnimationFrame(drawerRaf.current);
-    drawerRaf.current = requestAnimationFrame(tick);
+    easeGapShift(contentRef.current, el.scrollTop - before);
   }
 
   /** Agent messages arrived while following (a live frame, a read, a
@@ -709,7 +1008,6 @@ export function ThreadPane({
       ro.disconnect();
       if (typeof cancelAnimationFrame === "function") {
         cancelAnimationFrame(followRaf.current);
-        cancelAnimationFrame(drawerRaf.current);
       }
     };
   }, []);
@@ -769,10 +1067,6 @@ export function ThreadPane({
     setFollowing(true);
     stick(el);
   });
-
-  useLayoutEffect(() => {
-    setDraftText(composerDraftOf(draftKey));
-  }, [draftKey]);
 
   // Typing is written to storage after a short quiet; leaving the chat or
   // the app going to the background writes it now.
@@ -937,13 +1231,13 @@ export function ThreadPane({
     composerPx: composerPx > 0 ? composerPx + 8 : 0,
   });
 
-  // The composer's bottom gap (home indicator ↔ 8px) eases with the
-  // keyboard; stick through the ease. Blur when the keyboard hides on its
-  // own.
+  // The composer's bottom gap (home indicator ↔ 8px) changes with the
+  // keyboard; the list follows it once, eased on the compositor. Blur when
+  // the keyboard hides on its own.
   useComposerFocusGap({
     root: () => rootRef.current,
     bar: () => rootRef.current?.querySelector<HTMLElement>('[data-testid="composer-bar"]') ?? null,
-    onChange: () => followFor(keyboardMotionMs() + 80),
+    onChange: followGap,
   });
 
   // A tap on the conversation (not on a link / button / chip, not a
@@ -1025,6 +1319,12 @@ export function ThreadPane({
     const el = scrollerRef.current;
     // Opening history is reading it: stop following the tail.
     following.current = false;
+    // Still in memory (above the render window): draw it, no fetch.
+    const view = winDrawn.current;
+    if (view && !view.limited && view.lo > 0) {
+      setWindow(pinWindow(view.keys, { lo: Math.max(0, view.lo - WINDOW_EXTEND), hi: view.hi }), true);
+      return;
+    }
     if (el) {
       const msgs = Array.from(
         el.querySelectorAll<HTMLElement>("[data-thread-msg]")
@@ -1104,7 +1404,7 @@ export function ThreadPane({
    *  the bubble "Sending…", fly the text into it, deliver behind it. */
   function onSend() {
     if (!canSend) return;
-    const text = draft;
+    const text = draftApi.current?.get() ?? "";
     const files = attachments;
     if (!text.trim() && !files.length) return;
     const st = useZenStore.getState();
@@ -1128,7 +1428,7 @@ export function ThreadPane({
     const lastRow = rowsNow && rowsNow.length ? rowsNow[rowsNow.length - 1] : null;
     const anchorRect = rectOf(lastRow);
     const anchor = lastRow && anchorRect ? { el: lastRow, top: anchorRect.top } : null;
-    setDraft("");
+    draftApi.current?.set("");
     setAttachments([]);
     setAttachError(null);
     const localId = st.queueOutgoing({
@@ -1154,6 +1454,8 @@ export function ThreadPane({
     });
     // The reader just spoke: the agent's reply must come into view.
     setFollowing(true);
+    const view = winDrawn.current;
+    if (view && view.hi < view.keys.length) setWindow(null, false);
     composerRef.current?.focus({ preventScroll: true });
     void deliver(localId);
   }
@@ -1165,6 +1467,14 @@ export function ThreadPane({
     const el = scrollerRef.current;
     setFollowing(true);
     if (!el) return;
+    // The newest are not drawn (the reader went far up): the window moves
+    // back to them and the view jumps there.
+    const view = winDrawn.current;
+    if (view && view.hi < view.keys.length) {
+      winStick.current = true;
+      setWindow(null, false);
+      return;
+    }
     if (typeof el.scrollTo === "function" && !prefersReducedMotion()) {
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
       window.setTimeout(() => {
@@ -1184,14 +1494,170 @@ export function ThreadPane({
 
   /** "Not sent" → back into an empty composer (the bubble goes). */
   function onRestore(o: OutgoingMessage) {
-    if (draft.trim() || attachments.length) return;
-    setDraft(o.text);
+    if ((draftApi.current?.get() ?? "").trim() || attachments.length) return;
+    draftApi.current?.set(o.text);
     setAttachments(o.files);
     useZenStore.getState().dropOutgoing(o.localId);
     composerRef.current?.focus({ preventScroll: true });
   }
 
   const flyKey = fly ? fly.localId : "";
+  const flyBusy = useRef(false);
+  flyBusy.current = fly != null;
+
+  /** Draw another window (null: the newest WINDOW_ROWS). `hold`: keep the
+   *  row under the reader's eye where it is. */
+  function setWindow(win: ThreadWindow | null, hold: boolean) {
+    winRef.current = win ? { agent: agentId, win } : null;
+    winAnchor.current = hold ? captureWindowAnchor() : null;
+    bumpWindow();
+  }
+
+  function windowRows(): HTMLElement[] {
+    const content = contentRef.current;
+    return content ? Array.from(content.querySelectorAll<HTMLElement>("[data-win-row]")) : [];
+  }
+
+  /** The first drawn row still (partly) on screen, by layout offset. */
+  function captureWindowAnchor(): { el: HTMLElement; top: number } | null {
+    const el = scrollerRef.current;
+    if (!el) return null;
+    const top = el.getBoundingClientRect().top;
+    for (const r of windowRows()) {
+      if (r.getBoundingClientRect().bottom > top + 1) return { el: r, top: r.offsetTop };
+    }
+    return null;
+  }
+
+  /** Rows leaving the window: remember what each adds to the list. */
+  function rememberHeights(leaving: HTMLElement[]) {
+    const px = measureRows(leaving);
+    leaving.forEach((r, i) => {
+      const key = r.getAttribute("data-row-key");
+      if (key) winHeights.current.px.set(key, px[i]);
+    });
+  }
+
+  /** Grow or shrink the window to what the reader is near. `idle`: no
+   *  scroll for a while — rows may also leave. "busy": try again later. */
+  function reconcileWindow(idle: boolean): "busy" | "done" {
+    const el = scrollerRef.current;
+    const view = winDrawn.current;
+    if (!el || !view || view.limited || !view.keys.length) return "done";
+    if (
+      pendingAnchor.current ||
+      interactiveRef.current ||
+      flyBusy.current ||
+      focusSeqRef.current != null ||
+      glider.moving() ||
+      glider.holding()
+    ) {
+      return "busy";
+    }
+    const { keys, lo, hi } = view;
+    const len = keys.length;
+    const drawn = windowRows();
+    if (!drawn.length) return "done";
+    const indexOf = (r: HTMLElement) => keys.indexOf(r.getAttribute("data-row-key") ?? "");
+    if (following.current) {
+      if (hi < len) {
+        // Back at the newest: draw through it.
+        winStick.current = true;
+        setWindow(pinWindow(keys, { lo, hi: len }), false);
+        return "done";
+      }
+      if (hi - lo <= WINDOW_ROWS) return "done";
+      if (!idle) return "busy";
+      // The oldest drawn drop off, far above the view.
+      const start = Math.max(0, len - WINDOW_ROWS);
+      const leaving = drawn.filter((r) => {
+        const at = indexOf(r);
+        return at >= 0 && at < start;
+      });
+      rememberHeights(leaving);
+      // Held, not re-stuck: a reader resting a little above the newest
+      // (still following) must not be moved.
+      setWindow(pinWindow(keys, { lo: start, hi: len }), true);
+      return "done";
+    }
+    const ch = el.clientHeight;
+    if (!(ch > 0)) return "done";
+    const st = el.scrollTop;
+    const scTop = el.getBoundingClientRect().top;
+    const y = (r: HTMLElement) => r.getBoundingClientRect().top - scTop + st;
+    const first = drawn[0];
+    const last = drawn[drawn.length - 1];
+    // Near a drawn edge with more in memory: bring rows back first.
+    if (lo > 0 && y(first) > st - WINDOW_RESPAWN_SCREENS * ch) {
+      setWindow(pinWindow(keys, { lo: Math.max(0, lo - WINDOW_EXTEND), hi }), true);
+      return "done";
+    }
+    if (hi < len && y(last) + last.offsetHeight < st + ch + WINDOW_RESPAWN_SCREENS * ch) {
+      setWindow(pinWindow(keys, { lo, hi: Math.min(len, hi + WINDOW_EXTEND) }), true);
+      return "done";
+    }
+    if (!idle) return "done";
+    // Far past the view (and enough of them): they leave.
+    const keepFrom = st - WINDOW_KEEP_SCREENS * ch;
+    const keepTo = st + ch + WINDOW_KEEP_SCREENS * ch;
+    let above = 0;
+    while (above < drawn.length - 1 && y(drawn[above]) + drawn[above].offsetHeight < keepFrom) above++;
+    let below = 0;
+    while (below < drawn.length - 1 - above && y(drawn[drawn.length - 1 - below]) > keepTo) below++;
+    if (above < WINDOW_TRIM_MIN) above = 0;
+    if (below < WINDOW_TRIM_MIN) below = 0;
+    if (!above && !below) return "done";
+    const leaving = [...drawn.slice(0, above), ...drawn.slice(drawn.length - below)];
+    rememberHeights(leaving);
+    const nextLo = above ? indexOf(drawn[above]) : lo;
+    const nextHi = below ? indexOf(drawn[drawn.length - 1 - below]) + 1 : hi;
+    if (nextLo < 0 || nextHi <= nextLo) return "done";
+    setWindow(pinWindow(keys, { lo: nextLo, hi: nextHi }), true);
+    return "done";
+  }
+  const reconcileRef = useRef(reconcileWindow);
+  reconcileRef.current = reconcileWindow;
+
+  /** Rows leave only once scrolling has been quiet a while. A check
+   *  already pending stays (frequent commits — live frames — must not
+   *  keep pushing it back); it waits out the quiet itself. */
+  function scheduleWindowIdle(delay = WINDOW_IDLE_MS) {
+    if (winTimer.current) return;
+    winTimer.current = setTimeout(() => {
+      winTimer.current = null;
+      const quiet = Date.now() - lastScrollAt.current;
+      if (quiet < WINDOW_IDLE_MS) {
+        scheduleWindowIdle(WINDOW_IDLE_MS - quiet + 10);
+        return;
+      }
+      if (reconcileRef.current(true) === "busy") scheduleWindowIdle();
+    }, delay);
+  }
+
+  useEffect(
+    () => () => {
+      if (winTimer.current) clearTimeout(winTimer.current);
+      if (winRaf.current && typeof cancelAnimationFrame === "function") {
+        cancelAnimationFrame(winRaf.current);
+      }
+    },
+    []
+  );
+
+  // The rows' callbacks: stable, so a re-render of the pane leaves
+  // unchanged rows alone (ThreadRow is memoized).
+  const handlers = useRef({ onRetry, onRestore, openAttachment });
+  handlers.current = { onRetry, onRestore, openAttachment };
+  const onAnswerRow = useCallback(
+    (id: string, option: string) => void answerChoice(id, option),
+    [answerChoice]
+  );
+  const onRetryRow = useCallback((id: string) => handlers.current.onRetry(id), []);
+  const onRestoreRow = useCallback((o: OutgoingMessage) => handlers.current.onRestore(o), []);
+  const onOpenFileRow = useCallback(
+    (m: ThreadMessage, a: ThreadAttachment) => handlers.current.openAttachment(m, a),
+    []
+  );
 
   // FLIP "last/invert/play". The row is in its final slot (hidden while it
   // flies); the composer has already shrunk back to one empty line.
@@ -1257,13 +1723,36 @@ export function ThreadPane({
   // from tap to delivered (the server's copy inherits it), so it is the
   // same element throughout — no remount, never two, never none.
   const rowKeys = landedRowKeys(outbox, thread, roomKey, landedKeys);
-  const firstShown = limited ? thread.length - PROGRESSIVE_FIRST : 0;
+  // Every message in memory (runs, the receipt and arrivals look at all of
+  // them); only the render window's are drawn (threadWindow.ts).
   const rows: { key: string; m: ThreadMessage; out: OutgoingMessage | null }[] = [];
-  for (let i = firstShown; i < thread.length; i++) {
+  const threadKeys: string[] = [];
+  for (let i = 0; i < thread.length; i++) {
     const m = thread[i];
-    rows.push({ key: rowKeys.get(m.id) ?? (m.id || `seq-${m.seq ?? i}`), m, out: null });
+    const key = rowKeys.get(m.id) ?? (m.id || `seq-${m.seq ?? i}`);
+    threadKeys.push(key);
+    rows.push({ key, m, out: null });
   }
   for (const o of outgoing) rows.push({ key: o.localId, m: outgoingBubble(o), out: o });
+
+  // The render window. A push-tap target outside it: drawn around it.
+  if (winRef.current && winRef.current.agent !== agentId) winRef.current = null;
+  let winSpec = winRef.current?.win ?? null;
+  let range = resolveWindow(threadKeys, winSpec);
+  if (focusSeq != null) {
+    const at = thread.findIndex((m) => m.seq === focusSeq);
+    if (at >= 0 && (at < range.lo || at >= range.hi)) {
+      winSpec = windowAround(threadKeys, at);
+      winRef.current = { agent: agentId, win: winSpec };
+      range = resolveWindow(threadKeys, winSpec);
+    }
+  }
+  // Progressive first paint: just the newest few on the first frame.
+  const firstShown = limited ? Math.max(range.lo, thread.length - PROGRESSIVE_FIRST) : range.lo;
+  const lastShown = limited ? thread.length : range.hi;
+  const topSpacer = spacerAbove(threadKeys, firstShown, winHeights.current.px);
+  const bottomSpacer = spacerBelow(threadKeys, lastShown, winHeights.current.px);
+  const winView = { keys: threadKeys, lo: firstShown, hi: lastShown, limited };
   // iMessage runs (tails, tighter spacing, one meta line per run) and the
   // one "Delivered" / "Read" receipt (chatReceipt.ts). A send still flying
   // in (or fading in) is not confirmed yet: the label moves once it lands.
@@ -1281,6 +1770,33 @@ export function ThreadPane({
   // arrival check.
   useLayoutEffect(() => {
     committedRows.current = { agent: agentId, keys: new Set(rows.map((r) => r.key)) };
+    // The window this commit drew, pinned by key (arrivals and earlier
+    // pages do not move it). The first frame of a progressive paint is not
+    // the window.
+    winDrawn.current = winView;
+    if (!winView.limited) {
+      winRef.current = thread.length
+        ? { agent: agentId, win: pinWindow(winView.keys, winView) }
+        : null;
+    }
+    // A window change keeps the row under the reader's eye where it was
+    // (a no-op when the spacer it replaced was exact).
+    const a = winAnchor.current;
+    winAnchor.current = null;
+    const el = scrollerRef.current;
+    if (a && el && a.el.isConnected) {
+      const dy = a.el.offsetTop - a.top;
+      if (Math.abs(dy) >= 1) {
+        el.scrollTop += dy;
+        ownTop.current = el.scrollTop;
+        lastTop.current = el.scrollTop;
+      }
+    }
+    if (winStick.current) {
+      winStick.current = false;
+      if (el && following.current) stick(el);
+    }
+    scheduleWindowIdle();
   });
 
   const empty =
@@ -1311,6 +1827,15 @@ export function ThreadPane({
         onScroll={(e) => {
           const el = e.currentTarget;
           lastScrollAt.current = Date.now();
+          // The render window: rows come back before the reader gets to
+          // them (next frame); rows far away leave once it is quiet.
+          if (!winRaf.current && typeof requestAnimationFrame === "function") {
+            winRaf.current = requestAnimationFrame(() => {
+              winRaf.current = 0;
+              reconcileRef.current(false);
+            });
+          }
+          scheduleWindowIdle();
           // Mid interactive dismiss the finger scrolls every frame: no
           // state churn (it catches up on the next scroll after).
           if (!interactiveRef.current) setAtNewest(nearNewest(el));
@@ -1395,7 +1920,7 @@ export function ThreadPane({
                   No messages yet
                 </span>
               ) : null}
-              {hasMore && source === "live" && !limited ? (
+              {!limited && ((hasMore && source === "live") || firstShown > 0) ? (
                 <button
                   type="button"
                   data-testid="load-earlier"
@@ -1406,7 +1931,30 @@ export function ThreadPane({
                   {loadingEarlier ? "Loading…" : "Load earlier messages"}
                 </button>
               ) : null}
+              {topSpacer > 0 ? (
+                <div
+                  key="__win-above"
+                  aria-hidden="true"
+                  className="shrink-0"
+                  data-testid="thread-window-above"
+                  // Exactly its height in the flow: the gap after it is
+                  // taken back (the rows it stands for had theirs).
+                  style={{ height: topSpacer, marginBottom: "calc(var(--spacing, 0.25rem) * -1)" }}
+                />
+              ) : null}
               {rows.map(({ key, m, out }, i) => {
+                // Outside the render window: not drawn (a spacer stands in).
+                if (!out && (i < firstShown || i >= lastShown)) {
+                  return i === thread.length - 1 && bottomSpacer > 0 ? (
+                    <div
+                      key="__win-below"
+                      aria-hidden="true"
+                      className="shrink-0"
+                      data-testid="thread-window-below"
+                      style={{ height: bottomSpacer, marginTop: "calc(var(--spacing, 0.25rem) * -1)" }}
+                    />
+                  ) : null;
+                }
                 const run = runs[i];
                 // Files ride Thread messages only (not project chat lines,
                 // not this phone's own optimistic sends).
@@ -1414,135 +1962,48 @@ export function ThreadPane({
                 const wordless = !m.text.trim() && !m.choice;
                 // Files-only, on a server without the feature: nothing to draw.
                 if (wordless && !files && !out && m.files?.length) return null;
-                const bubble = !(files && wordless);
                 const flying = fly?.localId === key;
-                const highlighted = highlightSeq != null && m.seq != null && m.seq === highlightSeq;
                 return (
-                  <div
+                  <ThreadRow
                     key={key}
-                    data-thread-msg=""
-                    data-row-key={key}
-                    data-seq={m.seq ?? undefined}
-                    data-outgoing={out?.status}
-                    data-highlight={highlighted ? "true" : undefined}
-                    data-run={run.first && run.last ? "solo" : run.first ? "first" : run.last ? "last" : "middle"}
-                    className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}${run.first && i > 0 ? " mt-1.5" : ""}`}
-                    style={
-                      highlighted
-                        ? { borderRadius: 20, boxShadow: "0 0 0 2px rgba(10,132,255,.85)", transition: "box-shadow .4s" }
-                        : undefined
+                    rowKey={key}
+                    windowed={!out}
+                    m={m}
+                    out={out}
+                    files={files}
+                    runFirst={run.first}
+                    runLast={run.last}
+                    spaced={run.first && i > 0}
+                    stub={source === "stub"}
+                    highlighted={highlightSeq != null && m.seq != null && m.seq === highlightSeq}
+                    receipt={i === receiptIdx && receipt ? receipt : undefined}
+                    canAnswer={
+                      !out &&
+                      canSend &&
+                      !threadGroupId &&
+                      (source === "live" || source === "error")
                     }
-                  >
-                    {/* Theirs: name and time on one line above the first
-                        bubble of a run. Mine: no name; the time (or
-                        Sending… / Not sent, or the receipt) below the last
-                        of a run, where the outgoing status and its actions
-                        sit — and below any send still in progress. */}
-                    {!m.mine && run.first ? (
-                      <span
-                        className="flex items-baseline gap-1.5 text-[11px] text-[var(--text-muted)] px-3 mb-0.5 min-w-0 max-w-full"
-                        data-testid="thread-msg-meta"
-                      >
-                        <span className="truncate min-w-0">
-                          {source === "stub" ? <StubMark /> : null}
-                          {m.from}
-                        </span>
-                        <span className="shrink-0" aria-hidden>
-                          •
-                        </span>
-                        <span className="shrink-0" data-testid="thread-msg-time">
-                          {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
-                        </span>
-                      </span>
-                    ) : null}
-                    {bubble ? (
-                      <Bubble
-                        m={m}
-                        onFileLink={openFileFromPath}
-                        canAnswer={
-                          !out &&
-                          canSend &&
-                          !threadGroupId &&
-                          (source === "live" || source === "error")
-                        }
-                        answerHeld={cachedOnly}
-                        answering={!out && answeringId === m.id}
-                        answerError={!out && answerErrorId === m.id ? answerError : null}
-                        onAnswer={(option) => void answerChoice(m.id, option)}
-                        attachments={out?.files.length ? out.files.map(uploadFilename) : undefined}
-                        flying={flying && !fly?.fade}
-                        fadeIn={flying && fly?.fade}
-                        breathe={out?.status === "sending"}
-                        tail={run.last ? (m.mine ? "mine" : "theirs") : null}
-                      />
-                    ) : null}
-                    {files ? (
-                      <MessageFiles
-                        files={files}
-                        mine={m.mine}
-                        hasBubble={bubble}
-                        onOpen={(a) => openAttachment(m, a)}
-                      />
-                    ) : null}
-                    {m.mine && (run.last || out != null || m.pending || m.failed) ? (
-                      // One box from Send to delivered: "Sending…", then the
-                      // time (or "Not sent · Retry"), or the chat's one
-                      // receipt — "Delivered" / "Read", drawn over it by CSS
-                      // (chatBubbles.css). Fixed height, so no swap ever
-                      // moves the bubble or the rows around it.
-                      <span
-                        className="zen-receipt flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] text-[var(--text-muted)] px-2 mt-0.5"
-                        data-testid="thread-msg-time"
-                        data-status={out?.status ?? (m.failed ? "failed" : m.pending ? "sending" : "sent")}
-                        data-receipt={i === receiptIdx && receipt ? receipt : undefined}
-                      >
-                        <span className="zen-receipt-status">
-                        {out?.status === "failed" ? (
-                          <span className="contents" data-testid="outgoing-failed">
-                            <button
-                              type="button"
-                              className="text-[var(--warning)]"
-                              data-testid="outgoing-retry"
-                              aria-label="Not sent. Tap to retry"
-                              title={out.error || undefined}
-                              onClick={() => onRetry(out.localId)}
-                            >
-                              Not sent · Retry
-                            </button>
-                            {!draft.trim() && !attachments.length ? (
-                              <button
-                                type="button"
-                                data-testid="outgoing-restore"
-                                onClick={() => onRestore(out)}
-                              >
-                                Edit
-                              </button>
-                            ) : null}
-                          </span>
-                        ) : out?.status === "queued" ? (
-                          "Waiting for connection…"
-                        ) : out ? (
-                          "Sending…"
-                        ) : m.failed ? (
-                          "Not sent"
-                        ) : m.pending ? (
-                          "Sending…"
-                        ) : (
-                          mountainTime(m.at)
-                        )}
-                        </span>
-                      </span>
-                    ) : null}
-                  </div>
+                    answerHeld={cachedOnly}
+                    answering={!out && answeringId === m.id}
+                    answerError={!out && answerErrorId === m.id ? answerError : null}
+                    flying={flying && !fly?.fade}
+                    fadeIn={flying && Boolean(fly?.fade)}
+                    canRestore={out?.status === "failed" && draftBlank && !attachments.length}
+                    onFileLink={openFileFromPath}
+                    onAnswer={onAnswerRow}
+                    onRetry={onRetryRow}
+                    onRestore={onRestoreRow}
+                    onOpenFile={onOpenFileRow}
+                  />
                 );
               })}
             </>
           )}
         </div>
         {/* Room for the composer bar's bottom gap (home indicator at
-            rest, 8px over the keyboard): eases with the bar's padding on
-            the keyboard's timing (index.css). Outside the content, so the
-            content ResizeObserver does not fire through the ease. */}
+            rest, 8px over the keyboard): takes the new gap at once as the
+            bar's padding eases (index.css); a following list plays the
+            move on the compositor (easeGapShift). Outside the content. */}
         <div
           aria-hidden="true"
           className="zen-composer-gap mchat-gap shrink-0"
@@ -1600,16 +2061,18 @@ export function ThreadPane({
         </div>
         {/* Above the blur (positioned, z 0): its own stacking layer. */}
         <div className="relative" style={{ zIndex: 1 }}>
-          <GlassComposer
-            value={draft}
-            onChange={setDraft}
+          <ThreadDraftComposer
+            draftKey={draftKey}
+            apiRef={draftApi}
+            onBlankChange={setDraftBlank}
+            hasAttachments={attachments.length > 0}
+            inFlight={inFlight}
             onAttach={queueFiles}
             onAttachError={setAttachError}
             onSubmit={onSend}
             placeholder={placeholder}
             disabled={!canSend}
             canSend={canSend}
-            sendReady={sendReady}
             attachDisabled={!canAttach}
             textareaRef={composerRef}
             smoothClear
@@ -1659,7 +2122,7 @@ export function ThreadPane({
                 ))}
               </div>
             ) : null}
-          </GlassComposer>
+          </ThreadDraftComposer>
         </div>
       </div>
       {openFile ? (
