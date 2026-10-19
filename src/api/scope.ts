@@ -78,9 +78,28 @@ export const DAEMON_FEATURES = [
   // project chat messages route (items / changed / removed). Read by
   // `api/threadDelta` (chat open and prefetch); absent → newest-page reads.
   "thread-delta-v1",
+  // K2 0.46.2: older pages of a project chat — `before_seq=N` on
+  // `GET /cli/project-group/messages`. Read by the store's `loadEarlier`
+  // and ThreadPane's lazy load; absent → a project chat grows from memory
+  // only (an older daemon ignores `before_seq` and sends the newest page).
+  "project-chat-paging-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];
+
+/** The `/boot-status` key that gates project chat older pages. */
+export const FEATURE_PROJECT_CHAT_PAGING = "project-chat-paging-v1" as const;
+
+/** Does `scope`'s server page a project chat backward (`before_seq`)?
+ *  Unknown / removed → false. Lives here (not in `projectGroups`) so the
+ *  many tests that mock that module keep working. */
+export function projectChatPagingSupported(scope: ServerScope): boolean {
+  try {
+    return scope.supports(FEATURE_PROJECT_CHAT_PAGING);
+  } catch {
+    return false;
+  }
+}
 
 /** A scope's server is no longer saved. Never falls back to another one. */
 export class ServerRemovedError extends Error {

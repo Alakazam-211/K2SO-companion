@@ -22,6 +22,7 @@ import {
   bootInfoFor,
   ensureBootStatus,
   noteBootStatus,
+  projectChatPagingSupported,
   refreshBootStatus,
   scopeFor,
   scopedKey,
@@ -29,6 +30,7 @@ import {
   versionAtLeast,
 } from "./scope";
 import { useServersStore, type ServerEntry } from "../stores/servers";
+import { fakeScope } from "../test/fakeScope";
 
 const A: ServerEntry = {
   id: "a",
@@ -136,12 +138,24 @@ describe("activeScope shim (MS5)", () => {
 });
 
 describe("feature memory (MS31 / MA15)", () => {
-  it("lists all 18 daemon features (0.46.1 adds push-previews-v1, push-environment-v1, thread-read-v1, homes-sync-v1)", () => {
-    expect(DAEMON_FEATURES).toHaveLength(20);
+  it("lists all 21 daemon features (0.46.2 adds project-chat-paging-v1)", () => {
+    expect(DAEMON_FEATURES).toHaveLength(21);
+    expect(DAEMON_FEATURES).toContain("project-chat-paging-v1");
     expect(DAEMON_FEATURES).toContain("thread-delta-v1");
     expect(DAEMON_FEATURES).toContain("thread-attachments-v1");
     expect(DAEMON_FEATURES).toContain("thread-read-v1");
     expect(DAEMON_FEATURES).toContain("homes-sync-v1");
+  });
+
+  it("project-chat-paging-v1 gates project chat older pages, per server", () => {
+    expect(projectChatPagingSupported(fakeScope({ features: ["project-chat-paging-v1"] }))).toBe(true);
+    expect(projectChatPagingSupported(fakeScope({ features: ["thread-delta-v1"] }))).toBe(false);
+    expect(projectChatPagingSupported(fakeScope({ features: null }))).toBe(false);
+    const gone = fakeScope({ features: ["project-chat-paging-v1"] });
+    gone.supports = () => {
+      throw new Error("removed");
+    };
+    expect(projectChatPagingSupported(gone)).toBe(false);
   });
 
   it("unknown supports nothing; boot-status features decide per server", () => {
