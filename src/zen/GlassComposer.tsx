@@ -15,7 +15,7 @@ import {
 import { filesFromClipboard } from "./composerAttach";
 import { appendRef } from "./fileTreeModel";
 import { useFileDrag } from "./fileDrag";
-import { zenTextPx } from "./zenFont";
+import { ZEN_TEXT_SCALE_VAR, zenTextPx } from "./zenFont";
 import { PlusGlyph } from "./PlusGlyph";
 import { sidecarSuffix } from "./sidecarRows";
 import { AttachMenu, type AttachChoice } from "./AttachMenu";
@@ -82,6 +82,29 @@ export function fitComposerField(field: HTMLTextAreaElement, bar: HTMLElement | 
   return h;
 }
 
+/** The field's line height (px), read from computed style once per field
+ *  and text size (Settings → Text Size rescales it), not on every input. */
+const lineHeights = new WeakMap<HTMLElement, { key: string; px: number }>();
+function fieldLineHeight(field: HTMLTextAreaElement): number {
+  let scale = "";
+  try {
+    scale = document.documentElement.style.getPropertyValue(ZEN_TEXT_SCALE_VAR);
+  } catch {
+    scale = "";
+  }
+  const key = `${scale}|${field.style.lineHeight}`;
+  const hit = lineHeights.get(field);
+  if (hit && hit.key === key) return hit.px;
+  let px = 22;
+  try {
+    px = parseFloat(getComputedStyle(field).lineHeight) || 22;
+  } catch {
+    px = 22;
+  }
+  lineHeights.set(field, { key, px });
+  return px;
+}
+
 /** After a refit: a caret at the end of the text (typing, a return) shows
  *  the last line; otherwise the field keeps its scroll, moved just enough
  *  to show the caret's line (estimated by newlines; wrapped lines are
@@ -96,7 +119,7 @@ export function keepCaretInView(field: HTMLTextAreaElement, scrolled: number): v
   }
   field.scrollTop = scrolled;
   if (!focused) return;
-  const line = parseFloat(getComputedStyle(field).lineHeight) || 22;
+  const line = fieldLineHeight(field);
   const caretTop = (field.value.slice(0, end).split("\n").length - 1) * line;
   if (caretTop < field.scrollTop) field.scrollTop = caretTop;
   else if (caretTop + line > field.scrollTop + field.clientHeight) {

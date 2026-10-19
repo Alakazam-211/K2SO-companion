@@ -373,3 +373,29 @@ describe("GlassComposer keeps the caret in view at max height", () => {
     ta.remove();
   });
 });
+
+describe("GlassComposer caret: line height", () => {
+  it("is read from computed style once per field and text size, not per input", async () => {
+    const { keepCaretInView } = await import("./GlassComposer");
+    const ta = document.createElement("textarea");
+    document.body.appendChild(ta);
+    ta.style.lineHeight = "22px";
+    Object.defineProperty(ta, "scrollHeight", { configurable: true, get: () => 300 });
+    Object.defineProperty(ta, "clientHeight", { configurable: true, get: () => 132 });
+    ta.value = "a\nb\nc\nd\ne\nf\ng";
+    ta.focus();
+    ta.setSelectionRange(2, 2);
+    const spy = vi.spyOn(window, "getComputedStyle");
+    keepCaretInView(ta, 100);
+    keepCaretInView(ta, 100);
+    keepCaretInView(ta, 100);
+    expect(spy.mock.calls.filter(([el]) => el === ta)).toHaveLength(1);
+    // Text size changed: read again.
+    document.documentElement.style.setProperty("--zen-text-scale", "1.2");
+    keepCaretInView(ta, 100);
+    expect(spy.mock.calls.filter(([el]) => el === ta)).toHaveLength(2);
+    document.documentElement.style.removeProperty("--zen-text-scale");
+    spy.mockRestore();
+    ta.remove();
+  });
+});
