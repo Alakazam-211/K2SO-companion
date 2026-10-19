@@ -360,24 +360,56 @@ describe("Zen Sessions drawer", () => {
     expect(within(drawer).queryAllByTestId("session-row-history")).toHaveLength(0);
   });
 
-  it("History caps at 50 and Show more loads the next page", async () => {
-    const bulk = Array.from({ length: 60 }, (_, i) => ({
+  const bulkHistory = (n: number) =>
+    Array.from({ length: n }, (_, i) => ({
       sessionId: `c-bulk-${i}`,
       provider: "claude",
       title: `bulk ${i}`,
       timestamp: (NOW - 1000 - i) * 1000,
       archived: false,
     }));
-    mockHistory(bulk);
+
+  it("History caps at 50 and loads the next page by itself near the bottom (no Show more)", async () => {
+    mockHistory(bulkHistory(60));
     await openMain();
     const drawer = await openDrawer();
     await waitFor(() => expect(within(drawer).getAllByTestId("session-row-history")).toHaveLength(50));
-    fireEvent.click(within(drawer).getByTestId("sessions-history-more"));
+    // Nothing loads on the first paint, and there is no button to tap.
+    await act(async () => {});
+    expect(within(drawer).getAllByTestId("session-row-history")).toHaveLength(50);
+    expect(within(drawer).queryByRole("button", { name: /show more/i })).toBeNull();
+    const calls = vi.mocked(getThreadLatest).mock.calls.length;
+    // The reader scrolls near the bottom (jsdom: the list is all "bottom").
+    fireEvent.scroll(within(drawer).getByTestId("sessions-list"));
+    fireEvent.scroll(within(drawer).getByTestId("sessions-list"));
     await waitFor(() => expect(within(drawer).getAllByTestId("session-row-history")).toHaveLength(60));
-    expect(within(drawer).queryByTestId("sessions-history-more")).toBeNull();
+    // One page asked for, once (single-flight across the two scrolls).
+    expect(vi.mocked(getThreadLatest).mock.calls.length).toBe(calls + 1);
     const rows = within(drawer).getAllByTestId("session-row-history");
     expect(rows[0].getAttribute("data-thread-addr")).toBe("c-bulk-0");
     expect(rows[59].getAttribute("data-thread-addr")).toBe("c-bulk-59");
+    // The end: no spinner, no error, nothing more to ask for.
+    fireEvent.scroll(within(drawer).getByTestId("sessions-list"));
+    await act(async () => {});
+    expect(vi.mocked(getThreadLatest).mock.calls.length).toBe(calls + 1);
+    expect(within(drawer).queryByTestId("sessions-history-loading")).toBeNull();
+    expect(within(drawer).queryByTestId("sessions-history-error")).toBeNull();
+  });
+
+  it("a History page that fails says Couldn't load more · Retry; Retry loads it", async () => {
+    mockHistory(bulkHistory(60));
+    await openMain();
+    const drawer = await openDrawer();
+    await waitFor(() => expect(within(drawer).getAllByTestId("session-row-history")).toHaveLength(50));
+    vi.mocked(getThreadLatest).mockRejectedValueOnce(new Error("offline"));
+    fireEvent.scroll(within(drawer).getByTestId("sessions-list"));
+    const err = await within(drawer).findByTestId("sessions-history-error");
+    expect(err.textContent).toContain("Couldn't load more");
+    // Not marked missing, not retried on its own: still the first page.
+    expect(within(drawer).getAllByTestId("session-row-history")).toHaveLength(50);
+    fireEvent.click(within(drawer).getByTestId("sessions-history-retry"));
+    await waitFor(() => expect(within(drawer).getAllByTestId("session-row-history")).toHaveLength(60));
+    expect(within(drawer).queryByTestId("sessions-history-error")).toBeNull();
   });
 
   it("tapping a History row wakes it with its harness, resume id and workspace, then it moves to Active", async () => {
