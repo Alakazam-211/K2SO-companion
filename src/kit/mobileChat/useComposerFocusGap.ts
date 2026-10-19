@@ -14,7 +14,8 @@
 // — the bar would keep the 8px typing gap and a tap would not bring the
 // keyboard back. On a Will*Hide the field is blurred, as UIKit resigns
 // the first responder (the shell also resigns WebKit's content view on
-// DidHide). Only for a keyboard this screen saw come up, and never a field
+// DidHide). Not while the app is leaving the screen (`active:false` on the
+// Will*): that blur waits until the app is back (see onReturn). Only for a keyboard this screen saw come up, and never a field
 // focused moments ago: a late / stale hide (UIKit can post a WillChangeFrame
 // with the old, hidden frame as the keyboard comes back) must not undo the
 // tap that is bringing the keyboard back.
@@ -94,6 +95,9 @@ export function easeGapShift(el: HTMLElement | null, dy: number): void {
 export const COMPOSER_FOCUSED_ATTR = "data-composer-focused";
 /** A field focused this recently (ms) is never blurred by a Will*Hide. */
 export const FRESH_FOCUS_MS = 400;
+/** After the app returns, how long iOS gets to bring the keyboard back for
+ *  a still-focused field before the held-back blur runs (ms). */
+export const RETURN_BLUR_MS = 700;
 
 export function useComposerFocusGap(opts: {
   root: () => HTMLElement | null;
@@ -127,10 +131,17 @@ export function useComposerFocusGap(opts: {
     };
     const onOut = (e: FocusEvent) => apply(inBar(e.relatedTarget));
     const onKeyboardWill = (e: Event) => {
-      const d = (e as CustomEvent<{ show?: boolean }>).detail;
+      const d = (e as CustomEvent<{ show?: boolean; active?: boolean }>).detail;
       if (!d) return;
       if (d.show !== false) {
         keyboardUp = true;
+        // Back from the background with the field still focused: iOS
+        // brought the keyboard back by itself.
+        if (pendingBlur) {
+          clearTimeout(deferredBlur);
+          pendingBlur = false;
+          apply(inBar(document.activeElement));
+        }
         return;
       }
       // Just tapped: the keyboard is coming back; this hide predates it.
@@ -138,14 +149,41 @@ export function useComposerFocusGap(opts: {
       const wasUp = keyboardUp;
       keyboardUp = false;
       if (!wasUp) return; // a hide for a keyboard that is not up: stale
+      // The app is leaving the screen (Home, app switcher, lock): no blur
+      // until it is back. A focus change in the background can hang
+      // UIKit's keyboard queue until the watchdog kills the app (TestFlight
+      // 202610181404, 0x8BADF00D).
+      if (d.active === false) pendingBlur = true;
+      else blurBar();
+      apply(false);
+    };
+    const blurBar = () => {
       const el = document.activeElement;
       if (el instanceof HTMLElement && inBar(el)) el.blur();
-      apply(false);
+    };
+    // The blur held back while the app was away. iOS may bring the
+    // keyboard back for the focused field as the app returns (its WillShow
+    // cancels this); if it has not by RETURN_BLUR_MS, blur as before.
+    let pendingBlur = false;
+    let deferredBlur: ReturnType<typeof setTimeout> | undefined;
+    const onReturn = () => {
+      if (!pendingBlur || document.visibilityState === "hidden") return;
+      clearTimeout(deferredBlur);
+      deferredBlur = setTimeout(() => {
+        if (!pendingBlur || keyboardTopNow() != null) return;
+        pendingBlur = false;
+        blurBar();
+      }, RETURN_BLUR_MS);
     };
     root.addEventListener("focusin", onIn);
     root.addEventListener("focusout", onOut);
     window.addEventListener("k2-keyboard-will", onKeyboardWill);
+    document.addEventListener("visibilitychange", onReturn);
+    window.addEventListener("k2-viewport-resync", onReturn);
     return () => {
+      clearTimeout(deferredBlur);
+      document.removeEventListener("visibilitychange", onReturn);
+      window.removeEventListener("k2-viewport-resync", onReturn);
       root.removeEventListener("focusin", onIn);
       root.removeEventListener("focusout", onOut);
       window.removeEventListener("k2-keyboard-will", onKeyboardWill);
