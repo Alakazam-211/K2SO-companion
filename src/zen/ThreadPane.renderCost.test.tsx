@@ -68,8 +68,9 @@ import { useComposerDrafts } from "./composerDrafts";
 import { fakeScope } from "../test/fakeScope";
 import { setZenScope } from "../test/zenScopeMock";
 import type { ThreadMessage } from "./threadModel";
+import { WINDOW_ROWS } from "./threadWindow";
 
-const N = 50;
+let N = 50;
 
 function messages(): ThreadMessage[] {
   const out: ThreadMessage[] = [];
@@ -152,15 +153,27 @@ afterEach(() => {
   vi.mocked(connectOverlayEvents).mockClear();
 });
 
+const drawnRows = () => Math.min(N, WINDOW_ROWS);
+
 async function mounted() {
+  const t = performance.now();
   render(<ThreadPane />);
   await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
   // Progressive first paint widens on the next idle frame.
-  await waitFor(() => expect(screen.getAllByTestId("thread-bubble").length).toBe(N));
+  await waitFor(() => expect(screen.getAllByTestId("thread-bubble").length).toBe(drawnRows()));
   await act(async () => {});
+  const ms = performance.now() - t;
+  console.info(
+    `[render-cost] N=${N} open: rows=${document.querySelectorAll("[data-thread-msg]").length} domNodes=${document.querySelectorAll("*").length} ms=${ms.toFixed(1)}`
+  );
 }
 
-describe("Thread render cost (50 messages)", () => {
+for (const size of [50, 500]) describe(`Thread render cost (${size} messages)`, () => {
+  beforeEach(() => {
+    N = size;
+    useZenStore.setState({ thread: messages() });
+  });
+
   it("a keystroke re-renders no message row and parses no markdown", async () => {
     await mounted();
     const per: ReturnType<typeof snap>[] = [];
@@ -177,7 +190,7 @@ describe("Thread render cost (50 messages)", () => {
     const avg = (f: (s: ReturnType<typeof snap>) => number) =>
       per.reduce((a, s) => a + f(s), 0) / per.length;
     console.info(
-      `[render-cost] keystroke: bubbles=${avg((s) => s.bubble)} parses=${avg((s) => s.parse)} pane=${avg((s) => s.pane)} ms=${(times.reduce((a, b) => a + b, 0) / times.length).toFixed(2)}`
+      `[render-cost] N=${N} keystroke: bubbles=${avg((s) => s.bubble)} parses=${avg((s) => s.parse)} pane=${avg((s) => s.pane)} ms=${(times.reduce((a, b) => a + b, 0) / times.length).toFixed(2)}`
     );
     expect(input().value).toBe(text);
     expect(avg((s) => s.bubble)).toBe(0);
@@ -193,7 +206,7 @@ describe("Thread render cost (50 messages)", () => {
     act(() => socket.onItem(frame("turn-1", 2) as never));
     const ms = performance.now() - t;
     console.info(
-      `[render-cost] 2 activity frames: bubbles=${counts.bubble} parses=${counts.parse} pane=${counts.pane} ms=${ms.toFixed(2)}`
+      `[render-cost] N=${N} 2 activity frames: bubbles=${counts.bubble} parses=${counts.parse} pane=${counts.pane} ms=${ms.toFixed(2)}`
     );
     expect(counts.bubble).toBe(0);
     expect(counts.parse).toBe(0);
@@ -201,12 +214,12 @@ describe("Thread render cost (50 messages)", () => {
 
   it("the keyboard moving (viewport height) re-renders no row", async () => {
     const { rerender } = render(<ThreadPane viewportHeight={800} />);
-    await waitFor(() => expect(screen.getAllByTestId("thread-bubble").length).toBe(N));
+    await waitFor(() => expect(screen.getAllByTestId("thread-bubble").length).toBe(drawnRows()));
     await act(async () => {});
     reset();
     for (const h of [700, 600, 500, 480]) rerender(<ThreadPane viewportHeight={h} />);
     console.info(
-      `[render-cost] 4 viewport changes: bubbles=${counts.bubble} parses=${counts.parse} pane=${counts.pane}`
+      `[render-cost] N=${N} 4 viewport changes: bubbles=${counts.bubble} parses=${counts.parse} pane=${counts.pane}`
     );
     expect(counts.bubble).toBe(0);
     expect(counts.parse).toBe(0);
