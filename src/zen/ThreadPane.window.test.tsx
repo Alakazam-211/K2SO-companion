@@ -335,3 +335,17 @@ describe("Thread render window", () => {
     expect(drawn()[0].className).not.toContain("mt-1.5");
   });
 });
+
+describe("Thread render window under a busy stream", () => {
+  it("re-renders every 100ms (live frames) do not hold off the trim", async () => {
+    await mount();
+    for (let s = 101; s <= 110; s++) {
+      act(() => useZenStore.setState({ thread: [...useZenStore.getState().thread, msg(s)] }));
+      act(() => {
+        vi.advanceTimersByTime(100);
+      });
+    }
+    expect(drawn().length).toBeLessThanOrEqual(WINDOW_ROWS + 3);
+    expect(seqs()[seqs().length - 1]).toBe(110);
+  });
+});
