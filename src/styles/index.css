@@ -562,6 +562,43 @@ html, body, #root {
   }
 }
 
+/* Diagnostics → Light blur (A/B, off by default; lib/lightBlur.ts): the
+   header and footer stacks with two live blur layers instead of four.
+   Layer 2 (~4px) takes layer 1's long soft reach, layer 4 (~16px) layer
+   3's band; 1 and 3 are not drawn. */
+.k2-light-blur .zen-header-blur-1,
+.k2-light-blur .zen-header-blur-3,
+.k2-light-blur .zen-footer-blur-1,
+.k2-light-blur .zen-footer-blur-3 {
+  display: none;
+}
+.k2-light-blur .zen-header-blur-2,
+.k2-light-blur .zen-footer-blur-2 {
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+.k2-light-blur .zen-header-blur-4,
+.k2-light-blur .zen-footer-blur-4 {
+  -webkit-backdrop-filter: blur(16px);
+  backdrop-filter: blur(16px);
+}
+.k2-light-blur .zen-header-blur:not(.zen-header-blur--early):not(.zen-header-blur--heavy) > .zen-header-blur-2 {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 55%, transparent 100%);
+}
+.k2-light-blur .zen-header-blur:not(.zen-header-blur--early):not(.zen-header-blur--heavy) > .zen-header-blur-4 {
+  -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 25%, transparent 60%);
+  mask-image: linear-gradient(to bottom, #000 0%, #000 25%, transparent 60%);
+}
+.k2-light-blur .zen-footer-blur-2 {
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 55%, transparent 100%);
+  mask-image: linear-gradient(to top, #000 0%, #000 55%, transparent 100%);
+}
+.k2-light-blur .zen-footer-blur-4 {
+  -webkit-mask-image: linear-gradient(to top, #000 0%, #000 25%, transparent 60%);
+  mask-image: linear-gradient(to top, #000 0%, #000 25%, transparent 60%);
+}
+
 /* Glass tiles — desktop Zen's tile edge (K2 `zen-glass.ts`, Garden 1).
    The glass is the EDGE, not see-through: a solid fill, a semi-clear
    rim mixed from the border and text colours, a 1px light catch on the
