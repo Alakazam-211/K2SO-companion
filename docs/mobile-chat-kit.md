@@ -10,6 +10,7 @@ shim) and the `.mchat-*` block in `src/styles/index.css`.
 Contents: [Problems](#the-problems) · [Techniques](#techniques) ·
 [Dead ends](#dead-ends) · [Native shim](#native-shim) · [JS API](#js-api) ·
 [Constants](#timing-constants-and-curves) · [Message motion](#message-motion) ·
+[Rendering performance](#rendering-performance) ·
 [Chat cache](#chat-cache-return-hold-deltas) · [Recorder](#recorder-and-replay-harness) ·
 [Device checklist](#device-validation-checklist) · [Known gaps](#known-gaps)
 
@@ -367,6 +368,171 @@ All compositor-only (transform / opacity), K2 code in `src/zen/`:
   scroller's bottom padding no longer eases; the drawer's cover change
   sticks at once and glides the difference; folding with no reply yet
   holds up to 300ms so the reply's glide takes both.
+
+## Rendering performance
+
+**The symptom:** typing, the keyboard and live frames lagged in proportion
+to the conversation's length. In a chat with a few hundred messages every
+keystroke re-rendered the whole pane, and with it every message's
+Markdown, and every message was in the DOM. Short chats felt fine, which
+hid it. The fixes below made the Thread "buttery smooth" on device and are
+applied to every chat surface: agent Threads, project chats and sidecars
+(all one `ThreadPane`), the open ticket (`TicketView`), and the lists
+behind them.
+
+**Numbers** (jsdom, `ThreadPane.renderCost.test.tsx` /
+`TicketView.renderCost.test.tsx`; device timings are larger, the ratios hold):
+
+| | before | after |
+|---|---|---|
+| Thread, 500 messages, one keystroke | 179 ms | 0.8 ms |
+| Thread, 500 messages, DOM | 500 rows / 9034 nodes | 30 rows / 578 nodes |
+| Thread, 50 messages, one keystroke | 50 bubble renders + 50 Markdown parses, 27 ms | 0 / 0, 1.1 ms |
+| Thread, 50 messages, 2 activity frames | 150 / 150, 52 ms | 0 / 0, 8.6 ms |
+| Ticket, 300 comments, one keystroke | 300 bubble renders, 34.6 ms | 0, 0.9 ms |
+| Ticket, 300 comments, 2 refetches | 600 bubble renders, 132 ms | 0, ~4 ms |
+| Ticket, 300 comments, open | 300 rows / 5572 nodes, ~150 ms | 30 rows / 623 nodes, ~27 ms |
+
+### Keystroke isolation
+
+The draft lives in the composer, not the chat around it.
+`ThreadDraftComposer` (`ThreadPane.tsx`, used by the Thread and the
+ticket) owns the text in its own state. A keystroke re-renders only the
+composer. The pane hears `onBlankChange` only when the field turns blank
+or non-blank (the send button's colour, the failed row's "Edit"), and it
+reads or writes the text on Send and Edit through an `apiRef`
+(`get()` / `set()`). Per-room drafts (`composerDrafts.ts`) are written
+behind a short quiet.
+
+### Memoized rows and Markdown
+
+- **Rows** (`ThreadRow` / `Bubble`, `TicketCommentRow`) are `React.memo`.
+  They are compared by message content, not identity, because a re-read or
+  a cache swap hands over new-but-equal objects (`sameRowProps`).
+- **Callbacks** reach the rows stable: `useCallback` over a `handlers`
+  ref that is updated on every render.
+- **Markdown is parsed once per text.** `ChatMessageBody` is memoized and
+  keeps its Markdown in `useMemo([text, onFileLink])`. The remark plugins
+  are one hoisted array, because a new array rebuilds the processor. The
+  body style is one cached object per text size (`bubbleBodyStyle()`), so
+  the body itself skips.
+- **The lists** take the same approach. `AgentRowContent` (the Agents and
+  Home rows) is memoized, comparing `unread` by value and `preview` by
+  element props. The row's line two is parsed once per message
+  (`lastPreview` caches it per entry), and `RowSnippet` is memoized. The
+  Tickets list cards are memoized on what they draw. The Tickets screen
+  and the open ticket are memoized with stable callbacks, so the Agents
+  list's own re-renders (activity polls, unread) skip them.
+- **Store writes that change nothing don't replace objects.** For example,
+  a project-chat read keeps `lastAtByKey` when the row's time did not
+  move. Every subscriber of a replaced map re-renders, including lists
+  hidden behind the chat.
+
+### The render window (30 rows, both ends)
+
+Every message stays in memory (store, cache), but only a window is in the
+DOM. The logic is in `threadWindow.ts`, which has one knob:
+`WINDOW_ROWS = 30`. ThreadPane runs the window inline;
+`useRenderWindow.ts` is the same rules as a hook for the ticket's comments.
+
+- **Pinned by key, not index.** Arrivals at the end and earlier pages at
+  the start do not move the window. `lo: null` means from the first
+  message in memory, and `hi: null` means through the newest, so arrivals
+  draw at once.
+- **Spacers.** Rows that leave are replaced by a spacer of their measured
+  height (`measureRows`: the distance to the next row's start, margin and
+  gap included). The spacer takes back the list's `gap` with a negative
+  margin, so `scrollHeight` and the view never move. A row never measured
+  counts 0 above (the window's top is then a real edge) and
+  `WINDOW_EST_ROW_PX` below (out of view either way).
+- **Anchoring.** Every window change captures the first drawn row on
+  screen and its `offsetTop`. After the commit, `scrollTop` moves by the
+  difference. The anchor is a layout offset, so a glide's `transform` does
+  not count. `overflow-anchor: none` keeps the browser out of it.
+- **Two ends.**
+  - Following the newest: the newest 30 are drawn. Once scrolling has
+    been quiet (`WINDOW_IDLE_MS`), the oldest drop off.
+  - Scrolled away: within `WINDOW_RESPAWN_SCREENS` of a drawn edge, 30
+    more come back on the next frame.
+  - Rows more than `WINDOW_KEEP_SCREENS` past the view leave once quiet,
+    but only `WINDOW_TRIM_MIN` or more at a time, to avoid churn.
+  - A pending idle check is never re-armed by commits. A chat streaming
+    frames would otherwise never trim.
+- **Memory first.** "Load earlier" (and scrolling up) draws from memory
+  above the window first. It fetches only when memory runs out.
+- **Back to the newest.** Send, "New message ↓" (when the newest are not
+  drawn) and an arrival while following all move the window to the newest
+  and stick.
+- **Focus targets.** A push-tap target outside the window is drawn with
+  `WINDOW_FOCUS_ABOVE` / `WINDOW_FOCUS_BELOW` neighbours
+  (`windowAround`).
+- **Computed over everything.** Runs, tails, the receipt and arrival
+  detection read every message in memory, so the window's edge draws
+  exactly as before.
+- **Busy means wait.** The window holds off during a send fly, a list
+  glide, an interactive keyboard drag or a pending scroll restore.
+- **A ticket is top-aligned.** It opens on the brief, so its window starts
+  at the oldest comment and grows down as the reader goes. The brief and
+  answer cards are outside the window and always drawn. Sends not yet shown
+  back are always drawn.
+- The Thread's first paint is also progressive: a chat that opens with
+  more than 30 messages draws its newest 15 first and the rest on the next
+  frame.
+
+### Hidden-list freeze
+
+The Chats list stays mounted, hidden, behind an open chat, and it was
+subscribed to the viewport store. As a result, every step of a keyboard
+show, hide or drag re-rendered the whole list.
+`useViewportSettledWhile(hidden)` gives a hidden list the viewport only
+once it has settled, and not at all if it settled where it was. In jsdom,
+one keyboard show with a chat open went from 3 list renders to 0. Apply the
+same rule to anything mounted but off screen: it should not subscribe to
+per-frame state.
+
+### No layout-property transitions
+
+Do not ease `height`, `min-height`, `padding` or `margin` on the
+scrolling column. Each frame becomes a whole-column layout, and anything
+that re-sticks every frame adds a `scrollHeight` read and a `scrollTop`
+write.
+
+- The composer's bottom-gap spacer and the content's `min-height` take
+  their new value at once.
+- A following list re-sticks once and plays the difference as a
+  `translate` (`easeGapShift`), with the keyboard's duration and curve.
+- `translate` composes with the keyboard FLIP's and the glide's
+  `transform`.
+- Only the bar's own padding still eases, because it sits in the
+  absolutely placed dock and causes no column layout.
+
+### Blur budget
+
+Live `backdrop-filter` is the most expensive thing on screen while the
+list scrolls under it. The chat header and the composer footer each stack
+four masked blur layers. Keep the count fixed, don't animate the blur
+radius, and keep blurs off the rows themselves (glass tiles have no blur).
+Diagnostics → **Light blur** (`k2.debug.lightBlur`, the `k2-light-blur`
+class on `<html>`, off by default) drops each stack to two layers, about
+4px with the long soft reach and about 16px for the dense band. It is
+there to A/B on a device that still drops frames.
+
+### Benchmarks as tests
+
+- `ThreadPane.renderCost.test.tsx` and `TicketView.renderCost.test.tsx`
+  count bubble renders (one `useDeliverBrighten` per bubble render),
+  Markdown parses (remark-gfm's attacher runs once per processor) and pane
+  renders (one `useKeyboardFlip` per pane render).
+  - They assert 0 row renders and 0 parses per keystroke, per refetch or
+    activity frame, and per viewport change.
+  - They assert that the DOM is capped by the window at 300 to 500
+    messages.
+  - Timings and DOM sizes are printed as `[render-cost]` lines.
+- `ThreadPane.window.test.tsx` and `TicketView.window.test.tsx` drive a
+  fake layout (fixed row height, clamped `scrollTop`). They check that
+  spacers keep `scrollHeight` and the visible row still, that rows come
+  back before the reader reaches them, and that the window moves to the
+  newest.
 
 ## Chat cache, return hold, deltas
 
