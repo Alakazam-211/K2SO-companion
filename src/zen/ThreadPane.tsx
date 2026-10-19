@@ -65,6 +65,7 @@ import { sourceWord, useZenStore, type LoadEarlierResult } from "./zenStore";
 import { SESSION_UNAVAILABLE } from "./sessionReturn";
 import { zenTextPx } from "./zenFont";
 import { useZenScope, zenScope } from "./zenScope";
+import { projectChatPagingSupported, type ServerScope } from "../api/scope";
 import { useThreadFocusSeq } from "./threadFocus";
 import { recentSentKey, useRecentFirstStore } from "./recentFirst";
 import { composerDraftKey, composerDraftOf, useComposerDrafts } from "./composerDrafts";
@@ -143,17 +144,23 @@ export const PROGRESSIVE_FIRST = 15;
 /** Height (px) of the top slot (older-page spinner / Retry). */
 const OLDER_SLOT_PX = 32;
 
-/** The open Thread can fetch an older page from its server: an agent
- *  Thread (a project chat has no "before" read — its window still grows
- *  from memory), live, with more there, none in flight. */
+/** The open chat's server gives it older pages: an agent Thread always;
+ *  a project chat only with `project-chat-paging-v1` (K2 0.46.2) — without
+ *  it the window still grows from memory, but nothing is fetched. */
+function pagesOlder(addr: string | null, groupId: string | null, scope: ServerScope): boolean {
+  if ((groupId || "").trim()) return projectChatPagingSupported(scope);
+  return !!addr;
+}
+
+/** The open Thread can fetch an older page from its server: one that
+ *  pages (above), live, with more there, none in flight. */
 function canPageOlder(s: ReturnType<typeof useZenStore.getState>): boolean {
   return (
     s.agentSource !== "stub" &&
     s.threadSource === "live" &&
     !s.threadHolding &&
     s.threadHasMore &&
-    !!s.threadAddr &&
-    !(s.threadGroupId || "").trim() &&
+    pagesOlder(s.threadAddr, s.threadGroupId, zenScope()) &&
     !s.threadLoadingEarlier
   );
 }
@@ -678,7 +685,8 @@ export function ThreadPane({
     (Boolean((threadGroupId || "").trim()) || isSendableAddr(threadAddr));
   const agent = agents.find((a) => a.id === agentId);
   // The room's server: the overlay socket redials only on its own server.
-  const zenServer = useZenScope().id;
+  const roomScope = useZenScope();
+  const zenServer = roomScope.id;
   // Uploads land in `<workspace>/.k2/downloads/` (desktop's compose bar).
   // A project chat has no workspace of its own: its PoC member's.
   const groupId = (threadGroupId || "").trim();
@@ -871,7 +879,7 @@ export function ThreadPane({
   // Files on Thread messages (K2 0.46.1 `thread-attachments-v1`): chips
   // only when the room's server lists the feature; a tap opens the file
   // through that server (the scope captured at the tap).
-  const filesOn = useThreadFilesOn(useZenScope());
+  const filesOn = useThreadFilesOn(roomScope);
   const [openFile, setOpenFile] = useState<OpenAttachment | null>(null);
   useEffect(() => {
     setOpenFile(null);
@@ -1922,7 +1930,7 @@ export function ThreadPane({
   // failed, else empty (its room kept once shown, so nothing moves).
   const olderFailedHere = olderFailed === agentId;
   const olderPageable =
-    source === "live" && hasMore && !!threadAddr && !groupId && !holding;
+    source === "live" && hasMore && pagesOlder(threadAddr, groupId, roomScope) && !holding;
   const olderSlot =
     !limited &&
     (olderPageable || loadingEarlier || olderFailedHere || olderSlotFor.current === agentId);

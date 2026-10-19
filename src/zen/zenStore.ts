@@ -25,13 +25,21 @@ import {
   type ThreadItem,
 } from "../api/client";
 import {
+  OLDER_PAGE_LIMIT,
   fetchProjectGroupMessages,
+  fetchProjectGroupOlder,
   fetchProjectGroupResources,
   fetchProjectGroups,
   postProjectGroupMessage,
   type ProjectGroup,
 } from "../api/projectGroups";
-import { ensureBootStatus, scopeFor, serverMemory, type ServerScope } from "../api/scope";
+import {
+  ensureBootStatus,
+  projectChatPagingSupported,
+  scopeFor,
+  serverMemory,
+  type ServerScope,
+} from "../api/scope";
 import { roomServerId, setRoomServer, zenScope } from "./zenScope";
 import { onServerForget, useServersStore } from "../stores/servers";
 import { useWorkspacesStore } from "../stores/workspaces";
@@ -92,7 +100,7 @@ import {
 } from "./sidecarRows";
 import { groupMessagesToThread, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import { mergeThreadMessages } from "./threadLive";
-import { mergeServerPage, sameMessage } from "./threadCacheMerge";
+import { mergeGroupDelta, mergeServerPage, sameMessage } from "./threadCacheMerge";
 import { chatCache } from "./chatCache";
 import {
   applyGroupRead,
@@ -245,7 +253,9 @@ type ZenState = {
   /** The page of the open Thread older than its oldest message (one at a
    *  time). "loaded": it landed (maybe empty); "failed": the server did
    *  not give it; "skipped": nothing to do (none left, one in flight, a
-   *  project chat, or the chat changed meanwhile). */
+   *  project chat on a server without `project-chat-paging-v1`, or the
+   *  chat changed meanwhile). A project chat pages back from its lowest
+   *  line seq (`before_seq`, K2 0.46.2). */
   loadEarlier: () => Promise<LoadEarlierResult>;
   /** Send `text` to the open Thread. Optimistic: an outbox bubble shows
    *  "Sending…" at once, then gives way to the server's item, or turns
@@ -434,6 +444,18 @@ function mergeResources(
   });
   const ids = new Set(listed.map((f) => f.id));
   return [...listed, ...keepOpenFiles(s).filter((f) => !ids.has(f.id))];
+}
+
+/** A project chat's older-page cursor: the lowest line seq (`readSeq`)
+ *  held. Null when a server line lacks one (it could not be placed). */
+function oldestLineSeqOf(items: ThreadMessage[]): number | null {
+  let best: number | null = null;
+  for (const m of items) {
+    if (m.pending || m.failed) continue;
+    if (typeof m.readSeq !== "number" || !Number.isFinite(m.readSeq)) return null;
+    if (best == null || m.readSeq < best) best = m.readSeq;
+  }
+  return best;
 }
 
 function oldestSeqOf(items: ThreadMessage[]): number | null {
@@ -1889,6 +1911,54 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const { threadAddr, threadOldestSeq, threadHasMore, threadLoadingEarlier, agentSource } =
       get();
     if (agentSource === "stub") return "skipped";
+    const groupId = (get().threadGroupId || "").trim();
+    if (groupId) {
+      // A project chat: older pages only from a server that pages them
+      // (an older daemon ignores `before_seq` and answers with the newest
+      // page). Without the key its window grows from memory alone.
+      if (!threadHasMore || threadLoadingEarlier) return "skipped";
+      const scope = zenScope();
+      if (!projectChatPagingSupported(scope)) return "skipped";
+      const cursor = oldestLineSeqOf(get().thread);
+      if (cursor == null) return "skipped";
+      if (cursor <= 1) {
+        // Seqs start at 1: the chat's first line is already here.
+        set({ threadHasMore: false });
+        return "skipped";
+      }
+      const gen = get().threadGen;
+      const still = () => get().threadGen === gen && (get().threadGroupId || "").trim() === groupId;
+      set({ threadLoadingEarlier: true });
+      try {
+        const r = await fetchProjectGroupOlder(scope, groupId, cursor, OLDER_PAGE_LIMIT);
+        if (!still()) {
+          set({ threadLoadingEarlier: false });
+          return "skipped";
+        }
+        if (!r.ok || !r.data) {
+          set({ threadLoadingEarlier: false });
+          return "failed";
+        }
+        const held = new Set(get().thread.map((m) => m.id));
+        const page = groupMessagesToThread(r.data.messages, scope.username()).filter(
+          (m) => typeof m.readSeq === "number" && m.readSeq < cursor
+        );
+        const fresh = page.filter((m) => !held.has(m.id));
+        // Upsert by id, ordered by line seq, positions renumbered. The
+        // confirmed list becomes the room's cached copy (the subscriber).
+        const thread = mergeGroupDelta(get().thread, page);
+        set({
+          thread,
+          threadHasMore: r.data.hasMore && fresh.length > 0,
+          threadOldestSeq: thread.length ? 0 : null,
+          threadLoadingEarlier: false,
+        });
+        return "loaded";
+      } catch {
+        set({ threadLoadingEarlier: false });
+        return still() ? "failed" : "skipped";
+      }
+    }
     if (!threadAddr || threadOldestSeq == null || !threadHasMore || threadLoadingEarlier) {
       return "skipped";
     }

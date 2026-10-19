@@ -598,7 +598,7 @@ describe("Thread lazy loading (older pages as the reader scrolls up)", () => {
     expect(p.fn).toHaveBeenCalledTimes(1);
   });
 
-  it("a project chat (no older reads) grows from memory but never fetches", async () => {
+  it("a project chat on a server without project-chat-paging-v1 grows from memory but never fetches", async () => {
     const p = pager();
     openRoom({
       thread: many(100),
@@ -613,5 +613,80 @@ describe("Thread lazy loading (older pages as the reader scrolls up)", () => {
     idle();
     expect(p.fn).not.toHaveBeenCalled();
     expect(screen.queryByTestId("thread-older")).toBeNull();
+  });
+
+  describe("project chat on a server with project-chat-paging-v1", () => {
+    const openGroup = (loadEarlier: () => Promise<LoadEarlierResult>, more = true) => {
+      setZenScope(fakeScope({ id: "s1", username: "baden", features: ["project-chat-paging-v1"] }));
+      openRoom({
+        thread: many(100),
+        threadHasMore: more,
+        threadAddr: null,
+        threadGroupId: "g1",
+        loadEarlier,
+      });
+    };
+
+    it("nearing the top fetches one older page, with the spinner", async () => {
+      const p = pager();
+      openGroup(p.fn);
+      await mount();
+      scrollToTopOfMemory();
+      expect(p.fn).not.toHaveBeenCalled();
+      userScrollTo(100);
+      expect(p.fn).toHaveBeenCalledTimes(1);
+      userScrollTo(0);
+      expect(p.fn).toHaveBeenCalledTimes(1);
+      expect(screen.getByTestId("thread-older-loading")).not.toBeNull();
+    });
+
+    it("has_more false: the page lands and no further fetch goes out", async () => {
+      const p = pager();
+      openGroup(p.fn);
+      await mount();
+      scrollToTopOfMemory();
+      userScrollTo(100);
+      expect(p.fn).toHaveBeenCalledTimes(1);
+      await p.land(olderPage(-49, 50), false);
+      idle();
+      rest();
+      scrollToTopOfMemory();
+      userScrollTo(100);
+      userScrollTo(0);
+      idle();
+      expect(p.fn).toHaveBeenCalledTimes(1);
+      expect(screen.queryByTestId("thread-older-loading")).toBeNull();
+    });
+
+    it("nothing more on the server: no fetch, no top slot", async () => {
+      const p = pager();
+      openGroup(p.fn, false);
+      await mount();
+      scrollToTopOfMemory();
+      userScrollTo(0);
+      idle();
+      expect(p.fn).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("thread-older")).toBeNull();
+    });
+
+    it("a failed page shows Retry (no loop); tapping it fetches again", async () => {
+      const p = pager();
+      openGroup(p.fn);
+      await mount();
+      scrollToTopOfMemory();
+      userScrollTo(100);
+      await p.fail();
+      const retry = screen.getByTestId("thread-older-retry");
+      rest();
+      userScrollTo(scroller().scrollTop + 30);
+      userScrollTo(0);
+      idle();
+      expect(p.fn).toHaveBeenCalledTimes(1);
+      act(() => {
+        fireEvent.click(retry);
+      });
+      expect(p.fn).toHaveBeenCalledTimes(2);
+      expect(screen.getByTestId("thread-older-loading")).not.toBeNull();
+    });
   });
 });

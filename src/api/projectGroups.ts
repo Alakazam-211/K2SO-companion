@@ -10,6 +10,9 @@
 //   GET  /cli/project-group/list                       → {ok, groups}
 //   GET  /cli/project-group/show?group=                → group + members + dashboards (flat)
 //   GET  /cli/project-group/messages?group=&after=&limit= → {ok, messages, truncated}
+//   GET  /cli/project-group/messages?group=&before_seq=&limit=
+//        → {ok, groupId, before_seq, messages, has_more, truncated}
+//        (K2 0.46.2 `project-chat-paging-v1`; never sent without the key)
 //   GET  /cli/project-group/icon?group=                → {ok, found, dataUrl}
 //   GET  /cli/project-group/html-docs?group=           → {ok, docs}
 //   POST /cli/project-group/msg {group, body}          → stored row + delivery outcome
@@ -76,6 +79,14 @@ export interface ProjectGroupMessage {
 export interface ProjectGroupMessagesPage {
   messages: ProjectGroupMessage[];
   truncated: boolean;
+}
+
+/** One OLDER page (`before_seq`), oldest-first. `hasMore`: older lines
+ *  remain before `messages[0]` (backward, like `truncated` on the newest
+ *  page). */
+export interface ProjectGroupOlderPage {
+  messages: ProjectGroupMessage[];
+  hasMore: boolean;
 }
 
 /** The `msg` POST response: the stored row + the delivery outcome — a
@@ -184,8 +195,7 @@ export async function fetchProjectGroupShow(
 
 /** GET /cli/project-group/messages — oldest-first. No `after` → the
  *  LATEST `limit` (default 20, max 500); `after` is strictly-greater
- *  unix seconds. Load-earlier = re-read the tail with a bigger limit
- *  (there is no `before` param). */
+ *  unix seconds. Older pages: `fetchProjectGroupOlder` (K2 0.46.2). */
 export async function fetchProjectGroupMessages(
   scope: ServerScope,
   group: string,
@@ -205,6 +215,44 @@ export async function fetchProjectGroupMessages(
     data: {
       messages: r.data?.messages ?? [],
       truncated: r.data?.truncated ?? false,
+    },
+  };
+}
+
+/** Lines asked per older page. */
+export const OLDER_PAGE_LIMIT = 50;
+
+/** GET /cli/project-group/messages?group=&before_seq=N&limit=L (K2 0.46.2,
+ *  `project-chat-paging-v1` — the caller checks the key): the newest `limit`
+ *  lines with seq < `beforeSeq`, oldest first, and whether older remain
+ *  (`has_more`; `truncated` says the same). `beforeSeq` 1 = the empty page
+ *  at the start. A failure keeps its HTTP status (403 / 404 = gone). */
+export async function fetchProjectGroupOlder(
+  scope: ServerScope,
+  groupId: string,
+  beforeSeq: number,
+  limit = OLDER_PAGE_LIMIT
+): Promise<ApiResponse<ProjectGroupOlderPage>> {
+  const r = await pgRequest<{
+    ok?: boolean;
+    messages?: unknown;
+    has_more?: unknown;
+    truncated?: unknown;
+  }>(scope, "/cli/project-group/messages", {
+    params: {
+      group: groupId,
+      before_seq: String(Math.max(1, Math.floor(beforeSeq))),
+      limit: String(Math.max(1, Math.floor(limit))),
+    },
+  });
+  if (!r.ok) return { ok: false, error: r.error, status: r.status };
+  const d = r.data ?? {};
+  if (!Array.isArray(d.messages)) return { ok: false, error: "no messages" };
+  return {
+    ok: true,
+    data: {
+      messages: d.messages as ProjectGroupMessage[],
+      hasMore: typeof d.has_more === "boolean" ? d.has_more : d.truncated === true,
     },
   };
 }
