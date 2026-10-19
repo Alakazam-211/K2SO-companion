@@ -76,6 +76,7 @@ import {
 import { composerDraftOf, ticketDraftKey, useComposerDrafts } from "./composerDrafts";
 import { useBackHandler } from "../lib/androidBack";
 import { useSwipeBack } from "../lib/useSwipeBack";
+import { useRenderWindow } from "./useRenderWindow";
 
 // Zen open ticket — Layout A (Rosson, 2026-10-11). Full-screen inside the
 // Chats column, below the notch, the ThreadPane look:
@@ -623,6 +624,26 @@ export function TicketView({
   );
   const inFlight = commentInFlight(outbox, roomKey);
 
+  // The render window (threadWindow.ts, the Thread's): every comment stays
+  // in memory, ~WINDOW_ROWS are in the DOM. The brief and answer cards are
+  // always drawn; a ticket opens on them, so the window starts at the
+  // oldest comment. Sends not shown back yet are always drawn.
+  const commentsRef = useRef<HTMLDivElement>(null);
+  const flyBusy = useRef(false);
+  const win = useRenderWindow({
+    room: roomKey,
+    keys: rows.slice(0, comments.length).map((r) => r.key),
+    scroller: () => scrollerRef.current,
+    list: () => commentsRef.current,
+    following: () => following.current === true,
+    busy: () => interactiveRef.current || flyBusy.current,
+    lastScrollAt: () => lastScrollAt.current,
+    stick: stickToNewest,
+    onScrollWrite: (top) => {
+      lastTop.current = top;
+    },
+  });
+
   // A send that showed up in `show`: remember its row key, drop the entry.
   const landedSig = landedNow.map((l) => `${l.localId}>${l.rowId}`).join(",");
   useEffect(() => {
@@ -652,7 +673,9 @@ export function TicketView({
       following.current ?? el.scrollHeight - el.scrollTop - el.clientHeight < 160;
     if (follow) {
       following.current = true;
-      stickToNewest(el);
+      // The newest not drawn (the window is up the ticket): move it there.
+      if (win.drawsNewest) stickToNewest(el);
+      else win.toNewest(true);
       return;
     }
     const newestIdx = commentCount - 1;
@@ -851,6 +874,7 @@ export function TicketView({
     });
     // The reader just spoke: the reply must come into view.
     setFollowing(true);
+    win.toNewest(false);
     composerRef.current?.focus({ preventScroll: true });
     void deliver(localId);
   }
@@ -875,6 +899,12 @@ export function TicketView({
     const el = scrollerRef.current;
     setFollowing(true);
     if (!el) return;
+    // The newest are not drawn (the reader went far up): the window moves
+    // back to them and the view jumps there.
+    if (!win.drawsNewest) {
+      win.toNewest(true);
+      return;
+    }
     if (typeof el.scrollTo === "function" && !prefersReducedMotion()) {
       el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
       window.setTimeout(() => {
@@ -894,6 +924,7 @@ export function TicketView({
   const onRestoreRow = useCallback((o: OutgoingComment) => handlers.current.onRestore(o), []);
 
   const flyKey = fly ? fly.localId : "";
+  flyBusy.current = fly != null;
 
   // FLIP "last/invert/play". The row is in its final slot (hidden while it
   // flies); the composer has already shrunk back to one empty line.
@@ -1113,6 +1144,8 @@ export function TicketView({
           const el = e.currentTarget;
           const top = el.scrollTop;
           lastScrollAt.current = Date.now();
+          // Rows come back before the reader gets to them; far ones leave.
+          win.onScroll();
           if (!interactiveRef.current) setScrolled(top > 0);
           const prev = lastTop.current;
           lastTop.current = top;
@@ -1208,12 +1241,44 @@ export function TicketView({
             ) : null}
 
             {rows.length > 0 ? (
-              <div className="flex flex-col gap-1 pt-1" data-testid="ticket-comments">
+              <div
+                ref={commentsRef}
+                // Positioned: rows' offsets are the list's own, whatever the
+                // scroll (the window holds a row still by them).
+                className="relative flex flex-col gap-1 pt-1"
+                data-testid="ticket-comments"
+              >
+                {win.above > 0 ? (
+                  <div
+                    key="__win-above"
+                    aria-hidden="true"
+                    className="shrink-0"
+                    data-testid="ticket-window-above"
+                    // Exactly its height in the flow: the gap after it is
+                    // taken back (the rows it stands for had theirs).
+                    style={{ height: win.above, marginBottom: "calc(var(--spacing, 0.25rem) * -1)" }}
+                  />
+                ) : null}
                 {rows.map((r, i) => {
+                  const windowed = i < comments.length;
+                  // Outside the render window: not drawn (a spacer stands in).
+                  if (windowed && (i < win.lo || i >= win.hi)) {
+                    return i === comments.length - 1 && win.below > 0 ? (
+                      <div
+                        key="__win-below"
+                        aria-hidden="true"
+                        className="shrink-0"
+                        data-testid="ticket-window-below"
+                        style={{ height: win.below, marginTop: "calc(var(--spacing, 0.25rem) * -1)" }}
+                      />
+                    ) : null;
+                  }
                   const flying = fly?.localId === r.key;
                   return (
                     <TicketCommentRow
                       key={r.key}
+                      rowKey={r.key}
+                      windowed={windowed}
                       author={r.author}
                       body={r.body}
                       at={r.at}
@@ -1397,6 +1462,8 @@ export function TicketView({
  *  the ticket's own state re-render the ticket, not the rows (and their
  *  markdown) that did not change. */
 const TicketCommentRow = memo(function TicketCommentRow({
+  rowKey,
+  windowed,
   author,
   body,
   at,
@@ -1409,6 +1476,9 @@ const TicketCommentRow = memo(function TicketCommentRow({
   onRetry,
   onRestore,
 }: {
+  rowKey: string;
+  /** A comment (in the render window), not a send still on its way. */
+  windowed: boolean;
   author: string;
   body: string;
   at: number;
@@ -1430,6 +1500,8 @@ const TicketCommentRow = memo(function TicketCommentRow({
   return (
     <div
       data-ticket-msg=""
+      data-row-key={rowKey}
+      data-win-row={windowed ? "" : undefined}
       data-testid="ticket-comment"
       data-mine={mine ? "1" : "0"}
       data-outgoing={out?.status}
