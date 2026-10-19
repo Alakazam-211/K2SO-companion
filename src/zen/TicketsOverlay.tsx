@@ -266,7 +266,9 @@ export const TicketsOverlay = memo(function TicketsOverlay({
           paddingTop: underHeaderPadding(headerPx),
           paddingLeft: 12,
           paddingRight: 12,
-          paddingBottom: 24,
+          // The last card scrolls clear of the home indicator / nav bar
+          // (same as ZenSettings).
+          paddingBottom: "calc(24px + var(--safe-bottom))",
           WebkitOverflowScrolling: "touch",
         }}
         data-testid="tickets-scroller"

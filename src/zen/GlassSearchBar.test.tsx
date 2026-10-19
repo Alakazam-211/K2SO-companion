@@ -5,6 +5,7 @@ import { GlassComposer } from "./GlassComposer";
 import { PLUS_GLYPH, PLUS_GLYPH_PX } from "./PlusGlyph";
 import {
   GlassSearchBar,
+  SEARCH_BAR_ANDROID_TYPING_BOTTOM,
   SEARCH_BAR_HEIGHT,
   SEARCH_BAR_KEYBOARD_GAP,
   SEARCH_BAR_REST_BOTTOM,
@@ -50,6 +51,18 @@ describe("GlassSearchBar keyboard gap", () => {
     expect(bar.style.bottom).toBe("8px");
     expect(bar.dataset.bottom).toBe("8px");
     expect(bar.dataset.typing).toBe("1");
+  });
+
+  it("focused on Android: still clears the nav bar (floating/hardware keyboard)", () => {
+    document.documentElement.classList.add("platform-android");
+    try {
+      const { bar, input } = mount();
+      fireEvent.focus(input);
+      expect(bar.dataset.bottom).toBe(SEARCH_BAR_ANDROID_TYPING_BOTTOM);
+      expect(SEARCH_BAR_ANDROID_TYPING_BOTTOM).toBe("max(8px, var(--safe-bottom))");
+    } finally {
+      document.documentElement.classList.remove("platform-android");
+    }
   });
 
   it("blur restores the resting safe-area offset", () => {
