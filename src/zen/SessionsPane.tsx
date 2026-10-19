@@ -68,7 +68,10 @@ export const OPENS_AS_TERMINAL = "Opens as a terminal";
 export const ACTIVE_HEADING = "Active";
 export const HISTORY_HEADING = "History";
 export const HISTORY_EMPTY = "No past sessions";
-export const SHOW_MORE = "Show more";
+/** History's next page failed to load (it loads itself near the bottom). */
+export const HISTORY_MORE_ERROR = "Couldn't load more";
+/** Load History's next page when the list's bottom is this close (px). */
+export const HISTORY_MORE_NEAR_PX = 240;
 /** A live tab with no conversation (a blank shell): nothing to open. */
 export const NO_THREAD_HINT = "No thread — a plain shell";
 
@@ -238,6 +241,14 @@ export function SessionsPane({
   const [latest, setLatest] = useState<Map<string, LatestEntry>>(() => new Map());
   const [historyLimit, setHistoryLimit] = useState(HISTORY_PAGE);
   const [historyLoading, setHistoryLoading] = useState(true);
+  /** The last History lookup failed outright (Retry re-runs it). */
+  const [historyError, setHistoryError] = useState(false);
+  const [historyRetry, setHistoryRetry] = useState(0);
+  /** The next page was asked for and has not landed (single-flight). */
+  const moreInFlight = useRef(false);
+  /** The reader has scrolled the list (no page loads on the first paint). */
+  const userScrolled = useRef(false);
+  const listRef = useRef<HTMLDivElement>(null);
   /** History row being woken (its addr), and the last wake failure. */
   const [waking, setWaking] = useState<string | null>(null);
   const [wakeError, setWakeError] = useState<{ addr: string; error: string } | null>(null);
@@ -369,15 +380,25 @@ export function SessionsPane({
     if (!chats || live === null) return;
     const want = lookupKey.split(",").filter((a) => a && !latest.has(a));
     if (want.length === 0) {
+      moreInFlight.current = false;
       setHistoryLoading(false);
       return;
     }
     let alive = true;
     setHistoryLoading(true);
+    setHistoryError(false);
     void Promise.all(
       latestBatches(want).map((batch) => getThreadLatest(scope, batch).catch(() => null))
     ).then((results) => {
       if (!alive) return;
+      moreInFlight.current = false;
+      // Nothing came back at all (offline, server down): say so, with a
+      // Retry, rather than marking the page missing.
+      if (results.every((r) => !r?.ok)) {
+        setHistoryError(true);
+        setHistoryLoading(false);
+        return;
+      }
       const next = new Map(latest);
       for (const r of results) {
         if (!r?.ok) continue;
@@ -392,7 +413,7 @@ export function SessionsPane({
       alive = false;
     };
     // `latest` is read, not watched: it changes only from this effect.
-  }, [scope, lookupKey, chats, live]);
+  }, [scope, lookupKey, chats, live, historyRetry]);
 
   const history: HistoryRow[] = chats
     ? buildHistory({
@@ -405,6 +426,23 @@ export function SessionsPane({
       })
     : [];
   const historyMore = candidates.length > historyLimit;
+
+  /** History pages itself: near the list's bottom (after the reader has
+   *  scrolled), the next page loads, one at a time. */
+  const loadMoreIfNear = () => {
+    const el = listRef.current;
+    if (!el || !userScrolled.current || !historyMore || historyLoading || historyError) return;
+    if (moreInFlight.current) return;
+    if (el.scrollHeight - el.scrollTop - el.clientHeight > HISTORY_MORE_NEAR_PX) return;
+    moreInFlight.current = true;
+    setHistoryLimit((n) => n + HISTORY_PAGE);
+  };
+  const loadMoreRef = useRef(loadMoreIfNear);
+  loadMoreRef.current = loadMoreIfNear;
+  // A page landed and the list is still short of the view: the next.
+  useEffect(() => {
+    if (!historyLoading) loadMoreRef.current();
+  }, [historyLoading, historyLimit]);
 
   const pickMain = () => {
     onClose();
@@ -523,7 +561,15 @@ export function SessionsPane({
           fallbackName={name}
         />
       ) : null}
-      <div className="flex-1 overflow-y-auto">
+      <div
+        ref={listRef}
+        className="flex-1 overflow-y-auto"
+        data-testid="sessions-list"
+        onScroll={() => {
+          userScrolled.current = true;
+          loadMoreIfNear();
+        }}
+      >
         <div className={HEADING} data-testid="sessions-active">
           {ACTIVE_HEADING}
         </div>
@@ -749,7 +795,7 @@ export function SessionsPane({
             </div>
           );
         })}
-        {history.length === 0 ? (
+        {history.length === 0 && !historyError ? (
           <div
             className="px-3 py-2 text-[12px] text-[var(--text-muted)]"
             data-testid="sessions-history-empty"
@@ -757,17 +803,41 @@ export function SessionsPane({
             {historyLoading || chats === null ? "loading" : HISTORY_EMPTY}
           </div>
         ) : null}
-        {historyMore ? (
-          <div className="p-2">
+        {/* No "Show more": the next page loads near the bottom. A small
+            spinner while it does; a Retry line if it failed; nothing at
+            the end. */}
+        {historyError ? (
+          <div
+            className="px-3 py-2 text-[12px] text-[var(--text-muted)] text-center"
+            data-testid="sessions-history-error"
+            role="alert"
+          >
+            {HISTORY_MORE_ERROR} ·{" "}
             <button
               type="button"
-              className="w-full text-center text-[12px] text-[var(--text-muted)] bg-transparent py-1"
-              data-testid="sessions-history-more"
-              disabled={historyLoading}
-              onClick={() => setHistoryLimit((n) => n + HISTORY_PAGE)}
+              className="bg-transparent p-0 text-[var(--accent)]"
+              data-testid="sessions-history-retry"
+              onClick={() => {
+                setHistoryError(false);
+                setHistoryRetry((n) => n + 1);
+              }}
             >
-              {historyLoading ? "loading" : SHOW_MORE}
+              Retry
             </button>
+          </div>
+        ) : historyLoading && history.length > 0 ? (
+          <div className="flex justify-center py-2" data-testid="sessions-history-loading" aria-label="Loading">
+            <span
+              aria-hidden
+              className="inline-block animate-spin"
+              style={{
+                width: 14,
+                height: 14,
+                borderRadius: 7,
+                border: "2px solid var(--text-muted)",
+                borderTopColor: "transparent",
+              }}
+            />
           </div>
         ) : null}
       </div>
