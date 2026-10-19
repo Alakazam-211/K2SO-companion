@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   fullViewportHeight,
@@ -339,6 +339,12 @@ export function ChatsList() {
   const [params, setParams] = useSearchParams();
   const ticketParam = (params.get(ZEN_TICKET_PARAM) || "").trim();
   const [deepTicket, setDeepTicket] = useState<string | null>(null);
+  // Stable: the Tickets overlay (and an open ticket in it) is memoized, so
+  // this list's own re-renders (activity polls, unread, previews) skip it.
+  const closeTickets = useCallback(() => {
+    setTickets(false);
+    setDeepTicket(null);
+  }, []);
   useEffect(() => {
     if (!ticketParam) return;
     // An open chat hides this list (and the overlay inside it).
@@ -1931,10 +1937,7 @@ export function ChatsList() {
         <TicketsOverlay
           key={deepTicket ?? "list"}
           initialTicketId={deepTicket}
-          onClose={() => {
-            setTickets(false);
-            setDeepTicket(null);
-          }}
+          onClose={closeTickets}
         />
       ) : null}
       {addAgent && onHome ? (

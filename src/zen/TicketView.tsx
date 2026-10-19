@@ -481,7 +481,9 @@ type CommentRow = {
   out: OutgoingComment | null;
 };
 
-export function TicketView({
+/** Memoized (TicketsOverlay hands it a stable `onBack`): a refresh of the
+ *  Tickets list behind it does not re-render the open ticket. */
+export const TicketView = memo(function TicketView({
   id,
   linked,
   onBack,
@@ -1454,7 +1456,7 @@ export function TicketView({
       {sheet === "agreed" && item ? <AgreedSheet item={item} onClose={() => setSheet(null)} /> : null}
     </div>
   );
-}
+});
 
 /** One comment row: the meta line (theirs), the bubble, the status /
  *  receipt line (mine). Memoized on plain values and stable callbacks:
