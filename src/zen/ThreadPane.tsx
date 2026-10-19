@@ -1,4 +1,13 @@
-import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { SENDING_OPACITY, useDeliverBrighten } from "./useDeliverBrighten";
 import { chatRuns, receiptFor, receiptRow } from "./chatReceipt";
 import { getThreadActivity, uploadFsBinary } from "../api/client";
@@ -13,7 +22,12 @@ import {
   workspaceHandleOf,
 } from "./composerAttach";
 import { loadGroupPoc, type GroupPoc } from "./groupPoc";
-import { GlassComposer, composerBlockHeight, composerPlaceholder } from "./GlassComposer";
+import {
+  GlassComposer,
+  composerBlockHeight,
+  composerPlaceholder,
+  type GlassComposerProps,
+} from "./GlassComposer";
 import { keyboardMotionMs, useViewportPadRef, type ViewportMotion } from "../lib/useViewportHeight";
 import { useKeyboardFlip } from "../kit/mobileChat/useKeyboardFlip";
 import { COMPOSER_FOCUSED_ATTR, useComposerFocusGap } from "../kit/mobileChat/useComposerFocusGap";
@@ -84,6 +98,7 @@ import { useUnreadStore } from "./unreadStore";
 import { useMarkReadWhileViewing } from "./unreadRead";
 import { MessageFiles, patchThreadFileState, useThreadFilesOn } from "./ThreadFiles";
 import { AttachmentSheet, type OpenAttachment } from "./AttachmentSheet";
+import { sameMessage } from "./threadCacheMerge";
 import type { ThreadAttachment } from "../api/threadAttachmentPure";
 
 /** No workspace folder to upload into (no usable path / no PoC yet). */
@@ -101,7 +116,38 @@ export const NEW_BELOW_SETTLE_MS = 450;
 export const PROGRESSIVE_MIN = 30;
 export const PROGRESSIVE_FIRST = 15;
 
-function Bubble({
+/** Same message as far as a row draws it (the store may hand over a new
+ *  object for an unchanged message: a re-read, a cache swap). */
+function sameRowMessage(a: ThreadMessage, b: ThreadMessage): boolean {
+  return a === b || sameMessage(a, b);
+}
+
+/** Props equal, `m` by content: a row re-renders only when it changed. */
+function sameRowProps<P extends { m: ThreadMessage }>(a: P, b: P): boolean {
+  for (const k in a) {
+    if (k === "m") {
+      if (!sameRowMessage(a.m, b.m)) return false;
+    } else if (!Object.is(a[k], b[k])) return false;
+  }
+  for (const k in b) if (!(k in a)) return false;
+  return true;
+}
+
+/** The markdown body's style for a text size: one object per size, so the
+ *  memoized body is not re-rendered for a new-but-equal style. */
+type BodyStyle = { color: string; fontSize: string };
+const bodyStyles = new Map<string, BodyStyle>();
+function bubbleBodyStyle(): BodyStyle {
+  const px = zenTextPx(BUBBLE_TEXT_PX);
+  let st = bodyStyles.get(px);
+  if (!st) {
+    st = { color: "#fff", fontSize: px };
+    bodyStyles.set(px, st);
+  }
+  return st;
+}
+
+const Bubble = memo(function Bubble({
   m,
   onFileLink,
   canAnswer,
@@ -123,9 +169,9 @@ function Bubble({
   answerHeld?: boolean;
   answering: boolean;
   answerError: string | null;
-  onAnswer: (option: string) => void;
-  /** An outgoing bubble's file names (uploads may still be running). */
-  attachments?: string[];
+  onAnswer: (id: string, option: string) => void;
+  /** An outgoing bubble's files (uploads may still be running). */
+  attachments?: readonly File[];
   /** Laid out but hidden while its send animation flies in. */
   flying?: boolean;
   /** Reduced motion: just fade in. */
@@ -171,7 +217,7 @@ function Bubble({
             <ChatMessageBody
               text={choice.prompt}
               className="!p-0 text-white"
-              style={{ color: "#fff", fontSize: zenTextPx(BUBBLE_TEXT_PX) }}
+              style={bubbleBodyStyle()}
               onFileLink={onFileLink}
             />
           ) : null}
@@ -187,7 +233,7 @@ function Bubble({
                     type="button"
                     disabled={!tappable}
                     aria-pressed={picked}
-                    onClick={() => onAnswer(o)}
+                    onClick={() => onAnswer(m.id, o)}
                     className="rounded-full px-3 py-1.5 text-[15px] leading-none border"
                     style={{
                       borderColor: picked ? "#fff" : "rgba(255,255,255,0.4)",
@@ -218,7 +264,7 @@ function Bubble({
             <ChatMessageBody
               text={m.text}
               className="!p-0 text-white"
-              style={{ color: "#fff", fontSize: zenTextPx(BUBBLE_TEXT_PX) }}
+              style={bubbleBodyStyle()}
               onFileLink={onFileLink}
             />
           ) : null}
@@ -227,13 +273,13 @@ function Bubble({
               className={`flex flex-col gap-0.5 ${m.text.trim() ? "mt-1" : ""}`}
               data-testid="bubble-attachments"
             >
-              {attachments.map((name, i) => (
+              {attachments.map((f, i) => (
                 <span
-                  key={`${name}-${i}`}
+                  key={`${uploadFilename(f)}-${i}`}
                   className="text-[13px] opacity-90 truncate"
                   data-testid="bubble-attachment"
                 >
-                  {name}
+                  {uploadFilename(f)}
                 </span>
               ))}
             </div>
@@ -243,7 +289,177 @@ function Bubble({
       </div>
     </div>
   );
-}
+}, sameRowProps);
+
+/** One message row: the meta line, the bubble, its files and the status
+ *  / receipt line. Memoized: typing, the keyboard, activity frames and the
+ *  drawer re-render the pane, not the rows that did not change. Every
+ *  callback it gets is stable (ThreadPane's `stableHandler`). */
+const ThreadRow = memo(function ThreadRow({
+  rowKey,
+  m,
+  out,
+  files,
+  runFirst,
+  runLast,
+  spaced,
+  stub,
+  highlighted,
+  receipt,
+  canAnswer,
+  answerHeld,
+  answering,
+  answerError,
+  flying,
+  fadeIn,
+  canRestore,
+  onFileLink,
+  onAnswer,
+  onRetry,
+  onRestore,
+  onOpenFile,
+}: {
+  rowKey: string;
+  m: ThreadMessage;
+  out: OutgoingMessage | null;
+  files: readonly ThreadAttachment[] | null;
+  runFirst: boolean;
+  runLast: boolean;
+  /** First of a run, not the first row: a little space above. */
+  spaced: boolean;
+  stub: boolean;
+  highlighted: boolean;
+  /** The chat's one "Delivered" / "Read" receipt sits on this row. */
+  receipt: string | undefined;
+  canAnswer: boolean;
+  answerHeld: boolean;
+  answering: boolean;
+  answerError: string | null;
+  flying: boolean;
+  fadeIn: boolean;
+  /** A "Not sent" send can go back into the (empty) composer. */
+  canRestore: boolean;
+  onFileLink?: (ref: string) => void;
+  onAnswer: (id: string, option: string) => void;
+  onRetry: (localId: string) => void;
+  onRestore: (o: OutgoingMessage) => void;
+  onOpenFile: (m: ThreadMessage, a: ThreadAttachment) => void;
+}) {
+  const wordless = !m.text.trim() && !m.choice;
+  const bubble = !(files && wordless);
+  return (
+    <div
+      data-thread-msg=""
+      data-row-key={rowKey}
+      data-seq={m.seq ?? undefined}
+      data-outgoing={out?.status}
+      data-highlight={highlighted ? "true" : undefined}
+      data-run={runFirst && runLast ? "solo" : runFirst ? "first" : runLast ? "last" : "middle"}
+      className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}${spaced ? " mt-1.5" : ""}`}
+      style={
+        highlighted
+          ? { borderRadius: 20, boxShadow: "0 0 0 2px rgba(10,132,255,.85)", transition: "box-shadow .4s" }
+          : undefined
+      }
+    >
+      {/* Theirs: name and time on one line above the first
+          bubble of a run. Mine: no name; the time (or
+          Sending… / Not sent, or the receipt) below the last
+          of a run, where the outgoing status and its actions
+          sit — and below any send still in progress. */}
+      {!m.mine && runFirst ? (
+        <span
+          className="flex items-baseline gap-1.5 text-[11px] text-[var(--text-muted)] px-3 mb-0.5 min-w-0 max-w-full"
+          data-testid="thread-msg-meta"
+        >
+          <span className="truncate min-w-0">
+            {stub ? <StubMark /> : null}
+            {m.from}
+          </span>
+          <span className="shrink-0" aria-hidden>
+            •
+          </span>
+          <span className="shrink-0" data-testid="thread-msg-time">
+            {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
+          </span>
+        </span>
+      ) : null}
+      {bubble ? (
+        <Bubble
+          m={m}
+          onFileLink={onFileLink}
+          canAnswer={canAnswer}
+          answerHeld={answerHeld}
+          answering={answering}
+          answerError={answerError}
+          onAnswer={onAnswer}
+          attachments={out?.files.length ? out.files : undefined}
+          flying={flying}
+          fadeIn={fadeIn}
+          breathe={out?.status === "sending"}
+          tail={runLast ? (m.mine ? "mine" : "theirs") : null}
+        />
+      ) : null}
+      {files ? (
+        <MessageFiles
+          files={files}
+          mine={m.mine}
+          hasBubble={bubble}
+          onOpen={(a) => onOpenFile(m, a)}
+        />
+      ) : null}
+      {m.mine && (runLast || out != null || m.pending || m.failed) ? (
+        // One box from Send to delivered: "Sending…", then the
+        // time (or "Not sent · Retry"), or the chat's one
+        // receipt — "Delivered" / "Read", drawn over it by CSS
+        // (chatBubbles.css). Fixed height, so no swap ever
+        // moves the bubble or the rows around it.
+        <span
+          className="zen-receipt flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] text-[var(--text-muted)] px-2 mt-0.5"
+          data-testid="thread-msg-time"
+          data-status={out?.status ?? (m.failed ? "failed" : m.pending ? "sending" : "sent")}
+          data-receipt={receipt}
+        >
+          <span className="zen-receipt-status">
+          {out?.status === "failed" ? (
+            <span className="contents" data-testid="outgoing-failed">
+              <button
+                type="button"
+                className="text-[var(--warning)]"
+                data-testid="outgoing-retry"
+                aria-label="Not sent. Tap to retry"
+                title={out.error || undefined}
+                onClick={() => onRetry(out.localId)}
+              >
+                Not sent · Retry
+              </button>
+              {canRestore ? (
+                <button
+                  type="button"
+                  data-testid="outgoing-restore"
+                  onClick={() => onRestore(out)}
+                >
+                  Edit
+                </button>
+              ) : null}
+            </span>
+          ) : out?.status === "queued" ? (
+            "Waiting for connection…"
+          ) : out ? (
+            "Sending…"
+          ) : m.failed ? (
+            "Not sent"
+          ) : m.pending ? (
+            "Sending…"
+          ) : (
+            mountainTime(m.at)
+          )}
+          </span>
+        </span>
+      ) : null}
+    </div>
+  );
+}, sameRowProps);
 
 /**
  * Overlay thread pane. LOOK: iMessage in/out bubbles + Mountain Time.
@@ -294,6 +510,60 @@ export function threadBottomPadding(composerPx: number, drawerCover: number): st
 }
 
 export { COMPOSER_FOCUSED_ATTR };
+
+/** The pane's handle on the composer's text (read on Send / Edit). */
+type DraftApi = { get(): string; set(text: string): void };
+
+/** GlassComposer holding the room's draft (kept per room, composerDrafts)
+ *  in its own state: typing re-renders this, not the Thread around it.
+ *  `onBlankChange` fires (in the same batch) only when the text turns
+ *  blank or not blank. */
+function ThreadDraftComposer({
+  draftKey,
+  apiRef,
+  onBlankChange,
+  hasAttachments,
+  inFlight,
+  ...props
+}: Omit<GlassComposerProps, "value" | "onChange" | "sendReady"> & {
+  draftKey: string | null;
+  apiRef: RefObject<DraftApi | null>;
+  onBlankChange: (blank: boolean) => void;
+  hasAttachments: boolean;
+  /** One send in flight per room: Send waits. */
+  inFlight: boolean;
+}) {
+  const [draft, setDraftText] = useState(() => composerDraftOf(draftKey));
+  const textRef = useRef(draft);
+  const blankRef = useRef(!draft.trim());
+  const keyRef = useRef(draftKey);
+  keyRef.current = draftKey;
+  const blankCb = useRef(onBlankChange);
+  blankCb.current = onBlankChange;
+  const show = useCallback((text: string) => {
+    textRef.current = text;
+    setDraftText(text);
+    const blank = !text.trim();
+    if (blank !== blankRef.current) {
+      blankRef.current = blank;
+      blankCb.current(blank);
+    }
+  }, []);
+  const setDraft = useCallback(
+    (text: string) => {
+      show(text);
+      useComposerDrafts.getState().setDraft(keyRef.current, text);
+    },
+    [show]
+  );
+  // Another room: its own draft.
+  useLayoutEffect(() => {
+    show(composerDraftOf(draftKey));
+  }, [draftKey, show]);
+  apiRef.current = { get: () => textRef.current, set: setDraft };
+  const sendReady = (Boolean(draft.trim()) || hasAttachments) && !inFlight;
+  return <GlassComposer {...props} value={draft} onChange={setDraft} sendReady={sendReady} />;
+}
 
 export function ThreadPane({
   viewportHeight,
@@ -392,12 +662,12 @@ export function ThreadPane({
   const canAttach = canSend && Boolean(attachWorkspace) && Boolean(attachDir);
   // The composer's text, kept per room (composerDrafts): leaving the chat
   // or relaunching the app and coming back puts an unsent draft back.
+  // The text itself lives in the composer (ThreadDraftComposer): a
+  // keystroke re-renders the field, not this pane and its rows. The pane
+  // reads it on Send / Edit and only hears when it turns blank or not.
   const draftKey = composerDraftKey(zenServer, threadGroupId, threadAddr);
-  const [draft, setDraftText] = useState(() => composerDraftOf(draftKey));
-  function setDraft(text: string) {
-    setDraftText(text);
-    useComposerDrafts.getState().setDraft(draftKey, text);
-  }
+  const draftApi = useRef<DraftApi | null>(null);
+  const [draftBlank, setDraftBlank] = useState(() => !composerDraftOf(draftKey).trim());
   const [attachments, setAttachments] = useState<File[]>([]);
   const [attachError, setAttachError] = useState<string | null>(null);
   // Optimistic sends (iMessage): this room's bubbles not yet confirmed.
@@ -405,7 +675,6 @@ export function ThreadPane({
   const outgoing = visibleOutgoing(outbox, thread, roomKey);
   // Double-send guard: one send in flight per room. Typing stays open.
   const inFlight = outgoing.some((o) => o.status === "sending");
-  const sendReady = Boolean(draft.trim() || attachments.length) && !inFlight;
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const chipsRef = useRef<HTMLDivElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -770,10 +1039,6 @@ export function ThreadPane({
     stick(el);
   });
 
-  useLayoutEffect(() => {
-    setDraftText(composerDraftOf(draftKey));
-  }, [draftKey]);
-
   // Typing is written to storage after a short quiet; leaving the chat or
   // the app going to the background writes it now.
   useEffect(() => {
@@ -1104,7 +1369,7 @@ export function ThreadPane({
    *  the bubble "Sending…", fly the text into it, deliver behind it. */
   function onSend() {
     if (!canSend) return;
-    const text = draft;
+    const text = draftApi.current?.get() ?? "";
     const files = attachments;
     if (!text.trim() && !files.length) return;
     const st = useZenStore.getState();
@@ -1128,7 +1393,7 @@ export function ThreadPane({
     const lastRow = rowsNow && rowsNow.length ? rowsNow[rowsNow.length - 1] : null;
     const anchorRect = rectOf(lastRow);
     const anchor = lastRow && anchorRect ? { el: lastRow, top: anchorRect.top } : null;
-    setDraft("");
+    draftApi.current?.set("");
     setAttachments([]);
     setAttachError(null);
     const localId = st.queueOutgoing({
@@ -1184,14 +1449,29 @@ export function ThreadPane({
 
   /** "Not sent" → back into an empty composer (the bubble goes). */
   function onRestore(o: OutgoingMessage) {
-    if (draft.trim() || attachments.length) return;
-    setDraft(o.text);
+    if ((draftApi.current?.get() ?? "").trim() || attachments.length) return;
+    draftApi.current?.set(o.text);
     setAttachments(o.files);
     useZenStore.getState().dropOutgoing(o.localId);
     composerRef.current?.focus({ preventScroll: true });
   }
 
   const flyKey = fly ? fly.localId : "";
+
+  // The rows' callbacks: stable, so a re-render of the pane leaves
+  // unchanged rows alone (ThreadRow is memoized).
+  const handlers = useRef({ onRetry, onRestore, openAttachment });
+  handlers.current = { onRetry, onRestore, openAttachment };
+  const onAnswerRow = useCallback(
+    (id: string, option: string) => void answerChoice(id, option),
+    [answerChoice]
+  );
+  const onRetryRow = useCallback((id: string) => handlers.current.onRetry(id), []);
+  const onRestoreRow = useCallback((o: OutgoingMessage) => handlers.current.onRestore(o), []);
+  const onOpenFileRow = useCallback(
+    (m: ThreadMessage, a: ThreadAttachment) => handlers.current.openAttachment(m, a),
+    []
+  );
 
   // FLIP "last/invert/play". The row is in its final slot (hidden while it
   // flies); the composer has already shrunk back to one empty line.
@@ -1414,126 +1694,38 @@ export function ThreadPane({
                 const wordless = !m.text.trim() && !m.choice;
                 // Files-only, on a server without the feature: nothing to draw.
                 if (wordless && !files && !out && m.files?.length) return null;
-                const bubble = !(files && wordless);
                 const flying = fly?.localId === key;
-                const highlighted = highlightSeq != null && m.seq != null && m.seq === highlightSeq;
                 return (
-                  <div
+                  <ThreadRow
                     key={key}
-                    data-thread-msg=""
-                    data-row-key={key}
-                    data-seq={m.seq ?? undefined}
-                    data-outgoing={out?.status}
-                    data-highlight={highlighted ? "true" : undefined}
-                    data-run={run.first && run.last ? "solo" : run.first ? "first" : run.last ? "last" : "middle"}
-                    className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}${run.first && i > 0 ? " mt-1.5" : ""}`}
-                    style={
-                      highlighted
-                        ? { borderRadius: 20, boxShadow: "0 0 0 2px rgba(10,132,255,.85)", transition: "box-shadow .4s" }
-                        : undefined
+                    rowKey={key}
+                    m={m}
+                    out={out}
+                    files={files}
+                    runFirst={run.first}
+                    runLast={run.last}
+                    spaced={run.first && i > 0}
+                    stub={source === "stub"}
+                    highlighted={highlightSeq != null && m.seq != null && m.seq === highlightSeq}
+                    receipt={i === receiptIdx && receipt ? receipt : undefined}
+                    canAnswer={
+                      !out &&
+                      canSend &&
+                      !threadGroupId &&
+                      (source === "live" || source === "error")
                     }
-                  >
-                    {/* Theirs: name and time on one line above the first
-                        bubble of a run. Mine: no name; the time (or
-                        Sending… / Not sent, or the receipt) below the last
-                        of a run, where the outgoing status and its actions
-                        sit — and below any send still in progress. */}
-                    {!m.mine && run.first ? (
-                      <span
-                        className="flex items-baseline gap-1.5 text-[11px] text-[var(--text-muted)] px-3 mb-0.5 min-w-0 max-w-full"
-                        data-testid="thread-msg-meta"
-                      >
-                        <span className="truncate min-w-0">
-                          {source === "stub" ? <StubMark /> : null}
-                          {m.from}
-                        </span>
-                        <span className="shrink-0" aria-hidden>
-                          •
-                        </span>
-                        <span className="shrink-0" data-testid="thread-msg-time">
-                          {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
-                        </span>
-                      </span>
-                    ) : null}
-                    {bubble ? (
-                      <Bubble
-                        m={m}
-                        onFileLink={openFileFromPath}
-                        canAnswer={
-                          !out &&
-                          canSend &&
-                          !threadGroupId &&
-                          (source === "live" || source === "error")
-                        }
-                        answerHeld={cachedOnly}
-                        answering={!out && answeringId === m.id}
-                        answerError={!out && answerErrorId === m.id ? answerError : null}
-                        onAnswer={(option) => void answerChoice(m.id, option)}
-                        attachments={out?.files.length ? out.files.map(uploadFilename) : undefined}
-                        flying={flying && !fly?.fade}
-                        fadeIn={flying && fly?.fade}
-                        breathe={out?.status === "sending"}
-                        tail={run.last ? (m.mine ? "mine" : "theirs") : null}
-                      />
-                    ) : null}
-                    {files ? (
-                      <MessageFiles
-                        files={files}
-                        mine={m.mine}
-                        hasBubble={bubble}
-                        onOpen={(a) => openAttachment(m, a)}
-                      />
-                    ) : null}
-                    {m.mine && (run.last || out != null || m.pending || m.failed) ? (
-                      // One box from Send to delivered: "Sending…", then the
-                      // time (or "Not sent · Retry"), or the chat's one
-                      // receipt — "Delivered" / "Read", drawn over it by CSS
-                      // (chatBubbles.css). Fixed height, so no swap ever
-                      // moves the bubble or the rows around it.
-                      <span
-                        className="zen-receipt flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] text-[var(--text-muted)] px-2 mt-0.5"
-                        data-testid="thread-msg-time"
-                        data-status={out?.status ?? (m.failed ? "failed" : m.pending ? "sending" : "sent")}
-                        data-receipt={i === receiptIdx && receipt ? receipt : undefined}
-                      >
-                        <span className="zen-receipt-status">
-                        {out?.status === "failed" ? (
-                          <span className="contents" data-testid="outgoing-failed">
-                            <button
-                              type="button"
-                              className="text-[var(--warning)]"
-                              data-testid="outgoing-retry"
-                              aria-label="Not sent. Tap to retry"
-                              title={out.error || undefined}
-                              onClick={() => onRetry(out.localId)}
-                            >
-                              Not sent · Retry
-                            </button>
-                            {!draft.trim() && !attachments.length ? (
-                              <button
-                                type="button"
-                                data-testid="outgoing-restore"
-                                onClick={() => onRestore(out)}
-                              >
-                                Edit
-                              </button>
-                            ) : null}
-                          </span>
-                        ) : out?.status === "queued" ? (
-                          "Waiting for connection…"
-                        ) : out ? (
-                          "Sending…"
-                        ) : m.failed ? (
-                          "Not sent"
-                        ) : m.pending ? (
-                          "Sending…"
-                        ) : (
-                          mountainTime(m.at)
-                        )}
-                        </span>
-                      </span>
-                    ) : null}
-                  </div>
+                    answerHeld={cachedOnly}
+                    answering={!out && answeringId === m.id}
+                    answerError={!out && answerErrorId === m.id ? answerError : null}
+                    flying={flying && !fly?.fade}
+                    fadeIn={flying && Boolean(fly?.fade)}
+                    canRestore={out?.status === "failed" && draftBlank && !attachments.length}
+                    onFileLink={openFileFromPath}
+                    onAnswer={onAnswerRow}
+                    onRetry={onRetryRow}
+                    onRestore={onRestoreRow}
+                    onOpenFile={onOpenFileRow}
+                  />
                 );
               })}
             </>
@@ -1600,16 +1792,18 @@ export function ThreadPane({
         </div>
         {/* Above the blur (positioned, z 0): its own stacking layer. */}
         <div className="relative" style={{ zIndex: 1 }}>
-          <GlassComposer
-            value={draft}
-            onChange={setDraft}
+          <ThreadDraftComposer
+            draftKey={draftKey}
+            apiRef={draftApi}
+            onBlankChange={setDraftBlank}
+            hasAttachments={attachments.length > 0}
+            inFlight={inFlight}
             onAttach={queueFiles}
             onAttachError={setAttachError}
             onSubmit={onSend}
             placeholder={placeholder}
             disabled={!canSend}
             canSend={canSend}
-            sendReady={sendReady}
             attachDisabled={!canAttach}
             textareaRef={composerRef}
             smoothClear
@@ -1659,7 +1853,7 @@ export function ThreadPane({
                 ))}
               </div>
             ) : null}
-          </GlassComposer>
+          </ThreadDraftComposer>
         </div>
       </div>
       {openFile ? (
