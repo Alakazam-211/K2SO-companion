@@ -356,8 +356,15 @@ export function Zen() {
     else el.removeAttribute("data-peek");
   };
   /** The peeking list trails the drag (parallax + dim) and finishes with
-   *  the release animation (useSwipeBack's underlay). */
-  const chatsUnderlay = () => chatsLayerRef.current;
+   *  the release animation (useSwipeBack's underlay). The transform goes
+   *  on ChatsList's own `position: fixed` root, never on the layer around
+   *  it: a transform on an ancestor makes it the fixed root's containing
+   *  block, so the list would sit relative to the layer's box during the
+   *  slide and jump back to the viewport the frame the transform clears. */
+  const chatsUnderlay = () => {
+    const layer = chatsLayerRef.current;
+    return layer?.querySelector<HTMLElement>('[data-testid="chats-home"]') ?? null;
+  };
 
   const closeRename = () => {
     if (renameBusy) return;

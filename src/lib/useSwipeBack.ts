@@ -37,6 +37,12 @@
 //     screen a back lands on: it trails the drag with a parallax offset
 //     and a dim (opacity over black) and finishes both with the release
 //     animation; its inline transform/opacity are cleared afterwards.
+//     Pass the moving surface itself (e.g. a `position: fixed` screen
+//     root), never an ANCESTOR of fixed content: a transform (or
+//     will-change) makes it their containing block, so they would sit
+//     somewhere else during the slide and jump the frame it clears. The
+//     animation ends exactly at identity (no transform, opacity 1), so
+//     its last frame is the screen's first frame after Back.
 //
 // Usage: `const swipeRef = useSwipeBack(onBack, { enabled })`, attached
 // to the screen's OUTER fixed-overlay div (the `fixed inset-0` root

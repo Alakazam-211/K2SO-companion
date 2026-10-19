@@ -94,16 +94,26 @@ export function useKeyboardFlip(o: KeyboardFlipOptions): void {
   // A drag happened; the next keyboard motion is its release.
   const afterDrag = useRef(false);
   if (interactive) afterDrag.current = true;
+  // A keyboard HIDE that began while disabled (the screen was hidden under
+  // another, e.g. ChatsList under an open thread whose swipe-back blurred
+  // the composer) is not played on enabling: the screen was laid out at
+  // the final height all along, so inverting the docks now would snap the
+  // search bar up and glide it back down after the screen appears.
+  const skipHide = useRef<ViewportMotion | null>(null);
 
   useLayoutEffect(() => {
-    if (!enabled) return;
+    if (!enabled) {
+      skipHide.current = motion && motion.to > motion.from ? motion : null;
+      return;
+    }
+    if (!motion) skipHide.current = null;
     const { scroller, docks, list } = opts.current;
     const el = scroller();
     const ds = docks().filter((d): d is HTMLElement => !!d);
     const dock = ds[0];
     if (viewportHeight == null || !el || !dock) return;
     const listEls = () => Array.from(el.children) as HTMLElement[];
-    const m = motion ?? null;
+    const m = motion && motion !== skipHide.current ? motion : null;
     const dragged = (afterDrag.current && !interactive) || (!!m && dragMotion.current);
     if (!m) {
       // No motion / the motion is over: final layout, no transforms.
