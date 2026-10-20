@@ -25,6 +25,7 @@
 import { createStore, type StoreApi } from "zustand/vanilla";
 import { useStore } from "zustand";
 import {
+  isPartialBootView,
   noteBootStatus,
   readBootStatus,
   scopeFor,
@@ -47,9 +48,13 @@ export interface PoolBoot {
   ready: boolean;
   version: string | null;
   protocol: number | null;
+  /** K2 0.46.3; null from an older daemon. */
+  protocolMin?: number | null;
   instanceId: string | null;
   /** `/boot-status` `features`; `[]` from an older daemon. */
   features: string[];
+  /** K2 0.46.3 `view` (`full` | `compat` | `public`); null before. */
+  view?: string | null;
   at: number;
 }
 
@@ -163,17 +168,28 @@ function str(v: unknown): string | null {
   return typeof v === "string" && v.length > 0 ? v : null;
 }
 
-export function parseBoot(body: unknown, at: number): PoolBoot {
+/** One `/boot-status` body as the pool keeps it. A K2 0.46.3 stranger's
+ *  view (`compat` / `public`) leaves fields out: those keep `prev`'s
+ *  values (absent = unknown, never "none"). */
+export function parseBoot(body: unknown, at: number, prev?: PoolBoot | null): PoolBoot {
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
+  const view = str(b.view);
+  const keep = isPartialBootView(view) && prev ? prev : null;
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(b, k);
   return {
     phase: str(b.phase),
     ready: bootIsReady(b),
-    version: str(b.version),
+    version: keep && !has("version") ? keep.version : str(b.version),
     protocol: typeof b.protocol === "number" ? b.protocol : null,
+    protocolMin: typeof b.protocolMin === "number" ? b.protocolMin : null,
     instanceId: str(b.instanceId),
-    features: Array.isArray(b.features)
-      ? b.features.filter((f): f is string => typeof f === "string")
-      : [],
+    features:
+      keep && !has("features")
+        ? keep.features
+        : Array.isArray(b.features)
+          ? b.features.filter((f): f is string => typeof f === "string")
+          : [],
+    view,
     at,
   };
 }
@@ -237,7 +253,7 @@ export function reducePool(prev: PoolEntry, ev: PoolEvent): PoolEntry {
       if (ev.body === null) {
         return { ...prev, reach: "offline", offlineStreak: prev.offlineStreak + 1, checkedAt: ev.at };
       }
-      const boot = parseBoot(ev.body, ev.at);
+      const boot = parseBoot(ev.body, ev.at, prev.boot);
       return {
         ...prev,
         boot,

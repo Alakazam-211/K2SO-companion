@@ -10,7 +10,9 @@
 //   3. no entry / unknown       → checking
 //   4. offline
 //   5. starting
-//   6. (phone) known version below the floor → too-old (Q9: 0.41.6)
+//   6. (phone) known version below the floor → too-old (Q9: 0.41.6);
+//      the box's protocol range (K2 0.46.3) leaves this phone out →
+//      too-old with `appTooOld` (the phone needs the update)
 //   7. auth not ok              → sign-in, with the rotate / kicked detail
 //   8. role not allowed         → no-access (a null role is ALLOWED)
 //   9. the open room's activity, else the summary's by `workspaceId`,
@@ -19,7 +21,7 @@
 // "Removed" is a room-only state (MS36, S3). The summary carries no counts,
 // so a row whose activity comes from it shows the dot and the word only.
 
-import { versionAtLeast } from "../../api/scope";
+import { protocolOutOfRange, versionAtLeast } from "../../api/scope";
 import type { ActivityDisplay, RowActivity } from "../agentActivity";
 import { roleAllowsRoom, type PoolEntry, type PresenceActivity } from "./pool";
 
@@ -50,6 +52,14 @@ export interface RowStatus {
   /** `sign-in` because the login this phone holds stopped working (the
    *  server answered and said so): "Sign in again". */
   expired?: boolean;
+  /** `too-old` because the PHONE is too old for the box (protocol range,
+   *  K2 0.46.3 `protocolMin`), not the box for the phone. */
+  appTooOld?: boolean;
+}
+
+/** The server's protocol range leaves this phone out. */
+export function appTooOldCopy(server: string): string {
+  return `${server} needs a newer K2 app. Update K2 to use it.`;
 }
 
 const LABELS: Record<RowStatusKind, string> = {
@@ -126,6 +136,11 @@ export function resolveRowStatus(input: RowStatusInput): RowStatus {
   const version = e.boot?.version ?? null;
   if (version && !versionAtLeast(version, PHONE_FLOOR)) {
     return status("too-old", `${server} runs K2 ${version}. The phone needs ${PHONE_FLOOR} or later.`);
+  }
+  if (protocolOutOfRange(e.boot ?? null)) {
+    const out = status("too-old", appTooOldCopy(server));
+    out.appTooOld = true;
+    return out;
   }
   if (input.signingIn && e.auth !== "ok") return status("signing-in");
   if (e.auth !== "ok") {
@@ -245,6 +260,7 @@ export function rowFailure(
         "sign-in"
       );
     case "too-old":
+      if (s.appTooOld) return f("too-old", "Update the K2 app", null);
       return f("too-old", `${serverLabel} needs an update`, "switch");
     case "no-access":
       return f("no-access", `No access on ${serverLabel}`, null);
@@ -288,7 +304,7 @@ export function serverBadge(input: Omit<RowStatusInput, "workspaceId" | "roomAct
               : "Sign in",
       };
     case "too-old":
-      return { color: GREY, word: "Needs an update" };
+      return { color: GREY, word: s.appTooOld ? "Update app" : "Needs an update" };
     case "no-access":
       return { color: GREY, word: "No access" };
     default:

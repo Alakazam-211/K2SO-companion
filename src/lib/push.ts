@@ -332,7 +332,10 @@ async function sortTargets(): Promise<{ targets: ServerEntry[]; unknown: number 
     signedIn.map(async (x): Promise<boolean | null> => {
       if (x.id === s.activeServerId) return true;
       const b = await getBootStatus(scopeFor(x.id)).catch(() => null);
-      return b ? b.features.includes(FEATURE_THREAD_PUSH) : null;
+      // Unknown (unreachable, or a stranger's view with nothing cached)
+      // is a miss to retry, not "unsupported".
+      if (!b || b.featuresKnown === false) return null;
+      return b.features.includes(FEATURE_THREAD_PUSH);
     })
   );
   return {
