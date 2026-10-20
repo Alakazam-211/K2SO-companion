@@ -3,6 +3,7 @@ import { NOT_CONNECTED, scopedFetch } from "./scopedFetch";
 import {
   bootInfoFor,
   ensureBootStatus,
+  isPartialBootView,
   noteBootStatus,
   readBootStatus,
   serverMemory,
@@ -925,6 +926,10 @@ export interface BootStatus {
   /** Feature keys the version string cannot tell apart. Older daemons
    *  omit the list; every key then reads as unsupported. */
   features: string[];
+  /** False when the box answered a stranger's view (K2 0.46.3 `public`)
+   *  and nothing earlier told us its features: "unknown, ask again with a
+   *  token", not "unsupported". */
+  featuresKnown?: boolean;
   version: string | null;
 }
 
@@ -941,6 +946,7 @@ export function parseBootStatus(raw: unknown): BootStatus | null {
   return {
     instanceId: typeof o.instanceId === "string" && o.instanceId ? o.instanceId : null,
     features,
+    featuresKnown: Array.isArray(o.features) || !isPartialBootView(o.view),
     version: typeof o.version === "string" ? o.version : null,
   };
 }
@@ -950,6 +956,7 @@ function bootStatusOf(info: BootInfo | null): BootStatus | null {
   return {
     instanceId: info.instanceId,
     features: info.features ? [...info.features] : [],
+    featuresKnown: info.features !== null || !isPartialBootView(info.view),
     version: info.version,
   };
 }

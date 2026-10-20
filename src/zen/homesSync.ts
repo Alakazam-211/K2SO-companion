@@ -424,7 +424,9 @@ async function runOnce(): Promise<void> {
   }
   const boot = await getBootStatus(scope);
   if (!live()) return;
-  if (!boot) {
+  // Unknown features (K2 0.46.3 stranger's view, nothing cached) are a
+  // retry, like unreachable — never "does not offer".
+  if (!boot || boot.featuresKnown === false) {
     put({ status: "offline", error: null });
     scheduleRetry();
     return;
@@ -646,6 +648,10 @@ export async function enableHomesSync(serverId: string): Promise<boolean> {
     const boot = await getBootStatus(scope, { fresh: true });
     if (!boot) {
       put({ error: `Could not reach ${labelOf(serverId)}` });
+      return false;
+    }
+    if (boot.featuresKnown === false) {
+      put({ error: `Could not check ${labelOf(serverId)} right now. Try again.` });
       return false;
     }
     if (!boot.features.includes(FEATURE_HOMES_SYNC)) {
