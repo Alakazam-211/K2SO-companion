@@ -31,7 +31,8 @@ import {
   type ServerEntry,
 } from "../stores/servers";
 import { isConnectionLevelError } from "../lib/netRetry";
-import { reviveServerSession } from "../lib/revive";
+import { isPossibleAuthFailure, reviveServerSession } from "../lib/revive";
+import { scopedFetch } from "./scopedFetch";
 import { tryHostKey } from "../lib/hostKey";
 
 /** Every key the daemon reports in `/boot-status` `features` (K2 0.45.5,
@@ -404,22 +405,55 @@ function tokenOf(scope: ServerScope): string {
 export const BOOT_STALE_RECHECK_MS = 5 * 60_000;
 const staleRecheckAt = new Map<string, number>();
 
-/** Token sent, `view` not `full`: the box no longer accepts this login
- *  (e.g. sessions wiped by a restart). Run the re-login check — whoami,
- *  twice — never "offline". Background: a dead token is kept and the
- *  server marked signin-required (MA22). */
-function noteStaleSession(serverId: string): void {
+/** Per server, the token whose stranger's view is EXPLAINED: whoami said
+ *  `mustChangePassword` (K2 0.46.3 answers such a session compat until the
+ *  password changes). No re-checks for it; a new token (sign-in, password
+ *  change) or a `full` answer ends it. */
+const mustChangeToken = new Map<string, string>();
+
+/** Token sent, `view` not `full`: the box may no longer accept this login
+ *  (e.g. sessions wiped by a restart). One whoami (never "offline"):
+ *    - `mustChangePassword: true` → explained; the pool's change-password
+ *      row stays, no more re-checks for this token;
+ *    - a stale-session rejection → the re-login path (revive, background:
+ *      whoami twice; a dead token is kept and the server marked
+ *      signin-required, MA22);
+ *    - anything else → nothing until the next window. */
+function noteStaleSession(serverId: string, token: string): void {
+  if (mustChangeToken.get(serverId) === token) return;
   const now = Date.now();
   const last = staleRecheckAt.get(serverId);
   if (last !== undefined && now - last < BOOT_STALE_RECHECK_MS) return;
   if (useServersStore.getState().recovery[serverId] === "signin-required") return;
   staleRecheckAt.set(serverId, now);
-  void reviveServerSession(serverId, { background: true }).catch(() => {});
+  void (async () => {
+    const res = await scopedFetch(scopeFor(serverId), "/cli/auth/whoami", {
+      revive: false,
+      timeoutMs: BOOT_WHOAMI_TIMEOUT_MS,
+    });
+    if (isPossibleAuthFailure(res.status, res.text)) {
+      await reviveServerSession(serverId, { background: true });
+      return;
+    }
+    if (!res.ok) return;
+    let body: unknown = null;
+    try {
+      body = JSON.parse(res.text);
+    } catch {
+      return;
+    }
+    if (body && typeof body === "object" && (body as Record<string, unknown>).mustChangePassword === true) {
+      mustChangeToken.set(serverId, token);
+    }
+  })().catch(() => {});
 }
+
+const BOOT_WHOAMI_TIMEOUT_MS = 8000;
 
 /** Tests: forget the stale-login re-check throttle. */
 export function __resetBootStaleForTests(): void {
   staleRecheckAt.clear();
+  mustChangeToken.clear();
 }
 
 /** `GET /boot-status`. K2 0.46.3: with the server's token as Bearer when
@@ -447,7 +481,10 @@ async function getBootStatus(base: string, token = "", serverId = ""): Promise<u
     const body = (await res.json()) as unknown;
     const view =
       body && typeof body === "object" ? (body as Record<string, unknown>).view : undefined;
-    if (sent && serverId && typeof view === "string" && view !== "full") noteStaleSession(serverId);
+    if (sent && serverId && typeof view === "string") {
+      if (view !== "full") noteStaleSession(serverId, token);
+      else mustChangeToken.delete(serverId);
+    }
     return body;
   };
   try {
@@ -537,6 +574,7 @@ onServerForget((id, reason) => {
   bootInfo.delete(id);
   bootInflight.delete(id);
   staleRecheckAt.delete(id);
+  mustChangeToken.delete(id);
   if (reason === "removed") scopes.delete(id);
 });
 
@@ -545,5 +583,6 @@ export function __resetScopesForTests(): void {
   scopes.clear();
   bootInfo.clear();
   staleRecheckAt.clear();
+  mustChangeToken.clear();
   bootInflight.clear();
 }

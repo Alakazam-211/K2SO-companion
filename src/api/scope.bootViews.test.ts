@@ -150,24 +150,69 @@ describe("stranger's views keep what was known", () => {
 });
 
 describe("token sent, view not full → re-login check", () => {
-  it("runs the background revive once per window; never on a full body", async () => {
-    fetchMock.mockResolvedValue(json(200, FULL));
-    await refreshBootStatus(scopeFor("a"));
-    expect(reviveMock).not.toHaveBeenCalled();
+  /** Answer /boot-status with `boot` and whoami with `who`. */
+  function serve(boot: unknown, who: { status: number; body: unknown }) {
+    fetchMock.mockImplementation(async (url: string) =>
+      url.endsWith("/cli/auth/whoami") ? json(who.status, who.body) : json(200, boot)
+    );
+  }
+  const whoamiCalls = () =>
+    fetchMock.mock.calls.filter(([u]) => String(u).endsWith("/cli/auth/whoami")).length;
+  const settle = () => new Promise((r) => setTimeout(r, 0));
 
-    fetchMock.mockResolvedValue(json(200, PUBLIC));
+  it("a full body checks nothing; a stale one asks whoami once per window", async () => {
+    serve(FULL, { status: 200, body: { username: "rosson" } });
     await refreshBootStatus(scopeFor("a"));
-    expect(reviveMock).toHaveBeenCalledTimes(1);
+    await settle();
+    expect(whoamiCalls()).toBe(0);
+
+    serve(PUBLIC, { status: 200, body: { username: "rosson" } });
+    await refreshBootStatus(scopeFor("a"));
+    await settle();
+    expect(whoamiCalls()).toBe(1);
+    await refreshBootStatus(scopeFor("a"));
+    await settle();
+    expect(whoamiCalls()).toBe(1); // throttled
+    expect(reviveMock).not.toHaveBeenCalled(); // whoami alive
+    expect(bootInfoFor("a")?.version).toBe("0.46.3"); // kept from the full read; never "offline"
+  });
+
+  it("whoami rejects the token → the background re-login path", async () => {
+    serve(PUBLIC, { status: 401, body: { error: "unauthorized" } });
+    await refreshBootStatus(scopeFor("a"));
+    await settle();
+    await settle();
     expect(reviveMock).toHaveBeenCalledWith("a", { background: true });
-    await refreshBootStatus(scopeFor("a"));
-    expect(reviveMock).toHaveBeenCalledTimes(1); // throttled
-    expect(bootInfoFor("a")?.version).toBe("0.46.3"); // and still not "offline" / blank
+  });
+
+  it("mustChangePassword explains it: no re-checks for that token, until a new token or a full answer", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      serve({ ...PUBLIC, view: "compat" }, { status: 200, body: { mustChangePassword: true } });
+      await refreshBootStatus(scopeFor("a"));
+      await settle();
+      expect(whoamiCalls()).toBe(1);
+      vi.setSystemTime(Date.now() + 60 * 60_000);
+      await refreshBootStatus(scopeFor("a"));
+      await settle();
+      expect(whoamiCalls()).toBe(1); // explained, even past the window
+      expect(reviveMock).not.toHaveBeenCalled();
+
+      useServersStore.setState({ tokens: { a: "tok-a2" } }); // signed in again / password changed
+      await refreshBootStatus(scopeFor("a"));
+      await settle();
+      expect(whoamiCalls()).toBe(2);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("not while the server already needs a sign-in", async () => {
     useServersStore.setState({ recovery: { a: "signin-required" } });
-    fetchMock.mockResolvedValue(json(200, PUBLIC));
+    serve(PUBLIC, { status: 401, body: {} });
     await refreshBootStatus(scopeFor("a"));
+    await settle();
+    expect(whoamiCalls()).toBe(0);
     expect(reviveMock).not.toHaveBeenCalled();
   });
 });
