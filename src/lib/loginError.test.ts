@@ -30,3 +30,15 @@ describe("loginErrorFromStatus", () => {
     });
   });
 });
+
+describe("login 429 (K2 per-IP limit)", () => {
+  it("says how long to wait, from Retry-After seconds rounded up", async () => {
+    const { loginErrorFromStatus } = await import("./loginError");
+    expect(loginErrorFromStatus(429, '{"error":"rate_limited"}', true, EDGE, "300")).toEqual({
+      kind: "network",
+      error: "Too many attempts. Try again in 5 min.",
+    });
+    expect(loginErrorFromStatus(429, "", true, EDGE, "61")?.error).toBe("Too many attempts. Try again in 2 min.");
+    expect(loginErrorFromStatus(429, "", true, EDGE, null)?.error).toBe("Too many attempts. Try again in 5 min.");
+  });
+});
