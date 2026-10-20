@@ -169,15 +169,15 @@ describe("feature memory (MS31 / MA15)", () => {
     expect(b.supports("daemon-activity")).toBe(false);
   });
 
-  it("refreshBootStatus reads the scope's own /boot-status without a token", async () => {
+  it("refreshBootStatus reads the scope's own /boot-status with that server's token (K2 0.46.3)", async () => {
     fetchMock.mockResolvedValueOnce(
       json(200, { version: "0.44.3", phase: "ready", features: ["tickets-list-all"], instanceId: "x" })
     );
     const info = await refreshBootStatus(scopeFor("b"));
     expect(fetchMock).toHaveBeenCalledTimes(1);
-    const [url, init] = fetchMock.mock.calls[0] as [string, { headers?: unknown }];
+    const [url, init] = fetchMock.mock.calls[0] as [string, { headers?: Record<string, string> }];
     expect(url).toBe("http://192.168.1.20:38471/boot-status");
-    expect(init.headers).toBeUndefined();
+    expect(init.headers).toEqual({ Authorization: "Bearer tok-b" });
     expect(info?.version).toBe("0.44.3");
     expect(scopeFor("b").supports("tickets-list-all")).toBe(true);
     expect(scopeFor("a").supports("tickets-list-all")).toBe(false);

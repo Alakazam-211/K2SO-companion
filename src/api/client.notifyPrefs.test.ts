@@ -93,13 +93,18 @@ describe("notify prefs API", () => {
 });
 
 describe("boot-status features", () => {
-  it("reads features + instanceId, unauthenticated, cached per server", async () => {
+  it("reads features + instanceId with that server's token (K2 0.46.3), cached per server", async () => {
     tauriFetch.mockResolvedValue(ok({ version: "0.45.5", instanceId: "abc", features: [FEATURE_THREAD_PUSH] }));
     const b = await getBootStatus(scopeFor("s1"));
-    expect(b).toEqual({ version: "0.45.5", instanceId: "abc", features: [FEATURE_THREAD_PUSH] });
+    expect(b).toEqual({
+      version: "0.45.5",
+      instanceId: "abc",
+      features: [FEATURE_THREAD_PUSH],
+      featuresKnown: true,
+    });
     const [url, opts] = tauriFetch.mock.calls[0] as [string, { headers?: unknown }];
     expect(url).toBe("https://home.k2.dev/boot-status");
-    expect(JSON.stringify(opts.headers ?? {})).not.toContain("tok1");
+    expect(JSON.stringify(opts.headers ?? {})).toContain("tok1");
     expect(await serverHasFeature(scopeFor("s1"), FEATURE_THREAD_PUSH)).toBe(true);
     expect(tauriFetch).toHaveBeenCalledTimes(1);
     await getBootStatus(scopeFor("s1"), { fresh: true });

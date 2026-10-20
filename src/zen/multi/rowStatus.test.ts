@@ -121,6 +121,17 @@ describe("resolveRowStatus — fold order (desktop home-status)", () => {
     expect(kind({ entry: { ...old, reach: "offline" } })).toBe("offline");
     expect(kind({ entry: { ...old, auth: "signin-required" } })).toBe("too-old");
   });
+
+  it("K2 0.46.3: a protocol range without this phone → too-old, the APP needs the update", () => {
+    const entry = probe({ boot: { ...probe({}).boot!, version: "0.47.0", protocol: 2, protocolMin: 2 } });
+    const s = resolveRowStatus({ ...base, entry });
+    expect(s.kind).toBe("too-old");
+    expect(s.appTooOld).toBe(true);
+    expect(s.detail).toBe("Box B needs a newer K2 app. Update K2 to use it.");
+    const f = rowFailure(s, entry, "Box B", 0);
+    expect([f?.copy, f?.action]).toEqual(["Update the K2 app", null]);
+    expect(kind({ entry: probe({ boot: { ...probe({}).boot!, protocol: 1, protocolMin: 1 } }) })).toBe("live");
+  });
 });
 
 describe("what an agent on another server is doing (MS18, MA12)", () => {
