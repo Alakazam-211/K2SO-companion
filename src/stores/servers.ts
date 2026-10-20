@@ -549,7 +549,8 @@ export async function loginToServer(
         res.status,
         bodyText,
         viaEdge,
-        LOGIN_404_K2DEV_MESSAGE
+        LOGIN_404_K2DEV_MESSAGE,
+        res.headers?.get?.("retry-after") ?? null
       );
       if (fail) return { ok: false, ...fail };
       return { ok: false, kind: "network", error: `Login failed (HTTP ${res.status})` };
