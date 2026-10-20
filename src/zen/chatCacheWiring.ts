@@ -1,7 +1,8 @@
 import { onServerForget, useServersStore } from "../stores/servers";
 import { chatCache } from "./chatCache";
+import { thumbCache } from "./thumbCache";
 
-// When the chat cache forgets (privacy): a server removed or re-keyed (it
+// When the chat cache (and the image thumbs beside it) forgets (privacy): a server removed or re-keyed (it
 // may be another daemon), a server signed out (its token went away), and
 // everything once no server is left. At start (servers loaded), entries
 // of servers no longer saved are pruned. Pending writes go out when the
@@ -15,6 +16,7 @@ export function installChatCacheWiring(): void {
 
   onServerForget((id) => {
     void chatCache().forgetServer(id);
+    void thumbCache().forgetServer(id);
   });
 
   let pruned = false;
@@ -22,6 +24,7 @@ export function installChatCacheWiring(): void {
     if (pruned) return;
     pruned = true;
     void chatCache().prune(ids);
+    void thumbCache().prune(ids);
   };
   const ids = (list: { id: string }[] | undefined) => (list ?? []).map((s) => s.id);
   const st0 = useServersStore.getState();
@@ -31,11 +34,15 @@ export function installChatCacheWiring(): void {
     if (st.hydrated && !prev.hydrated) pruneOnce(ids(st.servers));
     if (st.tokens !== prev.tokens) {
       for (const [id, tok] of Object.entries(prev.tokens ?? {})) {
-        if (tok && !st.tokens?.[id]) void chatCache().forgetServer(id);
+        if (tok && !st.tokens?.[id]) {
+          void chatCache().forgetServer(id);
+          void thumbCache().forgetServer(id);
+        }
       }
     }
     if (st.hydrated && (prev.servers?.length ?? 0) > 0 && (st.servers?.length ?? 0) === 0) {
       void chatCache().clearAll();
+      void thumbCache().clearAll();
     }
   });
 

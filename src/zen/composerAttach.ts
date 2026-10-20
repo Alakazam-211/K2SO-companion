@@ -175,3 +175,23 @@ export function attachPathsToDraft(draft: string, paths: string[]): string {
 export function attachmentSendBody(caption: string, paths: string[]): string {
   return attachPathsToDraft(caption.trim(), paths).trim();
 }
+
+/** Uploaded paths as an attachment takes them (K2 0.46.3 compose):
+ *  workspace-relative, e.g. `.k2/downloads/photo.jpg`. `attachDir` is the
+ *  upload folder (`<workspace>/.k2/downloads`). Null when any path is not
+ *  inside that workspace (the caller quotes paths in the text instead). */
+export function workspaceRelative(
+  paths: readonly string[],
+  attachDir: string | null | undefined
+): string[] | null {
+  const suffix = `/${DOWNLOADS_SUBDIR}`;
+  if (!paths.length || !attachDir || !attachDir.endsWith(suffix)) return null;
+  const root = attachDir.slice(0, -suffix.length);
+  const out: string[] = [];
+  for (const p of paths) {
+    if (p.startsWith(`${DOWNLOADS_SUBDIR}/`)) out.push(p);
+    else if (root && p.startsWith(`${root}/`)) out.push(p.slice(root.length + 1));
+    else return null;
+  }
+  return out;
+}

@@ -724,10 +724,15 @@ export type ThreadLatestItem = {
 
 /** Owner send. Same route as skin. `via: "compose"` is the owner door
  *  (loopback skin-test-a seq 32: from=owner via=compose). Omit it and
- *  the daemon records from=<addr> via=thread. Skin tokens 403 this field. */
-export const postThread = (scope: ServerScope, addr: string, text: string) =>
+ *  the daemon records from=<addr> via=thread. Skin tokens 403 this field.
+ *  `attachments` (K2 0.46.3, servers with `thread-attachments-v1`):
+ *  workspace-relative paths sent as `[{path}]`; files alone are a valid
+ *  message (empty text). */
+export const postThread = (scope: ServerScope, addr: string, text: string, attachments?: readonly string[]) =>
   request<ThreadItem>(scope, "/cli/thread/post",
-    { addr, text, via: "compose" },
+    attachments?.length
+      ? { addr, text, via: "compose", attachments: attachments.map((path) => ({ path })) }
+      : { addr, text, via: "compose" },
     { method: "POST" }
   );
 

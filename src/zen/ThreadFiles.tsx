@@ -7,35 +7,40 @@
 // "Show N more".
 
 import { useEffect, useState } from "react";
-import { ensureBootStatus, onBootInfo, type ServerScope } from "../api/scope";
+import { ensureBootStatus, onBootInfo, type DaemonFeature, type ServerScope } from "../api/scope";
 import {
   FEATURE_THREAD_ATTACHMENTS,
   LIST_CARD_MAX_ROWS,
   LIST_CARD_MIN_FILES,
   attachmentOpenable,
   formatAttachmentSize,
+  isImageAttachment,
   withAttachmentState,
   type ThreadAttachment,
   type ThreadAttachmentState,
 } from "../api/threadAttachmentPure";
 import { FileIcon } from "./fileIcons/EntryIcon";
+import { CHANGED_TEXT, GONE_TEXT, HIDDEN_TEXT } from "./threadFilesText";
+import { MessageImages } from "./ThreadImages";
 import { MiddleEllipsis } from "./MiddleEllipsis";
 import type { ThreadMessage } from "./threadModel";
 import { useZenStore } from "./zenStore";
 import { zenScope } from "./zenScope";
 
-export const GONE_TEXT = "Not found (moved or deleted)";
-export const HIDDEN_TEXT = "A file (not shared with you)";
-export const CHANGED_TEXT = "changed since sent";
+export { CHANGED_TEXT, GONE_TEXT, HIDDEN_TEXT };
 
-/** Does `scope`'s server list `thread-attachments-v1`? Re-read whenever
- *  its `/boot-status` is recorded; asks once (cached) on mount. */
-export function useThreadFilesOn(scope: ServerScope): boolean {
-  const [on, setOn] = useState(() => scope.supports(FEATURE_THREAD_ATTACHMENTS));
+/** Does `scope`'s server list `feature` (default `thread-attachments-v1`)?
+ *  Re-read whenever its `/boot-status` is recorded; asks once (cached) on
+ *  mount. */
+export function useThreadFilesOn(
+  scope: ServerScope,
+  feature: DaemonFeature = FEATURE_THREAD_ATTACHMENTS
+): boolean {
+  const [on, setOn] = useState(() => scope.supports(feature));
   useEffect(() => {
     let live = true;
     const read = () => {
-      if (live) setOn(scope.supports(FEATURE_THREAD_ATTACHMENTS));
+      if (live) setOn(scope.supports(feature));
     };
     read();
     const off = onBootInfo((id) => {
@@ -48,7 +53,7 @@ export function useThreadFilesOn(scope: ServerScope): boolean {
       live = false;
       off();
     };
-  }, [scope]);
+  }, [scope, feature]);
   return on;
 }
 
@@ -220,30 +225,47 @@ function ListCard({ files, onOpen }: { files: readonly ThreadAttachment[]; onOpe
   );
 }
 
-/** The files under one message, on the bubble's side. */
+/** The files under one message, on the bubble's side. With `imagesOn`
+ *  (K2 0.46.3 `thread-images-v1`) pictures draw as thumbnails above the
+ *  other files; one the server can't thumbnail goes back to a chip. */
 export function MessageFiles({
   files,
   mine,
   hasBubble,
   onOpen,
+  imagesOn = false,
+  messageId = "",
 }: {
   files: readonly ThreadAttachment[];
   mine: boolean;
   /** A bubble sits above: leave a small gap. */
   hasBubble: boolean;
   onOpen: (a: ThreadAttachment) => void;
+  imagesOn?: boolean;
+  /** The message's doc id (the thumbnail route's `id`). */
+  messageId?: string;
 }) {
+  const [noThumb, setNoThumb] = useState<ReadonlySet<number>>(() => new Set());
   if (!files.length) return null;
+  const pictured = (a: ThreadAttachment) =>
+    imagesOn && !!messageId && attachmentOpenable(a) && isImageAttachment(a) && !noThumb.has(a.n);
+  const images = files.filter(pictured);
+  const others = images.length ? files.filter((a) => !pictured(a)) : files;
+  const onFallback = (n: number) =>
+    setNoThumb((prev) => (prev.has(n) ? prev : new Set(prev).add(n)));
   return (
     <div
       className={`flex flex-col gap-1 min-w-0 max-w-full ${mine ? "items-end" : "items-start"} ${hasBubble ? "mt-1" : ""}`}
       data-testid="thread-files"
       data-side={mine ? "mine" : "theirs"}
     >
-      {files.length >= LIST_CARD_MIN_FILES ? (
-        <ListCard files={files} onOpen={onOpen} />
+      {images.length ? (
+        <MessageImages images={images} messageId={messageId} mine={mine} onOpen={onOpen} onFallback={onFallback} />
+      ) : null}
+      {others.length >= LIST_CARD_MIN_FILES ? (
+        <ListCard files={others} onOpen={onOpen} />
       ) : (
-        files.map((a) => <Chip key={a.n} a={a} onOpen={onOpen} />)
+        others.map((a) => <Chip key={a.n} a={a} onOpen={onOpen} />)
       )}
     </div>
   );

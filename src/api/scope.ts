@@ -85,6 +85,14 @@ export const DAEMON_FEATURES = [
   // and ThreadPane's lazy load; absent → a project chat grows from memory
   // only (an older daemon ignores `before_seq` and sends the newest page).
   "project-chat-paging-v1",
+  // K2 0.46.3: image thumbnails (`mode=thumb&px=256|512` on
+  // `/cli/thread/attachment`). Read by the Thread's inline images
+  // (ThreadImages); absent → images stay file chips.
+  "thread-images-v1",
+  // K2 0.46.3: one-call foreground catch-up (`POST /cli/thread/catchup`).
+  "inbox-catchup-v1",
+  // K2 0.46.3: boot-status views (Bearer → `full`).
+  "boot-status-views-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];

@@ -1,6 +1,7 @@
 import {
   memo,
   useCallback,
+  useMemo,
   useEffect,
   useLayoutEffect,
   useReducer,
@@ -17,6 +18,7 @@ import { asErrorText } from "../lib/apiError";
 import {
   MAX_UPLOAD_BYTES,
   attachmentSendBody,
+  workspaceRelative,
   fileToBase64,
   uploadDirOf,
   uploadFilename,
@@ -103,6 +105,8 @@ import { newestSeenSeq, type RowRef } from "./unread";
 import { useUnreadStore } from "./unreadStore";
 import { useMarkReadWhileViewing } from "./unreadRead";
 import { MessageFiles, patchThreadFileState, useThreadFilesOn } from "./ThreadFiles";
+import { ThreadImagesContext, type ThreadImagesSource } from "./ThreadImages";
+import { FEATURE_THREAD_IMAGES } from "../api/threadAttachmentPure";
 import { AttachmentSheet, type OpenAttachment } from "./AttachmentSheet";
 import { sameMessage } from "./threadCacheMerge";
 import {
@@ -350,6 +354,7 @@ const ThreadRow = memo(function ThreadRow({
   m,
   out,
   files,
+  imagesOn,
   runFirst,
   runLast,
   spaced,
@@ -375,6 +380,8 @@ const ThreadRow = memo(function ThreadRow({
   m: ThreadMessage;
   out: OutgoingMessage | null;
   files: readonly ThreadAttachment[] | null;
+  /** K2 0.46.3 `thread-images-v1`: pictures as thumbnails. */
+  imagesOn: boolean;
   runFirst: boolean;
   runLast: boolean;
   /** First of a run, not the first row: a little space above. */
@@ -459,6 +466,8 @@ const ThreadRow = memo(function ThreadRow({
           mine={m.mine}
           hasBubble={bubble}
           onOpen={(a) => onOpenFile(m, a)}
+          imagesOn={imagesOn}
+          messageId={m.id}
         />
       ) : null}
       {m.mine && (runLast || out != null || m.pending || m.failed) ? (
@@ -880,6 +889,11 @@ export function ThreadPane({
   // only when the room's server lists the feature; a tap opens the file
   // through that server (the scope captured at the tap).
   const filesOn = useThreadFilesOn(roomScope);
+  const imagesOn = useThreadFilesOn(roomScope, FEATURE_THREAD_IMAGES);
+  const imagesSource = useMemo<ThreadImagesSource>(
+    () => ({ scope: roomScope, addr: threadAddr || null, conversationId: conversationId || null }),
+    [roomScope, threadAddr, conversationId]
+  );
   const [openFile, setOpenFile] = useState<OpenAttachment | null>(null);
   useEffect(() => {
     setOpenFile(null);
@@ -1480,10 +1494,17 @@ export function ThreadPane({
         store().patchOutgoing(localId, { paths: [...paths] });
       }
     }
-    await store().sendThread(
-      attachmentSendBody(entry.text, paths.filter((p): p is string => !!p)),
-      { localId }
-    );
+    const uploaded = paths.filter((p): p is string => !!p);
+    // K2 0.46.3: a Thread on a server with `thread-attachments-v1` takes
+    // the files as real attachments (workspace-relative paths), not their
+    // quoted paths in the text. Project chats and older servers: as before.
+    const asAttachments =
+      filesOn && !store().threadGroupId ? workspaceRelative(uploaded, entry.attachDir) : null;
+    if (asAttachments) {
+      await store().sendThread(entry.text, { localId, attachments: asAttachments });
+    } else {
+      await store().sendThread(attachmentSendBody(entry.text, uploaded), { localId });
+    }
   }
 
   // Sends queued while the server was down go out once it is back.
@@ -1943,6 +1964,7 @@ export function ThreadPane({
     outgoing.length === 0;
 
   return (
+    <ThreadImagesContext.Provider value={imagesSource}>
     <div
       ref={rootRef}
       className="zen-thread-pane mchat-pane relative flex flex-col flex-1 min-h-0 min-w-0 overflow-x-hidden"
@@ -2129,6 +2151,7 @@ export function ThreadPane({
                     m={m}
                     out={out}
                     files={files}
+                    imagesOn={imagesOn}
                     runFirst={run.first}
                     runLast={run.last}
                     spaced={run.first && i > 0}
@@ -2294,5 +2317,6 @@ export function ThreadPane({
         />
       ) : null}
     </div>
+    </ThreadImagesContext.Provider>
   );
 }
