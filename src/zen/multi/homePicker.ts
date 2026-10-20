@@ -21,12 +21,12 @@
 // failed refresh (MS39), unless the pool now says it is in trouble.
 
 import { serverHostKey, type ServerEntry } from "../../stores/servers";
-import { versionAtLeast } from "../../api/scope";
+import { protocolOutOfRange, versionAtLeast } from "../../api/scope";
 import type { StubAgent } from "../stubData";
 import type { ServerProject } from "../serverPins";
 import { roleAllowsRoom, type PoolEntry } from "./pool";
 import type { RemoteRows } from "./remoteRows";
-import { PHONE_FLOOR } from "./rowStatus";
+import { appTooOldCopy, PHONE_FLOOR } from "./rowStatus";
 
 export type PickerSection =
   | { kind: "loading"; copy: string }
@@ -64,6 +64,9 @@ export function pickerSectionState(input: PickerSectionInput): PickerSection {
       copy: `${label} needs an update`,
       detail: `${label} runs K2 ${version}. The phone needs ${PHONE_FLOOR} or later.`,
     };
+  }
+  if (protocolOutOfRange(e?.boot ?? null)) {
+    return { kind: "too-old", copy: "Update the K2 app", detail: appTooOldCopy(label) };
   }
   if (e && e.reach === "live" && e.auth !== "ok") {
     return signIn(

@@ -31,6 +31,7 @@ import {
   type ServerEntry,
 } from "../stores/servers";
 import { isConnectionLevelError } from "../lib/netRetry";
+import { reviveServerSession } from "../lib/revive";
 import { tryHostKey } from "../lib/hostKey";
 
 /** Every key the daemon reports in `/boot-status` `features` (K2 0.45.5,
@@ -153,7 +154,33 @@ export interface BootInfo {
   /** K2 0.46.1: the box's public tunnel host (`rosson.k2.dev`), lowercase;
    *  null when absent. Optional; Homes sync maps it to `serverId`. */
   publicHost?: string | null;
+  /** K2 0.46.3 (`boot-status-views-v1`): `full` | `compat` | `public`;
+   *  null from an older daemon (which always answers in full). */
+  view?: string | null;
+  /** The protocol range the box speaks (`protocolMin` from 0.46.3). */
+  protocol?: number | null;
+  protocolMin?: number | null;
   at: number;
+}
+
+/** The `/boot-status` protocol this build speaks (K2 0.46.3 contract). */
+export const PHONE_PROTOCOL = 1;
+
+/** A `compat` / `public` body (K2 0.46.3): it leaves fields out because
+ *  the caller holds no credential the box accepts, not because the box
+ *  lacks them. Absent there means "unknown", never "unsupported". */
+export function isPartialBootView(view: unknown): boolean {
+  return view === "public" || view === "compat";
+}
+
+/** Does this box need a newer phone (or an older one)? False while the
+ *  range is unknown. */
+export function protocolOutOfRange(info: Pick<BootInfo, "protocol" | "protocolMin"> | null): boolean {
+  if (!info) return false;
+  const max = info.protocol;
+  const min = info.protocolMin ?? (typeof max === "number" ? 1 : null);
+  if (typeof max !== "number" || typeof min !== "number") return false;
+  return PHONE_PROTOCOL < min || PHONE_PROTOCOL > max;
 }
 
 const bootInfo = new Map<string, BootInfo>();
@@ -186,7 +213,9 @@ export function onBootInfo(fn: BootListener): () => void {
  *  every check; `ensureBootStatus` does in S1). */
 export function noteBootStatus(serverId: string, body: unknown): BootInfo {
   const b = (body && typeof body === "object" ? body : {}) as Record<string, unknown>;
-  const info: BootInfo = {
+  const view = typeof b.view === "string" && b.view ? b.view : null;
+  const num = (v: unknown) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const parsed: BootInfo = {
     version: typeof b.version === "string" && b.version ? b.version : null,
     features: Array.isArray(b.features)
       ? new Set(b.features.filter((f): f is string => typeof f === "string"))
@@ -200,8 +229,24 @@ export function noteBootStatus(serverId: string, body: unknown): BootInfo {
     installKind: typeof b.installKind === "string" ? b.installKind : null,
     serverId: parseBoxServerId(b.serverId),
     publicHost: parsePublicHost(b.publicHost),
+    view,
+    protocol: num(b.protocol),
+    protocolMin: num(b.protocolMin),
     at: Date.now(),
   };
+  // K2 0.46.3: a stranger's view (no credential, or one the box no longer
+  // accepts) omits fields. Update only what it carries; keep the rest.
+  const prev = isPartialBootView(view) ? bootInfo.get(serverId) : undefined;
+  const info: BootInfo = { ...parsed };
+  if (isPartialBootView(view)) {
+    const has = (k: string) => Object.prototype.hasOwnProperty.call(b, k);
+    if (!has("version")) info.version = prev?.version ?? null;
+    if (!has("features")) info.features = prev?.features ?? null;
+    if (!has("airgap")) info.airgap = prev?.airgap ?? false;
+    if (!has("installKind")) info.installKind = prev?.installKind ?? null;
+    if (!has("serverId")) info.serverId = prev?.serverId ?? null;
+    if (!has("publicHost")) info.publicHost = prev?.publicHost ?? null;
+  }
   bootInfo.set(serverId, info);
   for (const fn of [...bootListeners]) {
     try {
@@ -336,7 +381,7 @@ export function serverMemory<T>(init: () => T): ServerMemory<T> {
   };
 }
 
-// ─── /boot-status (public) ───
+// ─── /boot-status ───
 
 const BOOT_TIMEOUT_MS = 4000;
 /** Re-read at most this often from `ensureBootStatus` (the S2 pool owns
@@ -345,16 +390,65 @@ export const BOOT_STATUS_MAX_AGE_MS = 5 * 60_000;
 
 const bootInflight = new Map<string, Promise<BootInfo | null>>();
 
-async function getBootStatus(base: string): Promise<unknown | null> {
-  const once = async () => {
-    const res = await Promise.race([
-      tauriFetch(`${base}/boot-status`, { method: "GET" }),
+/** The scope's token, or "" (signed out, removed). */
+function tokenOf(scope: ServerScope): string {
+  try {
+    return scope.token();
+  } catch {
+    return "";
+  }
+}
+
+/** K2 0.46.3: re-check a login at most this often per server when the
+ *  box answered a token-bearing `/boot-status` with a stranger's view. */
+export const BOOT_STALE_RECHECK_MS = 5 * 60_000;
+const staleRecheckAt = new Map<string, number>();
+
+/** Token sent, `view` not `full`: the box no longer accepts this login
+ *  (e.g. sessions wiped by a restart). Run the re-login check — whoami,
+ *  twice — never "offline". Background: a dead token is kept and the
+ *  server marked signin-required (MA22). */
+function noteStaleSession(serverId: string): void {
+  const now = Date.now();
+  const last = staleRecheckAt.get(serverId);
+  if (last !== undefined && now - last < BOOT_STALE_RECHECK_MS) return;
+  if (useServersStore.getState().recovery[serverId] === "signin-required") return;
+  staleRecheckAt.set(serverId, now);
+  void reviveServerSession(serverId, { background: true }).catch(() => {});
+}
+
+/** Tests: forget the stale-login re-check throttle. */
+export function __resetBootStaleForTests(): void {
+  staleRecheckAt.clear();
+}
+
+/** `GET /boot-status`. K2 0.46.3: with the server's token as Bearer when
+ *  one is held (the box answers its `full` view), retried once without it
+ *  on a 401/403 (≤0.46.2 with a must-change-password session). */
+async function getBootStatus(base: string, token = "", serverId = ""): Promise<unknown | null> {
+  const fetchOnce = (bearer: string) =>
+    Promise.race([
+      tauriFetch(
+        `${base}/boot-status`,
+        bearer ? { method: "GET", headers: { Authorization: `Bearer ${bearer}` } } : { method: "GET" }
+      ),
       new Promise<never>((_, reject) =>
         setTimeout(() => reject(new Error("boot-status timed out")), BOOT_TIMEOUT_MS)
       ),
     ]);
+  const once = async () => {
+    let res = await fetchOnce(token);
+    let sent = !!token;
+    if (sent && (res.status === 401 || res.status === 403)) {
+      res = await fetchOnce("");
+      sent = false;
+    }
     if (!res.ok) return null;
-    return (await res.json()) as unknown;
+    const body = (await res.json()) as unknown;
+    const view =
+      body && typeof body === "object" ? (body as Record<string, unknown>).view : undefined;
+    if (sent && serverId && typeof view === "string" && view !== "full") noteStaleSession(serverId);
+    return body;
   };
   try {
     return await once();
@@ -370,9 +464,9 @@ async function getBootStatus(base: string): Promise<unknown | null> {
   }
 }
 
-/** The raw `GET /boot-status` body on `scope` (public, no token; 4 s, one
- *  retry on a network error only), or null when unreachable / non-2xx /
- *  removed. NOT recorded: the S2 pool reads it to tell offline from live
+/** The raw `GET /boot-status` body on `scope` (Bearer when a token is
+ *  held; 4 s, one retry on a network error only), or null when
+ *  unreachable / non-2xx / removed. NOT recorded: the S2 pool reads it to tell offline from live
  *  (`refreshBootStatus` keeps the last good answer on a failure). */
 export async function readBootStatus(scope: ServerScope): Promise<unknown | null> {
   if (!scope.id) return null;
@@ -383,11 +477,11 @@ export async function readBootStatus(scope: ServerScope): Promise<unknown | null
     return null;
   }
   if (!base) return null;
-  return getBootStatus(base);
+  return getBootStatus(base, tokenOf(scope), scope.id);
 }
 
-/** `GET /boot-status` on `scope` (no token; 4 s, one retry on a network
- *  error), recorded in the feature memory. Single-flight per server. A
+/** `GET /boot-status` on `scope` (Bearer when held; 4 s, one retry on a
+ *  network error), recorded in the feature memory. Single-flight per server. A
  *  failure keeps what was known. */
 export function refreshBootStatus(scope: ServerScope): Promise<BootInfo | null> {
   if (!scope.id) return Promise.resolve(null);
@@ -401,7 +495,7 @@ export function refreshBootStatus(scope: ServerScope): Promise<BootInfo | null> 
       return null;
     }
     if (!base) return null;
-    const body = await getBootStatus(base);
+    const body = await getBootStatus(base, tokenOf(scope), scope.id);
     if (body === null) return bootInfo.get(scope.id) ?? null;
     // The server may have been removed or re-keyed while we waited.
     if (!savedEntry(scope.id)) return null;
@@ -442,6 +536,7 @@ export function versionAtLeast(a: string | null, b: string): boolean {
 onServerForget((id, reason) => {
   bootInfo.delete(id);
   bootInflight.delete(id);
+  staleRecheckAt.delete(id);
   if (reason === "removed") scopes.delete(id);
 });
 
@@ -449,5 +544,6 @@ onServerForget((id, reason) => {
 export function __resetScopesForTests(): void {
   scopes.clear();
   bootInfo.clear();
+  staleRecheckAt.clear();
   bootInflight.clear();
 }
