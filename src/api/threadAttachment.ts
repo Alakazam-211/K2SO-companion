@@ -13,11 +13,14 @@ import {
   parseAttachmentMeta,
   parseAttachmentPreview,
   parseAttachmentRange,
+  parseAttachmentThumb,
   type AttachmentMeta,
   type AttachmentPreview,
   type AttachmentRange,
   type AttachmentRef,
   type AttachmentResult,
+  type AttachmentThumb,
+  type ThumbPx,
 } from "./threadAttachmentPure";
 
 const PATH = "/cli/thread/attachment";
@@ -63,6 +66,18 @@ export function getAttachmentPreview(
   n: number
 ): Promise<AttachmentResult<AttachmentPreview>> {
   return get(scope, attachmentQuery(ref, n, "preview"), parseAttachmentPreview, 60_000);
+}
+
+/** `mode=thumb&px=256|512` (K2 0.46.3 `thread-images-v1`): the live
+ *  file's thumbnail. 415 `no_thumbnail` / 413 `preview_too_large` →
+ *  `no_preview` / `preview_too_large`: show the chip. */
+export function getAttachmentThumb(
+  scope: ServerScope,
+  ref: AttachmentRef,
+  n: number,
+  px: ThumbPx
+): Promise<AttachmentResult<AttachmentThumb>> {
+  return get(scope, attachmentQuery(ref, n, "thumb", undefined, px), parseAttachmentThumb, 30_000);
 }
 
 /** `mode=range`: one slice (`len` 1..16 MB). */

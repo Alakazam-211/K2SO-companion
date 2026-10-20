@@ -30,6 +30,8 @@ import { COMPOSER_MAX_PX, ThreadPane, composerHeight, threadTopPadding } from ".
 import { composerPlaceholder } from "./GlassComposer";
 import { normaliseThreadItem } from "./threadModel";
 import { useZenStore } from "./zenStore";
+import { __resetScopesForTests, noteBootStatus } from "../api/scope";
+import { useServersStore } from "../stores/servers";
 
 afterEach(() => {
   cleanup();
@@ -1162,6 +1164,34 @@ describe("ThreadPane", () => {
         { localId: expect.any(String) }
       )
     );
+  });
+
+  it("K2 0.46.3 (thread-attachments-v1): the upload goes as a real attachment, workspace-relative, not quoted text", async () => {
+    useServersStore.setState({
+      servers: [{ id: "s1", nickname: "Home", url: "https://home.k2.dev", username: "me", rememberPassword: false }],
+      activeServerId: "s1",
+      tokens: { s1: "tok1" },
+    });
+    noteBootStatus("s1", { version: "0.46.3", features: ["thread-attachments-v1"] });
+    try {
+      vi.mocked(uploadFsBinary).mockResolvedValue({
+        ok: true,
+        data: { path: "/Users/Baden/Appa/.k2/downloads/shot (1).png" },
+      });
+      const sendThread = vi.fn(async () => true);
+      openAppa(sendThread);
+      render(<ThreadPane />);
+      pasteAndSend(new File(["x"], "shot.png", { type: "image/png" }));
+      await waitFor(() =>
+        expect(sendThread).toHaveBeenCalledWith("", {
+          localId: expect.any(String),
+          attachments: [".k2/downloads/shot (1).png"],
+        })
+      );
+    } finally {
+      useServersStore.setState({ servers: [], activeServerId: null, tokens: {} });
+      __resetScopesForTests();
+    }
   });
 
   it("a missing .k2/downloads is created by the upload itself (no separate mkdir)", async () => {

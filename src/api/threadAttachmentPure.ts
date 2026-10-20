@@ -12,6 +12,19 @@
 // Thread. Gate every surface on `/boot-status` `thread-attachments-v1`.
 
 export const FEATURE_THREAD_ATTACHMENTS = "thread-attachments-v1" as const;
+/** K2 0.46.3: `mode=thumb` image thumbnails, drawn inline in the Thread. */
+export const FEATURE_THREAD_IMAGES = "thread-images-v1" as const;
+/** Thumb sizes the server makes (`px`). */
+export type ThumbPx = 256 | 512;
+
+const IMAGE_EXT = /\.(jpe?g|png|gif|webp|heic|heif|bmp|svg|tiff?|avif)$/i;
+
+/** An image the Thread can draw as a thumbnail: by MIME, else by name. */
+export function isImageAttachment(a: Pick<ThreadAttachment, "kind" | "mime" | "name" | "path">): boolean {
+  if (a.kind !== "file") return false;
+  if (a.mime) return a.mime.startsWith("image/");
+  return IMAGE_EXT.test(a.name || a.path);
+}
 
 /** Server cap per message; anything past it is ignored. */
 export const MAX_ATTACHMENTS = 10;
@@ -213,8 +226,9 @@ export type AttachmentRef = {
 export function attachmentQuery(
   ref: AttachmentRef,
   n: number,
-  mode: "meta" | "preview" | "range",
-  range?: { offset: number; len: number }
+  mode: "meta" | "preview" | "range" | "thumb",
+  range?: { offset: number; len: number },
+  px?: ThumbPx
 ): Record<string, string> | null {
   const addr = str(ref.addr);
   const conv = str(ref.conversationId);
@@ -228,6 +242,7 @@ export function attachmentQuery(
     q.offset = String(Math.max(0, Math.floor(range.offset)));
     q.len = String(Math.max(1, Math.floor(range.len)));
   }
+  if (mode === "thumb") q.px = String(px === 256 ? 256 : 512);
   return q;
 }
 
@@ -293,7 +308,9 @@ export function mapAttachmentError(status: number, text: string): AttachmentErro
     return err("forbidden");
   }
   if (status === 404) return err(code === "attachment_gone" ? "attachment_gone" : "not_found");
-  if (status === 415 || code === "no_preview") return err("no_preview");
+  // 415 `no_preview`, or `no_thumbnail` (K2 0.46.3: e.g. HEIC on a box
+  // without a converter): the chip, not a picture.
+  if (status === 415 || code === "no_preview" || code === "no_thumbnail") return err("no_preview");
   if (status === 413 || code === "preview_too_large") return err("preview_too_large");
   if (status === 405) return err("method_not_allowed");
   return err("http");
@@ -432,5 +449,36 @@ export function parseAttachmentRange(body: unknown): AttachmentResult<Attachment
   return {
     ok: true,
     data: { base64: o.base64, len, offset: num(o.offset) ?? 0, size, eof: o.eof === true },
+  };
+}
+
+export type AttachmentThumb = {
+  mime: string;
+  width: number;
+  height: number;
+  px: number;
+  base64: string;
+  state: ThreadAttachmentState;
+};
+
+const THUMB_MIMES = new Set(["image/jpeg", "image/png", "image/svg+xml"]);
+
+/** `mode=thumb` (K2 0.46.3): `{ok, kind:"image", mime, width, height, px,
+ *  base64, name, size, state, sanitized?}`. Only the three MIME types the
+ *  contract names are drawn. */
+export function parseAttachmentThumb(body: unknown): AttachmentResult<AttachmentThumb> {
+  if (!body || typeof body !== "object") return badResponse("thumb: not an object");
+  const o = body as Record<string, unknown>;
+  const mime = str(o.mime).toLowerCase();
+  const width = num(o.width);
+  const height = num(o.height);
+  if (str(o.kind) !== "image" || typeof o.base64 !== "string" || !o.base64) {
+    return badResponse("thumb: image/base64 missing");
+  }
+  if (!THUMB_MIMES.has(mime)) return badResponse(`thumb: unexpected mime '${mime}'`);
+  if (width == null || height == null || width <= 0 || height <= 0) return badResponse("thumb: no size");
+  return {
+    ok: true,
+    data: { mime, width, height, px: num(o.px) ?? 0, base64: o.base64, state: stateOf(o.state) },
   };
 }

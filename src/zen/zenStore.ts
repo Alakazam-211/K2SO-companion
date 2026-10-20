@@ -261,7 +261,9 @@ type ZenState = {
    *  "Sending…" at once, then gives way to the server's item, or turns
    *  "Not sent". `localId` sends an entry `queueOutgoing` already made
    *  (ThreadPane, after its uploads). Resolves true once delivered. */
-  sendThread: (text: string, opts?: { localId?: string }) => Promise<boolean>;
+  /** `attachments`: workspace-relative paths sent as real attachments
+   *  (K2 0.46.3; Thread chats only). With them, empty text is allowed. */
+  sendThread: (text: string, opts?: { localId?: string; attachments?: readonly string[] }) => Promise<boolean>;
   /** Optimistic outgoing bubbles, every room (`OutgoingMessage.roomKey`).
    *  In memory only; a failed one stays until retried or put back. */
   outbox: OutgoingMessage[];
@@ -2034,7 +2036,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
   sendThread: async (text, opts) => {
     const trimmed = text.trim();
     const given = opts?.localId;
-    if (!trimmed) {
+    const attachments = opts?.attachments?.length ? opts.attachments : undefined;
+    if (!trimmed && !attachments) {
       if (given) get().dropOutgoing(given);
       return false;
     }
@@ -2093,6 +2096,8 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const id = localId;
     const room = threadRoomKey(scope.id, groupId, addr);
     if (groupId) {
+      // Project chats take text only (attachments ride Thread posts).
+      if (!trimmed) return fail(id, "Nothing to send");
       set({ sending: true, sendError: null });
       try {
         const posted = await postProjectGroupMessage(scope, groupId, trimmed);
@@ -2138,7 +2143,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const before = get().thread.map((m) => m.id);
     set({ sending: true, sendError: null });
     try {
-      const posted = await postThread(scope, addr as string, trimmed);
+      const posted = await postThread(scope, addr as string, trimmed, attachments);
       if (!posted.ok) {
         return fail(id, posted.error || "send failed");
       }

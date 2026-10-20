@@ -7,6 +7,7 @@ vi.mock("../api/client", async (importOriginal) => {
 });
 
 import { getThread, postThread } from "../api/client";
+import { workspaceRelative } from "./composerAttach";
 import {
   LANDED_KEYS_MAX,
   hasLanded,
@@ -168,5 +169,30 @@ describe("sendThread outbox", () => {
     expect(await useZenStore.getState().sendThread("hello")).toBe(true);
     expect(useZenStore.getState().outbox).toEqual([]);
     expect(useZenStore.getState().sendError).toBeNull();
+  });
+
+  it("K2 0.46.3: files alone (no text) post as attachments", async () => {
+    vi.mocked(postThread).mockResolvedValue({ ok: false, error: "stop here" });
+    const id = useZenStore.getState().queueOutgoing({ text: "" });
+    await useZenStore.getState().sendThread("  ", { localId: id, attachments: [".k2/downloads/a.png"] });
+    expect(postThread).toHaveBeenCalledWith(expect.anything(), "appa", "", [".k2/downloads/a.png"]);
+  });
+
+  it("no text and no attachments: nothing is posted", async () => {
+    expect(await useZenStore.getState().sendThread("  ")).toBe(false);
+    expect(postThread).not.toHaveBeenCalled();
+  });
+});
+
+describe("workspaceRelative (compose attachments)", () => {
+  it("maps uploads under <workspace>/.k2/downloads; anything else → null", () => {
+    const dir = "/Users/Baden/Appa/.k2/downloads";
+    expect(workspaceRelative(["/Users/Baden/Appa/.k2/downloads/shot (1).png"], dir)).toEqual([
+      ".k2/downloads/shot (1).png",
+    ]);
+    expect(workspaceRelative([".k2/downloads/x.pdf"], dir)).toEqual([".k2/downloads/x.pdf"]);
+    expect(workspaceRelative(["/tmp/x.png"], dir)).toBeNull();
+    expect(workspaceRelative([], dir)).toBeNull();
+    expect(workspaceRelative(["/Users/Baden/Appa/.k2/downloads/a"], null)).toBeNull();
   });
 });
