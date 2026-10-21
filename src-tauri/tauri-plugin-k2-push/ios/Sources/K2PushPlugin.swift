@@ -99,6 +99,8 @@ class K2PushPlugin: Plugin {
 
   @objc public override func load(webview: WKWebView) {
     tapDelegate.plugin = self
+    // Push keys left by an earlier install (keychain items outlive it).
+    K2PushPlugin.badgeQueue.async { K2PushKeys.wipeIfFreshInstall() }
     DispatchQueue.main.async {
       // Best-effort early install; ensureDelegateHooks re-verifies (and
       // re-installs against the live delegate class) before every probe.
@@ -288,6 +290,69 @@ class K2PushPlugin: Plugin {
     }
   }
 
+  // ── Sealed push keys (K2 0.46.3 push-e2e-v1) ────────────────────────
+
+  /// `{op, server?, subdomain?, rotate?, on?}` (see models.rs E2eOpRequest).
+  /// Never returns a private key; `key` returns the public key and PSK the
+  /// box needs, base64url.
+  @objc public func e2eOp(_ invoke: Invoke) {
+    let args: E2eOpArgs
+    do {
+      args = try invoke.parseArgs(E2eOpArgs.self)
+    } catch {
+      invoke.reject("e2eOp: invalid args (\(error.localizedDescription))")
+      return
+    }
+    K2PushPlugin.badgeQueue.async {
+      switch args.op {
+      case "key":
+        guard let server = args.server, !server.isEmpty, let sub = args.subdomain, !sub.isEmpty,
+          let r = K2PushKeys.current(server: server, subdomain: sub, rotate: args.rotate ?? false),
+          let pub = Data(base64Encoded: r.publicKey), let psk = Data(base64Encoded: r.psk)
+        else {
+          invoke.resolve(["available": false, "reason": "no key (keychain unavailable)"])
+          return
+        }
+        invoke.resolve([
+          "available": true,
+          "publicKey": K2PushCrypto.base64urlString(pub),
+          "psk": K2PushCrypto.base64urlString(psk),
+          "createdAt": Int(r.createdAt),
+          "keyId": r.keyId,
+        ])
+      case "forget":
+        if let server = args.server, !server.isEmpty {
+          let ids = K2PushKeys.keys(server: server).map { $0.keyId }
+          K2PushKeys.forget(server: server)
+          K2PushReplay.forget(keyIds: ids)
+        }
+        invoke.resolve(["available": true])
+      case "enforce":
+        if let sub = args.subdomain, !sub.isEmpty { K2PushSealed.setEnforce(subdomain: sub, args.on ?? false) }
+        invoke.resolve(["available": true])
+      case "diagnostics":
+        let keys: [JsonObject] = (K2PushKeys.all() ?? []).map { r in
+          var row: JsonObject = [
+            "server": r.server, "subdomain": r.subdomain, "keyId": r.keyId,
+            "createdAt": r.createdAt, "enclave": r.enclave,
+          ]
+          if let at = r.retireAt { row["retireAt"] = at }
+          return row
+        }
+        let pushes: [JsonObject] = K2PushSealed.diagnostics().map { row in
+          var out: JsonObject = [:]
+          for (k, v) in row {
+            if let s = v as? String { out[k] = s } else if let n = v as? NSNumber { out[k] = n.doubleValue } else if let a = v as? [String] { out[k] = a }
+          }
+          return out
+        }
+        invoke.resolve(["available": true, "keys": keys, "pushes": pushes])
+      default:
+        invoke.reject("e2eOp: unknown op '\(args.op)'")
+      }
+    }
+  }
+
   static let badgeQueue = DispatchQueue(label: "com.alakazamlabs.k2so.companion.badges", qos: .utility)
   private static let noGroupReason = "no App Group container (\(K2BadgeStore.appGroupId) entitlement missing)"
 
@@ -326,12 +391,24 @@ class K2PushPlugin: Plugin {
   fileprivate func handleRemoteNotification(
     _ userInfo: [AnyHashable: Any], completion: @escaping (UIBackgroundFetchResult) -> Void
   ) {
-    guard (userInfo["kind"] as? String) == "badge" else {
+    let kind = userInfo["kind"] as? String
+    guard kind == "badge" || kind == "nudge" else {
       completion(.noData)
       return
     }
     K2PushPlugin.badgeQueue.async {
-      guard let applied = K2BadgeStore.apply(push: userInfo, source: .silent) else {
+      // K2 0.46.3 sealed nudge: totals only, inside the blob. Opened and
+      // fresh → the same totals push a plaintext `badge` would have been.
+      var push: [AnyHashable: Any] = userInfo
+      if kind == "nudge" {
+        guard case .success(let u) = K2PushSealed.unseal(userInfo) else {
+          completion(.noData)
+          return
+        }
+        push = u.userInfo
+        push["kind"] = "badge"
+      }
+      guard let applied = K2BadgeStore.apply(push: push, source: .silent) else {
         pushLog("badge push without usable totals")
         completion(.noData)
         return
@@ -646,6 +723,14 @@ private struct BadgeTotalsEvent: Encodable {
 }
 
 /// `key` (current JS) or `subdomain` (older JS); `key` wins.
+private struct E2eOpArgs: Decodable {
+  let op: String
+  let server: String?
+  let subdomain: String?
+  let rotate: Bool?
+  let on: Bool?
+}
+
 private struct ServerTotalsArgs: Decodable {
   let key: String?
   let subdomain: String?

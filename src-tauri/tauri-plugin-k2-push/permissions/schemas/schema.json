@@ -319,6 +319,18 @@
           "markdownDescription": "Denies the clear_server_totals command without any pre-configured scope."
         },
         {
+          "description": "Enables the e2e_op command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-e2e-op",
+          "markdownDescription": "Enables the e2e_op command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the e2e_op command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-e2e-op",
+          "markdownDescription": "Denies the e2e_op command without any pre-configured scope."
+        },
+        {
           "description": "Enables the get_badge_diagnostics command without any pre-configured scope.",
           "type": "string",
           "const": "allow-get-badge-diagnostics",
@@ -451,10 +463,10 @@
           "markdownDescription": "Denies the set_server_totals command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), the app-icon badge\ntotals and their delivery diagnostics, the composer's attach\npickers (photo library, document picker), and the event listener\nplumbing for `tap`/`tokenRefresh`/`badgeTotals`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-set-server-totals`\n- `allow-clear-server-totals`\n- `allow-get-badge-totals`\n- `allow-get-badge-diagnostics`\n- `allow-pick-media`\n- `allow-pick-documents`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), the app-icon badge\ntotals and their delivery diagnostics, the composer's attach\npickers (photo library, document picker), and the event listener\nplumbing for `tap`/`tokenRefresh`/`badgeTotals`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-set-server-totals`\n- `allow-clear-server-totals`\n- `allow-get-badge-totals`\n- `allow-get-badge-diagnostics`\n- `allow-e2e-op`\n- `allow-pick-media`\n- `allow-pick-documents`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), the app-icon badge\ntotals and their delivery diagnostics, the composer's attach\npickers (photo library, document picker), and the event listener\nplumbing for `tap`/`tokenRefresh`/`badgeTotals`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-set-server-totals`\n- `allow-clear-server-totals`\n- `allow-get-badge-totals`\n- `allow-get-badge-diagnostics`\n- `allow-pick-media`\n- `allow-pick-documents`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), the app-icon badge\ntotals and their delivery diagnostics, the composer's attach\npickers (photo library, document picker), and the event listener\nplumbing for `tap`/`tokenRefresh`/`badgeTotals`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-set-server-totals`\n- `allow-clear-server-totals`\n- `allow-get-badge-totals`\n- `allow-get-badge-diagnostics`\n- `allow-e2e-op`\n- `allow-pick-media`\n- `allow-pick-documents`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }

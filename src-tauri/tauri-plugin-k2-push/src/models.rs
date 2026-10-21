@@ -231,3 +231,23 @@ pub struct PickResponse {
     #[serde(default)]
     pub cancelled: bool,
 }
+
+/// `e2e_op` (K2 0.46.3 `push-e2e-v1`, iOS): the phone's push keys.
+///   `key {server, subdomain, rotate?}` → `{available, publicKey, psk, createdAt, keyId}`
+///   (base64url; made on first use; `rotate` makes a new one);
+///   `forget {server}`; `enforce {subdomain, on}`; `diagnostics` →
+///   `{available, keys:[{server, subdomain, keyId, createdAt, retireAt, enclave}], pushes:[…]}`
+///   (never a private key, PSK or decrypted text).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct E2eOpRequest {
+    pub op: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subdomain: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub rotate: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on: Option<bool>,
+}

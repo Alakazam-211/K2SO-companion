@@ -102,3 +102,21 @@ pub(crate) async fn pick_documents<R: Runtime>(
         })
         .await
 }
+
+#[command]
+pub(crate) async fn e2e_op<R: Runtime>(
+    app: AppHandle<R>,
+    op: String,
+    server: Option<String>,
+    subdomain: Option<String>,
+    rotate: Option<bool>,
+    on: Option<bool>,
+) -> Result<serde_json::Value> {
+    app.k2_push().e2e_op(E2eOpRequest {
+        op,
+        server,
+        subdomain,
+        rotate,
+        on,
+    })
+}

@@ -154,6 +154,11 @@ targets:
       # The app-icon badge store, ONE source shared with the app's k2-push
       # plugin (Swift package). Foundation-only.
       - path: ../../tauri-plugin-k2-push/ios/Sources/K2BadgeStore.swift
+      # Sealed pushes (K2 0.46.3 push-e2e-v1): the same sources as the plugin.
+      - path: ../../tauri-plugin-k2-push/ios/Sources/K2PushCrypto.swift
+      - path: ../../tauri-plugin-k2-push/ios/Sources/K2PushKeys.swift
+      - path: ../../tauri-plugin-k2-push/ios/Sources/K2PushReplay.swift
+      - path: ../../tauri-plugin-k2-push/ios/Sources/K2PushSealed.swift
     info:
       path: K2NotificationService/Info.plist
       properties:

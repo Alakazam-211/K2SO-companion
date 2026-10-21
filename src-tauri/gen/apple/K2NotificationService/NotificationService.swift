@@ -31,6 +31,17 @@
 // Rules: no network. Any error or a missing title/addr delivers the
 // original content unchanged (apart from the badge). Without
 // mutable-content (today's relay) this extension never runs.
+//
+// Sealed alerts (K2 0.46.3 `push-e2e-v1`, `{kind:"e2e", v, e2e}` shown as
+// "K2 / New message"): opened first with this phone's keys
+// (K2PushSealed / K2PushKeys / K2PushReplay — shared sources, added by
+// project.yml). Opened and fresh: the real title, body, group and today's
+// userInfo keys replace the generic ones and everything below runs as for
+// a plaintext push, except the Communication intent is donated with
+// `content: nil` (the text stays out of the intents store). Not opened
+// (before the first unlock, no key, a replay): the generic text as sent.
+// A server the app marked sealed-only (`enforce`): its plaintext Thread /
+// ticket / project pushes are shown generic.
 
 import Intents
 import UIKit
@@ -50,22 +61,50 @@ final class NotificationService: UNNotificationServiceExtension {
     _ request: UNNotificationRequest,
     withContentHandler contentHandler: @escaping (UNNotificationContent) -> Void
   ) {
+    var incoming: UNNotificationContent = request.content
+    var sealed = false
+    if K2PushSealed.kind(of: incoming.userInfo) == .alert {
+      guard case .success(let u) = K2PushSealed.unseal(incoming.userInfo),
+        let m = incoming.mutableCopy() as? UNMutableNotificationContent
+      else {
+        // The generic "K2 / New message" exactly as sent.
+        lock.lock()
+        self.contentHandler = contentHandler
+        lock.unlock()
+        deliver(incoming)
+        return
+      }
+      m.title = u.title
+      m.body = u.body
+      if !u.group.isEmpty { m.threadIdentifier = u.group }
+      m.userInfo = u.userInfo
+      incoming = m
+      sealed = true
+    } else if K2PushSealed.enforced(incoming.userInfo),
+      let kind = incoming.userInfo["kind"] as? String, ["thread", "ticket", "project"].contains(kind),
+      let m = incoming.mutableCopy() as? UNMutableNotificationContent
+    {
+      m.title = "K2"
+      m.body = "New message"
+      incoming = m
+    }
+
     // Badge first, so even the fallback paths carry it.
-    let badge = Self.applyBadgeTotals(request.content.userInfo)
-    let base = Self.withBadge(request.content, badge)
+    let badge = Self.applyBadgeTotals(incoming.userInfo)
+    let base = Self.withBadge(incoming, badge)
 
     lock.lock()
     self.contentHandler = contentHandler
     self.original = base
     lock.unlock()
 
-    guard let built = Self.communicationIntent(for: request.content) else {
+    guard let built = Self.communicationIntent(for: incoming, sealed: sealed) else {
       deliver(base)
       return
     }
     let updated: UNNotificationContent
     do {
-      updated = Self.withBadge(try request.content.updating(from: built), badge)
+      updated = Self.withBadge(try incoming.updating(from: built), badge)
     } catch {
       deliver(base)
       return
@@ -122,7 +161,7 @@ final class NotificationService: UNNotificationServiceExtension {
   // ── Intent ──────────────────────────────────────────────────────────
 
   /// nil = leave the notification as it is.
-  static func communicationIntent(for content: UNNotificationContent) -> INSendMessageIntent? {
+  static func communicationIntent(for content: UNNotificationContent, sealed: Bool = false) -> INSendMessageIntent? {
     let info = content.userInfo
     let title = content.title.trimmingCharacters(in: .whitespacesAndNewlines)
     let addr = string(info, "addr")
@@ -147,7 +186,8 @@ final class NotificationService: UNNotificationServiceExtension {
     let intent = INSendMessageIntent(
       recipients: nil,
       outgoingMessageType: .outgoingMessageText,
-      content: content.body,
+      // Sealed: the decrypted text is shown, never donated (prd V28).
+      content: sealed ? nil : content.body,
       speakableGroupName: nil,
       conversationIdentifier: conversation,
       serviceName: nil,
