@@ -673,7 +673,9 @@ export type ThreadDoc = {
   text?: string;
   created_at?: number;
   conversation_id?: string;
-  choice?: { prompt?: string; options?: unknown; answer?: unknown };
+  /** K2 0.46.3 action cards: `status` and `action:{id, params, dedupe?,
+   *  result?:{message}}` (the daemon writes `result.message` on answer). */
+  choice?: { prompt?: string; options?: unknown; answer?: unknown; status?: unknown; action?: unknown };
   secret?: { prompt?: string };
   /** K2 0.46.1 `thread-attachments-v1`: files riding the message (parsed
    *  defensively by `parseThreadAttachments`). */

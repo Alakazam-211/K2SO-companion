@@ -302,7 +302,10 @@ const Bubble = memo(function Bubble({
             </div>
           ) : null}
           {answered ? (
-            <p className="mt-1 text-[12px] opacity-80">Answered.</p>
+            // An action card says what the answer did (K2 0.46.3).
+            <p className="mt-1 text-[12px] opacity-80" data-testid="choice-result">
+              {choice.resultMessage || "Answered."}
+            </p>
           ) : answerError ? (
             <p className="mt-1 text-[12px] opacity-80" role="alert">
               {answerError}
