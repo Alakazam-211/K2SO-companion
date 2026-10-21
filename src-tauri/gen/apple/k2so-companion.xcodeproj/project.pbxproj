@@ -9,21 +9,25 @@
 /* Begin PBXBuildFile section */
 		0086B77E9B281222B79AC404 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 73CF7E64730212AA5AE3A128 /* libapp.a */; };
 		2369870D36BAC75DB2B6B36D /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 28E557618E691BF6CEB447B7 /* CoreGraphics.framework */; };
+		31D642292119BA1B3EF1142B /* K2PushReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ED9911D981925C6E9100ABE /* K2PushReplay.swift */; };
 		37233E0D1225B040098B1443 /* K2NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9AD9136060A6AEEF2AE58122 /* K2NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		43F5B6CAFF4DF2CC5E246501 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 86B015769A2BEB0B33BEF777 /* LaunchScreen.storyboard */; };
 		4B167C0A2FC4248DC08DB6A2 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0560FFD899E7B0CF539E4F29 /* Security.framework */; };
+		528A2CA0D2F2343E609EFB05 /* K2PushCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96E24D55CD1516F020380121 /* K2PushCrypto.swift */; };
 		55FA4F780FBA02CE4191FD29 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BEE6F25A741F7415EAEF73CE /* UIKit.framework */; };
 		5B6281272B119094369D5260 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 468BBB4AA6164109A2761F17 /* main.mm */; };
+		66AE529A3FD19B8FA3FE2393 /* K2PushSealed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04BDCE45DB68ED3B2DEF0FC8 /* K2PushSealed.swift */; };
 		7ABB0E332906E75D818941A9 /* Intents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A97E30C38A355B51654D89D9 /* Intents.framework */; };
 		7DC223C2516DE9BA1AEAE8F4 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B4A5403B758E91ACD479B265 /* Metal.framework */; };
-		87869CD86E45CF3DF8E9BFF7 /* K2BadgeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D61B127E0B1F7BC66EB0FD /* K2BadgeStore.swift */; };
 		8388615A6C635BA233E64A06 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BEE6F25A741F7415EAEF73CE /* UIKit.framework */; };
+		87869CD86E45CF3DF8E9BFF7 /* K2BadgeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D61B127E0B1F7BC66EB0FD /* K2BadgeStore.swift */; };
 		A70F3CA0A84318BC0485C30E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 121CC767EA48E78C62817F5B /* Assets.xcassets */; };
 		AF0A03078E384F7FA1ADEBDA /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 326A6653853C5BDE1977FDD4 /* assets */; };
 		B77720E43DDCAFF635D539CC /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0C98A0036C619D67A6D5842A /* WebKit.framework */; };
 		BBFD1D01C98651AB5EE41BDE /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 47648054428B8FF68CED3F6F /* QuartzCore.framework */; };
 		D53A6471725A00995F65C638 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6827DEA084F7F9907A8BCDCD /* NotificationService.swift */; };
 		DA4B108E0B708BB898974552 /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9A7659B64BFA232E3FD99383 /* UserNotifications.framework */; };
+		EE470A0522571709F4705614 /* K2PushKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C5B8D9FB8CC4023C4903C9 /* K2PushKeys.swift */; };
 		F677109CE59717EE3EBA6F35 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E44B37797470C60700E7AED /* MetalKit.framework */; };
 /* End PBXBuildFile section */
 
@@ -53,6 +57,7 @@
 
 /* Begin PBXFileReference section */
 		01C71400100AA00C2195F59E /* k2so-companion_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "k2so-companion_iOS.entitlements"; sourceTree = "<group>"; };
+		04BDCE45DB68ED3B2DEF0FC8 /* K2PushSealed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K2PushSealed.swift; sourceTree = "<group>"; };
 		0560FFD899E7B0CF539E4F29 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
 		0C98A0036C619D67A6D5842A /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		0E44B37797470C60700E7AED /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
@@ -62,6 +67,7 @@
 		2E6666D746DD914443D72C13 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
 		326A6653853C5BDE1977FDD4 /* assets */ = {isa = PBXFileReference; lastKnownFileType = folder; path = assets; sourceTree = SOURCE_ROOT; };
 		3551CE3B6E0438F0F177D00C /* k2so-companion_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "k2so-companion_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		3ED9911D981925C6E9100ABE /* K2PushReplay.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K2PushReplay.swift; sourceTree = "<group>"; };
 		468BBB4AA6164109A2761F17 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		47648054428B8FF68CED3F6F /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		4793F9DCBB41419DFCF44AD1 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
@@ -70,6 +76,7 @@
 		6B748E35CAD525F2C8B0B6E0 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
 		73CF7E64730212AA5AE3A128 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		86B015769A2BEB0B33BEF777 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		96E24D55CD1516F020380121 /* K2PushCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K2PushCrypto.swift; sourceTree = "<group>"; };
 		9A7659B64BFA232E3FD99383 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
 		9AD9136060A6AEEF2AE58122 /* K2NotificationService.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = K2NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A97E30C38A355B51654D89D9 /* Intents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Intents.framework; path = System/Library/Frameworks/Intents.framework; sourceTree = SDKROOT; };
@@ -80,6 +87,7 @@
 		D2722F427E4A272C60FB14F9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DE0A5CF383FDF335E039BA8A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DED6CA5E99445A863D95506E /* state.rs */ = {isa = PBXFileReference; path = state.rs; sourceTree = "<group>"; };
+		E2C5B8D9FB8CC4023C4903C9 /* K2PushKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K2PushKeys.swift; sourceTree = "<group>"; };
 		E5D61B127E0B1F7BC66EB0FD /* K2BadgeStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K2BadgeStore.swift; sourceTree = "<group>"; };
 		E6A99F53658EE75DA9510AEE /* K2NotificationService.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = K2NotificationService.entitlements; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -224,6 +232,10 @@
 			isa = PBXGroup;
 			children = (
 				E5D61B127E0B1F7BC66EB0FD /* K2BadgeStore.swift */,
+				96E24D55CD1516F020380121 /* K2PushCrypto.swift */,
+				E2C5B8D9FB8CC4023C4903C9 /* K2PushKeys.swift */,
+				3ED9911D981925C6E9100ABE /* K2PushReplay.swift */,
+				04BDCE45DB68ED3B2DEF0FC8 /* K2PushSealed.swift */,
 			);
 			name = Sources;
 			path = "../../tauri-plugin-k2-push/ios/Sources";
@@ -372,6 +384,10 @@
 			buildActionMask = 2147483647;
 			files = (
 				87869CD86E45CF3DF8E9BFF7 /* K2BadgeStore.swift in Sources */,
+				528A2CA0D2F2343E609EFB05 /* K2PushCrypto.swift in Sources */,
+				EE470A0522571709F4705614 /* K2PushKeys.swift in Sources */,
+				31D642292119BA1B3EF1142B /* K2PushReplay.swift in Sources */,
+				66AE529A3FD19B8FA3FE2393 /* K2PushSealed.swift in Sources */,
 				D53A6471725A00995F65C638 /* NotificationService.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -438,7 +454,7 @@
 				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.alakazamlabs.k2so.companion;
-				PRODUCT_NAME = "K2";
+				PRODUCT_NAME = K2;
 				PROVISIONING_PROFILE_SPECIFIER = "K2 Companion App Store Push";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
@@ -472,7 +488,7 @@
 				"LIBRARY_SEARCH_PATHS[arch=arm64]" = "$(inherited) $(PROJECT_DIR)/Externals/arm64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				"LIBRARY_SEARCH_PATHS[arch=x86_64]" = "$(inherited) $(PROJECT_DIR)/Externals/x86_64/$(CONFIGURATION) $(SDKROOT)/usr/lib/swift $(TOOLCHAIN_DIR)/usr/lib/swift/$(PLATFORM_NAME) $(TOOLCHAIN_DIR)/usr/lib/swift-5.0/$(PLATFORM_NAME)";
 				PRODUCT_BUNDLE_IDENTIFIER = com.alakazamlabs.k2so.companion;
-				PRODUCT_NAME = "K2";
+				PRODUCT_NAME = K2;
 				PROVISIONING_PROFILE_SPECIFIER = "K2 Companion Dev";
 				SDKROOT = iphoneos;
 				TARGETED_DEVICE_FAMILY = "1,2";
