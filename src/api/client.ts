@@ -805,8 +805,19 @@ export async function getActivitySnapshot(
 /** Overlay choice card. Skin: POST `/cli/thread/answer`
  *  `{ addr, id, answer }` — `answer` is the option text. Secret cards
  *  are never posted. */
-export const answerThread = (scope: ServerScope, addr: string, id: string, answer: string) =>
-  request(scope, "/cli/thread/answer", { addr, id, answer }, { method: "POST" });
+export const answerThread = (
+  scope: ServerScope,
+  addr: string,
+  id: string,
+  answer: string,
+  opts: { confirmToken?: string } = {}
+) =>
+  request(
+    scope,
+    "/cli/thread/answer",
+    opts.confirmToken ? { addr, id, answer, confirmToken: opts.confirmToken } : { addr, id, answer },
+    { method: "POST" }
+  );
 
 /** Probe whether THIS origin registered the companion k1 grid upgrade.
  *  `{gridProto:["k1"]}` + a companion token → companion grid WS.
