@@ -80,6 +80,10 @@ final class NotificationService: UNNotificationServiceExtension {
       m.userInfo = u.userInfo
       incoming = m
       sealed = true
+      // The message itself, for the app to show on open (K2PushInbox).
+      if let msg = u.msg, let e = K2PushInbox.entry(msg: msg, userInfo: u.userInfo) {
+        K2PushInbox.append(e)
+      }
     } else if K2PushSealed.enforced(incoming.userInfo),
       let kind = incoming.userInfo["kind"] as? String, ["thread", "ticket", "project"].contains(kind),
       let m = incoming.mutableCopy() as? UNMutableNotificationContent

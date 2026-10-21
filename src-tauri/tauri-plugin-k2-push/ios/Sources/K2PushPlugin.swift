@@ -332,6 +332,9 @@ class K2PushPlugin: Plugin {
       case "enforce":
         if let sub = args.subdomain, !sub.isEmpty { K2PushSealed.setEnforce(subdomain: sub, args.on ?? false) }
         invoke.resolve(["available": true])
+      case "drainInbox":
+        // Sealed messages the NSE saved, for the chat cache (then gone).
+        invoke.resolve(["available": true, "items": K2PushInbox.drain()])
       case "diagnostics":
         let keys: [JsonObject] = (K2PushKeys.all() ?? []).map { r in
           var row: JsonObject = [

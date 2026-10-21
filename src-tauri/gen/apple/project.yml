@@ -159,6 +159,7 @@ targets:
       - path: ../../tauri-plugin-k2-push/ios/Sources/K2PushKeys.swift
       - path: ../../tauri-plugin-k2-push/ios/Sources/K2PushReplay.swift
       - path: ../../tauri-plugin-k2-push/ios/Sources/K2PushSealed.swift
+      - path: ../../tauri-plugin-k2-push/ios/Sources/K2PushInbox.swift
     info:
       path: K2NotificationService/Info.plist
       properties:

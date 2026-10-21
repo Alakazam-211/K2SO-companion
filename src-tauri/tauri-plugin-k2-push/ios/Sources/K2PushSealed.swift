@@ -25,6 +25,10 @@ public enum K2PushSealed {
     /// Today's keys (all strings).
     public let userInfo: [String: Any]
     public let keyId: String
+    /// K2 0.46.3 sealed Thread alerts: the message itself
+    /// `{id, seq, conversationId, from, at, kind, text, truncated}`; nil
+    /// for tickets, projects and older daemons.
+    public let msg: [String: Any]?
   }
 
   public enum Outcome: String, Error {
@@ -84,7 +88,8 @@ public enum K2PushSealed {
         body: (j["body"] as? String) ?? "",
         group: (j["group"] as? String) ?? "",
         userInfo: info,
-        keyId: o.record.keyId))
+        keyId: o.record.keyId,
+        msg: j["msg"] as? [String: Any]))
   }
 
   // ── Diagnostics (no content) ─────────────────────────────────────────
