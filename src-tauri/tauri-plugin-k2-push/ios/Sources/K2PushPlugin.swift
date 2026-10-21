@@ -307,6 +307,7 @@ class K2PushPlugin: Plugin {
       switch args.op {
       case "key":
         guard let server = args.server, !server.isEmpty, let sub = args.subdomain, !sub.isEmpty,
+          let deviceId = K2PushKeys.deviceId(server: server),
           let r = K2PushKeys.current(server: server, subdomain: sub, rotate: args.rotate ?? false),
           let pub = Data(base64Encoded: r.publicKey), let psk = Data(base64Encoded: r.psk)
         else {
@@ -315,6 +316,7 @@ class K2PushPlugin: Plugin {
         }
         invoke.resolve([
           "available": true,
+          "deviceId": deviceId,
           "publicKey": K2PushCrypto.base64urlString(pub),
           "psk": K2PushCrypto.base64urlString(psk),
           "createdAt": Int(r.createdAt),

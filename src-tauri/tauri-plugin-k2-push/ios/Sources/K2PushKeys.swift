@@ -115,13 +115,47 @@ public enum K2PushKeys {
     return fresh
   }
 
-  /// Sign-out, server removed, session ended: this server's keys go.
+  /// Sign-out, server removed, session ended: this server's keys go
+  /// (and its push device id: the next sign-in registers a new one).
   public static func forget(server: String) {
     for r in keys(server: server) { delete(r) }
+    var q = baseQuery()
+    q[kSecAttrService as String] = deviceIdService
+    q[kSecAttrAccount as String] = server
+    SecItemDelete(q as CFDictionary)
+  }
+
+  // ── Per-server push device id (prd §7.1) ─────────────────────────────
+
+  static let deviceIdService = "com.alakazamlabs.k2.push-device-id"
+
+  /// This phone's push `deviceId` for one saved server: made once and kept
+  /// ThisDeviceOnly, so a restored backup or another phone never reuses it
+  /// (and so never replaces this phone's key on the box).
+  public static func deviceId(server: String) -> String? {
+    var q = baseQuery()
+    q[kSecAttrService as String] = deviceIdService
+    q[kSecAttrAccount as String] = server
+    var read = q
+    read[kSecReturnData as String] = true
+    read[kSecMatchLimit as String] = kSecMatchLimitOne
+    var out: CFTypeRef?
+    if SecItemCopyMatching(read as CFDictionary, &out) == errSecSuccess, let d = out as? Data,
+      let id = String(data: d, encoding: .utf8), !id.isEmpty
+    {
+      return id
+    }
+    let id = UUID().uuidString.lowercased()
+    q[kSecValueData as String] = Data(id.utf8)
+    q[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+    return SecItemAdd(q as CFDictionary, nil) == errSecSuccess ? id : nil
   }
 
   public static func forgetAll() {
     SecItemDelete(baseQuery() as CFDictionary)
+    var q = baseQuery()
+    q[kSecAttrService as String] = deviceIdService
+    SecItemDelete(q as CFDictionary)
   }
 
   /// The first run after an install: leftovers from an earlier install

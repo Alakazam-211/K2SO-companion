@@ -7,6 +7,7 @@ import {
   type BadgeDiagnosticsSummary,
 } from "../lib/badgeTotals";
 import { useServersStore } from "../stores/servers";
+import { e2eDiagnostics, type E2eDiagnostics } from "../lib/pushE2e";
 
 const MUTED = "#8e8e93";
 const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
@@ -38,6 +39,7 @@ export function BadgeDiagnosticsRow({ serverId }: { serverId: string }) {
   const [supported, setSupported] = useState(false);
   const [open, setOpen] = useState(false);
   const [summary, setSummary] = useState<BadgeDiagnosticsSummary | null>(null);
+  const [sealed, setSealed] = useState<E2eDiagnostics | null>(null);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -58,6 +60,9 @@ export function BadgeDiagnosticsRow({ serverId }: { serverId: string }) {
       if (!live) return;
       setSummary(summarizeBadgeDiagnostics(d, subdomain));
       setLoading(false);
+    });
+    void e2eDiagnostics().then((d) => {
+      if (live) setSealed(d);
     });
     return () => {
       live = false;
@@ -119,6 +124,7 @@ export function BadgeDiagnosticsRow({ serverId }: { serverId: string }) {
                 value={formatLastReceived(summary.lastAt)}
                 testId="badge-diag-last"
               />
+              {sealed?.available ? <SealedLines d={sealed} serverId={serverId} subdomain={subdomain} /> : null}
             </>
           )}
         </div>
@@ -135,5 +141,36 @@ function DiagLine({ label, value, testId }: { label: string; value: string; test
         {value}
       </span>
     </div>
+  );
+}
+
+/** K2 0.46.3 encrypted pushes: this server's key (id only, never the key)
+ *  and the last sealed pushes from it (result, kind, size; never text). */
+function SealedLines({ d, serverId, subdomain }: { d: E2eDiagnostics; serverId: string; subdomain: string }) {
+  const keys = d.keys.filter((k) => k.server === serverId);
+  const current = keys.find((k) => k.retireAt == null) ?? null;
+  const pushes = d.pushes
+    .filter((p) => p.server === subdomain || (p.result !== "ok" && !p.server))
+    .slice(0, 5);
+  return (
+    <>
+      <DiagLine
+        label="Encryption key"
+        value={
+          current
+            ? `${current.keyId.slice(0, 8)} · ${current.enclave ? "Secure Enclave" : "software"}`
+            : "None"
+        }
+        testId="badge-diag-e2e-key"
+      />
+      {pushes.map((p, i) => (
+        <DiagLine
+          key={i}
+          label={formatLastReceived(typeof p.at === "number" ? p.at * 1000 : null)}
+          value={`${String(p.kind ?? "")} · ${String(p.result ?? "")} · ${String(p.e2eLength ?? "")}`}
+          testId="badge-diag-e2e-push"
+        />
+      ))}
+    </>
   );
 }

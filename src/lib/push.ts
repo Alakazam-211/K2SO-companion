@@ -3,7 +3,7 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { load } from "@tauri-apps/plugin-store";
 import { cliAuthHeaders } from "../api/cliAuth";
 import { FEATURE_THREAD_PUSH, getBootStatus } from "../api/client";
-import { scopeFor, versionAtLeast, type ServerScope } from "../api/scope";
+import { bootInfoFor, scopeFor, versionAtLeast, type ServerScope } from "../api/scope";
 import { useMultiServerPrefs } from "../zen/multi/prefs";
 import { PHONE_FLOOR } from "../zen/multi/rowStatus";
 import { withServerParam } from "../zen/room/serverRef";
@@ -26,6 +26,19 @@ import {
   previewsPref,
   usePushPreviewsStore,
 } from "../stores/pushPreviews";
+import {
+  FEATURE_PUSH_E2E,
+  e2eCapablePlatform,
+  e2eField,
+  e2eForget,
+  e2eKey,
+  e2eLabel,
+  e2eSetEnforce,
+  parseE2eReply,
+  readBook,
+  rotationDue,
+  writeBook,
+} from "./pushE2e";
 
 // Push glue — Companion C6 (prd-companion-v2 §4). Talks to the local
 // `tauri-plugin-k2-push` plugin and the daemon's `/cli/push/*` routes.
@@ -230,8 +243,11 @@ function learnFromReply(serverId: string, text: unknown): void {
  *  `badgeKey` learned (./badgeKeys). */
 async function registerOn(scope: ServerScope, reg: DeviceReg): Promise<string | null> {
   try {
-    const body = await registrationBody(scope, reg);
+    const sealed = await sealedRegistration(scope, reg);
+    const body = await registrationBody(scope, sealed ? { ...reg, deviceId: sealed.deviceId } : reg);
+    if (sealed) body.e2e = sealed.field;
     const text = await postPush(scope, "/cli/push/register-device", body);
+    if (sealed) await noteSealedReply(scope, reg, sealed, text);
     learnFromReply(scope.id, text);
     const sent = typeof body.previews === "boolean" ? body.previews : undefined;
     usePushPreviewsStore.getState().noteReply(scope.id, sent, parseRegisterReply(text));
@@ -241,6 +257,55 @@ async function registerOn(scope: ServerScope, reg: DeviceReg): Promise<string | 
     console.warn("[push] register skipped:", e);
     return e instanceof Error ? e.message : String(e);
   }
+}
+
+type Sealed = { deviceId: string; label: string; field: Record<string, unknown>; rotated: boolean };
+
+/** K2 0.46.3 `push-e2e-v1` (iOS, direct path): this server's per-server
+ *  deviceId and `e2e` key, or null for today's registration. */
+async function sealedRegistration(scope: ServerScope, reg: DeviceReg): Promise<Sealed | null> {
+  if (reg.platform !== "apns" || !e2eCapablePlatform() || !scope.supports(FEATURE_PUSH_E2E)) return null;
+  let url = "";
+  try {
+    url = scope.httpBase();
+  } catch {
+    return null;
+  }
+  const label = e2eLabel(url, bootInfoFor(scope.id)?.publicHost ?? null);
+  if (!label) return null;
+  const book = await readBook();
+  const rotate = !!book.rotate[scope.id];
+  const key = await e2eKey(scope.id, label, rotate);
+  if (!key) return null;
+  return { deviceId: key.deviceId, label, field: e2eField(key), rotated: rotate };
+}
+
+/** After a sealed registration: the install-wide row goes (once), the
+ *  per-server id is remembered, `enforce` reaches the extension, and a
+ *  due rotation is queued for the next registration. */
+async function noteSealedReply(scope: ServerScope, reg: DeviceReg, sealed: Sealed, text: string): Promise<void> {
+  const reply = parseE2eReply(text);
+  const book = await readBook();
+  if (!book.migrated[scope.id] && reg.deviceId !== sealed.deviceId) {
+    try {
+      await postPush(scope, "/cli/push/unregister-device", { deviceId: reg.deviceId });
+    } catch (e) {
+      console.warn("[push] old device row not removed:", e);
+    }
+  }
+  await e2eSetEnforce(sealed.label, !!reply?.enforce);
+  const due = rotationDue(reply, Date.now() / 1000);
+  await writeBook((b) => {
+    b.devices[scope.id] = sealed.deviceId;
+    b.migrated[scope.id] = true;
+    if (due && !sealed.rotated) b.rotate[scope.id] = true;
+    else delete b.rotate[scope.id];
+  });
+}
+
+/** The deviceId this phone is registered under on `serverId`. */
+async function deviceIdOn(serverId: string): Promise<string> {
+  return (await readBook()).devices[serverId] || (await getDeviceId());
 }
 
 /** True when the server took the registration. */
@@ -291,7 +356,7 @@ export async function readBackPreviews(serverId: string): Promise<void> {
     if (!scope.token()) return;
     const gen = previewGens.get(serverId) ?? 0;
     const res = await scopedFetch(scope, "/cli/push/device", {
-      query: { deviceId: await getDeviceId() },
+      query: { deviceId: await deviceIdOn(serverId) },
       revive: false,
     });
     if (!res.ok) return;
@@ -434,7 +499,7 @@ export function watchPushRegistrations(): () => void {
 /** Toggle-off: remove this device from a server's registry (blind). */
 export async function unregister(scope: ServerScope): Promise<void> {
   try {
-    const deviceId = await getDeviceId();
+    const deviceId = await deviceIdOn(scope.id);
     await postPush(scope, "/cli/push/unregister-device", { deviceId });
   } catch (e) {
     console.warn("[push] unregister skipped:", e);
@@ -456,10 +521,23 @@ export async function unregisterAll(): Promise<void> {
 export async function unregisterLeaving(server: ServerEntry, token: string): Promise<void> {
   try {
     if (!(await pushIsAvailable())) return;
-    const deviceId = await getDeviceId();
-    await postWithCaptured(server, token, "/cli/push/unregister-device", { deviceId });
+    const shared = await getDeviceId();
+    const own = (await readBook()).devices[server.id];
+    for (const deviceId of own && own !== shared ? [own, shared] : [shared]) {
+      await postWithCaptured(server, token, "/cli/push/unregister-device", { deviceId }).catch((e) =>
+        console.warn("[push] unregister skipped:", e)
+      );
+    }
   } catch (e) {
     console.warn("[push] unregister skipped:", e);
+  } finally {
+    // Sealed-push keys for this server go with the login (prd §7.4).
+    await e2eForget(server.id);
+    await writeBook((b) => {
+      delete b.devices[server.id];
+      delete b.migrated[server.id];
+      delete b.rotate[server.id];
+    });
   }
 }
 
