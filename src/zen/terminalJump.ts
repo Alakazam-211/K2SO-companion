@@ -64,7 +64,7 @@ export function zenProjectPath(groupId?: string | null): string {
   return `/zen?${ZEN_PROJECT_PARAM}=${encodeURIComponent(id)}`;
 }
 
-/** Pick the original-UI terminal for an overlay agent. Null → /sessions. */
+/** Pick the live terminal for an overlay agent. Null: none is live. */
 export function terminalIdForAgent(
   agent:
     | { path?: string | null; addr?: string | null; terminalId?: string | null }

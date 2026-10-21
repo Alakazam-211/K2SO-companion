@@ -480,7 +480,7 @@ describe("ChatsList", () => {
     expect(useZenStore.getState().agentId).toBe(STUB_AGENTS[1].id);
   });
 
-  it("Settings → Leave Zen Mode is the toggle to the original UI; Done closes", () => {
+  it("Settings opens the Zen settings sheet (no Leave Zen Mode); Done closes", () => {
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
@@ -488,7 +488,8 @@ describe("ChatsList", () => {
     });
     mount();
     fireEvent.click(screen.getByRole("button", { name: "Settings" }));
-    expect(screen.getByRole("button", { name: "Leave Zen Mode" })).not.toBeNull();
+    expect(screen.getByTestId("overlay-settings")).not.toBeNull();
+    expect(screen.queryByRole("button", { name: "Leave Zen Mode" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Terminal view/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Current app/ })).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Done" }));

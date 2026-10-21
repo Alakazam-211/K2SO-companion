@@ -24,7 +24,7 @@ import {
 } from "../lib/push";
 import { handleAndroidBack } from "../lib/androidBack";
 import { useServersStore } from "../stores/servers";
-import { LEAVE_ZEN_PATH, ZenSettings } from "./ZenSettings";
+import { ZenSettings } from "./ZenSettings";
 import { MULTI_SERVER_KEY, readMultiServer, useMultiServerPrefs } from "./multi/prefs";
 import { RECENT_FIRST_KEY, useRecentFirstStore } from "./recentFirst";
 import {
@@ -121,7 +121,7 @@ describe("ZenSettings", () => {
     expect(readMultiServer()).toBe(true);
   });
 
-  it("renders Notifications, Appearance, About and Leave Zen Mode in glass cards", async () => {
+  it("renders Notifications, Appearance and About in glass cards, no Leave Zen Mode", async () => {
     mount();
     expect(screen.getByTestId("overlay-settings")).not.toBeNull();
     expect(screen.getByRole("heading", { name: "Settings" })).not.toBeNull();
@@ -131,8 +131,8 @@ describe("ZenSettings", () => {
     expect(within(screen.getByTestId("settings-notifications")).getByText("Notifications")).not.toBeNull();
     expect(screen.getByTestId("settings-scroll").className).toMatch(/overflow-y-auto/);
     expect(screen.getByRole("button", { name: "Done" }).className).toMatch(/zen-glass-pill/);
-    const leave = screen.getByRole("button", { name: "Leave Zen Mode" });
-    expect(leave.closest(".k2-tile")).not.toBeNull();
+    // The pre-Zen UI is gone (4.1.0): nothing to leave to.
+    expect(screen.queryByRole("button", { name: "Leave Zen Mode" })).toBeNull();
     expect(screen.queryByText(/Terminal view/)).toBeNull();
     await waitFor(() =>
       expect(screen.getByRole("switch", { name: "Push Notifications" }).hasAttribute("disabled")).toBe(false)
@@ -212,14 +212,6 @@ describe("ZenSettings", () => {
     await waitFor(() =>
       expect(screen.getByTestId("push-unavailable").textContent).toBe("Not available in this build")
     );
-  });
-
-  it("Leave Zen Mode closes the sheet and navigates to /servers", () => {
-    const onClose = mount();
-    fireEvent.click(screen.getByRole("button", { name: "Leave Zen Mode" }));
-    expect(onClose).toHaveBeenCalledTimes(1);
-    expect(LEAVE_ZEN_PATH).toBe("/servers");
-    expect(screen.getByTestId("where").textContent).toBe("/servers");
   });
 
   it("Done closes the sheet without navigating", () => {

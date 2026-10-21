@@ -3,7 +3,7 @@
 // the distance threshold, the velocity flick, and cancellation.
 //
 // Run:  node scripts/test-swipe-back.mjs   (Node native TS
-// type-stripping for the .ts import — the test-bottom-anchor.mjs idiom).
+// type-stripping for the .ts import).
 
 import {
   EDGE_ARM_PX, AXIS_LOCK_PX, COMPLETE_FRACTION, FLICK_VELOCITY_PX_PER_MS,
