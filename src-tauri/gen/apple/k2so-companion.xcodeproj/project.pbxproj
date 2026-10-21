@@ -16,7 +16,6 @@
 		528A2CA0D2F2343E609EFB05 /* K2PushCrypto.swift in Sources */ = {isa = PBXBuildFile; fileRef = 96E24D55CD1516F020380121 /* K2PushCrypto.swift */; };
 		55FA4F780FBA02CE4191FD29 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BEE6F25A741F7415EAEF73CE /* UIKit.framework */; };
 		5B6281272B119094369D5260 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 468BBB4AA6164109A2761F17 /* main.mm */; };
-		61D45630965ACD47E853B5D0 /* libapp.a in Resources */ = {isa = PBXBuildFile; fileRef = 97920F41AC2672636A2156EA /* libapp.a */; };
 		66AE529A3FD19B8FA3FE2393 /* K2PushSealed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04BDCE45DB68ED3B2DEF0FC8 /* K2PushSealed.swift */; };
 		7ABB0E332906E75D818941A9 /* Intents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A97E30C38A355B51654D89D9 /* Intents.framework */; };
 		7DC223C2516DE9BA1AEAE8F4 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B4A5403B758E91ACD479B265 /* Metal.framework */; };
@@ -80,7 +79,6 @@
 		73CF7E64730212AA5AE3A128 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		86B015769A2BEB0B33BEF777 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
 		96E24D55CD1516F020380121 /* K2PushCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K2PushCrypto.swift; sourceTree = "<group>"; };
-		97920F41AC2672636A2156EA /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
 		9A7659B64BFA232E3FD99383 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
 		9AD9136060A6AEEF2AE58122 /* K2NotificationService.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = K2NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		A97E30C38A355B51654D89D9 /* Intents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Intents.framework; path = System/Library/Frameworks/Intents.framework; sourceTree = SDKROOT; };
@@ -150,14 +148,6 @@
 			path = bindings;
 			sourceTree = "<group>";
 		};
-		449FDB05696B0082387F6DA6 /* release */ = {
-			isa = PBXGroup;
-			children = (
-				97920F41AC2672636A2156EA /* libapp.a */,
-			);
-			path = release;
-			sourceTree = "<group>";
-		};
 		65B2F1C79A57DA9A55396E0E /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -170,7 +160,6 @@
 		9185998F6C7980BC9A3495AC /* Externals */ = {
 			isa = PBXGroup;
 			children = (
-				D457DD0DFF15C550DDC67921 /* arm64 */,
 			);
 			path = Externals;
 			sourceTree = "<group>";
@@ -265,21 +254,6 @@
 			path = "k2so-companion_iOS";
 			sourceTree = "<group>";
 		};
-		D457DD0DFF15C550DDC67921 /* arm64 */ = {
-			isa = PBXGroup;
-			children = (
-				449FDB05696B0082387F6DA6 /* release */,
-			);
-			path = arm64;
-			sourceTree = "<group>";
-		};
-		"TEMP_0DF7A4D5-5645-4E8F-9C74-FCF99B2A70EA" /* x86_64 */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = x86_64;
-			sourceTree = "<group>";
-		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
@@ -370,7 +344,6 @@
 				A70F3CA0A84318BC0485C30E /* Assets.xcassets in Resources */,
 				43F5B6CAFF4DF2CC5E246501 /* LaunchScreen.storyboard in Resources */,
 				AF0A03078E384F7FA1ADEBDA /* assets in Resources */,
-				61D45630965ACD47E853B5D0 /* libapp.a in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
