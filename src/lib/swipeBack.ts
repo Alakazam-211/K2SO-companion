@@ -8,8 +8,7 @@
 // too: shouldComplete + releaseAnimation + underlayFrame.
 //
 // IMPORT-SAFE: no DOM / react / tauri imports, so everything here runs
-// under a plain Node test runner (scripts/test-swipe-back.mjs — the
-// test-bottom-anchor.mjs idiom).
+// under a plain Node test runner (scripts/test-swipe-back.mjs).
 
 /** Touches must START within this many px of the left viewport edge to
  *  arm the gesture — everything further in belongs to the screen's own

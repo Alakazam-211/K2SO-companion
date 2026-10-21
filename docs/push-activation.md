@@ -167,10 +167,10 @@ registrations still accumulate harmlessly.
   in plugin-store `push.json`), `ensureRegistered(server)` (gated:
   available AND toggle on → permission → token → `POST
   /cli/push/register-device`, re-sent every launch), `unregisterAll()`,
-  tap→route mapping (`feedback`→`/feedback/<id>`,
-  `project`→`/projects/<groupId>`; a foreign `subdomain` is ignored in V1 —
+  tap→route mapping (`ticket`/`feedback`→`/zen?ticket=<id>`,
+  `project`→`/zen?project=<groupId>`; a foreign `subdomain` is ignored in V1 —
   navigation stays on the current server).
 - `src/App.tsx` `PushBridge` — mounts tap navigation + token-refresh
   re-registration; `AppLayout` re-registers on launch/server switch.
-- `src/pages/Settings.tsx` `PushRow` — the toggle; renders
+- `src/zen/ZenSettings.tsx` `PushRow` — the toggle; renders
   "Not available in this build" while dormant.

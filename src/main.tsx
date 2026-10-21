@@ -1,7 +1,6 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import App from "./App";
-import { useServersStore } from "./stores/servers";
 import "./styles/index.css";
 import { initZenFont } from "./zen/zenFont";
 import { installAndroidBack } from "./lib/androidBack";
@@ -43,13 +42,6 @@ initKbDragRecorder();
 
 // Diagnostics → Light blur (A/B, off by default: one pref read).
 initLightBlur();
-
-// Test hook for scripts/repro-nav-stress.mjs (dev builds only): lets the
-// harness drive recovery-state churn straight into the store while it
-// exercises the /servers ↔ /login boundary.
-if (import.meta.env.DEV) {
-  (window as unknown as Record<string, unknown>).__serversStore = useServersStore;
-}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

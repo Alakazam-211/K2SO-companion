@@ -138,7 +138,6 @@ import { rememberZenThread, zenTerminalPath, type ZenTerminalAgent } from "../ze
 import { useZenStore } from "../zen/zenStore";
 import { ThreadPane } from "../zen/ThreadPane";
 import { COMPOSER_RADIUS_PX } from "../zen/GlassComposer";
-import { ChatSession } from "./ChatSession";
 import { Zen } from "./Zen";
 import { ZenTerminal } from "./ZenTerminal";
 
@@ -171,7 +170,6 @@ function renderAt(entry: { pathname: string; state?: unknown } | string, withZen
     <MemoryRouter initialEntries={[entry]}>
       <Routes>
         <Route path="/zen/terminal/:terminalId" element={<ZenTerminal />} />
-        <Route path="/chat/:terminalId" element={<ChatSession />} />
         <Route path="/zen" element={withZen ? <Zen /> : <Loc />} />
         <Route path="*" element={<Loc />} />
       </Routes>
@@ -726,29 +724,6 @@ describe("ZenTerminal", () => {
     expect(screen.queryByRole("button", { name: "Return" })).toBeNull();
     expect(screen.getByRole("button", { name: "Hide keyboard" })).not.toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Switch to safe send" }));
-  });
-});
-
-describe("old /chat/:id page is unchanged", () => {
-  it("keeps its classic chrome and back to /sessions", () => {
-    renderAt("/chat/t1");
-    expect(screen.queryByTestId("zen-terminal")).toBeNull();
-    // No tap-to-claim on the classic page: the prop is never passed.
-    expect(termProps.length).toBeGreaterThan(0);
-    expect(termProps.every((p) => !p.hasTapWhileViewing)).toBe(true);
-    const term = screen.getByTestId("terminal-view");
-    fireEvent.touchStart(term, { touches: [{ clientX: 50, clientY: 50 }] });
-    fireEvent.touchEnd(term, { touches: [] });
-    expect(term.getAttribute("data-drive")).toBe("false");
-    const field = screen.getByPlaceholderText(/Message the agent…/);
-    expect(field.closest("[data-k2-variant='zen']")).toBeNull();
-    expect(field.className).toMatch(/border-\[var\(--accent-dim\)\]/);
-    expect(screen.queryByRole("button", { name: "Add file" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Send" }).className).toMatch(/w-11 h-11 border/);
-    expect(screen.getByRole("button", { name: "Chat" })).not.toBeNull();
-    const back = document.querySelector("button.-ml-2") as HTMLButtonElement;
-    fireEvent.click(back);
-    expect(screen.getByTestId("loc").textContent).toBe("/sessions");
   });
 });
 

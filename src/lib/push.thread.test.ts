@@ -272,7 +272,7 @@ describe("routeTap", () => {
   it("a warm thread tap through the plugin listener", async () => {
     vi.mocked(connectServer).mockResolvedValue("revived");
     const navigate = vi.fn();
-    await attachPushNavigation(navigate, { pathname: () => "/zen" });
+    await attachPushNavigation(navigate);
     listeners.tap(THREAD);
     await flush();
     expect(navigate).toHaveBeenCalledWith("/zen?addr=k2%2Freviewer&seq=418");
@@ -281,7 +281,7 @@ describe("routeTap", () => {
   it("a project tap from another server switches to it, then opens the project", async () => {
     vi.mocked(connectServer).mockResolvedValue("still-valid");
     const navigate = vi.fn();
-    await routeTap({ kind: "project", groupId: "g1", subdomain: "work" }, navigate, { zen: true });
+    await routeTap({ kind: "project", groupId: "g1", subdomain: "work" }, navigate);
     expect(connectServer).toHaveBeenCalledWith("s2");
     expect(useServersStore.getState().activeServerId).toBe("s2");
     expect(navigate).toHaveBeenCalledWith("/zen?project=g1");
@@ -289,8 +289,8 @@ describe("routeTap", () => {
 
   it("a project tap: same server or no match keeps the current server", async () => {
     const navigate = vi.fn();
-    await routeTap({ kind: "project", groupId: "g1", subdomain: "rosson" }, navigate, { zen: true });
-    await routeTap({ kind: "project", groupId: "g2", subdomain: "nobody" }, navigate, { zen: true });
+    await routeTap({ kind: "project", groupId: "g1", subdomain: "rosson" }, navigate);
+    await routeTap({ kind: "project", groupId: "g2", subdomain: "nobody" }, navigate);
     expect(connectServer).not.toHaveBeenCalled();
     expect(navigate).toHaveBeenCalledWith("/zen?project=g1");
     expect(navigate).toHaveBeenCalledWith("/zen?project=g2");
@@ -299,13 +299,13 @@ describe("routeTap", () => {
   it("a project tap whose server needs a sign-in is dropped", async () => {
     vi.mocked(connectServer).mockResolvedValue("needs-login" as never);
     const navigate = vi.fn();
-    await routeTap({ kind: "project", groupId: "g1", subdomain: "work" }, navigate, { zen: true });
+    await routeTap({ kind: "project", groupId: "g1", subdomain: "work" }, navigate);
     expect(navigate).not.toHaveBeenCalled();
   });
 
   it("ticket taps are unchanged", async () => {
     const navigate = vi.fn();
-    await routeTap({ kind: "ticket", feedbackId: "f1", subdomain: "work" }, navigate, { zen: true });
+    await routeTap({ kind: "ticket", feedbackId: "f1", subdomain: "work" }, navigate);
     expect(navigate).toHaveBeenCalledWith("/zen?ticket=f1");
     expect(connectServer).not.toHaveBeenCalled();
   });
@@ -384,7 +384,7 @@ describe("routeTap with rooms (flag on, MA23)", () => {
   it("a ticket tap from another server makes it the default first (Tickets stay on the default)", async () => {
     vi.mocked(connectServer).mockResolvedValue("still-valid");
     const navigate = vi.fn();
-    await routeTap({ kind: "ticket", feedbackId: "f1", subdomain: "work" }, navigate, { zen: true });
+    await routeTap({ kind: "ticket", feedbackId: "f1", subdomain: "work" }, navigate);
     expect(useServersStore.getState().activeServerId).toBe("s2");
     expect(navigate).toHaveBeenCalledWith("/zen?ticket=f1");
   });
