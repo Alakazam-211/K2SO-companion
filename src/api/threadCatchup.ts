@@ -7,6 +7,12 @@
 // only; the 4 MiB byte budget cuts one entry (`has_more`) and defers the
 // rest (`deferred`, top-level `has_more`). One call in flight per token: a
 // second is 429 `{retryAfterMs}`.
+//
+// `catchup-unchanged-v1` (K2 0.46.3): send back the last answer's `rev` +
+// `instanceId` (`sinceRev`, both or neither) and, when no Thread was
+// written since in that daemon process, the answer is just
+// `{ok, rev, instanceId, unchanged: true}` with no reads. Threads only:
+// project chat posts don't move `rev`.
 
 import type { ProjectGroupMessage } from "./projectGroups";
 import type { ServerScope } from "./scope";
@@ -14,6 +20,7 @@ import { NOT_CONNECTED, scopedFetch } from "./scopedFetch";
 import type { ThreadItem } from "./client";
 
 export const FEATURE_INBOX_CATCHUP = "inbox-catchup-v1" as const;
+export const FEATURE_CATCHUP_UNCHANGED = "catchup-unchanged-v1" as const;
 export const CATCHUP_MAX_THREADS = 200;
 export const CATCHUP_MAX_GROUPS = 50;
 export const CATCHUP_LIMIT = 50;
@@ -24,6 +31,14 @@ const CATCHUP_TIMEOUT_MS = 30_000;
 export function catchupSupported(scope: ServerScope): boolean {
   return !!scope.id && scope.supports(FEATURE_INBOX_CATCHUP);
 }
+
+export function catchupUnchangedSupported(scope: ServerScope): boolean {
+  return catchupSupported(scope) && scope.supports(FEATURE_CATCHUP_UNCHANGED);
+}
+
+/** A catch-up answer's position: `rev` (read before its first store read)
+ *  in that daemon process (`instanceId`). */
+export type CatchupSince = { rev: number; instanceId: string };
 
 export type CatchupThreadAsk = { addr: string; afterSeq: number } | { addr: string; newest: true };
 export type CatchupGroupAsk = { group: string; afterSeq: number };
@@ -65,6 +80,10 @@ export type CatchupGroupEntry =
   | { kind: "deferred"; group: string };
 
 export type CatchupAnswer = {
+  /** Null on an older daemon (and for App guests). */
+  since: CatchupSince | null;
+  /** `sinceRev` still current: no entries, nothing changed in any Thread. */
+  unchanged: boolean;
   hasMore: boolean;
   threads: CatchupThreadEntry[];
   groups: CatchupGroupEntry[];
@@ -140,12 +159,13 @@ export function parseGroupEntry(raw: unknown, sent: CatchupGroupAsk): CatchupGro
 }
 
 /** The asks as the route takes them: one per address (the first wins),
- *  at most the caps. */
+ *  at most the caps. `since`: ask for the `unchanged` short-cut. */
 export function catchupBody(
   threads: readonly CatchupThreadAsk[],
   groups: readonly CatchupGroupAsk[],
-  limit = CATCHUP_LIMIT
-): { threads: CatchupThreadAsk[]; groups: CatchupGroupAsk[]; limit: number } {
+  limit = CATCHUP_LIMIT,
+  since: CatchupSince | null = null
+): { threads: CatchupThreadAsk[]; groups: CatchupGroupAsk[]; limit: number; since?: CatchupSince } {
   const seenT = new Set<string>();
   const t: CatchupThreadAsk[] = [];
   for (const a of threads) {
@@ -162,7 +182,8 @@ export function catchupBody(
     seenG.add(a.group);
     g.push({ group: a.group, afterSeq: a.afterSeq });
   }
-  return { threads: t, groups: g, limit };
+  const ok = since && Number.isInteger(since.rev) && since.rev >= 0 && since.instanceId.trim();
+  return ok ? { threads: t, groups: g, limit, since: { rev: since.rev, instanceId: since.instanceId.trim() } } : { threads: t, groups: g, limit };
 }
 
 export type CatchupDeps = {
@@ -183,6 +204,7 @@ export async function postCatchup(
     threads: body.threads,
     limit: body.limit,
     ...(body.groups.length ? { groups: body.groups } : null),
+    ...(body.since ? { sinceRev: body.since.rev, instanceId: body.since.instanceId } : null),
   });
   for (let attempt = 0; ; attempt++) {
     let out;
@@ -218,11 +240,19 @@ export async function postCatchup(
     } catch {
       return { ok: false, error: { status: out.status, code: "bad_response", hint: "not JSON" } };
     }
+    const rev = typeof j.rev === "number" && Number.isInteger(j.rev) && j.rev >= 0 ? j.rev : null;
+    const instanceId = str(j.instanceId);
+    const since = rev != null && instanceId ? { rev, instanceId } : null;
+    if (j.unchanged === true && body.since && since) {
+      return { ok: true, data: { since, unchanged: true, hasMore: false, threads: [], groups: [] } };
+    }
     const rawT = arr<unknown>(j.threads);
     const rawG = arr<unknown>(j.groups);
     return {
       ok: true,
       data: {
+        since,
+        unchanged: false,
         hasMore: j.has_more === true,
         threads: body.threads.map((sent, i) => parseThreadEntry(rawT[i], sent)),
         groups: body.groups.map((sent, i) => parseGroupEntry(rawG[i], sent)),
