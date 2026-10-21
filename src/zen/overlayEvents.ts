@@ -1,5 +1,5 @@
 import type { ThreadItem } from "../api/client";
-import type { ServerScope } from "../api/scope";
+import { permissionCardsOn, type ServerScope } from "../api/scope";
 import { queueDial, type DialTicket } from "../api/dialQueue";
 import { emitServerSignal, onServerSignal } from "../api/serverSignals";
 import { emitHomesFrame } from "../api/homesSync";
@@ -183,7 +183,9 @@ export function connectOverlayEvents(opts: {
   function dialNow(): WebSocket | "failed" | null {
     let url: string | null = null;
     try {
-      url = overlayEventsUrl(opts.scope.httpBase(), opts.scope.token(), opts.conversationId);
+      url = overlayEventsUrl(opts.scope.httpBase(), opts.scope.token(), opts.conversationId, {
+        cards2: permissionCardsOn(opts.scope),
+      });
     } catch {
       url = null; // ServerRemovedError: poll answers "removed" from its own scope
     }

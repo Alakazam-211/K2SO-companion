@@ -105,6 +105,8 @@ import { newestSeenSeq, type RowRef } from "./unread";
 import { useUnreadStore } from "./unreadStore";
 import { useMarkReadWhileViewing } from "./unreadRead";
 import { MessageFiles, patchThreadFileState, useThreadFilesOn } from "./ThreadFiles";
+import { PermissionCard } from "./PermissionCard";
+import type { PermissionCardModel } from "./permissionCardModel";
 import { ThreadImagesContext, type ThreadImagesSource } from "./ThreadImages";
 import { FEATURE_THREAD_IMAGES } from "../api/threadAttachmentPure";
 import { AttachmentSheet, type OpenAttachment } from "./AttachmentSheet";
@@ -264,7 +266,9 @@ const Bubble = memo(function Bubble({
       }}
     >
       <div className="min-w-0 max-w-full overflow-hidden" data-bubble-body="">
-      {choice ? (
+      {choice?.permission ? (
+        <ThreadPermissionCard card={choice.permission} id={m.id} enabled={canAnswer && !answerHeld} />
+      ) : choice ? (
         <div>
           {choice.prompt ? (
             <ChatMessageBody
@@ -351,6 +355,23 @@ const Bubble = memo(function Bubble({
  *  / receipt line. Memoized: typing, the keyboard, activity frames and the
  *  drawer re-render the pane, not the rows that did not change. Every
  *  callback it gets is stable (ThreadPane's `stableHandler`). */
+/** A permission card on the open Thread (K2 0.46.3): its server, its
+ *  address, and a re-read after each write so the rewritten doc shows. */
+function ThreadPermissionCard({ card, id, enabled }: { card: PermissionCardModel; id: string; enabled: boolean }) {
+  const addr = useZenStore((s) => s.threadAddr) ?? "";
+  const scope = useZenScope();
+  return (
+    <PermissionCard
+      card={card}
+      id={id}
+      addr={addr}
+      scope={scope}
+      enabled={enabled && !!addr}
+      onWritten={() => void useZenStore.getState().refreshOpenThread()}
+    />
+  );
+}
+
 const ThreadRow = memo(function ThreadRow({
   rowKey,
   windowed,

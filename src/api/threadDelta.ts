@@ -26,7 +26,7 @@
 import type { ApiResponse, ThreadItem } from "./client";
 import type { ProjectGroupMessage } from "./projectGroups";
 import { scopedFetch, NOT_CONNECTED } from "./scopedFetch";
-import type { ServerScope } from "./scope";
+import { permissionCardsOn, type ServerScope } from "./scope";
 
 /** The `/boot-status` feature key that gates delta reads. */
 export const FEATURE_THREAD_DELTA = "thread-delta-v1" as const;
@@ -118,6 +118,7 @@ export async function fetchThreadDelta(
     addr,
     [DELTA_PARAM]: String(afterSeq),
     limit: String(limit),
+    ...(permissionCardsOn(scope) ? { cards: "2" } : {}),
   });
   if (!r.ok) return { ok: false, error: r.error, status: r.status };
   const d = (r.data ?? {}) as {
