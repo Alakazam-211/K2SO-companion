@@ -1,29 +1,21 @@
-import { useEffect, useState } from "react";
-import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { useEffect } from "react";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams } from "react-router-dom";
 import { useServersStore } from "./stores/servers";
 import { useWorkspacesStore } from "./stores/workspaces";
 import { registerAllSignedIn, attachPushNavigation, watchPushRegistrations } from "./lib/push";
 import { installBadgeServerHooks } from "./lib/badgeTotals";
 import { setLifecycleEnabled } from "./lib/appLifecycle";
 import { useMultiServerPrefs } from "./zen/multi/prefs";
-import { TabBar } from "./components/TabBar";
-import { ServerFooter } from "./components/ServerFooter";
-import { Login } from "./pages/Login";
-import { Servers } from "./pages/Servers";
-import { Sessions } from "./pages/Sessions";
-import { ChatSession } from "./pages/ChatSession";
-import { Settings } from "./pages/Settings";
-import { ProjectsPage } from "./pages/Projects";
-import { Feedback } from "./pages/Feedback";
-import { NewSessionModal } from "./components/NewSessionModal";
 import { Zen } from "./pages/Zen";
 import { ZenTerminal } from "./pages/ZenTerminal";
 import { overlayHomePath } from "./zen/overlayHome";
-import { ZenReturnButton } from "./zen/ZenReturnButton";
+import { zenProjectPath, zenTerminalPath, zenTicketPath } from "./zen/terminalJump";
 import { startHomesSync } from "./zen/homesSync";
 
 /** Cold-start home is always the overlay. Zero stored servers still
- *  open `/zen` (overlay Add server). `/login` and `/servers` are old UI. */
+ *  open `/zen` (overlay Add server). Any unknown path lands here too —
+ *  including the removed pre-Zen routes (`/login`, `/servers`,
+ *  `/sessions`, `/settings`, the `/projects` and `/feedback` lists). */
 function HomeRedirect() {
   const stored = useServersStore((s) => s.servers.length);
   return <Navigate to={overlayHomePath(stored)} replace />;
@@ -35,54 +27,12 @@ function ServerGuard({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function AppHeader({ onNewSession }: { onNewSession: () => void }) {
-  const location = useLocation();
-  const allSessions = useWorkspacesStore((s) => s.allSessions);
-  const refreshAll = useWorkspacesStore((s) => s.refreshAll);
-  const [refreshing, setRefreshing] = useState(false);
-
-  // This header is session-list chrome — Servers/Projects/Feedback/Settings
-  // (and the chat view) bring their own.
-  if (!location.pathname.startsWith("/sessions")) return null;
-
-  const handleRefresh = async () => {
-    setRefreshing(true);
-    await refreshAll();
-    setRefreshing(false);
-  };
-
-  return (
-    <div className="flex items-center gap-3 px-4 py-3 border-b border-[var(--border)] bg-[var(--chrome)]" style={{ flexShrink: 0 }}>
-      <span className="text-[var(--accent)] text-[15px] font-bold tracking-wide flex-1">
-        K2
-      </span>
-      <span className="text-[var(--text-muted)] text-[11px]">
-        {allSessions.length} active
-      </span>
-      <ZenReturnButton />
-      {/* Refresh */}
-      <button
-        onClick={handleRefresh}
-        className="w-8 h-8 flex items-center justify-center text-[var(--text-muted)]"
-      >
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" style={refreshing ? { animation: "spin 1s linear infinite" } : undefined}>
-          <path d="M21 2v6h-6" />
-          <path d="M3 12a9 9 0 0 1 15-6.7L21 8" />
-          <path d="M3 22v-6h6" />
-          <path d="M21 12a9 9 0 0 1-15 6.7L3 16" />
-        </svg>
-      </button>
-      {/* New session */}
-      <button
-        onClick={onNewSession}
-        className="w-8 h-8 flex items-center justify-center text-[var(--accent)] border border-[var(--accent-dim)]"
-      >
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="2">
-          <path d="M7 1v12M1 7h12" />
-        </svg>
-      </button>
-    </div>
-  );
+/** Old pre-Zen deep links that name one thing keep pointing at it:
+ *  `/chat/:id` → the Zen terminal, `/feedback/:id` → that ticket,
+ *  `/projects/:id[/docs]` → that project chat. */
+function LegacyRedirect({ to }: { to: (id: string) => string }) {
+  const { id = "" } = useParams();
+  return <Navigate to={to(id)} replace />;
 }
 
 /** C6 push wiring: tap deep-links + token-rotation re-register. A no-op
@@ -114,14 +64,13 @@ function PushBridge() {
 }
 
 function AppLayout() {
-  const [newSessionOpen, setNewSessionOpen] = useState(false);
   const activeServerId = useServersStore((s) => s.activeServerId);
 
   // (Re)load workspace data whenever the ACTIVE server changes — every
   // api/client call derives base URL + token from it. Actions come from
   // getState() — subscribing to the whole store here re-rendered the
   // entire shell on every workspaces set() (isLoading flips, refresh
-  // storms), which is pure overhead now that the shell hosts /login too.
+  // storms), which is pure overhead for the whole shell.
   useEffect(() => {
     const { refreshAll, startListening } = useWorkspacesStore.getState();
     if (activeServerId) {
@@ -138,34 +87,21 @@ function AppLayout() {
   return (
     <div className="flex flex-col h-full">
       <PushBridge />
-      <AppHeader onNewSession={() => setNewSessionOpen(true)} />
       <div className="flex-1 overflow-hidden">
         <Routes>
-          <Route path="/servers" element={<Servers />} />
-          {/* Add/edit-server lives INSIDE the shell: crossing /servers ↔
-              /login must never unmount AppLayout. The old top-level sibling
-              route demolished the whole shell each way — remounting
-              PushBridge + the workspace listeners mid-navigation, whose
-              plugin invoke churn could deadlock tauri's iOS IPC bridge
-              (tauri < 2.11.5) and froze the app. The bars below hide
-              themselves on /login, so the page still renders chrome-free. */}
-          <Route path="/login" element={<Login />} />
-          <Route path="/sessions" element={<ServerGuard><Sessions /></ServerGuard>} />
-          <Route path="/chat/:terminalId" element={<ServerGuard><ChatSession /></ServerGuard>} />
-          <Route path="/projects/*" element={<ServerGuard><ProjectsPage /></ServerGuard>} />
-          <Route path="/feedback/*" element={<ServerGuard><Feedback /></ServerGuard>} />
-          <Route path="/settings" element={<ServerGuard><Settings /></ServerGuard>} />
-          {/* Stub door: toggle location is not decided. No server required
-              so the structure is visible on the Vite loop. Data is labelled STUB. */}
+          {/* No server required so the overlay can offer Add server. */}
           <Route path="/zen" element={<Zen />} />
-          {/* Zen thread's terminal button: glass copy of /chat/:id. */}
+          {/* Zen thread's terminal button: the glass terminal page. */}
           <Route path="/zen/terminal/:terminalId" element={<ServerGuard><ZenTerminal /></ServerGuard>} />
+          {/* Pre-Zen UI was removed (4.1.0). Its deep links that name one
+              thing redirect to the Zen screen for it; the rest (`/login`,
+              `/servers`, `/sessions`, `/settings`, the lists) go home. */}
+          <Route path="/chat/:id" element={<LegacyRedirect to={zenTerminalPath} />} />
+          <Route path="/feedback/:id" element={<LegacyRedirect to={zenTicketPath} />} />
+          <Route path="/projects/:id/*" element={<LegacyRedirect to={zenProjectPath} />} />
           <Route path="*" element={<HomeRedirect />} />
         </Routes>
       </div>
-      <ServerFooter />
-      <TabBar />
-      <NewSessionModal open={newSessionOpen} onClose={() => setNewSessionOpen(false)} />
     </div>
   );
 }
