@@ -100,6 +100,8 @@ export const DAEMON_FEATURES = [
   // reads and sockets (`cards=2`) and the card renderer; absent → nothing
   // new is sent or drawn (the daemon's text fallback renders as today).
   "permission-cards-v1",
+  // K2 0.46.3: catch-up's `unchanged` short-cut (`sinceRev` + `instanceId`).
+  "catchup-unchanged-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];
