@@ -294,10 +294,38 @@ describe("catchup-unchanged-v1", () => {
     expect([...(marks.get("s1")?.keys ?? [])]).toEqual(["s1|t:a"]);
   });
 
-  it("no short-cut for a Thread outside the mark, an uncached one, or without the feature; failed entries leave the mark", async () => {
+  it("a Thread outside the mark or with an open card gets the normal call after the short-cut", async () => {
     seed("a", [1]);
     seed("new", [1]);
-    marks.set("s1", { ...at(7), keys: new Set(["s1|t:a", "s1|t:b"]) });
+    cache.remember({
+      key: "s1|t:card",
+      serverId: "s1",
+      messages: [{ ...msg(2), choice: { prompt: "Ship?", options: ["Yes", "No"], answer: null } }],
+      conversationId: "c-1",
+      hasMore: false,
+    });
+    marks.set("s1", { ...at(7), keys: new Set(["s1|t:a", "s1|t:card"]) });
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce(unchanged(7))
+      .mockResolvedValueOnce(ok({ since: at(7), threads: [served({ addr: "new" }), served({ addr: "card" })] }));
+    await catchUpServer(scopeU, [t("a"), t("new"), t("card")], deps(post));
+    expect(post.mock.calls[0][1]).toMatchObject({ threads: [{ addr: "a", afterSeq: 1 }], since: at(7) });
+    expect(post.mock.calls[1][1]).toEqual({
+      threads: [
+        { addr: "new", afterSeq: 1 },
+        { addr: "card", afterSeq: 2 },
+      ],
+      groups: [],
+      limit: 50,
+    });
+    expect(marks.get("s1")?.keys).toEqual(new Set(["s1|t:a", "s1|t:new", "s1|t:card"]));
+  });
+
+  it("no short-cut for an uncached Thread or without the feature; failed entries leave the mark", async () => {
+    seed("a", [1]);
+    seed("new", [1]);
+    marks.set("s1", { ...at(7), keys: new Set(["s1|t:b"]) });
     const post = vi.fn(async (_s: unknown, _b: Record<string, unknown>) =>
       ok({
         since: at(7),

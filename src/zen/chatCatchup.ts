@@ -12,10 +12,10 @@
 //
 // `catchup-unchanged-v1`: each server remembers the last answer's `rev` +
 // `instanceId` and which cached Threads it brought fully up to date
-// (`CatchupMark`). When every Thread asked for is one of those, the first
-// call sends `sinceRev` with the Threads only; `unchanged` settles them
-// all with no reads. Otherwise (or for project chats, which don't move
-// `rev`) the normal rounds run.
+// (`CatchupMark`). The first call sends `sinceRev` with just those
+// Threads (cached, no open card); `unchanged` settles them with no reads.
+// The rest — and project chats, which don't move `rev` — go in the
+// normal rounds.
 
 import {
   CATCHUP_LIMIT,
@@ -220,23 +220,20 @@ export async function catchUpServer(
     return progress;
   };
 
-  // The short-cut: every Thread asked for was current at the mark, and
-  // each has a cached copy (one that was dropped since needs its read).
-  const tAll = jobs.filter((j) => !j.group);
-  if (
-    mark &&
-    tAll.length &&
-    catchupUnchangedSupported(scope) &&
-    deps.usable() &&
-    tAll.every((j) => j.base && mark.keys.has(j.key))
-  ) {
+  // The short-cut, for the Threads that were current at the mark and
+  // still have a cached copy (one dropped since needs its read). The rest
+  // go in the normal rounds after it.
+  const quick = mark
+    ? jobs.filter((j) => !j.group && j.base && mark.keys.has(j.key) && !hasOpenCard(j.base.messages))
+    : [];
+  if (mark && quick.length && catchupUnchangedSupported(scope) && deps.usable()) {
     const body = catchupBody(
-      tAll.map((j) => j.ask as CatchupThreadAsk),
+      quick.map((j) => j.ask as CatchupThreadAsk),
       [],
       CATCHUP_LIMIT,
       mark
     );
-    const tSent = body.threads.map((a) => tAll.find((j) => (j.ask as CatchupThreadAsk).addr === a.addr)!);
+    const tSent = body.threads.map((a) => quick.find((j) => (j.ask as CatchupThreadAsk).addr === a.addr)!);
     const r = await post(scope, body);
     if (r.ok) take(r, tSent, []);
   }
@@ -320,6 +317,13 @@ function remember(
   if (prev && prev.rev === at.rev && prev.instanceId === at.instanceId) for (const k of prev.keys) if (!asked.has(k)) keys.add(k);
   if (keys.size) store.set(serverId, { rev: at.rev, instanceId: at.instanceId, keys });
   else store.delete(serverId);
+}
+
+/** An unanswered choice or secret card. Until K2 confirms that every card
+ *  rewrite (answer, void, expiry) moves `rev`, a chat holding one is read
+ *  in full, never settled by `unchanged` (K2, 2026-10-21). */
+export function hasOpenCard(messages: readonly ThreadMessage[]): boolean {
+  return messages.some((m) => m.choice != null && (m.choice.answer == null || String(m.choice.answer) === ""));
 }
 
 /** Same key as `prefetchKey` (not imported: chatPrefetch imports this). */
