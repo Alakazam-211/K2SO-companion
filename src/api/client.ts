@@ -5,6 +5,7 @@ import {
   ensureBootStatus,
   isPartialBootView,
   noteBootStatus,
+  permissionCardsOn,
   readBootStatus,
   serverMemory,
   versionAtLeast,
@@ -673,7 +674,9 @@ export type ThreadDoc = {
   text?: string;
   created_at?: number;
   conversation_id?: string;
-  choice?: { prompt?: string; options?: unknown; answer?: unknown };
+  /** K2 0.46.3 action cards: `status` and `action:{id, params, dedupe?,
+   *  result?:{message}}` (the daemon writes `result.message` on answer). */
+  choice?: { prompt?: string; options?: unknown; answer?: unknown; status?: unknown; action?: unknown };
   secret?: { prompt?: string };
   /** K2 0.46.1 `thread-attachments-v1`: files riding the message (parsed
    *  defensively by `parseThreadAttachments`). */
@@ -696,6 +699,7 @@ export const getThread = (scope: ServerScope, addr: string, limit = 50, beforeSe
     addr,
     limit,
     ...(beforeSeq != null ? { before_seq: beforeSeq } : {}),
+    ...(permissionCardsOn(scope) ? { cards: 2 } : {}),
   });
 
 /** K2 0.44: `GET /cli/thread/latest` is live (list previews). */
@@ -803,8 +807,28 @@ export async function getActivitySnapshot(
 /** Overlay choice card. Skin: POST `/cli/thread/answer`
  *  `{ addr, id, answer }` — `answer` is the option text. Secret cards
  *  are never posted. */
-export const answerThread = (scope: ServerScope, addr: string, id: string, answer: string) =>
-  request(scope, "/cli/thread/answer", { addr, id, answer }, { method: "POST" });
+export const answerThread = (
+  scope: ServerScope,
+  addr: string,
+  id: string,
+  answer: string,
+  opts: { confirmToken?: string; item?: string; reason?: string } = {}
+) =>
+  request(
+    scope,
+    "/cli/thread/answer",
+    {
+      addr,
+      id,
+      answer,
+      // K2 0.46.3 permission cards: a batch item, a Deny reason, the
+      // fresh-confirm token. Absent keys are not sent.
+      ...(opts.item ? { item: opts.item } : {}),
+      ...(opts.reason ? { reason: opts.reason } : {}),
+      ...(opts.confirmToken ? { confirmToken: opts.confirmToken } : {}),
+    },
+    { method: "POST" }
+  );
 
 /** Probe whether THIS origin registered the companion k1 grid upgrade.
  *  `{gridProto:["k1"]}` + a companion token → companion grid WS.

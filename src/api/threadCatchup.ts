@@ -9,7 +9,7 @@
 // second is 429 `{retryAfterMs}`.
 
 import type { ProjectGroupMessage } from "./projectGroups";
-import type { ServerScope } from "./scope";
+import { permissionCardsOn, type ServerScope } from "./scope";
 import { NOT_CONNECTED, scopedFetch } from "./scopedFetch";
 import type { ThreadItem } from "./client";
 
@@ -183,6 +183,8 @@ export async function postCatchup(
     threads: body.threads,
     limit: body.limit,
     ...(body.groups.length ? { groups: body.groups } : null),
+    // K2 0.46.3 permission cards: the rich card doc in every entry.
+    ...(permissionCardsOn(scope) ? { cards: 2 } : null),
   });
   for (let attempt = 0; ; attempt++) {
     let out;

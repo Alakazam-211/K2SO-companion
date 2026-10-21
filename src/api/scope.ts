@@ -96,6 +96,10 @@ export const DAEMON_FEATURES = [
   // K2 0.46.3: end-to-end encrypted pushes (register-device `e2e`, sealed
   // alerts and nudges). Read by lib/pushE2e (iOS); absent → today's pushes.
   "push-e2e-v1",
+  // K2 0.46.3 (Beta, server switch): permission cards. Read by the Thread
+  // reads and sockets (`cards=2`) and the card renderer; absent → nothing
+  // new is sent or drawn (the daemon's text fallback renders as today).
+  "permission-cards-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];
@@ -596,4 +600,10 @@ export function __resetScopesForTests(): void {
   staleRecheckAt.clear();
   mustChangeToken.clear();
   bootInflight.clear();
+}
+
+/** K2 0.46.3 permission cards: this server serves the rich card doc to a
+ *  client that sends `cards=2` (Thread reads, catch-up, sockets). */
+export function permissionCardsOn(scope: ServerScope): boolean {
+  return !!scope.id && scope.supports("permission-cards-v1");
 }
