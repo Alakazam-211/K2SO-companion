@@ -139,6 +139,10 @@ cd "$PROJECT_DIR"
 npm run build --silent
 
 echo "→ Building iOS archive..."
+# A failed build must not export the last run's archive.
+rm -rf "$ARCHIVE_PATH"
+# rustup's toolchain has the iOS targets; Homebrew's rust does not.
+export PATH="$HOME/.cargo/bin:$PATH"
 cargo tauri ios build 2>&1 | grep -E "Compiling|Finished|Exported|FAILED|error" || true
 
 # Check archive exists
