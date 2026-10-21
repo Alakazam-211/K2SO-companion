@@ -13,7 +13,7 @@ import {
 import { fakeScope } from "../test/fakeScope";
 import { createChatCache, type ChatCache } from "./chatCache";
 import { memoryBackend } from "./chatCacheBackend";
-import { catchUpServer } from "./chatCatchup";
+import { catchUpServer, hasOpenCard, resetCatchupMarksForTests, type CatchupMark } from "./chatCatchup";
 import {
   FOREGROUND_CATCHUP_GAP_MS,
   catchUpCached,
@@ -35,7 +35,7 @@ function msg(seq: number): ThreadMessage {
 }
 const ok = (data: Partial<Extract<CatchupResult, { ok: true }>["data"]>): CatchupResult => ({
   ok: true,
-  data: { hasMore: false, threads: [], groups: [], ...data },
+  data: { since: null, unchanged: false, hasMore: false, threads: [], groups: [], ...data },
 });
 const served = (over: Record<string, unknown> = {}): CatchupThreadEntry =>
   ({
@@ -67,6 +67,7 @@ function seed(addr: string, seqs: number[], conversationId = "c-1") {
 
 beforeEach(() => {
   cache = createChatCache({ backend: () => memoryBackend() });
+  resetCatchupMarksForTests();
 });
 
 describe("threadCatchup wire", () => {
@@ -203,6 +204,166 @@ describe("catchUpServer", () => {
     const left = await catchUpServer(scope, [g("grp"), t("open"), t("x")], deps(post, "s1|t:open"));
     expect(post.mock.calls[0][1].threads).toEqual([{ addr: "x", newest: true }]);
     expect(left).toEqual([g("grp"), t("x")]);
+  });
+});
+
+describe("catchup-unchanged-v1", () => {
+  const scopeU = fakeScope({ id: "s1", features: ["inbox-catchup-v1", "thread-delta-v1", "catchup-unchanged-v1"] });
+  let marks: Map<string, CatchupMark>;
+  const deps = (post: ReturnType<typeof vi.fn>) => ({
+    cache: () => cache,
+    post: post as never,
+    openKey: () => null,
+    usable: () => true,
+    marks,
+  });
+  const at = (rev: number, instanceId = "i-1") => ({ rev, instanceId });
+  const unchanged = (rev: number): CatchupResult => ({
+    ok: true,
+    data: { since: at(rev), unchanged: true, hasMore: false, threads: [], groups: [] },
+  });
+  beforeEach(() => {
+    marks = new Map();
+  });
+
+  it("wire: sinceRev + instanceId go together; the unchanged answer and a full answer's position parse", async () => {
+    expect(catchupBody([{ addr: "a", afterSeq: 1 }], [], 50, at(7))).toEqual({
+      threads: [{ addr: "a", afterSeq: 1 }],
+      groups: [],
+      limit: 50,
+      since: at(7),
+    });
+    expect(catchupBody([{ addr: "a", afterSeq: 1 }], [], 50, { rev: -1, instanceId: "i" })).not.toHaveProperty("since");
+    const fetch = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 200, ok: true, text: JSON.stringify({ ok: true, rev: 7, instanceId: "i-1", unchanged: true }) })
+      .mockResolvedValueOnce({
+        status: 200,
+        ok: true,
+        text: JSON.stringify({ ok: true, rev: 9, instanceId: "i-1", has_more: false, threads: [{ addr: "a", items: [] }] }),
+      });
+    const r1 = await postCatchup(scopeU, catchupBody([{ addr: "a", afterSeq: 1 }], [], 50, at(7)), { fetch: fetch as never });
+    expect(JSON.parse(fetch.mock.calls[0][2].body)).toEqual({ threads: [{ addr: "a", afterSeq: 1 }], limit: 50, sinceRev: 7, instanceId: "i-1" });
+    expect(r1).toEqual(unchanged(7));
+    const r2 = await postCatchup(scopeU, catchupBody([{ addr: "a", afterSeq: 1 }], []), { fetch: fetch as never });
+    expect(JSON.parse(fetch.mock.calls[1][2].body)).not.toHaveProperty("sinceRev");
+    expect(r2.ok && r2.data.since).toEqual(at(9));
+    expect(r2.ok && r2.data.unchanged).toBe(false);
+  });
+
+  it("a clean full answer marks its Threads; the next run asks sinceRev and `unchanged` settles them with no reads", async () => {
+    seed("a", [1]);
+    seed("b", [4]);
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ since: at(7), threads: [served({ addr: "a", items: [item(2)] }), served({ addr: "b" })] }))
+      .mockResolvedValueOnce(unchanged(7));
+    expect(await catchUpServer(scopeU, [t("a"), t("b")], deps(post))).toEqual([]);
+    expect(post.mock.calls[0][1]).not.toHaveProperty("since");
+    expect([...(marks.get("s1")?.keys ?? [])]).toEqual(["s1|t:a", "s1|t:b"]);
+
+    const write = vi.spyOn(cache, "remember");
+    expect(await catchUpServer(scopeU, [t("a"), t("b")], deps(post))).toEqual([]);
+    expect(post).toHaveBeenCalledTimes(2);
+    expect(post.mock.calls[1][1]).toMatchObject({ threads: [{ addr: "a", afterSeq: 2 }, { addr: "b", afterSeq: 4 }], groups: [], since: at(7) });
+    expect(write).not.toHaveBeenCalled();
+    expect(marks.get("s1")?.rev).toBe(7);
+  });
+
+  it("something changed: the short-cut call's full answer lands and the mark moves", async () => {
+    seed("a", [1]);
+    marks.set("s1", { ...at(7), keys: new Set(["s1|t:a"]) });
+    const post = vi.fn().mockResolvedValueOnce(ok({ since: at(8), threads: [served({ addr: "a", items: [item(2)] })] }));
+    await catchUpServer(scopeU, [t("a")], deps(post));
+    expect(post).toHaveBeenCalledTimes(1);
+    expect((await cache.read("s1|t:a"))?.entry.messages.map((m) => m.seq)).toEqual([1, 2]);
+    expect(marks.get("s1")).toEqual({ ...at(8), keys: new Set(["s1|t:a"]) });
+  });
+
+  it("project chats don't move rev: Threads take the short-cut, the group still gets a normal call", async () => {
+    seed("a", [1]);
+    cache.remember({ key: "s1|g:grp", serverId: "s1", messages: [{ ...msg(3), readSeq: 3 }], conversationId: null, hasMore: false });
+    marks.set("s1", { ...at(7), keys: new Set(["s1|t:a"]) });
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce(unchanged(7))
+      .mockResolvedValueOnce(ok({ since: at(7), groups: [{ kind: "served", group: "grp", groupId: "grp", messages: [], changed: [], removed: [], hasMore: false }] }));
+    await catchUpServer(scopeU, [t("a"), g("grp")], deps(post));
+    expect(post.mock.calls[0][1]).toMatchObject({ threads: [{ addr: "a", afterSeq: 1 }], groups: [], since: at(7) });
+    expect(post.mock.calls[1][1]).toEqual({ threads: [], groups: [{ group: "grp", afterSeq: 3 }], limit: 50 });
+    expect([...(marks.get("s1")?.keys ?? [])]).toEqual(["s1|t:a"]);
+  });
+
+  it("a Thread outside the mark or with an open card gets the normal call after the short-cut", async () => {
+    seed("a", [1]);
+    seed("new", [1]);
+    cache.remember({
+      key: "s1|t:card",
+      serverId: "s1",
+      messages: [{ ...msg(2), choice: { prompt: "Ship?", options: ["Yes", "No"], answer: null } }],
+      conversationId: "c-1",
+      hasMore: false,
+    });
+    marks.set("s1", { ...at(7), keys: new Set(["s1|t:a", "s1|t:card"]) });
+    const post = vi
+      .fn()
+      .mockResolvedValueOnce(unchanged(7))
+      .mockResolvedValueOnce(ok({ since: at(7), threads: [served({ addr: "new" }), served({ addr: "card" })] }));
+    await catchUpServer(scopeU, [t("a"), t("new"), t("card")], deps(post));
+    expect(post.mock.calls[0][1]).toMatchObject({ threads: [{ addr: "a", afterSeq: 1 }], since: at(7) });
+    expect(post.mock.calls[1][1]).toEqual({
+      threads: [
+        { addr: "new", afterSeq: 1 },
+        { addr: "card", afterSeq: 2 },
+      ],
+      groups: [],
+      limit: 50,
+    });
+    expect(marks.get("s1")?.keys).toEqual(new Set(["s1|t:a", "s1|t:new", "s1|t:card"]));
+  });
+
+  it("no short-cut for an uncached Thread or without the feature; failed entries leave the mark", async () => {
+    seed("a", [1]);
+    seed("new", [1]);
+    marks.set("s1", { ...at(7), keys: new Set(["s1|t:b"]) });
+    const post = vi.fn(async (_s: unknown, _b: Record<string, unknown>) =>
+      ok({
+        since: at(7),
+        threads: [served({ addr: "a" }), { kind: "error", addr: "new", error: { status: 500, code: "x", hint: "" } }],
+      })
+    );
+    await catchUpServer(scopeU, [t("a"), t("new")], deps(post));
+    expect(post.mock.calls[0][1]).not.toHaveProperty("since");
+    // Same position: the old mark's untouched Threads stay; the failed one is out.
+    expect(marks.get("s1")?.keys).toEqual(new Set(["s1|t:a", "s1|t:b"]));
+
+    post.mockClear();
+    await catchUpServer(scopeU, [t("b")], deps(post)); // marked, but no cached copy
+    expect(post.mock.calls[0][1]).not.toHaveProperty("since");
+
+    post.mockClear();
+    await catchUpServer(scope, [t("a")], deps(post)); // no catchup-unchanged-v1
+    expect(post.mock.calls[0][1]).not.toHaveProperty("since");
+  });
+
+  it("hasOpenCard: unanswered choice/secret, and permission cards only while pending or applying", () => {
+    const card = (choice: Record<string, unknown>) => [{ ...msg(1), choice: { prompt: "p", options: [], answer: null, ...choice } }] as ThreadMessage[];
+    expect(hasOpenCard([msg(1)])).toBe(false);
+    expect(hasOpenCard(card({}))).toBe(true);
+    expect(hasOpenCard(card({ answer: "Yes" }))).toBe(false);
+    for (const state of ["pending", "applying"]) expect(hasOpenCard(card({ answer: "Allow", permission: { state } }))).toBe(true);
+    for (const state of ["approved", "denied", "expired", "closed"]) expect(hasOpenCard(card({ answer: null, permission: { state } }))).toBe(false);
+  });
+
+  it("an answer without a position (older daemon) or from another daemon process clears the mark", async () => {
+    seed("a", [1]);
+    marks.set("s1", { ...at(7), keys: new Set(["s1|t:a"]) });
+    const post = vi.fn().mockResolvedValueOnce(ok({ since: at(3, "i-2"), threads: [served({ addr: "a" })] }));
+    await catchUpServer(scopeU, [t("a")], deps(post));
+    expect(marks.get("s1")).toEqual({ ...at(3, "i-2"), keys: new Set(["s1|t:a"]) });
+    post.mockResolvedValueOnce(ok({ threads: [served({ addr: "a" })] }));
+    await catchUpServer(scopeU, [t("a")], deps(post));
+    expect(marks.has("s1")).toBe(false);
   });
 });
 
