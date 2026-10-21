@@ -208,6 +208,12 @@ if [ ! -f "$IPA_PATH" ]; then
   echo "Error: IPA not found at $IPA_PATH"
   exit 1
 fi
+# xcodegen run while Externals/ holds a built libapp.a copies it in as a
+# resource; Apple rejects the upload (90171).
+if unzip -l "$IPA_PATH" | grep -qE '\.a$'; then
+  echo "Error: the IPA contains a static library (stray libapp.a resource in project.pbxproj?)"
+  exit 1
+fi
 echo "  ✓ IPA exported"
 
 # ─── Step 4: Upload to App Store Connect ───
