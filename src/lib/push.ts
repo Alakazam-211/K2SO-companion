@@ -471,15 +471,6 @@ onServerLeave((server, token) => unregisterLeaving(server, token));
  *  pre-2026-07-23 wire value, still accepted. */
 const TICKET_KINDS = new Set(["ticket", "feedback"]);
 
-/** Classic-UI routes. Anywhere else (including `/`, which redirects to
- *  the `/zen` home, and the shared `/login` `/servers`) Zen is the UI. */
-const CLASSIC_PREFIXES = ["/sessions", "/chat", "/projects", "/feedback", "/settings"];
-
-/** True when Zen is the active UI for a tap landing at `pathname`. */
-export function isZenUi(pathname: string): boolean {
-  return !CLASSIC_PREFIXES.some((p) => pathname === p || pathname.startsWith(`${p}/`));
-}
-
 function str(v: unknown): string {
   return typeof v === "string" ? v.trim() : "";
 }
@@ -489,12 +480,9 @@ export function tapTicketId(tap: TapPayload): string {
   return str(tap.feedbackId) || str(tap.ticketId) || str(tap.id);
 }
 
-/** Where a notification tap goes, or null to ignore it. `zen` picks the
- *  Zen Tickets overlay deep link over the classic `/feedback/<id>`. */
-export function tapPath(
-  tap: TapPayload | null | undefined,
-  opts: { zen?: boolean } = {}
-): string | null {
+/** Where a notification tap goes, or null to ignore it. Zen is the only
+ *  UI (the pre-Zen pages were removed in 4.1.0). */
+export function tapPath(tap: TapPayload | null | undefined): string | null {
   if (!tap) return null;
   // Ticket / project taps navigate on the current server. Thread taps
   // pick their server first (`routeTap`).
@@ -503,13 +491,11 @@ export function tapPath(
   if (TICKET_KINDS.has(kind)) {
     const id = tapTicketId(tap);
     if (!id) return null;
-    return opts.zen === false ? `/feedback/${encodeURIComponent(id)}` : zenTicketPath(id);
+    return zenTicketPath(id);
   }
   const groupId = str(tap.groupId);
-  // Zen: Projects, then that project chat on top. Classic: its page.
-  if (kind === "project" && groupId) {
-    return opts.zen === false ? `/projects/${groupId}` : zenProjectPath(groupId);
-  }
+  // Zen Projects, then that project chat on top.
+  if (kind === "project" && groupId) return zenProjectPath(groupId);
   return null;
 }
 
@@ -724,13 +710,12 @@ function belowFloor(serverId: string): boolean {
  *  chat exists on one server only); no match keeps the current one. */
 export async function routeTap(
   tap: TapPayload | null | undefined,
-  navigate: (path: string) => void,
-  opts: { zen?: boolean } = {}
+  navigate: (path: string) => void
 ): Promise<void> {
   if (!tap) return;
   const kind = str(tap.kind);
   if (kind !== "thread") {
-    const path = tapPath(tap, opts);
+    const path = tapPath(tap);
     if (!path) return;
     // Tickets (flag on) and project chats follow the push's server: a
     // project chat lives on one server only, so opening it on another
@@ -774,21 +759,14 @@ export async function routeTap(
   }
 }
 
-function currentPathname(): string {
-  return typeof window === "undefined" ? "/" : window.location.pathname;
-}
-
 /** Wire tap→navigation and tokenRefresh→re-register. Mounted once by
  *  <PushBridge/> inside the router. No-op (returning a no-op cleanup)
  *  when push is unavailable. */
 export async function attachPushNavigation(
-  navigate: (path: string) => void,
-  opts: { pathname?: () => string } = {}
+  navigate: (path: string) => void
 ): Promise<() => void> {
   if (!(await pushIsAvailable())) return () => {};
-  const pathname = opts.pathname ?? currentPathname;
-  const route = (tap: TapPayload | null | undefined) =>
-    routeTap(tap, navigate, { zen: isZenUi(pathname()) });
+  const route = (tap: TapPayload | null | undefined) => routeTap(tap, navigate);
 
   // Cold-start tap: the notification launched the app; the native side
   // buffered the payload before JS booted.

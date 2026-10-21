@@ -28,9 +28,6 @@ import focusGroupSrc from "./FocusGroupPicker.tsx?raw";
 import homeMenuSrc from "./HomeMenu.tsx?raw";
 import zenSrc from "../pages/Zen.tsx?raw";
 import zenTerminalSrc from "../pages/ZenTerminal.tsx?raw";
-import chatSessionSrc from "../pages/ChatSession.tsx?raw";
-import serversSrc from "../pages/Servers.tsx?raw";
-import htmlDocsSrc from "../pages/ProjectHtmlDocs.tsx?raw";
 
 afterEach(cleanup);
 
@@ -109,9 +106,6 @@ describe("original call sites draw through the shared module", () => {
       HomeMenu: homeMenuSrc,
       Zen: zenSrc,
       ZenTerminal: zenTerminalSrc,
-      ChatSession: chatSessionSrc,
-      Servers: serversSrc,
-      ProjectHtmlDocs: htmlDocsSrc,
     };
     for (const [site, src] of Object.entries(sites)) {
       for (const p of paths) expect(src.includes(p), `${site} redraws ${p}`).toBe(false);

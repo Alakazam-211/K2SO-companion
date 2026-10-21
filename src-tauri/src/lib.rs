@@ -1,10 +1,3 @@
-mod state;
-
-#[tauri::command]
-fn greet(name: &str) -> String {
-    format!("Hello, {}!", name)
-}
-
 /// The interactive-dismiss sampler's decisions, platform-free (tested on
 /// the host). Fed one reading per display frame while a pan that began
 /// with the keyboard up is in progress: it says when to post a sample and
@@ -1491,7 +1484,6 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
-            greet,
             ios_strip_accessory_bar,
             ios_keyboard_dismiss_padding,
             ios_keyboard_recorder,

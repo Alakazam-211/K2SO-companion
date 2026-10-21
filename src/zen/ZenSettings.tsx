@@ -1,5 +1,4 @@
 import type { ReactNode } from "react";
-import { useNavigate } from "react-router-dom";
 import { ABOUT } from "../lib/about";
 import { usePushToggle } from "../lib/usePushToggle";
 import { ZEN_FONTS, ZEN_TEXT_SIZES, useZenFontStore } from "./zenFont";
@@ -12,18 +11,13 @@ const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
 /** iOS system green. */
 const SWITCH_ON = "#30d158";
 
-/** Where "Leave Zen Mode" goes: the old UI's server list. `/servers` has
- *  no ServerGuard, so it never bounces back to `/zen`; the old UI's
- *  ZenReturnButton is the way back in. */
-export const LEAVE_ZEN_PATH = "/servers";
-
 /** Zen Settings sheet (opened by the Chats header cog). iOS grouped list
  *  of `.k2-tile` cards: Notifications (the same push toggle as the old
  *  Settings page), Appearance (Zen font + text size), Lists (Recent
- *  agents first, this phone only), About (the old
- *  page's values plus Terminal: Kessel), and Leave Zen Mode. */
+ *  agents first, this phone only), Experimental, and About (the old
+ *  page's values plus Terminal: Kessel). The pre-Zen UI (and its
+ *  "Leave Zen Mode" door) was removed in 4.1.0. */
 export function ZenSettings({ onClose }: { onClose: () => void }) {
-  const navigate = useNavigate();
   // Android Back = Done.
   useBackHandler(true, onClose);
   return (
@@ -92,20 +86,6 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
           <ValueRow label="Engine" value={ABOUT.engine} divider />
           <ValueRow label="Terminal" value={ABOUT.terminal} divider />
         </Group>
-
-        <div className="k2-tile overflow-hidden" style={{ borderRadius: 14, marginTop: 28 }}>
-          <button
-            type="button"
-            className="w-full text-center text-[17px]"
-            style={{ minHeight: 48, padding: "12px 16px", color: "var(--accent)" }}
-            onClick={() => {
-              onClose();
-              navigate(LEAVE_ZEN_PATH);
-            }}
-          >
-            Leave Zen Mode
-          </button>
-        </div>
       </div>
     </div>
   );
