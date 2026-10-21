@@ -320,14 +320,15 @@ function remember(
 }
 
 /** An unanswered choice or secret card, or a permission card still
- *  pending or applying. Until 0.46.3 ships with K2's rev fixes (728886c5d),
+ *  waiting on an answer (pending, applying, or "already on" before its
+ *  Close). Until 0.46.3 ships with K2's rev fixes (728886c5d),
  *  a chat holding one is read in full, never settled by `unchanged` (K2,
  *  2026-10-21). */
 export function hasOpenCard(messages: readonly ThreadMessage[]): boolean {
   return messages.some((m) => {
     const c = m.choice;
     if (!c) return false;
-    if (c.permission) return c.permission.state === "pending" || c.permission.state === "applying";
+    if (c.permission) return c.permission.open;
     return c.answer == null || String(c.answer) === "";
   });
 }

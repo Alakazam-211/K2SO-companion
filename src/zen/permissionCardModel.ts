@@ -8,7 +8,10 @@
 // state change rewrites the same doc at the same seq (frame or
 // `changed[]`), so the message just re-renders. Without `cards=2` (or for
 // a viewer the daemon won't serve it to) the doc is a plain choice or text
-// card and none of this applies.
+// card and none of this applies. A closed card keeps its options for an
+// approver, so draw from `view.state` / `choice.status`, never the options.
+// Golden samples: src/test/fixtures/permission-cards-0463/ (K2's README
+// there lists where the wire differs from the phone contract).
 
 export type PermissionState =
   | "pending"
@@ -66,6 +69,8 @@ export type PermissionCardModel =
       resultMessage: string | null;
       /** The card's option labels (exact), e.g. `Allow`/`Deny` or `Close`. */
       options: string[];
+      /** Still waiting on an answer (`choice.status` pending). */
+      open: boolean;
     }
   | {
       kind: "batch";
@@ -75,6 +80,7 @@ export type PermissionCardModel =
       approvers: { floor: string; label: string; names: string[] };
       expiresAt: number | null;
       options: string[];
+      open: boolean;
     };
 
 /** Exact answer labels (the daemon matches them character for character). */
@@ -183,6 +189,8 @@ export function parsePermissionCard(choice: unknown): PermissionCardModel | null
   const options = (Array.isArray(c.options) ? c.options : [])
     .map((o) => (typeof o === "string" ? o : str(obj(o)?.label)))
     .filter(Boolean);
+  const st = view.state;
+  const open = typeof c.status === "string" ? c.status === "pending" : st === "pending" || st === "applying";
   if (action.id === "permission.batch" && view.kind === "batch") {
     return {
       kind: "batch",
@@ -195,6 +203,7 @@ export function parsePermissionCard(choice: unknown): PermissionCardModel | null
       approvers: approvers(view.approvers),
       expiresAt: num(view.expiresAt),
       options,
+      open,
     };
   }
   if (action.id !== "permission" || view.kind !== "permission") return null;
@@ -210,6 +219,7 @@ export function parsePermissionCard(choice: unknown): PermissionCardModel | null
     expiresAt: num(view.expiresAt),
     resultMessage: str(result?.message).trim() || null,
     options,
+    open,
   };
 }
 
