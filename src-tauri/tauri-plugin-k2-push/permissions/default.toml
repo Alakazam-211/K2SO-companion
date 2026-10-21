@@ -20,6 +20,7 @@ permissions = [
   "allow-clear-server-totals",
   "allow-get-badge-totals",
   "allow-get-badge-diagnostics",
+  "allow-e2e-op",
   "allow-pick-media",
   "allow-pick-documents",
   "allow-register-listener",

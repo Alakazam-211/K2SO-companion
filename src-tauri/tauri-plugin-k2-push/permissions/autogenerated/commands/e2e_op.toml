@@ -1,0 +1,13 @@
+# Automatically generated - DO NOT EDIT!
+
+"$schema" = "../../schemas/schema.json"
+
+[[permission]]
+identifier = "allow-e2e-op"
+description = "Enables the e2e_op command without any pre-configured scope."
+commands.allow = ["e2e_op"]
+
+[[permission]]
+identifier = "deny-e2e-op"
+description = "Denies the e2e_op command without any pre-configured scope."
+commands.deny = ["e2e_op"]

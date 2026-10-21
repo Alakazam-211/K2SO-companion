@@ -18,6 +18,7 @@ plumbing for `tap`/`tokenRefresh`/`badgeTotals`.
 - `allow-clear-server-totals`
 - `allow-get-badge-totals`
 - `allow-get-badge-diagnostics`
+- `allow-e2e-op`
 - `allow-pick-media`
 - `allow-pick-documents`
 - `allow-register-listener`
@@ -80,6 +81,32 @@ Enables the clear_server_totals command without any pre-configured scope.
 <td>
 
 Denies the clear_server_totals command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:allow-e2e-op`
+
+</td>
+<td>
+
+Enables the e2e_op command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:deny-e2e-op`
+
+</td>
+<td>
+
+Denies the e2e_op command without any pre-configured scope.
 
 </td>
 </tr>

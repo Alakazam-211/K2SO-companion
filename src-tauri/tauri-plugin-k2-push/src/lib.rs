@@ -93,6 +93,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::clear_server_totals,
             commands::get_badge_totals,
             commands::get_badge_diagnostics,
+            commands::e2e_op,
             commands::pick_media,
             commands::pick_documents,
         ])

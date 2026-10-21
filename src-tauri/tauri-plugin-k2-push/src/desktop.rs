@@ -48,6 +48,10 @@ impl<R: Runtime> K2Push<R> {
         })
     }
 
+    pub fn e2e_op(&self, _req: E2eOpRequest) -> crate::Result<serde_json::Value> {
+        Ok(serde_json::json!({ "available": false, "reason": "e2e push keys are iOS only" }))
+    }
+
     pub fn set_server_totals(&self, _req: ServerTotalsRequest) -> crate::Result<BadgeSumResponse> {
         Ok(BadgeSumResponse::unavailable(BADGE_IOS_ONLY))
     }
