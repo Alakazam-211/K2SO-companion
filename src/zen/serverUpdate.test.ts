@@ -361,3 +361,18 @@ describe("check", () => {
     expect(c.message).toContain("on Home (home.k2.dev) — the REMOTE machine");
   });
 });
+
+describe("Updated X → Y (K2 0.46.3 from_version / running_version)", () => {
+  it("parseStatus reads both; the done line shows the move", async () => {
+    const { parseStatus, updatedCopy } = await import("./serverUpdate");
+    expect(parseStatus({ job_id: "j", phase: "done", from_version: "0.46.2", running_version: "0.46.3" })).toMatchObject({
+      fromVersion: "0.46.2",
+      runningVersion: "0.46.3",
+    });
+    expect(updatedCopy({ current: "0.46.1", latest: "0.46.3", finalVersion: "0.46.3", fromVersion: "0.46.2" })).toBe(
+      "Updated 0.46.2 → 0.46.3"
+    );
+    expect(updatedCopy({ current: "0.46.2", latest: "0.46.3", finalVersion: null })).toBe("Updated 0.46.2 → 0.46.3");
+    expect(updatedCopy({ current: "v0.46.3", latest: "0.46.3", finalVersion: "0.46.3" })).toBe("Updated to 0.46.3");
+  });
+});

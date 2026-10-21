@@ -52,6 +52,10 @@ export interface StatusResult {
   phase: UpdatePhase | null;
   progress: number | null;
   error: string | null;
+  /** K2 0.46.3: the version the job started from, and the one running
+   *  now (null from an older daemon). */
+  fromVersion?: string | null;
+  runningVersion?: string | null;
 }
 
 /** What `/boot-status` said during the comeback watch; null = unreachable. */
@@ -112,6 +116,9 @@ export function parseStatus(raw: unknown): StatusResult | null {
     phase: parsePhase(o.phase),
     progress: typeof o.progress === "number" ? o.progress : null,
     error: typeof o.error === "string" && o.error.trim() ? o.error : null,
+    fromVersion: typeof o.from_version === "string" && o.from_version.trim() ? o.from_version.trim() : null,
+    runningVersion:
+      typeof o.running_version === "string" && o.running_version.trim() ? o.running_version.trim() : null,
   };
 }
 
@@ -328,6 +335,9 @@ export interface UpdateJob {
   stillOn: boolean;
   outcome: "updated" | "wrong-version" | null;
   finalVersion: string | null;
+  /** K2 0.46.3 status `from_version` / `running_version`, once seen. */
+  fromVersion?: string | null;
+  runningVersion?: string | null;
 }
 
 export function newJob(args: {
@@ -448,6 +458,13 @@ export function reduceJob(job: UpdateJob, ev: JobEvent): [UpdateJob, JobEffect] 
       const s = ev.status;
       const changed = s.phase !== job.phase;
       let next: UpdateJob = changed ? { ...job, phase: s.phase, phaseChangedAt: ev.at } : job;
+      if ((s.fromVersion && s.fromVersion !== next.fromVersion) || (s.runningVersion && s.runningVersion !== next.runningVersion)) {
+        next = {
+          ...next,
+          fromVersion: s.fromVersion ?? next.fromVersion ?? null,
+          runningVersion: s.runningVersion ?? next.runningVersion ?? null,
+        };
+      }
       if (s.phase === "failed" || s.phase === "rolled-back") {
         return [fail(next, s.error ?? phaseCopy(s.phase, job.host, job.current), true), null];
       }
@@ -504,7 +521,7 @@ export function reduceJob(job: UpdateJob, ev: JobEvent): [UpdateJob, JobEffect] 
             ...job,
             stage: "done",
             outcome: "updated",
-            finalVersion: ev.boot.version ?? job.latest,
+            finalVersion: ev.boot.version ?? job.runningVersion ?? job.latest,
           },
           "comeback-success",
         ];
@@ -576,4 +593,13 @@ export function jobDetail(job: UpdateJob): string {
 /** Next poll delay for a comeback read, 2.5 s ± 0.5 s. `rand` in [0, 1). */
 export function comebackDelay(rand: number): number {
   return Math.round(COMEBACK_POLL_MS + (rand * 2 - 1) * COMEBACK_JITTER_MS);
+}
+
+/** The done line: "Updated 0.46.2 → 0.46.3" (the start version from the
+ *  daemon's `from_version` when it sent one, else what the check said),
+ *  or "Updated to X" when the start is unknown or the same. */
+export function updatedCopy(job: Pick<UpdateJob, "current" | "latest" | "finalVersion" | "fromVersion">): string {
+  const to = job.finalVersion ?? job.latest;
+  const from = job.fromVersion ?? job.current;
+  return from && strip(from) !== strip(to) ? `Updated ${from} → ${to}` : `Updated to ${to}`;
 }
