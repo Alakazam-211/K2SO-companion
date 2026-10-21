@@ -239,13 +239,19 @@ git commit -m "v${VERSION} — App Store ${VERSION}, release build ${BUILD_NUMBE
 git push origin "HEAD:refs/heads/${RELEASE_BRANCH:-main}"
 # A replacement build under the same marketing version keeps the first
 # build's tag (Android may already ship from it); tag the build instead.
-if git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
+# A test-track TestFlight build (RELEASE_BRANCH=<branch> NO_TAG=1) takes no
+# tag: the version's tag belongs to the build that ships.
+if [ -n "${NO_TAG:-}" ]; then
+  TAG=""
+elif git rev-parse -q --verify "refs/tags/v${VERSION}" >/dev/null; then
   TAG="v${VERSION}+${BUILD_NUMBER}"
 else
   TAG="v${VERSION}"
 fi
-git tag -a "$TAG" -m "$TAG (App Store ${VERSION}, build ${BUILD_NUMBER})"
-git push origin "$TAG"
+if [ -n "$TAG" ]; then
+  git tag -a "$TAG" -m "$TAG (App Store ${VERSION}, build ${BUILD_NUMBER})"
+  git push origin "$TAG"
+fi
 
 echo ""
 echo "═══════════════════════════════════════"
