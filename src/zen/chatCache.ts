@@ -59,6 +59,9 @@ export interface ChatCache {
   warm(): void;
   /** Write what is pending now (the app is going to the background). */
   flush(): Promise<void>;
+  /** Every cached chat key of `serverId` (memory and device), most
+   *  recently saved first. */
+  keysFor(serverId: string): Promise<string[]>;
   /** Drop every entry of `serverId` (memory and device). */
   forgetServer(serverId: string): Promise<void>;
   /** Drop entries of servers no longer saved. */
@@ -191,6 +194,15 @@ export function createChatCache(opts: Opts = {}): ChatCache {
   }
 
   const cache: ChatCache = {
+    async keysFor(serverId) {
+      const idx = await ensureIndex();
+      const at = new Map<string, number>();
+      for (const m of idx.values()) if (serverOfKey(m.key) === serverId) at.set(m.key, m.savedAt);
+      for (const e of [...memory.values(), ...dirty.values()]) {
+        if (e.serverId === serverId) at.set(e.key, Math.max(at.get(e.key) ?? 0, e.savedAt ?? 0));
+      }
+      return [...at.entries()].sort((a, b) => b[1] - a[1]).map(([k]) => k);
+    },
     peek(key) {
       const e = memory.get(key);
       if (!e) return null;
