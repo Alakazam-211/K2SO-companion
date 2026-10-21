@@ -26,6 +26,7 @@ function sameChoice(a: ThreadMessage["choice"], b: ThreadMessage["choice"]): boo
   return (
     a.prompt === b.prompt &&
     a.answer === b.answer &&
+    (a.resultMessage ?? null) === (b.resultMessage ?? null) &&
     a.options.length === b.options.length &&
     a.options.every((o, i) => o === b.options[i])
   );
