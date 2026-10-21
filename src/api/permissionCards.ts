@@ -1,7 +1,8 @@
 // Permission cards' writes (K2 0.46.3 phone contract v1 §3, §5): answer
 // (Allow / Deny / Allow all / Deny all / Close, a batch item, a Deny
 // reason, a confirm token), the waiting person's note, and "Turn off
-// again". Responses carry no doc: the rewritten card arrives as a frame or
+// again". Answers say `client:"phone"` (the card's `answer.via`; without
+// it a login's answer reads "web"). Responses carry no doc: the rewritten card arrives as a frame or
 // in `changed[]`. Errors come back as words a person can act on.
 
 import type { ServerScope } from "./scope";
@@ -28,6 +29,7 @@ function parseError(text: string): { code: string; reason: string; required: str
 /** What a person reads for a refused write. */
 export function permissionErrorText(status: number | null, code: string, reason = "", required = ""): string {
   switch (code) {
+    case "card_not_pending":
     case "request_not_pending":
       return "Someone already answered this, or it closed.";
     case "action_card_person_only":
@@ -79,6 +81,7 @@ export function answerPermission(
     addr,
     id,
     answer,
+    client: "phone",
     ...(opts.item ? { item: opts.item } : {}),
     ...(opts.reason ? { reason: opts.reason } : {}),
     ...(opts.confirmToken ? { confirmToken: opts.confirmToken } : {}),

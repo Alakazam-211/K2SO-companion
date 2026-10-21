@@ -346,13 +346,13 @@ describe("catchup-unchanged-v1", () => {
     expect(post.mock.calls[0][1]).not.toHaveProperty("since");
   });
 
-  it("hasOpenCard: unanswered choice/secret, and permission cards only while pending or applying", () => {
+  it("hasOpenCard: unanswered choice/secret, and permission cards only while still open", () => {
     const card = (choice: Record<string, unknown>) => [{ ...msg(1), choice: { prompt: "p", options: [], answer: null, ...choice } }] as ThreadMessage[];
     expect(hasOpenCard([msg(1)])).toBe(false);
     expect(hasOpenCard(card({}))).toBe(true);
     expect(hasOpenCard(card({ answer: "Yes" }))).toBe(false);
-    for (const state of ["pending", "applying"]) expect(hasOpenCard(card({ answer: "Allow", permission: { state } }))).toBe(true);
-    for (const state of ["approved", "denied", "expired", "closed"]) expect(hasOpenCard(card({ answer: null, permission: { state } }))).toBe(false);
+    expect(hasOpenCard(card({ answer: "Allow", permission: { state: "applying", open: true } }))).toBe(true);
+    expect(hasOpenCard(card({ answer: null, permission: { state: "approved", open: false } }))).toBe(false);
   });
 
   it("an answer without a position (older daemon) or from another daemon process clears the mark", async () => {
