@@ -93,6 +93,10 @@ export const DAEMON_FEATURES = [
   "inbox-catchup-v1",
   // K2 0.46.3: boot-status views (Bearer → `full`).
   "boot-status-views-v1",
+  // K2 0.46.3 (Beta, server switch): permission cards. Read by the Thread
+  // reads and sockets (`cards=2`) and the card renderer; absent → nothing
+  // new is sent or drawn (the daemon's text fallback renders as today).
+  "permission-cards-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];
@@ -593,4 +597,10 @@ export function __resetScopesForTests(): void {
   staleRecheckAt.clear();
   mustChangeToken.clear();
   bootInflight.clear();
+}
+
+/** K2 0.46.3 permission cards: this server serves the rich card doc to a
+ *  client that sends `cards=2` (Thread reads, catch-up, sockets). */
+export function permissionCardsOn(scope: ServerScope): boolean {
+  return !!scope.id && scope.supports("permission-cards-v1");
 }

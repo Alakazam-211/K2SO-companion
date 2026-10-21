@@ -1,6 +1,7 @@
 import type { ThreadDoc, ThreadItem } from "../api/client";
 import type { ProjectGroupMessage } from "../api/projectGroups";
 import { parseThreadAttachments, type ThreadAttachment } from "../api/threadAttachmentPure";
+import { parsePermissionCard, type PermissionCardModel } from "./permissionCardModel";
 
 export type ThreadChoice = {
   prompt: string;
@@ -9,6 +10,8 @@ export type ThreadChoice = {
   /** K2 0.46.3 action cards: what the answer did ("Kept as yours. Undo in
    *  Settings → Gardens → Local Data."), once answered. Null otherwise. */
   resultMessage?: string | null;
+  /** K2 0.46.3 permission card (`cards=2`): the rich, per-viewer view. */
+  permission?: PermissionCardModel | null;
 };
 
 export type ThreadMessage = {
@@ -165,6 +168,8 @@ function choiceOf(doc: ThreadDoc): ThreadChoice | null {
   };
   const message = actionResultMessage(c);
   if (message) out.resultMessage = message;
+  const permission = parsePermissionCard(c);
+  if (permission) out.permission = permission;
   return out;
 }
 

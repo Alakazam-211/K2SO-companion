@@ -5,6 +5,7 @@ import {
   ensureBootStatus,
   isPartialBootView,
   noteBootStatus,
+  permissionCardsOn,
   readBootStatus,
   serverMemory,
   versionAtLeast,
@@ -698,6 +699,7 @@ export const getThread = (scope: ServerScope, addr: string, limit = 50, beforeSe
     addr,
     limit,
     ...(beforeSeq != null ? { before_seq: beforeSeq } : {}),
+    ...(permissionCardsOn(scope) ? { cards: 2 } : {}),
   });
 
 /** K2 0.44: `GET /cli/thread/latest` is live (list previews). */
@@ -810,12 +812,21 @@ export const answerThread = (
   addr: string,
   id: string,
   answer: string,
-  opts: { confirmToken?: string } = {}
+  opts: { confirmToken?: string; item?: string; reason?: string } = {}
 ) =>
   request(
     scope,
     "/cli/thread/answer",
-    opts.confirmToken ? { addr, id, answer, confirmToken: opts.confirmToken } : { addr, id, answer },
+    {
+      addr,
+      id,
+      answer,
+      // K2 0.46.3 permission cards: a batch item, a Deny reason, the
+      // fresh-confirm token. Absent keys are not sent.
+      ...(opts.item ? { item: opts.item } : {}),
+      ...(opts.reason ? { reason: opts.reason } : {}),
+      ...(opts.confirmToken ? { confirmToken: opts.confirmToken } : {}),
+    },
     { method: "POST" }
   );
 

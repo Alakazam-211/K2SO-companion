@@ -36,7 +36,8 @@ export function mergeThreadMessages(
 export function overlayEventsUrl(
   base: string,
   token: string,
-  conversationId: string
+  conversationId: string,
+  opts: { cards2?: boolean } = {}
 ): string | null {
   const origin = (base || "").trim();
   const conv = (conversationId || "").trim();
@@ -44,5 +45,7 @@ export function overlayEventsUrl(
   const ws = origin.replace(/^http/i, (h) => (h.toLowerCase() === "https" ? "wss" : "ws"));
   const q = new URLSearchParams({ conversation: conv });
   if (token) q.set("token", token);
+  // K2 0.46.3 permission cards: card rewrites as the rich doc.
+  if (opts.cards2) q.set("cards", "2");
   return `${ws.replace(/\/$/, "")}/cli/overlay/events?${q.toString()}`;
 }
