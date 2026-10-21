@@ -1,8 +1,11 @@
 import { useEffect } from "react";
 import { getThread } from "../api/client";
 import { fetchProjectGroupMessages } from "../api/projectGroups";
-import { scopeFor, type ServerScope } from "../api/scope";
+import { onBootInfo, scopeFor, type ServerScope } from "../api/scope";
+import { useServersStore } from "../stores/servers";
 import { fetchProjectGroupDelta, fetchThreadDelta } from "../api/threadDelta";
+import { catchupSupported } from "../api/threadCatchup";
+import { catchUpServer } from "./chatCatchup";
 import { chatCache, type ChatCache } from "./chatCache";
 import { pool } from "./multi/pool";
 import { serverDown } from "./multi/serverHealth";
@@ -86,6 +89,12 @@ export type PrefetchDeps = {
   fetchProjectGroupDelta: typeof fetchProjectGroupDelta;
   concurrency?: number;
   minGapMs?: number;
+  /** K2 0.46.3 `inbox-catchup-v1`: a server's due chats in ONE call
+   *  (`catchUpServer`); returns the ones left for the per-chat read. */
+  catchup?: {
+    supported: (serverId: string) => boolean;
+    run: (serverId: string, targets: PrefetchTarget[]) => Promise<PrefetchTarget[]>;
+  };
 };
 
 export interface Prefetcher {
@@ -116,6 +125,12 @@ export function createPrefetcher(deps: PrefetchDeps): Prefetcher {
   const running = new Set<string>();
   /** Forced while running: read again once it is done. */
   const again = new Map<string, PrefetchTarget>();
+  /** Catch-up: per server, the chats waiting for its one call, and the
+   *  servers (and chat keys) whose call is running. */
+  const batches = new Map<string, Map<string, PrefetchTarget>>();
+  const batchServers = new Set<string>();
+  const batchKeys = new Set<string>();
+  const busy = () => running.size + batchServers.size;
 
   const due = (key: string) => {
     const at = lastRun.get(key);
@@ -165,8 +180,48 @@ export function createPrefetcher(deps: PrefetchDeps): Prefetcher {
     });
   }
 
+  function runBatch(serverId: string): void {
+    const set = batches.get(serverId);
+    batches.delete(serverId);
+    if (!set?.size || !deps.catchup) return;
+    const targets = [...set.values()];
+    batchServers.add(serverId);
+    for (const k of set.keys()) {
+      batchKeys.add(k);
+      lastRun.set(k, deps.now());
+    }
+    void deps.catchup
+      .run(serverId, targets)
+      .catch(() => targets)
+      .then((left) => {
+        // Left over (an uncached project chat, a moved conversation, the
+        // call failed): the per-chat read, as before.
+        if (!deps.foreground()) return;
+        const open = deps.openKey();
+        for (const t of left) {
+          const key = prefetchKey(t);
+          if (!key || key === open || running.has(key) || queue.some((q) => q.key === key)) continue;
+          queue.push({ key, t });
+        }
+      })
+      .finally(() => {
+        batchServers.delete(serverId);
+        for (const k of set.keys()) batchKeys.delete(k);
+        pump();
+      });
+  }
+
   function pump(): void {
-    while (running.size < concurrency && queue.length) {
+    for (const serverId of [...batches.keys()]) {
+      if (busy() >= concurrency) break;
+      if (batchServers.has(serverId)) continue;
+      if (!deps.foreground()) {
+        batches.clear();
+        break;
+      }
+      runBatch(serverId);
+    }
+    while (busy() < concurrency && queue.length) {
       const next = queue.shift();
       if (!next) break;
       if (!deps.foreground()) {
@@ -198,8 +253,15 @@ export function createPrefetcher(deps: PrefetchDeps): Prefetcher {
           continue;
         }
         if (queue.some((q) => q.key === key)) continue;
+        if (batchKeys.has(key) && !opts.force) continue;
         if (!opts.force && !due(key)) continue;
         if (deps.isDown(t.serverId) || !usable(deps.scopeOf(t.serverId))) continue;
+        if (deps.catchup?.supported(t.serverId)) {
+          let set = batches.get(t.serverId);
+          if (!set) batches.set(t.serverId, (set = new Map()));
+          set.set(key, t);
+          continue;
+        }
         queue.push({ key, t });
       }
       pump();
@@ -207,9 +269,10 @@ export function createPrefetcher(deps: PrefetchDeps): Prefetcher {
     stop() {
       queue.length = 0;
       again.clear();
+      batches.clear();
     },
-    inFlight: () => running.size,
-    queued: () => queue.length,
+    inFlight: () => running.size + batchServers.size,
+    queued: () => queue.length + [...batches.values()].reduce((n, m) => n + m.size, 0),
   };
 }
 
@@ -245,6 +308,21 @@ export function chatPrefetcher(): Prefetcher {
     fetchThreadDelta,
     fetchProjectGroupMessages,
     fetchProjectGroupDelta,
+    catchup: {
+      supported: (id) => {
+        const scope = scopeOrNull(id);
+        return !!scope && catchupSupported(scope);
+      },
+      run: (id, targets) => {
+        const scope = scopeOrNull(id);
+        if (!scope) return Promise.resolve(targets);
+        return catchUpServer(scope, targets, {
+          cache: chatCache,
+          openKey: openRoomKey,
+          usable: () => usable(scopeOrNull(id)),
+        });
+      },
+    },
   }));
 }
 
@@ -313,6 +391,104 @@ export function installUnreadPrefetch(prefetcher: () => Prefetcher = chatPrefetc
 /** Mounted once (the Zen page): unread-driven prefetch while it is up. */
 export function useUnreadPrefetch(): void {
   useEffect(() => installUnreadPrefetch(), []);
+}
+
+// ─── Foreground catch-up (K2 0.46.3 `inbox-catchup-v1`) ───
+//
+// On launch and on every return to the foreground, every chat cached for a
+// server that offers catch-up is brought up to date in one call per server
+// (the prefetcher batches them: `catchUpServer`). Servers without the
+// feature keep the list-driven prefetch above. At most once per server per
+// FOREGROUND_CATCHUP_GAP_MS; a server whose boot-status arrives later in
+// the same foreground is caught up then.
+
+export const FOREGROUND_CATCHUP_GAP_MS = 30_000;
+
+/** A chat cache key back to its target (`<serverId>|t:<addr>` /
+ *  `<serverId>|g:<groupId>`). */
+export function targetOfKey(key: string): PrefetchTarget | null {
+  const i = key.indexOf("|");
+  if (i <= 0) return null;
+  const serverId = key.slice(0, i);
+  const rest = key.slice(i + 1);
+  if (rest.startsWith("g:") && rest.length > 2) return { serverId, ref: { kind: "project", groupId: rest.slice(2) } };
+  if (rest.startsWith("t:") && rest.length > 2) return { serverId, ref: { kind: "thread", addr: rest.slice(2) } };
+  return null;
+}
+
+export type ForegroundCatchupDeps = {
+  prefetcher: () => Prefetcher;
+  cache: () => ChatCache;
+  servers: () => string[];
+  supported: (serverId: string) => boolean;
+  now: () => number;
+};
+
+/** Catch up every cached chat of `serverIds` that are due. */
+export async function catchUpCached(
+  serverIds: readonly string[],
+  last: Map<string, number>,
+  deps: ForegroundCatchupDeps
+): Promise<void> {
+  for (const id of serverIds) {
+    if (!deps.supported(id)) continue;
+    const at = last.get(id);
+    if (at != null && deps.now() - at < FOREGROUND_CATCHUP_GAP_MS) continue;
+    last.set(id, deps.now());
+    const keys = await deps.cache().keysFor(id);
+    const targets = keys.map(targetOfKey).filter((t): t is PrefetchTarget => !!t);
+    if (targets.length) deps.prefetcher().request(targets, { force: true });
+  }
+}
+
+/** Launch / foreground catch-up. Returns the unsubscribe. */
+export function installForegroundCatchup(
+  deps: ForegroundCatchupDeps = {
+    prefetcher: chatPrefetcher,
+    cache: chatCache,
+    servers: () => {
+      const st = useServersStore.getState();
+      return st.servers.filter((x) => st.tokens[x.id]).map((x) => x.id);
+    },
+    supported: (id) => {
+      const scope = scopeOrNull(id);
+      return !!scope && catchupSupported(scope);
+    },
+    now: () => Date.now(),
+  }
+): () => void {
+  const last = new Map<string, number>();
+  /** Caught up during this stay in the foreground (a boot-status read —
+   *  the pool's, every 30 s — must not turn into polling). */
+  const thisVisit = new Set<string>();
+  const visible = () => typeof document === "undefined" || document.visibilityState !== "hidden";
+  const run = (ids: string[]) => {
+    const due = ids.filter((id) => !thisVisit.has(id) && deps.supported(id));
+    for (const id of due) thisVisit.add(id);
+    if (due.length) void catchUpCached(due, last, deps);
+  };
+  if (visible()) run(deps.servers());
+  const onVis = () => {
+    if (!visible()) {
+      thisVisit.clear();
+      return;
+    }
+    run(deps.servers());
+  };
+  document.addEventListener("visibilitychange", onVis);
+  // Boot-status (and so the feature) may arrive after the app came up.
+  const off = onBootInfo((id) => {
+    if (visible() && deps.servers().includes(id)) run([id]);
+  });
+  return () => {
+    document.removeEventListener("visibilitychange", onVis);
+    off();
+  };
+}
+
+/** Mounted once (the Zen page). */
+export function useForegroundCatchup(): void {
+  useEffect(() => installForegroundCatchup(), []);
 }
 
 /** Tests only. */

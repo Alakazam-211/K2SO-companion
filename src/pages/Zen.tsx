@@ -56,7 +56,7 @@ import { normalizeHarness } from "../zen/llmHarness";
 import { readListTab } from "../zen/homes";
 import { BackUnreadPill, useBackUnreadCount } from "../zen/UnreadMarks";
 import { useUnreadSync } from "../zen/unreadSync";
-import { useUnreadPrefetch } from "../zen/chatPrefetch";
+import { useForegroundCatchup, useUnreadPrefetch } from "../zen/chatPrefetch";
 
 const HEADER_BTN: CSSProperties = {
   width: 36,
@@ -160,6 +160,7 @@ export function Zen() {
   useUnreadSync();
   // A chat whose unread state moves is prefetched (fresh when opened).
   useUnreadPrefetch();
+  useForegroundCatchup();
   const openAddr = useZenStore((s) => s.threadAddr);
   const openConv = useZenStore((s) => s.threadConversationId);
   // The Thread's own session first (its conversation's provider), then
