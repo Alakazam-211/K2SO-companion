@@ -16,6 +16,7 @@ import {
   newerNoArtifactCopy,
   releaseNotesUrl,
   upToDateCopy,
+  updatedCopy,
   type CheckOutcome,
   type UpdateJob,
 } from "./serverUpdate";
@@ -314,7 +315,7 @@ function JobView({ job, scope }: { job: UpdateJob; scope: ServerScope }) {
       <Block testId="server-update-job">
         {job.outcome === "updated" ? (
           <span className="text-[15px]" style={{ color: GREEN }} data-testid="server-update-headline">
-            Updated to {job.finalVersion ?? job.latest}
+            {updatedCopy(job)}
           </span>
         ) : (
           <span className="text-[15px]" style={{ color: AMBER }} data-testid="server-update-headline">
