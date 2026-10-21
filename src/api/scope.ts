@@ -93,6 +93,8 @@ export const DAEMON_FEATURES = [
   "inbox-catchup-v1",
   // K2 0.46.3: boot-status views (Bearer → `full`).
   "boot-status-views-v1",
+  // K2 0.46.3: catch-up's `unchanged` short-cut (`sinceRev` + `instanceId`).
+  "catchup-unchanged-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];

@@ -9,12 +9,22 @@
 // (up to CATCHUP_MAX_ROUNDS); anything the call can't settle — an uncached
 // project chat, a conversation that moved, an address that changed, a
 // `resync`, more than the rounds allow — falls back to the per-chat read.
+//
+// `catchup-unchanged-v1`: each server remembers the last answer's `rev` +
+// `instanceId` and which cached Threads it brought fully up to date
+// (`CatchupMark`). When every Thread asked for is one of those, the first
+// call sends `sinceRev` with the Threads only; `unchanged` settles them
+// all with no reads. Otherwise (or for project chats, which don't move
+// `rev`) the normal rounds run.
 
 import {
   CATCHUP_LIMIT,
   catchupBody,
+  catchupUnchangedSupported,
   postCatchup,
   type CatchupGroupAsk,
+  type CatchupResult,
+  type CatchupSince,
   type CatchupThreadAsk,
 } from "../api/threadCatchup";
 import type { ServerScope } from "../api/scope";
@@ -36,9 +46,22 @@ import { groupMessagesToThread, normaliseThreadItem, type ThreadMessage } from "
 /** Calls per catch-up (deferred entries and long deltas ask again). */
 export const CATCHUP_MAX_ROUNDS = 4;
 
+/** A server's last catch-up position, and the cached Threads that were
+ *  fully up to date as of it. */
+export type CatchupMark = CatchupSince & { keys: Set<string> };
+
+const marks = new Map<string, CatchupMark>();
+
+/** Tests only. */
+export function resetCatchupMarksForTests(): void {
+  marks.clear();
+}
+
 export type CatchupRunDeps = {
   cache: () => ChatCache;
   post?: typeof postCatchup;
+  /** Per server id (default: this module's, kept in memory only). */
+  marks?: Map<string, CatchupMark>;
   /** The open chat's key (its own reads own it; never touched here). */
   openKey: () => string | null;
   /** Still signed in to this server? (Nothing may come back otherwise.) */
@@ -58,6 +81,8 @@ type Job = {
   hasMore: boolean | null;
   conversationId: string | null;
   done: boolean;
+  /** Served in full (or `unchanged`): current as of the answer's rev. */
+  clean: boolean;
 };
 
 /**
@@ -96,22 +121,26 @@ export async function catchUpServer(
     jobs.push(job(key, t, base, cursor == null ? { addr, newest: true } : { addr, afterSeq: cursor }, false));
   }
 
-  for (let round = 0; round < CATCHUP_MAX_ROUNDS; round++) {
-    const live = jobs.filter((j) => !j.done);
-    if (!live.length || !deps.usable()) break;
-    const tJobs = live.filter((j) => !j.group);
-    const gJobs = live.filter((j) => j.group);
-    const body = catchupBody(
-      tJobs.map((j) => j.ask as CatchupThreadAsk),
-      gJobs.map((j) => j.ask as CatchupGroupAsk),
-      CATCHUP_LIMIT
-    );
-    // Over the caps (or duplicates): what did not fit waits for the next
-    // round, by position in the body.
-    const tSent = body.threads.map((a) => tJobs.find((j) => (j.ask as CatchupThreadAsk).addr === a.addr)!);
-    const gSent = body.groups.map((a) => gJobs.find((j) => (j.ask as CatchupGroupAsk).group === a.group)!);
-    const r = await post(scope, body);
-    if (!r.ok) break;
+  const store = deps.marks ?? marks;
+  const mark = scope.id ? store.get(scope.id) ?? null : null;
+  /** The first answer's position (read before its reads: the earliest). */
+  let since: CatchupSince | null = null;
+  /** An answer came from another daemon process: remember nothing. */
+  let mixed = false;
+
+  /** Take one answer; `tSent` / `gSent` are the jobs by body position.
+   *  Returns whether anything settled. */
+  const take = (r: Extract<CatchupResult, { ok: true }>, tSent: Job[], gSent: Job[]): boolean => {
+    const at = r.data.since;
+    if (!since) since = at;
+    else if (!at || at.instanceId !== since.instanceId) mixed = true;
+    if (r.data.unchanged) {
+      for (const j of tSent) {
+        j.done = true;
+        j.clean = true;
+      }
+      return tSent.length > 0;
+    }
     let progress = false;
     r.data.threads.forEach((e, i) => {
       const j = tSent[i];
@@ -136,6 +165,7 @@ export async function catchUpServer(
         j.hasMore = e.hasMore;
         j.conversationId = e.conversationId;
         j.done = true;
+        j.clean = true;
         return;
       }
       if (e.conversationId && j.base?.conversationId && e.conversationId !== j.base.conversationId) {
@@ -156,7 +186,7 @@ export async function catchUpServer(
         if (e.hasMore) {
           j.steps = [];
           fallback.push(j.t);
-        }
+        } else j.clean = true;
       }
     });
     r.data.groups.forEach((e, i) => {
@@ -187,17 +217,59 @@ export async function catchUpServer(
         }
       }
     });
-    if (!progress) break;
+    return progress;
+  };
+
+  // The short-cut: every Thread asked for was current at the mark, and
+  // each has a cached copy (one that was dropped since needs its read).
+  const tAll = jobs.filter((j) => !j.group);
+  if (
+    mark &&
+    tAll.length &&
+    catchupUnchangedSupported(scope) &&
+    deps.usable() &&
+    tAll.every((j) => j.base && mark.keys.has(j.key))
+  ) {
+    const body = catchupBody(
+      tAll.map((j) => j.ask as CatchupThreadAsk),
+      [],
+      CATCHUP_LIMIT,
+      mark
+    );
+    const tSent = body.threads.map((a) => tAll.find((j) => (j.ask as CatchupThreadAsk).addr === a.addr)!);
+    const r = await post(scope, body);
+    if (r.ok) take(r, tSent, []);
+  }
+
+  for (let round = 0; round < CATCHUP_MAX_ROUNDS; round++) {
+    const live = jobs.filter((j) => !j.done);
+    if (!live.length || !deps.usable()) break;
+    const tJobs = live.filter((j) => !j.group);
+    const gJobs = live.filter((j) => j.group);
+    const body = catchupBody(
+      tJobs.map((j) => j.ask as CatchupThreadAsk),
+      gJobs.map((j) => j.ask as CatchupGroupAsk),
+      CATCHUP_LIMIT
+    );
+    // Over the caps (or duplicates): what did not fit waits for the next
+    // round, by position in the body.
+    const tSent = body.threads.map((a) => tJobs.find((j) => (j.ask as CatchupThreadAsk).addr === a.addr)!);
+    const gSent = body.groups.map((a) => gJobs.find((j) => (j.ask as CatchupGroupAsk).group === a.group)!);
+    const r = await post(scope, body);
+    if (!r.ok) break;
+    if (!take(r, tSent, gSent)) break;
   }
 
   // Unsettled after the rounds: the per-chat read takes them. Whatever
   // did settle lands in the cache.
+  const current = new Set<string>();
   for (const j of jobs) {
     if (!j.done) {
       fallback.push(j.t);
       continue;
     }
     if (!deps.usable() || deps.openKey() === j.key) continue;
+    if (!j.group && j.clean) current.add(j.key);
     if (!j.page && !j.steps.length) continue;
     const read: OkRead = {
       ok: true,
@@ -221,7 +293,33 @@ export async function catchUpServer(
       hasMore: j.hasMore ?? j.base?.hasMore ?? false,
     });
   }
+  if (scope.id) {
+    const asked = new Set(jobs.filter((j) => !j.group).map((j) => j.key));
+    remember(store, scope.id, mark, mixed ? null : since, current, asked);
+  }
   return fallback;
+}
+
+/** The new mark: this run's current Threads, plus the old mark's that
+ *  were not asked again when the position did not move. No position (an older daemon, an App guest, two
+ *  daemon processes in one run): no mark. */
+function remember(
+  store: Map<string, CatchupMark>,
+  serverId: string,
+  prev: CatchupMark | null,
+  at: CatchupSince | null,
+  current: Set<string>,
+  asked: Set<string>
+): void {
+  if (!at) {
+    // Nothing answered (the call failed): the old mark still holds.
+    if (!prev || current.size) store.delete(serverId);
+    return;
+  }
+  const keys = new Set(current);
+  if (prev && prev.rev === at.rev && prev.instanceId === at.instanceId) for (const k of prev.keys) if (!asked.has(k)) keys.add(k);
+  if (keys.size) store.set(serverId, { rev: at.rev, instanceId: at.instanceId, keys });
+  else store.delete(serverId);
 }
 
 /** Same key as `prefetchKey` (not imported: chatPrefetch imports this). */
@@ -250,5 +348,6 @@ function job(
     hasMore: null,
     conversationId: base?.conversationId ?? null,
     done: false,
+    clean: false,
   };
 }
