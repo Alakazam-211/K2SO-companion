@@ -57,6 +57,7 @@ import { readListTab } from "../zen/homes";
 import { BackUnreadPill, useBackUnreadCount } from "../zen/UnreadMarks";
 import { useUnreadSync } from "../zen/unreadSync";
 import { useForegroundCatchup, useUnreadPrefetch } from "../zen/chatPrefetch";
+import { installPushInboxDrain } from "../lib/pushInbox";
 
 const HEADER_BTN: CSSProperties = {
   width: 36,
@@ -161,6 +162,8 @@ export function Zen() {
   // A chat whose unread state moves is prefetched (fresh when opened).
   useUnreadPrefetch();
   useForegroundCatchup();
+  // K2 0.46.3 sealed pushes: messages the notification extension saved.
+  useEffect(() => installPushInboxDrain(), []);
   const openAddr = useZenStore((s) => s.threadAddr);
   const openConv = useZenStore((s) => s.threadConversationId);
   // The Thread's own session first (its conversation's provider), then

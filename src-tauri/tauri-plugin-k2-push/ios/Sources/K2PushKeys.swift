@@ -165,6 +165,7 @@ public enum K2PushKeys {
     guard let d = UserDefaults(suiteName: appGroup) else { return }
     if d.bool(forKey: installMarker) { return }
     forgetAll()
+    K2PushInbox.clear()
     d.set(true, forKey: installMarker)
   }
 
