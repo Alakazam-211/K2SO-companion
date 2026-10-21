@@ -2143,7 +2143,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const before = get().thread.map((m) => m.id);
     set({ sending: true, sendError: null });
     try {
-      const posted = await postThread(scope, addr as string, trimmed, attachments);
+      const posted = attachments
+        ? await postThread(scope, addr as string, trimmed, attachments)
+        : await postThread(scope, addr as string, trimmed);
       if (!posted.ok) {
         return fail(id, posted.error || "send failed");
       }
