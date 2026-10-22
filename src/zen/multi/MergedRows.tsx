@@ -19,6 +19,7 @@ import type { RowFailure } from "./rowStatus";
 import { LOADING_LINE_AFTER_MS } from "./remoteRows";
 import type { RowUnread } from "../unread";
 import { MutedGlyph, RowUnreadCount, UnreadDot } from "../UnreadMarks";
+import { RowTag } from "../AgentRowContent";
 
 const MUTED = "#8e8e93";
 
@@ -140,6 +141,7 @@ export function RemoteAgentRow({
   nextAt,
   unread = null,
   divider = false,
+  groupTag = null,
 }: {
   row: MergedRow;
   failure: RowFailure | null;
@@ -156,6 +158,8 @@ export function RemoteAgentRow({
   unread?: RowUnread | null;
   /** The hairline under the row (every row but a section's last). */
   divider?: boolean;
+  /** Search hits: the agent's focus group on its server. */
+  groupTag?: { name: string; color: string | null } | null;
 }) {
   const a = row.agent;
   const marks = failure ? null : unread;
@@ -207,6 +211,7 @@ export function RemoteAgentRow({
               {a.name}
             </span>
             {marks?.muted ? <MutedGlyph /> : null}
+            {groupTag ? <RowTag kind="group" label={groupTag.name} color={groupTag.color} /> : null}
           </span>
           {failure ? null : (
             <span

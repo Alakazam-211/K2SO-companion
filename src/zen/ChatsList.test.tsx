@@ -2147,6 +2147,14 @@ describe("ChatsList", () => {
       expect(rowNames()).toEqual(["/d"]);
     });
 
+    it("search hits carry their focus group as a tag; none outside a search", () => {
+      live({ focus: { enabled: true, currentId: "g1", groups: GROUPS } });
+      mount();
+      expect(screen.queryAllByTestId("row-group-tag")).toHaveLength(0);
+      fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "delta" } });
+      expect(screen.getByTestId("row-group-tag").textContent).toBe(GROUPS[1].name);
+    });
+
     it("tapping the title opens a switcher; a pick changes only this view", () => {
       live({ focus: { enabled: true, currentId: "g1", groups: GROUPS } });
       mount();
