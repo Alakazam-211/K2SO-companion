@@ -1,7 +1,9 @@
 # Permission cards: golden samples for K2 Companion (K2 0.46.3, `cards=2`, `view.v = 1`)
 
-**95 sample files + `index.json`.** They were written by K2's own daemon code (lane F,
-branch `hold/permission-cards-f-0463` @ `b069d2e6f`, on A3 `27508ecfe` / A1 `4b76c670a`).
+**97 sample files + `index.json`.** They were written by K2's own daemon code (lane F,
+branch `hold/permission-cards-f-push-0463` @ `62ae4bad3`, which is F on A3 `27508ecfe` / A1 `4b76c670a`,
+plus lane A2 `73d72281e` for the push). Update 2: the two push samples were added; no other
+sample changed when A2's code came in.
 The code built the request rows, posted the card, ran the real answer route
 (`POST /cli/thread/answer`, `client:"phone"`), the expiry sweep, the cancel route and the
 switch-off close, and then ran A3's per-viewer projection. The test
@@ -22,6 +24,8 @@ transport and sha256.
 | `ws` | a `WS /cli/overlay/events?cards=2` frame `{collection, seq, id, doc, rev}` (`/cli/thread/stream` wraps the same doc) |
 | `response` | `POST /cli/thread/answer` → `{status, body}` |
 | `hidden` | App guests: no doc at all |
+| `legacy` | `push__permission__legacy.json`: the relay payload for rosson's phone when the card is posted: `{title, body, data, sound, threadId, collapseId}` |
+| `sealed-plaintext` | `push__permission__sealed-plaintext.json`: the E2E alert plaintext before sealing and padding: `{v, kid, ctr, ts, kind, srv, bk, title, body, group, data}` |
 
 | view | who |
 |---|---|
@@ -85,9 +89,16 @@ Workspaces are `billing` and `shopdev`.
 15. **The old-build approver's fallback prompt** is K2's line, then `billing says: "<why>"`, then one line per note, `dana (member): "<text>"`, separated by `\n`.
 16. **The 403 below the floor** has the body `{ok:false, error:{code:"action_card_person_only", hint:"only a person with the admin role answers this card", required:"admin"}}`.
 17. **`rev` is on every WS frame** for people. GET items carry `conversation_id`.
+18. **Push (§7).** The `data` keys are as §7 says. The relay payload also has:
+    - `sound: "default"`;
+    - `threadId` and `collapseId`, both `thread:<conversationId>`. There is no `group` key on the legacy lane; `group` is only on the sealed plaintext.
+
+    Other differences:
+    - In the sealed plaintext, the server stamp sits in `srv` (`sub`, `iid`) and `bk`, not in `data` (`subdomain`, `instanceId` and `badgeKey` are legacy-only).
+    - `avatarRev` is `""` when the agent has no picture.
+    - The samples' `agentColor` is the default `#3b82f6`.
 
 ## Not in this drop yet
 
-- **Push samples** (`push__permission__legacy`, `push__permission__sealed-plaintext`). They come with lane A2's targeted push, which isn't built yet. §7's shape stands until then.
 - **Real catalog words.** Lanes E1/E2 haven't registered `compute.use` / `apps.*` yet, so these cards use stand-in specs with the PRD's words. That's why `apps.approve` lists only `workspace` and `request` in `values`, with no command or port. When E1/E2 land, the words and values come from the real specs. **The shapes don't change.**
-- **The note and undo routes** (`/cli/thread/permission-note`, `/cli/thread/permission-undo`) and "Waiting on you" (`GET /cli/permission/pending`) are lane A2's. They're not built yet.
+- **Note, undo and "Waiting on you" responses.** Lane A2 has built `/cli/thread/permission-note`, `/cli/thread/permission-undo` and `GET /cli/permission/pending`, but there are no samples of their responses yet. Their shapes are in A2's notes and match §5, §3 and §8.
