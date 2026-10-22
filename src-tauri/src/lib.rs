@@ -1274,6 +1274,79 @@ mod ios_keyboard {
         }
     }
 
+    // ── Keyboard for a focus the page asks for ──────────────────────
+    //
+    // WebKit shows the keyboard for a focus only while the user is
+    // interacting (a tap); a script's focus() outside that gets the caret
+    // but no keyboard. The page sometimes must give the keyboard back
+    // itself: a swipe-back that springs home refocuses the field it
+    // blurred when the slide began. For that it arms a one-shot allowance
+    // (`ios_keyboard_allow_focus`), then focuses; WebKit asks its input
+    // delegate (`_webView:decidePolicyForFocusedElement:`, iOS 12+ SPI, set
+    // to our observer), which says Allow once within ALLOW_FOCUS_MS and
+    // Auto (WebKit's own rule) otherwise.
+
+    /// How long an armed allowance waits for its focus (ms).
+    const ALLOW_FOCUS_MS: u128 = 1500;
+    static ALLOW_FOCUS_AT: std::sync::Mutex<Option<std::time::Instant>> = std::sync::Mutex::new(None);
+
+    pub fn allow_next_focus() -> bool {
+        if !INPUT_DELEGATE_SET.load(Ordering::Acquire) {
+            return false;
+        }
+        if let Ok(mut a) = ALLOW_FOCUS_AT.lock() {
+            *a = Some(std::time::Instant::now());
+        }
+        diag("page: allow keyboard for next focus".into());
+        true
+    }
+
+    static INPUT_DELEGATE_SET: AtomicBool = AtomicBool::new(false);
+
+    /// `_WKFocusStartsInputSessionPolicy`: Auto 0, Allow 1, Disallow 2.
+    extern "C-unwind" fn decide_focus_policy(
+        _this: &AnyObject,
+        _cmd: Sel,
+        _webview: *mut AnyObject,
+        info: *mut AnyObject,
+    ) -> isize {
+        let armed = ALLOW_FOCUS_AT
+            .lock()
+            .ok()
+            .and_then(|mut a| a.take())
+            .map(|t| t.elapsed().as_millis() <= ALLOW_FOCUS_MS)
+            .unwrap_or(false);
+        let user = !info.is_null()
+            && responds(info, sel!(isUserInitiated))
+            && unsafe { msg_send![info, isUserInitiated] };
+        diag(format!(
+            "focus policy · userInitiated={} · {}",
+            user,
+            if armed { "allow (armed)" } else { "auto" }
+        ));
+        if armed {
+            1
+        } else {
+            0
+        }
+    }
+
+    fn install_input_delegate(wk: *mut AnyObject) {
+        let observer = OBSERVER.load(Ordering::Acquire);
+        if observer.is_null() || !responds(wk, sel!(_setInputDelegate:)) {
+            return;
+        }
+        unsafe {
+            let current: *mut AnyObject = msg_send![wk, _inputDelegate];
+            // Someone else's delegate: leave it alone.
+            if !current.is_null() && current != observer {
+                return;
+            }
+            let _: () = msg_send![wk, _setInputDelegate: observer];
+        }
+        INPUT_DELEGATE_SET.store(true, Ordering::Release);
+    }
+
     // ── Diagnostics: keyboard events (Server settings → Diagnostics) ───
     //
     // A short, content-free log of the app / keyboard lifecycle and of
@@ -1406,6 +1479,10 @@ mod ios_keyboard {
                 on_release_focus_hold as extern "C-unwind" fn(_, _, _),
             );
             builder.add_method(
+                sel!(_webView:decidePolicyForFocusedElement:),
+                decide_focus_policy as extern "C-unwind" fn(_, _, _, _) -> _,
+            );
+            builder.add_method(
                 sel!(k2KeyboardDidHide:),
                 on_keyboard_did_hide as extern "C-unwind" fn(_, _, _),
             );
@@ -1465,6 +1542,7 @@ mod ios_keyboard {
 
             // Re-pin the page on keyboard show/hide and app resume.
             install_observers(webview_ptr);
+            install_input_delegate(webview_ptr.cast());
 
             // Inject JS that listens for keyboard height changes via visualViewport
             // This is more reliable than native notifications since we disabled the scroll view
@@ -1671,6 +1749,26 @@ fn ios_keyboard_recorder(on: bool) -> bool {
     }
 }
 
+/// Let the page's next focus() raise the keyboard (once, shortly; see
+/// `ios_keyboard::allow_next_focus`). False off iOS or when WebKit's
+/// input delegate could not be set (then a plain focus is all there is).
+#[tauri::command]
+async fn ios_keyboard_allow_focus(webview: tauri::WebviewWindow) -> bool {
+    #[cfg(target_os = "ios")]
+    {
+        let (tx, rx) = std::sync::mpsc::channel::<bool>();
+        let _ = webview.with_webview(move |_wv| {
+            let _ = tx.send(ios_keyboard::allow_next_focus());
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap_or(false)
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = webview;
+        false
+    }
+}
+
 /// Diagnostics: keyboard events (src/lib/kbDiag.ts). `action`:
 /// "report" → the log; "mark" → add `label`; "hold" → the return hold
 /// on / off (`on`); "clear". Empty string off iOS.
@@ -1766,6 +1864,7 @@ pub fn run() {
             ios_keyboard_dismiss_padding,
             ios_keyboard_recorder,
             ios_keyboard_diag,
+            ios_keyboard_allow_focus,
             open_external_url,
             aps_environment
         ])

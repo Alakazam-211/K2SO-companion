@@ -54,8 +54,10 @@
 // a keyboard left up would sit still while the screen slides away. When
 // the screen starts following the finger, a focused text field inside it
 // is blurred: the keyboard drops as the screen slides. A swipe that
-// springs home focuses that field again (the keyboard comes back with
-// the screen); a completing one leaves it closed. Touches are ignored
+// springs home focuses that field again with its keyboard
+// (`focusWithKeyboard`: iOS shows a keyboard for a script's focus only
+// when the shell allows it); a completing one leaves it closed. Touches
+// are ignored
 // while a release animation runs.
 
 import { useEffect, useRef, type RefObject } from "react";
@@ -72,6 +74,7 @@ import {
   type SwipePhase,
 } from "./swipeBack";
 import { kbMark } from "./kbDiag";
+import { focusWithKeyboard } from "./nativeKeyboard";
 
 /** Drop move samples older than the velocity window needs (bounded). */
 const MAX_SAMPLES = 20;
@@ -261,7 +264,7 @@ export function useSwipeBack(
       // returns.
       const field = typed;
       typed = null;
-      if (field?.isConnected) field.focus({ preventScroll: true });
+      if (field?.isConnected) focusWithKeyboard(field);
       const done = (): void => {
         clearScreen();
         clearUnderlay();
