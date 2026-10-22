@@ -229,6 +229,7 @@ means "type here").
 | `ios_keyboard_dismiss_padding(px) -> bool` | page → native | `keyboardDismissPadding` on every child scroll view (iOS 17+); false if unsupported |
 | `ios_keyboard_recorder(on)` | page → native | recorder per-frame frames on/off |
 | `ios_strip_accessory_bar` | page → native | no form accessory bar |
+| `UIApplicationWillResignActive` (keyboard up) → `_incrementFocusPreservationCount`; DidBecomeActive + 1 s → `_decrementFocusPreservationCount` | native only | keep WebKit's focus while the app is away (see below) |
 
 **Idle by default:** no display link while the keyboard sits there. Every
 child scroll view's `panGestureRecognizer` gets a target; a pan that
@@ -238,6 +239,35 @@ stops when the pan has ended and the keyboard has been still 8 frames, on
 any Will*, or DidHide. Keyboard top: `UIKeyboardLayoutGuide` first;
 if it sits still while the keyboard's host view moves, the host view's
 public frame (found by class name `UIInputSetHostView`, read-only).
+
+### Returning with the keyboard up
+
+A native app comes back with its keyboard already up: the field stays first
+responder and UIKit restores the keyboard from a snapshot. WKWebView
+unfocuses the page when the app goes to the background
+(`PageClientImpl::isViewFocused` is false while `_isBackground`): the DOM
+gets `blur` (not `focusout`), the input session ends and the keyboard hides.
+On return WebKit refocuses and calls `_showKeyboard`, a fresh, animated
+presentation (`_restoreFocusWithToken:` returns NO, WebKit bug 196740). No
+page-side layout hold can hide that.
+
+The fix is WebKit's own focus hold. On `UIApplicationWillResignActive`, with
+the keyboard up, the shim calls `[webView _incrementFocusPreservationCount]`.
+That is the counter `_isRetainingActiveFocusedState` reads, so
+`isViewFocused` stays true: no blur, no refocus, and UIKit's restore applies.
+It calls `_decrementFocusPreservationCount` 1 s after `DidBecomeActive`, but
+not if the app went inactive again.
+
+- A blur while the hold is on resets the count inside WebKit, and WebKit
+  documents the decrement as harmless after a reset.
+- Both calls are WKWebView SPI, behind `respondsToSelector:`. Without them
+  the app keeps the animation.
+- No focus changes while the app is in the background, which also matters
+  for the watchdog hang below.
+- Verified on device, 4.1.0 build 202610211936.
+- The page also holds the keyboard's height while away
+  (`keyboardHeldNow()`, `RETURN_HOLD_MS`), so the layout doesn't move
+  either.
 
 ## JS API
 
