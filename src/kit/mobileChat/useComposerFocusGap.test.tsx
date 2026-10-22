@@ -3,9 +3,10 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, render, screen } from "@testing-library/react";
 import { useRef } from "react";
 
-const kb = vi.hoisted(() => ({ top: null as number | null }));
+const kb = vi.hoisted(() => ({ top: null as number | null, held: false }));
 vi.mock("../../lib/useViewportHeight", () => ({
   keyboardTopNow: () => kb.top,
+  keyboardHeldNow: () => kb.held,
   keyboardMotionMs: () => 250,
 }));
 
@@ -53,6 +54,7 @@ let visibility: DocumentVisibilityState = "visible";
 beforeEach(() => {
   vi.useFakeTimers();
   kb.top = null;
+  kb.held = false;
   visibility = "visible";
   vi.spyOn(document, "visibilityState", "get").mockImplementation(() => visibility);
 });
@@ -89,7 +91,8 @@ describe("useComposerFocusGap: blur on the keyboard's own hide", () => {
     visibility = "hidden";
     will({ show: false, active: false });
     expect(document.activeElement).toBe(f);
-    expect(screen.getByTestId("root").hasAttribute(COMPOSER_FOCUSED_ATTR)).toBe(false);
+    // The typing gap stays while away (the app comes back as it was left).
+    expect(screen.getByTestId("root").hasAttribute(COMPOSER_FOCUSED_ATTR)).toBe(true);
     act(() => {
       document.dispatchEvent(new Event("visibilitychange"));
       vi.advanceTimersByTime(RETURN_BLUR_MS * 3);
@@ -103,6 +106,19 @@ describe("useComposerFocusGap: blur on the keyboard's own hide", () => {
     expect(document.activeElement).toBe(f);
     act(() => {
       vi.advanceTimersByTime(1);
+    });
+    expect(document.activeElement).not.toBe(f);
+    expect(screen.getByTestId("root").hasAttribute(COMPOSER_FOCUSED_ATTR)).toBe(false);
+  });
+
+  it("the keyboard's height still held at the return deadline: no keyboard came back, blur", () => {
+    render(<Screen />);
+    const f = typing();
+    will({ show: false, active: false });
+    kb.held = true; // useViewportHeight keeps the keyboard's top while away
+    act(() => {
+      window.dispatchEvent(new Event("k2-viewport-resync"));
+      vi.advanceTimersByTime(RETURN_BLUR_MS);
     });
     expect(document.activeElement).not.toBe(f);
   });
