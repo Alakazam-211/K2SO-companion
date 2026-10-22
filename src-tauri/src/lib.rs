@@ -337,6 +337,7 @@ mod ios_keyboard {
         static UIKeyboardFrameEndUserInfoKey: *const AnyObject;
         static UIKeyboardFrameBeginUserInfoKey: *const AnyObject;
         static UIApplicationDidBecomeActiveNotification: *const AnyObject;
+        static UIApplicationWillResignActiveNotification: *const AnyObject;
     }
 
     #[link(name = "Foundation", kind = "framework")]
@@ -599,6 +600,8 @@ mod ios_keyboard {
     static KEYBOARD_UP: AtomicBool = AtomicBool::new(false);
     /// A scroll view's pan is in progress (began … ended).
     static PAN_ACTIVE: AtomicBool = AtomicBool::new(false);
+    /// We hold WebKit's focused state while the app is away (see hold_focus).
+    static FOCUS_HELD: AtomicBool = AtomicBool::new(false);
 
     // ── Drag recorder hook (diagnostics; off by default) ─────────────
     //
@@ -1153,6 +1156,94 @@ mod ios_keyboard {
             reset_content_offset(wk);
             ping_page(wk);
         }
+        // Back in the foreground: WebKit sees the app as focused again by
+        // itself; hand its focus state back once the keyboard has settled.
+        if FOCUS_HELD.load(Ordering::Acquire) {
+            let observer = OBSERVER.load(Ordering::Acquire);
+            if !observer.is_null() {
+                unsafe {
+                    let none = std::ptr::null::<AnyObject>();
+                    let _: () = msg_send![observer, performSelector: sel!(k2ReleaseFocusHold:), withObject: none, afterDelay: FOCUS_RELEASE_S];
+                }
+            } else {
+                release_focus_hold();
+            }
+        }
+    }
+
+    // ── Keyboard as left, on return ──────────────────────────────────
+    //
+    // A native app comes back with its keyboard already up: the field never
+    // stops being first responder and UIKit restores the keyboard from a
+    // snapshot. WKWebView instead unfocuses the page when the app goes to the
+    // background (`PageClientImpl::isViewFocused` is false while
+    // `_isBackground`): the DOM gets `blur`, the input session ends and the
+    // keyboard hides; on return WebKit refocuses the field and presents the
+    // keyboard as a fresh, animated focus (its `_restoreFocusWithToken:`
+    // opts out of UIKit's restore). Nothing in the page can stop that.
+    //
+    // WebKit's own way to keep its focused state across such moments (it
+    // uses it for its form-control overlays) is a hold counter on the
+    // WKWebView: while held, `isViewFocused` / `isViewWindowActive` stay
+    // true, so no blur, no refocus, and UIKit's own restore applies. We take
+    // it on WillResignActive when the keyboard is up (left closed, it stays
+    // closed) and give it back FOCUS_RELEASE_S after DidBecomeActive.
+    // A blur while held resets the count inside WebKit, and WebKit documents
+    // the decrement as harmless after a reset. These are WKWebView SPI:
+    // checked with respondsToSelector, so a WebKit without them just keeps
+    // today's behaviour. Also no focus change happens in the background any
+    // more (the 0x8BADF00D hang above came from one).
+
+    /// Seconds after DidBecomeActive before the hold is given back.
+    const FOCUS_RELEASE_S: f64 = 1.0;
+
+    fn responds(obj: *mut AnyObject, sel: Sel) -> bool {
+        unsafe { msg_send![obj, respondsToSelector: sel] }
+    }
+
+    /// Hold WebKit's focused state (no-op if already held or unsupported).
+    fn hold_focus(wk: *mut AnyObject) {
+        if FOCUS_HELD.load(Ordering::Acquire) {
+            return;
+        }
+        if !responds(wk, sel!(_incrementFocusPreservationCount))
+            || !responds(wk, sel!(_decrementFocusPreservationCount))
+        {
+            return;
+        }
+        unsafe {
+            let _: () = msg_send![wk, _incrementFocusPreservationCount];
+        }
+        FOCUS_HELD.store(true, Ordering::Release);
+    }
+
+    /// Give the hold back (once).
+    fn release_focus_hold() {
+        if !FOCUS_HELD.swap(false, Ordering::AcqRel) {
+            return;
+        }
+        if let Some(wk) = live_webview() {
+            unsafe {
+                let _: () = msg_send![wk, _decrementFocusPreservationCount];
+            }
+        }
+    }
+
+    extern "C-unwind" fn on_will_resign_active(_this: &AnyObject, _cmd: Sel, _note: *mut AnyObject) {
+        if !KEYBOARD_UP.load(Ordering::Acquire) {
+            return;
+        }
+        if let Some(wk) = live_webview() {
+            hold_focus(wk);
+        }
+    }
+
+    extern "C-unwind" fn on_release_focus_hold(_this: &AnyObject, _cmd: Sel, _arg: *mut AnyObject) {
+        // Inactive again before the delay ran (a banner, Control Center):
+        // keep holding; the next DidBecomeActive schedules this again.
+        if app_active() {
+            release_focus_hold();
+        }
     }
 
     /// Registers the keyboard / app-active observers once per process.
@@ -1170,6 +1261,14 @@ mod ios_keyboard {
                 on_keyboard_did_show as extern "C-unwind" fn(_, _, _),
             );
             builder.add_method(sel!(k2ResetViewport:), on_reset as extern "C-unwind" fn(_, _, _));
+            builder.add_method(
+                sel!(k2WillResignActive:),
+                on_will_resign_active as extern "C-unwind" fn(_, _, _),
+            );
+            builder.add_method(
+                sel!(k2ReleaseFocusHold:),
+                on_release_focus_hold as extern "C-unwind" fn(_, _, _),
+            );
             builder.add_method(
                 sel!(k2KeyboardDidHide:),
                 on_keyboard_did_hide as extern "C-unwind" fn(_, _, _),
@@ -1205,6 +1304,7 @@ mod ios_keyboard {
             let _: () = msg_send![center, addObserver: observer, selector: sel!(k2KeyboardDidShow:), name: UIKeyboardDidShowNotification, object: none];
             let _: () = msg_send![center, addObserver: observer, selector: sel!(k2KeyboardDidHide:), name: UIKeyboardDidHideNotification, object: none];
             let _: () = msg_send![center, addObserver: observer, selector: sel!(k2ResetViewport:), name: UIApplicationDidBecomeActiveNotification, object: none];
+            let _: () = msg_send![center, addObserver: observer, selector: sel!(k2WillResignActive:), name: UIApplicationWillResignActiveNotification, object: none];
             let _: () = msg_send![center, addObserver: observer, selector: sel!(k2KeyboardWillChange:), name: UIKeyboardWillShowNotification, object: none];
             let _: () = msg_send![center, addObserver: observer, selector: sel!(k2KeyboardWillChange:), name: UIKeyboardWillChangeFrameNotification, object: none];
             let _: () = msg_send![center, addObserver: observer, selector: sel!(k2KeyboardWillHide:), name: UIKeyboardWillHideNotification, object: none];
