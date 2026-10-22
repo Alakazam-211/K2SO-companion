@@ -1,5 +1,5 @@
 import { hostLabel, serverHostKey, type ServerEntry } from "../stores/servers";
-import { homeAddress, parseHomeAddress, type HomeRow } from "./homes";
+import { homeAddress, parseHomeAddress, type Home, type HomeRow } from "./homes";
 import { entryMatchesHomeHost, homeHostLabel } from "./homeServerIds";
 import { workspaceIdForRow } from "./multi/merge";
 import { pinProjectIdForRow, type ServerProject } from "./serverPins";
@@ -208,6 +208,26 @@ export function homeRowMatches(v: HomeRowView, q: string): boolean {
     v.kind === "remote" ? v.serverLabel : "",
   ];
   return hay.some((h) => h.toLowerCase().includes(needle));
+}
+
+/** A Home search covers every Home: the current Home's rows first, then
+ *  the others' in Home order, each address once (the first Home it is on
+ *  owns it: its name labels the hit, a Remove takes it off that Home). */
+export function rowsAcrossHomes(
+  homes: readonly Home[],
+  currentId: string
+): { rows: HomeRow[]; homeOf: Map<string, { id: string; name: string }> } {
+  const ordered = [...homes.filter((h) => h.id === currentId), ...homes.filter((h) => h.id !== currentId)];
+  const rows: HomeRow[] = [];
+  const homeOf = new Map<string, { id: string; name: string }>();
+  for (const h of ordered) {
+    for (const r of h.rows) {
+      if (homeOf.has(r.address)) continue;
+      homeOf.set(r.address, { id: h.id, name: h.name });
+      rows.push(r);
+    }
+  }
+  return { rows, homeOf };
 }
 
 /** The row an Agents agent adds to a Home on the active server. */
