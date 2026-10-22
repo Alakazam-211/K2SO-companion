@@ -57,8 +57,7 @@
 // springs home focuses that field again with its keyboard
 // (`focusWithKeyboard`: iOS shows a keyboard for a script's focus only
 // when the shell allows it); a completing one leaves it closed. Touches
-// are ignored
-// while a release animation runs.
+// are ignored while a release animation runs.
 
 import { useEffect, useRef, type RefObject } from "react";
 import { flushSync } from "react-dom";
