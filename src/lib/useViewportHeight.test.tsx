@@ -9,7 +9,9 @@ import {
   keyboardMotionMs,
   beginKeyboardDrag,
   endKeyboardDrag,
+  keyboardHeldNow,
   keyboardTopNow,
+  RETURN_HOLD_MS,
   setKeyboardDragHandler,
   useViewport,
   useViewportPadRef,
@@ -409,6 +411,80 @@ describe("keyboard motion (native UIKeyboardWill*)", () => {
     expect(root.getPropertyValue("--k2-kb-ease")).toBe("ease-in-out");
     root.removeProperty("--k2-kb-ms");
     root.removeProperty("--k2-kb-ease");
+  });
+
+  describe("leaving with the keyboard up (Home / switcher / lock)", () => {
+    afterEach(() => setVisibility("visible"));
+
+    /** iOS hides the keyboard as the app goes; the page keeps hearing
+     *  measurements of the keyboard-less screen while away. */
+    function leave() {
+      setVisibility("hidden");
+      will({ height: 0, duration: 250, curve: 7, show: false, active: false });
+      vv.height = FULL;
+      act(() => {
+        vv.dispatchEvent(new Event("resize"));
+        window.dispatchEvent(new CustomEvent("k2-viewport-resize", { detail: { height: FULL } }));
+        document.dispatchEvent(new Event("visibilitychange"));
+      });
+      flush();
+    }
+    function comeBack() {
+      setVisibility("visible");
+      act(() => {
+        document.dispatchEvent(new Event("visibilitychange"));
+        window.dispatchEvent(new Event("k2-viewport-resync"));
+      });
+    }
+
+    it("the keyboard's height is held while away; the returning keyboard finds it there (no motion)", () => {
+      render(<MotionProbe />);
+      keyboardUp();
+      leave();
+      expect(read().h).toBe(FULL - KEYBOARD);
+      expect(seen).toBeNull();
+      expect(keyboardHeldNow()).toBe(true);
+      comeBack();
+      will({ height: KEYBOARD, duration: 250, curve: 7, show: true, active: true });
+      expect(read().h).toBe(FULL - KEYBOARD);
+      expect(seen).toBeNull();
+      expect(keyboardHeldNow()).toBe(false);
+      vv.height = FULL - KEYBOARD;
+      act(() => {
+        vi.advanceTimersByTime(RETURN_HOLD_MS * 2);
+      });
+      flush();
+      expect(read().h).toBe(FULL - KEYBOARD);
+    });
+
+    it("no keyboard back within RETURN_HOLD_MS of the return: the hide plays then", () => {
+      render(<MotionProbe />);
+      keyboardUp();
+      leave();
+      comeBack();
+      act(() => {
+        vi.advanceTimersByTime(RETURN_HOLD_MS - 1);
+      });
+      expect(read().h).toBe(FULL - KEYBOARD);
+      act(() => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(read().h).toBe(FULL);
+      expect(seen).toMatchObject({ from: FULL - KEYBOARD, to: FULL });
+      expect(keyboardHeldNow()).toBe(false);
+    });
+
+    it("a hide in the foreground, or with no keyboard up, is not held", () => {
+      render(<MotionProbe />);
+      keyboardUp();
+      will({ height: 0, duration: 250, curve: 7, show: false, active: true });
+      expect(read().h).toBe(FULL);
+      expect(keyboardHeldNow()).toBe(false);
+      vv.height = FULL;
+      flush();
+      will({ height: 0, duration: 250, curve: 7, show: false, active: false });
+      expect(keyboardHeldNow()).toBe(false);
+    });
   });
 
   it("timing helpers", () => {
