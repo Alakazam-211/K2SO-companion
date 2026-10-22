@@ -15,13 +15,15 @@
 // keyboard back. On a Will*Hide the field is blurred, as UIKit resigns
 // the first responder (the shell also resigns WebKit's content view on
 // DidHide). Not while the app is leaving the screen (`active:false` on the
-// Will*): that blur waits until the app is back (see onReturn). Only for a keyboard this screen saw come up, and never a field
+// Will*): that blur waits until the app is back (see onReturn), and the
+// typing gap stays, as the keyboard's height does (useViewportHeight holds
+// it), so the app comes back exactly as it was left. Only for a keyboard this screen saw come up, and never a field
 // focused moments ago: a late / stale hide (UIKit can post a WillChangeFrame
 // with the old, hidden frame as the keyboard comes back) must not undo the
 // tap that is bringing the keyboard back.
 
 import { useEffect, useRef } from "react";
-import { keyboardMotionMs, keyboardTopNow } from "../../lib/useViewportHeight";
+import { keyboardHeldNow, keyboardMotionMs, keyboardTopNow } from "../../lib/useViewportHeight";
 
 /** The keyboard's curve as the CSS has it (useViewportHeight keeps
  *  --k2-kb-ease in step with the native notifications). */
@@ -153,8 +155,11 @@ export function useComposerFocusGap(opts: {
       // until it is back. A focus change in the background can hang
       // UIKit's keyboard queue until the watchdog kills the app (TestFlight
       // 202610181404, 0x8BADF00D).
-      if (d.active === false) pendingBlur = true;
-      else blurBar();
+      if (d.active === false) {
+        pendingBlur = true;
+        return;
+      }
+      blurBar();
       apply(false);
     };
     const blurBar = () => {
@@ -170,9 +175,10 @@ export function useComposerFocusGap(opts: {
       if (!pendingBlur || document.visibilityState === "hidden") return;
       clearTimeout(deferredBlur);
       deferredBlur = setTimeout(() => {
-        if (!pendingBlur || keyboardTopNow() != null) return;
+        if (!pendingBlur || (keyboardTopNow() != null && !keyboardHeldNow())) return;
         pendingBlur = false;
         blurBar();
+        apply(inBar(document.activeElement));
       }, RETURN_BLUR_MS);
     };
     root.addEventListener("focusin", onIn);
