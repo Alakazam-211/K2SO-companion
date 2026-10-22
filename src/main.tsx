@@ -5,6 +5,7 @@ import "./styles/index.css";
 import { initZenFont } from "./zen/zenFont";
 import { installAndroidBack } from "./lib/androidBack";
 import { initKbDragRecorder } from "./lib/kbDragRecorder";
+import { initKbDiag } from "./lib/kbDiag";
 import { initLightBlur } from "./lib/lightBlur";
 
 // Android's WebView reports env(safe-area-inset-bottom) as 0 while the
@@ -39,6 +40,7 @@ initZenFont();
 
 // Diagnostics → Keyboard drag recorder (off by default: one pref read).
 initKbDragRecorder();
+initKbDiag();
 
 // Diagnostics → Light blur (A/B, off by default: one pref read).
 initLightBlur();

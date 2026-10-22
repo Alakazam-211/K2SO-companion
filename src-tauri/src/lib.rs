@@ -508,6 +508,14 @@ mod ios_keyboard {
             Some(v) if v.is_finite() => format!("{:.2}", v),
             _ => "null".to_string(),
         };
+        diag(format!(
+            "keyboard will {} · overlap={:.0} from={} · {:.0}ms · active={}",
+            if hiding { "hide" } else if show { "show" } else { "change" },
+            overlap,
+            from,
+            duration_ms,
+            app_active()
+        ));
         let js = format!(
             "window.__k2KeyboardWill && window.__k2KeyboardWill({{height:{:.1},duration:{:.0},curve:{},show:{},at:{:.2},fromTop:{},scrollY:{},active:{}}});",
             overlap, duration_ms, curve, show, at, from, scroll, app_active()
@@ -1117,6 +1125,7 @@ mod ios_keyboard {
 
     extern "C-unwind" fn on_keyboard_did_show(_this: &AnyObject, _cmd: Sel, _note: *mut AnyObject) {
         if let Some(wk) = live_webview() {
+            diag(format!("keyboard did show · {}", keyboard_frame_str(wk)));
             KEYBOARD_UP.store(true, Ordering::Release);
             set_interactive_dismiss(wk);
             ping_page(wk);
@@ -1134,6 +1143,7 @@ mod ios_keyboard {
             stop_sampling();
         }
         if let Some(wk) = live_webview() {
+            diag(format!("keyboard did hide · retaining={}", retaining_str(wk)));
             if !coming_back && app_active() {
                 // The keyboard is gone. If it went by an interactive dismiss
                 // (or on its own), WebKit's content view can still be the
@@ -1153,6 +1163,11 @@ mod ios_keyboard {
 
     extern "C-unwind" fn on_reset(_this: &AnyObject, _cmd: Sel, _note: *mut AnyObject) {
         if let Some(wk) = live_webview() {
+            diag(format!(
+                "app did become active · held={} · retaining={}",
+                FOCUS_HELD.load(Ordering::Acquire),
+                retaining_str(wk)
+            ));
             reset_content_offset(wk);
             ping_page(wk);
         }
@@ -1203,7 +1218,7 @@ mod ios_keyboard {
 
     /// Hold WebKit's focused state (no-op if already held or unsupported).
     fn hold_focus(wk: *mut AnyObject) {
-        if FOCUS_HELD.load(Ordering::Acquire) {
+        if FOCUS_HELD.load(Ordering::Acquire) || !RETURN_HOLD_ON.load(Ordering::Acquire) {
             return;
         }
         if !responds(wk, sel!(_incrementFocusPreservationCount))
@@ -1215,6 +1230,7 @@ mod ios_keyboard {
             let _: () = msg_send![wk, _incrementFocusPreservationCount];
         }
         FOCUS_HELD.store(true, Ordering::Release);
+        diag(format!("hold focus · retaining={}", retaining_str(wk)));
     }
 
     /// Give the hold back (once).
@@ -1226,15 +1242,135 @@ mod ios_keyboard {
             unsafe {
                 let _: () = msg_send![wk, _decrementFocusPreservationCount];
             }
+            // UIKit's own background save (`_preserveFocusWithToken:`)
+            // adds to the same counter, and its matching restore may never
+            // run when focus never left: a leftover count keeps WebKit
+            // treating the view as focused, so a later blur would not end
+            // editing. Clear it, as WebKit itself does on every blur. Active
+            // and no focus change: safe (cf. the hang above).
+            let before = retaining_str(wk);
+            if retaining(wk) == Some(true)
+                && responds(wk, sel!(_resetFocusPreservationCountAndReleaseActiveFocusState))
+            {
+                unsafe {
+                    let _: () = msg_send![wk, _resetFocusPreservationCountAndReleaseActiveFocusState];
+                }
+            }
+            diag(format!("release hold · retaining {} → {}", before, retaining_str(wk)));
         }
     }
 
     extern "C-unwind" fn on_will_resign_active(_this: &AnyObject, _cmd: Sel, _note: *mut AnyObject) {
+        diag(format!(
+            "app will resign active · keyboardUp={} · retaining={}",
+            KEYBOARD_UP.load(Ordering::Acquire),
+            live_webview().map(retaining_str).unwrap_or("?")
+        ));
         if !KEYBOARD_UP.load(Ordering::Acquire) {
             return;
         }
         if let Some(wk) = live_webview() {
             hold_focus(wk);
+        }
+    }
+
+    // ── Diagnostics: keyboard events (Server settings → Diagnostics) ───
+    //
+    // A short, content-free log of the app / keyboard lifecycle and of
+    // WebKit's focus-hold state, for comparing behaviour on a device
+    // (src/lib/kbDiag.ts; the page adds marks such as a swipe's start).
+    // Plus the switch for the return hold above (on by default).
+
+    static RETURN_HOLD_ON: AtomicBool = AtomicBool::new(true);
+    static DIAG: std::sync::Mutex<std::collections::VecDeque<String>> =
+        std::sync::Mutex::new(std::collections::VecDeque::new());
+    const DIAG_MAX: usize = 80;
+
+    fn diag(line: String) {
+        static T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        let t = T0.get_or_init(std::time::Instant::now).elapsed().as_secs_f64();
+        if let Ok(mut q) = DIAG.lock() {
+            if q.len() >= DIAG_MAX {
+                q.pop_front();
+            }
+            q.push_back(format!("{:>9.3}s  {}", t, line));
+        }
+    }
+
+    /// WebKit's "treat the view as focused" state; None if unknown.
+    fn retaining(wk: *mut AnyObject) -> Option<bool> {
+        if !responds(wk, sel!(_isRetainingActiveFocusedState)) {
+            return None;
+        }
+        Some(unsafe { msg_send![wk, _isRetainingActiveFocusedState] })
+    }
+
+    fn retaining_str(wk: *mut AnyObject) -> &'static str {
+        match retaining(wk) {
+            Some(true) => "yes",
+            Some(false) => "no",
+            None => "?",
+        }
+    }
+
+    /// The keyboard host view's frame on screen, or "no keyboard".
+    fn keyboard_frame_str(wk: *mut AnyObject) -> String {
+        let Some((host, _w)) = find_keyboard_host(wk) else {
+            return "no keyboard host".into();
+        };
+        unsafe {
+            let b: CGRect = msg_send![host, bounds];
+            let none = std::ptr::null::<AnyObject>();
+            let r: CGRect = msg_send![host, convertRect: b, toView: none];
+            format!(
+                "keyboard x={:.0} y={:.0} w={:.0} h={:.0}",
+                r.origin.x, r.origin.y, r.size.width, r.size.height
+            )
+        }
+    }
+
+    pub fn set_return_hold(on: bool) {
+        RETURN_HOLD_ON.store(on, Ordering::Release);
+        diag(format!("return hold {}", if on { "on" } else { "off" }));
+    }
+
+    /// A page mark (e.g. "swipe start") with the state at that moment.
+    pub fn diag_mark(webview_ptr: *mut std::ffi::c_void, label: &str) {
+        let wk: *mut AnyObject = webview_ptr.cast();
+        let label: String = label.chars().filter(|c| !c.is_control()).take(80).collect();
+        diag(format!(
+            "page: {} · retaining={} · held={} · {}",
+            label,
+            retaining_str(wk),
+            FOCUS_HELD.load(Ordering::Acquire),
+            keyboard_frame_str(wk)
+        ));
+    }
+
+    /// The log, oldest first, plus a header with the current state.
+    pub fn diag_report(webview_ptr: *mut std::ffi::c_void) -> String {
+        let wk: *mut AnyObject = webview_ptr.cast();
+        let mut out = format!(
+            "now: retaining={} · held={} · returnHold={} · keyboardUp={} · active={} · {}\n",
+            retaining_str(wk),
+            FOCUS_HELD.load(Ordering::Acquire),
+            RETURN_HOLD_ON.load(Ordering::Acquire),
+            KEYBOARD_UP.load(Ordering::Acquire),
+            app_active(),
+            keyboard_frame_str(wk)
+        );
+        if let Ok(q) = DIAG.lock() {
+            for l in q.iter() {
+                out.push_str(l);
+                out.push('\n');
+            }
+        }
+        out
+    }
+
+    pub fn diag_clear() {
+        if let Ok(mut q) = DIAG.lock() {
+            q.clear();
         }
     }
 
@@ -1535,6 +1671,48 @@ fn ios_keyboard_recorder(on: bool) -> bool {
     }
 }
 
+/// Diagnostics: keyboard events (src/lib/kbDiag.ts). `action`:
+/// "report" → the log; "mark" → add `label`; "hold" → the return hold
+/// on / off (`on`); "clear". Empty string off iOS.
+#[tauri::command]
+async fn ios_keyboard_diag(
+    action: String,
+    label: Option<String>,
+    on: Option<bool>,
+    webview: tauri::WebviewWindow,
+) -> String {
+    #[cfg(target_os = "ios")]
+    {
+        let (tx, rx) = std::sync::mpsc::channel::<String>();
+        let _ = webview.with_webview(move |wv| {
+            let ptr = wv.inner();
+            let out = match action.as_str() {
+                "report" => ios_keyboard::diag_report(ptr),
+                "mark" => {
+                    ios_keyboard::diag_mark(ptr, label.as_deref().unwrap_or(""));
+                    String::new()
+                }
+                "hold" => {
+                    ios_keyboard::set_return_hold(on.unwrap_or(true));
+                    String::new()
+                }
+                "clear" => {
+                    ios_keyboard::diag_clear();
+                    String::new()
+                }
+                _ => String::new(),
+            };
+            let _ = tx.send(out);
+        });
+        rx.recv_timeout(std::time::Duration::from_secs(2)).unwrap_or_default()
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = (action, label, on, webview);
+        String::new()
+    }
+}
+
 #[tauri::command]
 fn ios_strip_accessory_bar(webview: tauri::WebviewWindow) {
     #[cfg(target_os = "ios")]
@@ -1587,6 +1765,7 @@ pub fn run() {
             ios_strip_accessory_bar,
             ios_keyboard_dismiss_padding,
             ios_keyboard_recorder,
+            ios_keyboard_diag,
             open_external_url,
             aps_environment
         ])
