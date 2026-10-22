@@ -184,6 +184,38 @@ describe("useSwipeBack release", () => {
     swipe(el, [[5, 0], [40, 100], [505, 1000], [505, 1300]]);
     expect(document.activeElement).not.toBe(input);
   });
+
+  it("the keyboard drops as the screen starts to follow the finger", () => {
+    const { el } = setup();
+    const input = screen.getByTestId("input") as HTMLInputElement;
+    input.focus();
+    touch("touchStart", el, 5, 0);
+    touch("touchMove", el, 40, 100);
+    touch("touchMove", el, 200, 200);
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it("a swipe that springs home gives the field its keyboard back; a completed one does not", () => {
+    const { el } = setup();
+    const input = screen.getByTestId("input") as HTMLInputElement;
+    input.focus();
+    swipe(el, [[5, 0], [40, 100], [125, 1000], [125, 1400]]);
+    expect(document.activeElement).toBe(input);
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    swipe(el, [[5, 2000], [40, 2100], [505, 3000], [505, 3300]]);
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    expect(document.activeElement).not.toBe(input);
+  });
+
+  it("nothing focused: a cancel focuses nothing", () => {
+    const { el } = setup();
+    swipe(el, [[5, 0], [40, 100], [125, 1000], [125, 1400]]);
+    expect(document.activeElement).toBe(document.body);
+  });
 });
 
 describe("useSwipeBack release, reduced motion", () => {
