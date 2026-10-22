@@ -53,10 +53,10 @@ function draw(d: Doc, onWritten = vi.fn()) {
 describe("golden samples: every form", () => {
   it("the set is all here", () => {
     const index = (S.index as { files: { file: string }[] }).files.map((f) => f.file.replace(/\.json$/, "")).sort();
-    expect(index).toHaveLength(97);
+    expect(index).toHaveLength(116);
     expect(Object.keys(S).filter((n) => n !== "index").sort()).toEqual(index);
-    expect(names("cards2")).toHaveLength(37);
-    expect(names("response")).toHaveLength(13);
+    expect(names("cards2")).toHaveLength(44);
+    expect(names("response")).toHaveLength(17);
   });
 
   it("every cards2 doc, GET item and WS frame parses as a rich card", () => {
@@ -177,6 +177,22 @@ describe("model", () => {
     const d = card(doc("batch-approver__done__cards2"));
     expect(d.kind === "batch" && d.state).toBe("done");
     expect(d.open).toBe(false);
+  });
+
+  it("Garden cards (garden.access / garden.delete) are ordinary permission cards", () => {
+    const a = single(doc("garden-access__pending__cards2"));
+    expect(a.item.action).toBe("garden.access");
+    expect(a.item.whatChanges).toBe("Let billing edit Sales board.");
+    expect(a.approvers.floor).toBe("owner");
+    expect(a.options).toEqual(["Allow", "Deny"]);
+    // An admin below the GardenOwner floor waits, in the server's own words.
+    const w = single(doc("garden-access-admin__pending__cards2"));
+    expect(w.viewer.mode).toBe("wait");
+    expect(waitingText(w)).toBe("billing asked an owner to turn on Edit Sales board.");
+    const d = single(doc("garden-delete__approved__cards2"));
+    expect(d.resultMessage).toBe("Deleted. K2 keeps a copy in history.");
+    expect(d.item.undo).toBeNull();
+    expect(stateLine(single(doc("garden-access__denied__cards2")), () => "t")).toBe("Denied by rosson");
   });
 
   it("note rules: length, one paragraph, no links", () => {
