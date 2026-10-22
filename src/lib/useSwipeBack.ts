@@ -47,10 +47,16 @@
 // Usage: `const swipeRef = useSwipeBack(onBack, { enabled })`, attached
 // to the screen's OUTER fixed-overlay div (the `fixed inset-0` root
 // those screens already have — a clean transform target that leaves
-// their internal keyboard/scroll machinery alone). A completing release
-// blurs the focused element first so an open keyboard dismisses while
-// the screen slides away (it doesn't survive the pop). Touches are
-// ignored while a release animation runs.
+// their internal keyboard/scroll machinery alone).
+//
+// The keyboard: iOS moves its keyboard sideways only in its own native
+// transitions, never with a page's CSS swipe (4.0.3 behaved the same), so
+// a keyboard left up would sit still while the screen slides away. When
+// the screen starts following the finger, a focused text field inside it
+// is blurred: the keyboard drops as the screen slides. A swipe that
+// springs home focuses that field again (the keyboard comes back with
+// the screen); a completing one leaves it closed. Touches are ignored
+// while a release animation runs.
 
 import { useEffect, useRef, type RefObject } from "react";
 import { flushSync } from "react-dom";
@@ -69,6 +75,16 @@ import { kbMark } from "./kbDiag";
 
 /** Drop move samples older than the velocity window needs (bounded). */
 const MAX_SAMPLES = 20;
+
+/** A field that raises the keyboard. */
+function isTextField(n: Element | null): n is HTMLElement {
+  if (!(n instanceof HTMLElement)) return false;
+  if (n instanceof HTMLTextAreaElement) return true;
+  if (n instanceof HTMLInputElement) {
+    return !["button", "checkbox", "radio", "range", "color", "file", "submit", "reset", "image", "hidden"].includes(n.type);
+  }
+  return n.isContentEditable;
+}
 
 /** Slack past a transition's duration before its timer finishes it
  *  anyway (transitionend can be skipped — hidden tab, interrupted). */
@@ -123,6 +139,8 @@ export function useSwipeBack(
     // transitionend finishes it (null = timers only), and its timers.
     let anim: { done: () => void; endsOn: string | null } | null = null;
     let timers: number[] = [];
+    // The field this drag blurred (its keyboard dropped), for a cancel.
+    let typed: HTMLElement | null = null;
 
     const width = (): number => window.innerWidth || el.getBoundingClientRect().width || 1;
     const isEnabled = (): boolean => {
@@ -207,6 +225,7 @@ export function useSwipeBack(
     const complete = (velocity: number): void => {
       // Keyboard must not survive the pop: it dismisses as we slide.
       kbMark("swipe release");
+      typed = null;
       (document.activeElement as HTMLElement | null)?.blur?.();
       // No taps on a screen that is leaving.
       el.style.pointerEvents = "none";
@@ -238,6 +257,11 @@ export function useSwipeBack(
 
     /** Released short (or interrupted): back home to 0. */
     const cancel = (velocity: number): void => {
+      // The field the drag blurred gets its keyboard back as the screen
+      // returns.
+      const field = typed;
+      typed = null;
+      if (field?.isConnected) field.focus({ preventScroll: true });
       const done = (): void => {
         clearScreen();
         clearUnderlay();
@@ -293,6 +317,12 @@ export function useSwipeBack(
       if (!dragging) {
         dragging = true;
         kbMark("swipe start");
+        // The keyboard can't follow the slide: drop it now.
+        const a = document.activeElement;
+        if (isTextField(a) && el.contains(a)) {
+          typed = a;
+          a.blur();
+        }
         onDragRef.current?.(true);
         under = underlayRef.current?.() ?? null;
         if (under) under.style.willChange = "transform, opacity";
