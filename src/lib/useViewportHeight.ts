@@ -73,6 +73,14 @@
 //     Thread FLIPs the composer down from there; spring back — the columns
 //     hold the dragged height while the composer plays up, then commit.
 //     No height transition. Scroll momentum carries on without it.
+//
+// Leaving with the keyboard up (Home, app switcher, lock): iOS hides it
+// as the app goes (a Will*Hide with `active:false`) and puts it back
+// when the app returns. A native app comes back as it was left, so the
+// columns hold the keyboard's height while the app is away (no
+// measurement moves them) and the returning WillShow finds them already
+// there. If no keyboard comes back within RETURN_HOLD_MS of the return,
+// they play the hide then (the composer's blur waits the same time).
 
 import { useCallback, useRef, useSyncExternalStore } from "react";
 
@@ -143,6 +151,8 @@ export type KeyboardWill = {
   /** The dragged list's contentOffset.y in the same native frame (a
    *  dismiss drag was sampled): places the stand-in exactly. */
   scrollY?: number | null;
+  /** The app is active (false: Home / switcher / lock is taking it away). */
+  active?: boolean;
 };
 
 /** UIKit's private keyboard curve (UIViewAnimationCurve 7). */
@@ -197,6 +207,9 @@ const KEYBOARD_SLOP = 100;
 const FOCUS_IN_DELAYS = [100, 300, 500];
 const FOCUS_OUT_DELAYS = [100, 300];
 const RESUME_DELAYS = [100, 300, 600];
+/** Back from the background with the keyboard's height held: how long iOS
+ *  gets to bring the keyboard back before the hide plays (ms). */
+export const RETURN_HOLD_MS = 700;
 
 /** The keyboard-closed height, read fresh. iOS does not shrink the layout
  *  viewport for the keyboard, so these stay full height while it is up;
@@ -245,6 +258,10 @@ const trackEls = new Set<HTMLElement>();
 const padEls = new Set<HTMLElement>();
 /** Last keyboard overlap the shell signalled (px). */
 let latestOverlap = 0;
+/** The keyboard went with the app (Home / switcher / lock): the columns
+ *  keep its height until it comes back or RETURN_HOLD_MS after the return. */
+let heldForReturn = false;
+let holdTimer: ReturnType<typeof setTimeout> | null = null;
 
 /** One reading from the shell during a dismiss drag, all in the same
  *  native frame: the keyboard's top (viewport px), the panning scroll
@@ -288,6 +305,11 @@ export function keyboardTopNow(): number | null {
   const full = fullHeight();
   if (state.height >= full - KEYBOARD_SLOP) return null;
   return state.offsetTop + state.height;
+}
+
+/** The keyboard's height is held while the app is away (or just back). */
+export function keyboardHeldNow(): boolean {
+  return heldForReturn;
 }
 
 /** The keyboard-closed height (px), read fresh. */
@@ -444,6 +466,7 @@ function measure(): void {
   const vv = window.visualViewport;
   const visible = vv ? vv.height : window.innerHeight;
   const offsetTop = vv ? Math.max(0, Math.round(vv.offsetTop || 0)) : 0;
+  if (heldForReturn) return;
   if (animating || state.interactive) {
     set({ ...state, offsetTop });
     return;
@@ -466,6 +489,24 @@ function endInteractive(): void {
   endKeyboardDrag();
 }
 
+function clearHold(): void {
+  if (holdTimer !== null) clearTimeout(holdTimer);
+  holdTimer = null;
+}
+
+/** Back in the foreground with the height held: give iOS RETURN_HOLD_MS
+ *  to bring the keyboard back, else play the hide now. */
+function returned(): void {
+  if (!heldForReturn || document.visibilityState === "hidden") return;
+  clearHold();
+  holdTimer = setTimeout(() => {
+    holdTimer = null;
+    if (!heldForReturn) return;
+    heldForReturn = false;
+    keyboardWill({ height: 0, duration: keyboardMs, curve: 7, show: false });
+  }, RETURN_HOLD_MS);
+}
+
 function clearSettle(): void {
   if (settleTimer !== null) clearTimeout(settleTimer);
   settleTimer = null;
@@ -474,6 +515,18 @@ function clearSettle(): void {
 /** UIKeyboardWill{Show,Hide,ChangeFrame}: go to where the keyboard is
  *  heading, with its timing, and hold there until it lands. */
 function keyboardWill(will: KeyboardWill): void {
+  if (will.show === false && will.active === false && !state.interactive && keyboardTopNow() != null) {
+    // Going with the app: hold where it is (see the header).
+    heldForReturn = true;
+    clearHold();
+    clearSettle();
+    animating = false;
+    return;
+  }
+  if (heldForReturn) {
+    heldForReturn = false;
+    clearHold();
+  }
   const full = fullHeight();
   const overlap =
     will.show && Number.isFinite(will.height) ? Math.min(full, Math.max(0, will.height)) : 0;
@@ -549,7 +602,7 @@ function install(): () => void {
     const h = (e as CustomEvent).detail?.height;
     // The native height is authoritative now (unless the keyboard is
     // still animating to a known one); still re-pin the scroll.
-    if (typeof h === "number" && !animating && !state.interactive) {
+    if (typeof h === "number" && !animating && !state.interactive && !heldForReturn) {
       set({ height: heightFor(h), offsetTop: state.offsetTop, motion: null, interactive: false });
     }
     schedule();
@@ -572,10 +625,13 @@ function install(): () => void {
   // Native Did* / app-active pings (and pageshow / focus).
   const onResync = () => {
     endInteractive();
+    returned();
     scheduleAfter(RESUME_DELAYS);
   };
   const onVisibility = () => {
-    if (document.visibilityState !== "hidden") scheduleAfter(RESUME_DELAYS);
+    if (document.visibilityState === "hidden") return;
+    returned();
+    scheduleAfter(RESUME_DELAYS);
   };
   const onFocusIn = () => scheduleAfter(FOCUS_IN_DELAYS);
   const onFocusOut = () => scheduleAfter(FOCUS_OUT_DELAYS);
@@ -611,6 +667,8 @@ function install(): () => void {
     for (const t of timers) clearTimeout(t);
     timers.clear();
     clearSettle();
+    clearHold();
+    heldForReturn = false;
     animating = false;
     if (frame !== null) {
       if (typeof cancelAnimationFrame === "function") cancelAnimationFrame(frame);
@@ -703,6 +761,8 @@ export function __resetViewportForTests(): void {
   teardown = null;
   subscribers.clear();
   clearSettle();
+  clearHold();
+  heldForReturn = false;
   animating = false;
   keyboardMs = KEYBOARD_MS;
   trackEls.clear();
