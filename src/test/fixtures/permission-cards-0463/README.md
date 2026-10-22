@@ -1,9 +1,14 @@
 # Permission cards: golden samples for K2 Companion (K2 0.46.3, `cards=2`, `view.v = 1`)
 
-**97 sample files + `index.json`.** They were written by K2's own daemon code (lane F,
-branch `hold/permission-cards-f-push-0463` @ `62ae4bad3`, which is F on A3 `27508ecfe` / A1 `4b76c670a`,
-plus lane A2 `73d72281e` for the push). Update 2: the two push samples were added; no other
-sample changed when A2's code came in.
+**97 sample files + `index.json`.** They were written by K2's own daemon code: lane F, branch
+`hold/permission-cards-f-r8-0463` @ `b71367783`. That branch is integration r8 (`3d4ae3e21`, which has
+A1, A3, B, C, D1, D2, E1 and E2) with lane A2's push and F on top.
+
+- **Update 3 (r8): the real catalog words.** E1/E2's real action specs replaced the stand-ins. Only
+  the text fields changed: `whatChanges`, `consequences`, and the prompt/`body` built from them.
+  No field, state, option, label, floor, id or shape changed, and the push samples are unchanged.
+  The 42 changed files are listed in `index.json` with new sha256 values.
+- **Update 2:** the two push samples were added. No other sample changed when A2's code came in.
 The code built the request rows, posted the card, ran the real answer route
 (`POST /cli/thread/answer`, `client:"phone"`), the expiry sweep, the cancel route and the
 switch-off close, and then ran A3's per-viewer projection. The test
@@ -100,5 +105,5 @@ Workspaces are `billing` and `shopdev`.
 
 ## Not in this drop yet
 
-- **Real catalog words.** Lanes E1/E2 haven't registered `compute.use` / `apps.*` yet, so these cards use stand-in specs with the PRD's words. That's why `apps.approve` lists only `workspace` and `request` in `values`, with no command or port. When E1/E2 land, the words and values come from the real specs. **The shapes don't change.**
+- **The words are real as of update 3.** Even with the real spec, `apps.approve` lists only `workspace` and `request` in `values`. The card points to Settings → App Approvals for the full change.
 - **Note, undo and "Waiting on you" responses.** Lane A2 has built `/cli/thread/permission-note`, `/cli/thread/permission-undo` and `GET /cli/permission/pending`, but there are no samples of their responses yet. Their shapes are in A2's notes and match §5, §3 and §8.
