@@ -216,6 +216,56 @@ describe("Home view (HM3/HM7)", () => {
   });
 });
 
+describe("Home search across every Home (Rosson 2026-10-22)", () => {
+  function twoHomes() {
+    const h = useHomesStore.getState();
+    h.ensureSeeded();
+    const first = useHomesStore.getState().selectedId;
+    useHomesStore.getState().addRow(first, { address: homeAddress("alpha", HOST), workspaceId: "pa", label: "alpha" });
+    const second = useHomesStore.getState().createHome("Second")!;
+    useHomesStore.getState().addRow(second, { address: homeAddress("bravo", HOST), workspaceId: "pb", label: "bravo" });
+    useHomesStore.getState().selectHome(first);
+    return { first, second };
+  }
+
+  it("finds a row on another Home, tagged with that Home; the shown Home's rows carry no tag", () => {
+    twoHomes();
+    mount();
+    goHome();
+    expect(screen.queryByTestId("home-row-bravo")).toBeNull();
+    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "a" } });
+    const bravo = screen.getByTestId("home-row-bravo");
+    expect(within(bravo).getByTestId("row-home-tag").textContent).toBe("Second");
+    expect(within(screen.getByTestId("home-row-alpha")).queryByTestId("row-home-tag")).toBeNull();
+    // The shown Home's hits come first.
+    const order = [...screen.getByTestId("home-list").querySelectorAll("[data-home-row]")].map((e) => e.getAttribute("data-home-row"));
+    expect(order).toEqual([homeAddress("alpha", HOST), homeAddress("bravo", HOST)]);
+  });
+
+  it("Remove on a hit from another Home takes it off that Home", () => {
+    const { first, second } = twoHomes();
+    vi.useFakeTimers();
+    mount();
+    goHome();
+    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "brav" } });
+    holdOpen(screen.getByTestId("home-row-bravo"));
+    expect(menuLabels(screen.getByTestId("home-row-menu"))).toContain("Remove from Second");
+    tap(screen.getByTestId("menu-remove"));
+    vi.useRealTimers();
+    const homes = useHomesStore.getState().homes;
+    expect(homes.find((x) => x.id === second)?.rows).toHaveLength(0);
+    expect(homes.find((x) => x.id === first)?.rows).toHaveLength(1);
+  });
+
+  it("nothing anywhere: says so for every Home", () => {
+    twoHomes();
+    mount();
+    goHome();
+    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "zzz" } });
+    expect(screen.getByTestId("home-no-match").textContent).toBe("No matches on any Home.");
+  });
+});
+
 describe("Home title dropdown (HM4)", () => {
   it("lists Homes with a check; New Home…, Rename…, Delete (off on the last)", () => {
     mount();

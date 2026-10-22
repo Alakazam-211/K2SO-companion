@@ -62,7 +62,7 @@ import { prefetchTargets, useChatPrefetch, type PrefetchTarget } from "./chatPre
 import { HomeMenu } from "./HomeMenu";
 import { HomeTabToggle } from "./HomeTabToggle";
 import { parseHomeAddress, readListTab, selectedHome, useHomesStore, writeListTab, type ListTab } from "./homes";
-import { homeRowMatches, renameRepairFor, resolveHomeRows, type HomeRowView } from "./homeView";
+import { homeRowMatches, renameRepairFor, resolveHomeRows, rowsAcrossHomes, type HomeRowView } from "./homeView";
 import { boxIdForSaved, homeHostFor, useHomeServerIds } from "./homeServerIds";
 import { dismissHomesSyncNotice, useHomesSyncBadge, useHomesSyncStore } from "./homesSync";
 import { OtherServerSection } from "./multi/OtherServerSection";
@@ -475,8 +475,12 @@ export function ChatsList() {
   // server's own lists. Off (owner 2026-10): Home is the active server's
   // rows only; other servers' rows are hidden, never deleted, and come
   // back when the flag is turned on again.
+  // A search on Home covers every Home (Rosson 2026-10-22): the shown
+  // Home's rows first, then the others', each once (`rowsAcrossHomes`).
+  const homeSearch = onHome && q.trim().length > 0 && homes.length > 1;
+  const across = useMemo(() => (homeSearch ? rowsAcrossHomes(homes, home.id) : null), [homeSearch, homes, home.id]);
   const homeViews = useMemo(() => {
-    const views = resolveHomeRows(home.rows, {
+    const views = resolveHomeRows(across ? across.rows : home.rows, {
       activeHostKey,
       agents,
       projects: serverProjects,
@@ -484,7 +488,13 @@ export function ChatsList() {
       remote: multi.on ? { byServer: multi.byServer, tokens } : undefined,
     });
     return multi.on ? views : views.filter((v) => v.kind !== "remote");
-  }, [home.rows, activeHostKey, agents, serverProjects, servers, multi.on, multi.byServer, tokens, boxIds]);
+  }, [across, home.rows, activeHostKey, agents, serverProjects, servers, multi.on, multi.byServer, tokens, boxIds]);
+  const otherHomeOf = across
+    ? (address: string) => {
+        const h = across.homeOf.get(address);
+        return h && h.id !== home.id ? h.name : null;
+      }
+    : undefined;
   // "Recent agents first": this phone's latest sends, then the Home's own
   // order. Home has no pin grid, so pins are not held at the top (they
   // would look frozen). Off: the Home's own order.
@@ -572,6 +582,18 @@ export function ChatsList() {
   useChatPrefetch(prefetch, zenScreen === "list" && source === "live");
 
   const searching = q.trim().length > 0;
+  /** In a search, the focus group an agent is in on its server (a tag on
+   *  the hit; Rosson 2026-10-22). Null outside a search, without groups,
+   *  or for an ungrouped agent. */
+  const groupTagFor = (sid: string | null | undefined, a: StubAgent): { name: string; color: string | null } | null => {
+    if (!searching) return null;
+    const own = !sid || sid === zen.id;
+    const f = own ? focus : multi.byServer[sid]?.focus;
+    if (!f || f.groups.length === 0) return null;
+    const gid = rowFocusGroupId(a, own ? serverProjects : multi.byServer[sid]?.serverProjects ?? []);
+    const g = gid ? f.groups.find((x) => x.id === gid) : null;
+    return g ? { name: g.name, color: g.color } : null;
+  };
   /** A server's project list: the active one's from the store, another's
    *  from its multi-server read. */
   const projectsForServer = (sid: string | undefined) =>
@@ -966,6 +988,7 @@ export function ChatsList() {
         iconUrl={iconOf(r)}
         inset={ZEN_LIST_CONTENT_INSET}
         divider={divider}
+        groupTag={groupTagFor(r.serverId, r.agent)}
         nextAt={multi.entries[r.serverId]?.nextAt ?? null}
         onOpen={() => openRemote(r)}
         onAction={() => {
@@ -1531,7 +1554,8 @@ export function ChatsList() {
           }}
           inset={ZEN_LIST_CONTENT_INSET}
           previewFor={previewFor}
-          onRemove={(address) => useHomesStore.getState().removeRow(home.id, address)}
+          onRemove={(address) => useHomesStore.getState().removeRow(across?.homeOf.get(address)?.id ?? home.id, address)}
+          otherHomeOf={otherHomeOf}
           hereChip={multi.on && multi.chips ? serverLabel : null}
           activeDown={activeDown}
           remoteLook={multi.on ? homeRemoteLook : undefined}
@@ -1795,6 +1819,8 @@ export function ChatsList() {
               preview={preview}
               stub={source === "stub"}
               unread={source === "live" ? rowUnread(zen.id, a) : null}
+              groupTag={groupTagFor(zen.id, a)?.name ?? null}
+              groupColor={groupTagFor(zen.id, a)?.color ?? null}
             />
           </button>
           {divided && !shift.dragging ? (

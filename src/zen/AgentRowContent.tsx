@@ -43,13 +43,44 @@ function sameRow(a: RowProps, b: RowProps): boolean {
  * dot, the name over the status line (activity, else preview), and the
  * time + chevron. Shared by the Agents list and the Home list so both
  * look the same. `serverChip` names the row's server (Home rows with several
- * servers); it sits right after the name, not by the time.
+ * servers); it sits right after the name, not by the time. In a search,
+ * `groupTag` names the agent's focus group and `homeTag` the other Home a
+ * hit is on: tinted tags after the chip, each its own colour so they never
+ * read as a server.
  *
  * Memoized: the lists re-render on activity polls, search keystrokes,
  * unread and preview changes; a row only when what it draws changed
  * (`unread` by value, `preview` by element props).
  */
 export const AgentRowContent = memo(AgentRowContentInner, sameRow);
+
+const TAG_LOOK = {
+  // Focus group: indigo; Home: green with a house. The server chip is the
+  // neutral glass pill.
+  group: { background: "rgba(94,92,230,0.24)", color: "#c9c8ff" },
+  home: { background: "rgba(48,209,88,0.2)", color: "#a8ebb9" },
+} as const;
+
+/** A search tag after the name. A focus group with its own colour
+ *  (`#rrggbb`) tints the tag with it. */
+export function RowTag({ kind, label, color }: { kind: keyof typeof TAG_LOOK; label: string; color?: string | null }) {
+  const own = color && /^#[0-9a-f]{6}$/i.test(color) ? { background: `${color}40`, color: "#f2f2f7" } : null;
+  return (
+    <span
+      className="shrink-0 truncate rounded-full inline-flex items-center"
+      style={{ maxWidth: 110, padding: "1px 8px", gap: 3, fontSize: zenTextPx(12), fontWeight: 400, ...TAG_LOOK[kind], ...own }}
+      data-testid={`row-${kind}-tag`}
+    >
+      {kind === "home" ? (
+        <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" aria-hidden style={{ flexShrink: 0 }}>
+          <path d="M3 11l9-7 9 7" />
+          <path d="M5 10v10h14V10" />
+        </svg>
+      ) : null}
+      <span className="truncate">{label}</span>
+    </span>
+  );
+}
 
 function AgentRowContentInner({
   name,
@@ -61,6 +92,9 @@ function AgentRowContentInner({
   preview,
   stub = false,
   serverChip,
+  groupTag = null,
+  groupColor = null,
+  homeTag = null,
   unread = null,
 }: {
   name: string;
@@ -73,6 +107,12 @@ function AgentRowContentInner({
   preview: ReactNode;
   stub?: boolean;
   serverChip?: string | null;
+  /** Search hits: the agent's focus group. */
+  groupTag?: string | null;
+  /** That group's own colour, if any. */
+  groupColor?: string | null;
+  /** Search hits on Home: the other Home the row is on. */
+  homeTag?: string | null;
   /** Unread marks (K2 0.46.1 `thread-read-v1`); null = none. */
   unread?: RowUnread | null;
 }) {
@@ -147,6 +187,8 @@ function AgentRowContentInner({
                 {serverChip}
               </span>
             ) : null}
+            {groupTag ? <RowTag kind="group" label={groupTag} color={groupColor} /> : null}
+            {homeTag ? <RowTag kind="home" label={homeTag} /> : null}
           </span>
           {stub ? (
             <StubMark />

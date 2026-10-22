@@ -112,6 +112,7 @@ export function HomeList({
   hereChip = null,
   activeDown = false,
   inset = "16px",
+  otherHomeOf,
 }: {
   views: HomeRowView[];
   homeName: string;
@@ -142,6 +143,10 @@ export function HomeList({
   activeDown?: boolean;
   /** Row side padding: the Agents list's content inset. */
   inset?: string;
+  /** A search across every Home: the name of the other Home a hit is
+   *  on (null for the shown Home's own rows). Labels the hit and its
+   *  menu. */
+  otherHomeOf?: (address: string) => string | null;
 }) {
   const source = useZenStore((s) => s.agentSource);
   const activity = useZenStore((s) => s.activity);
@@ -164,7 +169,7 @@ export function HomeList({
   if (views.length === 0) {
     return searching ? (
       <p className="py-6 text-[14px] text-center" style={{ color: "#8e8e93" }} data-testid="home-no-match">
-        No matches on {homeName}.
+        {otherHomeOf ? "No matches on any Home." : `No matches on ${homeName}.`}
       </p>
     ) : (
       <div
@@ -221,7 +226,7 @@ export function HomeList({
         : []),
       {
         key: "remove",
-        label: "Remove from Home",
+        label: `Remove from ${otherHomeOf?.(v.row.address) ?? "Home"}`,
         icon: <RemoveGlyph />,
         danger: true,
         onSelect: () => onRemove(v.row.address),
@@ -279,6 +284,7 @@ export function HomeList({
             ? rowUnreadFor(unreadServers, unreadAddrs, target.serverId, { addr: target.addr })
             : null;
         const opacity = look ? (dim ? 0.6 : 1) : dim ? 0.55 : 1;
+        const elsewhere = otherHomeOf?.(address) ?? null;
         const remoteView = v.kind === "remote" ? v : null;
         const shift = rearrange.offsetFor(address);
         return (
@@ -325,9 +331,8 @@ export function HomeList({
               aria-haspopup={rearranging ? undefined : "menu"}
               aria-expanded={rearranging ? undefined : menu?.id === address}
               aria-label={
-                v.kind === "remote"
-                  ? `${name}, on ${v.serverLabel}` + (failure ? `, ${failure.copy}` : "")
-                  : name
+                (v.kind === "remote" ? `${name}, on ${v.serverLabel}` + (failure ? `, ${failure.copy}` : "") : name) +
+                (elsewhere ? `, on ${elsewhere}` : "")
               }
               {...hold.bind(address, !rearranging)}
               onClick={() => {
@@ -343,6 +348,7 @@ export function HomeList({
                 busy={failure ? null : busy}
                 when={failure ? "" : when}
                 preview={preview}
+                homeTag={elsewhere}
                 stub={source === "stub" && v.kind === "here"}
                 serverChip={v.kind === "remote" ? v.serverLabel : hereChip}
                 unread={unread}
@@ -375,7 +381,7 @@ export function HomeList({
 
       {menu && menuView ? (
         <AgentMenu
-          label={`Options for ${menuView.row.label} on ${homeName}`}
+          label={`Options for ${menuView.row.label} on ${otherHomeOf?.(menuView.row.address) ?? homeName}`}
           menu={menu}
           entries={menuEntries(menuView)}
           onClose={hold.close}
