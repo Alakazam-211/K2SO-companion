@@ -53,7 +53,7 @@ function draw(d: Doc, onWritten = vi.fn()) {
 describe("golden samples: every form", () => {
   it("the set is all here", () => {
     const index = (S.index as { files: { file: string }[] }).files.map((f) => f.file.replace(/\.json$/, "")).sort();
-    expect(index).toHaveLength(95);
+    expect(index).toHaveLength(97);
     expect(Object.keys(S).filter((n) => n !== "index").sort()).toEqual(index);
     expect(names("cards2")).toHaveLength(37);
     expect(names("response")).toHaveLength(13);
