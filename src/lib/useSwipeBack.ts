@@ -65,6 +65,7 @@ import {
   velocityFromSamples,
   type SwipePhase,
 } from "./swipeBack";
+import { kbMark } from "./kbDiag";
 
 /** Drop move samples older than the velocity window needs (bounded). */
 const MAX_SAMPLES = 20;
@@ -205,6 +206,7 @@ export function useSwipeBack(
     /** Released past the threshold: the rest of the slide, then Back. */
     const complete = (velocity: number): void => {
       // Keyboard must not survive the pop: it dismisses as we slide.
+      kbMark("swipe release");
       (document.activeElement as HTMLElement | null)?.blur?.();
       // No taps on a screen that is leaving.
       el.style.pointerEvents = "none";
@@ -213,6 +215,7 @@ export function useSwipeBack(
         // when we tidy up below the new screen has already committed (a
         // screen that STAYS mounted — the docs viewer's list, the next
         // open file — then shows at home instead of off to the right).
+        kbMark("swipe done");
         flushSync(() => onBackRef.current());
         settle();
         clearUnderlay();
@@ -289,6 +292,7 @@ export function useSwipeBack(
       e.preventDefault();
       if (!dragging) {
         dragging = true;
+        kbMark("swipe start");
         onDragRef.current?.(true);
         under = underlayRef.current?.() ?? null;
         if (under) under.style.willChange = "transform, opacity";
