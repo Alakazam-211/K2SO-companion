@@ -249,7 +249,8 @@ describe("signed-in hydrate never exposes the stub catalogue", () => {
     const mid = useZenStore.getState();
     expect(mid.agentSource).toBe("error");
     expect(mid.agents).toEqual([]);
-    expect(mid.agentError).toMatch(/unrecognised shape/);
+    // The first notice is shown: the agent list's, naming what came back.
+    expect(mid.agentError).toMatch(/agent list came back in a form the app can't read \(a list of 1 whose first item has keys name, agentType\)/);
   });
 
   it("no token is the only path that installs the stub catalogue", async () => {
