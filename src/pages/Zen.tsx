@@ -58,6 +58,7 @@ import { BackUnreadPill, useBackUnreadCount } from "../zen/UnreadMarks";
 import { useUnreadSync } from "../zen/unreadSync";
 import { useForegroundCatchup, useUnreadPrefetch } from "../zen/chatPrefetch";
 import { installPushInboxDrain } from "../lib/pushInbox";
+import { HeaderGlass } from "../zen/HeaderGlass";
 
 const HEADER_BTN: CSSProperties = {
   width: 36,
@@ -481,14 +482,23 @@ export function Zen() {
               ref={headerRef}
               className="relative grid items-start w-full min-w-0 px-3"
               data-testid="chat-header-content"
+              // The name stays centred however long it gets (Rosson
+              // 2026-10-22, "Idea 1"): side columns that can shrink to
+              // nothing, equally, so a long name grows over them to the
+              // header's padding and only then ellipses. (`1fr` kept a
+              // min-content floor: the left column stopped at the back
+              // button, the right at its three, and the name slid left.)
+              // The buttons stay anchored to the edges; their glass and
+              // the name's merge where they meet (HeaderGlass).
               style={{
-                gridTemplateColumns: "1fr auto 1fr",
+                gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)",
                 minHeight: CHAT_HEADER_PX,
                 paddingTop: 6,
                 paddingBottom: 12,
-                columnGap: 8,
+                columnGap: 0,
               }}
             >
+            <HeaderGlass hostRef={headerRef} />
             {drawerPicked ? (
             <button
               type="button"
@@ -497,8 +507,11 @@ export function Zen() {
                 returnToDrawerOrigin();
               }}
               data-testid="chat-done"
+              data-glass-shape="button"
               className="text-[17px] shrink-0 justify-self-start zen-glass zen-glass-pill"
               style={{
+                position: "relative",
+                zIndex: 1,
                 minHeight: 36,
                 padding: "0 14px",
                 color: "#fff",
@@ -513,9 +526,12 @@ export function Zen() {
               type="button"
               onClick={backToChats}
               data-testid="chat-back"
+              data-glass-shape="button"
               className="flex items-center justify-center shrink-0 justify-self-start zen-glass zen-glass-pill"
               style={{
                 ...HEADER_BTN,
+                position: "relative",
+                zIndex: 1,
                 ...(backUnread > 0 ? { width: "auto", minWidth: 36, padding: "0 8px 0 6px", gap: 2 } : null),
                 marginTop: HEADER_BTN_TOP,
                 pointerEvents: "auto",
@@ -531,7 +547,7 @@ export function Zen() {
               <BackUnreadPill count={backUnread} />
             </button>
             )}
-            <div className="min-w-0 flex flex-col items-center justify-center zen-header-text">
+            <div className="relative min-w-0 flex flex-col items-center justify-center zen-header-text" style={{ zIndex: 1 }}>
               {/* The avatar overlaps the name bubble's top edge; the shadow
                   lifts it off the glass. */}
               <span className="relative flex" style={{ zIndex: 2 }}>
@@ -604,6 +620,7 @@ export function Zen() {
               {/* Agent name + its server in one glass bubble. */}
               <span
                 data-testid="chat-header-name-pill"
+                data-glass-shape="pill"
                 className="flex flex-col items-center min-w-0 max-w-full zen-glass zen-glass-pill"
                 style={{ position: "relative", zIndex: 1, marginTop: -8, padding: "10px 16px 7px" }}
               >
@@ -671,8 +688,8 @@ export function Zen() {
                 the centre title now. */}
             <div
               data-testid="chat-header-right"
-              className="flex flex-col items-end zen-header-text"
-              style={{ marginTop: HEADER_BTN_TOP, rowGap: 6 }}
+              className="relative flex flex-col items-end zen-header-text"
+              style={{ marginTop: HEADER_BTN_TOP, rowGap: 6, zIndex: 1, gridColumn: 3 }}
             >
             <span
               data-testid="chat-header-buttons"
@@ -685,6 +702,7 @@ export function Zen() {
               <button
                 type="button"
                 aria-label="Terminal"
+                data-glass-shape="button"
                 className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
                 style={HEADER_BTN}
                 onClick={(e) => {
@@ -727,6 +745,7 @@ export function Zen() {
                 type="button"
                 aria-label="Sessions"
                 data-testid="chat-sessions"
+                data-glass-shape="button"
                 className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
                 style={{
                   ...HEADER_BTN,
@@ -753,6 +772,7 @@ export function Zen() {
               <button
                 type="button"
                 aria-label="Files"
+                data-glass-shape="button"
                 className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
                 style={{
                   ...HEADER_BTN,
