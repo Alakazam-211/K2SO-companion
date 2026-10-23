@@ -20,6 +20,11 @@ export interface RawResponse {
   status: number;
   ok: boolean;
   text: string;
+  /** `content-type`, for telling a K2 answer from something in front of
+   *  the box (a portal, a proxy). Absent in tests' fakes. */
+  contentType?: string;
+  /** What served it, when it says: `server` and Cloudflare's `cf-ray`. */
+  via?: string;
 }
 
 export interface ScopedFetchOptions {
@@ -79,7 +84,9 @@ export async function scopedFetch(
             timer = setTimeout(() => reject(new Error("Request timed out")), timeoutMs);
           }),
         ]);
-        return { status: res.status, ok: res.ok, text: await res.text() };
+        const header = (name: string) => res.headers?.get?.(name) ?? "";
+        const via = [header("server"), header("cf-ray") ? "cloudflare" : ""].filter(Boolean).join(", ");
+        return { status: res.status, ok: res.ok, text: await res.text(), contentType: header("content-type"), via };
       } finally {
         if (timer) clearTimeout(timer);
       }

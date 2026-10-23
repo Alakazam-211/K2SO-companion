@@ -56,7 +56,7 @@ describe("getWorkspaceResources", () => {
       text: async () => JSON.stringify(body),
     });
     const r = await getWorkspaceResources(activeScope(), WS);
-    expect(r).toEqual({ ok: true, data: body });
+    expect(r).toMatchObject({ ok: true, data: body });
     const [url, opts] = tauriFetch.mock.calls[0] as [string, { method?: string }];
     expect(url).toBe(
       "http://127.0.0.1:9/cli/workspace/resources?workspace=%2FUsers%2Fz3thon%2FDevProjects%2FAlakazam%20Labs%2FK2SO-companion"
