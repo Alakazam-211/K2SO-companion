@@ -13,6 +13,7 @@ import {
   cliProjectOf,
   joinAgentsWithProjects,
   ownerAgentOf,
+  describeShape,
   parseCliProjects,
   parseOwnerAgents,
   sidecarRowId,
@@ -101,7 +102,8 @@ export function buildServerRows(input: ServerRowsInput): ServerRowsResult {
     const parsed = parseOwnerAgents(rAgents.data);
     if (!parsed) {
       notices.push(
-        "GET /cli/agent/list returned an unrecognised shape. This overlay does not invent a mapping."
+        `This server's agent list came back in a form the app can't read (${describeShape(rAgents.data)}). ` +
+          "Check that the address is your K2 server; if it is, the server may need an update. (GET /cli/agent/list)"
       );
     } else {
       for (const raw of parsed) {
@@ -126,7 +128,8 @@ export function buildServerRows(input: ServerRowsInput): ServerRowsResult {
     const parsed = parseCliProjects(rProjects.data);
     if (!parsed) {
       notices.push(
-        "GET /cli/projects/list returned an unrecognised shape. This overlay does not invent a mapping."
+        `This server's workspace list came back in a form the app can't read (${describeShape(rProjects.data)}). ` +
+          "Check that the address is your K2 server; if it is, the server may need an update. (GET /cli/projects/list)"
       );
     } else {
       for (const raw of parsed) {

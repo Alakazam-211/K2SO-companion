@@ -9,6 +9,7 @@ import {
   iconRevOf,
   joinAgentsWithProjects,
   ownerAgentOf,
+  describeShape,
   parseCliProjects,
   parseOwnerAgents,
   parseSkinAgents,
@@ -122,6 +123,24 @@ describe("parseCliProjects / cliProjectOf", () => {
 
   it("rejects a skills enumerator — no handle+path on the rows", () => {
     expect(parseCliProjects([{ name: "k2-cli", agentType: "skill" }])).toBeNull();
+  });
+
+  it("leniently: a wrapped array, and rows with an empty or missing handle (a fresh workspace)", () => {
+    expect(parseCliProjects({ projects: [{ name: "a", handle: "a", path: "/a" }] })).toHaveLength(1);
+    const rows = parseCliProjects([
+      { name: "fresh", handle: "", path: "/Users/x/fresh" },
+      { name: "old", path: "/Users/x/old" },
+    ])!;
+    expect(rows.map((r) => cliProjectOf(r)?.handle)).toEqual([null, null]);
+    expect(parseCliProjects([])).toEqual([]);
+  });
+
+  it("describeShape names what came back, keys and kinds only", () => {
+    expect(describeShape({ ok: true, agents: [] })).toBe("an object with keys ok, agents");
+    expect(describeShape([{ name: "k2-cli", agentType: "skill" }])).toBe("a list of 1 whose first item has keys name, agentType");
+    expect(describeShape("<html>")).toBe("a string value");
+    expect(describeShape(null)).toBe("an empty answer");
+    expect(describeShape([])).toBe("an empty list");
   });
 
   it("reads iconRev when K2 sends it (string or number), else null", () => {
