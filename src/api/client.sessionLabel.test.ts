@@ -50,7 +50,7 @@ describe("setSessionLabel", () => {
   it("POSTs /cli/sessions/label with {id, label} as a JSON body (K2 0.44.4+)", async () => {
     tauriFetch.mockResolvedValue(okBody);
     const r = await setSessionLabel(activeScope(), ID, "qa731");
-    expect(r).toEqual({
+    expect(r).toMatchObject({
       ok: true,
       data: { success: true, label: "qa731", locked: true },
     });

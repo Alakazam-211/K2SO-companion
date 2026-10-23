@@ -82,6 +82,15 @@ export type ServerRowsResult =
     }
   | { ok: false; error: string };
 
+/** What an unreadable answer was: its shape, then status, content type and
+ *  server when known (K2 2026-10-23: a K2 box never sends these shapes,
+ *  so this says what did). */
+function answerOf(r: ApiResponse<unknown>): string {
+  const m = r.meta;
+  const how = m ? [`HTTP ${m.status}`, m.contentType || "no content type", m.via ? `via ${m.via}` : ""].filter(Boolean).join(", ") : "";
+  return how ? `${describeShape(r.data)}; ${how}` : describeShape(r.data);
+}
+
 /** Fold one server's list reads into its rows. Every read may fail on its
  *  own; only all-empty is an error. */
 export function buildServerRows(input: ServerRowsInput): ServerRowsResult {
@@ -102,7 +111,7 @@ export function buildServerRows(input: ServerRowsInput): ServerRowsResult {
     const parsed = parseOwnerAgents(rAgents.data);
     if (!parsed) {
       notices.push(
-        `This server's agent list came back in a form the app can't read (${describeShape(rAgents.data)}). ` +
+        `This server's agent list came back in a form the app can't read (${answerOf(rAgents)}). ` +
           "Check that the address is your K2 server; if it is, the server may need an update. (GET /cli/agent/list)"
       );
     } else {
@@ -128,7 +137,7 @@ export function buildServerRows(input: ServerRowsInput): ServerRowsResult {
     const parsed = parseCliProjects(rProjects.data);
     if (!parsed) {
       notices.push(
-        `This server's workspace list came back in a form the app can't read (${describeShape(rProjects.data)}). ` +
+        `This server's workspace list came back in a form the app can't read (${answerOf(rProjects)}). ` +
           "Check that the address is your K2 server; if it is, the server may need an update. (GET /cli/projects/list)"
       );
     } else {

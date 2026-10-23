@@ -34,6 +34,16 @@ export function loginErrorFromStatus(
       error: LOGIN_401_TEXT,
     };
   }
+  if (status === 403 && /web_client_disabled/i.test(bodyText)) {
+    // K2 2026-10-23: password sign-in to a hosted server goes through the
+    // *.app.k2.dev web edge, which marks it as the web app; a server with
+    // web access turned off refuses it.
+    return {
+      kind: "forbidden",
+      error:
+        "This server has web access turned off, and the app signs in through K2's web sign-in. Ask the server's owner to turn web access on in the server's settings.",
+    };
+  }
   if (status === 403) {
     return {
       kind: "forbidden",

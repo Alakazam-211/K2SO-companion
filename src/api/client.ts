@@ -26,6 +26,9 @@ export interface ApiResponse<T = unknown> {
   error?: string;
   /** HTTP status of a non-2xx answer (absent on network errors). */
   status?: number;
+  /** A 2xx answer's status, content type and server, for a "could not
+   *  read" notice (`serverRows`). */
+  meta?: { status: number; contentType: string; via: string };
 }
 
 export interface AuthResponse {
@@ -222,7 +225,7 @@ async function httpRequest<T>(
       };
     }
     const data = JSON.parse(out.text) as T;
-    return { ok: true, data };
+    return { ok: true, data, meta: { status: out.status, contentType: out.contentType ?? "", via: out.via ?? "" } };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return { ok: false, error: `Could not reach server: ${msg}` };

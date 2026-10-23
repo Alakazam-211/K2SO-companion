@@ -41,4 +41,11 @@ describe("login 429 (K2 per-IP limit)", () => {
     expect(loginErrorFromStatus(429, "", true, EDGE, "61")?.error).toBe("Too many attempts. Try again in 2 min.");
     expect(loginErrorFromStatus(429, "", true, EDGE, null)?.error).toBe("Too many attempts. Try again in 5 min.");
   });
+
+  it("web access turned off (the edge marks sign-in as the web app): says so", () => {
+    const body = JSON.stringify({ ok: false, error: { code: "WEB_CLIENT_DISABLED", hint: "web access is off" } });
+    const r = loginErrorFromStatus(403, body, true, "edge 404");
+    expect(r?.kind).toBe("forbidden");
+    expect(r?.error).toMatch(/web access turned off/);
+  });
 });
