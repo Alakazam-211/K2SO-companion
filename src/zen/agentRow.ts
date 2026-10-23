@@ -116,22 +116,48 @@ export function iconRevOf(v: unknown): string | null {
   return s || null;
 }
 
+/** The row array of a `/cli/projects/list` answer, or null when it is not
+ *  one. K2 sends a bare array whose rows all carry string `handle` and
+ *  `path` (K2, 2026-10-23, every 0.46.x). Leniently, as a user hit an
+ *  unreadable answer on a brand-new server: an array inside `{projects}`
+ *  / `{rows}` / `{data}` is used, and only rows need a string `path`; an
+ *  empty or missing handle is "no handle yet" (a fresh workspace before
+ *  the first-boot backfill), not a reason to drop the list. Still null:
+ *  `{ok, agents}` (that is `/cli/agent/list`) and an array where no row
+ *  has a path (the skills enumerator). */
 export function parseCliProjects(data: unknown): CliProjectRow[] | null {
-  if (!Array.isArray(data)) return null;
+  let list: unknown = data;
+  if (list && typeof list === "object" && !Array.isArray(list)) {
+    const o = list as Record<string, unknown>;
+    list = [o.projects, o.rows, o.data].find((v) => Array.isArray(v));
+  }
+  if (!Array.isArray(list)) return null;
   const rows: CliProjectRow[] = [];
-  for (const item of data) {
+  for (const item of list) {
     if (item && typeof item === "object") rows.push(item as CliProjectRow);
   }
-  if (data.length > 0 && rows.length === 0) return null;
-  if (
-    rows.length > 0 &&
-    !rows.some(
-      (r) => typeof r.handle === "string" && typeof r.path === "string"
-    )
-  ) {
-    return null;
-  }
+  if (list.length > 0 && rows.length === 0) return null;
+  if (rows.length > 0 && !rows.some((r) => typeof r.path === "string" && r.path.trim())) return null;
   return rows;
+}
+
+/** A few words on what a server sent, for a "could not read" notice (no
+ *  values: keys and kinds only). */
+export function describeShape(data: unknown): string {
+  const keys = (o: object) => {
+    const k = Object.keys(o).slice(0, 5);
+    return k.length ? `keys ${k.join(", ")}` : "no keys";
+  };
+  if (data === null || data === undefined || data === "") return "an empty answer";
+  if (Array.isArray(data)) {
+    if (data.length === 0) return "an empty list";
+    const first = data[0];
+    return first && typeof first === "object" && !Array.isArray(first)
+      ? `a list of ${data.length} whose first item has ${keys(first)}`
+      : `a list of ${data.length} ${typeof first} values`;
+  }
+  if (typeof data === "object") return `an object with ${keys(data)}`;
+  return `a ${typeof data} value`;
 }
 
 export function cliProjectOf(
