@@ -345,6 +345,44 @@ html, body, #root {
   border-radius: 22px;
 }
 
+/* The chat header's merged glass (HeaderGlass.tsx, glassMerge.ts): one
+   frosted layer plus a rim, masked to the union of the header's pieces, so
+   the name pill melts into a button it nears. The same look as .zen-glass:
+   its fill and frost here, its border and light catch drawn in the rim
+   mask. Once it is drawn the pieces drop their own glass (background-color
+   only, so a lit button's inline background still shows). */
+.zen-glass-merged-fill,
+.zen-glass-merged-rim {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  display: none;
+}
+[data-glass-merged] > .zen-glass-merged-fill,
+[data-glass-merged] > .zen-glass-merged-rim {
+  display: block;
+}
+.zen-glass-merged-fill {
+  background: rgba(255, 255, 255, 0.1);
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+}
+.zen-glass-merged-rim {
+  background: #fff;
+}
+[data-glass-merged] [data-glass-shape] {
+  background-color: transparent;
+  -webkit-backdrop-filter: none;
+  backdrop-filter: none;
+  border-color: transparent;
+  box-shadow: none;
+}
+
 /* Composer attach menu (AttachMenu.tsx): grows out of the ＋ corner. */
 .k2-attach-menu {
   transform-origin: 19px calc(100% + 27px);
