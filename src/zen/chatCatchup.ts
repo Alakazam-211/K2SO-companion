@@ -224,7 +224,7 @@ export async function catchUpServer(
   // still have a cached copy (one dropped since needs its read). The rest
   // go in the normal rounds after it.
   const quick = mark
-    ? jobs.filter((j) => !j.group && j.base && mark.keys.has(j.key) && !hasOpenCard(j.base.messages))
+    ? jobs.filter((j) => !j.group && j.base && mark.keys.has(j.key))
     : [];
   if (mark && quick.length && catchupUnchangedSupported(scope) && deps.usable()) {
     const body = catchupBody(
@@ -317,20 +317,6 @@ function remember(
   if (prev && prev.rev === at.rev && prev.instanceId === at.instanceId) for (const k of prev.keys) if (!asked.has(k)) keys.add(k);
   if (keys.size) store.set(serverId, { rev: at.rev, instanceId: at.instanceId, keys });
   else store.delete(serverId);
-}
-
-/** An unanswered choice or secret card, or a permission card still
- *  waiting on an answer (pending, applying, or "already on" before its
- *  Close). Until 0.46.3 ships with K2's rev fixes (728886c5d),
- *  a chat holding one is read in full, never settled by `unchanged` (K2,
- *  2026-10-21). */
-export function hasOpenCard(messages: readonly ThreadMessage[]): boolean {
-  return messages.some((m) => {
-    const c = m.choice;
-    if (!c) return false;
-    if (c.permission) return c.permission.open;
-    return c.answer == null || String(c.answer) === "";
-  });
 }
 
 /** Same key as `prefetchKey` (not imported: chatPrefetch imports this). */
