@@ -159,6 +159,9 @@ describe("model", () => {
     const a = single(doc("asker__pending__cards2"));
     expect(a.viewer.mode).toBe("wait");
     expect(waitingText(a)).toBe("Asked an admin to turn on Allow compute nodes for you. You can keep working with billing meanwhile.");
+    // A tightening card turns its setting off.
+    const t = { ...a, item: { ...a.item, direction: "tighten" as const } };
+    expect(waitingText(t)).toBe("Asked an admin to turn off Allow compute nodes for you. You can keep working with billing meanwhile.");
     expect(a.noteBox).toEqual({ allowed: true, max: 500, mine: "I need this for the payroll run" });
   });
 
