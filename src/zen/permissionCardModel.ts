@@ -234,9 +234,12 @@ function approverNoun(floor: string): string {
 export function waitingText(card: Extract<PermissionCardModel, { kind: "permission" }>): string {
   const by = card.item.why?.by || "The agent";
   const who = approverNoun(card.approvers.floor);
+  // A card that tightens access turns its setting off (live test
+  // 2026-10-24, "Stop k2 creating new databases").
+  const verb = card.item.direction === "tighten" ? "turn off" : "turn on";
   return card.viewer.isAsker
-    ? `Asked ${who} to turn on ${card.item.setting} for you. You can keep working with ${by} meanwhile.`
-    : `${by} asked ${who} to turn on ${card.item.setting}.`;
+    ? `Asked ${who} to ${verb} ${card.item.setting} for you. You can keep working with ${by} meanwhile.`
+    : `${by} asked ${who} to ${verb} ${card.item.setting}.`;
 }
 
 /** One line for a settled state (contract §2.4); null while pending. */
