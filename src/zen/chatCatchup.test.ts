@@ -13,7 +13,7 @@ import {
 import { fakeScope } from "../test/fakeScope";
 import { createChatCache, type ChatCache } from "./chatCache";
 import { memoryBackend } from "./chatCacheBackend";
-import { catchUpServer, hasOpenCard, resetCatchupMarksForTests, type CatchupMark } from "./chatCatchup";
+import { catchUpServer, resetCatchupMarksForTests, type CatchupMark } from "./chatCatchup";
 import {
   FOREGROUND_CATCHUP_GAP_MS,
   catchUpCached,
@@ -294,7 +294,10 @@ describe("catchup-unchanged-v1", () => {
     expect([...(marks.get("s1")?.keys ?? [])]).toEqual(["s1|t:a"]);
   });
 
-  it("a Thread outside the mark or with an open card gets the normal call after the short-cut", async () => {
+  // 0.46.3 final moves rev on every card change (K2 728886c5d), so a Thread
+  // holding an open card takes the short-cut like any other (the 4.1.0
+  // betas held it out until then).
+  it("a Thread outside the mark gets the normal call after the short-cut; an open card no longer keeps one out", async () => {
     seed("a", [1]);
     seed("new", [1]);
     cache.remember({
@@ -308,17 +311,16 @@ describe("catchup-unchanged-v1", () => {
     const post = vi
       .fn()
       .mockResolvedValueOnce(unchanged(7))
-      .mockResolvedValueOnce(ok({ since: at(7), threads: [served({ addr: "new" }), served({ addr: "card" })] }));
+      .mockResolvedValueOnce(ok({ since: at(7), threads: [served({ addr: "new" })] }));
     await catchUpServer(scopeU, [t("a"), t("new"), t("card")], deps(post));
-    expect(post.mock.calls[0][1]).toMatchObject({ threads: [{ addr: "a", afterSeq: 1 }], since: at(7) });
-    expect(post.mock.calls[1][1]).toEqual({
+    expect(post.mock.calls[0][1]).toMatchObject({
       threads: [
-        { addr: "new", afterSeq: 1 },
+        { addr: "a", afterSeq: 1 },
         { addr: "card", afterSeq: 2 },
       ],
-      groups: [],
-      limit: 50,
+      since: at(7),
     });
+    expect(post.mock.calls[1][1]).toEqual({ threads: [{ addr: "new", afterSeq: 1 }], groups: [], limit: 50 });
     expect(marks.get("s1")?.keys).toEqual(new Set(["s1|t:a", "s1|t:new", "s1|t:card"]));
   });
 
@@ -344,15 +346,6 @@ describe("catchup-unchanged-v1", () => {
     post.mockClear();
     await catchUpServer(scope, [t("a")], deps(post)); // no catchup-unchanged-v1
     expect(post.mock.calls[0][1]).not.toHaveProperty("since");
-  });
-
-  it("hasOpenCard: unanswered choice/secret, and permission cards only while still open", () => {
-    const card = (choice: Record<string, unknown>) => [{ ...msg(1), choice: { prompt: "p", options: [], answer: null, ...choice } }] as ThreadMessage[];
-    expect(hasOpenCard([msg(1)])).toBe(false);
-    expect(hasOpenCard(card({}))).toBe(true);
-    expect(hasOpenCard(card({ answer: "Yes" }))).toBe(false);
-    expect(hasOpenCard(card({ answer: "Allow", permission: { state: "applying", open: true } }))).toBe(true);
-    expect(hasOpenCard(card({ answer: null, permission: { state: "approved", open: false } }))).toBe(false);
   });
 
   it("an answer without a position (older daemon) or from another daemon process clears the mark", async () => {
