@@ -11,7 +11,6 @@ vi.mock("@tauri-apps/plugin-http", () => ({ fetch: (...a: unknown[]) => tauriFet
 
 import { __resetScopesForTests, scopeFor } from "../api/scope";
 import { useServersStore } from "../stores/servers";
-import { hasOpenCard } from "./chatCatchup";
 import { normaliseThreadItem } from "./threadModel";
 import { PermissionCard } from "./PermissionCard";
 import { noteProblem, parsePermissionCard, stateLine, waitingText, type PermissionCardModel } from "./permissionCardModel";
@@ -88,8 +87,7 @@ describe("golden samples: every form", () => {
       const d = doc(n);
       const c = card(d);
       expect(c.open, n).toBe(d.choice!.status === "pending");
-      const m = normaliseThreadItem({ doc: d } as never, "rosson")!;
-      expect(hasOpenCard([m]), n).toBe(c.open);
+      expect(normaliseThreadItem({ doc: d } as never, "rosson")?.choice?.permission?.open, n).toBe(c.open);
     }
   });
 
