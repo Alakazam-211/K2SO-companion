@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, type RefObject } from "react";
+import { useLayoutEffect, useRef } from "react";
 import { renderGlassMasks, shapeFromRect, type GlassShape } from "./glassMerge";
 
 /** Marks a glass piece of the chat header: `button` pieces keep their own
@@ -15,14 +15,19 @@ export const GLASS_MERGED_ATTR = "data-glass-merged";
  * when a piece's size changes (another agent's name, the server line, the
  * back button's unread count) or the header resizes, never per frame: the
  * keyboard and swipe-back move the whole header.
+ *
+ * The host is this layer's own parent (the header grid), read from the
+ * fill's DOM node: a parent's React ref is attached only AFTER its
+ * children's layout effects run, so a ref passed down is still null here
+ * on first mount (4.1.0 build 202610221908 never merged because of it).
  */
-export function HeaderGlass({ hostRef }: { hostRef: RefObject<HTMLElement | null> }) {
+export function HeaderGlass() {
   const fillRef = useRef<HTMLDivElement>(null);
   const rimRef = useRef<HTMLDivElement>(null);
   useLayoutEffect(() => {
-    const host = hostRef.current;
     const fill = fillRef.current;
     const rim = rimRef.current;
+    const host = fill?.parentElement ?? null;
     if (!host || !fill || !rim || typeof ResizeObserver === "undefined") return;
     let frame = 0;
     let lastKey = "";
@@ -74,7 +79,7 @@ export function HeaderGlass({ hostRef }: { hostRef: RefObject<HTMLElement | null
       mo.disconnect();
       host.removeAttribute(GLASS_MERGED_ATTR);
     };
-  }, [hostRef]);
+  }, []);
   return (
     <>
       <div ref={fillRef} aria-hidden className="zen-glass-merged-fill" data-testid="header-glass-fill" />
