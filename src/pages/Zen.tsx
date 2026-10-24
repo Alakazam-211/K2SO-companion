@@ -504,7 +504,7 @@ export function Zen() {
                 columnGap: 0,
               }}
             >
-            <HeaderGlass hostRef={headerRef} />
+            <HeaderGlass />
             {drawerPicked ? (
             <button
               type="button"
