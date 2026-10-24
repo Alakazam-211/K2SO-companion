@@ -59,6 +59,7 @@ import { useUnreadSync } from "../zen/unreadSync";
 import { useForegroundCatchup, useUnreadPrefetch } from "../zen/chatPrefetch";
 import { installPushInboxDrain } from "../lib/pushInbox";
 import { HeaderGlass } from "../zen/HeaderGlass";
+import { usePressSpring } from "../lib/usePressSpring";
 
 const HEADER_BTN: CSSProperties = {
   width: 36,
@@ -147,6 +148,11 @@ export function Zen() {
         normalizeHarness(agent.launch?.command)
   );
   const headerRef = useRef<HTMLDivElement>(null);
+  // Header buttons grow while pressed (usePressSpring; Rosson 2026-10-23).
+  const pressBack = usePressSpring<HTMLButtonElement>();
+  const pressTerminal = usePressSpring<HTMLButtonElement>();
+  const pressSessions = usePressSpring<HTMLButtonElement>();
+  const pressFiles = usePressSpring<HTMLButtonElement>();
   const [headerPx, setHeaderPx] = useState(CHAT_HEADER_PX);
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
@@ -506,6 +512,7 @@ export function Zen() {
                 e.stopPropagation();
                 returnToDrawerOrigin();
               }}
+              ref={pressBack}
               data-testid="chat-done"
               data-glass-shape="button"
               className="text-[17px] shrink-0 justify-self-start zen-glass zen-glass-pill"
@@ -525,6 +532,7 @@ export function Zen() {
             <button
               type="button"
               onClick={backToChats}
+              ref={pressBack}
               data-testid="chat-back"
               data-glass-shape="button"
               className="flex items-center justify-center shrink-0 justify-self-start zen-glass zen-glass-pill"
@@ -701,6 +709,7 @@ export function Zen() {
               <>
               <button
                 type="button"
+                ref={pressTerminal}
                 aria-label="Terminal"
                 data-glass-shape="button"
                 className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
@@ -744,6 +753,7 @@ export function Zen() {
               <button
                 type="button"
                 aria-label="Sessions"
+                ref={pressSessions}
                 data-testid="chat-sessions"
                 data-glass-shape="button"
                 className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
@@ -771,6 +781,7 @@ export function Zen() {
               )}
               <button
                 type="button"
+                ref={pressFiles}
                 aria-label="Files"
                 data-glass-shape="button"
                 className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"

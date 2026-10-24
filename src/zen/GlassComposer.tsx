@@ -20,6 +20,7 @@ import { PlusGlyph } from "./PlusGlyph";
 import { sidecarSuffix } from "./sidecarRows";
 import { AttachMenu, type AttachChoice } from "./AttachMenu";
 import { alongCurve, curveEasing, flyMotion, prefersReducedMotion } from "./sendFly";
+import { usePressSpring } from "../lib/usePressSpring";
 import {
   isUnsupportedPick,
   nativePick,
@@ -410,6 +411,8 @@ export function GlassComposer({
   useEffect(() => () => collapse.current?.cancel(), []);
 
   const [sendPressed, setSendPressed] = useState(false);
+  // Send also grows while pressed (with its brighten; Rosson 2026-10-23).
+  const pressSend = usePressSpring<HTMLButtonElement>();
   const blockCb = useRef(onBlockHeight);
   blockCb.current = onBlockHeight;
   const watchBlock = Boolean(onBlockHeight);
@@ -612,6 +615,7 @@ export function GlassComposer({
             />
             {canSend ? (
               <button
+                ref={pressSend}
                 type="submit"
                 aria-label="Send"
                 data-testid={id("send")}
