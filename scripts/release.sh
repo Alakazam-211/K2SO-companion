@@ -143,6 +143,14 @@ echo "→ Building iOS archive..."
 rm -rf "$ARCHIVE_PATH"
 # rustup's toolchain has the iOS targets; Homebrew's rust does not.
 export PATH="$HOME/.cargo/bin:$PATH"
+# Export compliance: the iOS app uses only Apple's own encryption
+# (Security.framework TLS, CryptoKit), so ITSAppUsesNonExemptEncryption is
+# false. A bundled TLS stack (rustls / ring) would make that untrue:
+# refuse the build (see src-tauri/Cargo.toml, tauri-plugin-http per platform).
+if (cd "$PROJECT_DIR/src-tauri" && cargo tree -e normal --target aarch64-apple-ios -i ring 2>/dev/null | grep -q '^ring '); then
+  echo "Error: the iOS build links ring/rustls. Keep tauri-plugin-http on native-tls for iOS (src-tauri/Cargo.toml)."
+  exit 1
+fi
 cargo tauri ios build 2>&1 | grep -E "Compiling|Finished|Exported|FAILED|error" || true
 
 # Check archive exists
