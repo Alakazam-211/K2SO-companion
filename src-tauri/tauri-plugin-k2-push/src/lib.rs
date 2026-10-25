@@ -96,6 +96,7 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::e2e_op,
             commands::pick_media,
             commands::pick_documents,
+            commands::scan_qr,
         ])
         .setup(|app, api| {
             #[cfg(mobile)]

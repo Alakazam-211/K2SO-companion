@@ -68,3 +68,8 @@ export const STATE_LABEL: Record<RecoveryKey, string> = {
   reauthenticating: "re-authenticating…",
   "signin-required": "sign-in required",
 };
+
+/** STATE_LABEL, with a paired server's way back ("pair again"). */
+export function stateLabelOf(state: RecoveryKey, paired: boolean): string {
+  return paired && state === "signin-required" ? "pair again" : STATE_LABEL[state];
+}

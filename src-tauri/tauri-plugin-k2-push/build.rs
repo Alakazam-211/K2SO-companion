@@ -14,6 +14,7 @@ const COMMANDS: &[&str] = &[
     "e2e_op",
     "pick_media",
     "pick_documents",
+    "scan_qr",
     "register_listener",
     "remove_listener",
 ];

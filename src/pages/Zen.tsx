@@ -46,6 +46,7 @@ import { RoomBanner } from "../zen/room/RoomBanner";
 import { ServerChip } from "../zen/room/ServerChip";
 import { ZEN_SERVER_PARAM, resolveServerRef, withServerParam } from "../zen/room/serverRef";
 import { OverlayAddServer } from "../zen/OverlayAddServer";
+import { PairLinkHost } from "../zen/PairLinkHost";
 import { pool } from "../zen/multi/pool";
 import { FileIcon, TerminalIcon } from "../zen/icons";
 import { LlmIcon } from "../zen/LlmIcon";
@@ -974,6 +975,7 @@ export function Zen() {
           />
         </div>
       ) : null}
+      <PairLinkHost />
     </div>
   );
 }
