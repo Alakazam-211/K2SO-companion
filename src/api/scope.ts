@@ -102,6 +102,8 @@ export const DAEMON_FEATURES = [
   "permission-cards-v1",
   // K2 0.46.3: catch-up's `unchanged` short-cut (`sinceRev` + `instanceId`).
   "catchup-unchanged-v1",
+  // K2 0.46.4: pair this phone with a one-time code (src/api/pairing.ts).
+  "companion-pairing-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];
