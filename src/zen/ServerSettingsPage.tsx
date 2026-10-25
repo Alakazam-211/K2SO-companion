@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { FEATURE_COMPANION_PAIRING } from "../api/pairing";
 import { scopeFor } from "../api/scope";
 import { useBackHandler } from "../lib/androidBack";
 import { readBackPreviews, setServerPreviews } from "../lib/push";
@@ -6,15 +7,17 @@ import { useSwipeBack } from "../lib/useSwipeBack";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { serverBellStatus, useNotifyPrefsStore } from "../stores/notifyPrefs";
 import { usePushPreviewsStore } from "../stores/pushPreviews";
-import { hostLabel, signOutServer, useServersStore, type RecoveryState } from "../stores/servers";
+import { hostLabel, isPairedServer, signOutServer, useServersStore, type RecoveryState } from "../stores/servers";
 import { BadgeDiagnosticsRow } from "./BadgeDiagnostics";
 import { ChatTimingRow } from "./ChatTimingDiagnostics";
 import { KeyboardDragRow } from "./KeyboardDragDiagnostics";
 import { KeyboardEventsRow } from "./KeyboardEventsDiagnostics";
 import { LightBlurRow } from "./LightBlurDiagnostics";
 import { HomeSyncSection } from "./HomeSyncSection";
-import { RECOVERY_DOT, STATE_LABEL } from "./serverList";
+import { RECOVERY_DOT, stateLabelOf } from "./serverList";
 import { ServerUpdateSection } from "./ServerUpdateSection";
+import { switchToPairing } from "./pairFlow";
+import { useThreadFilesOn } from "./ThreadFiles";
 import { Switch } from "./ZenSettings";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 
@@ -75,7 +78,7 @@ export function ServerSettingsPage({
 
   const label = entry.nickname || hostLabel(entry.url);
   const dot = RECOVERY_DOT[state];
-  const stateText = state === "connected" ? "Connected" : STATE_LABEL[state];
+  const stateText = state === "connected" ? "Connected" : stateLabelOf(state, isPairedServer(entry));
 
   return (
     <div
@@ -170,6 +173,8 @@ export function ServerSettingsPage({
             }
           />
         </Group>
+
+        {token ? <PairingGroup serverId={serverId} paired={isPairedServer(entry)} /> : null}
 
         <Group label="K2 version" testId="server-settings-version">
           <ServerUpdateSection serverId={serverId} scope={scope} role={role} />
@@ -425,6 +430,118 @@ function PreviewsRow({ serverId }: { serverId: string }) {
         onToggle={() => void setServerPreviews(serverId, !pref)}
       />
     </div>
+  );
+}
+
+/** How this phone signs in (K2 0.46.4 `companion-pairing-v1`): paired,
+ *  or a password session with "Switch to pairing" where the server offers
+ *  it. The switch asks for the password once (never stored): a code for
+ *  this login, the pairing, then the old session is logged out. */
+function PairingGroup({ serverId, paired }: { serverId: string; paired: boolean }) {
+  const scope = scopeFor(serverId);
+  const supported = useThreadFilesOn(scope, FEATURE_COMPANION_PAIRING);
+  const [open, setOpen] = useState(false);
+  const [password, setPassword] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [justPaired, setJustPaired] = useState(false);
+  if (!paired && !supported) return null;
+
+  const onSwitch = async () => {
+    if (!password || busy) return;
+    setBusy(true);
+    setError(null);
+    const r = await switchToPairing(serverId, password);
+    setBusy(false);
+    if (!r.ok) {
+      setError(r.error);
+      return;
+    }
+    setPassword("");
+    setOpen(false);
+    setJustPaired(true);
+  };
+
+  return (
+    <Group label="Sign-in" testId="server-settings-pairing">
+      <ValueRow
+        label="Signed in with"
+        value={paired ? "Pairing" : "Password"}
+        testId="server-settings-signin-kind"
+      />
+      {paired ? (
+        <p className="text-[13px]" style={{ color: MUTED, padding: "0 16px 12px", lineHeight: 1.35 }}>
+          {justPaired ? "Paired. " : ""}This phone stays signed in without a password while you use it. Signing out
+          ends the pairing.
+        </p>
+      ) : open ? (
+        <div style={{ padding: "4px 16px 14px", borderTop: HAIRLINE }} data-testid="server-settings-pair-switch">
+          <p className="text-[13px]" style={{ color: MUTED, lineHeight: 1.35, marginTop: 8 }}>
+            Pairing keeps this phone signed in without your password, even when web access is off. Enter your
+            password once to switch. K2 doesn't keep it.
+          </p>
+          <input
+            type="password"
+            value={password}
+            onChange={(e) => {
+              setPassword(e.target.value);
+              setError(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void onSwitch();
+            }}
+            placeholder="Password"
+            autoCapitalize="off"
+            autoCorrect="off"
+            autoComplete="current-password"
+            spellCheck={false}
+            className="k2-tile w-full"
+            style={{ minHeight: 40, padding: "0 14px", borderRadius: 10, color: "#fff", fontSize: 16, marginTop: 10 }}
+            data-testid="server-settings-pair-password"
+          />
+          {error ? (
+            <p className="text-[13px]" style={{ color: RED, marginTop: 8 }} data-testid="server-settings-pair-error">
+              {error}
+            </p>
+          ) : null}
+          <div className="flex" style={{ gap: 10, marginTop: 10 }}>
+            <button
+              type="button"
+              className="flex-1 text-[17px] k2-tile"
+              style={{ minHeight: 40, borderRadius: 12, color: "#fff" }}
+              disabled={busy}
+              onClick={() => {
+                setOpen(false);
+                setPassword("");
+                setError(null);
+              }}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="flex-1 text-[17px] font-semibold"
+              style={{ minHeight: 40, borderRadius: 12, color: "#fff", background: "#0a84ff", opacity: !password || busy ? 0.4 : 1 }}
+              disabled={!password || busy}
+              onClick={() => void onSwitch()}
+              data-testid="server-settings-pair-confirm"
+            >
+              {busy ? "Switching…" : "Switch"}
+            </button>
+          </div>
+        </div>
+      ) : (
+        <button
+          type="button"
+          className="w-full text-left text-[17px]"
+          style={{ minHeight: 44, padding: "11px 16px", color: "#0a84ff", borderTop: HAIRLINE }}
+          onClick={() => setOpen(true)}
+          data-testid="server-settings-pair-open"
+        >
+          Switch to pairing
+        </button>
+      )}
+    </Group>
   );
 }
 

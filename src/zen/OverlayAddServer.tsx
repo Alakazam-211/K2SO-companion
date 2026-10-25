@@ -1,5 +1,7 @@
 import { useState, type CSSProperties, type FormEvent } from "react";
-import { hostLabel, loginAndSaveServer, useServersStore } from "../stores/servers";
+import { hostLabel, isPairedServer, loginAndSaveServer, useServersStore } from "../stores/servers";
+import type { PairLink } from "../lib/pairLinks";
+import { PairForm } from "./PairForm";
 import { useZenStore } from "./zenStore";
 import { useBackHandler } from "../lib/androidBack";
 
@@ -12,6 +14,7 @@ export function OverlayAddServer({
   onSaved,
   activate = true,
   onSignedIn,
+  pairLink,
 }: {
   editingId?: string | null;
   onCancel?: () => void;
@@ -22,6 +25,8 @@ export function OverlayAddServer({
   activate?: boolean;
   /** After a successful sign-in, with the saved server's id. */
   onSignedIn?: (id: string) => void;
+  /** Opened from a pair link: start on "Pairing code", filled in. */
+  pairLink?: PairLink | null;
 } = {}) {
   const editing = useServersStore((s) =>
     editingId ? s.servers.find((x) => x.id === editingId) : undefined
@@ -34,6 +39,11 @@ export function OverlayAddServer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmingRemove, setConfirmingRemove] = useState(false);
+  // K2 0.46.4 pairing: a paired server's way back is a new code, never a
+  // password; a password server can switch to pairing here too.
+  const [mode, setMode] = useState<"password" | "pair">(
+    pairLink || isPairedServer(editing) ? "pair" : "password"
+  );
   // Android Back = Cancel. Without one (no server saved yet) there is
   // nothing to go back to, so Back falls through.
   useBackHandler(Boolean(onCancel), () => onCancel?.());
@@ -58,7 +68,11 @@ export function OverlayAddServer({
       setError(result.error);
       return;
     }
-    onSignedIn?.(result.id);
+    await done(result.id);
+  };
+
+  const done = async (id: string) => {
+    onSignedIn?.(id);
     if (activate) await useZenStore.getState().hydrateAgents();
     onSaved?.();
   };
@@ -106,10 +120,49 @@ export function OverlayAddServer({
               : "text-center text-[17px] font-semibold"
           }
         >
-          {editing ? "Edit server" : "Add server"}
+          {mode === "pair" && isPairedServer(editing) ? "Pair again" : editing ? "Edit server" : "Add server"}
         </h1>
         {onCancel ? <span style={{ width: 72 }} /> : null}
       </header>
+      <div className="shrink-0 px-6 pb-3">
+        <div
+          className="k2-tile flex"
+          role="tablist"
+          style={{ borderRadius: 10, padding: 2 }}
+          data-testid="add-server-mode"
+        >
+          {(["pair", "password"] as const).map((m) => (
+            <button
+              key={m}
+              type="button"
+              role="tab"
+              aria-selected={mode === m}
+              className="flex-1 text-[14px] font-semibold"
+              style={{
+                minHeight: 32,
+                borderRadius: 8,
+                color: "#fff",
+                background: mode === m ? "rgba(255,255,255,0.18)" : "transparent",
+              }}
+              onClick={() => setMode(m)}
+              data-testid={`add-server-mode-${m}`}
+            >
+              {m === "pair" ? "Pairing code" : "Password"}
+            </button>
+          ))}
+        </div>
+      </div>
+      {mode === "pair" ? (
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-8">
+          <PairForm
+            editingId={editing?.id ?? null}
+            initialServerUrl={pairLink?.serverUrl ?? null}
+            initialCode={pairLink?.code ?? null}
+            activate={activate}
+            onPaired={(id) => void done(id)}
+          />
+        </div>
+      ) : (
       <form
         className="flex-1 min-h-0 overflow-y-auto px-6 pb-8 flex flex-col gap-4"
         onSubmit={(e) => void onSubmit(e)}
@@ -243,6 +296,7 @@ export function OverlayAddServer({
           Sign in with your K2 Connect account to reach your machine
         </p>
       </form>
+      )}
     </div>
   );
 }

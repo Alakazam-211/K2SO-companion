@@ -35,7 +35,7 @@ import {
 import { scopedFetch, type RawResponse } from "../../api/scopedFetch";
 import { isPossibleAuthFailure, noteServerAccepted } from "../../lib/revive";
 import { onServerSignal } from "../../api/serverSignals";
-import { onServerForget } from "../../stores/servers";
+import { isPairedServer, onServerForget, useServersStore } from "../../stores/servers";
 import type { ActivityDisplay } from "../agentActivity";
 
 export type PoolReach = "unknown" | "live" | "starting" | "offline";
@@ -223,9 +223,11 @@ export type LoginRead =
   /** Anything else: network error, timeout, other status. */
   | { kind: "failed"; status?: number };
 
-/** Classify one whoami / summary response (MA11, MA22). */
-export function classifyLoginRead(res: RawResponse | null): LoginRead {
+/** Classify one whoami / summary response (MA11, MA22). A paired server's
+ *  401 is a blip (only 403 `device_session_ended` ends a pairing). */
+export function classifyLoginRead(res: RawResponse | null, paired = false): LoginRead {
   if (!res) return { kind: "failed" };
+  if (paired && res.status === 401) return { kind: "failed", status: 401 };
   if (isPossibleAuthFailure(res.status, res.text)) return { kind: "dead" };
   if (res.status === 503 && /"state"\s*:\s*"migrating"/.test(res.text)) return { kind: "migrating" };
   if (!res.ok) return { kind: "failed", status: res.status };
@@ -384,7 +386,10 @@ export function createPool(deps: PoolDeps): Pool {
 
   const loginGet = async (scope: ServerScope, path: string): Promise<LoginRead> => {
     try {
-      return classifyLoginRead(await deps.get(scope, path, LOGIN_TIMEOUT_MS));
+      return classifyLoginRead(
+        await deps.get(scope, path, LOGIN_TIMEOUT_MS),
+        isPairedServer(useServersStore.getState().servers.find((s) => s.id === scope.id))
+      );
     } catch {
       return { kind: "failed" };
     }

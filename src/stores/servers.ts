@@ -48,6 +48,16 @@ export interface ServerEntry {
    *  storage and caches key by `id` (MA2). Read it through
    *  `serverHostKey()`, which also covers an entry built without it. */
   hostKey?: string;
+  /** How this phone holds its session (K2 0.46.4 `companion-pairing-v1`):
+   *  `paired` = a device session from a pairing code, renewed by use and
+   *  never by a password ("Pair again" when it ends); absent = a password
+   *  sign-in. */
+  auth?: "paired";
+}
+
+/** The phone is paired with this server (no password sign-in). */
+export function isPairedServer(entry: Pick<ServerEntry, "auth"> | null | undefined): boolean {
+  return entry?.auth === "paired";
 }
 
 // ─── URL / id helpers (pure) ───
@@ -262,8 +272,8 @@ export function revokeSession(serverUrl: string, token: string): void {
 /** Hooks first (they still need the token), then the revoke. */
 const LEAVE_HOOKS_WAIT_MS = 4000;
 
-function announceLeave(server: ServerEntry | undefined, token: string | undefined): void {
-  if (!server || !token) return;
+function announceLeave(server: ServerEntry | undefined, token: string | undefined): Promise<void> {
+  if (!server || !token) return Promise.resolve();
   const pending: Promise<unknown>[] = [];
   for (const fn of leaveHooks) {
     try {
@@ -276,9 +286,9 @@ function announceLeave(server: ServerEntry | undefined, token: string | undefine
   const url = server.url;
   if (!pending.length) {
     revokeSession(url, token);
-    return;
+    return Promise.resolve();
   }
-  void Promise.race([
+  return Promise.race([
     Promise.allSettled(pending),
     new Promise((resolve) => setTimeout(resolve, LEAVE_HOOKS_WAIT_MS)),
   ]).then(() => revokeSession(url, token));
@@ -399,7 +409,7 @@ export const useServersStore = create<ServersState>((set, get) => ({
   },
 
   removeServer: (id) => {
-    announceLeave(get().servers.find((s) => s.id === id), get().tokens[id]);
+    void announceLeave(get().servers.find((s) => s.id === id), get().tokens[id]);
     const servers = get().servers.filter((s) => s.id !== id);
     const tokens = { ...get().tokens };
     delete tokens[id];
@@ -634,8 +644,63 @@ export async function loginAndSaveServer(input: {
  *  in, making sign-out a no-op). Other servers are untouched. */
 export function signOutServer(id: string): void {
   const store = useServersStore.getState();
-  announceLeave(store.servers.find((s) => s.id === id), store.tokens[id]);
+  void announceLeave(store.servers.find((s) => s.id === id), store.tokens[id]);
   store.clearToken(id);
   store.setRecovery(id, "signin-required");
   void setRememberedPassword(id, null);
+}
+
+/**
+ * Commit a device session from a pairing code (K2 0.46.4
+ * `companion-pairing-v1`; the request itself is `api/pairing.ts`).
+ *
+ * `replaceId` is the saved server this pairing takes over: a "Pair again",
+ * a "Switch to pairing", or an add the user confirmed over a server already
+ * saved at that address. Without it, an address that is already saved is
+ * refused: a pairing never silently replaces a server (K2's security
+ * review). The old login, if any, leaves first (push unregister with its
+ * token, then `/cli/auth/logout`), and only then does the new token land,
+ * so the push watcher registers it afresh. A different login on the same
+ * server drops what the app holds for that id.
+ */
+export async function commitPairedSession(input: {
+  replaceId?: string | null;
+  url: string;
+  nickname: string;
+  username: string;
+  token: string;
+  activate?: boolean;
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const url = normalizeServerUrl(input.url);
+  if (!tryHostKey(url)) return { ok: false, error: "Enter a server address like name.k2.dev" };
+  const before = useServersStore.getState();
+  const old = input.replaceId ? before.servers.find((s) => s.id === input.replaceId) : undefined;
+  if (input.replaceId && !old) return { ok: false, error: "That server was removed from this phone." };
+  const dup = duplicateServer(before.servers, url, old?.id ?? null);
+  if (dup) return { ok: false, error: duplicateServerMessage(dup) };
+
+  const id = old?.id ?? newId();
+  const oldToken = old ? before.tokens[id] : undefined;
+  if (old && oldToken && oldToken !== input.token) await announceLeave(old, oldToken);
+
+  const store = useServersStore.getState();
+  const saved = store.upsertServer({
+    id,
+    nickname: input.nickname.trim() || old?.nickname || hostLabel(url),
+    url,
+    username: input.username,
+    rememberPassword: false,
+    auth: "paired",
+  });
+  if (!saved) {
+    const other = duplicateServer(useServersStore.getState().servers, url, id);
+    return { ok: false, error: other ? duplicateServerMessage(other) : "Could not save the server" };
+  }
+  if (old && old.username !== input.username && serverHostKey(old) === serverHostKey({ url })) {
+    fireForget(id, "rekeyed");
+  }
+  store.setToken(id, input.token);
+  store.setRecovery(id, "connected");
+  if (input.activate !== false) store.setActive(id);
+  return { ok: true, id };
 }

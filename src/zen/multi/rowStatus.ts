@@ -52,6 +52,9 @@ export interface RowStatus {
   /** `sign-in` because the login this phone holds stopped working (the
    *  server answered and said so): "Sign in again". */
   expired?: boolean;
+  /** `sign-in` on a paired server (K2 0.46.4 `companion-pairing-v1`): the
+   *  way back is a new pairing code, never a password ("Pair again"). */
+  paired?: boolean;
   /** `too-old` because the PHONE is too old for the box (protocol range,
    *  K2 0.46.3 `protocolMin`), not the box for the phone. */
   appTooOld?: boolean;
@@ -119,10 +122,25 @@ export interface RowStatusInput {
   roomActivity?: RoomRowActivity | null;
   /** The row's workspace id on its server (`projects/list` id). */
   workspaceId?: string | null;
+  /** The phone is paired with this server (no password): "Pair again". */
+  paired?: boolean;
 }
 
-/** Pure: fold everything known into what the row shows. */
+/** Pure: fold everything known into what the row shows. A paired server's
+ *  sign-in reads "Pair again". */
 export function resolveRowStatus(input: RowStatusInput): RowStatus {
+  const s = foldRowStatus(input);
+  if (s.kind === "sign-in" && input.paired) {
+    s.paired = true;
+    s.label = PAIR_AGAIN;
+    if (s.detail) s.detail = s.detail.replace(/Sign in again\.$/, "Pair again.");
+  }
+  return s;
+}
+
+export const PAIR_AGAIN = "Pair again";
+
+function foldRowStatus(input: RowStatusInput): RowStatus {
   const server = input.serverLabel || "this server";
   if (!input.saved) return status("offline");
   const e = input.entry;
@@ -229,7 +247,9 @@ export function rowFailure(
       action === "retry"
         ? "Retry now"
         : action === "sign-in"
-          ? s.expired
+          ? s.paired
+            ? PAIR_AGAIN
+            : s.expired
             ? "Sign in again"
             : "Sign in"
           : action === "switch"
@@ -256,7 +276,11 @@ export function rowFailure(
       }
       return f(
         "signin-required",
-        s.expired ? `Sign in again to ${serverLabel}` : `Sign in to ${serverLabel}`,
+        s.paired
+          ? `Pair again with ${serverLabel}`
+          : s.expired
+            ? `Sign in again to ${serverLabel}`
+            : `Sign in to ${serverLabel}`,
         "sign-in"
       );
     case "too-old":
@@ -301,7 +325,9 @@ export function serverBadge(input: Omit<RowStatusInput, "workspaceId" | "roomAct
             ? "Removed"
             : input.entry?.auth === "rotate-required"
               ? "Change password"
-              : "Sign in",
+              : s.paired
+                ? PAIR_AGAIN
+                : "Sign in",
       };
     case "too-old":
       return { color: GREY, word: s.appTooOld ? "Update app" : "Needs an update" };

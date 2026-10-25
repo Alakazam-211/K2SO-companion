@@ -251,3 +251,18 @@ describe("failure rows (MS35 copy table): exactly one action each", () => {
     expect(fail({ entry: probe({ auth: "kicked" }) })?.actionLabel).toBe("Sign in");
   });
 });
+
+describe("a paired server (K2 0.46.4 companion-pairing-v1): Pair again, never a password", () => {
+  it("row word, failure copy and action label", () => {
+    const input = { ...base, paired: true, entry: probe({ auth: "signin-required" }) };
+    const s = resolveRowStatus(input);
+    expect([s.kind, s.label, s.paired]).toEqual(["sign-in", "Pair again", true]);
+    const f = rowFailure(s, input.entry, "Box B", 0);
+    expect([f?.copy, f?.action, f?.actionLabel]).toEqual(["Pair again with Box B", "sign-in", "Pair again"]);
+    expect(resolveRowStatus({ ...base, paired: true, hasLogin: false }).label).toBe("Pair again");
+  });
+
+  it("a healthy paired server reads as any other", () => {
+    expect(resolveRowStatus({ ...base, paired: true, entry: probe({}) }).kind).toBe("live");
+  });
+});

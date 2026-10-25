@@ -1,10 +1,10 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { ServerUnreadPill } from "./UnreadMarks";
 import { connectServer } from "../lib/revive";
-import { hostLabel, useServersStore, type RecoveryState, type ServerEntry } from "../stores/servers";
+import { hostLabel, isPairedServer, useServersStore, type RecoveryState, type ServerEntry } from "../stores/servers";
 import { GlassSearchBar } from "./GlassSearchBar";
 import { OverlayAddServer } from "./OverlayAddServer";
-import { filterServers, RECOVERY_DOT, splitPinnedServer, STATE_LABEL } from "./serverList";
+import { filterServers, RECOVERY_DOT, splitPinnedServer, stateLabelOf } from "./serverList";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 import { useZenStore } from "./zenStore";
 import { useMultiServerPrefs } from "./multi/prefs";
@@ -451,7 +451,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                       ? "connecting…"
                       : pinnedState === "connected"
                         ? "Connected"
-                        : STATE_LABEL[pinnedState]}
+                        : stateLabelOf(pinnedState, isPairedServer(pinned))}
                   </span>
                 </span>
                 <span
@@ -522,6 +522,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
               multi && poolEntries[server.id]
                 ? serverBadge({
                     saved: true,
+                    paired: isPairedServer(server),
                     hasLogin: !!tokens[server.id],
                     entry: poolEntries[server.id],
                     serverLabel: label,
@@ -580,7 +581,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                       style={{ color: dot }}
                       data-testid="overlay-server-state"
                     >
-                      {isConnecting ? "connecting…" : badge ? badge.word : STATE_LABEL[state]}
+                      {isConnecting ? "connecting…" : badge ? badge.word : stateLabelOf(state, isPairedServer(server))}
                     </span>
                     <ServerNotifyStatus serverId={server.id} />
                   </span>

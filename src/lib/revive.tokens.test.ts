@@ -119,3 +119,26 @@ describe("MS29: clear recovery on accept", () => {
     expect(useServersStore.getState().recovery.a).toBe("reconnecting");
   });
 });
+
+describe("a paired server (K2 0.46.4 companion-pairing-v1)", () => {
+  const pairB = () =>
+    useServersStore.setState((s) => ({
+      servers: s.servers.map((x) => (x.id === "b" ? { ...x, auth: "paired" as const } : x)),
+    }));
+
+  it("403 device_session_ended twice ends it: Pair again", async () => {
+    pairB();
+    fetchMock.mockResolvedValue(res(403, { ok: false, error: { code: "device_session_ended" } }));
+    const p = revive({ id: "b" });
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await p).toBe("signin-required");
+    expect(useServersStore.getState().recovery.b).toBe("signin-required");
+  });
+
+  it("a 401 is a blip there, never a sign-in", async () => {
+    pairB();
+    fetchMock.mockResolvedValue(res(401, {}));
+    expect(await revive({ id: "b" })).toBe("unreachable");
+    expect(useServersStore.getState().tokens.b).toBe("tok-b");
+  });
+});

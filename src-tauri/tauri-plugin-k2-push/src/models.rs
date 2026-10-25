@@ -232,6 +232,20 @@ pub struct PickResponse {
     pub cancelled: bool,
 }
 
+/// `scan_qr()` response (iOS, "Pair with a code"): the first QR's text
+/// ("" unless one was read); `cancelled` when closed without one; `denied`
+/// when the camera is off for K2.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ScanQrResponse {
+    #[serde(default)]
+    pub text: String,
+    #[serde(default)]
+    pub cancelled: bool,
+    #[serde(default)]
+    pub denied: bool,
+}
+
 /// `e2e_op` (K2 0.46.3 `push-e2e-v1`, iOS): the phone's push keys.
 ///   `key {server, subdomain, rotate?}` → `{available, publicKey, psk, createdAt, keyId}`
 ///   (base64url; made on first use; `rotate` makes a new one);

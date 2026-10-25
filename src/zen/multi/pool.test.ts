@@ -82,6 +82,9 @@ describe("pure helpers", () => {
     expect(classifyLoginRead(status(502)).kind).toBe("failed");
     expect(classifyLoginRead(status(404)).kind).toBe("failed");
     expect(classifyLoginRead(null).kind).toBe("failed");
+    // Paired (companion-pairing-v1): only device_session_ended ends it.
+    expect(classifyLoginRead(status(401), true).kind).toBe("failed");
+    expect(classifyLoginRead(status(403, '{"ok":false,"error":{"code":"device_session_ended"}}'), true).kind).toBe("dead");
     expect(classifyLoginRead(ok({ a: 1 }))).toEqual({ kind: "ok", body: { a: 1 } });
   });
 });

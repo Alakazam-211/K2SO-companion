@@ -11,6 +11,7 @@
 //   | signin-required | Sign in to {server} / Sign in again to …  | Sign in (again)| off   |
 //   | rotate-required | Change password on {server}               | Sign in       | off    |
 //   | kicked          | Removed from {server}                     | Sign in       | off    |
+//   | (paired)        | Pair again with {server}                  | Pair again    | off    |
 //   | too-old         | {server} needs an update                  | Open (switch) | off    |
 //   | no-access       | No access on {server}                     | (none)        | off    |
 //   | removed         | {server} was removed from this phone      | (none)        | off    |
@@ -25,7 +26,7 @@
 // once and checks later; a failure found then shows the banner.
 
 import type { PoolEntry } from "../multi/pool";
-import { resolveRowStatus, rowFailure, type FailureAction } from "../multi/rowStatus";
+import { PAIR_AGAIN, resolveRowStatus, rowFailure, type FailureAction } from "../multi/rowStatus";
 import { entryDown, reconnectPhase } from "../multi/serverHealth";
 
 export type RoomFailureState =
@@ -72,6 +73,8 @@ export interface RoomFailureInput {
   retryAt?: number | null;
   reconnecting?: boolean;
   expired?: boolean;
+  /** The phone is paired with this server: "Pair again", never a password. */
+  paired?: boolean;
 }
 
 /** The down banner: "Reconnecting…" in the grace, then "offline". */
@@ -116,12 +119,12 @@ function downFailure(input: RoomFailureInput, restarting: boolean): RoomFailure 
   };
 }
 
-function signInAgain(label: string): RoomFailure {
+function signInAgain(label: string, paired?: boolean): RoomFailure {
   return {
     state: "signin-required",
-    copy: `Sign in again to ${label}`,
+    copy: paired ? `Pair again with ${label}` : `Sign in again to ${label}`,
     action: "sign-in",
-    actionLabel: "Sign in again",
+    actionLabel: paired ? PAIR_AGAIN : "Sign in again",
     detail: null,
   };
 }
@@ -141,11 +144,11 @@ export function roomFailure(input: RoomFailureInput): RoomFailure | null {
   if (input.active) {
     // No login at all: Zen's own "Sign in to {server}" (hydrateAgents).
     if (!input.hasLogin) return null;
-    if (input.expired) return signInAgain(input.serverLabel);
+    if (input.expired) return signInAgain(input.serverLabel, input.paired);
     if (!down) return null;
     return downFailure(input, input.entry?.reach === "starting");
   }
-  if (input.hasLogin && input.expired && !input.signingIn) return signInAgain(input.serverLabel);
+  if (input.hasLogin && input.expired && !input.signingIn) return signInAgain(input.serverLabel, input.paired);
   const status = resolveRowStatus({
     saved: true,
     hasLogin: input.hasLogin,
@@ -154,6 +157,7 @@ export function roomFailure(input: RoomFailureInput): RoomFailure | null {
     signingIn: input.signingIn,
     workspaceId: null,
     roomActivity: null,
+    paired: input.paired,
   });
   const f = rowFailure(status, input.entry, input.serverLabel, input.now);
   if (!f || f.state === "checking") {
