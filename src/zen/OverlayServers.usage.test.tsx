@@ -77,6 +77,11 @@ describe("Servers sheet usage button", () => {
     const bell = await within(pinned).findByTestId("server-bell");
     const usage = within(pinned).getByTestId("server-usage");
     expect(bell.nextElementSibling).toBe(usage);
+    // Edit on top; the bell / usage / settings row under it (Rosson 2026-10-24).
+    const actions = within(pinned).getByTestId("server-card-actions");
+    expect(actions.firstElementChild?.textContent).toBe("Edit");
+    expect(bell.parentElement?.parentElement).toBe(actions);
+    expect(within(bell.parentElement as HTMLElement).getByTestId("server-settings")).toBeTruthy();
     expect(usage.getAttribute("aria-label")).toBe("Usage on Home");
     expect(usage.querySelector("svg")?.getAttribute("data-k2-icon")).toBe("gauge");
     expect(within(screen.getByTestId("overlay-servers-list")).queryByTestId("server-usage")).toBeNull();

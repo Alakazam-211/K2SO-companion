@@ -463,25 +463,31 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                 <ServerNotifyStatus serverId={pinned.id} />
               </span>
             </button>
-            <ServerBell serverId={pinned.id} label={labelOf(pinned)} />
-            {tokens[pinned.id] ? (
-              <ServerUsageButton label={labelOf(pinned)} onOpen={() => setUsageId(pinned.id)} />
-            ) : null}
-            <ServerSettingsButton serverId={pinned.id} label={labelOf(pinned)} onOpen={() => setSettingsId(pinned.id)} />
-            <button
-              type="button"
-              className="shrink-0 text-[17px] k2-tile"
-              style={{
-                minHeight: 34,
-                padding: "0 12px",
-                borderRadius: 17,
-                color: "#8e8e93",
-              }}
-              aria-label={`Edit ${labelOf(pinned)}`}
-              onClick={() => setEditingId(pinned.id)}
-            >
-              Edit
-            </button>
+            {/* Edit on top, the bell / usage / settings row under it, so the
+                server's name gets the card's width (Rosson 2026-10-24). */}
+            <div className="shrink-0 flex flex-col items-end" style={{ gap: 6 }} data-testid="server-card-actions">
+              <button
+                type="button"
+                className="shrink-0 text-[17px] k2-tile"
+                style={{
+                  minHeight: 34,
+                  padding: "0 12px",
+                  borderRadius: 17,
+                  color: "#8e8e93",
+                }}
+                aria-label={`Edit ${labelOf(pinned)}`}
+                onClick={() => setEditingId(pinned.id)}
+              >
+                Edit
+              </button>
+              <div className="flex items-center" style={{ gap: 6 }}>
+                <ServerBell serverId={pinned.id} label={labelOf(pinned)} />
+                {tokens[pinned.id] ? (
+                  <ServerUsageButton label={labelOf(pinned)} onOpen={() => setUsageId(pinned.id)} />
+                ) : null}
+                <ServerSettingsButton serverId={pinned.id} label={labelOf(pinned)} onOpen={() => setSettingsId(pinned.id)} />
+              </div>
+            </div>
           </div>
         </div>
       ) : null}
@@ -585,22 +591,26 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                     <ServerNotifyStatus serverId={server.id} />
                   </span>
                 </button>
-                <ServerBell serverId={server.id} label={label} />
-                <ServerSettingsButton serverId={server.id} label={label} onOpen={() => setSettingsId(server.id)} />
-                <button
-                  type="button"
-                  className="shrink-0 text-[17px] k2-tile"
-                  style={{
-                    minHeight: 34,
-                    padding: "0 12px",
-                    borderRadius: 17,
-                    color: "#8e8e93",
-                  }}
-                  aria-label={`Edit ${label}`}
-                  onClick={() => setEditingId(server.id)}
-                >
-                  Edit
-                </button>
+                <div className="shrink-0 flex flex-col items-end" style={{ gap: 6 }} data-testid="server-row-actions">
+                  <button
+                    type="button"
+                    className="shrink-0 text-[17px] k2-tile"
+                    style={{
+                      minHeight: 34,
+                      padding: "0 12px",
+                      borderRadius: 17,
+                      color: "#8e8e93",
+                    }}
+                    aria-label={`Edit ${label}`}
+                    onClick={() => setEditingId(server.id)}
+                  >
+                    Edit
+                  </button>
+                  <div className="flex items-center" style={{ gap: 6 }}>
+                    <ServerBell serverId={server.id} label={label} />
+                    <ServerSettingsButton serverId={server.id} label={label} onOpen={() => setSettingsId(server.id)} />
+                  </div>
+                </div>
               </div>
             );
           })
