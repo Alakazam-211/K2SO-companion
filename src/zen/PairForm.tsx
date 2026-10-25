@@ -236,7 +236,7 @@ export function PairForm({
       data-testid="pair-form"
     >
       <p className="text-[13px]" style={{ color: "#8e8e93" }}>
-        On your computer, open K2 Settings and choose Pair a phone. Then scan its QR code or type the code.
+        On your computer, open K2 Settings → K2 Companion and choose Pair a phone (or your profile → Your phones). Then scan its QR code or type the code.
       </p>
       {qrScannerAvailable() ? (
         <button
