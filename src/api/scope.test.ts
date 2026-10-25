@@ -139,7 +139,7 @@ describe("activeScope shim (MS5)", () => {
 
 describe("feature memory (MS31 / MA15)", () => {
   it("lists all 27 daemon features (0.46.3 adds thread-images-v1, inbox-catchup-v1, boot-status-views-v1, push-e2e-v1, permission-cards-v1, catchup-unchanged-v1)", () => {
-    expect(DAEMON_FEATURES).toHaveLength(27);
+    expect(DAEMON_FEATURES).toHaveLength(28);
     expect(DAEMON_FEATURES).toContain("push-e2e-v1");
     expect(DAEMON_FEATURES).toContain("permission-cards-v1");
     expect(DAEMON_FEATURES).toContain("catchup-unchanged-v1");
