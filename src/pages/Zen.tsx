@@ -60,6 +60,7 @@ import { useForegroundCatchup, useUnreadPrefetch } from "../zen/chatPrefetch";
 import { installPushInboxDrain } from "../lib/pushInbox";
 import { HeaderGlass } from "../zen/HeaderGlass";
 import { usePressSpring } from "../lib/usePressSpring";
+import { useAgentUsage } from "../zen/useAgentUsage";
 
 const HEADER_BTN: CSSProperties = {
   width: 36,
@@ -182,6 +183,9 @@ export function Zen() {
   );
   const headerHarness =
     threadHarness ?? liveHarness ?? (harnessAt ? recallHarness(harnessAt) : null);
+  // The highest usage percent of the LLM account this chat's session uses
+  // (K2 0.46.4), shown beside the LLM icon like the desktop's top-bar chip.
+  const agentUsage = useAgentUsage(zen, groupChat ? null : openAddr);
   const openGroup = useZenStore((s) => (s.threadGroupId || "").trim());
   // Back's count: the list it returns to, the open chat left out. The
   // Agents / Home pick cannot change while a chat is open.
@@ -571,6 +575,24 @@ export function Zen() {
                   // (z 2): under the picture, still over the bubble (z 1).
                   style={{ right: "100%", marginRight: -4, top: HEADER_AVATAR_PX - 18, zIndex: -1 }}
                 >
+                  {agentUsage ? (
+                    <span
+                      data-testid="chat-header-usage"
+                      className="absolute font-semibold"
+                      title={`${agentUsage.label || agentUsage.tool}: ${agentUsage.maxPercent}% used`}
+                      style={{
+                        right: "100%",
+                        marginRight: 3,
+                        fontSize: 11,
+                        lineHeight: "18px",
+                        color: agentUsage.maxPercent >= 90 ? "#ff453a" : "rgba(255,255,255,0.85)",
+                        textShadow: "0 1px 3px rgba(0,0,0,0.7)",
+                        whiteSpace: "nowrap",
+                      }}
+                    >
+                      {agentUsage.maxPercent}%
+                    </span>
+                  ) : null}
                   <LlmIcon harness={headerHarness} size={18} />
                 </span>
               ) : null}
