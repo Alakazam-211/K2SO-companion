@@ -33,3 +33,9 @@ export function useAgentUsage(scope: ServerScope, addr: string | null): AccountU
   }, [scope.id, addr, on]);
   return usage;
 }
+
+/** The usage percent's colour (Rosson 2026-10-24): white, yellow from 75%,
+ *  red from 90%. */
+export function usageColor(pct: number): string {
+  return pct >= 90 ? "#ff6961" : pct >= 75 ? "#ffd60a" : "rgba(255, 255, 255, 0.9)";
+}
