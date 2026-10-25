@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import type { ServerScope } from "../api/scope";
-import { FEATURE_LLM_ACCOUNT_FOR, fetchAccountUsage, type AccountUsage } from "../api/llmAccountFor";
+import { FEATURE_LLM_ACCOUNT_FOR, readAccountUsage, refreshAccountUsage, type AccountUsage } from "../api/llmAccountFor";
 import { useThreadFilesOn } from "./ThreadFiles";
 
 /** The usage of the LLM account the open chat's session uses (K2 0.46.4
  *  `llm-account-for-v1`), read when the chat opens and when the app comes
- *  back to the foreground; never polled. Null on an older server, while
+ *  back to the foreground (the cached reading, then a refresh, which only
+ *  replaces it when it answers); never polled. Null on an older server, while
  *  loading, or when the server names no account. */
 export function useAgentUsage(scope: ServerScope, addr: string | null): AccountUsage | null {
   const on = useThreadFilesOn(scope, FEATURE_LLM_ACCOUNT_FOR);
@@ -17,8 +18,12 @@ export function useAgentUsage(scope: ServerScope, addr: string | null): AccountU
     if (!on || !addr) return;
     let live = true;
     const read = () => {
-      void fetchAccountUsage(scopeRef.current, addr).then((u) => {
+      const scope = scopeRef.current;
+      void readAccountUsage(scope, addr).then((u) => {
         if (live) setUsage(u);
+        return refreshAccountUsage(scope, addr);
+      }).then((u) => {
+        if (live && u) setUsage(u);
       });
     };
     read();
