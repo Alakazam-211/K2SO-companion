@@ -38,3 +38,14 @@ describe("account usage for a chat (llm-account-for-v1)", () => {
     expect(await fetchAccountUsage(scope, "billing")).toBeNull();
   });
 });
+
+import { usageColor } from "../zen/useAgentUsage";
+
+describe("usage colour", () => {
+  it("white below 75, yellow 75–89, red from 90", () => {
+    expect(usageColor(74)).toBe("rgba(255, 255, 255, 0.9)");
+    expect(usageColor(75)).toBe("#ffd60a");
+    expect(usageColor(89)).toBe("#ffd60a");
+    expect(usageColor(90)).toBe("#ff6961");
+  });
+});
