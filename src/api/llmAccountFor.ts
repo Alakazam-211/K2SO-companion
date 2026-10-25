@@ -1,17 +1,19 @@
 // The LLM account a chat's session uses, and its usage (K2 0.46.4
-// `llm-account-for-v1`; Rosson 2026-10-24): the chat header shows its
-// highest percent next to the LLM icon, like the desktop's top-bar chip.
+// `llm-account-for-v1`, K2 main 2b10a4a3a; Rosson 2026-10-24): the chat
+// header shows its highest percent next to the LLM icon, the same number
+// the desktop's top-bar chip shows (the daemon computes `maxPercent`).
 //
-//   GET  /cli/llm/accounts/for?addr=<chat addr>        the cached reading
-//   POST /cli/llm/accounts/for/refresh {addr}          a one-account nudge,
-//        rate-limited per account (~1/min; else the cached reading with
-//        `refreshed:false`), same body
+//   GET  /cli/llm/accounts/for?addr=<chat addr>   the cached reading
+//   POST /cli/llm/accounts/for/refresh {addr}     re-reads that one token;
+//        people only (agent passports 403 owner_only), at most once a minute
+//        per token, else the cached reading with `refreshed:false`,
+//        `reason:"rate_limited"`, `retryAfterSecs`; same body
 //
-// `addr` is the chat's own address (a sidecar `agent/2` too); the daemon
-// resolves the account as the session spawn does. `maxPercent` is the
-// desktop chip's number: the highest whole percent used across the tool's
-// counted windows, a window past its reset counting 0. Read on chat open
-// and on return to the foreground, never polled.
+// `addr` takes what `k2 msg` takes (a sidecar `agent/2` resolves to that
+// sidecar's own session). Not an LLM session: 200 with `tool: null`. No
+// reading (API token, air-gap, never read): `maxPercent: null`. Both hide
+// the bubble. Bad addr 404, none 400. Read on chat open and on return to
+// the foreground: the cached reading first, then a refresh; never polled.
 
 import type { ServerScope } from "./scope";
 import { scopedFetch } from "./scopedFetch";
@@ -35,6 +37,7 @@ export function parseAccountUsage(data: unknown): AccountUsage | null {
   const o = data as Record<string, unknown>;
   const s = (v: unknown) => (typeof v === "string" ? v : "");
   const pct = o.maxPercent;
+  if (typeof o.tool !== "string" || !o.tool) return null;
   if (typeof pct !== "number" || !Number.isFinite(pct)) return null;
   const up = o.updatedAt;
   return {
@@ -47,20 +50,30 @@ export function parseAccountUsage(data: unknown): AccountUsage | null {
   };
 }
 
-/** The account usage for `addr`: a refresh nudge (it answers with the
- *  cached reading when rate-limited), falling back to the plain read on a
- *  server that refuses the nudge. Null on any failure. */
-export async function fetchAccountUsage(scope: ServerScope, addr: string): Promise<AccountUsage | null> {
+function readBody(r: { ok: boolean; text: string }): AccountUsage | null {
+  return r.ok ? parseAccountUsage(JSON.parse(r.text)) : null;
+}
+
+/** The cached reading for `addr`. Null on any failure. */
+export async function readAccountUsage(scope: ServerScope, addr: string): Promise<AccountUsage | null> {
   try {
-    const r = await scopedFetch(scope, "/cli/llm/accounts/for/refresh", {
-      method: "POST",
-      body: JSON.stringify({ addr }),
-      timeoutMs: 15000,
-    });
-    if (r.ok) return parseAccountUsage(JSON.parse(r.text));
-    if (r.status !== 404 && r.status !== 405) return null;
-    const g = await scopedFetch(scope, "/cli/llm/accounts/for", { query: { addr }, timeoutMs: 15000 });
-    return g.ok ? parseAccountUsage(JSON.parse(g.text)) : null;
+    return readBody(await scopedFetch(scope, "/cli/llm/accounts/for", { query: { addr }, timeoutMs: 15000 }));
+  } catch {
+    return null;
+  }
+}
+
+/** A fresh reading for `addr` (the cached one when rate-limited). Null on
+ *  any failure; the caller keeps what it has. */
+export async function refreshAccountUsage(scope: ServerScope, addr: string): Promise<AccountUsage | null> {
+  try {
+    return readBody(
+      await scopedFetch(scope, "/cli/llm/accounts/for/refresh", {
+        method: "POST",
+        body: JSON.stringify({ addr }),
+        timeoutMs: 15000,
+      })
+    );
   } catch {
     return null;
   }
