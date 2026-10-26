@@ -91,8 +91,9 @@ targets:
     # key: XcodeGen would force one file onto every config):
     #   k2so-companion_iOS.entitlements        release (aps production)
     #   k2so-companion_iOS.debug.entitlements  debug (aps development)
-    # Both carry Communication Notifications + the App Group
-    # group.com.alakazamlabs.k2so.companion. release.sh only flips
+    # Both carry Communication Notifications, the App Group
+    # group.com.alakazamlabs.k2so.companion and Associated Domains
+    # applinks:*.k2.dev (pair links; the AASA is on the k2.dev apex). release.sh only flips
     # aps-environment development -> production in the release file.
     scheme:
       environmentVariables:
