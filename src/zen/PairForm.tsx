@@ -23,7 +23,8 @@ export function PairForm({
   initialServerUrl?: string | null;
   initialCode?: string | null;
   activate: boolean;
-  onPaired: (id: string) => void;
+  /** Awaited: Pair stays busy until it settles (the overlay closes). */
+  onPaired: (id: string) => void | Promise<void>;
 }) {
   const servers = useServersStore((s) => s.servers);
   const editing = editingId ? servers.find((s) => s.id === editingId) : undefined;
@@ -119,12 +120,17 @@ export function PairForm({
     setBusy(true);
     setError(null);
     const r = await pairServer({ serverUrl: url, code: normalized, replaceId: replacing?.id ?? null, activate });
-    setBusy(false);
     if (!r.ok) {
+      setBusy(false);
       setError(r.error);
       return;
     }
-    onPaired(r.id);
+    // Still "Pairing…" while the server list reloads, until the overlay closes.
+    try {
+      await onPaired(r.id);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const field: CSSProperties = {

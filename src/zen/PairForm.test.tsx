@@ -12,6 +12,7 @@ vi.mock("./pairFlow", () => ({ pairServer: pair, switchToPairing: vi.fn() }));
 
 import { useServersStore } from "../stores/servers";
 import { OverlayAddServer } from "./OverlayAddServer";
+import { useZenStore } from "./zenStore";
 
 const CODE = "K2P-ABCDE-FGH12-34567-89XYZ";
 const flush = () => act(async () => {});
@@ -42,8 +43,35 @@ describe("pairing", () => {
     expect(onSaved).toHaveBeenCalled();
   });
 
+  it("Pair stays busy while the server list reloads, until the overlay closes", async () => {
+    check.mockResolvedValue({ ok: true, user: "rosson", host: "rosson.k2.dev", expiresInSecs: 500 });
+    pair.mockResolvedValue({ ok: true, id: "new", username: "rosson" });
+    let reloaded!: () => void;
+    const hydrateAgents = vi.fn(() => new Promise<void>((r) => (reloaded = r)));
+    const real = useZenStore.getState().hydrateAgents;
+    useZenStore.setState({ hydrateAgents });
+    try {
+      const onSaved = vi.fn();
+      render(<OverlayAddServer pairLink={{ serverUrl: "https://rosson.k2.dev", code: CODE }} onCancel={() => {}} onSaved={onSaved} />);
+      await flush();
+      fireEvent.click(screen.getByTestId("pair-confirm-button"));
+      await flush();
+      expect(hydrateAgents).toHaveBeenCalled();
+      const button = screen.getByTestId("pair-confirm-button") as HTMLButtonElement;
+      expect(button.disabled).toBe(true);
+      expect(button.textContent).toBe("Pairing…");
+      expect(onSaved).not.toHaveBeenCalled();
+
+      await act(async () => reloaded());
+      expect(onSaved).toHaveBeenCalled();
+    } finally {
+      useZenStore.setState({ hydrateAgents: real });
+    }
+  });
+
   it("warns on a host outside k2.dev and names a saved server it would replace", async () => {
     check.mockResolvedValue({ ok: true, user: "mallory", host: null, expiresInSecs: 500 });
+    pair.mockResolvedValue({ ok: false, error: "That code didn't work." });
     useServersStore.setState({
       servers: [{ id: "a", nickname: "Home", url: "https://box.example.com", username: "rosson", rememberPassword: false }],
       tokens: { a: "t" },

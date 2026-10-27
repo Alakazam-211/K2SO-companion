@@ -63,12 +63,17 @@ export function OverlayAddServer({
       rememberPassword: false,
       activate,
     });
-    setBusy(false);
     if (!result.ok) {
+      setBusy(false);
       setError(result.error);
       return;
     }
-    await done(result.id);
+    // Still "Connecting..." while the server list reloads, until the overlay closes.
+    try {
+      await done(result.id);
+    } finally {
+      setBusy(false);
+    }
   };
 
   const done = async (id: string) => {
@@ -159,7 +164,7 @@ export function OverlayAddServer({
             initialServerUrl={pairLink?.serverUrl ?? null}
             initialCode={pairLink?.code ?? null}
             activate={activate}
-            onPaired={(id) => void done(id)}
+            onPaired={done}
           />
         </div>
       ) : (
