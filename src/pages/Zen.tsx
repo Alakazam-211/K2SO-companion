@@ -60,6 +60,7 @@ import { useForegroundCatchup, useUnreadPrefetch } from "../zen/chatPrefetch";
 import { installPushInboxDrain } from "../lib/pushInbox";
 import { HeaderGlass } from "../zen/HeaderGlass";
 import { usePressSpring } from "../lib/usePressSpring";
+import { useAgentUsage, usageColor } from "../zen/useAgentUsage";
 
 const HEADER_BTN: CSSProperties = {
   width: 36,
@@ -73,6 +74,9 @@ const HEADER_AVATAR_PX = 42;
 export const CHAT_HEADER_PX = 84;
 /** Soft shadow under the header avatar, over the name bubble. */
 const AVATAR_LIFT = "drop-shadow(0 3px 8px rgba(0, 0, 0, 0.55))";
+/** The LLM mark's own lift inside the usage bubble: closer to the glass
+ *  than the picture's. */
+const LLM_LIFT = "drop-shadow(0 1.5px 2.5px rgba(0, 0, 0, 0.6))";
 /** Buttons centre on the avatar. */
 const HEADER_BTN_TOP = (HEADER_AVATAR_PX - 36) / 2;
 
@@ -182,6 +186,9 @@ export function Zen() {
   );
   const headerHarness =
     threadHarness ?? liveHarness ?? (harnessAt ? recallHarness(harnessAt) : null);
+  // The highest usage percent of the LLM account this chat's session uses
+  // (K2 0.46.4), shown beside the LLM icon like the desktop's top-bar chip.
+  const agentUsage = useAgentUsage(zen, groupChat ? null : openAddr);
   const openGroup = useZenStore((s) => (s.threadGroupId || "").trim());
   // Back's count: the list it returns to, the open chat left out. The
   // Agents / Home pick cannot change while a chat is open.
@@ -559,7 +566,37 @@ export function Zen() {
               {/* The avatar overlaps the name bubble's top edge; the shadow
                   lifts it off the glass. */}
               <span className="relative flex" style={{ zIndex: 2 }}>
-              {headerHarness ? (
+              {headerHarness && agentUsage ? (
+                // The LLM mark and the usage percent of the account this
+                // chat runs on (K2 0.46.4) in one glass bubble at the
+                // picture's top-left, low enough that the merged header
+                // glass joins it to the name bubble (Rosson 2026-10-24,
+                // prototype header-glass). zIndex -1 in the avatar's layer
+                // (z 2): under the picture, over the name bubble.
+                <span
+                  data-testid="chat-header-usage"
+                  data-glass-shape="button"
+                  data-llm={headerHarness}
+                  className="absolute flex items-center zen-glass zen-glass-pill font-semibold"
+                  title={`${agentUsage.label || agentUsage.tool}: ${agentUsage.maxPercent}% used`}
+                  style={{
+                    right: "calc(100% - 11px)",
+                    top: 0,
+                    height: 32,
+                    padding: "0 15px 0 13px",
+                    gap: 4,
+                    fontSize: 13,
+                    whiteSpace: "nowrap",
+                    zIndex: -1,
+                    color: usageColor(agentUsage.maxPercent),
+                  }}
+                >
+                  <span className="flex" style={{ filter: LLM_LIFT }}>
+                    <LlmIcon harness={headerHarness} size={18} />
+                  </span>
+                  <span>{agentUsage.maxPercent}%</span>
+                </span>
+              ) : headerHarness ? (
                 <span
                   data-testid="chat-header-llm"
                   data-llm={headerHarness}
