@@ -100,3 +100,12 @@ describe("room failure banner", () => {
     expect(roomFailure({ ...base, entry: live({ boot: { ...live().boot!, version: "0.41.6" } }) })).toBeNull();
   });
 });
+
+describe("room failure on a paired server (companion-pairing-v1)", () => {
+  it("an ended pairing says Pair again, active or not", () => {
+    const active = roomFailure({ ...base, entry: live(), active: true, expired: true, paired: true });
+    expect([active?.copy, active?.actionLabel]).toEqual(["Pair again with Bravo", "Pair again"]);
+    const other = roomFailure({ ...base, entry: live({ auth: "signin-required" }), paired: true });
+    expect([other?.copy, other?.action, other?.actionLabel]).toEqual(["Pair again with Bravo", "sign-in", "Pair again"]);
+  });
+});

@@ -79,15 +79,21 @@ targets:
         UIBackgroundModes: [remote-notification]
         # Composer attach menu: camera (capture input) and the sound of a
         # recorded video. Durable copy also in src-tauri/Info.ios.plist.
-        NSCameraUsageDescription: K2 uses the camera so you can attach a photo or video to a message.
+        NSCameraUsageDescription: K2 uses the camera so you can attach a photo or video to a message, and to scan the pairing QR code from your computer.
         NSMicrophoneUsageDescription: K2 uses the microphone to record sound when you attach a video to a message.
         ITSAppUsesNonExemptEncryption: false
+        # Pair links (K2 0.46.4): k2companion://pair?server=<host>#<code>.
+        # Durable copy also in src-tauri/Info.ios.plist.
+        CFBundleURLTypes:
+          - CFBundleURLName: com.alakazamlabs.k2so.companion.pair
+            CFBundleURLSchemes: [k2companion]
     # Entitlements are two hand-kept, committed files (no `entitlements:`
     # key: XcodeGen would force one file onto every config):
     #   k2so-companion_iOS.entitlements        release (aps production)
     #   k2so-companion_iOS.debug.entitlements  debug (aps development)
-    # Both carry Communication Notifications + the App Group
-    # group.com.alakazamlabs.k2so.companion. release.sh only flips
+    # Both carry Communication Notifications, the App Group
+    # group.com.alakazamlabs.k2so.companion and Associated Domains
+    # applinks:*.k2.dev (pair links; the AASA is on the k2.dev apex). release.sh only flips
     # aps-environment development -> production in the release file.
     scheme:
       environmentVariables:

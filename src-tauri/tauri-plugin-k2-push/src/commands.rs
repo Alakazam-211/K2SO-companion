@@ -104,6 +104,11 @@ pub(crate) async fn pick_documents<R: Runtime>(
 }
 
 #[command]
+pub(crate) async fn scan_qr<R: Runtime>(app: AppHandle<R>) -> Result<ScanQrResponse> {
+    app.k2_push().scan_qr().await
+}
+
+#[command]
 pub(crate) async fn e2e_op<R: Runtime>(
     app: AppHandle<R>,
     op: String,

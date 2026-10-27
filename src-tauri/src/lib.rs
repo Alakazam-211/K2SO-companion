@@ -1841,9 +1841,148 @@ fn aps_environment() -> &'static str {
     }
 }
 
+
+/// Pair links (K2 0.46.4 `companion-pairing-v1`): `k2companion://pair…` and
+/// the universal link `https://<label>.k2.dev/pair#…` open the app. While it
+/// runs, tao turns them into `RunEvent::Opened`. On a cold launch the scene
+/// path hands them only to the scene's connection options, which tao reads
+/// for nothing, so `hook_launch_urls` wraps tao's `AppDelegate`
+/// `application:configurationForConnectingSceneSession:options:` (it gets
+/// the same options) to keep them. Either way they wait here until the
+/// page takes them (`take_open_urls`); `k2-open-url` says one arrived.
+#[cfg(target_os = "ios")]
+mod ios_links {
+    use objc2::runtime::{AnyClass, AnyObject, Imp, Sel};
+    use objc2::{msg_send, sel};
+    use std::ffi::CStr;
+    use std::os::raw::c_char;
+    use std::sync::{Mutex, OnceLock};
+
+    static PENDING: Mutex<Vec<String>> = Mutex::new(Vec::new());
+    static ORIGINAL: OnceLock<usize> = OnceLock::new();
+
+    pub fn push(urls: impl IntoIterator<Item = String>) {
+        if let Ok(mut p) = PENDING.lock() {
+            for u in urls {
+                if !p.contains(&u) {
+                    p.push(u);
+                }
+            }
+        }
+    }
+
+    pub fn take() -> Vec<String> {
+        PENDING.lock().map(|mut p| std::mem::take(&mut *p)).unwrap_or_default()
+    }
+
+    unsafe fn ns_string(s: *mut AnyObject) -> Option<String> {
+        if s.is_null() {
+            return None;
+        }
+        let bytes: *const c_char = msg_send![s, UTF8String];
+        if bytes.is_null() {
+            return None;
+        }
+        Some(CStr::from_ptr(bytes).to_string_lossy().into_owned())
+    }
+
+    unsafe fn url_string(url: *mut AnyObject) -> Option<String> {
+        if url.is_null() {
+            return None;
+        }
+        ns_string(msg_send![url, absoluteString])
+    }
+
+    /// Each object of an NSSet (or nothing).
+    unsafe fn set_items(set: *mut AnyObject) -> Vec<*mut AnyObject> {
+        if set.is_null() {
+            return Vec::new();
+        }
+        let all: *mut AnyObject = msg_send![set, allObjects];
+        if all.is_null() {
+            return Vec::new();
+        }
+        let n: usize = msg_send![all, count];
+        (0..n).map(|i| msg_send![all, objectAtIndex: i]).collect()
+    }
+
+    type ConfigFn = unsafe extern "C-unwind" fn(
+        *mut AnyObject,
+        Sel,
+        *mut AnyObject,
+        *mut AnyObject,
+        *mut AnyObject,
+    ) -> *mut AnyObject;
+
+    unsafe extern "C-unwind" fn config_for_scene(
+        this: *mut AnyObject,
+        cmd: Sel,
+        app: *mut AnyObject,
+        session: *mut AnyObject,
+        options: *mut AnyObject,
+    ) -> *mut AnyObject {
+        if !options.is_null() {
+            let mut urls = Vec::new();
+            for ctx in set_items(msg_send![options, URLContexts]) {
+                if let Some(u) = url_string(msg_send![ctx, URL]) {
+                    urls.push(u);
+                }
+            }
+            for activity in set_items(msg_send![options, userActivities]) {
+                if let Some(u) = url_string(msg_send![activity, webpageURL]) {
+                    urls.push(u);
+                }
+            }
+            push(urls);
+        }
+        match ORIGINAL.get() {
+            Some(&orig) => {
+                let f: ConfigFn = std::mem::transmute(orig);
+                f(this, cmd, app, session, options)
+            }
+            None => std::ptr::null_mut(),
+        }
+    }
+
+    /// Wrap tao's scene configuration once, after the event loop declared
+    /// `AppDelegate` and before `UIApplicationMain` runs.
+    pub fn hook_launch_urls() {
+        if ORIGINAL.get().is_some() {
+            return;
+        }
+        let Some(cls) = AnyClass::get(c"AppDelegate") else {
+            return;
+        };
+        let Some(method) =
+            cls.instance_method(sel!(application:configurationForConnectingSceneSession:options:))
+        else {
+            return;
+        };
+        unsafe {
+            let new: Imp = std::mem::transmute(config_for_scene as ConfigFn);
+            let old = method.set_implementation(new);
+            let _ = ORIGINAL.set(old as usize);
+        }
+    }
+}
+
+/// Pair links that opened the app and the page has not taken yet (oldest
+/// first; each is handed over once). Empty off iOS.
+#[tauri::command]
+fn take_open_urls() -> Vec<String> {
+    #[cfg(target_os = "ios")]
+    {
+        ios_links::take()
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        Vec::new()
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_k2_push::init())
@@ -1866,8 +2005,19 @@ pub fn run() {
             ios_keyboard_diag,
             ios_keyboard_allow_focus,
             open_external_url,
-            aps_environment
+            aps_environment,
+            take_open_urls
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running K2 Companion");
+        .build(tauri::generate_context!())
+        .expect("error while building K2 Companion");
+    #[cfg(target_os = "ios")]
+    ios_links::hook_launch_urls();
+    app.run(|_handle, _event| {
+        #[cfg(target_os = "ios")]
+        if let tauri::RunEvent::Opened { urls } = _event {
+            use tauri::Emitter;
+            ios_links::push(urls.into_iter().map(|u| u.to_string()));
+            let _ = _handle.emit("k2-open-url", ());
+        }
+    });
 }

@@ -105,6 +105,8 @@ export const DAEMON_FEATURES = [
   // K2 0.46.4: the LLM account a chat's session uses, with its usage
   // (`/cli/llm/accounts/for`; src/api/llmAccountFor.ts).
   "llm-account-for-v1",
+  // K2 0.46.4: pair this phone with a one-time code (src/api/pairing.ts).
+  "companion-pairing-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];

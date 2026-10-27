@@ -26,7 +26,7 @@ import { bootInfoFor, noteBootStatus, readBootStatus, type ServerScope } from ".
 import { onServerSignal } from "../../api/serverSignals";
 import { onAppLifecycle } from "../../lib/appLifecycle";
 import { connectServer } from "../../lib/revive";
-import { useServersStore } from "../../stores/servers";
+import { isPairedServer, useServersStore } from "../../stores/servers";
 import { useMultiServerPrefs } from "../multi/prefs";
 import { pool, usePoolEntries } from "../multi/pool";
 import { retryServerNow } from "../multi/poolLoop";
@@ -87,6 +87,7 @@ export function useRoomLife(opts: { open: boolean; agent: StubAgent | undefined 
   const serverId = scope.id;
   const saved = useServersStore((s) => s.servers.some((x) => x.id === serverId));
   const hasLogin = useServersStore((s) => !!s.tokens[serverId]);
+  const paired = useServersStore((s) => isPairedServer(s.servers.find((x) => x.id === serverId)));
   const label = useServersStore(
     useShallow((s) => {
       const e = s.servers.find((x) => x.id === serverId);
@@ -129,9 +130,10 @@ export function useRoomLife(opts: { open: boolean; agent: StubAgent | undefined 
             retryAt,
             reconnecting,
             expired,
+            paired,
           })
         : null,
-    [live, elsewhere, saved, hasLogin, entry, label, signInOpen, now, downSince, retryAt, reconnecting, expired]
+    [live, elsewhere, saved, hasLogin, entry, label, signInOpen, now, downSince, retryAt, reconnecting, expired, paired]
   );
   const ticking =
     failure?.state === "offline" || failure?.state === "reconnecting" || failure?.state === "restarting";

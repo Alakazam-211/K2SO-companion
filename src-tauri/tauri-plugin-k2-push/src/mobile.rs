@@ -122,4 +122,12 @@ impl<R: Runtime> K2Push<R> {
             .await
             .map_err(Into::into)
     }
+
+    /// Async for the same reason: the camera stays up until a code is read.
+    pub async fn scan_qr(&self) -> crate::Result<ScanQrResponse> {
+        self.0
+            .run_mobile_plugin_async::<ScanQrResponse>("scanQr", ())
+            .await
+            .map_err(Into::into)
+    }
 }

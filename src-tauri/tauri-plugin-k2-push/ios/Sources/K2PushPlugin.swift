@@ -204,6 +204,17 @@ class K2PushPlugin: Plugin {
     K2Pickers.pick(invoke, media: false, root: manager.viewController)
   }
 
+  // ── QR scanner (K2QrScanner.swift): "Pair with a code" ──────────────
+
+  /// A full-screen camera that reads one QR → `{text, cancelled, denied}`.
+  @objc public func scanQr(_ invoke: Invoke) {
+    if #available(iOS 14.0, *) {
+      K2QrScanner.scan(invoke, root: manager.viewController)
+    } else {
+      invoke.reject("unsupported: QR scanning needs iOS 14")
+    }
+  }
+
   // ── Badge commands (App Group, K2BadgeStore) ────────────────────────
 
   /// `{key, unread, waiting}` (older JS: `{subdomain, …}`) → store it, set

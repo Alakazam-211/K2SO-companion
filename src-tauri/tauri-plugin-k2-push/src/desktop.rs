@@ -78,6 +78,10 @@ impl<R: Runtime> K2Push<R> {
     pub async fn pick_documents(&self, _req: PickRequest) -> crate::Result<PickResponse> {
         Err(crate::Error::Unsupported(PICKERS_IOS_ONLY.into()))
     }
+
+    pub async fn scan_qr(&self) -> crate::Result<ScanQrResponse> {
+        Err(crate::Error::Unsupported(PICKERS_IOS_ONLY.into()))
+    }
 }
 
 const BADGE_IOS_ONLY: &str = "app-icon badge totals are iOS-only";
