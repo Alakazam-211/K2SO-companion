@@ -16,7 +16,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { hostLabel, serverHostKey, useServersStore, type ServerEntry } from "../../stores/servers";
+import { hostLabel, isPairedServer, serverHostKey, useServersStore, type ServerEntry } from "../../stores/servers";
 import { scopeFor, versionAtLeast } from "../../api/scope";
 import { connectServer } from "../../lib/revive";
 import type { StubAgent } from "../stubData";
@@ -209,6 +209,7 @@ export function useMultiServerList(opts: {
         entry: entries[id],
         serverLabel: labelFor(id),
         signingIn: signInFor === id,
+        paired: isPairedServer(servers.find((s) => s.id === id)),
         workspaceId,
         roomActivity:
           roomActivity === "working" ||
@@ -234,6 +235,7 @@ export function useMultiServerList(opts: {
         entry: entries[id],
         serverLabel: labelFor(id),
         signingIn: signInFor === id,
+        paired: isPairedServer(servers.find((s) => s.id === id)),
       }),
     [servers, tokens, entries, labelFor, signInFor]
   );

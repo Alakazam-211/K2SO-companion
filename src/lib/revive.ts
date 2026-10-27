@@ -23,6 +23,9 @@
 //   - Dead (multi-server MA22, MS33) means whoami answered 401, or 403
 //     with the daemon's token-gate body, TWICE at least 1 s apart. Any
 //     other 403 (an edge or tunnel page, `role_required`) is not proof.
+//   - A paired server (K2 0.46.4 `companion-pairing-v1`): only 403
+//     `device_session_ended` is dead ("Pair again"); a 401 there is a
+//     blip to back off from, never a sign-in.
 //   - A dead token is dropped + `signin-required` — except from a
 //     BACKGROUND caller (a socket reconnect, the pool): that only marks
 //     the server signin-required and keeps the token (MA22). Only a
@@ -32,6 +35,7 @@
 import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 import { cliAuthHeaders } from "../api/cliAuth";
 import {
+  isPairedServer,
   onServerForget,
   useServersStore,
   type ServerEntry,
@@ -54,7 +58,7 @@ import {
 export function isPossibleAuthFailure(status: number, body: string): boolean {
   if (status === 401) return true;
   if (status !== 403) return false;
-  return /invalid or missing (?:auth )?token/i.test(body);
+  return /invalid or missing (?:auth )?token|device_session_ended/i.test(body);
 }
 
 /** Outcome of a revival attempt. Callers replay their request ONLY on
@@ -124,7 +128,7 @@ async function probeSession(
       ),
     ]);
     if (res.ok) return "alive";
-    if (res.status === 401) return "dead";
+    if (res.status === 401) return isPairedServer(server) ? "unknown" : "dead";
     if (res.status === 403) {
       let body = "";
       try {

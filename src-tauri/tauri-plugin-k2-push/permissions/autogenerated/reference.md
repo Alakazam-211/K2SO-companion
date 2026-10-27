@@ -4,7 +4,7 @@ Default permissions for the k2-push plugin: availability probe,
 permission request, token fetch, launch-tap read, the notification
 avatar cache (Communication Notifications), the app-icon badge
 totals and their delivery diagnostics, the composer's attach
-pickers (photo library, document picker), and the event listener
+pickers (photo library, document picker), the pairing QR scanner, and the event listener
 plumbing for `tap`/`tokenRefresh`/`badgeTotals`.
 
 #### This default permission set includes the following:
@@ -21,6 +21,7 @@ plumbing for `tap`/`tokenRefresh`/`badgeTotals`.
 - `allow-e2e-op`
 - `allow-pick-media`
 - `allow-pick-documents`
+- `allow-scan-qr`
 - `allow-register-listener`
 - `allow-remove-listener`
 
@@ -367,6 +368,32 @@ Enables the request_permission command without any pre-configured scope.
 <td>
 
 Denies the request_permission command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:allow-scan-qr`
+
+</td>
+<td>
+
+Enables the scan_qr command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:deny-scan-qr`
+
+</td>
+<td>
+
+Denies the scan_qr command without any pre-configured scope.
 
 </td>
 </tr>
