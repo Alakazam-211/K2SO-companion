@@ -34,7 +34,7 @@
     "iOS": {
       "minimumSystemVersion": "15.0",
       "infoPlist": "Info.ios.plist",
-      "bundleVersion": "202610270655"
+      "bundleVersion": "202610271037"
     },
     "android": {
       "minSdkVersion": 26
