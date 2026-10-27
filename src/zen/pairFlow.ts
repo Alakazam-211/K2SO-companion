@@ -22,7 +22,9 @@ async function thisDevice(): Promise<{ id: string; name: string }> {
   return { id, name: phoneName() };
 }
 
-export type PairOutcome = { ok: true; id: string; username: string } | { ok: false; error: string };
+export type PairOutcome =
+  | { ok: true; id: string; username: string; serverName?: string | null }
+  | { ok: false; error: string };
 
 /** Where a pairing is, for the progress list: the server's answer, signing
  *  the replaced session out (only when there is one), saving this phone. */
@@ -50,7 +52,7 @@ export async function pairServer(input: {
     activate: input.activate,
     onStep: input.onStep,
   });
-  return saved.ok ? { ok: true, id: saved.id, username: r.username } : saved;
+  return saved.ok ? { ok: true, id: saved.id, username: r.username, serverName: r.serverName } : saved;
 }
 
 /** Move a password-signed-in server onto pairing: the password once (never

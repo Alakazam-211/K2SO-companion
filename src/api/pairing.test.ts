@@ -100,6 +100,15 @@ describe("pairing requests (final contract, K2 m_5ClOC889BH)", () => {
     expect(await checkPairCode("https://rosson.k2.dev", CODE)).toMatchObject({ ok: false, kind: "unchecked" });
   });
 
+  it("pair: 0.46.6's serverName names the computer", async () => {
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(
+      res(200, { ok: true, token: "f".repeat(64), username: "rosson", serverName: " Rosson's MacBook Pro ", device: { sessionId: "s-1" } })
+    );
+    const r = await pairDevice("https://rosson.k2.dev", CODE, { id: "dev-1", name: "iPhone" });
+    expect(r).toMatchObject({ ok: true, serverName: "Rosson's MacBook Pro" });
+  });
+
   it("pair: the device body, the session back", async () => {
     fetchMock.mockReset();
     fetchMock.mockResolvedValueOnce(
@@ -118,6 +127,8 @@ describe("pairing requests (final contract, K2 m_5ClOC889BH)", () => {
     );
     const r = await pairDevice("https://rosson.k2.dev", CODE, { id: "dev-1", name: "iPhone" });
     expect(r).toMatchObject({ ok: true, username: "rosson", role: "admin", sessionId: "s-1", maxExpiresAt: "2027-04-22T00:00:00Z" });
+    // Before 0.46.6 there is no serverName.
+    expect(r).toMatchObject({ serverName: null });
     expect(JSON.parse(fetchMock.mock.calls[0][1].body)).toEqual({ code: CODE, device: { id: "dev-1", name: "iPhone" } });
     expect(fetchMock.mock.calls[0][1].headers.Authorization).toBeUndefined();
 
