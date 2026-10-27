@@ -670,6 +670,8 @@ export async function commitPairedSession(input: {
   username: string;
   token: string;
   activate?: boolean;
+  /** "leave": signing the replaced session out; "save": storing this one. */
+  onStep?: (step: "leave" | "save") => void;
 }): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
   const url = normalizeServerUrl(input.url);
   if (!tryHostKey(url)) return { ok: false, error: "Enter a server address like name.k2.dev" };
@@ -681,8 +683,12 @@ export async function commitPairedSession(input: {
 
   const id = old?.id ?? newId();
   const oldToken = old ? before.tokens[id] : undefined;
-  if (old && oldToken && oldToken !== input.token) await announceLeave(old, oldToken);
+  if (old && oldToken && oldToken !== input.token) {
+    input.onStep?.("leave");
+    await announceLeave(old, oldToken);
+  }
 
+  input.onStep?.("save");
   const store = useServersStore.getState();
   const saved = store.upsertServer({
     id,

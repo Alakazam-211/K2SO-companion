@@ -39,34 +39,77 @@ describe("pairing", () => {
 
     fireEvent.click(screen.getByTestId("pair-confirm-button"));
     await flush();
-    expect(pair).toHaveBeenCalledWith({ serverUrl: "https://rosson.k2.dev", code: CODE, replaceId: null, activate: true });
+    expect(pair).toHaveBeenCalledWith(
+      expect.objectContaining({ serverUrl: "https://rosson.k2.dev", code: CODE, replaceId: null, activate: true })
+    );
+    // A clear "Paired" moment; the overlay closes on Done, not by itself.
+    expect(screen.getByTestId("pair-success-text").textContent).toContain("rosson.k2.dev as rosson");
+    expect(onSaved).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByTestId("pair-done"));
     expect(onSaved).toHaveBeenCalled();
   });
 
-  it("Pair stays busy while the server list reloads, until the overlay closes", async () => {
+  it("once Pair is tapped, a step list shows progress and nothing is tappable until Paired", async () => {
     check.mockResolvedValue({ ok: true, user: "rosson", host: "rosson.k2.dev", expiresInSecs: 500 });
-    pair.mockResolvedValue({ ok: true, id: "new", username: "rosson" });
+    let answer!: (r: unknown) => void;
+    let onStep!: (s: string) => void;
+    pair.mockImplementation((input: { onStep: (s: string) => void }) => {
+      onStep = input.onStep;
+      onStep("pair");
+      return new Promise((r) => (answer = r));
+    });
     let reloaded!: () => void;
     const hydrateAgents = vi.fn(() => new Promise<void>((r) => (reloaded = r)));
     const real = useZenStore.getState().hydrateAgents;
     useZenStore.setState({ hydrateAgents });
+    useServersStore.setState({
+      servers: [{ id: "a", nickname: "", url: "https://rosson.k2.dev", username: "rosson", rememberPassword: false }],
+      tokens: { a: "old" },
+    });
     try {
       const onSaved = vi.fn();
-      render(<OverlayAddServer pairLink={{ serverUrl: "https://rosson.k2.dev", code: CODE }} onCancel={() => {}} onSaved={onSaved} />);
+      const onCancel = vi.fn();
+      render(<OverlayAddServer pairLink={{ serverUrl: "https://rosson.k2.dev", code: CODE }} onCancel={onCancel} onSaved={onSaved} />);
       await flush();
       fireEvent.click(screen.getByTestId("pair-confirm-button"));
       await flush();
+      const state = (k: string) => screen.getByTestId(`pair-step-${k}`).getAttribute("data-state");
+      expect(screen.queryByTestId("pair-confirm-button")).toBeNull();
+      expect(state("pair")).toBe("now");
+      // Replacing a signed-in server lists signing it out.
+      expect(state("leave")).toBe("next");
+      expect((screen.getByTestId("add-server-cancel") as HTMLButtonElement).disabled).toBe(true);
+      expect((screen.getByTestId("add-server-mode-password") as HTMLButtonElement).disabled).toBe(true);
+
+      await act(async () => onStep("leave"));
+      expect(state("pair")).toBe("done");
+      expect(state("leave")).toBe("now");
+      await act(async () => answer({ ok: true, id: "a", username: "rosson" }));
+      expect(state("agents")).toBe("now");
       expect(hydrateAgents).toHaveBeenCalled();
-      const button = screen.getByTestId("pair-confirm-button") as HTMLButtonElement;
-      expect(button.disabled).toBe(true);
-      expect(button.textContent).toBe("Pairing…");
-      expect(onSaved).not.toHaveBeenCalled();
+      expect(screen.queryByTestId("pair-success")).toBeNull();
 
       await act(async () => reloaded());
+      expect(screen.getByTestId("pair-success")).not.toBeNull();
+      expect(onSaved).not.toHaveBeenCalled();
+      fireEvent.click(screen.getByTestId("pair-done"));
       expect(onSaved).toHaveBeenCalled();
+      expect(onCancel).not.toHaveBeenCalled();
     } finally {
       useZenStore.setState({ hydrateAgents: real });
     }
+  });
+
+  it("a failed pairing goes back to the confirm with the error and unlocks Cancel", async () => {
+    check.mockResolvedValue({ ok: true, user: "rosson", host: "rosson.k2.dev", expiresInSecs: 500 });
+    pair.mockResolvedValue({ ok: false, error: "That code was already used." });
+    render(<OverlayAddServer pairLink={{ serverUrl: "https://rosson.k2.dev", code: CODE }} onCancel={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByTestId("pair-confirm-button"));
+    await flush();
+    expect(screen.queryByTestId("pair-progress")).toBeNull();
+    expect(screen.getByTestId("pair-confirm").textContent).toContain("That code was already used.");
+    expect((screen.getByTestId("add-server-cancel") as HTMLButtonElement).disabled).toBe(false);
   });
 
   it("warns on a host outside k2.dev and names a saved server it would replace", async () => {

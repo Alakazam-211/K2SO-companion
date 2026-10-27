@@ -23,8 +23,11 @@ describe("commitPairedSession", () => {
   });
 
   it("adds a new paired server and makes it active", async () => {
-    const r = await commitPairedSession({ url: "b.k2.dev", nickname: "", username: "ada", token: "dev-b" });
+    const steps: string[] = [];
+    const r = await commitPairedSession({ url: "b.k2.dev", nickname: "", username: "ada", token: "dev-b", onStep: (s) => steps.push(s) });
     expect(r.ok).toBe(true);
+    // Nothing to sign out on a new server.
+    expect(steps).toEqual(["save"]);
     const id = r.ok ? r.id : "";
     const s = useServersStore.getState();
     const b = s.servers.find((x) => x.id === id)!;
@@ -50,10 +53,18 @@ describe("commitPairedSession", () => {
       if (String(url).endsWith("/cli/auth/logout")) order.push("logout");
       return { ok: true, status: 200, text: async () => "" };
     });
-    const r = await commitPairedSession({ replaceId: "a", url: "a.k2.dev", nickname: "", username: "rosson", token: "dev-a", activate: false });
+    const r = await commitPairedSession({
+      replaceId: "a",
+      url: "a.k2.dev",
+      nickname: "",
+      username: "rosson",
+      token: "dev-a",
+      activate: false,
+      onStep: (step) => order.push(`step:${step}`),
+    });
     off();
     expect(r).toEqual({ ok: true, id: "a" });
-    expect(order).toEqual(["leave:old:old", "logout"]);
+    expect(order).toEqual(["step:leave", "leave:old:old", "logout", "step:save"]);
     const s = useServersStore.getState();
     expect(s.tokens.a).toBe("dev-a");
     expect(s.servers).toHaveLength(1);
