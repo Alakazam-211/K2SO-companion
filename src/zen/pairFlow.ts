@@ -24,6 +24,10 @@ async function thisDevice(): Promise<{ id: string; name: string }> {
 
 export type PairOutcome = { ok: true; id: string; username: string } | { ok: false; error: string };
 
+/** Where a pairing is, for the progress list: the server's answer, signing
+ *  the replaced session out (only when there is one), saving this phone. */
+export type PairStep = "pair" | "leave" | "save";
+
 /** Pair with `serverUrl` using `code` and save it. `replaceId`: the saved
  *  server this takes over (the user confirmed it). */
 export async function pairServer(input: {
@@ -32,7 +36,9 @@ export async function pairServer(input: {
   nickname?: string;
   replaceId?: string | null;
   activate?: boolean;
+  onStep?: (step: PairStep) => void;
 }): Promise<PairOutcome> {
+  input.onStep?.("pair");
   const r = await pairDevice(input.serverUrl, input.code, await thisDevice());
   if (!r.ok) return { ok: false, error: r.error };
   const saved = await commitPairedSession({
@@ -42,6 +48,7 @@ export async function pairServer(input: {
     username: r.username,
     token: r.token,
     activate: input.activate,
+    onStep: input.onStep,
   });
   return saved.ok ? { ok: true, id: saved.id, username: r.username } : saved;
 }
@@ -50,11 +57,13 @@ export async function pairServer(input: {
  *  stored), a code for this login, then the pairing over the same entry. */
 export async function switchToPairing(
   serverId: string,
-  password: string
+  password: string,
+  onStep?: (step: PairStep | "code") => void
 ): Promise<PairOutcome & { wrongPassword?: boolean }> {
   const server = useServersStore.getState().servers.find((s) => s.id === serverId);
   if (!server) return { ok: false, error: "That server was removed from this phone." };
+  onStep?.("code");
   const code = await requestPairCode(scopeFor(serverId), password);
   if (!code.ok) return { ok: false, error: code.error, wrongPassword: code.kind === "password" };
-  return pairServer({ serverUrl: server.url, code: code.code, replaceId: serverId, activate: false });
+  return pairServer({ serverUrl: server.url, code: code.code, replaceId: serverId, activate: false, onStep });
 }

@@ -16,7 +16,7 @@ import { LightBlurRow } from "./LightBlurDiagnostics";
 import { HomeSyncSection } from "./HomeSyncSection";
 import { RECOVERY_DOT, stateLabelOf } from "./serverList";
 import { ServerUpdateSection } from "./ServerUpdateSection";
-import { switchToPairing } from "./pairFlow";
+import { switchToPairing, type PairStep } from "./pairFlow";
 import { useThreadFilesOn } from "./ThreadFiles";
 import { Switch } from "./ZenSettings";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
@@ -437,6 +437,14 @@ function PreviewsRow({ serverId }: { serverId: string }) {
  *  or a password session with "Switch to pairing" where the server offers
  *  it. The switch asks for the password once (never stored): a code for
  *  this login, the pairing, then the old session is logged out. */
+/** The Switch-to-pairing progress line, per pairing step. */
+const SWITCH_STEPS: Record<PairStep | "code", string> = {
+  code: "Checking your password…",
+  pair: "Pairing this phone…",
+  leave: "Signing out the password sign-in…",
+  save: "Saving this phone…",
+};
+
 function PairingGroup({ serverId, paired }: { serverId: string; paired: boolean }) {
   const scope = scopeFor(serverId);
   const supported = useThreadFilesOn(scope, FEATURE_COMPANION_PAIRING);
@@ -445,14 +453,16 @@ function PairingGroup({ serverId, paired }: { serverId: string; paired: boolean 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [justPaired, setJustPaired] = useState(false);
+  const [stepText, setStepText] = useState("");
   if (!paired && !supported) return null;
 
   const onSwitch = async () => {
     if (!password || busy) return;
     setBusy(true);
     setError(null);
-    const r = await switchToPairing(serverId, password);
+    const r = await switchToPairing(serverId, password, (step) => setStepText(SWITCH_STEPS[step]));
     setBusy(false);
+    setStepText("");
     if (!r.ok) {
       setError(r.error);
       return;
@@ -470,10 +480,23 @@ function PairingGroup({ serverId, paired }: { serverId: string; paired: boolean 
         testId="server-settings-signin-kind"
       />
       {paired ? (
-        <p className="text-[13px]" style={{ color: MUTED, padding: "0 16px 12px", lineHeight: 1.35 }}>
-          {justPaired ? "Paired. " : ""}This phone stays signed in without a password while you use it. Signing out
-          ends the pairing.
-        </p>
+        <>
+          {justPaired ? (
+            <p
+              className="text-[15px] font-semibold flex items-center"
+              style={{ color: "#30d158", padding: "4px 16px 4px", gap: 6 }}
+              data-testid="server-settings-pair-success"
+            >
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <path d="M5 12.5l4.5 4.5L19 7.5" />
+              </svg>
+              Paired
+            </p>
+          ) : null}
+          <p className="text-[13px]" style={{ color: MUTED, padding: "0 16px 12px", lineHeight: 1.35 }}>
+            This phone stays signed in without a password while you use it. Signing out ends the pairing.
+          </p>
+        </>
       ) : open ? (
         <div style={{ padding: "4px 16px 14px", borderTop: HAIRLINE }} data-testid="server-settings-pair-switch">
           <p className="text-[13px]" style={{ color: MUTED, lineHeight: 1.35, marginTop: 8 }}>
@@ -495,10 +518,16 @@ function PairingGroup({ serverId, paired }: { serverId: string; paired: boolean 
             autoCorrect="off"
             autoComplete="current-password"
             spellCheck={false}
+            disabled={busy}
             className="k2-tile w-full"
             style={{ minHeight: 40, padding: "0 14px", borderRadius: 10, color: "#fff", fontSize: 16, marginTop: 10 }}
             data-testid="server-settings-pair-password"
           />
+          {busy && stepText ? (
+            <p className="text-[13px]" style={{ color: "#fff", marginTop: 8 }} aria-live="polite" data-testid="server-settings-pair-step">
+              {stepText}
+            </p>
+          ) : null}
           {error ? (
             <p className="text-[13px]" style={{ color: RED, marginTop: 8 }} data-testid="server-settings-pair-error">
               {error}

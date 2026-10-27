@@ -3,36 +3,46 @@ import { checkPairCode, isK2DevServer, normalizePairCode, parsePairText, phoneNa
 import { qrScannerAvailable, scanQr } from "../lib/pairLinks";
 import { duplicateServer, hostLabel, normalizeServerUrl, useServersStore } from "../stores/servers";
 import { tryHostKey } from "../lib/hostKey";
-import { pairServer } from "./pairFlow";
+import { pairServer, type PairStep } from "./pairFlow";
 
 /** "Pair with a code" (K2 0.46.4 `companion-pairing-v1`), inside
  *  OverlayAddServer. Two steps: the code (typed, pasted, scanned, or from a
  *  link) and the server; then a confirm that names the server and the
  *  login before anything is paired (K2's security review: a link can come
  *  from anyone). A server already saved at that address is replaced only
- *  after the confirm says so. */
+ *  after the confirm says so. Once Pair is tapped nothing is tappable: a
+ *  step list shows where the pairing is, then a "Paired" screen with Done. */
 export function PairForm({
   editingId,
   initialServerUrl,
   initialCode,
   activate,
   onPaired,
+  onDone,
+  onPhase,
 }: {
   /** The saved server this pairs again (or switches): its entry is reused. */
   editingId?: string | null;
   initialServerUrl?: string | null;
   initialCode?: string | null;
   activate: boolean;
-  /** Awaited: Pair stays busy until it settles (the overlay closes). */
+  /** Awaited as the last step (the agents reload) before "Paired". */
   onPaired: (id: string) => void | Promise<void>;
+  /** Done on the "Paired" screen. */
+  onDone: () => void;
+  /** The overlay locks its Cancel and tabs while busy, hides them when done. */
+  onPhase?: (phase: "idle" | "busy" | "done") => void;
 }) {
   const servers = useServersStore((s) => s.servers);
+  const tokens = useServersStore((s) => s.tokens);
   const editing = editingId ? servers.find((s) => s.id === editingId) : undefined;
   const [serverUrl, setServerUrl] = useState(
     initialServerUrl ? hostLabel(initialServerUrl) : editing ? hostLabel(editing.url) : ""
   );
   const [code, setCode] = useState(initialCode ?? "");
-  const [step, setStep] = useState<"enter" | "confirm">("enter");
+  const [step, setStep] = useState<"enter" | "confirm" | "done">("enter");
+  const [progress, setProgress] = useState<ProgressStep | null>(null);
+  const [pairedAs, setPairedAs] = useState("");
   const [login, setLogin] = useState<string | null>(null);
   const [codeHost, setCodeHost] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -46,6 +56,8 @@ export function PairForm({
   // another saved at the same address (named in the confirm).
   const other = url ? duplicateServer(servers, url, editing?.id ?? null) : null;
   const replacing = editing ?? other ?? null;
+  // Pairing over a signed-in server signs that session out first.
+  const signsOut = !!replacing && !!tokens[replacing.id];
 
   const onCodeChange = (text: string) => {
     const parsed = parsePairText(text);
@@ -119,18 +131,32 @@ export function PairForm({
     if (!normalized || busy) return;
     setBusy(true);
     setError(null);
-    const r = await pairServer({ serverUrl: url, code: normalized, replaceId: replacing?.id ?? null, activate });
+    setProgress("pair");
+    onPhase?.("busy");
+    const r = await pairServer({
+      serverUrl: url,
+      code: normalized,
+      replaceId: replacing?.id ?? null,
+      activate,
+      onStep: setProgress,
+    });
     if (!r.ok) {
       setBusy(false);
+      setProgress(null);
       setError(r.error);
+      onPhase?.("idle");
       return;
     }
-    // Still "Pairing…" while the server list reloads, until the overlay closes.
+    setProgress("agents");
     try {
       await onPaired(r.id);
     } finally {
       setBusy(false);
+      setProgress(null);
     }
+    setPairedAs(r.username);
+    setStep("done");
+    onPhase?.("done");
   };
 
   const field: CSSProperties = {
@@ -153,8 +179,68 @@ export function PairForm({
     </span>
   );
 
+  if (step === "done") {
+    return (
+      <div className="flex flex-col items-center gap-4 text-center" style={{ paddingTop: 32 }} data-testid="pair-success">
+        <div
+          className="flex items-center justify-center"
+          style={{ width: 72, height: 72, borderRadius: 36, background: "rgba(48,209,88,0.16)" }}
+          aria-hidden
+        >
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M5 12.5l4.5 4.5L19 7.5" />
+          </svg>
+        </div>
+        <h2 className="text-[22px] font-semibold">Paired</h2>
+        <p className="text-[15px]" style={{ color: "#c7c7cc", lineHeight: 1.4 }} data-testid="pair-success-text">
+          This {phoneName()} is signed in to {url ? hostLabel(url) : "the server"}
+          {pairedAs ? ` as ${pairedAs}` : ""}. It stays signed in without a password.
+        </p>
+        <button type="button" className="w-full font-semibold" style={{ ...primary, marginTop: 8 }} onClick={onDone} data-testid="pair-done">
+          Done
+        </button>
+      </div>
+    );
+  }
+
   if (step === "confirm") {
     const host = url ? hostLabel(url) : "";
+    if (progress) {
+      const steps: { key: ProgressStep; label: string }[] = [
+        { key: "pair", label: `Pairing with ${host}` },
+        ...(signsOut ? [{ key: "leave" as const, label: "Signing out the old sign-in" }] : []),
+        { key: "save", label: "Saving this phone" },
+        { key: "agents", label: activate ? "Loading your agents" : "Finishing up" },
+      ];
+      const at = steps.findIndex((s) => s.key === progress);
+      return (
+        <div className="flex flex-col gap-4" data-testid="pair-progress" aria-live="polite">
+          <h2 className="text-[20px] font-semibold text-center" style={{ marginTop: 8 }}>
+            Pairing this {phoneName()}…
+          </h2>
+          <div className="k2-tile flex flex-col" style={{ borderRadius: 12, padding: "4px 14px" }}>
+            {steps.map((s, i) => {
+              const state = i < at ? "done" : i === at ? "now" : "next";
+              return (
+                <div
+                  key={s.key}
+                  className="flex items-center"
+                  style={{ minHeight: 44, gap: 12, color: state === "next" ? "#636366" : "#fff" }}
+                  data-testid={`pair-step-${s.key}`}
+                  data-state={state}
+                >
+                  <StepMark state={state} />
+                  <span className={state === "now" ? "font-semibold" : undefined}>{s.label}</span>
+                </div>
+              );
+            })}
+          </div>
+          <p className="text-[13px] text-center" style={{ color: "#8e8e93" }}>
+            This can take a few seconds. Keep K2 open.
+          </p>
+        </div>
+      );
+    }
     const codeElsewhere =
       codeHost && tryHostKey(`https://${codeHost}`) !== tryHostKey(url) ? codeHost : null;
     return (
@@ -303,4 +389,26 @@ export function PairForm({
       </button>
     </form>
   );
+}
+
+type ProgressStep = PairStep | "agents";
+
+function StepMark({ state }: { state: "done" | "now" | "next" }) {
+  if (state === "done") {
+    return (
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+        <path d="M5 12.5l4.5 4.5L19 7.5" />
+      </svg>
+    );
+  }
+  if (state === "now") {
+    return (
+      <span
+        className="animate-spin"
+        style={{ width: 18, height: 18, margin: 1, flexShrink: 0, borderRadius: 9, border: "2px solid rgba(255,255,255,0.25)", borderTopColor: "#fff" }}
+        aria-hidden
+      />
+    );
+  }
+  return <span style={{ width: 18, height: 18, margin: 1, flexShrink: 0, borderRadius: 9, border: "2px solid #3a3a3c" }} aria-hidden />;
 }

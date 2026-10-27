@@ -44,9 +44,15 @@ export function OverlayAddServer({
   const [mode, setMode] = useState<"password" | "pair">(
     pairLink || isPairedServer(editing) ? "pair" : "password"
   );
+  // A pairing in flight locks Cancel and the tabs; "Paired" hides them
+  // (its Done is the way out).
+  const [pairPhase, setPairPhase] = useState<"idle" | "busy" | "done">("idle");
+  const canCancel = Boolean(onCancel) && pairPhase === "idle";
   // Android Back = Cancel. Without one (no server saved yet) there is
   // nothing to go back to, so Back falls through.
-  useBackHandler(Boolean(onCancel), () => onCancel?.());
+  useBackHandler(Boolean(onCancel) && pairPhase !== "busy", () =>
+    pairPhase === "done" ? onSaved?.() : onCancel?.()
+  );
   const isValid = serverUrl.length > 0 && username.length > 0 && password.length > 0;
 
   const onSubmit = async (e: FormEvent) => {
@@ -76,9 +82,13 @@ export function OverlayAddServer({
     }
   };
 
-  const done = async (id: string) => {
+  /** Signed in or paired: tell the caller, reload the list when active. */
+  const finish = async (id: string) => {
     onSignedIn?.(id);
     if (activate) await useZenStore.getState().hydrateAgents();
+  };
+  const done = async (id: string) => {
+    await finish(id);
     onSaved?.();
   };
 
@@ -112,8 +122,12 @@ export function OverlayAddServer({
               minHeight: 34,
               padding: "0 14px",
               borderRadius: 17,
+              opacity: canCancel ? 1 : 0.35,
+              visibility: pairPhase === "done" ? "hidden" : undefined,
             }}
+            disabled={!canCancel}
             onClick={onCancel}
+            data-testid="add-server-cancel"
           >
             Cancel
           </button>
@@ -129,6 +143,7 @@ export function OverlayAddServer({
         </h1>
         {onCancel ? <span style={{ width: 72 }} /> : null}
       </header>
+      {pairPhase === "done" ? null : (
       <div className="shrink-0 px-6 pb-3">
         <div
           className="k2-tile flex"
@@ -149,6 +164,7 @@ export function OverlayAddServer({
                 color: "#fff",
                 background: mode === m ? "rgba(255,255,255,0.18)" : "transparent",
               }}
+              disabled={pairPhase !== "idle"}
               onClick={() => setMode(m)}
               data-testid={`add-server-mode-${m}`}
             >
@@ -157,6 +173,7 @@ export function OverlayAddServer({
           ))}
         </div>
       </div>
+      )}
       {mode === "pair" ? (
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-8">
           <PairForm
@@ -164,7 +181,9 @@ export function OverlayAddServer({
             initialServerUrl={pairLink?.serverUrl ?? null}
             initialCode={pairLink?.code ?? null}
             activate={activate}
-            onPaired={done}
+            onPaired={finish}
+            onDone={() => onSaved?.()}
+            onPhase={setPairPhase}
           />
         </div>
       ) : (
