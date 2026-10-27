@@ -100,6 +100,18 @@ describe("pairing", () => {
     }
   });
 
+  it("Paired names the computer when the server sends serverName (0.46.6)", async () => {
+    check.mockResolvedValue({ ok: true, user: "riley", host: "riley.k2.dev", expiresInSecs: 500 });
+    pair.mockResolvedValue({ ok: true, id: "new", username: "riley", serverName: "Riley's MacBook Pro" });
+    render(<OverlayAddServer pairLink={{ serverUrl: "https://riley.k2.dev", code: CODE }} onCancel={() => {}} />);
+    await flush();
+    fireEvent.click(screen.getByTestId("pair-confirm-button"));
+    await flush();
+    expect(screen.getByTestId("pair-success-text").textContent).toContain(
+      "signed in to Riley's MacBook Pro (riley.k2.dev) as riley"
+    );
+  });
+
   it("a failed pairing goes back to the confirm with the error and unlocks Cancel", async () => {
     check.mockResolvedValue({ ok: true, user: "riley", host: "riley.k2.dev", expiresInSecs: 500 });
     pair.mockResolvedValue({ ok: false, error: "That code was already used." });

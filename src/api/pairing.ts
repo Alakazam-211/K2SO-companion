@@ -12,7 +12,9 @@
 //          expiresInSecs}; does not use the code up (K2 m_RFURuuaXzV)
 //   pair   POST /cli/auth/device/pair {code, device:{id, name}}, no auth,
 //          through <label>.app.k2.dev (exempt from the web-off gate) or
-//          direct → {token, username, role, expiresAt, maxExpiresAt, …}
+//          direct → {token, username, role, expiresAt, maxExpiresAt, …};
+//          0.46.6 adds `serverName` (the computer's friendly name, else
+//          its host) for the "Paired" screen (K2 m_ZypN68RDln)
 //   ended  403 `device_session_ended` on any route (WS close 4003): "Pair
 //          again". Slides 30 days with use, never past 180 days. A paired
 //          server never falls back to a password sign-in.
@@ -183,6 +185,8 @@ export type PairResult =
       expiresAt: string | null;
       maxExpiresAt: string | null;
       sessionId: string | null;
+      /** K2 0.46.6+: the computer's friendly name; null before. */
+      serverName: string | null;
     }
   | { ok: false; kind: "code" | "network" | "refused"; error: string };
 
@@ -215,6 +219,7 @@ export async function pairDevice(
       expiresAt: str(j.expiresAt),
       maxExpiresAt: str(j.maxExpiresAt),
       sessionId: str(dev.sessionId),
+      serverName: str(typeof j.serverName === "string" ? j.serverName.trim().slice(0, 80) : null),
     };
   } catch (err) {
     return { ok: false, kind: "network", error: connectError(err) };

@@ -43,6 +43,7 @@ export function PairForm({
   const [step, setStep] = useState<"enter" | "confirm" | "done">("enter");
   const [progress, setProgress] = useState<ProgressStep | null>(null);
   const [pairedAs, setPairedAs] = useState("");
+  const [pairedTo, setPairedTo] = useState<string | null>(null);
   const [login, setLogin] = useState<string | null>(null);
   const [codeHost, setCodeHost] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -155,6 +156,7 @@ export function PairForm({
       setProgress(null);
     }
     setPairedAs(r.username);
+    setPairedTo(r.serverName ?? null);
     setStep("done");
     onPhase?.("done");
   };
@@ -180,6 +182,9 @@ export function PairForm({
   );
 
   if (step === "done") {
+    const host = url ? hostLabel(url) : "the server";
+    // 0.46.6 names the computer; the address stays beside it.
+    const to = pairedTo && pairedTo !== host ? `${pairedTo} (${host})` : host;
     return (
       <div className="flex flex-col items-center gap-4 text-center" style={{ paddingTop: 32 }} data-testid="pair-success">
         <div
@@ -193,7 +198,7 @@ export function PairForm({
         </div>
         <h2 className="text-[22px] font-semibold">Paired</h2>
         <p className="text-[15px]" style={{ color: "#c7c7cc", lineHeight: 1.4 }} data-testid="pair-success-text">
-          This {phoneName()} is signed in to {url ? hostLabel(url) : "the server"}
+          This {phoneName()} is signed in to {to}
           {pairedAs ? ` as ${pairedAs}` : ""}. It stays signed in without a password.
         </p>
         <button type="button" className="w-full font-semibold" style={{ ...primary, marginTop: 8 }} onClick={onDone} data-testid="pair-done">
