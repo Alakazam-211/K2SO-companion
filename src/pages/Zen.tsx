@@ -582,7 +582,9 @@ export function Zen() {
                   title={`${agentUsage.label || agentUsage.tool}: ${agentUsage.maxPercent}% used`}
                   style={{
                     right: "calc(100% - 11px)",
-                    top: 0,
+                    // Its top lines up with the header buttons' (Rosson
+                    // 2026-10-27).
+                    top: HEADER_BTN_TOP,
                     height: 32,
                     padding: "0 15px 0 13px",
                     gap: 4,
