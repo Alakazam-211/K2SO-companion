@@ -143,6 +143,19 @@ export { COMPOSER_MAX_PX, composerHeight } from "./GlassComposer";
 const BUBBLE_TEXT_PX = 14;
 /** How long the "New message ↓" glide gets before a jump finishes it. */
 export const NEW_BELOW_SETTLE_MS = 450;
+/** The pill stays in the page this long after its tap, fading: WebKit on
+ *  iOS checks the tapped node after the click, and a node removed inside
+ *  its own click reads as a tap on nothing, which drops the keyboard
+ *  (Rosson 2026-10-28, "Sent ↓"). */
+export const PILL_LEAVE_MS = 160;
+
+/** The dock's press guard: anything but a text field keeps focus where it
+ *  is (the composer's field, so the iOS keyboard stays up). */
+function keepComposerFocus(e: { target: EventTarget | null; preventDefault: () => void }) {
+  const t = e.target;
+  if (t instanceof Element && t.closest("textarea, input, select, [contenteditable=''], [contenteditable=true]")) return;
+  e.preventDefault();
+}
 /** Progressive first paint: a chat that opens with more than this many
  *  messages draws its newest `PROGRESSIVE_FIRST` first and the rest on the
  *  next idle frame (prepended above, the view pinned to the bottom). */
@@ -807,6 +820,11 @@ export function ThreadPane({
   // Below the view: an agent message ("New message ↓"), or the reader's own
   // send when "Jump to newest when I send" is off ("Sent ↓").
   const [newBelow, setNewBelow] = useState<false | "message" | "sent">(false);
+  // Tapped: fading out, gone after PILL_LEAVE_MS.
+  const [pillLeaving, setPillLeaving] = useState(false);
+  useEffect(() => {
+    if (!newBelow) setPillLeaving(false);
+  }, [newBelow]);
   // The reader sits at (or near) the newest message: what read marking
   // (K2 0.46.1) counts as "seen". Scrolled up into history = not.
   const [atNewest, setAtNewest] = useState(true);
@@ -1614,7 +1632,13 @@ export function ThreadPane({
    *  not reached the newest after the glide, jump the rest. */
   function onNewBelow() {
     const el = scrollerRef.current;
-    setFollowing(true);
+    // Following again, but the pill leaves after this tap, not inside it
+    // (PILL_LEAVE_MS).
+    following.current = true;
+    setPillLeaving(true);
+    window.setTimeout(() => {
+      if (following.current) setNewBelow(false);
+    }, PILL_LEAVE_MS);
     if (!el) return;
     // The newest are not drawn (the reader went far up): the window moves
     // back to them and the view jumps there.
@@ -2248,6 +2272,12 @@ export function ThreadPane({
         className="absolute left-0 right-0 bottom-0"
         style={{ zIndex: 2 }}
         data-testid="thread-composer-dock"
+        // A press anywhere on the dock but a text field keeps the keyboard
+        // up (the Send / pill / drawer trick, for the whole dock): a tap
+        // that lands beside a control — the Working strip sliding in under
+        // a finger aimed at "Sent ↓" (Rosson 2026-10-28) — must not blur.
+        onPointerDown={keepComposerFocus}
+        onMouseDown={keepComposerFocus}
       >
         <ZenFooterBlur
           testId="thread-footer-blur"
@@ -2266,7 +2296,13 @@ export function ThreadPane({
                 type="button"
                 data-testid="thread-new-message"
                 className="pointer-events-auto zen-glass zen-glass-pill zen-pill-in text-[13px]"
-                style={{ minHeight: 32, padding: "0 14px", color: "#fff" }}
+                style={{
+                  minHeight: 32,
+                  padding: "0 14px",
+                  color: "#fff",
+                  ...(pillLeaving ? { opacity: 0, pointerEvents: "none", transition: "opacity 140ms ease-out" } : null),
+                }}
+                data-leaving={pillLeaving ? "true" : undefined}
                 // Keep focus in the textarea so the iOS keyboard stays up:
                 // a blur drops the keyboard, the pill moves with the
                 // composer, and the tap misses it (send button pattern).

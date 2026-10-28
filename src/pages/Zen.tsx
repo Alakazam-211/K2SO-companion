@@ -47,6 +47,7 @@ import { ServerChip } from "../zen/room/ServerChip";
 import { ZEN_SERVER_PARAM, resolveServerRef, withServerParam } from "../zen/room/serverRef";
 import { OverlayAddServer } from "../zen/OverlayAddServer";
 import { PairLinkHost } from "../zen/PairLinkHost";
+import { UsagePage } from "../zen/UsagePage";
 import { pool } from "../zen/multi/pool";
 import { FileIcon, TerminalIcon } from "../zen/icons";
 import { LlmIcon } from "../zen/LlmIcon";
@@ -205,6 +206,10 @@ export function Zen() {
   });
   const identity = useSessionIdentity(zen);
   const [iconOpen, setIconOpen] = useState(false);
+  // The usage bubble → this chat's server's Usage page (the one under
+  // Servers → a server → Usage). The page takes any saved server, so a
+  // chat open on another server (a room) needs no server switch.
+  const [usageServerId, setUsageServerId] = useState<string | null>(null);
   // Header avatar → Change icon: the workspace's (a sidecar edits its parent's).
   const iconTarget = canChangeIcon(identity) ? iconTargetFor(agent, serverProjects) : null;
   const viewingFile = openFileIds.length > 0;
@@ -574,13 +579,23 @@ export function Zen() {
                 // glass joins it to the name bubble (Rosson 2026-10-24,
                 // prototype header-glass). zIndex -1 in the avatar's layer
                 // (z 2): under the picture, over the name bubble.
-                <span
+                <button
+                  type="button"
                   data-testid="chat-header-usage"
                   data-glass-shape="button"
                   data-llm={headerHarness}
                   className="absolute flex items-center zen-glass zen-glass-pill font-semibold"
                   title={`${agentUsage.label || agentUsage.tool}: ${agentUsage.maxPercent}% used`}
+                  aria-label={`${agentUsage.label || agentUsage.tool}: ${agentUsage.maxPercent}% used. Open usage for ${zen.label}`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (filesPaneOpen) dismissFiles();
+                    setSessionsOpen(false);
+                    setUsageServerId(zen.id);
+                  }}
                   style={{
+                    pointerEvents: "auto",
+                    border: 0,
                     right: "calc(100% - 11px)",
                     // Its top lines up with the header buttons' (Rosson
                     // 2026-10-27).
@@ -598,7 +613,7 @@ export function Zen() {
                     <LlmIcon harness={headerHarness} size={18} />
                   </span>
                   <span>{agentUsage.maxPercent}%</span>
-                </span>
+                </button>
               ) : headerHarness ? (
                 <span
                   data-testid="chat-header-llm"
@@ -1012,6 +1027,11 @@ export function Zen() {
               if (z.agentId) void z.hydrateAgents({ resumeId: z.agentId });
             }}
           />
+        </div>
+      ) : null}
+      {usageServerId ? (
+        <div className="fixed inset-0" style={{ zIndex: 55 }} data-testid="chat-usage-page">
+          <UsagePage serverId={usageServerId} onBack={() => setUsageServerId(null)} />
         </div>
       ) : null}
       <PairLinkHost />
