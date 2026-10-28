@@ -32,6 +32,7 @@ import { connectOverlayEvents } from "./overlayEvents";
 import { NEW_BELOW_SETTLE_MS, ThreadPane } from "./ThreadPane";
 import type { ThreadMessage } from "./threadModel";
 import { useZenStore } from "./zenStore";
+import { useJumpOnSendStore } from "./jumpOnSend";
 import { fakeScope } from "../test/fakeScope";
 import { setZenScope } from "../test/zenScopeMock";
 
@@ -298,6 +299,66 @@ describe("Thread follows the newest", () => {
     height = 2000;
     fireResize();
     expect(scroller().scrollTop).toBe(bottom());
+  });
+
+  it("Jump to newest when I send (default on): a send from up in history jumps down and follows", async () => {
+    useJumpOnSendStore.setState({ on: true });
+    render(<ThreadPane />);
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+    userScrollTo(300);
+    fireEvent.change(screen.getByTestId("composer-input"), { target: { value: "and this" } });
+    height = 1880;
+    fireEvent.submit(screen.getByTestId("composer-form"));
+    expect(scroller().scrollTop).toBe(bottom());
+    expect(screen.queryByTestId("thread-new-message")).toBeNull();
+  });
+
+  it("Jump to newest when I send off: a send from up in history keeps the place, with a Sent pill", async () => {
+    const scrollTo = vi.fn(function (this: HTMLElement, opts: ScrollToOptions) {
+      this.scrollTop = opts.top ?? 0;
+    });
+    (HTMLElement.prototype as unknown as { scrollTo: unknown }).scrollTo = scrollTo;
+    useJumpOnSendStore.setState({ on: false });
+    try {
+      render(<ThreadPane />);
+      await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+      userScrollTo(300);
+      fireEvent.change(screen.getByTestId("composer-input"), { target: { value: "and this" } });
+      height = 1880;
+      fireEvent.submit(screen.getByTestId("composer-form"));
+      fireResize();
+      flushRaf();
+      expect(scroller().scrollTop).toBe(300);
+      expect(vi.mocked(postThread)).toHaveBeenCalled();
+      expect(screen.getByTestId("thread-new-message").textContent).toMatch(/Sent/);
+
+      // The reply arrives: still in place; the pill now says New message.
+      height = 1960;
+      act(() => socket().onItem(threadFrame("r9", 40, "On it.") as never));
+      fireResize();
+      expect(scroller().scrollTop).toBe(300);
+      expect(screen.getByTestId("thread-new-message").textContent).toMatch(/New message/);
+
+      fireEvent.click(screen.getByTestId("thread-new-message"));
+      expect(scroller().scrollTop).toBe(bottom());
+    } finally {
+      useJumpOnSendStore.setState({ on: true });
+    }
+  });
+
+  it("Jump to newest when I send off: at the newest already, a send still follows", async () => {
+    useJumpOnSendStore.setState({ on: false });
+    try {
+      render(<ThreadPane />);
+      await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+      fireEvent.change(screen.getByTestId("composer-input"), { target: { value: "next" } });
+      height = 1880;
+      fireEvent.submit(screen.getByTestId("composer-form"));
+      expect(scroller().scrollTop).toBe(bottom());
+      expect(screen.queryByTestId("thread-new-message")).toBeNull();
+    } finally {
+      useJumpOnSendStore.setState({ on: true });
+    }
   });
 
   it("scrolling back near the bottom resumes following and hides the pill", async () => {

@@ -70,6 +70,7 @@ import { useZenScope, zenScope } from "./zenScope";
 import { projectChatPagingSupported, type ServerScope } from "../api/scope";
 import { useThreadFocusSeq } from "./threadFocus";
 import { recentSentKey, useRecentFirstStore } from "./recentFirst";
+import { useJumpOnSendStore } from "./jumpOnSend";
 import { composerDraftKey, composerDraftOf, useComposerDrafts } from "./composerDrafts";
 import {
   landedRowKeys,
@@ -777,6 +778,9 @@ export function ThreadPane({
     /** The newest message's row and its top before Send: how far the
      *  list moves to make room (the glide). */
     anchor: MessageAnchor | null;
+    /** "Jump to newest when I send" off and the reader is up in history:
+     *  the view stays put (no stick, no flight; the row fades in below). */
+    stay?: boolean;
   } | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
   // One owner for the list's transform (listGlide): sends, arrivals and
@@ -800,7 +804,9 @@ export function ThreadPane({
   // off only when the reader scrolls up (or opens history / a push seq).
   const following = useRef(true);
   // Not following and the agent posted: the "New message" pill.
-  const [newBelow, setNewBelow] = useState(false);
+  // Below the view: an agent message ("New message ↓"), or the reader's own
+  // send when "Jump to newest when I send" is off ("Sent ↓").
+  const [newBelow, setNewBelow] = useState<false | "message" | "sent">(false);
   // The reader sits at (or near) the newest message: what read marking
   // (K2 0.46.1) counts as "seen". Scrolled up into history = not.
   const [atNewest, setAtNewest] = useState(true);
@@ -1037,7 +1043,7 @@ export function ThreadPane({
     ) {
       // Reading history: never yank. Offer the jump instead. (A push tap
       // still looking for its message: that arrival is where it lands.)
-      setNewBelow(true);
+      setNewBelow("message");
     }
     prevAgent.current = agentId;
     prevFirst.current = first;
@@ -1574,6 +1580,15 @@ export function ThreadPane({
     // "Recent agents first": this phone spoke to this agent just now.
     // Project chats are not rows in the Agents or Home lists.
     if (!groupId) useRecentFirstStore.getState().markSent(recentSentKey(zenServer, { addr: threadAddr }));
+    // "Jump to newest when I send" off, reading earlier messages: keep the
+    // place; the send lands below (faded in, no flight) with "Sent ↓".
+    if (!following.current && !useJumpOnSendStore.getState().on) {
+      setFly({ localId, source: null, fade: true, anchor: null, stay: true });
+      setNewBelow((cur) => cur || "sent");
+      composerRef.current?.focus({ preventScroll: true });
+      void deliver(localId);
+      return;
+    }
     const reduced = prefersReducedMotion();
     const canFly =
       !reduced &&
@@ -1827,7 +1842,7 @@ export function ThreadPane({
     if (!fly) return;
     const id = fly.localId;
     const clear = () => setFly((cur) => (cur?.localId === id ? null : cur));
-    setFollowing(true);
+    if (!fly.stay) setFollowing(true);
     const el = scrollerRef.current;
     const root = rootRef.current;
     // The cleared field (and gone chips / label) shrank the composer in
@@ -1847,7 +1862,7 @@ export function ThreadPane({
       el.style.transition = "";
       composerResized(px);
     }
-    if (el) stick(el);
+    if (el && !fly.stay) stick(el);
     if (fly.fade || !fly.source) {
       const t = setTimeout(clear, 220);
       return () => clearTimeout(t);
@@ -2259,7 +2274,7 @@ export function ThreadPane({
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={onNewBelow}
               >
-                New message <span aria-hidden="true">↓</span>
+                {newBelow === "sent" ? "Sent" : "New message"} <span aria-hidden="true">↓</span>
               </button>
             ) : null}
           </div>

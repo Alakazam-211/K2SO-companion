@@ -4,6 +4,7 @@ import { usePushToggle } from "../lib/usePushToggle";
 import { ZEN_FONTS, ZEN_TEXT_SIZES, useZenFontStore } from "./zenFont";
 import { useMultiServerPrefs } from "./multi/prefs";
 import { useRecentFirstStore } from "./recentFirst";
+import { useJumpOnSendStore } from "./jumpOnSend";
 import { useBackHandler } from "../lib/androidBack";
 
 const MUTED = "#8e8e93";
@@ -62,6 +63,14 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
         <Group label="Appearance" testId="settings-appearance">
           <FontRow />
           <TextSizeRow />
+        </Group>
+
+        <Group
+          label="Chats"
+          testId="settings-chats"
+          footnote="Off: sending while you read earlier messages keeps your place. Only this phone."
+        >
+          <JumpOnSendRow />
         </Group>
 
         <Group
@@ -207,6 +216,23 @@ function MultiServerRow() {
           onToggle={() => setOn(!on)}
           labelledBy="zen-multi-server-label"
         />
+      </span>
+    </div>
+  );
+}
+
+/** "Jump to newest when I send" (`jumpOnSend.ts`): phone-only, default on. */
+function JumpOnSendRow() {
+  const on = useJumpOnSendStore((s) => s.on);
+  const setOn = useJumpOnSendStore((s) => s.setOn);
+  return (
+    <div
+      className="flex items-center justify-between text-[17px]"
+      style={{ minHeight: 44, padding: "6px 12px 6px 16px", gap: 12 }}
+    >
+      <span id="zen-jump-on-send-label">Jump to newest when I send</span>
+      <span className="flex items-center shrink-0" data-testid="jump-on-send-switch">
+        <Switch on={on} disabled={false} onToggle={() => setOn(!on)} labelledBy="zen-jump-on-send-label" />
       </span>
     </div>
   );
