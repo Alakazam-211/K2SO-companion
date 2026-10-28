@@ -372,6 +372,21 @@ describe("Thread follows the newest", () => {
     }
   });
 
+  it("a press anywhere on the composer dock but the field keeps the keyboard up", async () => {
+    render(<ThreadPane />);
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+    const input = screen.getByTestId("composer-input") as HTMLTextAreaElement;
+    input.focus();
+    const dock = screen.getByTestId("thread-composer-dock");
+    // Blank dock (where the Working strip or a moving pill can be): no blur.
+    expect(fireEvent.pointerDown(dock)).toBe(false);
+    expect(fireEvent.mouseDown(dock)).toBe(false);
+    // The field itself still takes presses (caret, selection).
+    expect(fireEvent.pointerDown(input)).toBe(true);
+    expect(fireEvent.mouseDown(input)).toBe(true);
+    expect(document.activeElement).toBe(input);
+  });
+
   it("scrolling back near the bottom resumes following and hides the pill", async () => {
     render(<ThreadPane />);
     await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
