@@ -65,6 +65,12 @@ class MainActivity : TauriActivity() {
       val navPx = insets.getInsets(WindowInsetsCompat.Type.navigationBars()).bottom
       val imePx = insets.getInsets(WindowInsetsCompat.Type.ime()).bottom
       val bottomPx = if (imePx > navPx) 0 else navPx
+      // Edge-to-edge turns off adjustResize: the WebView kept its full
+      // height and the keyboard covered the composer and search bars.
+      // Shrink it to the keyboard's top instead, so the web side's
+      // visualViewport sizing lifts them as it does on other platforms.
+      val padPx = if (imePx > navPx) imePx else 0
+      if (v.paddingBottom != padPx) v.setPadding(0, 0, 0, padPx)
       val css = bottomPx / v.resources.displayMetrics.density
       if (css != safeBottomCss) {
         safeBottomCss = css
