@@ -43,11 +43,27 @@ vi.mock("../lib/useSessionIdentity", () => ({
   useSessionIdentity: () => who.identity,
 }));
 
+const usage = vi.hoisted(() => ({ value: null as null | { tool: string; label: string; maxPercent: number } }));
+vi.mock("../zen/useAgentUsage", async (orig) => ({
+  ...(await orig<typeof import("../zen/useAgentUsage")>()),
+  useAgentUsage: () => usage.value,
+}));
+vi.mock("../zen/UsagePage", () => ({
+  UsagePage: ({ serverId, onBack }: { serverId: string; onBack: () => void }) => (
+    <div data-testid="usage-page" data-server={serverId}>
+      <button type="button" onClick={onBack}>
+        Back
+      </button>
+    </div>
+  ),
+}));
+
 import { getCliProjectsList, updateProjectLook } from "../api/client";
 import { useServersStore } from "../stores/servers";
 import type { ServerProject } from "../zen/serverPins";
 import type { StubAgent } from "../zen/stubData";
 import { useZenStore } from "../zen/zenStore";
+import { useRoomServer } from "../zen/zenScope";
 import { Zen } from "./Zen";
 
 const ICON = "data:image/png;base64,OLD";
@@ -95,6 +111,7 @@ beforeEach(() => {
   // Flag-off parity: `zen.multiServer` now defaults on; pin it off.
   useMultiServerPrefs.setState({ multiServer: false });
   who.identity = { username: "u", owner: false, role: "member" };
+  usage.value = null;
   vi.mocked(updateProjectLook).mockReset();
   vi.mocked(getCliProjectsList).mockReset();
   useServersStore.setState({
@@ -252,5 +269,58 @@ describe("Zen header LLM icon", () => {
       });
     });
     expect(screen.getByTestId("chat-header-llm").getAttribute("data-llm")).toBe("codex");
+  });
+
+  it("tapping the usage bubble opens this chat's server's Usage page, no server switch", async () => {
+    usage.value = { tool: "claude", label: "Claude Max", maxPercent: 42 };
+    await openChat(main.id);
+    act(() => {
+      useZenStore.setState({
+        activity: {
+          byPath: {},
+          bySession: {
+            t1: { display: "idle", counts: { subagents: 0, tools: 0, commands: 0 }, path: "/w/alpha", harness: "claude" },
+          },
+        },
+      });
+    });
+    const bubble = screen.getByTestId("chat-header-usage");
+    expect(bubble.textContent).toContain("42%");
+    expect(screen.queryByTestId("usage-page")).toBeNull();
+    fireEvent.click(bubble);
+    expect(screen.getByTestId("usage-page").getAttribute("data-server")).toBe("s1");
+    expect(useServersStore.getState().activeServerId).toBe("s1");
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
+    expect(screen.queryByTestId("usage-page")).toBeNull();
+  });
+
+  it("a chat open on another server (a room) opens that server's Usage, the active server unchanged", async () => {
+    usage.value = { tool: "claude", label: "Claude Max", maxPercent: 91 };
+    useServersStore.setState({
+      servers: [
+        { id: "s1", nickname: "test", url: "https://example.k2.dev", username: "u", rememberPassword: false },
+        { id: "s2", nickname: "work", url: "https://work.k2.dev", username: "u", rememberPassword: false },
+      ],
+      recovery: { s1: "connected", s2: "connected" },
+    });
+    try {
+      await openChat(main.id);
+      act(() => {
+        useRoomServer.setState({ serverId: "s2" });
+        useZenStore.setState({
+          activity: {
+            byPath: {},
+            bySession: {
+              t1: { display: "idle", counts: { subagents: 0, tools: 0, commands: 0 }, path: "/w/alpha", harness: "claude" },
+            },
+          },
+        });
+      });
+      fireEvent.click(screen.getByTestId("chat-header-usage"));
+      expect(screen.getByTestId("usage-page").getAttribute("data-server")).toBe("s2");
+      expect(useServersStore.getState().activeServerId).toBe("s1");
+    } finally {
+      useRoomServer.setState({ serverId: null });
+    }
   });
 });
