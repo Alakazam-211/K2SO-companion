@@ -148,6 +148,14 @@ export const NEW_BELOW_SETTLE_MS = 450;
  *  its own click reads as a tap on nothing, which drops the keyboard
  *  (Rosson 2026-10-28, "Sent ↓"). */
 export const PILL_LEAVE_MS = 160;
+
+/** The dock's press guard: anything but a text field keeps focus where it
+ *  is (the composer's field, so the iOS keyboard stays up). */
+function keepComposerFocus(e: { target: EventTarget | null; preventDefault: () => void }) {
+  const t = e.target;
+  if (t instanceof Element && t.closest("textarea, input, select, [contenteditable=''], [contenteditable=true]")) return;
+  e.preventDefault();
+}
 /** Progressive first paint: a chat that opens with more than this many
  *  messages draws its newest `PROGRESSIVE_FIRST` first and the rest on the
  *  next idle frame (prepended above, the view pinned to the bottom). */
@@ -2264,6 +2272,12 @@ export function ThreadPane({
         className="absolute left-0 right-0 bottom-0"
         style={{ zIndex: 2 }}
         data-testid="thread-composer-dock"
+        // A press anywhere on the dock but a text field keeps the keyboard
+        // up (the Send / pill / drawer trick, for the whole dock): a tap
+        // that lands beside a control — the Working strip sliding in under
+        // a finger aimed at "Sent ↓" (Rosson 2026-10-28) — must not blur.
+        onPointerDown={keepComposerFocus}
+        onMouseDown={keepComposerFocus}
       >
         <ZenFooterBlur
           testId="thread-footer-blur"
