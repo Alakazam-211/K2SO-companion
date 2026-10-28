@@ -29,7 +29,7 @@ vi.mock("../stores/notifyPrefs", () => ({
 
 import { postThread } from "../api/client";
 import { connectOverlayEvents } from "./overlayEvents";
-import { NEW_BELOW_SETTLE_MS, ThreadPane } from "./ThreadPane";
+import { NEW_BELOW_SETTLE_MS, PILL_LEAVE_MS, ThreadPane } from "./ThreadPane";
 import type { ThreadMessage } from "./threadModel";
 import { useZenStore } from "./zenStore";
 import { useJumpOnSendStore } from "./jumpOnSend";
@@ -339,8 +339,19 @@ describe("Thread follows the newest", () => {
       expect(scroller().scrollTop).toBe(300);
       expect(screen.getByTestId("thread-new-message").textContent).toMatch(/New message/);
 
-      fireEvent.click(screen.getByTestId("thread-new-message"));
+      const input = screen.getByTestId("composer-input") as HTMLTextAreaElement;
+      input.focus();
+      const pill = screen.getByTestId("thread-new-message");
+      expect(fireEvent.pointerDown(pill)).toBe(false);
+      fireEvent.click(pill);
       expect(scroller().scrollTop).toBe(bottom());
+      // Still in the page through its own tap (iOS reads a node removed in
+      // its click as a tap on nothing and drops the keyboard); it fades, then goes.
+      expect(screen.getByTestId("thread-new-message").getAttribute("data-leaving")).toBe("true");
+      expect(document.activeElement).toBe(input);
+      await act(() => new Promise((r) => setTimeout(r, PILL_LEAVE_MS + 20)));
+      expect(screen.queryByTestId("thread-new-message")).toBeNull();
+      expect(document.activeElement).toBe(input);
     } finally {
       useJumpOnSendStore.setState({ on: true });
     }
