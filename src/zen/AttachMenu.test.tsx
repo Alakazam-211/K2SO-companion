@@ -219,7 +219,7 @@ describe("AttachMenu: choosing (web inputs)", () => {
     expect(picker.pick).not.toHaveBeenCalled();
   });
 
-  it("files from any input go to onAttach and the field gets focus back", () => {
+  it("files from any input go to onAttach (read into memory) and the field gets focus back", async () => {
     const onAttach = vi.fn();
     render(<Harness onAttach={onAttach} />);
     stubInputs();
@@ -229,8 +229,25 @@ describe("AttachMenu: choosing (web inputs)", () => {
     field().blur();
     const shot = new File(["x"], "IMG_1.jpg", { type: "image/jpeg" });
     fireEvent.change(screen.getByTestId("composer-camera-input"), { target: { files: [shot] } });
-    expect(onAttach).toHaveBeenCalledWith([shot]);
     expect(document.activeElement).toBe(field());
+    await vi.waitFor(() => expect(onAttach).toHaveBeenCalledTimes(1));
+    const [got] = onAttach.mock.calls[0][0] as File[];
+    expect(got).not.toBe(shot);
+    expect([got.name, got.type, await got.text()]).toEqual(["IMG_1.jpg", "image/jpeg", "x"]);
+  });
+
+  it("a picked file that cannot be read is reported, not attached (Android content:// grant)", async () => {
+    const onAttach = vi.fn();
+    const onAttachError = vi.fn();
+    render(<Harness onAttach={onAttach} onAttachError={onAttachError} />);
+    stubInputs();
+    openMenu();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Choose Files" }));
+    const gone = new File(["x"], "1000007261.jpg", { type: "image/jpeg" });
+    gone.arrayBuffer = () => Promise.reject(new DOMException("could not be read", "NotReadableError"));
+    fireEvent.change(screen.getByTestId("composer-file-input"), { target: { files: [gone] } });
+    await vi.waitFor(() => expect(onAttachError).toHaveBeenCalledWith("Could not read 1000007261.jpg"));
+    expect(onAttach).not.toHaveBeenCalled();
   });
 
   it("a cancelled web picker still gives the field its focus back", () => {

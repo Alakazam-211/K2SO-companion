@@ -12,7 +12,7 @@ import {
   type ReactNode,
   type RefObject,
 } from "react";
-import { filesFromClipboard } from "./composerAttach";
+import { filesFromClipboard, snapshotFiles } from "./composerAttach";
 import { appendRef } from "./fileTreeModel";
 import { useFileDrag } from "./fileDrag";
 import { ZEN_TEXT_SCALE_VAR, zenTextPx } from "./zenFont";
@@ -340,10 +340,16 @@ export function GlassComposer({
     };
   }, [restoreFocus]);
   const onInputChange = (e: ChangeEvent<HTMLInputElement>) => {
-    const list = e.target.files;
-    onAttach?.(list ? Array.from(list) : []);
-    e.target.value = "";
+    const input = e.target;
+    const picked = input.files ? Array.from(input.files) : [];
     restoreFocus();
+    if (!picked.length) return;
+    // Read the bytes before the input is cleared (snapshotFiles).
+    void snapshotFiles(picked).then(({ files, unreadable }) => {
+      input.value = "";
+      if (files.length) onAttach?.(files);
+      if (unreadable.length) onAttachError?.(`Could not read ${unreadable.join(", ")}`);
+    });
   };
   // Files drawer drag: the field is the drop target. A drop (or a
   // direct insert) queues a file reference; this composer appends it.
