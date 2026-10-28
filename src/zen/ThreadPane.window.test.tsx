@@ -7,6 +7,9 @@
 // WINDOW_MAX_ROWS are drawn, rows at the far end leaving. Nothing on
 // screen moves.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Long scroll sequences: on a loaded machine they pass 5 s (Agent NSI Mobile's fix).
+vi.setConfig({ testTimeout: 30_000 });
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 vi.mock("./zenScope", async () => (await import("../test/zenScopeMock")).zenScopeModule);

@@ -134,8 +134,9 @@ export default function App() {
     // store churn (revive/reconnect recovery flaps, refresh storms) a
     // navigation could starve forever and silently no-op. We use no
     // Suspense/lazy routes, so sync router updates lose nothing. This is
-    // the router's documented opt-out for useSyncExternalStore apps.
-    <BrowserRouter unstable_useTransitions={false}>
+    // the router's documented opt-out for useSyncExternalStore apps
+    // (`useTransitions`; it was `unstable_useTransitions` before 7.18).
+    <BrowserRouter useTransitions={false}>
       <Routes>
         <Route path="/*" element={<AppLayout />} />
       </Routes>
