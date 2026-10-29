@@ -10,6 +10,14 @@
 // TOMBSTONE_KEEP_MS). Attachment bytes stay on the device by attachment id
 // (stashBackend), never in the record. The cap counts live items only.
 //
+// Field rules settled after the 4.1.4 review (K2 spec-prompt-stash-v1,
+// "Field rules settled"): snake_case keys; `server_id` is the server's
+// host key (`rosson.k2.dev`), not this phone's saved-server id; `user` is
+// the login name; `agent` is the sender (`doc.from`), in group chats too;
+// absent fields are null; ids are uuid v4. A record from a newer schema
+// (`v` > STASH_SCHEMA) is kept but hidden and never rewritten, so this
+// client can't drop another's fields.
+//
 // Pure: the store (stashStore) and the UI use these.
 
 export const STASH_SCHEMA = 1;
@@ -22,12 +30,14 @@ export type StashAttachment = { id: string; name: string; type: string; size: nu
 export type StashQuote = { text: string; from?: string };
 /** Where it was stashed: display only. */
 export type StashSource = {
-  serverId: string | null;
-  serverLabel: string | null;
+  /** The server's host key (`rosson.k2.dev`). */
+  server_id: string | null;
+  server_label: string | null;
+  /** The login name on that server. */
   user: string | null;
-  /** The agent's address it was written to (or offered by). */
+  /** The agent it was written to, or the sender of a saved message. */
   agent: string | null;
-  agentName: string | null;
+  agent_name: string | null;
 };
 
 export type StashItem = {
@@ -42,15 +52,27 @@ export type StashItem = {
   deleted_at: number | null;
 };
 
+/** A uuid v4 (randomUUID, else built from getRandomValues). */
 export function newStashId(): string {
-  return (
-    globalThis.crypto?.randomUUID?.() ??
-    `st-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`
-  );
+  const c = globalThis.crypto;
+  if (c?.randomUUID) return c.randomUUID();
+  const b = new Uint8Array(16);
+  if (c?.getRandomValues) c.getRandomValues(b);
+  else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
+  b[6] = (b[6] & 0x0f) | 0x40;
+  b[8] = (b[8] & 0x3f) | 0x80;
+  const h = Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
 }
 
 export function emptySource(): StashSource {
-  return { serverId: null, serverLabel: null, user: null, agent: null, agentName: null };
+  return { server_id: null, server_label: null, user: null, agent: null, agent_name: null };
+}
+
+/** This client's schema: shown, counted, editable. A newer one is kept
+ *  as stored and left alone. */
+export function isOwnSchema(item: Pick<StashItem, "v">): boolean {
+  return item.v === STASH_SCHEMA;
 }
 
 export function makeStashItem(input: {
@@ -75,11 +97,12 @@ export function makeStashItem(input: {
   };
 }
 
-/** Live items, newest first (a tie: the later saved first). */
+/** Live items of this schema, newest first (a tie: the later saved
+ *  first). */
 export function liveStash(items: readonly StashItem[]): StashItem[] {
   return items
     .map((item, at) => ({ item, at }))
-    .filter(({ item }) => item.deleted_at == null)
+    .filter(({ item }) => item.deleted_at == null && isOwnSchema(item))
     .sort((a, b) => b.item.created_at - a.item.created_at || b.at - a.at)
     .map(({ item }) => item);
 }
@@ -102,7 +125,7 @@ export function tombstone(item: StashItem, now = Date.now()): StashItem {
 /** Ids of tombstones past TOMBSTONE_KEEP_MS. */
 export function expiredTombstones(items: readonly StashItem[], now = Date.now()): string[] {
   return items
-    .filter((i) => i.deleted_at != null && now - i.deleted_at > TOMBSTONE_KEEP_MS)
+    .filter((i) => isOwnSchema(i) && i.deleted_at != null && now - i.deleted_at > TOMBSTONE_KEEP_MS)
     .map((i) => i.id);
 }
 
@@ -134,8 +157,8 @@ export function stashPreview(item: Pick<StashItem, "text" | "attachments">): str
 
 /** "Rosson" / "k2-companion" / "agent on server": who it came from. */
 export function stashSourceLabel(s: StashSource): string {
-  const who = (s.agentName || s.agent || "").trim();
-  const where = (s.serverLabel || "").trim();
+  const who = (s.agent_name || s.agent || "").trim();
+  const where = (s.server_label || "").trim();
   if (who && where) return `${who} · ${where}`;
   return who || where;
 }
@@ -184,6 +207,9 @@ export function parseStashItem(raw: unknown): StashItem | null {
       })
     : [];
   const s = (r.source && typeof r.source === "object" ? r.source : {}) as Record<string, unknown>;
+  // snake_case is the shared shape; camelCase is what early 4.1.4 test
+  // builds wrote, read once and rewritten on the next write.
+  const pick = (snake: string, camel: string) => str(s[snake]) ?? str(s[camel]);
   return {
     v: ms(r.v) ?? STASH_SCHEMA,
     id,
@@ -191,11 +217,11 @@ export function parseStashItem(raw: unknown): StashItem | null {
     attachments,
     quotes,
     source: {
-      serverId: str(s.serverId),
-      serverLabel: str(s.serverLabel),
+      server_id: pick("server_id", "serverId"),
+      server_label: pick("server_label", "serverLabel"),
       user: str(s.user),
       agent: str(s.agent),
-      agentName: str(s.agentName),
+      agent_name: pick("agent_name", "agentName"),
     },
     created_at: created,
     updated_at: ms(r.updated_at) ?? created,

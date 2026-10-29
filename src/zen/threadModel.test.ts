@@ -137,4 +137,23 @@ describe("stash.offer (K2 0.46.7)", () => {
     expect(of({ kind: "text", stash: { text: "x" } })).toBeUndefined();
     expect(of({ kind: "stash.offer" })).toBeUndefined();
   });
+
+  it("limits: text over 20k is no offer; the title is one line of at most 200", () => {
+    const of = (doc: Record<string, unknown>) =>
+      normaliseThreadItem({ seq: 1, doc: { id: "x", from: "appa", body: "hi", kind: "stash.offer", ...doc } } as never, "baden")
+        ?.stashOffer;
+    expect(of({ stash: { text: "x".repeat(20_001) } })).toBeUndefined();
+    expect(of({ stash: { text: "x".repeat(20_000) } })?.text).toHaveLength(20_000);
+    expect(of({ stash: { text: "t", title: "a\n  b\tc" } })?.title).toBe("a b c");
+    expect(of({ stash: { text: "t", title: "y".repeat(300) } })?.title).toHaveLength(200);
+  });
+
+  it("only an agent's post is an offer, not a person's", () => {
+    const of = (doc: Record<string, unknown>) =>
+      normaliseThreadItem({ seq: 1, doc: { id: "x", from: "rosson", body: "hi", kind: "stash.offer", stash: { text: "t" }, ...doc } } as never, "baden")
+        ?.stashOffer;
+    expect(of({ author: "rosson" })).toBeUndefined();
+    expect(of({ via: "compose" })).toBeUndefined();
+    expect(of({})).toEqual({ text: "t", title: null });
+  });
 });

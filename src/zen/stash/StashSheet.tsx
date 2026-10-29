@@ -17,6 +17,7 @@ export function StashSheet({ onChoose, onClose }: { onChoose: (id: string) => vo
   const hydrate = useStashStore((s) => s.hydrate);
   const remove = useStashStore((s) => s.remove);
   const items = useLiveStash();
+  const unavailable = useStashStore((s) => s.unavailable);
   // Ages are read once a minute while the sheet is up.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -62,7 +63,11 @@ export function StashSheet({ onChoose, onClose }: { onChoose: (id: string) => vo
             Done
           </button>
         </div>
-        {items.length === 0 ? (
+        {items.length === 0 && unavailable ? (
+          <p className="text-[14px] text-center px-8 py-8 leading-snug" style={{ color: MUTED }} role="alert" data-testid="stash-unavailable">
+            Your stash isn't available on this phone right now. Try again in a moment.
+          </p>
+        ) : items.length === 0 ? (
           <div className="flex flex-col items-center text-center px-8 py-8" style={{ gap: 10, color: MUTED }} data-testid="stash-empty">
             <BookmarkIcon size={28} strokeWidth={1.5} />
             <p className="text-[14px] leading-snug">

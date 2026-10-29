@@ -4,6 +4,12 @@ import { HOLD_MENU_MS, HOLD_SLOP_PX, rectOf, type HeldMenu } from "../useHoldMen
 /** The attribute marking a message that opens the hold menu. */
 export const MESSAGE_HOLD_ATTR = "data-message-hold";
 
+/** The holdable message under `t`, unless its text is being selected. */
+function holdTarget(t: EventTarget | null): Element | null {
+  const el = (t as Element | null)?.closest?.(`[${MESSAGE_HOLD_ATTR}]`) ?? null;
+  return el && el.getAttribute("data-selecting") !== "true" ? el : null;
+}
+
 /**
  * Press and hold an agent's message for its menu (Save to stash, Copy,
  * Select Text). One listener set on the message list, not per bubble, so
@@ -11,6 +17,10 @@ export const MESSAGE_HOLD_ATTR = "data-message-hold";
  * MESSAGE_HOLD_ATTR held still for HOLD_MENU_MS opens the menu; moving
  * past HOLD_SLOP_PX, the list scrolling, or a cancel drops it, and the
  * release's click is eaten. Same feel as the agent rows (useHoldMenu).
+ * `contextmenu` opens it too (iPad pointer right-click, Android long-press,
+ * Shift+F10, VoiceOver's double-tap-and-hold). A message whose text is
+ * being selected (Select Text) takes no hold: a finger resting on a
+ * selection handle must not pop the menu over it.
  */
 export function useMessageHold(area: RefObject<HTMLElement | null>, enabled: boolean) {
   const [menu, setMenu] = useState<HeldMenu | null>(null);
@@ -28,7 +38,7 @@ export function useMessageHold(area: RefObject<HTMLElement | null>, enabled: boo
       eatClick.current = false;
       clear();
       if (e.button && e.button !== 0) return;
-      const target = (e.target as Element | null)?.closest?.(`[${MESSAGE_HOLD_ATTR}]`);
+      const target = holdTarget(e.target);
       // Buttons and links inside a message keep their own press.
       if (!target || (e.target as Element).closest("button, a")) return;
       const id = target.getAttribute(MESSAGE_HOLD_ATTR) ?? "";
@@ -54,8 +64,17 @@ export function useMessageHold(area: RefObject<HTMLElement | null>, enabled: boo
       e.stopPropagation();
     };
     const context = (e: MouseEvent) => {
-      // iOS's own callout / Android's long-press menu on a holdable message.
-      if ((e.target as Element | null)?.closest?.(`[${MESSAGE_HOLD_ATTR}]`)) e.preventDefault();
+      const target = holdTarget(e.target);
+      if (!target) return;
+      e.preventDefault();
+      const id = target.getAttribute(MESSAGE_HOLD_ATTR) ?? "";
+      if (!id) return;
+      // A touch long-press is still down: its release must not hit the
+      // menu. A right-click or a key has no press: the menu takes clicks.
+      const touching = !!press.current || eatClick.current;
+      clear();
+      eatClick.current = touching;
+      setMenu({ id, rect: rectOf(target), armed: !touching });
     };
     el.addEventListener("pointerdown", down);
     el.addEventListener("pointermove", move);

@@ -17,7 +17,7 @@ import {
 
 describe("stash model (shared schema with K2 0.46.7)", () => {
   it("a new item: v1, stable id, snake_case ms epochs, live", () => {
-    const it1 = makeStashItem({ text: "hi", now: 1000, source: { agent: "k2", serverLabel: "rosson" } });
+    const it1 = makeStashItem({ text: "hi", now: 1000, source: { agent: "k2", server_label: "rosson" } });
     expect(it1).toMatchObject({
       v: 1,
       text: "hi",
@@ -26,9 +26,9 @@ describe("stash model (shared schema with K2 0.46.7)", () => {
       created_at: 1000,
       updated_at: 1000,
       deleted_at: null,
-      source: { serverId: null, serverLabel: "rosson", user: null, agent: "k2", agentName: null },
+      source: { server_id: null, server_label: "rosson", user: null, agent: "k2", agent_name: null },
     });
-    expect(it1.id).toBeTruthy();
+    expect(it1.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
     expect(parseStashItem(JSON.parse(JSON.stringify(it1)))).toEqual(it1);
   });
 
@@ -57,7 +57,7 @@ describe("stash model (shared schema with K2 0.46.7)", () => {
   it("preview, source and age", () => {
     expect(stashPreview({ text: "\n  first line \nsecond", attachments: [] })).toBe("first line");
     expect(stashPreview({ text: "", attachments: [{ id: "a", name: "a.png", type: "", size: 1 }] })).toBe("a.png");
-    expect(stashSourceLabel({ serverId: "s", serverLabel: "rosson", user: "u", agent: "k2", agentName: "K2" })).toBe("K2 · rosson");
+    expect(stashSourceLabel({ server_id: "s", server_label: "rosson", user: "u", agent: "k2", agent_name: "K2" })).toBe("K2 · rosson");
     expect(stashAge(0, 30_000)).toBe("now");
     expect(stashAge(0, 5 * 60_000)).toBe("5m");
     expect(stashAge(0, 3 * 3600_000)).toBe("3h");
@@ -68,5 +68,23 @@ describe("stash model (shared schema with K2 0.46.7)", () => {
   it("parse rejects a record without id or created_at", () => {
     expect(parseStashItem({ text: "x" })).toBeNull();
     expect(parseStashItem({ id: "a", created_at: 1, text: 3 })).toMatchObject({ text: "", updated_at: 1 });
+  });
+
+  it("reads early test builds' camelCase source; writes snake_case", () => {
+    const old = parseStashItem({
+      v: 1,
+      id: "a",
+      created_at: 1,
+      text: "x",
+      source: { serverId: "rosson.k2.dev", serverLabel: "rosson", agentName: "Appa", agent: "appa", user: "u" },
+    });
+    expect(old?.source).toEqual({ server_id: "rosson.k2.dev", server_label: "rosson", user: "u", agent: "appa", agent_name: "Appa" });
+  });
+
+  it("a newer schema's record is kept but hidden: not listed, counted or expired", () => {
+    const newer = { ...makeStashItem({ text: "from v2", now: 0 }), v: 2 };
+    const deadNewer = { ...tombstone(makeStashItem({ text: "x", now: 0 }), 0), v: 2 };
+    expect(liveStash([newer])).toEqual([]);
+    expect(expiredTombstones([deadNewer], TOMBSTONE_KEEP_MS * 2)).toEqual([]);
   });
 });

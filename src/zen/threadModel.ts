@@ -39,13 +39,20 @@ export type ThreadMessage = {
 
 export type StashOffer = { text: string; title: string | null };
 
-/** `doc.kind === "stash.offer"` with `doc.stash = {text, title?}`. */
-export function stashOfferOf(doc: { kind?: unknown; stash?: unknown }): StashOffer | null {
+/** Offer limits (shared with desktop, K2 4.1.4 review): longer text is
+ *  not an offer (the body shows as a message); a title is one line. */
+export const STASH_OFFER_TEXT_MAX = 20_000;
+export const STASH_OFFER_TITLE_MAX = 200;
+
+/** `doc.kind === "stash.offer"` with `doc.stash = {text, title?}`, posted
+ *  by an agent (not a person's post: no `author`, not `via:"compose"`). */
+export function stashOfferOf(doc: { kind?: unknown; stash?: unknown; author?: unknown; via?: unknown }): StashOffer | null {
   if (doc.kind !== "stash.offer" || !doc.stash || typeof doc.stash !== "object") return null;
+  if (doc.author || doc.via === "compose") return null;
   const o = doc.stash as { text?: unknown; title?: unknown };
-  if (typeof o.text !== "string" || !o.text.trim()) return null;
-  const title = typeof o.title === "string" && o.title.trim() ? o.title.trim() : null;
-  return { text: o.text, title };
+  if (typeof o.text !== "string" || !o.text.trim() || o.text.length > STASH_OFFER_TEXT_MAX) return null;
+  const line = typeof o.title === "string" ? o.title.replace(/\s+/g, " ").trim().slice(0, STASH_OFFER_TITLE_MAX) : "";
+  return { text: o.text, title: line || null };
 }
 
 const TZ = "America/Denver";
@@ -224,7 +231,7 @@ export function normaliseThreadItem(
   const at = typeof atRaw === "number" && Number.isFinite(atRaw) ? atRaw : null;
   const m: ThreadMessage = { id, seq, text, from, at, mine: isMine(from, username), kind, choice };
   if (files.length) m.files = files;
-  const offer = stashOfferOf(doc as { kind?: unknown; stash?: unknown });
+  const offer = stashOfferOf(doc as Parameters<typeof stashOfferOf>[0]);
   if (offer) m.stashOffer = offer;
   return m;
 }

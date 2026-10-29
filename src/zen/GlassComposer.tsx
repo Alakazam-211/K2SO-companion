@@ -210,6 +210,7 @@ export interface GlassComposerProps {
   children?: ReactNode;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   onFocus?: FocusEventHandler<HTMLTextAreaElement>;
+  onBlur?: FocusEventHandler<HTMLTextAreaElement>;
   ariaLabel?: string;
   /** Test-id prefix: `${p}-bar`, `-form`, `-file-input`, `-photo-input`,
    *  `-camera-input`, `-field`, `-attach`, `-attach-menu`, `-input`,
@@ -265,6 +266,7 @@ export function GlassComposer({
   children,
   textareaRef,
   onFocus,
+  onBlur,
   ariaLabel,
   testIdPrefix = "composer",
   barProps,
@@ -641,6 +643,7 @@ export function GlassComposer({
               rows={1}
               onChange={(e) => onChange(e.target.value)}
               onFocus={onFocus}
+              onBlur={onBlur}
               onPaste={onPasteFiles}
               placeholder={placeholder}
               className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--text)] outline-none py-1 placeholder:whitespace-nowrap placeholder:overflow-hidden placeholder:text-ellipsis ${showAttach ? "" : "px-2"}`}
