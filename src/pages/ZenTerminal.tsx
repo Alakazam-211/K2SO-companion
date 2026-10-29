@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useSyncExternalStore, type CSSProperties } from "react";
+import { flushSync } from "react-dom";
 import { useParams, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { fullViewportHeight, useViewport } from "../lib/useViewportHeight";
 import { keyboardColumnHeight } from "../kit/mobileChat/useKeyboardFlip";
@@ -309,10 +310,25 @@ export function ZenTerminal() {
     })();
   };
 
+  // The toggle swaps the message field for the direct-typing field. The
+  // keyboard stays as it was: open moves focus to the new field in this
+  // same tap (iOS keeps the keyboard up), closed stays closed.
   const switchMode = (mode: SendMode) => {
     if (!terminalId) return;
-    setSendMode(modeKey, mode);
-    setSendError(null);
+    const column = columnRef.current;
+    const active = document.activeElement;
+    const keyboardOpen =
+      !!column && active instanceof HTMLElement && column.contains(active) && active.matches("textarea, input");
+    flushSync(() => {
+      setSendMode(modeKey, mode);
+      setSendError(null);
+    });
+    if (!keyboardOpen) return;
+    const next =
+      mode === "direct"
+        ? column?.querySelector<HTMLElement>('[data-k2="live-capture"]')
+        : column?.querySelector<HTMLElement>('[data-testid="terminal-composer-bar"] textarea');
+    next?.focus({ preventScroll: true });
   };
 
   const handleReload = async () => {
@@ -493,6 +509,10 @@ export function ZenTerminal() {
               <button
                 data-k2="mode-toggle"
                 type="button"
+                // A tap here must not blur the open field first (iOS drops
+                // the keyboard); switchMode moves focus itself.
+                onPointerDown={(e) => e.preventDefault()}
+                onMouseDown={(e) => e.preventDefault()}
                 onClick={() => switchMode(sendMode === "safe" ? "direct" : "safe")}
                 aria-label={
                   sendMode === "safe" ? "Switch to direct typing" : "Switch to safe send"
