@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   attachPathsToDraft,
   attachmentSendBody,
@@ -6,6 +6,8 @@ import {
   insertIntoDraft,
   extensionForType,
   filesFromClipboard,
+  MAX_UPLOAD_BYTES,
+  snapshotFiles,
   safeFilename,
   uploadDirOf,
   uploadFilename,
@@ -110,5 +112,20 @@ describe("composerAttach", () => {
     ).toBe("see this /ws/.k2/downloads/a.png /ws/.k2/downloads/b.pdf");
     expect(attachmentSendBody("", ["/ws/.k2/downloads/a.png"])).toBe("/ws/.k2/downloads/a.png");
     expect(attachmentSendBody("  hi  ", [])).toBe("hi");
+  });
+});
+
+describe("snapshotFiles", () => {
+  it("copies a file into memory, and passes an oversized one through unread", async () => {
+    const small = new File(["hi"], "a.txt", { type: "text/plain" });
+    const big = new File(["x"], "clip.mov", { type: "video/quicktime" });
+    Object.defineProperty(big, "size", { value: MAX_UPLOAD_BYTES + 1 });
+    big.arrayBuffer = vi.fn(() => Promise.reject(new Error("must not read")));
+    const { files, unreadable } = await snapshotFiles([small, big]);
+    expect(unreadable).toEqual([]);
+    expect(files[0]).not.toBe(small);
+    expect(await files[0].text()).toBe("hi");
+    expect(files[1]).toBe(big);
+    expect(big.arrayBuffer).not.toHaveBeenCalled();
   });
 });
