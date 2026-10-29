@@ -7,6 +7,7 @@ import {
   useReducer,
   useRef,
   useState,
+  type CSSProperties,
   type ReactNode,
   type RefObject,
 } from "react";
@@ -43,7 +44,15 @@ import { useKeyboardDrag } from "../kit/mobileChat/useKeyboardDrag";
 import { useTapToDismiss } from "../kit/mobileChat/useTapToDismiss";
 import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
 import { StubMark } from "./StubMark";
-import { mountainTime, type ThreadMessage } from "./threadModel";
+import { mountainTime, type StashOffer, type ThreadMessage } from "./threadModel";
+import { BookmarkPlusIcon } from "./icons";
+import { MESSAGE_HOLD_ATTR, useMessageHold } from "./stash/useMessageHold";
+import { StashTab, STASH_TAB_PX, STASH_TAB_W } from "./stash/StashTab";
+import { StashSheet } from "./stash/StashSheet";
+import { useStashSaver } from "./stash/useStashSaver";
+import { useStashStore } from "./stash/stashStore";
+import { insertBelow, liveStash, type StashSource } from "./stash/stashModel";
+import { AgentMenu, type AgentMenuEntry } from "./AgentMenu";
 import {
   captureTopMessage,
   nearNewest,
@@ -216,6 +225,46 @@ export function bubbleBodyStyle(): BodyStyle {
   return st;
 }
 
+/** No text selection or iOS callout: a hold is the message menu. */
+const NO_SELECT: CSSProperties = { userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" };
+
+/** An agent's message with words: the hold menu (Save to stash, Copy,
+ *  Select Text). Not cards, secrets or files-only rows. */
+export function messageHoldable(m: ThreadMessage, out: OutgoingMessage | null): boolean {
+  return !out && !m.mine && !m.choice && m.kind !== "secret" && Boolean(m.text.trim());
+}
+
+/** K2 0.46.7 `stash.offer`: an agent offers a prompt; Save to stash keeps
+ *  it on this device (nothing goes back to the server). */
+function StashOfferCard({
+  m,
+  offer,
+  onSave,
+  onFileLink,
+}: {
+  m: ThreadMessage;
+  offer: StashOffer;
+  onSave?: (m: ThreadMessage) => void;
+  onFileLink?: (ref: string) => void;
+}) {
+  return (
+    <div data-testid="stash-offer">
+      {offer.title ? <p className="font-semibold mb-1">{offer.title}</p> : null}
+      <ChatMessageBody text={offer.text} className="!p-0 text-white" style={bubbleBodyStyle()} onFileLink={onFileLink} />
+      <button
+        type="button"
+        className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[15px] leading-none border"
+        style={{ borderColor: "rgba(255,255,255,0.4)", color: "#fff" }}
+        onClick={() => onSave?.(m)}
+        data-testid="stash-offer-save"
+      >
+        <BookmarkPlusIcon size={15} strokeWidth={2} />
+        Save to stash
+      </button>
+    </div>
+  );
+}
+
 const Bubble = memo(function Bubble({
   m,
   onFileLink,
@@ -229,6 +278,9 @@ const Bubble = memo(function Bubble({
   fadeIn,
   breathe,
   tail,
+  holdable,
+  selecting,
+  onStashOffer,
 }: {
   m: ThreadMessage;
   onFileLink?: (ref: string) => void;
@@ -249,6 +301,14 @@ const Bubble = memo(function Bubble({
   breathe?: boolean;
   /** The last bubble of its run: an iMessage tail (chatBubbles.css). */
   tail?: "mine" | "theirs" | null;
+  /** An agent's message: press and hold for Save to stash / Copy /
+   *  Select Text (useMessageHold). Its text is not selectable until
+   *  Select Text, so the hold is not also an iOS text selection. */
+  holdable?: boolean;
+  /** Select Text chosen: selectable now. */
+  selecting?: boolean;
+  /** A `stash.offer` card's Save to stash. */
+  onStashOffer?: (m: ThreadMessage) => void;
 }) {
   const secret = m.kind === "secret";
   const choice = secret ? null : m.choice;
@@ -266,8 +326,11 @@ const Bubble = memo(function Bubble({
       data-testid="thread-bubble"
       data-fly-target={flying ? "true" : undefined}
       data-tail={tail || undefined}
+      {...{ [MESSAGE_HOLD_ATTR]: holdable ? m.id : undefined }}
+      data-selecting={selecting ? "true" : undefined}
       style={{
         visibility: flying ? "hidden" : undefined,
+        ...(holdable && !selecting ? NO_SELECT : null),
         // Settings → Text Size; the markdown body below scales the same way.
         fontSize: zenTextPx(17),
         borderRadius: 18,
@@ -332,6 +395,8 @@ const Bubble = memo(function Bubble({
             <p className="mt-1 text-[12px] opacity-80">Sending…</p>
           ) : null}
         </div>
+      ) : m.stashOffer && !m.mine ? (
+        <StashOfferCard m={m} offer={m.stashOffer} onSave={onStashOffer} onFileLink={onFileLink} />
       ) : (
         <>
           {m.text.trim() ? (
@@ -406,11 +471,13 @@ const ThreadRow = memo(function ThreadRow({
   flying,
   fadeIn,
   canRestore,
+  selecting,
   onFileLink,
   onAnswer,
   onRetry,
   onRestore,
   onOpenFile,
+  onStashOffer,
 }: {
   rowKey: string;
   /** A thread message (in the render window), not an outgoing send. */
@@ -436,11 +503,14 @@ const ThreadRow = memo(function ThreadRow({
   fadeIn: boolean;
   /** A "Not sent" send can go back into the (empty) composer. */
   canRestore: boolean;
+  /** Select Text chosen on this message (the hold menu). */
+  selecting: boolean;
   onFileLink?: (ref: string) => void;
   onAnswer: (id: string, option: string) => void;
   onRetry: (localId: string) => void;
   onRestore: (o: OutgoingMessage) => void;
   onOpenFile: (m: ThreadMessage, a: ThreadAttachment) => void;
+  onStashOffer: (m: ThreadMessage) => void;
 }) {
   const wordless = !m.text.trim() && !m.choice;
   const bubble = !(files && wordless);
@@ -496,6 +566,9 @@ const ThreadRow = memo(function ThreadRow({
           fadeIn={fadeIn}
           breathe={out?.status === "sending"}
           tail={runLast ? (m.mine ? "mine" : "theirs") : null}
+          holdable={messageHoldable(m, out)}
+          selecting={selecting}
+          onStashOffer={onStashOffer}
         />
       ) : null}
       {files ? (
@@ -870,7 +943,140 @@ export function ThreadPane({
   // Rows between the bar's top and the field: the bar makes room for the
   // drawer under them rather than let it cover them.
   const rowsAboveField = roomBlocked || composerLabel !== "" || attachments.length > 0;
-  const drawerCover = drawerOverScroller(drawerSpace, rowsAboveField);
+  // The stash tab always stands on the field; the working drawer may
+  // stand taller.
+  const drawerStand = Math.max(drawerSpace, STASH_TAB_PX);
+  const drawerCover = drawerOverScroller(drawerStand, rowsAboveField);
+
+  // ── Prompt stash (stash/): the tab on the composer and its sheet, the
+  // composer's save while typing, the message hold menu, offer cards. ──
+  const stash = useStashSaver();
+  const [stashOpen, setStashOpen] = useState(false);
+  const stashRefocus = useRef(false);
+  const [composerFocused, setComposerFocused] = useState(false);
+  useEffect(() => {
+    const el = composerRef.current;
+    if (!el) return;
+    const on = () => setComposerFocused(true);
+    const off = () => setComposerFocused(false);
+    el.addEventListener("focus", on);
+    el.addEventListener("blur", off);
+    return () => {
+      el.removeEventListener("focus", on);
+      el.removeEventListener("blur", off);
+    };
+  }, []);
+  const msgHold = useMessageHold(scrollerRef, true);
+  const [selectingId, setSelectingId] = useState<string | null>(null);
+  // Select Text: the message's words selected; done once the selection
+  // goes (a tap elsewhere).
+  useEffect(() => {
+    if (!selectingId) return;
+    const held = Array.from(scrollerRef.current?.querySelectorAll(`[${MESSAGE_HOLD_ATTR}]`) ?? []).find(
+      (el) => el.getAttribute(MESSAGE_HOLD_ATTR) === selectingId
+    );
+    const body = held?.querySelector("[data-bubble-body]");
+    const sel = typeof window === "undefined" ? null : window.getSelection();
+    if (body && sel) sel.selectAllChildren(body);
+    const onChange = () => {
+      const cur = window.getSelection();
+      if (!cur || cur.isCollapsed) setSelectingId(null);
+    };
+    // Let the selection made above settle before listening.
+    const t = setTimeout(() => document.addEventListener("selectionchange", onChange), 0);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("selectionchange", onChange);
+    };
+  }, [selectingId]);
+  const stashSourceNow = (): Partial<StashSource> => ({
+    serverId: roomScope.id || null,
+    serverLabel: roomScope.label || null,
+    user: roomScope.username() || null,
+    agent: groupId ? null : threadAddr || agent?.addr || null,
+    agentName: agent?.name ?? null,
+  });
+  const STASH_FAILED = "Couldn't save to the stash. Try again.";
+  /** The composer's save while typing: write first, then clear only what
+   *  was saved (typing since stays). */
+  const saveDraftToStash = async () => {
+    const text = draftApi.current?.get() ?? "";
+    const files = attachments;
+    const r = await stash.save({ text, files, source: stashSourceNow() });
+    if (r === "error") setAttachError(STASH_FAILED);
+    if (r !== "saved") return;
+    if ((draftApi.current?.get() ?? "") === text) draftApi.current?.set("");
+    setAttachments((prev) => prev.filter((f) => !files.includes(f)));
+  };
+  const openStash = () => {
+    const el = composerRef.current;
+    stashRefocus.current = !!el && document.activeElement === el;
+    el?.blur();
+    setStashOpen(true);
+  };
+  const closeStash = () => {
+    setStashOpen(false);
+    if (stashRefocus.current) composerRef.current?.focus({ preventScroll: true });
+    stashRefocus.current = false;
+  };
+  /** A stash into the composer, below any text; its files join the
+   *  chips. Focus in the same tap, so iOS raises the keyboard. */
+  const chooseStash = (id: string) => {
+    const item = liveStash(useStashStore.getState().items).find((i) => i.id === id);
+    setStashOpen(false);
+    stashRefocus.current = false;
+    if (!item) return;
+    const quotes = item.quotes.map((q) => q.text.split("\n").map((l) => `> ${l}`).join("\n")).join("\n\n");
+    const body = [quotes, item.text].filter(Boolean).join("\n\n");
+    draftApi.current?.set(insertBelow(draftApi.current?.get() ?? "", body));
+    composerRef.current?.focus({ preventScroll: true });
+    void useStashStore
+      .getState()
+      .take(id)
+      .then((taken) => {
+        if (taken?.files.length) queueFiles(taken.files);
+      });
+  };
+  const heldMessage = msgHold.menu ? thread.find((m) => m.id === msgHold.menu?.id) ?? null : null;
+  const holdEntries: AgentMenuEntry[] = heldMessage
+    ? [
+        {
+          key: "stash",
+          label: "Save to stash",
+          icon: <BookmarkPlusIcon size={18} strokeWidth={1.75} />,
+          onSelect: () => {
+            msgHold.close();
+            void stash
+              .save({ text: heldMessage.text, source: stashSourceNow() })
+              .then((r) => r === "error" && setAttachError(STASH_FAILED));
+          },
+        },
+        {
+          key: "copy",
+          label: "Copy",
+          onSelect: () => {
+            msgHold.close();
+            void navigator.clipboard?.writeText(heldMessage.text).catch(() => {});
+          },
+        },
+        {
+          key: "select",
+          label: "Select Text",
+          onSelect: () => {
+            msgHold.close();
+            setSelectingId(heldMessage.id);
+          },
+        },
+      ]
+    : [];
+  /** An agent's `stash.offer` card: saved here, from that sender. */
+  const onStashOffer = (m: ThreadMessage) => {
+    if (!m.stashOffer) return;
+    const text = m.stashOffer.title ? `${m.stashOffer.title}\n\n${m.stashOffer.text}` : m.stashOffer.text;
+    void stash
+      .save({ text, source: { ...stashSourceNow(), agent: m.from || threadAddr || null } })
+      .then((r) => r === "error" && setAttachError(STASH_FAILED));
+  };
   const focusSeq = useZenStore((s) => s.threadFocusSeq);
   // Progressive first paint (see PROGRESSIVE_MIN): decided on the render
   // where this chat first has messages; widened after that frame.
@@ -1847,13 +2053,14 @@ export function ThreadPane({
 
   // The rows' callbacks: stable, so a re-render of the pane leaves
   // unchanged rows alone (ThreadRow is memoized).
-  const handlers = useRef({ onRetry, onRestore, openAttachment });
-  handlers.current = { onRetry, onRestore, openAttachment };
+  const handlers = useRef({ onRetry, onRestore, openAttachment, onStashOffer });
+  handlers.current = { onRetry, onRestore, openAttachment, onStashOffer };
   const onAnswerRow = useCallback(
     (id: string, option: string) => void answerChoice(id, option),
     [answerChoice]
   );
   const onRetryRow = useCallback((id: string) => handlers.current.onRetry(id), []);
+  const onStashOfferRow = useCallback((m: ThreadMessage) => handlers.current.onStashOffer(m), []);
   const onRestoreRow = useCallback((o: OutgoingMessage) => handlers.current.onRestore(o), []);
   const onOpenFileRow = useCallback(
     (m: ThreadMessage, a: ThreadAttachment) => handlers.current.openAttachment(m, a),
@@ -2238,6 +2445,8 @@ export function ThreadPane({
                     onRetry={onRetryRow}
                     onRestore={onRestoreRow}
                     onOpenFile={onOpenFileRow}
+                    selecting={selectingId === m.id}
+                    onStashOffer={onStashOfferRow}
                   />
                 );
               })}
@@ -2343,10 +2552,30 @@ export function ThreadPane({
                   key={`${agentId}|${conversationId ?? ""}`}
                   turn={turn}
                   onSpace={setDrawerSpace}
+                  hidden={stashOpen}
                 />
               ) : undefined
             }
-            drawerRoom={rowsAboveField ? drawerSpace : 0}
+            drawerRoom={rowsAboveField ? drawerStand : 0}
+            drawerAside={<StashTab onOpen={openStash} flash={stash.flash} open={stashOpen} />}
+            drawerAsideWidth={STASH_TAB_W}
+            fieldAction={
+              composerFocused && (!draftBlank || attachments.length > 0) ? (
+                <button
+                  type="button"
+                  aria-label="Save to stash"
+                  data-testid="composer-stash-save"
+                  // Keep the textarea focused (the keyboard stays up).
+                  onPointerDown={(e) => e.preventDefault()}
+                  onMouseDown={(e) => e.preventDefault()}
+                  onClick={() => void saveDraftToStash()}
+                  className="shrink-0 flex items-center justify-center bg-transparent border-0 text-[var(--text-muted)]"
+                  style={{ width: 30, height: 30, borderRadius: "50%" }}
+                >
+                  <BookmarkPlusIcon size={18} strokeWidth={1.75} />
+                </button>
+              ) : undefined
+            }
             onBlockHeight={composerResized}
           >
             {roomBanner}
@@ -2381,6 +2610,18 @@ export function ThreadPane({
           </ThreadDraftComposer>
         </div>
       </div>
+      {stashOpen ? <StashSheet onChoose={chooseStash} onClose={closeStash} /> : null}
+      {stash.dialog}
+      {msgHold.menu && heldMessage ? (
+        <AgentMenu
+          label={`Message from ${heldMessage.from || "agent"}`}
+          menu={msgHold.menu}
+          entries={holdEntries}
+          onClose={msgHold.close}
+          align="center"
+          testId="message-menu"
+        />
+      ) : null}
       {openFile ? (
         <AttachmentSheet
           key={`${openFile.scope.id}|${openFile.ref.id}|${openFile.file.n}`}

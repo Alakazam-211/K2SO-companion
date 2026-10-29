@@ -251,8 +251,12 @@ type Hold = { endedId: string; live: ThreadTurn; done: boolean };
 export function ThreadWorkingStrip({
   turn,
   onSpace,
+  hidden = false,
 }: {
   turn: ThreadTurn | null;
+  /** Slid away while something else has the spot (the stash sheet);
+   *  slides back when it clears. */
+  hidden?: boolean;
   /** Height (px) the drawer stands above the composer field: 0 when
    *  hidden or leaving. The Thread pads its scroller by what it covers. */
   onSpace?: (px: number) => void;
@@ -277,7 +281,7 @@ export function ThreadWorkingStrip({
   const holding = own ? null : holdFrom ?? held;
   const shownTurn = own ? turn : holding;
   const line = own ?? (holding ? threadDrawerLine(holding, now) : null);
-  const shown = line !== null;
+  const shown = line !== null && !hidden;
   useEffect(() => {
     if (!hold || hold.done) return;
     const id = hold.endedId;
@@ -314,7 +318,7 @@ export function ThreadWorkingStrip({
   const innerRef = useRef<HTMLSpanElement>(null);
   const [width, setWidth] = useState(0);
   const [innerH, setInnerH] = useState(0);
-  const display = line ?? (phase === "out" ? last.current : null);
+  const display = shown ? line : phase === "out" ? last.current : null;
   const mounted = display !== null;
   useLayoutEffect(() => {
     if (!mounted) return;

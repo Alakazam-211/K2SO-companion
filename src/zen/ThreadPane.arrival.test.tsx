@@ -341,32 +341,56 @@ describe("arrival glide", () => {
 });
 
 describe("the working drawer and the reply: one motion", () => {
+  // The stash tab always stands 32px on the field (18px over the scroller),
+  // as tall as the collapsed drawer: only the drawer standing taller moves
+  // the list. Expanded, it covers 56px: 38px more than the tab.
+  const RISE = 38;
+  beforeEach(() => {
+    localStorage.setItem("k2-zen-thread-drawer-expanded", "1");
+  });
+  afterEach(() => {
+    localStorage.removeItem("k2-zen-thread-drawer-expanded");
+  });
+
+  it("a collapsed drawer beside the stash tab moves nothing", async () => {
+    localStorage.removeItem("k2-zen-thread-drawer-expanded");
+    render(<ThreadPane />);
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+    expect(scroller().style.paddingBottom).toBe("30px");
+    act(() => socket().onItem(activityFrame(1, false) as never));
+    expect(scroller().style.paddingBottom).toBe("30px");
+    act(() => socket().onItem(activityFrame(2, true) as never));
+    expect(scroller().style.paddingBottom).toBe("30px");
+    expect(glides()).toHaveLength(0);
+    expect(scroller().scrollTop).toBe(bottom());
+  });
+
   it("the drawer folds away first: the list holds still, and the reply's glide takes both", async () => {
     render(<ThreadPane />);
     await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
-    // Opens: the list glides up by the 18px it covers.
-    height += 18;
+    // Opens: the list glides up by what it covers beyond the tab.
+    height += RISE;
     act(() => socket().onItem(activityFrame(1, false) as never));
-    expect(scroller().style.paddingBottom).toBe("30px");
+    expect(scroller().style.paddingBottom).toBe(`${30 + RISE}px`);
     expect(glides()).toHaveLength(1);
-    expect(firstY(glides()[0])).toBe(18);
+    expect(firstY(glides()[0])).toBe(RISE);
     clock = 1000; // that glide is long done
     // Ends: the padding goes at once; the list is held where it was.
-    height -= 18;
+    height -= RISE;
     act(() => socket().onItem(activityFrame(2, true) as never));
-    expect(scroller().style.paddingBottom).toBe("12px");
+    expect(scroller().style.paddingBottom).toBe("30px");
     expect(scroller().scrollTop).toBe(bottom());
     expect(glides()).toHaveLength(2);
     const fold = glides()[1];
-    expect(firstY(fold)).toBe(-18);
+    expect(firstY(fold)).toBe(-RISE);
     expect(fold.timing.delay).toBe(REPLY_FOLD_MS);
     expect(fold.timing.fill).toBe("backwards");
     // The reply lands inside the hold: one glide for both, from where the
-    // list is drawn (−18) plus the reply's 100px, no delay.
+    // list is drawn (−RISE) plus the reply's 100px, no delay.
     clock = 1100;
     agentSays("r1", 20, "All 42 tests pass.", 100);
     expect(glides()).toHaveLength(3);
-    expect(firstY(glides()[2])).toBe(82);
+    expect(firstY(glides()[2])).toBe(100 - RISE);
     expect(glides()[2].timing.delay).toBe(0);
     expect(scroller().scrollTop).toBe(bottom());
   });
@@ -374,14 +398,14 @@ describe("the working drawer and the reply: one motion", () => {
   it("the reply lands first: the drawer folding away rides the running glide (no restart, no bounce)", async () => {
     render(<ThreadPane />);
     await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
-    height += 18;
+    height += RISE;
     act(() => socket().onItem(activityFrame(1, false) as never));
     clock = 1000;
     agentSays("r1", 20, "All 42 tests pass.", 100);
     expect(firstY(glides()[1])).toBe(100);
     // 40ms later the turn ends.
     clock = 1040;
-    height -= 18;
+    height -= RISE;
     act(() => socket().onItem(activityFrame(2, true) as never));
     expect(glides()).toHaveLength(3);
     const ride = glides()[2];

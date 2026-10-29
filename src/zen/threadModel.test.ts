@@ -111,3 +111,30 @@ describe("threadModel", () => {
     expect(c?.choice?.options.join(" ")).not.toMatch(/\[object Object\]/);
   });
 });
+describe("stash.offer (K2 0.46.7)", () => {
+  it("reads doc.stash on a stash.offer; doc.body stays the readable fallback", () => {
+    const m = normaliseThreadItem(
+      {
+        seq: 9,
+        doc: {
+          id: "o1",
+          kind: "stash.offer",
+          from: "appa",
+          body: "Weekly review\n\nSummarize this week's PRs.",
+          stash: { title: " Weekly review ", text: "Summarize this week's PRs." },
+        },
+      } as never,
+      "baden"
+    );
+    expect(m?.text).toBe("Weekly review\n\nSummarize this week's PRs.");
+    expect(m?.stashOffer).toEqual({ title: "Weekly review", text: "Summarize this week's PRs." });
+  });
+
+  it("no offer without text, or on another kind", () => {
+    const of = (doc: Record<string, unknown>) =>
+      normaliseThreadItem({ seq: 1, doc: { id: "x", from: "appa", body: "hi", ...doc } } as never, "baden")?.stashOffer;
+    expect(of({ kind: "stash.offer", stash: { text: " " } })).toBeUndefined();
+    expect(of({ kind: "text", stash: { text: "x" } })).toBeUndefined();
+    expect(of({ kind: "stash.offer" })).toBeUndefined();
+  });
+});

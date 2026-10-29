@@ -198,8 +198,8 @@ describe("Thread follows the newest", () => {
     fireEvent.submit(screen.getByTestId("composer-form"));
     expect(scroller().scrollTop).toBe(bottom());
 
-    // "Working…" mounts, then grows (tool line, tally) with no scroll event.
-    height = 1960;
+    // "Working…" mounts beside the stash tab, as tall: the list does not
+    // move.
     act(() => socket().onItem(activityFrame(1, false) as never));
     expect(scroller().scrollTop).toBe(bottom());
     const before = scroller().scrollTop;
@@ -474,20 +474,19 @@ describe("Thread follows the newest", () => {
     render(<ThreadPane />);
     await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
     const contentBefore = screen.getByTestId("thread-content").childElementCount;
-    // Its own 12px plus the floating composer block (0 tall here).
-    expect(scroller().style.paddingBottom).toBe("12px");
+    // Its own 12px, the floating composer block (0 tall here), and the
+    // stash tab's 32px on the field's top edge: the bar's top 14px is under
+    // it, so 18px covers the scroller.
+    expect(scroller().style.paddingBottom).toBe("30px");
 
-    // Opens: a 32px tile on the field's top edge; the bar's top 14px is
-    // under it, so 18px covers the scroller, on top of its own 12px.
-    height = 1818;
+    // Opens: a 32px tile, as tall as the tab beside it: no change.
     act(() => socket().onItem(activityFrame(1, false) as never));
     expect(screen.getByTestId("thread-content").childElementCount).toBe(contentBefore);
     expect(scroller().getAttribute("data-drawer-space")).toBe("32");
     expect(scroller().getAttribute("data-drawer-cover")).toBe("18");
     expect(scroller().style.paddingBottom).toBe("30px");
     expect(scroller().scrollTop).toBe(bottom());
-    // The padding eases over ~200ms: the rAF loop keeps sticking.
-    height = 1820;
+    // The rAF loop keeps sticking.
     flushRaf();
     expect(scroller().scrollTop).toBe(bottom());
 
@@ -500,13 +499,14 @@ describe("Thread follows the newest", () => {
     expect(scroller().scrollTop).toBe(bottom());
 
     // Tap again: back to one line.
+    height = 1800;
     fireEvent.click(screen.getByTestId("thread-strip-toggle"));
     expect(scroller().style.paddingBottom).toBe("30px");
+    expect(scroller().scrollTop).toBe(bottom());
 
-    // Closes: the padding goes as the drawer slides down.
-    height = 1800;
+    // Closes: the tab still stands there.
     act(() => socket().onItem(activityFrame(2, true) as never));
-    expect(scroller().style.paddingBottom).toBe("12px");
+    expect(scroller().style.paddingBottom).toBe("30px");
     expect(scroller().scrollTop).toBe(bottom());
   });
 

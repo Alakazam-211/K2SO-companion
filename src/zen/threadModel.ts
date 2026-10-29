@@ -31,7 +31,22 @@ export type ThreadMessage = {
   /** K2 0.46.1: files riding this message (`doc.attachments`). Absent
    *  when none. Shown only on a server listing `thread-attachments-v1`. */
   files?: readonly ThreadAttachment[];
+  /** K2 0.46.7 `stash.offer` card: an agent offers a prompt for the
+   *  person's stash (`doc.stash`). Saved on this device only; nothing is
+   *  answered back. `text` keeps `doc.body`'s readable fallback. */
+  stashOffer?: StashOffer;
 };
+
+export type StashOffer = { text: string; title: string | null };
+
+/** `doc.kind === "stash.offer"` with `doc.stash = {text, title?}`. */
+export function stashOfferOf(doc: { kind?: unknown; stash?: unknown }): StashOffer | null {
+  if (doc.kind !== "stash.offer" || !doc.stash || typeof doc.stash !== "object") return null;
+  const o = doc.stash as { text?: unknown; title?: unknown };
+  if (typeof o.text !== "string" || !o.text.trim()) return null;
+  const title = typeof o.title === "string" && o.title.trim() ? o.title.trim() : null;
+  return { text: o.text, title };
+}
 
 const TZ = "America/Denver";
 
@@ -209,6 +224,8 @@ export function normaliseThreadItem(
   const at = typeof atRaw === "number" && Number.isFinite(atRaw) ? atRaw : null;
   const m: ThreadMessage = { id, seq, text, from, at, mine: isMine(from, username), kind, choice };
   if (files.length) m.files = files;
+  const offer = stashOfferOf(doc as { kind?: unknown; stash?: unknown });
+  if (offer) m.stashOffer = offer;
   return m;
 }
 

@@ -24,7 +24,9 @@ export type IconName =
   | "gauge"
   | "photo"
   | "camera"
-  | "folder";
+  | "folder"
+  | "bookmark"
+  | "bookmark-plus";
 
 function Icon({
   name,
@@ -177,6 +179,26 @@ export function FolderIcon(props: IconProps) {
   return (
     <Icon name="folder" {...props}>
       <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h3.6l2 2.2h7.4A2.5 2.5 0 0 1 21 9.7v7.8a2.5 2.5 0 0 1-2.5 2.5h-13A2.5 2.5 0 0 1 3 17.5z" />
+    </Icon>
+  );
+}
+
+/** A bookmark (lucide "bookmark"): the Thread's prompt stash. */
+export function BookmarkIcon(props: IconProps) {
+  return (
+    <Icon name="bookmark" {...props}>
+      <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
+    </Icon>
+  );
+}
+
+/** A bookmark with a plus (lucide "bookmark-plus"): save to the stash. */
+export function BookmarkPlusIcon(props: IconProps) {
+  return (
+    <Icon name="bookmark-plus" {...props}>
+      <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
+      <line x1="12" x2="12" y1="7" y2="13" />
+      <line x1="15" x2="9" y1="10" y2="10" />
     </Icon>
   );
 }
