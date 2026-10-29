@@ -183,6 +183,8 @@ export const COMPOSER_DRAWER_TUCK_PX =
   ) + 1;
 /** Headroom above the drawer inside its clip box (the slide's overshoot). */
 const DRAWER_HEADROOM_PX = 12;
+/** Between the drawer and the tab beside it. */
+export const DRAWER_ASIDE_GAP_PX = 6;
 
 export interface GlassComposerProps {
   value: string;
@@ -223,6 +225,14 @@ export interface GlassComposerProps {
   /** Room (px) kept between `children` and the field so rows above the
    *  field are not covered by the drawer. 0 when there are none. */
   drawerRoom?: number;
+  /** A tab docked on the field's top edge at the right, beside the
+   *  drawer (the Thread's stash button), `drawerAsideWidth` px wide. The
+   *  drawer leaves it that much room plus a gap. */
+  drawerAside?: ReactNode;
+  drawerAsideWidth?: number;
+  /** A button inside the field, just before Send (the Thread's "save to
+   *  stash" while typing). */
+  fieldAction?: ReactNode;
   /** The composer block's height (px) above its bottom gap: rows above
    *  the field, drawer room, the field (composerBlockHeight). The bar's
    *  safe-area / keyboard gap is left out: the Thread's spacer pads for it
@@ -260,6 +270,9 @@ export function GlassComposer({
   barProps,
   drawer,
   drawerRoom = 0,
+  drawerAside,
+  drawerAsideWidth = 0,
+  fieldAction,
   onBlockHeight,
   smoothClear = false,
 }: GlassComposerProps) {
@@ -467,7 +480,7 @@ export function GlassComposer({
       ref={barRef}
       className="shrink-0 min-w-0 w-full overflow-hidden px-3 pt-2 zen-composer-bar mchat-bar"
       // A drawer or the attach menu stands above the bar: let it show.
-      style={drawer || menuShown ? { overflow: "visible" } : undefined}
+      style={drawer || drawerAside || menuShown ? { overflow: "visible" } : undefined}
       data-testid={id("bar")}
       {...barProps}
     >
@@ -513,6 +526,26 @@ export function GlassComposer({
           onChange={onInputChange}
         />
         <div className="relative flex-1 min-w-0" data-testid={id("dock")}>
+          {drawerAside ? (
+            // Same clip box as the drawer's, at the right.
+            <div
+              data-testid={id("drawer-aside")}
+              className="absolute overflow-hidden pointer-events-none"
+              style={
+                {
+                  right: COMPOSER_DRAWER_INSET_PX,
+                  width: drawerAsideWidth,
+                  bottom: `calc(100% - ${COMPOSER_DRAWER_TUCK_PX}px)`,
+                  paddingTop: DRAWER_HEADROOM_PX,
+                  zIndex: 0,
+                  "--k2-drawer-radius": `${COMPOSER_DRAWER_RADIUS_PX}px`,
+                  "--k2-drawer-tuck": `${COMPOSER_DRAWER_TUCK_PX}px`,
+                } as CSSProperties
+              }
+            >
+              {drawerAside}
+            </div>
+          ) : null}
           {drawer ? (
             // Clip box: its bottom edge sits `tuck` px under the field's
             // top, so the drawer slides out from behind the field (which
@@ -523,7 +556,7 @@ export function GlassComposer({
               style={
                 {
                   left: COMPOSER_DRAWER_INSET_PX,
-                  right: COMPOSER_DRAWER_INSET_PX,
+                  right: COMPOSER_DRAWER_INSET_PX + (drawerAside ? drawerAsideWidth + DRAWER_ASIDE_GAP_PX : 0),
                   bottom: `calc(100% - ${COMPOSER_DRAWER_TUCK_PX}px)`,
                   paddingTop: DRAWER_HEADROOM_PX,
                   zIndex: 0,
@@ -619,6 +652,7 @@ export function GlassComposer({
               aria-label={ariaLabel ?? placeholder}
               data-testid={id("input")}
             />
+            {fieldAction}
             {canSend ? (
               <button
                 ref={pressSend}

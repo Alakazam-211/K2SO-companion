@@ -5,6 +5,7 @@ import { ZEN_FONTS, ZEN_TEXT_SIZES, useZenFontStore } from "./zenFont";
 import { useMultiServerPrefs } from "./multi/prefs";
 import { useRecentFirstStore } from "./recentFirst";
 import { useJumpOnSendStore } from "./jumpOnSend";
+import { useStashStore } from "./stash/stashStore";
 import { useBackHandler } from "../lib/androidBack";
 
 const MUTED = "#8e8e93";
@@ -68,9 +69,10 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
         <Group
           label="Chats"
           testId="settings-chats"
-          footnote="Off: sending while you read earlier messages keeps your place. Only this phone."
+          footnote="Jump to newest off: sending while you read earlier messages keeps your place. Remove from stash after use on: a saved message goes from your stash once you put it in a chat. Only this phone."
         >
           <JumpOnSendRow />
+          <StashRemoveAfterUseRow />
         </Group>
 
         <Group
@@ -233,6 +235,24 @@ function JumpOnSendRow() {
       <span id="zen-jump-on-send-label">Jump to newest when I send</span>
       <span className="flex items-center shrink-0" data-testid="jump-on-send-switch">
         <Switch on={on} disabled={false} onToggle={() => setOn(!on)} labelledBy="zen-jump-on-send-label" />
+      </span>
+    </div>
+  );
+}
+
+/** "Remove from stash after use" (stash/stashStore): a phone-only
+ *  setting, default off (a used stash stays, a template). */
+function StashRemoveAfterUseRow() {
+  const on = useStashStore((s) => s.removeAfterUse);
+  const setOn = useStashStore((s) => s.setRemoveAfterUse);
+  return (
+    <div
+      className="flex items-center justify-between text-[17px]"
+      style={{ minHeight: 44, padding: "6px 12px 6px 16px", gap: 12, borderTop: HAIRLINE }}
+    >
+      <span id="zen-stash-remove-label">Remove from stash after use</span>
+      <span className="flex items-center shrink-0" data-testid="stash-remove-after-use-switch">
+        <Switch on={on} disabled={false} onToggle={() => setOn(!on)} labelledBy="zen-stash-remove-label" />
       </span>
     </div>
   );
