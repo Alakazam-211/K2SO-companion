@@ -184,9 +184,15 @@ export async function e2eDiagnostics(): Promise<E2eDiagnostics> {
 // ─── Per-server bookkeeping (push.json) ───
 //
 // `e2eDevices[serverId]` = the per-server deviceId last registered there
-// (unregister and read-back use it); `e2eMigrated[serverId]` = the
+// (unregister and read-back use it); `e2eOldRowGone[serverId]` = the
 // install-wide id was unregistered there; `e2eRotate[serverId]` = the
 // last reply said rotate.
+
+/** Servers whose install-wide row is known to be gone. Was
+ *  "e2eMigrated", set even when the removal failed and undone by launch
+ *  registrations before boot-status (double alerts, 2026-10-29): the new
+ *  key makes every phone remove that row once more. */
+const MIGRATED_KEY = "e2eOldRowGone";
 
 type Book = {
   devices: Record<string, string>;
@@ -203,7 +209,7 @@ export async function readBook(): Promise<Book> {
     const s = await store();
     return {
       devices: (await s.get<Record<string, string>>("e2eDevices")) ?? {},
-      migrated: (await s.get<Record<string, true>>("e2eMigrated")) ?? {},
+      migrated: (await s.get<Record<string, true>>(MIGRATED_KEY)) ?? {},
       rotate: (await s.get<Record<string, true>>("e2eRotate")) ?? {},
     };
   } catch {
@@ -217,7 +223,7 @@ export async function writeBook(update: (b: Book) => void): Promise<void> {
     const b = await readBook();
     update(b);
     await s.set("e2eDevices", b.devices);
-    await s.set("e2eMigrated", b.migrated);
+    await s.set(MIGRATED_KEY, b.migrated);
     await s.set("e2eRotate", b.rotate);
     await s.save();
   } catch {

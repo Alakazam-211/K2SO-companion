@@ -138,6 +138,84 @@ describe("sealed registration", () => {
     expect(posts().map((x) => x.url)).toEqual(["https://rosson.k2.dev/cli/push/register-device"]);
   });
 
+  it("a failed removal of the shared row is retried on the next registration (no double alerts)", async () => {
+    let failUnregister = true;
+    tauriFetch.mockImplementation(async (url: string) => {
+      if (url.endsWith("/unregister-device") && failUnregister) {
+        return { ok: false, status: 502, text: async () => "bad gateway" };
+      }
+      const body = url.endsWith("/register-device")
+        ? JSON.stringify({ ok: true, e2e: { active: true, enforce: false, rotateAfter: 9_999_999_999 } })
+        : "{}";
+      return { ok: true, status: 200, text: async () => body };
+    });
+    await ensureRegistered(scopeFor("s1"));
+    await flush();
+    expect(posts().filter((p) => p.url.endsWith("/unregister-device"))).toHaveLength(1);
+
+    failUnregister = false;
+    tauriFetch.mockClear();
+    await ensureRegistered(scopeFor("s1"));
+    await flush();
+    expect(posts().map((x) => x.url)).toEqual([
+      "https://rosson.k2.dev/cli/push/register-device",
+      "https://rosson.k2.dev/cli/push/unregister-device",
+    ]);
+    expect(posts()[1].body).toEqual({ deviceId: "shared-1" });
+
+    // Gone now: not asked again.
+    tauriFetch.mockClear();
+    await ensureRegistered(scopeFor("s1"));
+    await flush();
+    expect(posts().map((x) => x.url)).toEqual(["https://rosson.k2.dev/cli/push/register-device"]);
+  });
+
+  it("a launch before boot-status never brings the install-wide row back on a migrated server", async () => {
+    await ensureRegistered(scopeFor("s1"));
+    await flush();
+    // Next launch: nothing known about the server yet.
+    __resetScopesForTests();
+    let bootUp = true;
+    tauriFetch.mockReset();
+    tauriFetch.mockImplementation(async (url: string) => {
+      if (url.includes("/boot-status")) {
+        if (!bootUp) throw new Error("tunnel down");
+        const b = JSON.stringify({ version: "0.46.3", features: ["thread-push-v1", "push-e2e-v1"] });
+        return { ok: true, status: 200, text: async () => b, json: async () => JSON.parse(b) };
+      }
+      const body = url.endsWith("/register-device") ? JSON.stringify({ e2e: { active: true, rotateAfter: 9_999_999_999 } }) : "{}";
+      return { ok: true, status: 200, text: async () => body, json: async () => JSON.parse(body) };
+    });
+    await ensureRegistered(scopeFor("s1"));
+    await flush();
+    const regs = posts().filter((p) => p.url.endsWith("/register-device"));
+    expect(regs).toHaveLength(1);
+    expect(regs[0].body).toMatchObject({ deviceId: "dev-s1", e2e: expect.any(Object) });
+
+    // Boot-status unreachable: no registration at all, rather than the
+    // install-wide id.
+    __resetScopesForTests();
+    bootUp = false;
+    tauriFetch.mockClear();
+    await ensureRegistered(scopeFor("s1"));
+    await flush();
+    expect(posts().filter((p) => p.url.endsWith("/register-device"))).toHaveLength(0);
+  });
+
+  it("a 404 on the removal means the row is already gone", async () => {
+    tauriFetch.mockImplementation(async (url: string) => {
+      if (url.endsWith("/unregister-device")) return { ok: false, status: 404, text: async () => "{}" };
+      const body = url.endsWith("/register-device") ? JSON.stringify({ e2e: { active: true, rotateAfter: 9_999_999_999 } }) : "{}";
+      return { ok: true, status: 200, text: async () => body };
+    });
+    await ensureRegistered(scopeFor("s1"));
+    await flush();
+    tauriFetch.mockClear();
+    await ensureRegistered(scopeFor("s1"));
+    await flush();
+    expect(posts().map((x) => x.url)).toEqual(["https://rosson.k2.dev/cli/push/register-device"]);
+  });
+
   it("a server without the feature, or not an iPhone: today's registration exactly", async () => {
     await ensureRegistered(scopeFor("s2"));
     iPhone(false);
