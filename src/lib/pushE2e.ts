@@ -204,7 +204,10 @@ async function store() {
   return load(STORE_FILE, { defaults: {} });
 }
 
-export async function readBook(): Promise<Book> {
+/** The book. Lenient by default (an unreadable store reads as empty, for
+ *  display and diagnostics); `strict` throws instead, for decisions an
+ *  empty book would get wrong (an unreadable store is not "never sealed"). */
+export async function readBook(opts: { strict?: boolean } = {}): Promise<Book> {
   try {
     const s = await store();
     return {
@@ -212,21 +215,33 @@ export async function readBook(): Promise<Book> {
       migrated: (await s.get<Record<string, true>>(MIGRATED_KEY)) ?? {},
       rotate: (await s.get<Record<string, true>>("e2eRotate")) ?? {},
     };
-  } catch {
+  } catch (e) {
+    if (opts.strict) throw e;
     return { devices: {}, migrated: {}, rotate: {} };
   }
 }
 
-export async function writeBook(update: (b: Book) => void): Promise<void> {
-  try {
-    const s = await store();
-    const b = await readBook();
-    update(b);
-    await s.set("e2eDevices", b.devices);
-    await s.set(MIGRATED_KEY, b.migrated);
-    await s.set("e2eRotate", b.rotate);
-    await s.save();
-  } catch {
-    /* best effort */
-  }
+let bookQueue: Promise<unknown> = Promise.resolve();
+
+/** Read-modify-write, one at a time: servers register in parallel, and a
+ *  lost `e2eDevices[id]` would let a launch register the install-wide id
+ *  again (double alerts). A book that can't be read is not overwritten. */
+export function writeBook(update: (b: Book) => void): Promise<void> {
+  const run = bookQueue.then(async () => {
+    try {
+      const s = await store();
+      const b = await readBook({ strict: true });
+      update(b);
+      await s.set("e2eDevices", b.devices);
+      await s.set(MIGRATED_KEY, b.migrated);
+      await s.set("e2eRotate", b.rotate);
+      // The old migration key (see MIGRATED_KEY).
+      await s.delete("e2eMigrated");
+      await s.save();
+    } catch {
+      /* best effort */
+    }
+  });
+  bookQueue = run.catch(() => undefined);
+  return run;
 }
