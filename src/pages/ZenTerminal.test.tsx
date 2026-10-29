@@ -709,6 +709,29 @@ describe("ZenTerminal", () => {
     expect(screen.getByTestId("terminal-composer-attach")).toHaveProperty("disabled", true);
   });
 
+  it("switching send mode keeps an open keyboard open: focus moves to the new field", () => {
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+    const composer = screen.getByTestId("terminal-composer-input") as HTMLTextAreaElement;
+    act(() => composer.focus());
+    const toDirect = screen.getByRole("button", { name: "Switch to direct typing" });
+    // The tap must not blur the field before the switch.
+    expect(fireEvent.pointerDown(toDirect)).toBe(false);
+    expect(fireEvent.mouseDown(toDirect)).toBe(false);
+    fireEvent.click(toDirect);
+    const capture = screen.getByLabelText("Terminal keyboard input");
+    expect(document.activeElement).toBe(capture);
+    fireEvent.click(screen.getByRole("button", { name: "Switch to safe send" }));
+    expect(document.activeElement).toBe(screen.getByTestId("terminal-composer-input"));
+  });
+
+  it("switching send mode keeps a closed keyboard closed", () => {
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+    fireEvent.click(screen.getByRole("button", { name: "Switch to direct typing" }));
+    expect(document.activeElement).not.toBe(screen.getByLabelText("Terminal keyboard input"));
+    fireEvent.click(screen.getByRole("button", { name: "Switch to safe send" }));
+    expect(document.activeElement).not.toBe(screen.getByTestId("terminal-composer-input"));
+  });
+
   it("direct mode: accessory keys are glass pills, no casing around the row", () => {
     renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
     fireEvent.click(screen.getByRole("button", { name: "Switch to direct typing" }));
