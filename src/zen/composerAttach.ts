@@ -89,11 +89,17 @@ export async function fileToBase64(file: File): Promise<string> {
 /** Copy picked files into memory now. Android hands the WebView a
  *  content:// reference whose read grant can lapse before Send (Samsung
  *  Gallery on Android 13: NotReadableError at upload), so the bytes are
- *  read while the pick is fresh. Unreadable files come back by name. */
+ *  read while the pick is fresh. Unreadable files come back by name.
+ *  Files over the upload limit pass through unread: the caller's size
+ *  check refuses them, and a long camera video never lands in memory. */
 export async function snapshotFiles(files: File[]): Promise<{ files: File[]; unreadable: string[] }> {
   const out: File[] = [];
   const unreadable: string[] = [];
   for (const f of files) {
+    if (f.size > MAX_UPLOAD_BYTES) {
+      out.push(f);
+      continue;
+    }
     try {
       const buf = await f.arrayBuffer();
       out.push(new File([buf], f.name, { type: f.type, lastModified: f.lastModified }));
