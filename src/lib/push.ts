@@ -243,8 +243,24 @@ function learnFromReply(serverId: string, text: unknown): void {
  *  `badgeKey` learned (./badgeKeys). */
 async function registerOn(scope: ServerScope, reg: DeviceReg): Promise<string | null> {
   try {
+    // The active server registers at launch, often before its boot-status
+    // is known; without it, it would look like a server without sealed
+    // push and get the install-wide row back next to its sealed one, so
+    // every alert arrived twice (Rosson 2026-10-29). Learn it first.
+    if (reg.platform === "apns" && e2eCapablePlatform() && !bootInfoFor(scope.id)) {
+      await getBootStatus(scope).catch(() => null);
+    }
     const sealed = await sealedRegistration(scope, reg);
-    const body = await registrationBody(scope, sealed ? { ...reg, deviceId: sealed.deviceId } : reg);
+    let plain = reg;
+    const migratedId = sealed ? null : (await readBook()).devices[scope.id];
+    if (migratedId) {
+      // Sealed here before. Features still unknown: try again later
+      // rather than register the install-wide id. Known and no longer
+      // sealed (an older server, no key): keep the one per-server row.
+      if (!bootInfoFor(scope.id)) return "server features unknown";
+      plain = { ...reg, deviceId: migratedId };
+    }
+    const body = await registrationBody(scope, sealed ? { ...reg, deviceId: sealed.deviceId } : plain);
     if (sealed) body.e2e = sealed.field;
     const text = await postPush(scope, "/cli/push/register-device", body);
     if (sealed) await noteSealedReply(scope, reg, sealed, text);
@@ -280,24 +296,32 @@ async function sealedRegistration(scope: ServerScope, reg: DeviceReg): Promise<S
   return { deviceId: key.deviceId, label, field: e2eField(key), rotated: rotate };
 }
 
-/** After a sealed registration: the install-wide row goes (once), the
+/** After a sealed registration: the install-wide row goes, the
  *  per-server id is remembered, `enforce` reaches the extension, and a
- *  due rotation is queued for the next registration. */
+ *  due rotation is queued for the next registration. The server counts as
+ *  migrated only once the old row is gone (removed, or already unknown):
+ *  a failed removal is tried again on the next registration. Left behind,
+ *  that row shares this phone's push token and every alert arrives twice,
+ *  once sealed and once legacy (Rosson 2026-10-29). */
 async function noteSealedReply(scope: ServerScope, reg: DeviceReg, sealed: Sealed, text: string): Promise<void> {
   const reply = parseE2eReply(text);
   const book = await readBook();
-  if (!book.migrated[scope.id] && reg.deviceId !== sealed.deviceId) {
+  let oldGone = !!book.migrated[scope.id] || reg.deviceId === sealed.deviceId;
+  if (!oldGone) {
     try {
       await postPush(scope, "/cli/push/unregister-device", { deviceId: reg.deviceId });
+      oldGone = true;
     } catch (e) {
-      console.warn("[push] old device row not removed:", e);
+      // Not there any more: nothing left to remove.
+      oldGone = e instanceof Error && /-> 404$/.test(e.message);
+      if (!oldGone) console.warn("[push] old device row not removed (retried next registration):", e);
     }
   }
   await e2eSetEnforce(sealed.label, !!reply?.enforce);
   const due = rotationDue(reply, Date.now() / 1000);
   await writeBook((b) => {
     b.devices[scope.id] = sealed.deviceId;
-    b.migrated[scope.id] = true;
+    if (oldGone) b.migrated[scope.id] = true;
     if (due && !sealed.rotated) b.rotate[scope.id] = true;
     else delete b.rotate[scope.id];
   });
