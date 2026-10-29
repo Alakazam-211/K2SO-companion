@@ -36,11 +36,15 @@ vi.mock("@tauri-apps/plugin-store", () => ({
       pushStore[k] = v;
     },
     save: async () => {},
-    delete: async () => {},
+    delete: async (k: string) => {
+      deleted.push(k);
+    },
   })),
 }));
+const deleted: string[] = [];
 vi.mock("./revive", () => ({ connectServer: vi.fn() }));
 
+import { load } from "@tauri-apps/plugin-store";
 import { __resetScopesForTests, noteBootStatus } from "../api/scope";
 import { useServersStore, type ServerEntry } from "../stores/servers";
 import { useMultiServerPrefs } from "../zen/multi/prefs";
@@ -200,6 +204,50 @@ describe("sealed registration", () => {
     await ensureRegistered(scopeFor("s1"));
     await flush();
     expect(posts().filter((p) => p.url.endsWith("/register-device"))).toHaveLength(0);
+  });
+
+  it("two servers sealing at once both keep their per-server id (the book is written one at a time)", async () => {
+    const WORK = srv("s3", "https://work.k2.dev");
+    useServersStore.setState({ servers: [HOME, OLD, WORK], tokens: { s1: "t1", s2: "t2", s3: "t3" } });
+    noteBootStatus("s3", { version: "0.46.3", features: ["thread-push-v1", "push-e2e-v1"] });
+    await Promise.all([ensureRegistered(scopeFor("s1")), ensureRegistered(scopeFor("s3"))]);
+    await flush();
+    expect(pushStore.e2eDevices).toEqual({ s1: "dev-s1", s3: "dev-s3" });
+    expect(pushStore.e2eOldRowGone).toEqual({ s1: true, s3: true });
+  });
+
+  it("an unreadable book is not 'never sealed': no install-wide registration", async () => {
+    await ensureRegistered(scopeFor("s1"));
+    await flush();
+    // Next launch: features unknown, and the store throws on read.
+    __resetScopesForTests();
+    const real = vi.mocked(load).getMockImplementation()!;
+    vi.mocked(load).mockImplementation(async (...a: Parameters<typeof load>) => {
+      const st = await real(...a);
+      return {
+        ...st,
+        get: async (k: string) => (k.startsWith("e2e") ? Promise.reject(new Error("book unreadable")) : pushStore[k]),
+      } as never;
+    });
+    tauriFetch.mockClear();
+    tauriFetch.mockImplementation(async (url: string) => {
+      if (url.includes("/boot-status")) throw new Error("tunnel down");
+      return { ok: true, status: 200, text: async () => "{}", json: async () => ({}) };
+    });
+    try {
+      await ensureRegistered(scopeFor("s1"));
+      await flush();
+      expect(posts().filter((p) => p.url.endsWith("/register-device"))).toHaveLength(0);
+    } finally {
+      vi.mocked(load).mockImplementation(real);
+    }
+  });
+
+  it("the old migration key is dropped", async () => {
+    pushStore.e2eMigrated = { s1: true };
+    await ensureRegistered(scopeFor("s1"));
+    await flush();
+    expect(deleted).toContain("e2eMigrated");
   });
 
   it("a 404 on the removal means the row is already gone", async () => {

@@ -252,13 +252,23 @@ async function registerOn(scope: ServerScope, reg: DeviceReg): Promise<string | 
     }
     const sealed = await sealedRegistration(scope, reg);
     let plain = reg;
-    const migratedId = sealed ? null : (await readBook()).devices[scope.id];
-    if (migratedId) {
-      // Sealed here before. Features still unknown: try again later
-      // rather than register the install-wide id. Known and no longer
-      // sealed (an older server, no key): keep the one per-server row.
-      if (!bootInfoFor(scope.id)) return "server features unknown";
-      plain = { ...reg, deviceId: migratedId };
+    if (sealed) {
+      // Remembered before the POST: a kill between the reply and the
+      // bookkeeping must not leave the next offline launch thinking this
+      // server was never sealed.
+      await writeBook((b) => {
+        b.devices[scope.id] = sealed.deviceId;
+      });
+    } else {
+      // An unreadable book is not "never sealed": skip, retry later.
+      const migratedId = (await readBook({ strict: true })).devices[scope.id];
+      if (migratedId) {
+        // Sealed here before. Features still unknown: try again later
+        // rather than register the install-wide id. Known and no longer
+        // sealed (an older server, no key): keep the one per-server row.
+        if (bootInfoFor(scope.id)?.features == null) return "server features unknown";
+        plain = { ...reg, deviceId: migratedId };
+      }
     }
     const body = await registrationBody(scope, sealed ? { ...reg, deviceId: sealed.deviceId } : plain);
     if (sealed) body.e2e = sealed.field;
@@ -312,7 +322,9 @@ async function noteSealedReply(scope: ServerScope, reg: DeviceReg, sealed: Seale
       await postPush(scope, "/cli/push/unregister-device", { deviceId: reg.deviceId });
       oldGone = true;
     } catch (e) {
-      // Not there any more: nothing left to remove.
+      // A daemon answers an unknown id with 200 `removed:false` (already
+      // gone, or not ours to remove): that counts as done above. A 404
+      // means a daemon too old to have the route: nothing to remove.
       oldGone = e instanceof Error && /-> 404$/.test(e.message);
       if (!oldGone) console.warn("[push] old device row not removed (retried next registration):", e);
     }
