@@ -122,6 +122,29 @@ const CODE_TEXT = "That code didn't work. Codes last 10 minutes and work once. G
 const RATE_TEXT = "Too many tries. Wait a minute and try again.";
 const OLD_SERVER_TEXT = "This server can't pair phones yet. It needs K2 0.46.4 or newer.";
 
+/** The k2.dev edge has no live tunnel for this address: its own HTML "Not
+ *  Found" page, which a daemon never sends (a daemon 404 is JSON). Not an
+ *  old server: K2 is closed, offline, or the address is wrong. */
+function isEdgeNotFound(status: number, text: string): boolean {
+  return status === 404 && /^\s*</.test(text);
+}
+
+function unreachableText(serverUrl: string): string {
+  let host = serverUrl;
+  try {
+    host = new URL(serverUrl).host;
+  } catch {
+    /* keep as typed */
+  }
+  return `Couldn't reach ${host}. Make sure K2 is open on that computer and online, then try again.`;
+}
+
+/** A daemon from before 0.46.4 has no pairing route, so its auth gate
+ *  answers instead. */
+function isPrePairingDaemon(status: number, text: string): boolean {
+  return status === 403 && /invalid or missing auth token/i.test(text);
+}
+
 /** What this phone calls itself in the server's device list. */
 export function phoneName(ua: string = typeof navigator === "undefined" ? "" : navigator.userAgent): string {
   if (/iPad/.test(ua)) return "iPad";
@@ -169,6 +192,7 @@ export async function checkPairCode(serverUrl: string, code: string): Promise<Pa
     }
     if (r.status === 401) return { ok: false, kind: "code", error: CODE_TEXT };
     if (r.status === 429) return { ok: false, kind: "refused", error: RATE_TEXT };
+    if (isEdgeNotFound(r.status, r.text)) return { ok: false, kind: "network", error: unreachableText(serverUrl) };
     if (r.status === 404 || r.status === 405) return { ok: false, kind: "unchecked", error: "" };
     return { ok: false, kind: "network", error: apiErrorText(r.text, `Could not check the code (HTTP ${r.status})`) };
   } catch (err) {
@@ -202,7 +226,8 @@ export async function pairDevice(
       const code = pairErrorCode(r.text);
       if (r.status === 401 || code === "pair_code_invalid") return { ok: false, kind: "code", error: CODE_TEXT };
       if (r.status === 429) return { ok: false, kind: "refused", error: RATE_TEXT };
-      if (r.status === 404) return { ok: false, kind: "refused", error: OLD_SERVER_TEXT };
+      if (isEdgeNotFound(r.status, r.text)) return { ok: false, kind: "network", error: unreachableText(serverUrl) };
+      if (r.status === 404 || isPrePairingDaemon(r.status, r.text)) return { ok: false, kind: "refused", error: OLD_SERVER_TEXT };
       return { ok: false, kind: "network", error: apiErrorText(r.text, `Pairing failed (HTTP ${r.status})`) };
     }
     const j = JSON.parse(r.text) as Record<string, unknown>;

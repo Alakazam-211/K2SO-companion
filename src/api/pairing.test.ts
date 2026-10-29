@@ -78,8 +78,11 @@ describe("pairing codes and links", () => {
 });
 
 function res(status: number, body: unknown) {
-  return { ok: status >= 200 && status < 300, status, text: async () => JSON.stringify(body) };
+  return { ok: status >= 200 && status < 300, status, text: async () => (typeof body === "string" ? body : JSON.stringify(body)) };
 }
+
+// What the k2.dev edge sends for an address with no live tunnel.
+const EDGE_404 = "<!DOCTYPE html>\n<html>\n<head>\n<title>Not Found</title>";
 
 describe("pairing requests (final contract, K2 m_5ClOC889BH)", () => {
   it("check: who the code pairs as, without using it", async () => {
@@ -98,6 +101,38 @@ describe("pairing requests (final contract, K2 m_5ClOC889BH)", () => {
     expect(await checkPairCode("https://rosson.k2.dev", CODE)).toMatchObject({ ok: false, kind: "code" });
     fetchMock.mockResolvedValueOnce(res(404, {}));
     expect(await checkPairCode("https://rosson.k2.dev", CODE)).toMatchObject({ ok: false, kind: "unchecked" });
+  });
+
+  it("an address the edge doesn't know is unreachable, not an old server", async () => {
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(res(404, EDGE_404));
+    expect(await checkPairCode("https://zoozorocks-1.k2.dev", CODE)).toEqual({
+      ok: false,
+      kind: "network",
+      error: "Couldn't reach zoozorocks-1.k2.dev. Make sure K2 is open on that computer and online, then try again.",
+    });
+    fetchMock.mockResolvedValueOnce(res(404, EDGE_404));
+    expect(await pairDevice("https://zoozorocks-1.k2.dev", CODE, { id: "d", name: "iPhone" })).toMatchObject({
+      ok: false,
+      kind: "network",
+      error: expect.stringContaining("Couldn't reach zoozorocks-1.k2.dev"),
+    });
+  });
+
+  it("pair: a daemon without the route is an old server", async () => {
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(res(404, { error: "not found" }));
+    expect(await pairDevice("https://rosson.k2.dev", CODE, { id: "d", name: "iPhone" })).toMatchObject({
+      ok: false,
+      kind: "refused",
+      error: expect.stringContaining("0.46.4 or newer"),
+    });
+    fetchMock.mockResolvedValueOnce(res(403, { error: "Invalid or missing auth token" }));
+    expect(await pairDevice("https://rosson.k2.dev", CODE, { id: "d", name: "iPhone" })).toMatchObject({
+      ok: false,
+      kind: "refused",
+      error: expect.stringContaining("0.46.4 or newer"),
+    });
   });
 
   it("pair: 0.46.6's serverName names the computer", async () => {
