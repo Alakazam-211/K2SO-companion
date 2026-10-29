@@ -8,7 +8,7 @@ const st = () => useStashStore.getState();
 
 beforeEach(() => {
   localStorage.clear();
-  __resetStashForTests();
+  __resetStashForTests(memoryStashBackend());
 });
 
 describe("stash store", () => {
@@ -34,7 +34,7 @@ describe("stash store", () => {
 
   it("a failed write is an error, never 'saved'", async () => {
     const b = memoryStashBackend();
-    b.put = vi.fn(() => Promise.reject(new Error("disk full")));
+    b.write = vi.fn(() => Promise.reject(new Error("disk full")));
     __resetStashForTests(b);
     expect(await st().save({ text: "keep me" })).toBe("error");
     expect(st().items).toHaveLength(0);
@@ -71,5 +71,50 @@ describe("stash store", () => {
     expect(st().items).toHaveLength(0);
     await st().hydrate();
     expect(st().items.map((i) => i.text)).toEqual(["survives"]);
+  });
+
+  it("no IndexedDB: saves fail (the draft stays), nothing pretends to be stored", async () => {
+    __resetStashForTests(null);
+    expect(await st().save({ text: "keep me" })).toBe("error");
+    expect(st().unavailable).toBe(true);
+    expect(st().items).toHaveLength(0);
+  });
+
+  it("a failed load is retried on the next hydrate, not swapped for memory", async () => {
+    const b = memoryStashBackend();
+    const real = b.loadAll;
+    b.loadAll = vi.fn().mockRejectedValueOnce(new Error("Connection to Indexed Database server lost")).mockImplementation(real);
+    __resetStashForTests(b);
+    expect(await st().save({ text: "first" })).toBe("error");
+    expect(st().unavailable).toBe(true);
+    expect(await st().save({ text: "second" })).toBe("saved");
+    expect(st().unavailable).toBe(false);
+    expect((await b.loadAll()).map((i) => i.text)).toEqual(["second"]);
+  });
+
+  it("two saves at 49 never make 51: the second asks", async () => {
+    for (let i = 0; i < STASH_MAX - 1; i++) await st().save({ text: `n${i}` });
+    const [a, c] = await Promise.all([st().save({ text: "a" }), st().save({ text: "c" })]);
+    expect([a, c]).toEqual(["saved", "full"]);
+    expect(st().items.filter((i) => !i.deleted_at)).toHaveLength(STASH_MAX);
+  });
+
+  it("at the cap, the new item and the oldest's tombstone are one write", async () => {
+    const b = memoryStashBackend();
+    __resetStashForTests(b);
+    for (let i = 0; i < STASH_MAX; i++) await st().save({ text: `n${i}` });
+    const spy = vi.spyOn(b, "write");
+    await st().save({ text: "one more" }, { replaceOldest: true });
+    expect(spy).toHaveBeenCalledTimes(1);
+    expect(spy.mock.calls[0][0].put?.map((i) => i.text)).toEqual(["one more", ""]);
+  });
+
+  it("take reports files it could not read back", async () => {
+    const b = memoryStashBackend();
+    __resetStashForTests(b);
+    await st().save({ text: "with file", files: [new File(["x"], "a.txt")] });
+    b.getBlobs = vi.fn(async () => []);
+    const taken = await st().take(st().items[0].id);
+    expect(taken).toMatchObject({ text: "with file", files: [], missing: 1 });
   });
 });

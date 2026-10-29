@@ -49,7 +49,7 @@ import { BookmarkPlusIcon } from "./icons";
 import { MESSAGE_HOLD_ATTR, useMessageHold } from "./stash/useMessageHold";
 import { StashTab, STASH_TAB_PX, STASH_TAB_W } from "./stash/StashTab";
 import { StashSheet } from "./stash/StashSheet";
-import { useStashSaver } from "./stash/useStashSaver";
+import { useStashSaver, type StashSaveOutcome } from "./stash/useStashSaver";
 import { useStashStore } from "./stash/stashStore";
 import { insertBelow, liveStash, type StashSource } from "./stash/stashModel";
 import { AgentMenu, type AgentMenuEntry } from "./AgentMenu";
@@ -234,32 +234,65 @@ export function messageHoldable(m: ThreadMessage, out: OutgoingMessage | null): 
   return !out && !m.mine && !m.choice && m.kind !== "secret" && Boolean(m.text.trim());
 }
 
+/** What a `stash.offer` saves: exactly what its card shows. */
+export function stashOfferText(o: StashOffer): string {
+  return o.title ? `${o.title}\n\n${o.text}` : o.text;
+}
+
+/** Offer text taller than this many lines folds behind "Show all". */
+const OFFER_LINES = 8;
+
 /** K2 0.46.7 `stash.offer`: an agent offers a prompt; Save to stash keeps
- *  it on this device (nothing goes back to the server). */
+ *  it on this device (nothing goes back to the server). Plain text, not
+ *  Markdown: what you see is exactly what is saved (no hidden HTML or
+ *  link targets carried into another chat). One tap, one save. */
 function StashOfferCard({
   m,
   offer,
   onSave,
-  onFileLink,
 }: {
   m: ThreadMessage;
   offer: StashOffer;
-  onSave?: (m: ThreadMessage) => void;
-  onFileLink?: (ref: string) => void;
+  onSave?: (m: ThreadMessage) => Promise<StashSaveOutcome>;
 }) {
+  const [state, setState] = useState<"idle" | "saving" | "saved">("idle");
+  const [all, setAll] = useState(false);
+  const long = offer.text.split("\n").length > OFFER_LINES || offer.text.length > OFFER_LINES * 60;
   return (
     <div data-testid="stash-offer">
-      {offer.title ? <p className="font-semibold mb-1">{offer.title}</p> : null}
-      <ChatMessageBody text={offer.text} className="!p-0 text-white" style={bubbleBodyStyle()} onFileLink={onFileLink} />
+      {offer.title ? <p className="font-semibold mb-1 break-words">{offer.title}</p> : null}
+      <p
+        data-testid="stash-offer-text"
+        className="whitespace-pre-wrap"
+        style={{
+          overflowWrap: "anywhere",
+          ...(long && !all
+            ? { display: "-webkit-box", WebkitLineClamp: OFFER_LINES, WebkitBoxOrient: "vertical", overflow: "hidden" }
+            : null),
+        }}
+      >
+        {offer.text}
+      </p>
+      {long ? (
+        <button type="button" className="mt-1 text-[13px] opacity-80 underline" onClick={() => setAll(!all)} data-testid="stash-offer-more">
+          {all ? "Show less" : "Show all"}
+        </button>
+      ) : null}
       <button
         type="button"
-        className="mt-2 inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[15px] leading-none border"
+        disabled={state !== "idle"}
+        className="mt-2 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[15px] leading-none border disabled:opacity-80"
         style={{ borderColor: "rgba(255,255,255,0.4)", color: "#fff" }}
-        onClick={() => onSave?.(m)}
+        onClick={() => {
+          if (!onSave || state !== "idle") return;
+          setState("saving");
+          void onSave(m).then((r) => setState(r === "saved" ? "saved" : "idle"));
+        }}
         data-testid="stash-offer-save"
+        data-state={state}
       >
         <BookmarkPlusIcon size={15} strokeWidth={2} />
-        Save to stash
+        {state === "saved" ? "Saved to your stash" : state === "saving" ? "Saving…" : "Save to stash"}
       </button>
     </div>
   );
@@ -308,7 +341,7 @@ const Bubble = memo(function Bubble({
   /** Select Text chosen: selectable now. */
   selecting?: boolean;
   /** A `stash.offer` card's Save to stash. */
-  onStashOffer?: (m: ThreadMessage) => void;
+  onStashOffer?: (m: ThreadMessage) => Promise<StashSaveOutcome>;
 }) {
   const secret = m.kind === "secret";
   const choice = secret ? null : m.choice;
@@ -328,6 +361,8 @@ const Bubble = memo(function Bubble({
       data-tail={tail || undefined}
       {...{ [MESSAGE_HOLD_ATTR]: holdable ? m.id : undefined }}
       data-selecting={selecting ? "true" : undefined}
+      aria-haspopup={holdable ? "menu" : undefined}
+      aria-description={holdable ? "Hold for Save to stash, Copy and Select Text" : undefined}
       style={{
         visibility: flying ? "hidden" : undefined,
         ...(holdable && !selecting ? NO_SELECT : null),
@@ -396,7 +431,7 @@ const Bubble = memo(function Bubble({
           ) : null}
         </div>
       ) : m.stashOffer && !m.mine ? (
-        <StashOfferCard m={m} offer={m.stashOffer} onSave={onStashOffer} onFileLink={onFileLink} />
+        <StashOfferCard m={m} offer={m.stashOffer} onSave={onStashOffer} />
       ) : (
         <>
           {m.text.trim() ? (
@@ -510,7 +545,7 @@ const ThreadRow = memo(function ThreadRow({
   onRetry: (localId: string) => void;
   onRestore: (o: OutgoingMessage) => void;
   onOpenFile: (m: ThreadMessage, a: ThreadAttachment) => void;
-  onStashOffer: (m: ThreadMessage) => void;
+  onStashOffer: (m: ThreadMessage) => Promise<StashSaveOutcome>;
 }) {
   const wordless = !m.text.trim() && !m.choice;
   const bubble = !(files && wordless);
@@ -954,18 +989,6 @@ export function ThreadPane({
   const [stashOpen, setStashOpen] = useState(false);
   const stashRefocus = useRef(false);
   const [composerFocused, setComposerFocused] = useState(false);
-  useEffect(() => {
-    const el = composerRef.current;
-    if (!el) return;
-    const on = () => setComposerFocused(true);
-    const off = () => setComposerFocused(false);
-    el.addEventListener("focus", on);
-    el.addEventListener("blur", off);
-    return () => {
-      el.removeEventListener("focus", on);
-      el.removeEventListener("blur", off);
-    };
-  }, []);
   const msgHold = useMessageHold(scrollerRef, true);
   const [selectingId, setSelectingId] = useState<string | null>(null);
   // Select Text: the message's words selected; done once the selection
@@ -989,12 +1012,15 @@ export function ThreadPane({
       document.removeEventListener("selectionchange", onChange);
     };
   }, [selectingId]);
-  const stashSourceNow = (): Partial<StashSource> => ({
-    serverId: roomScope.id || null,
-    serverLabel: roomScope.label || null,
+  /** Where a stash comes from (shared field rules): the server's host
+   *  key, the login, and the agent written to (a draft) or the sender (a
+   *  saved message, an offer: `from`). */
+  const stashSourceNow = (from?: string): Partial<StashSource> => ({
+    server_id: roomScope.hostKey || null,
+    server_label: roomScope.label || null,
     user: roomScope.username() || null,
-    agent: groupId ? null : threadAddr || agent?.addr || null,
-    agentName: agent?.name ?? null,
+    agent: from || (groupId ? null : threadAddr || agent?.addr || null),
+    agent_name: from || agent?.name || null,
   });
   const STASH_FAILED = "Couldn't save to the stash. Try again.";
   /** The composer's save while typing: write first, then clear only what
@@ -1035,6 +1061,9 @@ export function ThreadPane({
       .take(id)
       .then((taken) => {
         if (taken?.files.length) queueFiles(taken.files);
+        if (taken?.missing) {
+          setAttachError(taken.missing === 1 ? "1 file couldn't be restored." : `${taken.missing} files couldn't be restored.`);
+        }
       });
   };
   const heldMessage = msgHold.menu ? thread.find((m) => m.id === msgHold.menu?.id) ?? null : null;
@@ -1047,7 +1076,7 @@ export function ThreadPane({
           onSelect: () => {
             msgHold.close();
             void stash
-              .save({ text: heldMessage.text, source: stashSourceNow() })
+              .save({ text: heldMessage.text, source: stashSourceNow(heldMessage.from || undefined) })
               .then((r) => r === "error" && setAttachError(STASH_FAILED));
           },
         },
@@ -1069,13 +1098,13 @@ export function ThreadPane({
         },
       ]
     : [];
-  /** An agent's `stash.offer` card: saved here, from that sender. */
-  const onStashOffer = (m: ThreadMessage) => {
-    if (!m.stashOffer) return;
-    const text = m.stashOffer.title ? `${m.stashOffer.title}\n\n${m.stashOffer.text}` : m.stashOffer.text;
-    void stash
-      .save({ text, source: { ...stashSourceNow(), agent: m.from || threadAddr || null } })
-      .then((r) => r === "error" && setAttachError(STASH_FAILED));
+  /** An agent's `stash.offer` card: exactly what the card shows (title,
+   *  blank line, text), saved here, from that sender. */
+  const onStashOffer = async (m: ThreadMessage): Promise<StashSaveOutcome> => {
+    if (!m.stashOffer) return "empty";
+    const r = await stash.save({ text: stashOfferText(m.stashOffer), source: stashSourceNow(m.from || threadAddr || undefined) });
+    if (r === "error") setAttachError(STASH_FAILED);
+    return r;
   };
   const focusSeq = useZenStore((s) => s.threadFocusSeq);
   // Progressive first paint (see PROGRESSIVE_MIN): decided on the render
@@ -2542,9 +2571,11 @@ export function ThreadPane({
             textareaRef={composerRef}
             smoothClear
             onFocus={() => {
+              setComposerFocused(true);
               window.scrollTo(0, 0);
               follow();
             }}
+            onBlur={() => setComposerFocused(false)}
             drawer={
               // The working drawer, pulled out of the field's top edge.
               !threadGroupId ? (
