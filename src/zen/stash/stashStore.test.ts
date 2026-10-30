@@ -2,8 +2,8 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { memoryStashBackend } from "./stashBackend";
 import { STASH_MAX } from "./stashModel";
-import { __resetStashForTests, useStashStore } from "./stashStore";
-import { __resetHomesSyncForTests } from "../homesSync";
+import { __resetStashForTests, stashDeviceNames, useStashStore } from "./stashStore";
+import { __resetHomesSyncForTests, useHomesSyncStore } from "../homesSync";
 
 const st = () => useStashStore.getState();
 
@@ -149,5 +149,14 @@ describe("stash store", () => {
     const m = await st().take("from-mac");
     expect(m?.files).toEqual([]);
     expect(m?.missing).toMatchObject([{ name: "desk.png", device_id: "mac-1", path: "/Users/r/desk.png", elsewhere: true }]);
+  });
+
+  it("device names come from the Homes-sync device list; none when Home sync is off", async () => {
+    expect(await stashDeviceNames()).toEqual(new Map());
+    useHomesSyncStore.setState({
+      serverId: "srv",
+      devices: { srv: [{ deviceId: "mac-1", name: "Rosson's MacBook", platform: "macos", lastSyncAt: null, current: false }] },
+    });
+    expect(await stashDeviceNames()).toEqual(new Map([["mac-1", "Rosson's MacBook"]]));
   });
 });

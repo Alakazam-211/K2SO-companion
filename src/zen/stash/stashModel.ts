@@ -250,15 +250,23 @@ export function parseStashItem(raw: unknown): StashItem | null {
   };
 }
 
-/** The composer's note when a restored stash leaves files behind. */
-export function missingFilesNote(missing: readonly { name: string; elsewhere: boolean }[]): string {
+/** The composer's note when a restored stash leaves files behind. A file
+ *  on another device names it from `deviceNames` (device id → name, the
+ *  Homes-sync device list); a device not in the list (removed) is
+ *  "another device". */
+export function missingFilesNote(
+  missing: readonly { name: string; elsewhere: boolean; device_id?: string | null }[],
+  deviceNames: ReadonlyMap<string, string> = new Map()
+): string {
   if (!missing.length) return "";
   const elsewhere = missing.every((m) => m.elsewhere);
+  const names = new Set(missing.map((m) => (m.device_id && deviceNames.get(m.device_id)) || "another device"));
+  const where = names.size === 1 ? [...names][0] : "other devices";
   if (missing.length === 1) {
     const name = missing[0].name;
-    return elsewhere ? `${name} wasn't restored: it's on another device.` : `${name} couldn't be restored.`;
+    return elsewhere ? `${name} wasn't restored: it's on ${where}.` : `${name} couldn't be restored.`;
   }
   return elsewhere
-    ? `${missing.length} files weren't restored: they're on another device.`
+    ? `${missing.length} files weren't restored: they're on ${where}.`
     : `${missing.length} files couldn't be restored.`;
 }

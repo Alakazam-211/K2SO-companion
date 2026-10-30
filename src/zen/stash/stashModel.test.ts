@@ -115,5 +115,31 @@ describe("stash model (shared schema with K2 0.46.7)", () => {
       "2 files weren't restored: they're on another device."
     );
     expect(missingFilesNote([{ name: "a", elsewhere: true }, { name: "b", elsewhere: false }])).toBe("2 files couldn't be restored.");
+    const names = new Map([["mac-1", "Rosson's MacBook"], ["mini", "Studio Mini"]]);
+    expect(missingFilesNote([{ name: "shot.png", elsewhere: true, device_id: "mac-1" }], names)).toBe(
+      "shot.png wasn't restored: it's on Rosson's MacBook."
+    );
+    // A removed device isn't in the list.
+    expect(missingFilesNote([{ name: "shot.png", elsewhere: true, device_id: "gone" }], names)).toBe(
+      "shot.png wasn't restored: it's on another device."
+    );
+    expect(
+      missingFilesNote(
+        [
+          { name: "a", elsewhere: true, device_id: "mac-1" },
+          { name: "b", elsewhere: true, device_id: "mac-1" },
+        ],
+        names
+      )
+    ).toBe("2 files weren't restored: they're on Rosson's MacBook.");
+    expect(
+      missingFilesNote(
+        [
+          { name: "a", elsewhere: true, device_id: "mac-1" },
+          { name: "b", elsewhere: true, device_id: "mini" },
+        ],
+        names
+      )
+    ).toBe("2 files weren't restored: they're on other devices.");
   });
 });

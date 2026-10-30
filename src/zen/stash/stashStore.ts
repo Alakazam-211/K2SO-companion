@@ -15,7 +15,7 @@ import {
   type StashSource,
 } from "./stashModel";
 import { indexedDbStashBackend, type StashBackend, type StashBlob } from "./stashBackend";
-import { homesDeviceId } from "../homesSync";
+import { homesDeviceId, loadHomesDevices, useHomesSyncStore } from "../homesSync";
 
 // The person's prompt stash on this device (stashModel has the spec).
 // Every write goes to storage before the caller is told "saved", so a
@@ -51,6 +51,23 @@ export type StashSaveResult = "saved" | "full" | "empty" | "error";
  *  not be read. */
 export type StashTaken = { text: string; files: File[]; quotes: StashQuote[]; missing: StashMissingFile[] };
 export type StashMissingFile = StashAttachment & { elsewhere: boolean };
+
+/** Device id → name from the Homes-sync device list (the one source of
+ *  device names; they can be renamed), read once when not loaded yet.
+ *  Empty when Home sync is off or the list can't be read. */
+export async function stashDeviceNames(): Promise<Map<string, string>> {
+  const serverId = useHomesSyncStore.getState().serverId;
+  if (!serverId) return new Map();
+  if (!useHomesSyncStore.getState().devices[serverId]) {
+    try {
+      await loadHomesDevices(serverId);
+    } catch {
+      /* "another device" */
+    }
+  }
+  const list = useHomesSyncStore.getState().devices[serverId] ?? [];
+  return new Map(list.map((d) => [d.deviceId, d.name]));
+}
 
 /** This phone's device id (the Homes-sync one), or null if unknown. */
 async function thisDevice(): Promise<string | null> {
