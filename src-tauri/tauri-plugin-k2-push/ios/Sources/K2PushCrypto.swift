@@ -4,12 +4,16 @@
 // CryptoKit + Foundation only; no key storage here (K2PushKeys does that).
 //
 // Wire (prd-e2e-push-v1 rev 2 §3, §7.3): base64url, no padding, of
-//   0x01 (format v1) ‖ 0x01 (suite) ‖ enc (65-byte SEC1 uncompressed) ‖ ct+tag
+//   format ‖ 0x01 (suite) ‖ enc (65-byte SEC1 uncompressed) ‖ ct+tag
 // HPKE RFC 9180 mode_psk (0x01): DHKEM(P-256, HKDF-SHA256) 0x0010,
 // HKDF-SHA256 0x0001, AES-256-GCM 0x0002; psk_id "k2-push-psk-v1";
 // info "k2-push-v1\0alert" | "k2-push-v1\0nudge"; AAD = the first 2 bytes;
-// sequence 0. Plaintext = u16be(len) ‖ JSON ‖ zeros, padded to 1536
-// (alert) / 256 (nudge) bytes.
+// sequence 0. Plaintext = u16be(len) ‖ JSON ‖ zeros, padded to the
+// format's bucket. Two formats (K2 0.46.7 `push-e2e-v2`), picked by length
+// with byte 0 required to agree:
+//   format 1 (0x01): alert 1536 → 1619-byte blob (2159 chars),
+//                    nudge  256 →  339 (452)
+//   format 2 (0x02): alert 2880 → 2963 (3951), nudge 1024 → 1107 (1476)
 //
 // iOS 15 floor: CryptoKit's HPKE is iOS 17+, so the key schedule is done
 // here (HMAC-SHA256 + AES-GCM, both iOS 13+). The Diffie-Hellman step is a
@@ -22,9 +26,39 @@ public enum K2PushKind: String {
   case alert
   case nudge
 
-  var blobBytes: Int { self == .alert ? 1619 : 339 }
-  var paddedBytes: Int { self == .alert ? 1536 : 256 }
   var info: Data { Data("k2-push-v1\u{0}\(rawValue)".utf8) }
+
+  /// The padded plaintext's size in `format`.
+  func paddedBytes(_ format: K2PushFormat) -> Int {
+    switch (self, format) {
+    case (.alert, .v1): return 1536
+    case (.nudge, .v1): return 256
+    case (.alert, .v2): return 2880
+    case (.nudge, .v2): return 1024
+    }
+  }
+
+  /// format ‖ suite ‖ enc ‖ padded ciphertext ‖ tag.
+  func blobBytes(_ format: K2PushFormat) -> Int { 2 + 65 + paddedBytes(format) + 16 }
+
+  /// base64url characters, no padding.
+  func base64Chars(_ format: K2PushFormat) -> Int { (blobBytes(format) * 4 + 2) / 3 }
+
+  /// The format a blob of this many bytes is in, or nil.
+  public func format(blobBytes count: Int) -> K2PushFormat? {
+    K2PushFormat.allCases.first { blobBytes($0) == count }
+  }
+
+  /// The format an `e2e` string of this many characters is in, or nil.
+  public func format(base64Chars count: Int) -> K2PushFormat? {
+    K2PushFormat.allCases.first { base64Chars($0) == count }
+  }
+}
+
+/// The sealed blob's format, its byte 0 (and in the AAD).
+public enum K2PushFormat: UInt8, CaseIterable {
+  case v1 = 0x01
+  case v2 = 0x02
 }
 
 public enum K2PushCryptoError: Error, Equatable {
@@ -101,9 +135,9 @@ public enum K2PushCrypto {
     psk: Data,
     dh: DH
   ) throws -> Data {
-    guard blob.count == kind.blobBytes else { throw K2PushCryptoError.badLength }
+    guard let format = kind.format(blobBytes: blob.count) else { throw K2PushCryptoError.badLength }
     let b = [UInt8](blob)
-    guard b[0] == 0x01, b[1] == 0x01 else { throw K2PushCryptoError.badHeader }
+    guard b[0] == format.rawValue, b[1] == 0x01 else { throw K2PushCryptoError.badHeader }
     let aad = Data(b[0..<2])
     let enc = Data(b[2..<67])
     let ct = Data(b[67...])
@@ -139,13 +173,13 @@ public enum K2PushCrypto {
     } catch {
       throw K2PushCryptoError.openFailed
     }
-    return try unpad(padded, kind: kind)
+    return try unpad(padded, bytes: kind.paddedBytes(format))
   }
 
   /// `u16be(len) ‖ JSON ‖ zeros` → JSON; every byte after it must be 0.
-  static func unpad(_ p: Data, kind: K2PushKind) throws -> Data {
+  static func unpad(_ p: Data, bytes: Int) throws -> Data {
     let b = [UInt8](p)
-    guard b.count == kind.paddedBytes else { throw K2PushCryptoError.badPadding }
+    guard b.count == bytes else { throw K2PushCryptoError.badPadding }
     let len = Int(b[0]) << 8 | Int(b[1])
     guard len > 0, 2 + len <= b.count else { throw K2PushCryptoError.badPadding }
     guard b[(2 + len)...].allSatisfy({ $0 == 0 }) else { throw K2PushCryptoError.badPadding }
