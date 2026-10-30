@@ -105,15 +105,29 @@ afterEach(() => {
   vi.mocked(postThread).mockReset();
 });
 
-describe("the stash tab and sheet", () => {
-  it("is always on the composer, beside the drawer slot, with the count", async () => {
-    await useStashStore.getState().save({ text: "one" });
-    await useStashStore.getState().save({ text: "two" });
+describe("the stash button and sheet", () => {
+  it("is a bookmark in the field before Send, only while the field is empty", async () => {
     render(<ThreadPane />);
-    const tab = await screen.findByTestId("stash-tab");
-    expect(screen.getByTestId("composer-drawer-aside").contains(tab)).toBe(true);
-    expect(screen.getByTestId("stash-tab-count").textContent).toBe("2");
-    expect(tab.getAttribute("aria-label")).toBe("Stash, 2 saved");
+    const button = screen.getByTestId("stash-button");
+    expect(screen.getByTestId("composer-field").contains(button)).toBe(true);
+    expect(button.nextElementSibling?.getAttribute("aria-label")).toBe("Send");
+    expect(button.getAttribute("aria-label")).toBe("Stash");
+    expect(screen.queryByTestId("composer-drawer-aside")).toBeNull();
+    type("h");
+    expect(screen.queryByTestId("stash-button")).toBeNull();
+    type("");
+    expect(screen.getByTestId("stash-button")).not.toBeNull();
+  });
+
+  it("hides while a file is attached", async () => {
+    const png = new File(["png"], "shot.png", { type: "image/png" });
+    await useStashStore.getState().save({ text: "with a file", files: [png] });
+    render(<ThreadPane />);
+    fireEvent.click(screen.getByTestId("stash-button"));
+    fireEvent.click(screen.getByTestId("stash-item"));
+    type("");
+    await waitFor(() => expect(screen.getByTestId("attach-chip")).not.toBeNull());
+    expect(screen.queryByTestId("stash-button")).toBeNull();
   });
 
   it("a tap opens the sheet (newest first); the working drawer slides away until it closes", async () => {
@@ -124,27 +138,29 @@ describe("the stash tab and sheet", () => {
     act(() => vi.mocked(connectOverlayEvents).mock.calls[0][0].onItem(activity(1) as never));
     expect(screen.getByTestId("thread-working-strip").getAttribute("data-leaving")).toBeNull();
 
-    const tab = screen.getByTestId("stash-tab");
+    const button = screen.getByTestId("stash-button");
     // Never takes focus (the keyboard is put away on purpose, not by a blur).
-    expect(fireEvent.pointerDown(tab)).toBe(false);
-    fireEvent.click(tab);
+    expect(fireEvent.pointerDown(button)).toBe(false);
+    fireEvent.click(button);
     const items = screen.getAllByTestId("stash-item");
     expect(items.map((i) => i.textContent)).toEqual([expect.stringContaining("newer"), expect.stringContaining("older")]);
     expect(screen.getByTestId("thread-working-strip").getAttribute("data-leaving")).toBe("true");
 
-    fireEvent.click(screen.getByTestId("stash-sheet-done"));
+    const close = screen.getByTestId("stash-sheet-close");
+    expect(close.getAttribute("aria-label")).toBe("Close");
+    expect(screen.queryByText("Done")).toBeNull();
+    fireEvent.click(close);
     expect(screen.queryByTestId("stash-sheet")).toBeNull();
     expect(screen.getByTestId("thread-working-strip").getAttribute("data-leaving")).toBeNull();
   });
 
-  it("choosing goes below any text, after a blank line, with its files; the stash keeps it", async () => {
+  it("choosing fills the field with its files and focuses it; the stash keeps it", async () => {
     const png = new File(["png"], "shot.png", { type: "image/png" });
     await useStashStore.getState().save({ text: "stashed prompt", files: [png] });
     render(<ThreadPane />);
-    type("hello  ");
-    fireEvent.click(screen.getByTestId("stash-tab"));
+    fireEvent.click(screen.getByTestId("stash-button"));
     fireEvent.click(screen.getByTestId("stash-item"));
-    expect(input().value).toBe("hello\n\nstashed prompt");
+    expect(input().value).toBe("stashed prompt");
     expect(document.activeElement).toBe(input());
     expect(screen.queryByTestId("stash-sheet")).toBeNull();
     await waitFor(() => expect(screen.getByTestId("attach-chip").textContent).toContain("shot.png"));
@@ -155,7 +171,7 @@ describe("the stash tab and sheet", () => {
     useStashStore.getState().setRemoveAfterUse(true);
     await useStashStore.getState().save({ text: "one-shot" });
     render(<ThreadPane />);
-    fireEvent.click(screen.getByTestId("stash-tab"));
+    fireEvent.click(screen.getByTestId("stash-button"));
     fireEvent.click(screen.getByTestId("stash-item"));
     expect(input().value).toBe("one-shot");
     await waitFor(() => expect(live()).toHaveLength(0));
@@ -164,7 +180,7 @@ describe("the stash tab and sheet", () => {
   it("✕ deletes an item", async () => {
     await useStashStore.getState().save({ text: "gone soon" });
     render(<ThreadPane />);
-    fireEvent.click(screen.getByTestId("stash-tab"));
+    fireEvent.click(screen.getByTestId("stash-button"));
     fireEvent.click(screen.getByTestId("stash-item-delete"));
     await waitFor(() => expect(screen.getByTestId("stash-empty")).not.toBeNull());
     expect(live()).toHaveLength(0);
@@ -201,7 +217,7 @@ describe("saving from the composer", () => {
       agent_name: "Appa",
     });
     expect(document.activeElement).toBe(input());
-    expect(screen.getByTestId("stash-tab-saved")).not.toBeNull();
+    expect(screen.getByTestId("stash-button-saved")).not.toBeNull();
   });
 
   it("a failed write keeps the draft and says so", async () => {
@@ -354,7 +370,8 @@ describe("storage that can't be opened", () => {
     saveFromMenu();
     await waitFor(() => expect(screen.getByTestId("composer-label").textContent).toBe("Couldn't save to the stash. Try again."));
     expect(input().value).toBe("keep me");
-    fireEvent.click(screen.getByTestId("stash-tab"));
+    type("");
+    fireEvent.click(screen.getByTestId("stash-button"));
     expect(await screen.findByTestId("stash-unavailable")).not.toBeNull();
   });
 });

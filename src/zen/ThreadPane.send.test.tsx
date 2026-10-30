@@ -975,8 +975,7 @@ describe("the takeoff and the landing", () => {
       send();
       // No ResizeObserver in jsdom: only the send itself picked up 44.
       expect(scroller.dataset.composerHeight).toBe("44");
-      // The stash tab's 18px over the scroller (32px tall, 14px of it on the bar).
-      expect(scroller.style.paddingBottom).toBe(threadBottomPadding(44, 18));
+      expect(scroller.style.paddingBottom).toBe(threadBottomPadding(44, 0));
       expect(scroller.style.transition).toBe("");
     } finally {
       if (desc) Object.defineProperty(HTMLElement.prototype, "offsetHeight", desc);
