@@ -9,7 +9,7 @@ import { DRAWER_TILE_PX } from "../ThreadWorkingStrip";
 // moment after a save. A tap opens the stash sheet.
 
 /** The tab's width (px); the working drawer leaves this much room. */
-export const STASH_TAB_W = 56;
+export const STASH_TAB_W = 44;
 /** Its height above the field: the collapsed drawer's. */
 export const STASH_TAB_PX = DRAWER_TILE_PX;
 

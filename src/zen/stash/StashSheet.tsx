@@ -71,7 +71,7 @@ export function StashSheet({ onChoose, onClose }: { onChoose: (id: string) => vo
           <div className="flex flex-col items-center text-center px-8 py-8" style={{ gap: 10, color: MUTED }} data-testid="stash-empty">
             <BookmarkIcon size={28} strokeWidth={1.5} />
             <p className="text-[14px] leading-snug">
-              Nothing stashed yet. While you type, tap the bookmark in the message box to save the message for later. Or hold an agent's message and choose Save to stash.
+              Nothing stashed yet. While you type, tap ＋ and choose Save to stash to keep the message for later. Or hold an agent's message and choose Save to stash.
             </p>
           </div>
         ) : (
