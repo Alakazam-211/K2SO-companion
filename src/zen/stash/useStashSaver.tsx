@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { StashFullDialog } from "./StashSheet";
 import { useStashStore, type StashSaveInput } from "./stashStore";
 
-/** How long the stash tab says "Saved" after a save. */
+/** How long the stash button shows its check after a save. */
 export const STASH_SAVED_FLASH_MS = 1400;
 
 export type StashSaveOutcome = "saved" | "cancelled" | "empty" | "error";
@@ -16,7 +16,7 @@ export type StashSaveOutcome = "saved" | "cancelled" | "empty" | "error";
 
 export function useStashSaver(): {
   save: (input: StashSaveInput) => Promise<StashSaveOutcome>;
-  /** Shows "Saved" on the stash tab for a moment. */
+  /** The stash button shows a check for a moment. */
   flash: boolean;
   dialog: ReactNode;
 } {
