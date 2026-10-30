@@ -9,11 +9,13 @@ import {
   oldestLive,
   stashIsFull,
   tombstone,
+  type StashAttachment,
   type StashItem,
   type StashQuote,
   type StashSource,
 } from "./stashModel";
 import { indexedDbStashBackend, type StashBackend, type StashBlob } from "./stashBackend";
+import { homesDeviceId } from "../homesSync";
 
 // The person's prompt stash on this device (stashModel has the spec).
 // Every write goes to storage before the caller is told "saved", so a
@@ -44,8 +46,20 @@ export type StashSaveInput = {
 /** `full`: the cap is reached; ask, then save with `replaceOldest`. */
 export type StashSaveResult = "saved" | "full" | "empty" | "error";
 
-/** A stash's content for a composer; `missing` files could not be read. */
-export type StashTaken = { text: string; files: File[]; quotes: StashQuote[]; missing: number };
+/** A stash's content for a composer; `missing` files are not here:
+ *  saved on another device (`elsewhere`, synced), or their bytes could
+ *  not be read. */
+export type StashTaken = { text: string; files: File[]; quotes: StashQuote[]; missing: StashMissingFile[] };
+export type StashMissingFile = StashAttachment & { elsewhere: boolean };
+
+/** This phone's device id (the Homes-sync one), or null if unknown. */
+async function thisDevice(): Promise<string | null> {
+  try {
+    return await homesDeviceId();
+  } catch {
+    return null;
+  }
+}
 
 type StashState = {
   items: StashItem[];
@@ -132,6 +146,7 @@ export const useStashStore = create<StashState>((set, get) => ({
     await get().hydrate();
     const b = store();
     if (!get().hydrated || !b) return "error";
+    const device = files.length ? await thisDevice() : null;
     return serial(async () => {
       const replacing = stashIsFull(get().items) ? oldestLive(get().items) : null;
       if (replacing && !opts?.replaceOldest) return "full" as const;
@@ -141,7 +156,14 @@ export const useStashStore = create<StashState>((set, get) => ({
           text: input.text,
           quotes: input.quotes,
           source: input.source,
-          attachments: blobs.map((x, i) => ({ id: x.id, name: x.name, type: x.type, size: files[i].size })),
+          attachments: blobs.map((x, i) => ({
+            id: x.id,
+            name: x.name,
+            type: x.type,
+            size: files[i].size,
+            device_id: device,
+            path: null,
+          })),
         });
         const dead = replacing ? tombstone(replacing) : null;
         await b.write({
@@ -175,20 +197,26 @@ export const useStashStore = create<StashState>((set, get) => ({
   take: async (id) => {
     const item = liveStash(get().items).find((i) => i.id === id);
     if (!item) return null;
-    let files: File[] = [];
-    if (item.attachments.length) {
+    // Only this phone's files have bytes here (no device id: saved
+    // before sync, so here too).
+    const device = item.attachments.length ? await thisDevice() : null;
+    const local = item.attachments.filter((a) => a.device_id == null || a.device_id === device);
+    const byId = new Map<string, StashBlob>();
+    if (local.length) {
       try {
-        const blobs = (await store()?.getBlobs(item.attachments.map((a) => a.id))) ?? [];
-        const byId = new Map(blobs.map((x) => [x.id, x]));
-        files = item.attachments.flatMap((a) => {
-          const x = byId.get(a.id);
-          return x ? [new File([x.buf], a.name, { type: a.type })] : [];
-        });
+        for (const x of (await store()?.getBlobs(local.map((a) => a.id))) ?? []) byId.set(x.id, x);
       } catch (e) {
         console.warn("[stash] attachments unreadable:", e);
       }
     }
-    const taken = { text: item.text, files, quotes: item.quotes, missing: item.attachments.length - files.length };
+    const files: File[] = [];
+    const missing: StashMissingFile[] = [];
+    for (const a of item.attachments) {
+      const x = byId.get(a.id);
+      if (x) files.push(new File([x.buf], a.name, { type: a.type }));
+      else missing.push({ ...a, elsewhere: !local.includes(a) });
+    }
+    const taken = { text: item.text, files, quotes: item.quotes, missing };
     if (get().removeAfterUse) await get().remove(id);
     return taken;
   },

@@ -51,7 +51,7 @@ import { StashButton } from "./stash/StashButton";
 import { StashSheet } from "./stash/StashSheet";
 import { useStashSaver, type StashSaveOutcome } from "./stash/useStashSaver";
 import { useStashStore } from "./stash/stashStore";
-import { insertBelow, liveStash, type StashSource } from "./stash/stashModel";
+import { insertBelow, liveStash, missingFilesNote, type StashSource } from "./stash/stashModel";
 import { AgentMenu, type AgentMenuEntry } from "./AgentMenu";
 import {
   captureTopMessage,
@@ -1058,9 +1058,7 @@ export function ThreadPane({
       .take(id)
       .then((taken) => {
         if (taken?.files.length) queueFiles(taken.files);
-        if (taken?.missing) {
-          setAttachError(taken.missing === 1 ? "1 file couldn't be restored." : `${taken.missing} files couldn't be restored.`);
-        }
+        if (taken?.missing.length) setAttachError(missingFilesNote(taken.missing));
       });
   };
   const heldMessage = msgHold.menu ? thread.find((m) => m.id === msgHold.menu?.id) ?? null : null;
