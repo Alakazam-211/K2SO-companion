@@ -292,4 +292,18 @@ describe("stash sync", () => {
     expect(sent.updated_at).toBe(pre.updated_at);
     expect(st().items[0].attachments[0].device_id).toBe("phone-1");
   });
+
+  it("a pulled record's unnamed files are never claimed by this phone", async () => {
+    const desk = makeStashItem({
+      text: "from an older desk",
+      now: 50,
+      by: "mac-1",
+      attachments: [{ id: "f1", name: "d.png", type: "image/png", size: 1, device_id: null, path: "/Users/r/d.png" }],
+    });
+    srv.seed(desk);
+    homeSyncOn();
+    await flush();
+    await syncStashNow();
+    expect(st().items.find((i) => i.id === desk.id)?.attachments[0].device_id).toBeNull();
+  });
 });

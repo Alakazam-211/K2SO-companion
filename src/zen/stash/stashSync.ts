@@ -181,9 +181,14 @@ async function runOnce(): Promise<void> {
   if (!live()) return;
   put({ status: "syncing", error: null });
 
-  // Files saved before sync get this phone's id before they go up.
-  await useStashStore.getState().claimFiles(deviceId);
-  if (!live()) return;
+  // First sync with this server: files saved before sync get this
+  // phone's id before they first go up. Only then: a record pulled from
+  // the server is never claimed (its unnamed files are not this phone's).
+  if (meta?.serverId !== serverId) {
+    const here = useStashStore.getState().items.filter(isOwnSchema).map((i) => i.id);
+    await useStashStore.getState().claimFiles(deviceId, here);
+    if (!live()) return;
+  }
   let m = metaFor(serverId);
   let fullNext = m.cursor === null;
   let registeredNow = false;
