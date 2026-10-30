@@ -184,14 +184,13 @@ describe("Thread scroller vs a growing composer", () => {
     const blur = screen.getByTestId("thread-footer-blur");
     expect(blur.className).toBe("zen-footer-blur");
     expect(blur.parentElement).toBe(dock);
-    // Reaches the fade band above the bar, and above the stash tab's
-    // 18px over the scroller.
-    expect(blur.style.top).toBe("-42px");
-    expect(scroller().style.paddingBottom).toBe(`${12 + ONE_LINE_BAR + 18}px`);
+    // Reaches the fade band above the bar.
+    expect(blur.style.top).toBe("-24px");
+    expect(scroller().style.paddingBottom).toBe(`${12 + ONE_LINE_BAR}px`);
 
     type(3);
     composerTo(ONE_LINE_BAR + 2 * LINE);
-    expect(scroller().style.paddingBottom).toBe(`${12 + ONE_LINE_BAR + 2 * LINE + 18}px`);
+    expect(scroller().style.paddingBottom).toBe(`${12 + ONE_LINE_BAR + 2 * LINE}px`);
   });
 
   it("growing the field from 1 to 5 lines raises the scroller's bottom inset by the same amount", async () => {
@@ -243,10 +242,7 @@ describe("Thread scroller vs a growing composer", () => {
     expect(screen.getByTestId("attach-chip")).not.toBeNull();
 
     composerTo(ONE_LINE_BAR + CHIPS);
-    // The bar now keeps room for the stash tab above the chips (drawerRoom,
-    // part of the real bar height; not in this mocked one), so the 18px
-    // it covered over the scroller comes off.
-    expect(inset() - before).toBe(CHIPS - 18);
+    expect(inset() - before).toBe(CHIPS);
     expect(scroller().scrollTop).toBe(bottom());
   });
 
