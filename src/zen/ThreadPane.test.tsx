@@ -1055,7 +1055,9 @@ describe("ThreadPane", () => {
     expect(screen.getByRole("button", { name: "Send" })).not.toBeNull();
     expect(screen.getByPlaceholderText("Message")).toHaveProperty("disabled", false);
     expect(screen.getByTestId("composer-label").textContent).not.toMatch(/Not chattable/);
-    expect(screen.getByTestId("composer-attach")).toHaveProperty("disabled", true);
+    // No files here: ＋ holds only Save to stash.
+    fireEvent.click(screen.getByTestId("composer-attach"));
+    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Save to stash"]);
   });
 
   it("loading hides leftover bubbles", () => {
@@ -1305,7 +1307,8 @@ describe("ThreadPane", () => {
       sendThread,
     });
     render(<ThreadPane />);
-    expect(screen.getByTestId("composer-attach")).toHaveProperty("disabled", true);
+    fireEvent.click(screen.getByTestId("composer-attach"));
+    expect(screen.queryByTestId("composer-attach-files")).toBeNull();
     const file = new File(["x"], "shot.png", { type: "image/png" });
     fireEvent.paste(screen.getByTestId("composer-form"), {
       clipboardData: {

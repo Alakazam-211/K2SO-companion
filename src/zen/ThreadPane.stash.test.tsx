@@ -171,17 +171,27 @@ describe("the stash tab and sheet", () => {
   });
 });
 
+/** ＋, then Save to stash. */
+function saveFromMenu() {
+  fireEvent.click(screen.getByTestId("composer-attach"));
+  fireEvent.click(screen.getByTestId("composer-menu-stash"));
+}
+
 describe("saving from the composer", () => {
-  it("the save button shows while focused with text; it writes first, then clears, keeping the keyboard", async () => {
+  it("＋ offers Save to stash (dimmed with nothing typed); it writes first, then clears, keeping the keyboard", async () => {
     render(<ThreadPane />);
-    expect(screen.queryByTestId("composer-stash-save")).toBeNull();
     act(() => input().focus());
-    expect(screen.queryByTestId("composer-stash-save")).toBeNull();
+    fireEvent.click(screen.getByTestId("composer-attach"));
+    expect((screen.getByTestId("composer-menu-stash") as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByTestId("composer-attach"));
     type("draft to keep");
-    const save = screen.getByTestId("composer-stash-save");
+    fireEvent.click(screen.getByTestId("composer-attach"));
+    const save = screen.getByTestId("composer-menu-stash");
+    expect((save as HTMLButtonElement).disabled).toBe(false);
     expect(fireEvent.pointerDown(save)).toBe(false);
     fireEvent.click(save);
     await waitFor(() => expect(input().value).toBe(""));
+    expect(screen.queryByTestId("composer-attach-menu")).toBeNull();
     expect(live().map((i) => i.text)).toEqual(["draft to keep"]);
     expect(live()[0].source).toEqual({
       server_id: "rosson.k2.dev",
@@ -201,7 +211,7 @@ describe("saving from the composer", () => {
     render(<ThreadPane />);
     act(() => input().focus());
     type("precious");
-    fireEvent.click(screen.getByTestId("composer-stash-save"));
+    saveFromMenu();
     await waitFor(() => expect(screen.getByTestId("composer-label").textContent).toBe("Couldn't save to the stash. Try again."));
     expect(input().value).toBe("precious");
   });
@@ -211,14 +221,14 @@ describe("saving from the composer", () => {
     render(<ThreadPane />);
     act(() => input().focus());
     type("one more");
-    fireEvent.click(screen.getByTestId("composer-stash-save"));
+    saveFromMenu();
     await screen.findByTestId("stash-full");
     expect(screen.getByTestId("stash-full").textContent).toContain("Your stash is full (50). Remove the oldest?");
     fireEvent.click(screen.getByTestId("stash-full-cancel"));
     expect(input().value).toBe("one more");
     expect(live()).toHaveLength(STASH_MAX);
 
-    fireEvent.click(screen.getByTestId("composer-stash-save"));
+    saveFromMenu();
     fireEvent.click(await screen.findByTestId("stash-full-replace"));
     await waitFor(() => expect(input().value).toBe(""));
     expect(live()).toHaveLength(STASH_MAX);
@@ -341,7 +351,7 @@ describe("storage that can't be opened", () => {
     render(<ThreadPane />);
     act(() => input().focus());
     type("keep me");
-    fireEvent.click(screen.getByTestId("composer-stash-save"));
+    saveFromMenu();
     await waitFor(() => expect(screen.getByTestId("composer-label").textContent).toBe("Couldn't save to the stash. Try again."));
     expect(input().value).toBe("keep me");
     fireEvent.click(screen.getByTestId("stash-tab"));
