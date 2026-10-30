@@ -11,6 +11,7 @@ import { ZenTerminal } from "./pages/ZenTerminal";
 import { overlayHomePath } from "./zen/overlayHome";
 import { zenProjectPath, zenTerminalPath, zenTicketPath } from "./zen/terminalJump";
 import { startHomesSync } from "./zen/homesSync";
+import { startStashSync } from "./zen/stash/stashSync";
 
 /** Cold-start home is always the overlay. Zero stored servers still
  *  open `/zen` (overlay Add server). Any unknown path lands here too —
@@ -53,11 +54,14 @@ function PushBridge() {
     // Homes sync (K2 0.46.1 `homes-sync-v1`): dormant until the person
     // picks a sync server; also migrates Home rows to box ids.
     const stopHomesSync = startHomesSync();
+    // Stash sync (K2 0.46.7 `stash-sync-v1`): rides on Home sync's server.
+    const stopStashSync = startStashSync();
     return () => {
       cleanup?.();
       stopWatch();
       stopBadge();
       stopHomesSync();
+      stopStashSync();
     };
   }, []);
   return null;
