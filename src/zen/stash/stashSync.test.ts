@@ -277,4 +277,19 @@ describe("stash sync", () => {
     await flush();
     expect(serverTexts()).toEqual(["x"]);
   });
+
+  it("files saved before sync are claimed for this phone before they first go up", async () => {
+    // A record from before sync: its file has no device.
+    await st().save({ text: "old", files: [new File(["x"], "a.txt")] });
+    const pre = st().items[0];
+    useStashStore.setState({
+      items: [{ ...pre, attachments: pre.attachments.map((a) => ({ ...a, device_id: null, path: null })) }],
+    });
+    homeSyncOn();
+    await flush();
+    const sent = [...srv.rows.values()][0].item;
+    expect(sent.attachments).toEqual([expect.objectContaining({ name: "a.txt", device_id: "phone-1", path: null })]);
+    expect(sent.updated_at).toBe(pre.updated_at);
+    expect(st().items[0].attachments[0].device_id).toBe("phone-1");
+  });
 });
