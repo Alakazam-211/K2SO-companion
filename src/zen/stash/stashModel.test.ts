@@ -7,6 +7,7 @@ import {
   liveStash,
   makeStashItem,
   oldestLive,
+  missingFilesNote,
   parseStashItem,
   stashAge,
   stashIsFull,
@@ -56,7 +57,7 @@ describe("stash model (shared schema with K2 0.46.7)", () => {
 
   it("preview, source and age", () => {
     expect(stashPreview({ text: "\n  first line \nsecond", attachments: [] })).toBe("first line");
-    expect(stashPreview({ text: "", attachments: [{ id: "a", name: "a.png", type: "", size: 1 }] })).toBe("a.png");
+    expect(stashPreview({ text: "", attachments: [{ id: "a", name: "a.png", type: "", size: 1, device_id: null, path: null }] })).toBe("a.png");
     expect(stashSourceLabel({ server_id: "s", server_label: "rosson", user: "u", agent: "k2", agent_name: "K2" })).toBe("K2 · rosson");
     expect(stashAge(0, 30_000)).toBe("now");
     expect(stashAge(0, 5 * 60_000)).toBe("5m");
@@ -86,5 +87,33 @@ describe("stash model (shared schema with K2 0.46.7)", () => {
     const deadNewer = { ...tombstone(makeStashItem({ text: "x", now: 0 }), 0), v: 2 };
     expect(liveStash([newer])).toEqual([]);
     expect(expiredTombstones([deadNewer], TOMBSTONE_KEEP_MS * 2)).toEqual([]);
+  });
+
+  it("an attachment is a reference: device and path, read from synced records, null when absent", () => {
+    const rec = {
+      v: 1,
+      id: "s1",
+      text: "x",
+      created_at: 1,
+      updated_at: 1,
+      attachments: [
+        { id: "a", name: "shot.png", type: "image/png", size: 3, device_id: "mac-1", path: "/Users/r/shot.png" },
+        { id: "b", name: "old.txt", type: "text/plain", size: 1 },
+      ],
+    };
+    expect(parseStashItem(rec)?.attachments).toEqual([
+      { id: "a", name: "shot.png", type: "image/png", size: 3, device_id: "mac-1", path: "/Users/r/shot.png" },
+      { id: "b", name: "old.txt", type: "text/plain", size: 1, device_id: null, path: null },
+    ]);
+  });
+
+  it("missingFilesNote says whether files are on another device or unreadable", () => {
+    expect(missingFilesNote([])).toBe("");
+    expect(missingFilesNote([{ name: "shot.png", elsewhere: true }])).toBe("shot.png wasn't restored: it's on another device.");
+    expect(missingFilesNote([{ name: "shot.png", elsewhere: false }])).toBe("shot.png couldn't be restored.");
+    expect(missingFilesNote([{ name: "a", elsewhere: true }, { name: "b", elsewhere: true }])).toBe(
+      "2 files weren't restored: they're on another device."
+    );
+    expect(missingFilesNote([{ name: "a", elsewhere: true }, { name: "b", elsewhere: false }])).toBe("2 files couldn't be restored.");
   });
 });

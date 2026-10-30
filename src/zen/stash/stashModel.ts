@@ -26,7 +26,19 @@ export const STASH_MAX = 50;
 /** How long a delete's tombstone is kept for a later sync. */
 export const TOMBSTONE_KEEP_MS = 30 * 24 * 60 * 60 * 1000;
 
-export type StashAttachment = { id: string; name: string; type: string; size: number };
+/** A file in a stash. Records carry a reference, never bytes: the
+ *  device that saved it (the Homes-sync device id) and its path there.
+ *  The phone has no lasting path (iOS hands over bytes), so its own
+ *  attachments have `path: null` and their bytes stay on this phone,
+ *  keyed by `id` (stash-sync-v1, K2 0.46.7). */
+export type StashAttachment = {
+  id: string;
+  name: string;
+  type: string;
+  size: number;
+  device_id: string | null;
+  path: string | null;
+};
 export type StashQuote = { text: string; from?: string };
 /** Where it was stashed: display only. */
 export type StashSource = {
@@ -193,7 +205,16 @@ export function parseStashItem(raw: unknown): StashItem | null {
         const x = a as Record<string, unknown>;
         const aid = str(x.id);
         if (!aid) return [];
-        return [{ id: aid, name: str(x.name) ?? "file", type: str(x.type) ?? "", size: ms(x.size) ?? 0 }];
+        return [
+          {
+            id: aid,
+            name: str(x.name) ?? "file",
+            type: str(x.type) ?? "",
+            size: ms(x.size) ?? 0,
+            device_id: str(x.device_id),
+            path: str(x.path),
+          },
+        ];
       })
     : [];
   const quotes = Array.isArray(r.quotes)
@@ -227,4 +248,17 @@ export function parseStashItem(raw: unknown): StashItem | null {
     updated_at: ms(r.updated_at) ?? created,
     deleted_at: ms(r.deleted_at),
   };
+}
+
+/** The composer's note when a restored stash leaves files behind. */
+export function missingFilesNote(missing: readonly { name: string; elsewhere: boolean }[]): string {
+  if (!missing.length) return "";
+  const elsewhere = missing.every((m) => m.elsewhere);
+  if (missing.length === 1) {
+    const name = missing[0].name;
+    return elsewhere ? `${name} wasn't restored: it's on another device.` : `${name} couldn't be restored.`;
+  }
+  return elsewhere
+    ? `${missing.length} files weren't restored: they're on another device.`
+    : `${missing.length} files couldn't be restored.`;
 }
