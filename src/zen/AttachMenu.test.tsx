@@ -3,7 +3,8 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { act, cleanup, createEvent, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { GlassComposer } from "./GlassComposer";
-import { ATTACH_MENU_ITEMS, ATTACH_MENU_RADIUS_PX, ATTACH_MENU_ROW_PX } from "./AttachMenu";
+import { ATTACH_MENU_ITEMS, ATTACH_MENU_RADIUS_PX, ATTACH_MENU_ROW_PX, type AttachMenuExtra } from "./AttachMenu";
+import { BookmarkPlusIcon } from "./icons";
 import { backHandlerCount, handleAndroidBack } from "../lib/androidBack";
 import menuSrc from "./AttachMenu.tsx?raw";
 
@@ -39,11 +40,13 @@ function Harness({
   onAttachError,
   attach,
   attachDisabled,
+  menuExtras,
 }: {
   onAttach?: (files: File[]) => void;
   onAttachError?: (m: string) => void;
   attach?: boolean;
   attachDisabled?: boolean;
+  menuExtras?: AttachMenuExtra[];
 }) {
   const [value, setValue] = useState("draft");
   return (
@@ -59,6 +62,7 @@ function Harness({
         sendReady
         attach={attach}
         attachDisabled={attachDisabled}
+        menuExtras={menuExtras}
       />
     </div>
   );
@@ -360,5 +364,53 @@ describe("AttachMenu: motion", () => {
     );
     expect(ATTACH_MENU_ITEMS).toHaveLength(3);
     expect(menuSrc).toContain('role="menuitem"');
+  });
+});
+
+describe("AttachMenu: extra rows", () => {
+  const stashRow = (onSelect = () => {}, disabled = false): AttachMenuExtra => ({
+    key: "stash",
+    label: "Save to stash",
+    Icon: BookmarkPlusIcon,
+    onSelect,
+    disabled,
+  });
+
+  it("follow the attach choices under a hairline; a tap closes the menu, then runs, and the field keeps focus", () => {
+    const onSelect = vi.fn(() => expect(menu()).not.toBeNull());
+    render(<Harness menuExtras={[stashRow(onSelect)]} />);
+    openMenu();
+    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual([
+      "Photo Library",
+      "Take Photo or Video",
+      "Choose Files",
+      "Save to stash",
+    ]);
+    expect(screen.getByRole("separator")).not.toBeNull();
+    const row = screen.getByTestId("composer-menu-stash");
+    expect(fireEvent.pointerDown(row)).toBe(false);
+    fireEvent.click(row);
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(menu()).toBeNull();
+    expect(document.activeElement).toBe(field());
+  });
+
+  it("a disabled row is dimmed and takes no tap", () => {
+    const onSelect = vi.fn();
+    render(<Harness menuExtras={[stashRow(onSelect, true)]} />);
+    openMenu();
+    const row = screen.getByTestId("composer-menu-stash") as HTMLButtonElement;
+    expect(row.disabled).toBe(true);
+    fireEvent.click(row);
+    expect(onSelect).not.toHaveBeenCalled();
+    expect(menu()).not.toBeNull();
+  });
+
+  it("with attaching off, ＋ still opens with only the extra rows", () => {
+    render(<Harness attachDisabled menuExtras={[stashRow()]} />);
+    expect((plus() as HTMLButtonElement).disabled).toBe(false);
+    openMenu();
+    expect(screen.getAllByRole("menuitem").map((i) => i.textContent)).toEqual(["Save to stash"]);
+    expect(screen.queryByRole("separator")).toBeNull();
   });
 });

@@ -18,7 +18,7 @@ import { useFileDrag } from "./fileDrag";
 import { ZEN_TEXT_SCALE_VAR, zenTextPx } from "./zenFont";
 import { PlusGlyph } from "./PlusGlyph";
 import { sidecarSuffix } from "./sidecarRows";
-import { AttachMenu, type AttachChoice } from "./AttachMenu";
+import { AttachMenu, type AttachChoice, type AttachMenuExtra } from "./AttachMenu";
 import { alongCurve, curveEasing, flyMotion, prefersReducedMotion } from "./sendFly";
 import { usePressSpring } from "../lib/usePressSpring";
 import {
@@ -210,7 +210,6 @@ export interface GlassComposerProps {
   children?: ReactNode;
   textareaRef?: RefObject<HTMLTextAreaElement | null>;
   onFocus?: FocusEventHandler<HTMLTextAreaElement>;
-  onBlur?: FocusEventHandler<HTMLTextAreaElement>;
   ariaLabel?: string;
   /** Test-id prefix: `${p}-bar`, `-form`, `-file-input`, `-photo-input`,
    *  `-camera-input`, `-field`, `-attach`, `-attach-menu`, `-input`,
@@ -231,9 +230,10 @@ export interface GlassComposerProps {
    *  drawer leaves it that much room plus a gap. */
   drawerAside?: ReactNode;
   drawerAsideWidth?: number;
-  /** A button inside the field, just before Send (the Thread's "save to
-   *  stash" while typing). */
-  fieldAction?: ReactNode;
+  /** Rows the `＋` menu offers below the attach choices (the Thread's
+   *  "Save to stash"). With these, `＋` opens even when `attachDisabled`:
+   *  the menu then holds only them. A row's tap closes the menu first. */
+  menuExtras?: AttachMenuExtra[];
   /** The composer block's height (px) above its bottom gap: rows above
    *  the field, drawer room, the field (composerBlockHeight). The bar's
    *  safe-area / keyboard gap is left out: the Thread's spacer pads for it
@@ -266,7 +266,6 @@ export function GlassComposer({
   children,
   textareaRef,
   onFocus,
-  onBlur,
   ariaLabel,
   testIdPrefix = "composer",
   barProps,
@@ -274,7 +273,7 @@ export function GlassComposer({
   drawerRoom = 0,
   drawerAside,
   drawerAsideWidth = 0,
-  fieldAction,
+  menuExtras,
   onBlockHeight,
   smoothClear = false,
 }: GlassComposerProps) {
@@ -295,16 +294,18 @@ export function GlassComposer({
   const [menuOpen, setMenuOpen] = useState(false);
   const [plusPressed, setPlusPressed] = useState(false);
   const refocus = useRef(false);
-  const menuShown = menuOpen && showAttach && !attachDisabled;
-  const plusLit = (plusPressed || menuShown) && !attachDisabled;
+  const hasExtras = !!menuExtras?.length;
+  const plusDisabled = Boolean(attachDisabled) && !hasExtras;
+  const menuShown = menuOpen && showAttach && !plusDisabled;
+  const plusLit = (plusPressed || menuShown) && !plusDisabled;
   const closeMenu = useCallback(() => {
     refocus.current = false;
     setMenuOpen(false);
   }, []);
   // Disabled or hidden while open: it stays closed when `＋` comes back.
   useEffect(() => {
-    if (!showAttach || attachDisabled) setMenuOpen(false);
-  }, [showAttach, attachDisabled]);
+    if (!showAttach || plusDisabled) setMenuOpen(false);
+  }, [showAttach, plusDisabled]);
   const restoreFocus = useCallback(() => {
     if (!refocus.current) return;
     refocus.current = false;
@@ -576,6 +577,14 @@ export function GlassComposer({
               onClose={closeMenu}
               anchorRef={plusRef}
               testIdPrefix={testIdPrefix}
+              files={!attachDisabled}
+              extras={menuExtras?.map((x) => ({
+                ...x,
+                onSelect: () => {
+                  closeMenu();
+                  x.onSelect();
+                },
+              }))}
             />
           ) : null}
           <div
@@ -606,13 +615,13 @@ export function GlassComposer({
                 aria-label="Add file"
                 aria-haspopup="menu"
                 aria-expanded={menuShown}
-                disabled={Boolean(attachDisabled)}
+                disabled={plusDisabled}
                 // Keep the textarea focused: a blur here drops the keyboard,
                 // the composer slides down mid-tap and the click misses the
                 // button. The menu opens with the keyboard still up.
                 onPointerDown={(e) => {
                   e.preventDefault();
-                  if (!attachDisabled) setPlusPressed(true);
+                  if (!plusDisabled) setPlusPressed(true);
                 }}
                 onPointerUp={() => setPlusPressed(false)}
                 onPointerCancel={() => setPlusPressed(false)}
@@ -643,7 +652,6 @@ export function GlassComposer({
               rows={1}
               onChange={(e) => onChange(e.target.value)}
               onFocus={onFocus}
-              onBlur={onBlur}
               onPaste={onPasteFiles}
               placeholder={placeholder}
               className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--text)] outline-none py-1 placeholder:whitespace-nowrap placeholder:overflow-hidden placeholder:text-ellipsis ${showAttach ? "" : "px-2"}`}
@@ -655,7 +663,6 @@ export function GlassComposer({
               aria-label={ariaLabel ?? placeholder}
               data-testid={id("input")}
             />
-            {fieldAction}
             {canSend ? (
               <button
                 ref={pressSend}

@@ -984,11 +984,10 @@ export function ThreadPane({
   const drawerCover = drawerOverScroller(drawerStand, rowsAboveField);
 
   // ── Prompt stash (stash/): the tab on the composer and its sheet, the
-  // composer's save while typing, the message hold menu, offer cards. ──
+  // composer's ＋ menu, the message hold menu, offer cards. ──
   const stash = useStashSaver();
   const [stashOpen, setStashOpen] = useState(false);
   const stashRefocus = useRef(false);
-  const [composerFocused, setComposerFocused] = useState(false);
   const msgHold = useMessageHold(scrollerRef, true);
   const [selectingId, setSelectingId] = useState<string | null>(null);
   // Select Text: the message's words selected; done once the selection
@@ -2571,11 +2570,9 @@ export function ThreadPane({
             textareaRef={composerRef}
             smoothClear
             onFocus={() => {
-              setComposerFocused(true);
               window.scrollTo(0, 0);
               follow();
             }}
-            onBlur={() => setComposerFocused(false)}
             drawer={
               // The working drawer, pulled out of the field's top edge.
               !threadGroupId ? (
@@ -2590,23 +2587,16 @@ export function ThreadPane({
             drawerRoom={rowsAboveField ? drawerStand : 0}
             drawerAside={<StashTab onOpen={openStash} flash={stash.flash} open={stashOpen} />}
             drawerAsideWidth={STASH_TAB_W}
-            fieldAction={
-              composerFocused && (!draftBlank || attachments.length > 0) ? (
-                <button
-                  type="button"
-                  aria-label="Save to stash"
-                  data-testid="composer-stash-save"
-                  // Keep the textarea focused (the keyboard stays up).
-                  onPointerDown={(e) => e.preventDefault()}
-                  onMouseDown={(e) => e.preventDefault()}
-                  onClick={() => void saveDraftToStash()}
-                  className="shrink-0 flex items-center justify-center bg-transparent border-0 text-[var(--text-muted)]"
-                  style={{ width: 30, height: 30, borderRadius: "50%" }}
-                >
-                  <BookmarkPlusIcon size={18} strokeWidth={1.75} />
-                </button>
-              ) : undefined
-            }
+            menuExtras={[
+              {
+                key: "stash",
+                label: "Save to stash",
+                Icon: BookmarkPlusIcon,
+                // Nothing typed or attached: nothing to save.
+                disabled: draftBlank && attachments.length === 0,
+                onSelect: () => void saveDraftToStash(),
+              },
+            ]}
             onBlockHeight={composerResized}
           >
             {roomBanner}
