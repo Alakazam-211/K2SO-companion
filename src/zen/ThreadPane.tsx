@@ -436,7 +436,8 @@ const Bubble = memo(function Bubble({
         <>
           {m.text.trim() ? (
             <ChatMessageBody
-              text={m.text}
+              // Cut short to fit its push: the rest comes with the server's copy.
+              text={m.partial ? `${m.text.trimEnd()}…` : m.text}
               className="!p-0 text-white"
               style={bubbleBodyStyle()}
               onFileLink={onFileLink}

@@ -35,6 +35,12 @@ export type ThreadMessage = {
    *  person's stash (`doc.stash`). Saved on this device only; nothing is
    *  answered back. `text` keeps `doc.body`'s readable fallback. */
   stashOffer?: StashOffer;
+  /** From a sealed push (lib/pushInbox), not yet confirmed by a server
+   *  read: shown, but never a delta cursor (a gap before it would be
+   *  skipped), and replaced by the server's copy. */
+  provisional?: boolean;
+  /** Cut short to fit the push: the rest arrives with the server's copy. */
+  partial?: boolean;
 };
 
 export type StashOffer = { text: string; title: string | null };
