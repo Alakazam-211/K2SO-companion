@@ -69,7 +69,7 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 4.1.4
-        CFBundleVersion: "202610291738"
+        CFBundleVersion: "202610301536"
         # Communication Notifications: the app declares the intent the
         # Notification Service Extension donates. Durable copy also in
         # src-tauri/Info.ios.plist (tauri merges it on every build).
@@ -171,7 +171,7 @@ targets:
       properties:
         CFBundleDisplayName: K2 Notification Service
         CFBundleShortVersionString: 4.1.4
-        CFBundleVersion: "202610291738"
+        CFBundleVersion: "202610301536"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
