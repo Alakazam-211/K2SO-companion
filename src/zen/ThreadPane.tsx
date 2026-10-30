@@ -50,7 +50,7 @@ import { MESSAGE_HOLD_ATTR, useMessageHold } from "./stash/useMessageHold";
 import { StashButton } from "./stash/StashButton";
 import { StashSheet } from "./stash/StashSheet";
 import { useStashSaver, type StashSaveOutcome } from "./stash/useStashSaver";
-import { useStashStore } from "./stash/stashStore";
+import { stashDeviceNames, useStashStore } from "./stash/stashStore";
 import { insertBelow, liveStash, missingFilesNote, type StashSource } from "./stash/stashModel";
 import { AgentMenu, type AgentMenuEntry } from "./AgentMenu";
 import {
@@ -1058,7 +1058,11 @@ export function ThreadPane({
       .take(id)
       .then((taken) => {
         if (taken?.files.length) queueFiles(taken.files);
-        if (taken?.missing.length) setAttachError(missingFilesNote(taken.missing));
+        if (!taken?.missing.length) return;
+        const elsewhere = taken.missing.some((m) => m.elsewhere);
+        void (elsewhere ? stashDeviceNames() : Promise.resolve(undefined)).then((names) =>
+          setAttachError(missingFilesNote(taken.missing, names))
+        );
       });
   };
   const heldMessage = msgHold.menu ? thread.find((m) => m.id === msgHold.menu?.id) ?? null : null;
