@@ -115,6 +115,10 @@ type StashState = {
   /** Sync: store the merge winners and drop records the server no longer
    *  holds, with the bytes of this phone's files they no longer name. */
   applySynced: (change: { put: StashItem[]; drop: string[] }) => Promise<void>;
+  /** Sync: name this device on files saved before sync (no device_id),
+   *  before they first go up; otherwise other devices would read them as
+   *  their own (stash-sync-v1 §8). Not an edit: updated_at stays. */
+  claimFiles: (deviceId: string) => Promise<void>;
 };
 
 let backend: StashBackend | null | undefined;
@@ -292,6 +296,20 @@ export const useStashStore = create<StashState>((set, get) => ({
         .map((i) => fresh.get(i.id) ?? i);
       for (const i of put) if (!byId.has(i.id)) items.push(i);
       set({ items });
+    }),
+
+  claimFiles: (deviceId) =>
+    serial(async () => {
+      const b = store();
+      const claimed = get().items.flatMap((i) =>
+        i.attachments.some((a) => a.device_id == null)
+          ? [{ ...i, attachments: i.attachments.map((a) => (a.device_id == null ? { ...a, device_id: deviceId, path: null } : a)) }]
+          : []
+      );
+      if (!b || !claimed.length) return;
+      await b.write({ put: claimed });
+      const byId = new Map(claimed.map((i) => [i.id, i]));
+      set({ items: get().items.map((i) => byId.get(i.id) ?? i) });
     }),
 
   setRemoveAfterUse: (on) => {

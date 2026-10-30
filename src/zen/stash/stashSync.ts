@@ -32,7 +32,8 @@ import { onStashLocalChange, useStashStore } from "./stashStore";
 //         is not in it and not waiting in the outbox was deleted
 //         elsewhere (its tombstone aged out) and goes;
 //   - first sync with a server (or a new one): every record here joins
-//     the outbox, so nothing local is lost to the full pull;
+//     the outbox, so nothing local is lost to the full pull; files saved
+//     before sync (no device_id) are claimed for this phone first;
 //   - runs on: a local change, a `stash_changed` frame with another
 //     cursor, the app coming to the foreground, the server coming back,
 //     Home sync turning on, and a backoff retry after a failure;
@@ -180,6 +181,9 @@ async function runOnce(): Promise<void> {
   if (!live()) return;
   put({ status: "syncing", error: null });
 
+  // Files saved before sync get this phone's id before they go up.
+  await useStashStore.getState().claimFiles(deviceId);
+  if (!live()) return;
   let m = metaFor(serverId);
   let fullNext = m.cursor === null;
   let registeredNow = false;
