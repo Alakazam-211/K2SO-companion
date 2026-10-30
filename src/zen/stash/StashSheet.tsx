@@ -4,6 +4,7 @@ import { useBackHandler } from "../../lib/androidBack";
 import { BookmarkIcon } from "../icons";
 import { STASH_MAX, stashAge, stashPreview, stashSourceLabel } from "./stashModel";
 import { useLiveStash, useStashStore } from "./stashStore";
+import { useStashSyncStore } from "./stashSync";
 
 // The stash list (phone): a bottom sheet over the Thread, newest first.
 // Each row shows a preview, where it came from, its age and a files badge;
@@ -19,6 +20,8 @@ export function StashSheet({ onChoose, onClose }: { onChoose: (id: string) => vo
   const remove = useStashStore((s) => s.remove);
   const items = useLiveStash();
   const unavailable = useStashStore((s) => s.unavailable);
+  // Refused by the sync server (most often: its stash is full).
+  const unsynced = useStashSyncStore((s) => s.unsynced);
   // Ages are read once a minute while the sheet is up.
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
@@ -97,6 +100,11 @@ export function StashSheet({ onChoose, onClose }: { onChoose: (id: string) => vo
                       {source ? <span className="min-w-0 truncate">{source}</span> : null}
                       {source ? <span aria-hidden="true">·</span> : null}
                       <span className="flex-none tabular-nums">{stashAge(item.created_at, now)}</span>
+                      {unsynced[item.id] ? (
+                        <span className="flex-none" style={{ color: "#ff9f0a" }} data-testid="stash-item-unsynced">
+                          Not synced
+                        </span>
+                      ) : null}
                       {files ? (
                         <span
                           className="flex-none rounded-full px-1.5"

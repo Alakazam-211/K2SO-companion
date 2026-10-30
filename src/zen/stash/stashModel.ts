@@ -61,13 +61,17 @@ export type StashItem = {
   source: StashSource;
   created_at: number;
   updated_at: number;
+  /** The device that made `updated_at` (merge tie-break). The sync
+   *  server sets it on push; this phone stamps its own writes. */
+  updated_by: string | null;
   deleted_at: number | null;
 };
 
 /** A uuid v4 (randomUUID, else built from getRandomValues). */
 export function newStashId(): string {
   const c = globalThis.crypto;
-  if (c?.randomUUID) return c.randomUUID();
+  // Lowercase: the sync server rejects anything else (invalid_id).
+  if (c?.randomUUID) return c.randomUUID().toLowerCase();
   const b = new Uint8Array(16);
   if (c?.getRandomValues) c.getRandomValues(b);
   else for (let i = 0; i < 16; i++) b[i] = Math.floor(Math.random() * 256);
@@ -94,6 +98,8 @@ export function makeStashItem(input: {
   source?: Partial<StashSource>;
   now?: number;
   id?: string;
+  /** This device (updated_by). */
+  by?: string | null;
 }): StashItem {
   const now = input.now ?? Date.now();
   return {
@@ -105,6 +111,7 @@ export function makeStashItem(input: {
     source: { ...emptySource(), ...input.source },
     created_at: now,
     updated_at: now,
+    updated_by: input.by ?? null,
     deleted_at: null,
   };
 }
@@ -130,8 +137,20 @@ export function oldestLive(items: readonly StashItem[]): StashItem | null {
 }
 
 /** A delete: the record stays (for sync) with its content cleared. */
-export function tombstone(item: StashItem, now = Date.now()): StashItem {
-  return { ...item, text: "", attachments: [], quotes: [], updated_at: now, deleted_at: now };
+export function tombstone(item: StashItem, now = Date.now(), by: string | null = null): StashItem {
+  return { ...item, text: "", attachments: [], quotes: [], updated_at: now, updated_by: by, deleted_at: now };
+}
+
+/** The sync merge rule (stash-sync-v1 §6), server and clients alike:
+ *  does `a` win over `b` (same id)? The larger `updated_at`; on a tie the
+ *  larger `updated_by` (plain string compare); on a full tie the
+ *  tombstone. */
+export function stashWins(a: StashItem, b: StashItem): boolean {
+  if (a.updated_at !== b.updated_at) return a.updated_at > b.updated_at;
+  const ab = a.updated_by ?? "";
+  const bb = b.updated_by ?? "";
+  if (ab !== bb) return ab > bb;
+  return a.deleted_at != null && b.deleted_at == null;
 }
 
 /** Ids of tombstones past TOMBSTONE_KEEP_MS. */
@@ -230,7 +249,9 @@ export function parseStashItem(raw: unknown): StashItem | null {
   const s = (r.source && typeof r.source === "object" ? r.source : {}) as Record<string, unknown>;
   // snake_case is the shared shape; camelCase is what early 4.1.4 test
   // builds wrote, read once and rewritten on the next write.
-  const pick = (snake: string, camel: string) => str(s[snake]) ?? str(s[camel]);
+  // Absent is null, never "" (and a desktop's "local" server is unknown).
+  const pick = (snake: string, camel: string) => str(s[snake]) || str(s[camel]) || null;
+  const serverId = pick("server_id", "serverId");
   return {
     v: ms(r.v) ?? STASH_SCHEMA,
     id,
@@ -238,35 +259,45 @@ export function parseStashItem(raw: unknown): StashItem | null {
     attachments,
     quotes,
     source: {
-      server_id: pick("server_id", "serverId"),
+      server_id: serverId === "local" ? null : serverId,
       server_label: pick("server_label", "serverLabel"),
-      user: str(s.user),
-      agent: str(s.agent),
+      user: str(s.user) || null,
+      agent: str(s.agent) || null,
       agent_name: pick("agent_name", "agentName"),
     },
     created_at: created,
     updated_at: ms(r.updated_at) ?? created,
+    updated_by: str(r.updated_by) || null,
     deleted_at: ms(r.deleted_at),
   };
 }
 
-/** The composer's note when a restored stash leaves files behind. A file
- *  on another device names it from `deviceNames` (device id → name, the
- *  Homes-sync device list); a device not in the list (removed) is
- *  "another device". */
-export function missingFilesNote(
-  missing: readonly { name: string; elsewhere: boolean; device_id?: string | null }[],
-  deviceNames: ReadonlyMap<string, string> = new Map()
-): string {
-  if (!missing.length) return "";
-  const elsewhere = missing.every((m) => m.elsewhere);
-  const names = new Set(missing.map((m) => (m.device_id && deviceNames.get(m.device_id)) || "another device"));
-  const where = names.size === 1 ? [...names][0] : "other devices";
-  if (missing.length === 1) {
-    const name = missing[0].name;
-    return elsewhere ? `${name} wasn't restored: it's on ${where}.` : `${name} couldn't be restored.`;
+/** A file a restored stash leaves behind (stash-sync-v1 §10): saved on
+ *  another device (`elsewhere`), or this device's, gone. */
+export type MissingFile = { name: string; elsewhere: boolean; device_id?: string | null };
+
+/** The composer's note when a restored stash leaves files behind, per
+ *  file: "shot.png wasn't restored: it's on Rosson's MacBook." A device
+ *  is named from `deviceNames` (device id → name, the Homes-sync device
+ *  list); one not in the list (removed) is "another device". Files with
+ *  the same reason share a sentence. */
+export function missingFilesNote(missing: readonly MissingFile[], deviceNames: ReadonlyMap<string, string> = new Map()): string {
+  const groups = new Map<string, string[]>();
+  for (const m of missing) {
+    const where = m.elsewhere ? `on ${(m.device_id && deviceNames.get(m.device_id)) || "another device"}` : "gone from this device";
+    groups.set(where, [...(groups.get(where) ?? []), m.name]);
   }
-  return elsewhere
-    ? `${missing.length} files weren't restored: they're on ${where}.`
-    : `${missing.length} files couldn't be restored.`;
+  return [...groups]
+    .map(([where, names]) =>
+      names.length === 1
+        ? `${names[0]} wasn't restored: it's ${where}.`
+        : `${listNames(names)} weren't restored: they're ${where}.`
+    )
+    .join(" ");
+}
+
+/** "a, b and c"; past three, "a, b and 4 more". */
+function listNames(names: string[]): string {
+  if (names.length > 3) return `${names.slice(0, 2).join(", ")} and ${names.length - 2} more`;
+  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }

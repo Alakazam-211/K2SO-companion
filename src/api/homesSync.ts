@@ -309,7 +309,7 @@ export function onHomesFrame(fn: FrameListener): () => void {
 
 // ─── Calls ───
 
-async function call<T>(
+export async function syncCall<T>(
   scope: ServerScope,
   path: string,
   parse: (raw: unknown) => T,
@@ -353,11 +353,11 @@ async function call<T>(
 export function pullHomes(scope: ServerScope, deviceId: string, since: number | null): Promise<SyncResult<PullReply>> {
   const query: Record<string, string> = { deviceId };
   if (since !== null && Number.isInteger(since) && since >= 0) query.since = String(since);
-  return call(scope, "/cli/me/homes", parsePullReply, { query });
+  return syncCall(scope, "/cli/me/homes", parsePullReply, { query });
 }
 
 export function pushHomes(scope: ServerScope, deviceId: string, changes: ChangeItem[]): Promise<SyncResult<PushReply>> {
-  return call(scope, "/cli/me/homes/push", parsePushReply, {
+  return syncCall(scope, "/cli/me/homes/push", parsePushReply, {
     method: "POST",
     body: { deviceId, changes: changes.map(toWireChange) },
   });
@@ -367,13 +367,13 @@ export function registerHomesDevice(
   scope: ServerScope,
   device: { deviceId: string; name: string; platform: string }
 ): Promise<SyncResult<unknown>> {
-  return call(scope, "/cli/me/homes/devices/register", (r) => r, { method: "POST", body: device });
+  return syncCall(scope, "/cli/me/homes/devices/register", (r) => r, { method: "POST", body: device });
 }
 
 export function listHomesDevices(scope: ServerScope): Promise<SyncResult<SyncDevice[]>> {
-  return call(scope, "/cli/me/homes/devices", parseDevices);
+  return syncCall(scope, "/cli/me/homes/devices", parseDevices);
 }
 
 export function removeHomesDevice(scope: ServerScope, deviceId: string): Promise<SyncResult<unknown>> {
-  return call(scope, "/cli/me/homes/devices/remove", (r) => r, { method: "POST", body: { deviceId } });
+  return syncCall(scope, "/cli/me/homes/devices/remove", (r) => r, { method: "POST", body: { deviceId } });
 }

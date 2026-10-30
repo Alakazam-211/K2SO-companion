@@ -8,6 +8,8 @@ import {
   makeStashItem,
   oldestLive,
   missingFilesNote,
+  newStashId,
+  stashWins,
   parseStashItem,
   stashAge,
   stashIsFull,
@@ -107,39 +109,61 @@ describe("stash model (shared schema with K2 0.46.7)", () => {
     ]);
   });
 
-  it("missingFilesNote says whether files are on another device or unreadable", () => {
-    expect(missingFilesNote([])).toBe("");
-    expect(missingFilesNote([{ name: "shot.png", elsewhere: true }])).toBe("shot.png wasn't restored: it's on another device.");
-    expect(missingFilesNote([{ name: "shot.png", elsewhere: false }])).toBe("shot.png couldn't be restored.");
-    expect(missingFilesNote([{ name: "a", elsewhere: true }, { name: "b", elsewhere: true }])).toBe(
-      "2 files weren't restored: they're on another device."
-    );
-    expect(missingFilesNote([{ name: "a", elsewhere: true }, { name: "b", elsewhere: false }])).toBe("2 files couldn't be restored.");
+  it("missingFilesNote names each file and where it is (stash-sync-v1 §10)", () => {
     const names = new Map([["mac-1", "Rosson's MacBook"], ["mini", "Studio Mini"]]);
+    expect(missingFilesNote([])).toBe("");
     expect(missingFilesNote([{ name: "shot.png", elsewhere: true, device_id: "mac-1" }], names)).toBe(
       "shot.png wasn't restored: it's on Rosson's MacBook."
     );
-    // A removed device isn't in the list.
+    // Not in the list (removed), or no list: "another device".
     expect(missingFilesNote([{ name: "shot.png", elsewhere: true, device_id: "gone" }], names)).toBe(
       "shot.png wasn't restored: it's on another device."
     );
+    expect(missingFilesNote([{ name: "shot.png", elsewhere: false }])).toBe("shot.png wasn't restored: it's gone from this device.");
     expect(
       missingFilesNote(
         [
-          { name: "a", elsewhere: true, device_id: "mac-1" },
-          { name: "b", elsewhere: true, device_id: "mac-1" },
+          { name: "a.png", elsewhere: true, device_id: "mac-1" },
+          { name: "b.png", elsewhere: true, device_id: "mac-1" },
+          { name: "c.png", elsewhere: true, device_id: "mini" },
+          { name: "d.png", elsewhere: false },
         ],
         names
       )
-    ).toBe("2 files weren't restored: they're on Rosson's MacBook.");
-    expect(
-      missingFilesNote(
-        [
-          { name: "a", elsewhere: true, device_id: "mac-1" },
-          { name: "b", elsewhere: true, device_id: "mini" },
-        ],
-        names
-      )
-    ).toBe("2 files weren't restored: they're on other devices.");
+    ).toBe(
+      "a.png and b.png weren't restored: they're on Rosson's MacBook. c.png wasn't restored: it's on Studio Mini. d.png wasn't restored: it's gone from this device."
+    );
+    expect(missingFilesNote(["1", "2", "3", "4", "5"].map((n) => ({ name: `${n}.png`, elsewhere: false })))).toBe(
+      "1.png, 2.png and 3 more weren't restored: they're gone from this device."
+    );
+  });
+
+  it("the sync merge rule: newer updated_at, then larger updated_by, then the tombstone", () => {
+    const base = makeStashItem({ text: "x", now: 100, id: "r1", by: "b" });
+    const later = { ...base, updated_at: 101, updated_by: "a" };
+    expect(stashWins(later, base)).toBe(true);
+    expect(stashWins(base, later)).toBe(false);
+    const byC = { ...base, updated_by: "c" };
+    expect(stashWins(byC, base)).toBe(true);
+    expect(stashWins(base, byC)).toBe(false);
+    const dead = { ...base, deleted_at: 100 };
+    expect(stashWins(dead, base)).toBe(true);
+    expect(stashWins(base, dead)).toBe(false);
+    expect(stashWins(base, { ...base })).toBe(false);
+  });
+
+  it("ids are lowercase uuids; updated_by and the server's nulls are read", () => {
+    expect(newStashId()).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    const r = parseStashItem({
+      v: 1,
+      id: "x",
+      text: "t",
+      created_at: 1,
+      updated_at: 2,
+      updated_by: "mac-1",
+      source: { server_id: "local", server_label: "", user: "rosson", agent: "", agent_name: null },
+    });
+    expect(r?.updated_by).toBe("mac-1");
+    expect(r?.source).toEqual({ server_id: null, server_label: null, user: "rosson", agent: null, agent_name: null });
   });
 });
