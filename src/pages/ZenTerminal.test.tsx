@@ -548,7 +548,10 @@ describe("ZenTerminal", () => {
         bar: screen.getByTestId(`${prefix}-bar`).className,
         form: screen.getByTestId(`${prefix}-form`).className,
         field: field.className,
-        kids: Array.from(field.children).map((el) => [
+        // The Thread's stash button (empty field) is the Thread's own.
+        kids: Array.from(field.children)
+          .filter((el) => el.getAttribute("data-testid") !== "stash-button")
+          .map((el) => [
           el.tagName,
           el.className,
           el.getAttribute("type"),

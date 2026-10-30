@@ -47,7 +47,7 @@ import { StubMark } from "./StubMark";
 import { mountainTime, type StashOffer, type ThreadMessage } from "./threadModel";
 import { BookmarkPlusIcon } from "./icons";
 import { MESSAGE_HOLD_ATTR, useMessageHold } from "./stash/useMessageHold";
-import { StashTab, STASH_TAB_PX, STASH_TAB_W } from "./stash/StashTab";
+import { StashButton } from "./stash/StashButton";
 import { StashSheet } from "./stash/StashSheet";
 import { useStashSaver, type StashSaveOutcome } from "./stash/useStashSaver";
 import { useStashStore } from "./stash/stashStore";
@@ -979,12 +979,9 @@ export function ThreadPane({
   // Rows between the bar's top and the field: the bar makes room for the
   // drawer under them rather than let it cover them.
   const rowsAboveField = roomBlocked || composerLabel !== "" || attachments.length > 0;
-  // The stash tab always stands on the field; the working drawer may
-  // stand taller.
-  const drawerStand = Math.max(drawerSpace, STASH_TAB_PX);
-  const drawerCover = drawerOverScroller(drawerStand, rowsAboveField);
+  const drawerCover = drawerOverScroller(drawerSpace, rowsAboveField);
 
-  // ── Prompt stash (stash/): the tab on the composer and its sheet, the
+  // ── Prompt stash (stash/): the button in the field and its sheet, the
   // composer's ＋ menu, the message hold menu, offer cards. ──
   const stash = useStashSaver();
   const [stashOpen, setStashOpen] = useState(false);
@@ -2585,9 +2582,13 @@ export function ThreadPane({
                 />
               ) : undefined
             }
-            drawerRoom={rowsAboveField ? drawerStand : 0}
-            drawerAside={<StashTab onOpen={openStash} flash={stash.flash} open={stashOpen} />}
-            drawerAsideWidth={STASH_TAB_W}
+            drawerRoom={rowsAboveField ? drawerSpace : 0}
+            fieldAction={
+              // Only on an empty field: a draft gets ＋ → Save to stash.
+              draftBlank && attachments.length === 0 ? (
+                <StashButton onOpen={openStash} flash={stash.flash} open={stashOpen} />
+              ) : undefined
+            }
             menuExtras={[
               {
                 key: "stash",
