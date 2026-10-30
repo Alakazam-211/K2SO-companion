@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+import { addPluginListener, invoke } from "@tauri-apps/api/core";
 import { chatCache, type ChatCache } from "../zen/chatCache";
 import { threadRoomKey } from "../zen/outbox";
 import { mergeDelta } from "../zen/threadCacheMerge";
@@ -8,16 +8,21 @@ import { normalizeBadgeKey, readBadgeKeys } from "./badgeKeys";
 
 // Messages that came inside sealed pushes (K2 0.46.3 `push-e2e-v1`, the
 // sealed Thread alert's `msg`), saved by the Notification Service
-// Extension (K2PushInbox.swift) while the app was closed. On launch and on
-// every return to the foreground the app drains them into the chat cache,
-// so a Thread opened from the notification (or later) already shows them.
-// The catch-up that runs next still reconciles everything with the server.
+// Extension (K2PushInbox.swift). The app drains them into the chat cache on
+// launch, on every return to the foreground, and on every alert shown
+// while it is open (the plugin's `badgeTotals` event), so a Thread opened
+// later already shows them. The catch-up still reconciles everything.
 //
 // Merged only when it's certain where a message belongs:
 //   - one saved account for the push's server (by its label, then badgeKey);
 //   - a cached copy of that Thread already exists, for the same conversation;
-//   - a plain text message, not cut short (`truncated`), not a card.
-// Anything else is dropped here and arrives with the catch-up.
+//   - a plain text message, not a card.
+// A message cut short to fit the push (`truncated`, anything over about
+// 1 KB in format 1) lands too, marked `partial`. Every one is
+// `provisional`: never a delta cursor, so the next read fetches it whole,
+// and any message before it the push didn't carry (threadCacheMerge
+// `newestSeq`). Anything else is dropped here and arrives with the
+// catch-up. Diagnostics counts every outcome (`pushInboxStats`).
 
 const PLUGIN = "k2-push";
 
@@ -86,9 +91,10 @@ export function inboxServer(
   return byKey.length === 1 ? byKey[0] : null;
 }
 
-/** A sealed message as the Thread draws it (an agent's text: not mine). */
+/** A sealed message as the Thread draws it (an agent's text: not mine),
+ *  provisional until a server read confirms it. */
 export function inboxMessage(e: InboxEntry): ThreadMessage {
-  return {
+  const m: ThreadMessage = {
     id: e.msg.id,
     seq: e.msg.seq,
     text: e.msg.text,
@@ -97,7 +103,58 @@ export function inboxMessage(e: InboxEntry): ThreadMessage {
     mine: false,
     kind: "text",
     choice: null,
+    provisional: true,
   };
+  if (e.msg.truncated) m.partial = true;
+  return m;
+}
+
+/** Why a drained message did not land (Diagnostics). */
+export type InboxSkip = "notText" | "noServer" | "notCached" | "otherConversation" | "alreadyThere";
+
+export type PushInboxStats = {
+  drains: number;
+  received: number;
+  landed: number;
+  partial: number;
+  skipped: Record<InboxSkip, number>;
+  lastAt: number | null;
+};
+
+function emptyStats(): PushInboxStats {
+  return {
+    drains: 0,
+    received: 0,
+    landed: 0,
+    partial: 0,
+    skipped: { notText: 0, noServer: 0, notCached: 0, otherConversation: 0, alreadyThere: 0 },
+    lastAt: null,
+  };
+}
+
+let stats = emptyStats();
+const statsListeners = new Set<() => void>();
+
+/** This run's drain counts (memory only): Server settings → Diagnostics. */
+export function pushInboxStats(): PushInboxStats {
+  return stats;
+}
+
+export function subscribePushInboxStats(fn: () => void): () => void {
+  statsListeners.add(fn);
+  return () => void statsListeners.delete(fn);
+}
+
+function noteStats(update: (s: PushInboxStats) => void): void {
+  const next = { ...stats, skipped: { ...stats.skipped } };
+  update(next);
+  stats = next;
+  for (const fn of statsListeners) fn();
+}
+
+/** Tests only. */
+export function resetPushInboxStats(): void {
+  stats = emptyStats();
 }
 
 /** Merge drained entries into the chat cache. Returns how many landed. */
@@ -106,17 +163,35 @@ export async function mergeInbox(
   deps: { cache: () => ChatCache; servers: () => ServerEntry[]; badgeKeys: () => Record<string, string | null | undefined> }
 ): Promise<number> {
   let landed = 0;
+  let partial = 0;
+  const skipped: Partial<Record<InboxSkip, number>> = {};
+  const skip = (why: InboxSkip) => void (skipped[why] = (skipped[why] ?? 0) + 1);
   const servers = deps.servers();
   const keys = deps.badgeKeys();
   for (const e of entries) {
-    if (e.msg.kind !== "text" || e.msg.truncated || !e.msg.text || !e.addr) continue;
+    if (e.msg.kind !== "text" || !e.msg.text || !e.addr) {
+      skip("notText");
+      continue;
+    }
     const server = inboxServer(e, servers, keys);
-    if (!server) continue;
+    if (!server) {
+      skip("noServer");
+      continue;
+    }
     const key = threadRoomKey(server.id, null, e.addr);
     const hit = (await deps.cache().read(key))?.entry ?? null;
-    if (!hit) continue;
-    if (hit.conversationId && e.msg.conversationId && hit.conversationId !== e.msg.conversationId) continue;
-    if (hit.messages.some((m) => m.id === e.msg.id)) continue;
+    if (!hit) {
+      skip("notCached");
+      continue;
+    }
+    if (hit.conversationId && e.msg.conversationId && hit.conversationId !== e.msg.conversationId) {
+      skip("otherConversation");
+      continue;
+    }
+    if (hit.messages.some((m) => m.id === e.msg.id)) {
+      skip("alreadyThere");
+      continue;
+    }
     deps.cache().remember({
       key,
       serverId: server.id,
@@ -125,7 +200,16 @@ export async function mergeInbox(
       hasMore: hit.hasMore,
     });
     landed += 1;
+    if (e.msg.truncated) partial += 1;
   }
+  noteStats((s) => {
+    s.drains += 1;
+    s.received += entries.length;
+    s.landed += landed;
+    s.partial += partial;
+    for (const [k, n] of Object.entries(skipped)) s.skipped[k as InboxSkip] += n ?? 0;
+    s.lastAt = Date.now();
+  });
   return landed;
 }
 
@@ -145,7 +229,9 @@ export async function drainPushInbox(): Promise<number> {
   }
 }
 
-/** On launch and every return to the foreground. Returns the unsubscribe. */
+/** On launch, every return to the foreground, and every alert shown while
+ *  the app is open (the NSE has stored its message by then; the plugin's
+ *  `badgeTotals` event follows it). Returns the unsubscribe. */
 export function installPushInboxDrain(): () => void {
   if (typeof document === "undefined") return () => {};
   const run = () => {
@@ -153,5 +239,17 @@ export function installPushInboxDrain(): () => void {
   };
   run();
   document.addEventListener("visibilitychange", run);
-  return () => document.removeEventListener("visibilitychange", run);
+  let unlisten: (() => void) | null = null;
+  let gone = false;
+  void addPluginListener(PLUGIN, "badgeTotals", run)
+    .then((l) => {
+      if (gone) void l.unregister();
+      else unlisten = () => void l.unregister();
+    })
+    .catch(() => undefined);
+  return () => {
+    gone = true;
+    document.removeEventListener("visibilitychange", run);
+    unlisten?.();
+  };
 }

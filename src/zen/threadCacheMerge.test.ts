@@ -155,3 +155,32 @@ describe("cacheSlice / newestSeq / shareUnchanged", () => {
     expect(shareUnchanged(a, a.map((m) => ({ ...m })))).toBe(a);
   });
 });
+
+describe("messages from a push (provisional)", () => {
+  it("never move the delta cursor: a gap before one is still fetched", () => {
+    // Cached to 10; a push brought 12 (11 came with no alert).
+    const held = [msg(9), msg(10), msg(12, { provisional: true })];
+    expect(newestSeq(held)).toBe(10);
+    // The delta after 10 brings 11 and the confirmed 12.
+    const merged = mergeDelta(held, [msg(11), msg(12)]);
+    expect(ids(merged)).toEqual(["m9", "m10", "m11", "m12"]);
+    expect(merged[3].provisional).toBeUndefined();
+    expect(newestSeq(merged)).toBe(12);
+  });
+
+  it("the server's copy replaces a partial one, even with the same text", () => {
+    const held = [msg(1), msg(2, { provisional: true, partial: true, text: "text 2" })];
+    const merged = mergeDelta(held, [msg(2)]);
+    expect(merged[1]).not.toBe(held[1]);
+    expect(merged[1]).toMatchObject({ id: "m2", text: "text 2" });
+    expect(merged[1].partial).toBeUndefined();
+    expect(merged[1].provisional).toBeUndefined();
+  });
+
+  it("a newest page replaces it inside its window", () => {
+    const held = [msg(1), msg(2, { provisional: true, partial: true, text: "te" })];
+    const merged = mergeServerPage(held, [msg(1), msg(2)], { hasMore: false });
+    expect(merged[1]).toMatchObject({ text: "text 2" });
+    expect(merged[1].provisional).toBeUndefined();
+  });
+});
