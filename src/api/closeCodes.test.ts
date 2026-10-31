@@ -246,7 +246,8 @@ describe("overlay close codes (no 4001/4003/4008 of its own)", () => {
       const ws = MockWS.instances[MockWS.instances.length - 1];
       ws.openNow();
       ws.drop(code);
-      await vi.advanceTimersByTimeAsync(1000);
+      // Quick drops keep backing off (speed PRD A6): 1, 2, then 4 s at most.
+      await vi.advanceTimersByTimeAsync(4000);
     }
     expect(MockWS.instances).toHaveLength(4);
     expect(whoamiCalls()).toHaveLength(0);

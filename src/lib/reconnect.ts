@@ -15,3 +15,14 @@ export function reconnectDelayMs(attempt: number): number {
   const n = Math.min(Math.max(0, attempt), 4);
   return Math.min(RECONNECT_BASE_MS * 2 ** n, RECONNECT_CAP_MS);
 }
+
+/** Speed PRD A6: a delay spread over `[ms/2, ms]`, so sockets that dropped
+ *  together (a network change, a daemon restart) don't redial together. */
+export function jittered(ms: number, rand: () => number = Math.random): number {
+  return Math.round(ms / 2 + rand() * (ms / 2));
+}
+
+/** Speed PRD A6: a socket counts as healthy again (its backoff starts
+ *  over) only after staying open this long; a link that opens and drops
+ *  at once keeps backing off instead of redialling every half second. */
+export const STABLE_OPEN_MS = 30_000;

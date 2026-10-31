@@ -10,11 +10,11 @@
 // the active server, so a request for server B never reaches server A —
 // not on the first try, not on the replay.
 
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { netFetch as tauriFetch } from "../lib/netStats";
 import { cliAuthHeaders } from "./cliAuth";
 import { isPossibleAuthFailure, revive } from "../lib/revive";
 import type { ServerScope } from "./scope";
-import { withHttpSlot } from "./httpCap";
+import { withHttpSlot, type HttpPriority } from "./httpCap";
 
 export interface RawResponse {
   status: number;
@@ -38,6 +38,32 @@ export interface ScopedFetchOptions {
   revive?: boolean;
   /** Send the Bearer token. Default true. */
   auth?: boolean;
+  /** Queue position under the per-server cap. Default: by route
+   *  (`priorityOf`). */
+  priority?: HttpPriority;
+}
+
+/** Routes the person is waiting on: the chat they opened (its read and
+ *  delta), sends, card answers and confirms, file previews, terminal input.
+ *  Everything else (lists, badges, sync, usage) is background. */
+const USER_ROUTES = new Set([
+  "/cli/thread",
+  "/cli/thread/messages",
+  "/cli/thread/post",
+  "/cli/thread/answer",
+  "/cli/thread/attachment",
+  "/cli/thread/permission-undo",
+  "/cli/thread/permission-note",
+  "/cli/project-group/messages",
+  "/cli/vault/confirm/start",
+  "/cli/vault/confirm/finish",
+  "/cli/terminal/write",
+  "/cli/feedback/comment",
+  "/cli/fs/read-file",
+]);
+
+export function priorityOf(path: string): HttpPriority {
+  return USER_ROUTES.has(path.split("?")[0]) ? "user" : "background";
 }
 
 export const NOT_CONNECTED = "Not connected";
@@ -68,20 +94,26 @@ export async function scopedFetch(
   const timeoutMs = opts.timeoutMs ?? 15000;
 
   // MS26: at most 4 requests in flight per server; the timeout starts
-  // once this request holds a slot.
+  // once this request holds a slot. A timeout aborts the request (A4), so
+  // it gives its connection back instead of running on past its slot.
   const attempt = (): Promise<RawResponse> =>
     withHttpSlot(scope.id, async () => {
       const token = opts.auth === false ? "" : scope.token();
       let timer: ReturnType<typeof setTimeout> | null = null;
+      const abort = typeof AbortController === "function" ? new AbortController() : null;
       try {
         const res = await Promise.race([
           tauriFetch(url, {
             method: opts.method || "GET",
             headers: cliAuthHeaders(token),
             body: opts.body || undefined,
+            ...(abort ? { signal: abort.signal } : {}),
           }),
           new Promise<never>((_, reject) => {
-            timer = setTimeout(() => reject(new Error("Request timed out")), timeoutMs);
+            timer = setTimeout(() => {
+              abort?.abort();
+              reject(new Error("Request timed out"));
+            }, timeoutMs);
           }),
         ]);
         const header = (name: string) => res.headers?.get?.(name) ?? "";
@@ -90,7 +122,7 @@ export async function scopedFetch(
       } finally {
         if (timer) clearTimeout(timer);
       }
-    });
+    }, opts.priority ?? priorityOf(path));
 
   let out = await attempt();
   if (opts.revive !== false && isPossibleAuthFailure(out.status, out.text)) {

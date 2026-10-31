@@ -22,7 +22,7 @@
 // `scope.supports(feature)`, never a version string; an unknown server
 // supports nothing (desktop rule).
 
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { netFetch as tauriFetch } from "../lib/netStats";
 import {
   hostLabel,
   onServerForget,
@@ -540,8 +540,17 @@ export async function readBootStatus(scope: ServerScope): Promise<unknown | null
     return null;
   }
   if (!base) return null;
-  return getBootStatus(base, tokenOf(scope), scope.id);
+  // Speed PRD A1: callers at the same moment (the pool's recheck and the
+  // room's foreground check) share one request.
+  const key = `${scope.id}|${base}|${tokenOf(scope)}`;
+  const running = bootReads.get(key);
+  if (running) return running;
+  const p = getBootStatus(base, tokenOf(scope), scope.id).finally(() => bootReads.delete(key));
+  bootReads.set(key, p);
+  return p;
 }
+
+const bootReads = new Map<string, Promise<unknown | null>>();
 
 /** `GET /boot-status` on `scope` (Bearer when held; 4 s, one retry on a
  *  network error), recorded in the feature memory. Single-flight per server. A

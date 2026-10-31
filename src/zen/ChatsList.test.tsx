@@ -2188,9 +2188,18 @@ describe("ChatsList", () => {
       live({ refreshServerLists });
       mount();
       expect(refreshServerLists).toHaveBeenCalledTimes(1);
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+      onTestFinished(() => {
+        vi.useRealTimers();
+      });
       Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
       act(() => {
         document.dispatchEvent(new Event("visibilitychange"));
+      });
+      // After the open chat's reads (speed PRD A1).
+      expect(refreshServerLists).toHaveBeenCalledTimes(1);
+      act(() => {
+        vi.advanceTimersByTime(1500);
       });
       expect(refreshServerLists).toHaveBeenCalledTimes(2);
     });

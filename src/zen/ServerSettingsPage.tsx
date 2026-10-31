@@ -10,6 +10,7 @@ import { usePushPreviewsStore } from "../stores/pushPreviews";
 import { hostLabel, isPairedServer, signOutServer, useServersStore, type RecoveryState } from "../stores/servers";
 import { BadgeDiagnosticsRow } from "./BadgeDiagnostics";
 import { ChatTimingRow } from "./ChatTimingDiagnostics";
+import { NetRow } from "./NetDiagnostics";
 import { KeyboardDragRow } from "./KeyboardDragDiagnostics";
 import { KeyboardEventsRow } from "./KeyboardEventsDiagnostics";
 import { LightBlurRow } from "./LightBlurDiagnostics";
@@ -186,6 +187,7 @@ export function ServerSettingsPage({
 
         <Group label="Diagnostics" testId="server-settings-diagnostics">
           <ChatTimingRow serverId={serverId} />
+          <NetRow serverUrl={entry.url} />
           <KeyboardDragRow />
           <KeyboardEventsRow />
           <LightBlurRow />

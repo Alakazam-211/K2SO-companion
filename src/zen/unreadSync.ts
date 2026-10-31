@@ -9,6 +9,7 @@ import { isReadFrame } from "./unread";
 import { useUnreadStore } from "./unreadStore";
 import { useZenStore } from "./zenStore";
 import { useZenScope } from "./zenScope";
+import { afterForeground, cancelForeground } from "../lib/foreground";
 
 // When the unread summary is (re)read, and where its live frames come from
 // (K2 0.46.1 `thread-read-v1`). Mounted once by the Zen page.
@@ -103,8 +104,10 @@ export function useUnreadSync(): void {
     const offStore = useUnreadStore.subscribe((s, prev) => {
       if (s.servers !== prev.servers) syncFrames();
     });
+    // Staggered (speed PRD A1): a server whose socket reopened meanwhile
+    // already refreshed, and the gap skips it.
     const onVis = () => {
-      if (document.visibilityState === "visible") refreshAll(UNREAD_FOREGROUND_GAP_MS);
+      if (document.visibilityState === "visible") afterForeground("unread", () => refreshAll(UNREAD_FOREGROUND_GAP_MS));
     };
     document.addEventListener("visibilitychange", onVis);
     const offSignal = onServerSignal((id, signal) => {
@@ -129,6 +132,7 @@ export function useUnreadSync(): void {
       alive = false;
       offStore();
       document.removeEventListener("visibilitychange", onVis);
+      cancelForeground("unread");
       offSignal();
       offPool();
       offBadge?.();

@@ -262,6 +262,32 @@ class K2PushPlugin: Plugin {
     }
   }
 
+  /// `{badgeKey?, subdomain?, instanceId?, mode: "read"|"keepOnly",
+  /// chats: [{kind, id, seq?}], before?}` → remove the delivered Thread /
+  /// project notifications that state covers (`K2DeliveredClear`).
+  /// `before` (ms since 1970) defaults to now. Resolves `{removed}`.
+  @objc public func clearDelivered(_ invoke: Invoke) {
+    let args: ClearDeliveredArgs
+    do {
+      args = try invoke.parseArgs(ClearDeliveredArgs.self)
+    } catch {
+      invoke.reject("clearDelivered: invalid args (\(error.localizedDescription))")
+      return
+    }
+    let chats = args.chats.compactMap { c -> K2DeliveredClear.Chat? in
+      guard c.kind == "thread" || c.kind == "project", !c.id.isEmpty else { return nil }
+      return K2DeliveredClear.Chat(kind: c.kind, id: c.id, seq: c.seq)
+    }
+    let op: K2DeliveredClear.Op = args.mode == "keepOnly" ? .keepOnly(chats) : .read(chats)
+    let before = args.before.map { Date(timeIntervalSince1970: $0 / 1000) } ?? Date()
+    K2DeliveredClear.clear(
+      server: K2DeliveredClear.Server(badgeKey: args.badgeKey, subdomain: args.subdomain, instanceId: args.instanceId),
+      op: op, before: before
+    ) { removed in
+      invoke.resolve(["removed": removed])
+    }
+  }
+
   /// `{available, sum, version, servers}` — the totals.json contents.
   @objc public func getBadgeTotals(_ invoke: Invoke) {
     K2PushPlugin.badgeQueue.async {
@@ -430,9 +456,26 @@ class K2PushPlugin: Plugin {
         return
       }
       self.emitBadgeTotals(applied.totals, sum: applied.sum)
-      // Complete only once the badge is set: iOS may suspend us right after.
+      // Read elsewhere: nothing unread left on that server clears its
+      // Thread / project notifications; K2 0.46.8 read hints clear those
+      // chats (Plan - Clear Notifications on Read Elsewhere).
+      let server = K2DeliveredClear.Server(
+        badgeKey: push["badgeKey"] as? String, subdomain: push["subdomain"] as? String,
+        instanceId: push["instanceId"] as? String)
+      let hints = K2DeliveredClear.parseReadHints(push["read"])
+      let op: K2DeliveredClear.Op? =
+        applied.totals.unread == 0 ? .keepOnly([]) : (hints.isEmpty ? nil : .read(hints))
+      // Complete only once the badge is set and the clearing done: iOS may
+      // suspend us right after.
       K2PushPlugin.setIconBadge(applied.sum) {
-        DispatchQueue.main.async { completion(.newData) }
+        guard let op = op else {
+          DispatchQueue.main.async { completion(.newData) }
+          return
+        }
+        K2DeliveredClear.clear(server: server, op: op) { removed in
+          if removed > 0 { pushLog("cleared \(removed) read notification(s)") }
+          DispatchQueue.main.async { completion(.newData) }
+        }
       }
     }
   }
@@ -757,6 +800,21 @@ private struct ServerTotalsArgs: Decodable {
 private struct ClearTotalsArgs: Decodable {
   let key: String?
   let subdomain: String?
+}
+
+private struct ClearDeliveredArgs: Decodable {
+  let badgeKey: String?
+  let subdomain: String?
+  let instanceId: String?
+  let mode: String
+  let chats: [ClearDeliveredChat]
+  let before: Double?
+}
+
+private struct ClearDeliveredChat: Decodable {
+  let kind: String
+  let id: String
+  let seq: Int?
 }
 
 // ── Notification avatar cache (App Group) ─────────────────────────────

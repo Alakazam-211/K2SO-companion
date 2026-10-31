@@ -63,6 +63,10 @@ impl<R: Runtime> K2Push<R> {
         Ok(BadgeSumResponse::unavailable(BADGE_IOS_ONLY))
     }
 
+    pub fn clear_delivered(&self, _req: ClearDeliveredRequest) -> crate::Result<serde_json::Value> {
+        Ok(serde_json::json!({ "removed": 0, "available": false, "reason": "notification clearing is iOS only" }))
+    }
+
     pub fn get_badge_totals(&self) -> crate::Result<BadgeTotalsResponse> {
         Ok(BadgeTotalsResponse::unavailable(BADGE_IOS_ONLY))
     }

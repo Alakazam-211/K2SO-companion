@@ -1,5 +1,5 @@
 import { invoke, addPluginListener } from "@tauri-apps/api/core";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { netFetch as tauriFetch } from "./netStats";
 import { load } from "@tauri-apps/plugin-store";
 import { cliAuthHeaders } from "../api/cliAuth";
 import { FEATURE_THREAD_PUSH, getBootStatus } from "../api/client";

@@ -39,6 +39,7 @@ import { revive } from "../lib/revive";
 import { scopeFor } from "../api/scope";
 import { eventsHeld, onEventsHold } from "../api/eventsHold";
 import { iconCacheKey, pocLabel } from "../lib/projectChat";
+import { openSocket } from "../lib/netStats";
 
 // ── Per-server last-seen cursors (localStorage; advisory) ──────────────
 
@@ -315,7 +316,7 @@ function openEvents(): void {
   const url = buildEventsUrl();
   if (!url) return; // no active server — nothing to stream from
   try {
-    eventsWs = new WebSocket(url);
+    eventsWs = openSocket("project", url);
   } catch {
     scheduleEventsReconnect();
     return;
