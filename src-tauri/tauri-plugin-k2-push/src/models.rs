@@ -104,6 +104,38 @@ pub struct ClearServerTotalsRequest {
     pub subdomain: Option<String>,
 }
 
+/// One chat in a `clear_delivered()` request: `kind` "thread" (`id` = the
+/// conversationId) or "project" (`id` = the group id); `seq` = read up to
+/// (read) or read cursor of a chat still unread (keepOnly); absent = all.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearDeliveredChat {
+    pub kind: String,
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub seq: Option<u64>,
+}
+
+/// `clear_delivered()` request: remove delivered Thread / project-chat
+/// notifications from one server that a read covers (iOS
+/// `K2DeliveredClear`). `mode` "read" = these chats were read up to their
+/// seq; "keepOnly" = only these chats are still unread, every other one
+/// from the server goes. `before` = ms since 1970 the state is from.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ClearDeliveredRequest {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub badge_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub subdomain: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub instance_id: Option<String>,
+    pub mode: String,
+    pub chats: Vec<ClearDeliveredChat>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub before: Option<f64>,
+}
+
 /// `set_server_totals()` / `clear_server_totals()` response: the new
 /// app-icon badge (sum of `unread` across servers). `available` false =
 /// no App Group container, or not iOS.

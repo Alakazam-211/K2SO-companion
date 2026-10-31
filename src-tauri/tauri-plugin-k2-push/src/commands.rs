@@ -61,6 +61,27 @@ pub(crate) async fn clear_server_totals<R: Runtime>(
 }
 
 #[command]
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn clear_delivered<R: Runtime>(
+    app: AppHandle<R>,
+    badge_key: Option<String>,
+    subdomain: Option<String>,
+    instance_id: Option<String>,
+    mode: String,
+    chats: Vec<ClearDeliveredChat>,
+    before: Option<f64>,
+) -> Result<serde_json::Value> {
+    app.k2_push().clear_delivered(ClearDeliveredRequest {
+        badge_key,
+        subdomain,
+        instance_id,
+        mode,
+        chats,
+        before,
+    })
+}
+
+#[command]
 pub(crate) async fn get_badge_totals<R: Runtime>(app: AppHandle<R>) -> Result<BadgeTotalsResponse> {
     app.k2_push().get_badge_totals()
 }
