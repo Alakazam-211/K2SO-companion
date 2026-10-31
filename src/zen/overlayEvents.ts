@@ -7,6 +7,7 @@ import { emitStashFrame } from "../api/stashSync";
 import { inBackground, onAppLifecycle } from "../lib/appLifecycle";
 import { revive } from "../lib/revive";
 import { overlayEventsUrl } from "./threadLive";
+import { openSocket } from "../lib/netStats";
 
 export const OVERLAY_POLL_MS = 2000;
 const SLOW_RETRY_MS = 60_000;
@@ -196,7 +197,7 @@ export function connectOverlayEvents(opts: {
     }
     let opened = false;
     try {
-      ws = new WebSocket(url);
+      ws = openSocket("chat", url);
     } catch {
       handshakeFails += 1;
       if (handshakeFails >= 2) startPoll();

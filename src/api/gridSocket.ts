@@ -27,6 +27,7 @@ import {
   shouldSkipConnectingResync,
   type GridSoftResyncReason,
 } from "../kessel/softResync";
+import { openSocket } from "../lib/netStats";
 
 // Live k1 grid-WS. Two origins (do not smash tokens):
 //   Connect/daemon (the socket's scope, `scope.httpBase()`):
@@ -342,7 +343,7 @@ export class GridSocket {
       }
     }
     try {
-      this.ws = new WebSocket(url);
+      this.ws = openSocket("terminal", url);
     } catch {
       this.scheduleReconnect();
       return "failed";

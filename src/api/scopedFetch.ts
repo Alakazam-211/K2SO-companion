@@ -10,7 +10,7 @@
 // the active server, so a request for server B never reaches server A —
 // not on the first try, not on the replay.
 
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { netFetch as tauriFetch } from "../lib/netStats";
 import { cliAuthHeaders } from "./cliAuth";
 import { isPossibleAuthFailure, revive } from "../lib/revive";
 import type { ServerScope } from "./scope";
