@@ -500,8 +500,21 @@ let activityServer: string | null = null;
 /** Frames applied since the last commit: one re-parse per animation frame. */
 let activityCommitQueued = false;
 let activityResyncTimer: ReturnType<typeof setTimeout> | null = null;
-/** A removal's frame carries no rollup: re-read the snapshot this soon. */
-const ACTIVITY_REMOVAL_RESYNC_MS = 1000;
+/** Re-reads asked by frames that don't follow on are at least this far
+ *  apart: a daemon whose frames never line up can't turn busy agents into
+ *  back-to-back snapshot reads. */
+const ACTIVITY_RESYNC_MIN_GAP_MS = 2000;
+let activityResyncAt = 0;
+
+function resyncActivitySoon(get: () => ZenState): void {
+  if (activityResyncTimer) return;
+  const wait = Math.max(0, activityResyncAt + ACTIVITY_RESYNC_MIN_GAP_MS - Date.now());
+  activityResyncTimer = setTimeout(() => {
+    activityResyncTimer = null;
+    activityResyncAt = Date.now();
+    void get().refreshActivity();
+  }, wait);
+}
 
 function nextFrame(fn: () => void): void {
   if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => fn());
@@ -1253,7 +1266,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         }
         commitActivity(get, set, parseActivitySnapshot(body));
         // A frame meanwhile that doesn't follow on: read once more.
-        if (again) setTimeout(() => void get().refreshActivity(), ACTIVITY_REMOVAL_RESYNC_MS);
+        if (again) resyncActivitySoon(get);
       } else if (r.status === 404 && get().activity !== EMPTY_ACTIVITY) {
         // Pre-0.45 server: keep the list plain.
         set({ activity: EMPTY_ACTIVITY });
@@ -1279,15 +1292,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const result = applyLiveActivityFrame(scope.id, frame);
     if (result === "old") return;
     if (result === "resync") {
-      void get().refreshActivity();
+      resyncActivitySoon(get);
       return;
     }
-    if (result === "applied-resync" && !activityResyncTimer) {
-      activityResyncTimer = setTimeout(() => {
-        activityResyncTimer = null;
-        void get().refreshActivity();
-      }, ACTIVITY_REMOVAL_RESYNC_MS);
-    }
+    if (result === "applied-resync") resyncActivitySoon(get);
     if (activityCommitQueued) return;
     activityCommitQueued = true;
     nextFrame(() => {

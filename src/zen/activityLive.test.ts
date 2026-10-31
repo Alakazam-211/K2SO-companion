@@ -59,6 +59,11 @@ describe("activity mirror (speed PRD A2)", () => {
     expect(body.staleAfterSecs).toBe(60);
   });
 
+  it("snapshot rows without a sessionId stay in the mirror (they count in the totals)", () => {
+    seedActivityMirror("s", { ...SNAP, rows: [...SNAP.rows, { display: "working", workspacePath: "/w", counts: { tools: 2 } }] });
+    expect((activityMirrorBody("s")!.rows as unknown[]).length).toBe(3);
+  });
+
   it("old frames are ignored; gaps and another daemon instance resync", () => {
     seedActivityMirror("s", SNAP);
     expect(applyActivityFrame("s", { kind: "activity_changed", seq: 5, instanceId: "i1" })).toBe("old");

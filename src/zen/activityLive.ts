@@ -22,6 +22,9 @@ type Mirror = {
   instanceId: string | null;
   seq: number;
   rows: Map<string, Raw>;
+  /** Snapshot rows without a sessionId: kept as they are (they still count
+   *  in the workspace totals); frames never name them. */
+  anonRows: Raw[];
   /** Rollups by workspace path (else project id). */
   workspaces: Map<string, Raw>;
   rest: Raw;
@@ -57,9 +60,12 @@ export function seedActivityMirror(serverId: string, body: unknown): boolean {
     return false;
   }
   const rows = new Map<string, Raw>();
+  const anonRows: Raw[] = [];
   for (const r of Array.isArray(b.rows) ? b.rows : []) {
     const row = obj(r);
-    if (row && typeof row.sessionId === "string" && row.sessionId) rows.set(row.sessionId, row);
+    if (!row) continue;
+    if (typeof row.sessionId === "string" && row.sessionId) rows.set(row.sessionId, row);
+    else anonRows.push(row);
   }
   const workspaces = new Map<string, Raw>();
   for (const w of Array.isArray(b.workspaces) ? b.workspaces : []) {
@@ -72,6 +78,7 @@ export function seedActivityMirror(serverId: string, body: unknown): boolean {
     instanceId: typeof b.instanceId === "string" ? b.instanceId : null,
     seq,
     rows,
+    anonRows,
     workspaces,
     rest,
   });
@@ -116,7 +123,7 @@ export function applyActivityFrame(serverId: string, frame: unknown): FrameResul
 export function activityMirrorBody(serverId: string): Raw | null {
   const m = mirrors.get(serverId);
   if (!m) return null;
-  return { ...m.rest, seq: m.seq, instanceId: m.instanceId, rows: [...m.rows.values()], workspaces: [...m.workspaces.values()] };
+  return { ...m.rest, seq: m.seq, instanceId: m.instanceId, rows: [...m.rows.values(), ...m.anonRows], workspaces: [...m.workspaces.values()] };
 }
 
 export function activityMirrorSeq(serverId: string): number | null {
