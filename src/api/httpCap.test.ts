@@ -59,3 +59,25 @@ describe("HTTP cap per server", () => {
     expect(httpInFlight("b")).toBe(0);
   });
 });
+
+describe("user lane (speed PRD A4)", () => {
+  it("what the person waits on goes ahead of queued background reads, in its own order", async () => {
+    const hold = gate();
+    const started: string[] = [];
+    const job = (name: string) => async () => {
+      started.push(name);
+      await hold.p;
+    };
+    const runs = [
+      ...["b1", "b2", "b3", "b4"].map((n) => withHttpSlot("s", job(n))),
+      withHttpSlot("s", job("bg5")),
+      withHttpSlot("s", job("bg6")),
+      withHttpSlot("s", job("user1"), "user"),
+      withHttpSlot("s", job("user2"), "user"),
+    ];
+    expect(started).toEqual(["b1", "b2", "b3", "b4"]);
+    hold.open();
+    await Promise.all(runs);
+    expect(started.slice(4)).toEqual(["user1", "user2", "bg5", "bg6"]);
+  });
+});
