@@ -1,5 +1,10 @@
 import { create } from "zustand";
 import {
+  activityMirrorBody,
+  applyActivityFrame as applyLiveActivityFrame,
+  seedActivityMirror,
+} from "./activityLive";
+import {
   getAgentList,
   getAllSessions,
   getCliProjectsList,
@@ -307,6 +312,8 @@ type ZenState = {
   /** Main-chat vs other PTY ids, so a main row skips its sidecars' work. */
   chatSessions: ChatSessions;
   refreshActivity: () => Promise<void>;
+  /** A hub `activity_changed` frame for the active server (speed PRD A2). */
+  applyActivityFrame: (frame: unknown) => void;
   /** Workspace rows from `/cli/projects/list`: pins, order, focus group. */
   serverProjects: ServerProject[];
   /** Pin grid row ids, derived from `serverProjects` (never stored locally). */
@@ -488,8 +495,36 @@ function stubThread(agentId: string): ThreadMessage[] {
 // slice is ON SCREEN (the store shows one server's list today).
 
 // One activity snapshot read at a time per server.
-const activityMem = serverMemory(() => ({ inFlight: false }));
+const activityMem = serverMemory(() => ({ inFlight: false, pending: [] as unknown[] }));
 let activityServer: string | null = null;
+/** Frames applied since the last commit: one re-parse per animation frame. */
+let activityCommitQueued = false;
+let activityResyncTimer: ReturnType<typeof setTimeout> | null = null;
+/** A removal's frame carries no rollup: re-read the snapshot this soon. */
+const ACTIVITY_REMOVAL_RESYNC_MS = 1000;
+
+function nextFrame(fn: () => void): void {
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => fn());
+  else setTimeout(fn, 16);
+}
+
+/** New activity on screen; a turn that ended re-reads that agent's snippet. */
+function commitActivity(get: () => ZenState, set: (p: Partial<ZenState>) => void, next: ActivitySnapshot): void {
+  const prev = get().activity;
+  if (sameActivity(prev, next)) return;
+  set({ activity: next });
+  const sessions = get().chatSessions;
+  const done = get()
+    .agents.filter(
+      (a) =>
+        a.kind !== "group" &&
+        a.addr &&
+        activityForRow(a, prev, false, sessions) &&
+        !activityForRow(a, next, false, sessions)
+    )
+    .map((a) => a.addr as string);
+  if (done.length) void get().refreshThreadPreviews({ addrs: done, force: true });
+}
 
 // Pins: one projects/list read at a time per server; a write in flight (or
 // one that started after the read) wins over that read. The write
@@ -1200,27 +1235,25 @@ export const useZenStore = create<ZenState>((set, get) => ({
       if (get().activity !== EMPTY_ACTIVITY) set({ activity: EMPTY_ACTIVITY });
     }
     mem.inFlight = true;
+    mem.pending = [];
     try {
       const r = await getActivitySnapshot(scope);
       if (zenId() !== scope.id) return;
       if (r.ok) {
-        const next = parseActivitySnapshot(r.data);
-        const prev = get().activity;
-        if (!sameActivity(prev, next)) {
-          set({ activity: next });
-          // A turn ended: that agent likely just wrote. Re-read its snippet.
-          const sessions = get().chatSessions;
-          const done = get()
-            .agents.filter(
-              (a) =>
-                a.kind !== "group" &&
-                a.addr &&
-                activityForRow(a, prev, false, sessions) &&
-                !activityForRow(a, next, false, sessions)
-            )
-            .map((a) => a.addr as string);
-          if (done.length) void get().refreshThreadPreviews({ addrs: done, force: true });
+        // Speed PRD A2: hub frames follow on from this snapshot's `seq`;
+        // the ones that arrived while it was read apply on top.
+        let body: unknown = r.data;
+        let again = false;
+        if (seedActivityMirror(scope.id, r.data)) {
+          for (const f of mem.pending) {
+            const res = applyLiveActivityFrame(scope.id, f);
+            if (res === "resync" || res === "applied-resync") again = true;
+          }
+          body = activityMirrorBody(scope.id) ?? r.data;
         }
+        commitActivity(get, set, parseActivitySnapshot(body));
+        // A frame meanwhile that doesn't follow on: read once more.
+        if (again) setTimeout(() => void get().refreshActivity(), ACTIVITY_REMOVAL_RESYNC_MS);
       } else if (r.status === 404 && get().activity !== EMPTY_ACTIVITY) {
         // Pre-0.45 server: keep the list plain.
         set({ activity: EMPTY_ACTIVITY });
@@ -1230,7 +1263,39 @@ export const useZenStore = create<ZenState>((set, get) => ({
       /* keep what is on screen */
     } finally {
       mem.inFlight = false;
+      mem.pending = [];
     }
+  },
+  applyActivityFrame: (frame) => {
+    if (get().agentSource !== "live") return;
+    const scope = zenScope();
+    if (!scope.id || scope.id !== activityServer) return;
+    const mem = activityMem.get(scope.id);
+    if (mem.inFlight) {
+      // A snapshot is being read: these apply on top of it.
+      if (mem.pending.length < 500) mem.pending.push(frame);
+      return;
+    }
+    const result = applyLiveActivityFrame(scope.id, frame);
+    if (result === "old") return;
+    if (result === "resync") {
+      void get().refreshActivity();
+      return;
+    }
+    if (result === "applied-resync" && !activityResyncTimer) {
+      activityResyncTimer = setTimeout(() => {
+        activityResyncTimer = null;
+        void get().refreshActivity();
+      }, ACTIVITY_REMOVAL_RESYNC_MS);
+    }
+    if (activityCommitQueued) return;
+    activityCommitQueued = true;
+    nextFrame(() => {
+      activityCommitQueued = false;
+      if (zenId() !== scope.id) return;
+      const body = activityMirrorBody(scope.id);
+      if (body) commitActivity(get, set, parseActivitySnapshot(body));
+    });
   },
   refreshThreadPreviews: async (opts) => {
     if (get().agentSource !== "live") return;
