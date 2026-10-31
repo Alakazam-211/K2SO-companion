@@ -13,7 +13,8 @@
 // This keeps a raw mirror of the snapshot per server and applies frames to
 // it; the store re-parses the mirror with `parseActivitySnapshot`. A frame
 // that doesn't follow on (a gap, another `instanceId`, no mirror yet) asks
-// for a snapshot; so does a removal, whose frame carries no rollup.
+// for a snapshot; so does a removal without a rollup (K2 adds the rollup
+// to removals in 0.46.8).
 
 type Raw = Record<string, unknown>;
 
@@ -21,6 +22,9 @@ type Mirror = {
   instanceId: string | null;
   seq: number;
   rows: Map<string, Raw>;
+  /** Snapshot rows without a sessionId: kept as they are (they still count
+   *  in the workspace totals); frames never name them. */
+  anonRows: Raw[];
   /** Rollups by workspace path (else project id). */
   workspaces: Map<string, Raw>;
   rest: Raw;
@@ -56,9 +60,12 @@ export function seedActivityMirror(serverId: string, body: unknown): boolean {
     return false;
   }
   const rows = new Map<string, Raw>();
+  const anonRows: Raw[] = [];
   for (const r of Array.isArray(b.rows) ? b.rows : []) {
     const row = obj(r);
-    if (row && typeof row.sessionId === "string" && row.sessionId) rows.set(row.sessionId, row);
+    if (!row) continue;
+    if (typeof row.sessionId === "string" && row.sessionId) rows.set(row.sessionId, row);
+    else anonRows.push(row);
   }
   const workspaces = new Map<string, Raw>();
   for (const w of Array.isArray(b.workspaces) ? b.workspaces : []) {
@@ -71,6 +78,7 @@ export function seedActivityMirror(serverId: string, body: unknown): boolean {
     instanceId: typeof b.instanceId === "string" ? b.instanceId : null,
     seq,
     rows,
+    anonRows,
     workspaces,
     rest,
   });
@@ -104,8 +112,9 @@ export function applyActivityFrame(serverId: string, frame: unknown): FrameResul
   if (ws && k) m.workspaces.set(k, ws);
   if (typeof f.removed === "string" && f.removed) {
     m.rows.delete(f.removed);
-    // A removal carries no rollup: its workspace's may now be wrong.
-    return "applied-resync";
+    // Before K2 0.46.8 a removal carries no rollup, so its workspace's
+    // may now be wrong; with one, the frame is complete.
+    return ws && k ? "applied" : "applied-resync";
   }
   return "applied";
 }
@@ -114,7 +123,7 @@ export function applyActivityFrame(serverId: string, frame: unknown): FrameResul
 export function activityMirrorBody(serverId: string): Raw | null {
   const m = mirrors.get(serverId);
   if (!m) return null;
-  return { ...m.rest, seq: m.seq, instanceId: m.instanceId, rows: [...m.rows.values()], workspaces: [...m.workspaces.values()] };
+  return { ...m.rest, seq: m.seq, instanceId: m.instanceId, rows: [...m.rows.values(), ...m.anonRows], workspaces: [...m.workspaces.values()] };
 }
 
 export function activityMirrorSeq(serverId: string): number | null {

@@ -30,6 +30,38 @@ describe("scopedFetch (speed PRD A4)", () => {
     vi.useRealTimers();
   });
 
+  it("the timeout covers the headers only: a slow body still arrives", async () => {
+    vi.useFakeTimers();
+    let signal: AbortSignal | undefined;
+    let finishBody: (t: string) => void = () => {};
+    http.fetch.mockImplementation((_url: string, init: { signal?: AbortSignal }) => {
+      signal = init.signal;
+      return Promise.resolve({
+        status: 200,
+        ok: true,
+        headers: { get: () => "" },
+        text: () => new Promise<string>((r) => (finishBody = r)),
+      });
+    });
+    const p = scopedFetch(scope, "/cli/thread/attachment", { timeoutMs: 1000, revive: false });
+    await vi.advanceTimersByTimeAsync(5000);
+    finishBody("big");
+    expect((await p).text).toBe("big");
+    expect(signal?.aborted).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("a GET that fails at once (a dead kept-alive connection) goes again once; a POST never", async () => {
+    http.fetch
+      .mockRejectedValueOnce(new Error("connection closed before message completed"))
+      .mockResolvedValueOnce({ status: 200, ok: true, headers: { get: () => "" }, text: async () => "ok" });
+    expect((await scopedFetch(scope, "/cli/agent/list", { revive: false })).text).toBe("ok");
+    expect(http.fetch).toHaveBeenCalledTimes(2);
+    http.fetch.mockReset().mockRejectedValueOnce(new Error("connection closed before message completed"));
+    await expect(scopedFetch(scope, "/cli/thread/post", { method: "POST", body: "{}", revive: false })).rejects.toThrow();
+    expect(http.fetch).toHaveBeenCalledTimes(1);
+  });
+
   it("routes the person waits on are user priority; lists and sync are background", () => {
     expect(priorityOf("/cli/thread")).toBe("user");
     expect(priorityOf("/cli/thread/post")).toBe("user");
