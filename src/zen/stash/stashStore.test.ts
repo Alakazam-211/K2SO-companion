@@ -2,12 +2,14 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { memoryStashBackend } from "./stashBackend";
 import { STASH_MAX } from "./stashModel";
-import { __resetStashForTests, useStashStore } from "./stashStore";
+import { __resetStashForTests, stashDeviceNames, useStashStore } from "./stashStore";
+import { __resetHomesSyncForTests, useHomesSyncStore } from "../homesSync";
 
 const st = () => useStashStore.getState();
 
 beforeEach(() => {
   localStorage.clear();
+  __resetHomesSyncForTests({ deviceId: "phone-1" });
   __resetStashForTests(memoryStashBackend());
 });
 
@@ -19,7 +21,9 @@ describe("stash store", () => {
     expect(await st().save({ text: "do the thing", files: [f], source: { agent: "k2" } })).toBe("saved");
     const [saved] = await b.loadAll();
     expect(saved).toMatchObject({ text: "do the thing", source: { agent: "k2" } });
-    expect(saved.attachments).toEqual([{ id: expect.any(String), name: "shot.png", type: "image/png", size: 4 }]);
+    expect(saved.attachments).toEqual([
+      { id: expect.any(String), name: "shot.png", type: "image/png", size: 4, device_id: "phone-1", path: null },
+    ]);
     const taken = await st().take(saved.id);
     expect(taken?.text).toBe("do the thing");
     expect(taken?.files.map((x) => x.name)).toEqual(["shot.png"]);
@@ -115,6 +119,44 @@ describe("stash store", () => {
     await st().save({ text: "with file", files: [new File(["x"], "a.txt")] });
     b.getBlobs = vi.fn(async () => []);
     const taken = await st().take(st().items[0].id);
-    expect(taken).toMatchObject({ text: "with file", files: [], missing: 1 });
+    expect(taken).toMatchObject({ text: "with file", files: [], missing: [{ name: "a.txt", elsewhere: false }] });
+  });
+
+  it("a saved file records this phone as its device, with no path", async () => {
+    await st().save({ text: "f", files: [new File(["x"], "a.txt", { type: "text/plain" })] });
+    expect(st().items[0].attachments).toEqual([
+      { id: expect.any(String), name: "a.txt", type: "text/plain", size: 1, device_id: "phone-1", path: null },
+    ]);
+  });
+
+  it("take brings back this phone's files and reports another device's as elsewhere", async () => {
+    const b = memoryStashBackend();
+    __resetStashForTests(b);
+    await st().save({ text: "mine", files: [new File(["x"], "mine.txt")] });
+    const mine = st().items[0];
+    const synced = {
+      ...mine,
+      id: "from-mac",
+      attachments: [{ id: "m1", name: "desk.png", type: "image/png", size: 9, device_id: "mac-1", path: "/Users/r/desk.png" }],
+    };
+    // Even if bytes with that id happened to be here, they aren't this phone's.
+    await b.write({ put: [synced], putBlobs: [{ id: "m1", name: "desk.png", type: "image/png", buf: new ArrayBuffer(1) }] });
+    useStashStore.setState({ items: [...st().items, synced] });
+
+    const a = await st().take(mine.id);
+    expect(a?.files.map((f) => f.name)).toEqual(["mine.txt"]);
+    expect(a?.missing).toEqual([]);
+    const m = await st().take("from-mac");
+    expect(m?.files).toEqual([]);
+    expect(m?.missing).toMatchObject([{ name: "desk.png", device_id: "mac-1", path: "/Users/r/desk.png", elsewhere: true }]);
+  });
+
+  it("device names come from the Homes-sync device list; none when Home sync is off", async () => {
+    expect(await stashDeviceNames()).toEqual(new Map());
+    useHomesSyncStore.setState({
+      serverId: "srv",
+      devices: { srv: [{ deviceId: "mac-1", name: "Rosson's MacBook", platform: "macos", lastSyncAt: null, current: false }] },
+    });
+    expect(await stashDeviceNames()).toEqual(new Map([["mac-1", "Rosson's MacBook"]]));
   });
 });

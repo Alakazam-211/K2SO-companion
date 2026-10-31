@@ -22,6 +22,8 @@ import { load } from "@tauri-apps/plugin-store";
 // id there (the old row would keep getting today's plaintext pushes).
 
 export const FEATURE_PUSH_E2E = "push-e2e-v1" as const;
+/** K2 0.46.7: format 2 (bigger buckets). Only then may `e2e.v` be 2. */
+export const FEATURE_PUSH_E2E_V2 = "push-e2e-v2" as const;
 export const E2E_SUITE = "p256-sha256-aes256gcm-psk" as const;
 
 const PLUGIN = "k2-push";
@@ -42,6 +44,11 @@ export type E2eReply = {
   /** Unix seconds; null when absent. */
   rotateAfter: number | null;
   expiresAt: number | null;
+  /** K2 0.46.7: the format pushes go out in (1|2), and the buckets
+   *  (Diagnostics). Null from older daemons. */
+  format: number | null;
+  alertBytes: number | null;
+  nudgeBytes: number | null;
 };
 
 /** The tunnel label this phone reaches the box by, when that path is
@@ -106,6 +113,9 @@ export function parseE2eReply(raw: unknown): E2eReply | null {
     keyId: typeof r.keyId === "string" ? r.keyId : null,
     rotateAfter: num(r.rotateAfter),
     expiresAt: num(r.expiresAt),
+    format: num(r.format),
+    alertBytes: num(r.alertBytes),
+    nudgeBytes: num(r.nudgeBytes),
   };
 }
 
@@ -114,9 +124,11 @@ export function rotationDue(reply: E2eReply | null, nowSecs: number): boolean {
   return !!reply && reply.rotateAfter != null && reply.rotateAfter <= nowSecs;
 }
 
-/** The register-device `e2e` field. */
-export function e2eField(k: E2eKey): Record<string, unknown> {
-  return { v: 1, suite: E2E_SUITE, publicKey: k.publicKey, psk: k.psk, createdAt: k.createdAt };
+/** The register-device `e2e` field. `v: 2` (format 2, the bigger
+ *  buckets) only for a server listing `push-e2e-v2`: an older daemon
+ *  answers 400 to it. The same key either way (its counter is kept). */
+export function e2eField(k: E2eKey, v: 1 | 2 = 1): Record<string, unknown> {
+  return { v, suite: E2E_SUITE, publicKey: k.publicKey, psk: k.psk, createdAt: k.createdAt };
 }
 
 // ─── Plugin (iOS) ───

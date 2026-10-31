@@ -114,9 +114,12 @@ describe("direct path (prd §7.1)", () => {
       keyId: "k",
       rotateAfter: 10,
       expiresAt: null,
+      format: null,
+      alertBytes: null,
+      nudgeBytes: null,
     });
     expect(parseE2eReply('{"e2e":null}')).toBeNull();
-    expect(rotationDue({ active: true, enforce: false, keyId: null, rotateAfter: 10, expiresAt: null }, 11)).toBe(true);
+    expect(rotationDue({ active: true, enforce: false, keyId: null, rotateAfter: 10, expiresAt: null, format: null, alertBytes: null, nudgeBytes: null }, 11)).toBe(true);
     expect(rotationDue(null, 11)).toBe(false);
   });
 });
@@ -262,6 +265,17 @@ describe("sealed registration", () => {
     await ensureRegistered(scopeFor("s1"));
     await flush();
     expect(posts().map((x) => x.url)).toEqual(["https://rosson.k2.dev/cli/push/register-device"]);
+  });
+
+  it("format 2 (push-e2e-v2): e2e.v is 2 only when the server lists it; same key", async () => {
+    await ensureRegistered(scopeFor("s1"));
+    await flush();
+    expect(posts()[0].body.e2e).toMatchObject({ v: 1, publicKey: "PUB1" });
+    noteBootStatus("s1", { version: "0.46.7", features: ["thread-push-v1", "push-e2e-v1", "push-e2e-v2"] });
+    tauriFetch.mockClear();
+    await ensureRegistered(scopeFor("s1"));
+    await flush();
+    expect(posts()[0].body.e2e).toMatchObject({ v: 2, publicKey: "PUB1", suite: "p256-sha256-aes256gcm-psk" });
   });
 
   it("a server without the feature, or not an iPhone: today's registration exactly", async () => {

@@ -3,6 +3,7 @@ import { permissionCardsOn, type ServerScope } from "../api/scope";
 import { queueDial, type DialTicket } from "../api/dialQueue";
 import { emitServerSignal, onServerSignal } from "../api/serverSignals";
 import { emitHomesFrame } from "../api/homesSync";
+import { emitStashFrame } from "../api/stashSync";
 import { inBackground, onAppLifecycle } from "../lib/appLifecycle";
 import { revive } from "../lib/revive";
 import { overlayEventsUrl } from "./threadLive";
@@ -225,9 +226,10 @@ export function connectOverlayEvents(opts: {
       } catch {
         return; /* non-JSON */
       }
-      // K2 0.46.1: the person's Homes frames may ride this socket too; they
-      // go to the Homes sync engine, never into the Thread.
-      if (emitHomesFrame(opts.scope.id, frame)) return;
+      // K2 0.46.1: the person's Homes frames (and 0.46.7 `stash_changed`)
+      // may ride this socket too; they go to the sync engines, never into
+      // the Thread.
+      if (emitHomesFrame(opts.scope.id, frame) || emitStashFrame(opts.scope.id, frame)) return;
       try {
         opts.onItem(frame as ThreadItem);
       } catch {

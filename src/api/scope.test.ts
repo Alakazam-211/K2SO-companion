@@ -139,7 +139,7 @@ describe("activeScope shim (MS5)", () => {
 
 describe("feature memory (MS31 / MA15)", () => {
   it("lists all 29 daemon features (0.46.4 adds llm-account-for-v1, companion-pairing-v1)", () => {
-    expect(DAEMON_FEATURES).toHaveLength(29);
+    expect(DAEMON_FEATURES).toHaveLength(30);
     expect(DAEMON_FEATURES).toContain("llm-account-for-v1");
     expect(DAEMON_FEATURES).toContain("companion-pairing-v1");
     expect(DAEMON_FEATURES).toContain("push-e2e-v1");
