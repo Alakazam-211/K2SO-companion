@@ -224,7 +224,7 @@ describe("stash sync", () => {
     expect(serverTexts()).toEqual([]);
   });
 
-  it("cap_reached: the record stays here, shown as not synced, and goes again later", async () => {
+  it("cap_reached: the record stays here, shown as not synced, and goes again after the next local change", async () => {
     for (let i = 0; i < STASH_MAX; i++) srv.seed(makeStashItem({ text: `d${i}`, now: 10 + i, by: "mac-1" }));
     homeSyncOn();
     await syncStashNow();
@@ -248,6 +248,20 @@ describe("stash sync", () => {
     expect(id).toBeTruthy();
     expect(useStashSyncStore.getState().unsynced[id!]).toBe("cap_reached");
     expect(__stashSyncMeta()?.outbox).toContain(id);
+
+    // Other runs (a frame, the foreground) don't send it again…
+    api.push.mockClear();
+    await syncStashNow();
+    expect(api.push).not.toHaveBeenCalled();
+
+    // …the next local change does: deleting here makes room (the seeded
+    // server is one over, so two go).
+    const gone = liveStash(st().items).filter((i) => /^d\d/.test(i.text)).slice(0, 2);
+    for (const other of gone) await st().remove(other.id);
+    await syncStashNow();
+    expect(serverTexts()).toContain("refused");
+    expect(useStashSyncStore.getState().unsynced).toEqual({});
+    expect(__stashSyncMeta()?.outbox).not.toContain(id);
   });
 
   it("409 device_not_registered: registers in the Homes registry and pushes again", async () => {
