@@ -114,6 +114,9 @@ let retryAttempt = 0;
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
 /** Bumped on stop: a run from before quits. */
 let gen = 0;
+/** A local change since the last push: records the server refused as
+ *  full (`cap_reached`) go again only then, not on every run. */
+let roomMaybe = true;
 
 function clearTimers(): void {
   if (retryTimer) clearTimeout(retryTimer);
@@ -196,15 +199,17 @@ async function runOnce(): Promise<void> {
   // Push: each queued record as it is now.
   const byId = () => new Map(useStashStore.getState().items.map((i) => [i.id, i]));
   const items = byId();
-  const queued = m.outbox.flatMap((id) => {
+  const waiting = m.outbox.flatMap((id) => {
     const i = items.get(id);
     return i && isOwnSchema(i) ? [i] : [];
   });
-  if (queued.length !== m.outbox.length) {
+  if (waiting.length !== m.outbox.length) {
     // Gone here (an expired tombstone): nothing left to send.
-    m = { ...m, outbox: queued.map((i) => i.id) };
+    m = { ...m, outbox: waiting.map((i) => i.id) };
     saveMeta(m);
   }
+  const queued = roomMaybe ? waiting : waiting.filter((i) => m.unsynced[i.id] !== "cap_reached");
+  roomMaybe = false;
   for (const batch of stashPushBatches(queued)) {
     let r = await pushStash(scope, deviceId, batch);
     if (!live()) return;
@@ -336,6 +341,7 @@ export function startStashSync(): () => void {
       if (!serverId) return;
       const m = metaFor(serverId);
       saveMeta({ ...m, outbox: [...new Set([...m.outbox, ...ids])] });
+      roomMaybe = true;
       soon();
     })
   );
@@ -395,6 +401,7 @@ export function __resetStashSyncForTests(): void {
   running = null;
   again = false;
   retryAttempt = 0;
+  roomMaybe = true;
   meta = readMeta();
   useStashSyncStore.setState({ status: "off", error: null, unsynced: meta?.unsynced ?? {} }, true);
 }
