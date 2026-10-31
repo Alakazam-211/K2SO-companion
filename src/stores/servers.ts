@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { load } from "@tauri-apps/plugin-store";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { netFetch as tauriFetch } from "../lib/netStats";
 import { withNetRetry } from "../lib/netRetry";
 import {
   k2DevApexLabel,

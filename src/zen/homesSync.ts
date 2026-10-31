@@ -30,6 +30,7 @@ import {
   type ChangeItem,
 } from "./homesMerge";
 import { subscribeAppEvents, type TicketEventsHandle } from "./ticketEvents";
+import { cancelForeground, onForegroundLater } from "../lib/foreground";
 
 // Homes sync engine (K2 0.46.1 `homes-sync-v1`).
 //
@@ -816,18 +817,17 @@ export function startHomesSync(): () => void {
   stops.push(
     onServerSignal((id, signal) => {
       if (id !== st().serverId) return;
-      if (signal === "recovered" || signal === "reopened" || signal === "lagged") void syncHomesNow();
+      if (signal === "recovered" || signal === "reopened" || signal === "lagged") {
+        // This run covers a foreground run still waiting.
+        cancelForeground("homes");
+        void syncHomesNow();
+      }
     })
   );
 
-  // Foreground: catch up.
-  if (typeof document !== "undefined") {
-    const onVis = () => {
-      if (document.visibilityState === "visible") void syncHomesNow();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    stops.push(() => document.removeEventListener("visibilitychange", onVis));
-  }
+  // Foreground: catch up, after the open chat (speed PRD A1); the socket
+  // reopening first does it instead.
+  stops.push(onForegroundLater("homes", () => void syncHomesNow()));
 
   // The sync server removed from this phone: stop (no network; no token).
   stops.push(

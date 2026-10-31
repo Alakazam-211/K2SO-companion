@@ -6,6 +6,10 @@ vi.mock("../api/threadRead", () => ({
   postProjectRead: vi.fn(),
   postThreadMute: vi.fn(),
 }));
+vi.mock("../lib/deliveredClear", async (orig) => ({
+  ...(await orig<typeof import("../lib/deliveredClear")>()),
+  clearDelivered: vi.fn(async () => {}),
+}));
 vi.mock("../lib/badgeTotals", () => ({
   setServerTotals: vi.fn(),
   clearServerTotals: vi.fn(),
@@ -14,6 +18,7 @@ vi.mock("../lib/badgeTotals", () => ({
 
 import * as api from "../api/threadRead";
 import * as badge from "../lib/badgeTotals";
+import * as delivered from "../lib/deliveredClear";
 import { __resetScopesForTests, noteBootStatus } from "../api/scope";
 import { useServersStore } from "../stores/servers";
 import { __resetUnreadStoreForTests, unreadSupported, useUnreadStore } from "./unreadStore";
@@ -297,5 +302,29 @@ describe("setMuted", () => {
     expect(await useUnreadStore.getState().setMuted("s1", { kind: "thread", addr: "appa" }, true)).toBe(false);
     await flush();
     expect(useUnreadStore.getState().servers.s1.byKey["thread:c1"].muted).toBe(false);
+  });
+});
+
+describe("read notifications leave Notification Center", () => {
+  it("the summary keeps only what's still unread, as of when it was asked", async () => {
+    const t0 = Date.now();
+    await useUnreadStore.getState().refresh("s1");
+    expect(delivered.clearDelivered).toHaveBeenCalledWith(
+      "s1",
+      { mode: "keepOnly", chats: [{ kind: "thread", id: "c1", seq: 2 }, { kind: "project", id: "g1" }] },
+      expect.any(Number)
+    );
+    const before = vi.mocked(delivered.clearDelivered).mock.calls[0][2] as number;
+    expect(before).toBeGreaterThanOrEqual(t0);
+  });
+
+  it("a read frame elsewhere clears that chat up to its cursor", async () => {
+    await useUnreadStore.getState().refresh("s1");
+    vi.mocked(delivered.clearDelivered).mockClear();
+    useUnreadStore.getState().applyFrame("s1", {
+      kind: "thread_read", id: "c1", projectId: "p1", seq: 7, lastReadSeq: 7, lastSeq: 7,
+      unread: 0, waiting: 0, muted: false, total: 1, waitingTotal: 1,
+    });
+    expect(delivered.clearDelivered).toHaveBeenCalledWith("s1", { mode: "read", chats: [{ kind: "thread", id: "c1", seq: 7 }] });
   });
 });

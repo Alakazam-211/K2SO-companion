@@ -3,7 +3,7 @@
 Default permissions for the k2-push plugin: availability probe,
 permission request, token fetch, launch-tap read, the notification
 avatar cache (Communication Notifications), the app-icon badge
-totals and their delivery diagnostics, the composer's attach
+totals and their delivery diagnostics, clearing read notifications, the composer's attach
 pickers (photo library, document picker), the pairing QR scanner, and the event listener
 plumbing for `tap`/`tokenRefresh`/`badgeTotals`.
 
@@ -16,6 +16,7 @@ plumbing for `tap`/`tokenRefresh`/`badgeTotals`.
 - `allow-cache-avatars`
 - `allow-set-server-totals`
 - `allow-clear-server-totals`
+- `allow-clear-delivered`
 - `allow-get-badge-totals`
 - `allow-get-badge-diagnostics`
 - `allow-e2e-op`
@@ -56,6 +57,32 @@ Enables the cache_avatars command without any pre-configured scope.
 <td>
 
 Denies the cache_avatars command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:allow-clear-delivered`
+
+</td>
+<td>
+
+Enables the clear_delivered command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:deny-clear-delivered`
+
+</td>
+<td>
+
+Denies the clear_delivered command without any pre-configured scope.
 
 </td>
 </tr>

@@ -17,6 +17,7 @@ import {
   type FeedbackListRow,
   type FeedbackShow,
 } from "../api/feedback";
+import { openSocket } from "../lib/netStats";
 
 // Feedback C3 — items for the ACTIVE server + the open thread + the live
 // subscription that keeps both (and the TabBar waiting badge) fresh.
@@ -375,7 +376,7 @@ class FeedbackEventsSocket {
       return;
     }
     try {
-      this.ws = new WebSocket(url);
+      this.ws = openSocket("tickets", url);
     } catch {
       this.scheduleReconnect();
       return;

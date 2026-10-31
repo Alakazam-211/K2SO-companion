@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import type { ServerScope } from "../api/scope";
 import { FEATURE_LLM_ACCOUNT_FOR, readAccountUsage, refreshAccountUsage, type AccountUsage } from "../api/llmAccountFor";
 import { useThreadFilesOn } from "./ThreadFiles";
+import { onForegroundLater } from "../lib/foreground";
 
 /** The usage of the LLM account the open chat's session uses (K2 0.46.4
  *  `llm-account-for-v1`), read when the chat opens and when the app comes
@@ -27,13 +28,10 @@ export function useAgentUsage(scope: ServerScope, addr: string | null): AccountU
       });
     };
     read();
-    const onVis = () => {
-      if (document.visibilityState === "visible") read();
-    };
-    document.addEventListener("visibilitychange", onVis);
+    const offVis = onForegroundLater(`usage:${addr}`, read);
     return () => {
       live = false;
-      document.removeEventListener("visibilitychange", onVis);
+      offVis();
     };
   }, [scope.id, addr, on]);
   return usage;

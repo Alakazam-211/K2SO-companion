@@ -8,6 +8,7 @@ import {
 } from "../api/threadRead";
 import { learnBadgeKey } from "../lib/badgeKeys";
 import { clearServerTotals, setServerTotals } from "../lib/badgeTotals";
+import { clearDelivered, planForEntry, planForSummary } from "../lib/deliveredClear";
 import { onServerForget, useServersStore } from "../stores/servers";
 import {
   EMPTY_SERVER_UNREAD,
@@ -37,7 +38,8 @@ import {
 // frames on that server's `/cli/sessions/events` socket (`unreadSync`), by
 // our own read / mute replies, and optimistically by `markRead` /
 // `setMuted`. Every totals change feeds the app-icon badge
-// (`setServerTotals`, coalesced natively per server).
+// (`setServerTotals`, coalesced natively per server). What a read leaves
+// read also leaves Notification Center (`clearDelivered`).
 //
 // Gating: a server whose `/boot-status` does not list `thread-read-v1`
 // (or that has no login here) is never asked anything; its slice is
@@ -134,6 +136,7 @@ export const useUnreadStore = create<State>((set, get) => {
       },
     }));
     if (totals) pushTotals(serverId, totals);
+    void clearDelivered(serverId, planForEntry(entry, totals));
   };
 
   const patch = (serverId: string, next: ServerUnread) => {
@@ -158,6 +161,7 @@ export const useUnreadStore = create<State>((set, get) => {
         return m.inflight;
       }
       m.startedAt = Date.now();
+      const startedAt = m.startedAt;
       const gen = m.gen;
       const run = (async () => {
         const r = await getThreadUnread(scopeFor(serverId));
@@ -168,9 +172,12 @@ export const useUnreadStore = create<State>((set, get) => {
         const next = parseUnreadSummary(r.data);
         if (!next) return;
         // A frame or reply landed meanwhile: this answer may be older.
-        if (memOf(serverId).gen !== gen) m.again = true;
+        const fresh = memOf(serverId).gen === gen;
+        if (!fresh) m.again = true;
         set((s) => ({ servers: { ...s.servers, [serverId]: next } }));
         pushTotals(serverId, next);
+        // Notifications older than the read: only what's still unread stays.
+        if (fresh) void clearDelivered(serverId, planForSummary(next), startedAt);
       })()
         .catch(() => {
           /* what is shown stays; the next trigger reads again */

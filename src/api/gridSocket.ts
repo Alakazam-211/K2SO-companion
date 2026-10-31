@@ -2,7 +2,7 @@ import { revive } from "../lib/revive";
 import { onAppLifecycle } from "../lib/appLifecycle";
 import type { ServerScope } from "./scope";
 import { queueDial, type DialTicket } from "./dialQueue";
-import { reconnectDelayMs } from "../lib/reconnect";
+import { jittered, reconnectDelayMs, STABLE_OPEN_MS } from "../lib/reconnect";
 import { decodeGridFrame } from "./gridWire";
 import {
   attachOpenActions,
@@ -27,6 +27,7 @@ import {
   shouldSkipConnectingResync,
   type GridSoftResyncReason,
 } from "../kessel/softResync";
+import { openSocket } from "../lib/netStats";
 
 // Live k1 grid-WS. Two origins (do not smash tokens):
 //   Connect/daemon (the socket's scope, `scope.httpBase()`):
@@ -120,6 +121,8 @@ export class GridSocket {
    *  drives the exponential backoff (lib/reconnect.ts, desktop Kessel
    *  parity: 500·2^min(n,4) capped at 5s). Reset on every open. */
   private reconnectAttempt = 0;
+  /** When the current socket opened (0 = not open). */
+  private openedAt = 0;
   /** Reentrancy guard: revive+reopen may be triggered by the backoff
    *  timer AND foreground recovery — never run both at once. */
   private reviving = false;
@@ -342,7 +345,7 @@ export class GridSocket {
       }
     }
     try {
-      this.ws = new WebSocket(url);
+      this.ws = openSocket("terminal", url);
     } catch {
       this.scheduleReconnect();
       return "failed";
@@ -400,15 +403,19 @@ export class GridSocket {
     };
     this.ws.onclose = (e?: CloseEvent) => {
       this.lastCloseCode = typeof e?.code === "number" ? e.code : null;
+      // Open long enough to count as healthy: the backoff starts over.
+      if (this.openedAt && Date.now() - this.openedAt >= STABLE_OPEN_MS) this.reconnectAttempt = 0;
+      this.openedAt = 0;
       if (this.shouldReconnect) this.scheduleReconnect();
     };
     this.ws.onerror = () => {
       this.ws?.close();
     };
     this.ws.onopen = () => {
-      // Successful open — the next drop starts the backoff ladder over
-      // (desktop parity: a single-shot blip reconnects in ~500ms).
-      this.reconnectAttempt = 0;
+      // Speed PRD A6: the backoff starts over once this socket has stayed
+      // open STABLE_OPEN_MS (onclose), not on every open, so a link that
+      // opens and drops at once keeps backing off.
+      this.openedAt = Date.now();
       this.dialStartedAt = 0;
       // Synthetic frame so the consumer sees connection boundaries:
       // an ephemeral claim_pin dies with its socket (the daemon
@@ -529,7 +536,7 @@ export class GridSocket {
 
   private scheduleReconnect(): void {
     if (this.reconnectTimer || this.paused) return;
-    const delay = reconnectDelayMs(this.reconnectAttempt);
+    const delay = jittered(reconnectDelayMs(this.reconnectAttempt));
     this.reconnectAttempt++;
     this.reconnectTimer = setTimeout(() => {
       this.reconnectTimer = null;

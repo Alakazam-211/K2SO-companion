@@ -55,3 +55,6 @@ codegen-units = 1
 # patch when tauri allows tao >= 0.36.
 [patch.crates-io]
 tao = { git = "https://github.com/tauri-apps/tao", rev = "f2163508104413ef0609178dcebdd5803b496211" }
+# Connection reuse: upstream builds a new HTTP client per request. See
+# vendor/README.md. Drop when upstream reuses clients.
+tauri-plugin-http = { path = "vendor/tauri-plugin-http" }

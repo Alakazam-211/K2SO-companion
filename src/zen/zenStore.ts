@@ -1,5 +1,10 @@
 import { create } from "zustand";
 import {
+  activityMirrorBody,
+  applyActivityFrame as applyLiveActivityFrame,
+  seedActivityMirror,
+} from "./activityLive";
+import {
   getAgentList,
   getAllSessions,
   getCliProjectsList,
@@ -307,6 +312,8 @@ type ZenState = {
   /** Main-chat vs other PTY ids, so a main row skips its sidecars' work. */
   chatSessions: ChatSessions;
   refreshActivity: () => Promise<void>;
+  /** A hub `activity_changed` frame for the active server (speed PRD A2). */
+  applyActivityFrame: (frame: unknown) => void;
   /** Workspace rows from `/cli/projects/list`: pins, order, focus group. */
   serverProjects: ServerProject[];
   /** Pin grid row ids, derived from `serverProjects` (never stored locally). */
@@ -488,8 +495,36 @@ function stubThread(agentId: string): ThreadMessage[] {
 // slice is ON SCREEN (the store shows one server's list today).
 
 // One activity snapshot read at a time per server.
-const activityMem = serverMemory(() => ({ inFlight: false }));
+const activityMem = serverMemory(() => ({ inFlight: false, pending: [] as unknown[] }));
 let activityServer: string | null = null;
+/** Frames applied since the last commit: one re-parse per animation frame. */
+let activityCommitQueued = false;
+let activityResyncTimer: ReturnType<typeof setTimeout> | null = null;
+/** A removal's frame carries no rollup: re-read the snapshot this soon. */
+const ACTIVITY_REMOVAL_RESYNC_MS = 1000;
+
+function nextFrame(fn: () => void): void {
+  if (typeof requestAnimationFrame === "function") requestAnimationFrame(() => fn());
+  else setTimeout(fn, 16);
+}
+
+/** New activity on screen; a turn that ended re-reads that agent's snippet. */
+function commitActivity(get: () => ZenState, set: (p: Partial<ZenState>) => void, next: ActivitySnapshot): void {
+  const prev = get().activity;
+  if (sameActivity(prev, next)) return;
+  set({ activity: next });
+  const sessions = get().chatSessions;
+  const done = get()
+    .agents.filter(
+      (a) =>
+        a.kind !== "group" &&
+        a.addr &&
+        activityForRow(a, prev, false, sessions) &&
+        !activityForRow(a, next, false, sessions)
+    )
+    .map((a) => a.addr as string);
+  if (done.length) void get().refreshThreadPreviews({ addrs: done, force: true });
+}
 
 // Pins: one projects/list read at a time per server; a write in flight (or
 // one that started after the read) wins over that read. The write
@@ -904,6 +939,34 @@ function errorText(e: unknown, fallback: string): string {
   return fallback;
 }
 
+/** Speed PRD A1: one open-chat refresh at a time. A call while one runs
+ *  asks for one more run after it (a change the running read may have
+ *  missed), however many calls come: a return to the foreground used to
+ *  read the open chat 3-4 times. */
+function singleFlight(): { run: (fn: () => Promise<void>) => Promise<void> } {
+  let running: Promise<void> | null = null;
+  let again = false;
+  return {
+    run(fn) {
+      if (running) {
+        again = true;
+        return running;
+      }
+      running = (async () => {
+        do {
+          again = false;
+          await fn();
+        } while (again);
+      })().finally(() => {
+        running = null;
+      });
+      return running;
+    },
+  };
+}
+
+const openRefreshFlight = singleFlight();
+
 export const useZenStore = create<ZenState>((set, get) => ({
   // Never start on the stub catalogue. A signed-in first paint used to
   // show STUB_AGENTS until hydrateAgents resolved. Stub is only applied
@@ -1172,27 +1235,25 @@ export const useZenStore = create<ZenState>((set, get) => ({
       if (get().activity !== EMPTY_ACTIVITY) set({ activity: EMPTY_ACTIVITY });
     }
     mem.inFlight = true;
+    mem.pending = [];
     try {
       const r = await getActivitySnapshot(scope);
       if (zenId() !== scope.id) return;
       if (r.ok) {
-        const next = parseActivitySnapshot(r.data);
-        const prev = get().activity;
-        if (!sameActivity(prev, next)) {
-          set({ activity: next });
-          // A turn ended: that agent likely just wrote. Re-read its snippet.
-          const sessions = get().chatSessions;
-          const done = get()
-            .agents.filter(
-              (a) =>
-                a.kind !== "group" &&
-                a.addr &&
-                activityForRow(a, prev, false, sessions) &&
-                !activityForRow(a, next, false, sessions)
-            )
-            .map((a) => a.addr as string);
-          if (done.length) void get().refreshThreadPreviews({ addrs: done, force: true });
+        // Speed PRD A2: hub frames follow on from this snapshot's `seq`;
+        // the ones that arrived while it was read apply on top.
+        let body: unknown = r.data;
+        let again = false;
+        if (seedActivityMirror(scope.id, r.data)) {
+          for (const f of mem.pending) {
+            const res = applyLiveActivityFrame(scope.id, f);
+            if (res === "resync" || res === "applied-resync") again = true;
+          }
+          body = activityMirrorBody(scope.id) ?? r.data;
         }
+        commitActivity(get, set, parseActivitySnapshot(body));
+        // A frame meanwhile that doesn't follow on: read once more.
+        if (again) setTimeout(() => void get().refreshActivity(), ACTIVITY_REMOVAL_RESYNC_MS);
       } else if (r.status === 404 && get().activity !== EMPTY_ACTIVITY) {
         // Pre-0.45 server: keep the list plain.
         set({ activity: EMPTY_ACTIVITY });
@@ -1202,7 +1263,39 @@ export const useZenStore = create<ZenState>((set, get) => ({
       /* keep what is on screen */
     } finally {
       mem.inFlight = false;
+      mem.pending = [];
     }
+  },
+  applyActivityFrame: (frame) => {
+    if (get().agentSource !== "live") return;
+    const scope = zenScope();
+    if (!scope.id || scope.id !== activityServer) return;
+    const mem = activityMem.get(scope.id);
+    if (mem.inFlight) {
+      // A snapshot is being read: these apply on top of it.
+      if (mem.pending.length < 500) mem.pending.push(frame);
+      return;
+    }
+    const result = applyLiveActivityFrame(scope.id, frame);
+    if (result === "old") return;
+    if (result === "resync") {
+      void get().refreshActivity();
+      return;
+    }
+    if (result === "applied-resync" && !activityResyncTimer) {
+      activityResyncTimer = setTimeout(() => {
+        activityResyncTimer = null;
+        void get().refreshActivity();
+      }, ACTIVITY_REMOVAL_RESYNC_MS);
+    }
+    if (activityCommitQueued) return;
+    activityCommitQueued = true;
+    nextFrame(() => {
+      activityCommitQueued = false;
+      if (zenId() !== scope.id) return;
+      const body = activityMirrorBody(scope.id);
+      if (body) commitActivity(get, set, parseActivitySnapshot(body));
+    });
   },
   refreshThreadPreviews: async (opts) => {
     if (get().agentSource !== "live") return;
@@ -2301,104 +2394,105 @@ export const useZenStore = create<ZenState>((set, get) => ({
     });
   },
 
-  refreshOpenThread: async () => {
-    // The foreground / catch-up re-read: what changed while away (cards
-    // answered or voided, new messages) — a delta from the newest seq on
-    // screen when the server has one, else the newest page merged.
-    if (get().agentSource === "stub") return;
-    const gen = get().threadGen;
-    const groupId = (get().threadGroupId || "").trim();
-    const addr = get().threadAddr;
-    if (!groupId && !addr) return;
-    const scope = zenScope();
-    const key = threadRoomKey(scope.id, groupId || null, groupId ? null : addr);
-    const still = () =>
-      get().threadGen === gen &&
-      (groupId ? get().threadGroupId === groupId : get().threadAddr === addr);
-    const gone = (msg: string) => {
-      chatCache().forget(key);
-      set({ thread: [], threadCached: false, threadSource: "error", threadError: msg });
-    };
-    if (groupId) {
+  refreshOpenThread: () =>
+    openRefreshFlight.run(async () => {
+      // The foreground / catch-up re-read: what changed while away (cards
+      // answered or voided, new messages) — a delta from the newest seq on
+      // screen when the server has one, else the newest page merged.
+      if (get().agentSource === "stub") return;
+      const gen = get().threadGen;
+      const groupId = (get().threadGroupId || "").trim();
+      const addr = get().threadAddr;
+      if (!groupId && !addr) return;
+      const scope = zenScope();
+      const key = threadRoomKey(scope.id, groupId || null, groupId ? null : addr);
+      const still = () =>
+        get().threadGen === gen &&
+        (groupId ? get().threadGroupId === groupId : get().threadAddr === addr);
+      const gone = (msg: string) => {
+        chatCache().forget(key);
+        set({ thread: [], threadCached: false, threadSource: "error", threadError: msg });
+      };
+      if (groupId) {
+        try {
+          const read = await fetchGroupRead(scope, groupId, {
+            messages: get().thread,
+            conversationId: null,
+          });
+          if (!still()) return;
+          if (!read.ok) {
+            if (read.gone) gone(read.error);
+            return; // keep what is on screen
+          }
+          const cur = get().thread;
+          const incoming = applyGroupRead(cur, read);
+          if (incoming === cur && !get().threadCached) return;
+          const last = incoming[incoming.length - 1];
+          const atKey = lastAtKey(scope.id, "group", groupId);
+          const lastAt = last?.at ?? get().lastAtByKey[atKey] ?? null;
+          set({
+            thread: incoming,
+            threadCached: false,
+            threadSource: "live",
+            threadError: null,
+            ...(read.mode === "replace" ? { threadHasMore: !!read.hasMore } : null),
+            // Same time: the same map, so the lists behind the chat (which
+            // subscribe to it) do not re-render on every group frame.
+            ...(get().lastAtByKey[atKey] === lastAt
+              ? null
+              : { lastAtByKey: { ...get().lastAtByKey, [atKey]: lastAt } }),
+          });
+          get().markGroupSeen(groupId, last?.at ?? null);
+        } catch {
+          /* keep what is on screen */
+        }
+        return;
+      }
+      const a = addr as string;
+      const live = watchLive();
       try {
-        const read = await fetchGroupRead(scope, groupId, {
+        const prevConv = get().threadConversationId;
+        const read = await fetchThreadRead(scope, a, {
           messages: get().thread,
-          conversationId: null,
-        });
+          conversationId: prevConv,
+        }).finally(live.stop);
         if (!still()) return;
         if (!read.ok) {
           if (read.gone) gone(read.error);
           return; // keep what is on screen
         }
-        const cur = get().thread;
-        const incoming = applyGroupRead(cur, read);
-        if (incoming === cur && !get().threadCached) return;
-        const last = incoming[incoming.length - 1];
-        const atKey = lastAtKey(scope.id, "group", groupId);
-        const lastAt = last?.at ?? get().lastAtByKey[atKey] ?? null;
+        if (read.mode === "reset") chatCache().forget(key);
+        const conv = read.conversationId ?? prevConv;
+        const refreshAfter = () => {
+          if (still()) maybeRefreshAttachments(scope, a, key, read.mode);
+        };
+        const thread = applyThreadRead(get().thread, read, {
+          arrivedLive: live.ids,
+          conversationId: prevConv,
+        });
+        if (thread === get().thread && conv === prevConv && !get().threadCached) {
+          refreshAfter();
+          return;
+        }
+        const last = thread[thread.length - 1];
         set({
-          thread: incoming,
+          thread,
           threadCached: false,
           threadSource: "live",
           threadError: null,
-          ...(read.mode === "replace" ? { threadHasMore: !!read.hasMore } : null),
-          // Same time: the same map, so the lists behind the chat (which
-          // subscribe to it) do not re-render on every group frame.
-          ...(get().lastAtByKey[atKey] === lastAt
-            ? null
-            : { lastAtByKey: { ...get().lastAtByKey, [atKey]: lastAt } }),
+          threadConversationId: conv,
+          // Older pages already on screen stay, so their "more" stays —
+          // unless the copy was replaced.
+          ...(read.mode === "replace" || read.mode === "reset" ? { threadHasMore: !!read.hasMore } : null),
+          threadOldestSeq: oldestSeqOf(thread) ?? get().threadOldestSeq,
+          ...threadRowPatch(get(), scope, a, last),
         });
-        get().markGroupSeen(groupId, last?.at ?? null);
+        refreshAfter();
       } catch {
+        live.stop();
         /* keep what is on screen */
       }
-      return;
-    }
-    const a = addr as string;
-    const live = watchLive();
-    try {
-      const prevConv = get().threadConversationId;
-      const read = await fetchThreadRead(scope, a, {
-        messages: get().thread,
-        conversationId: prevConv,
-      }).finally(live.stop);
-      if (!still()) return;
-      if (!read.ok) {
-        if (read.gone) gone(read.error);
-        return; // keep what is on screen
-      }
-      if (read.mode === "reset") chatCache().forget(key);
-      const conv = read.conversationId ?? prevConv;
-      const refreshAfter = () => {
-        if (still()) maybeRefreshAttachments(scope, a, key, read.mode);
-      };
-      const thread = applyThreadRead(get().thread, read, {
-        arrivedLive: live.ids,
-        conversationId: prevConv,
-      });
-      if (thread === get().thread && conv === prevConv && !get().threadCached) {
-        refreshAfter();
-        return;
-      }
-      const last = thread[thread.length - 1];
-      set({
-        thread,
-        threadCached: false,
-        threadSource: "live",
-        threadError: null,
-        threadConversationId: conv,
-        // Older pages already on screen stay, so their "more" stays —
-        // unless the copy was replaced.
-        ...(read.mode === "replace" || read.mode === "reset" ? { threadHasMore: !!read.hasMore } : null),
-        threadOldestSeq: oldestSeqOf(thread) ?? get().threadOldestSeq,
-        ...threadRowPatch(get(), scope, a, last),
-      });
-      refreshAfter();
-    } catch {
-      live.stop();
-      /* keep what is on screen */
-    }
-  },
+    }),
 
   setAgent: (id) => {
     set({

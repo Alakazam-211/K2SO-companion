@@ -107,6 +107,23 @@ describe("connectOverlayEvents", () => {
     h.stop();
   });
 
+  it("the poll backs off 2 → 4 → 8 s (speed PRD A5)", () => {
+    const onNeedCatchUp = vi.fn();
+    const h = connectOverlayEvents({ scope: SCOPE, conversationId: "conv-1", onItem: vi.fn(), onNeedCatchUp });
+    MockWS.last?.close();
+    vi.advanceTimersByTime(2000);
+    MockWS.last?.close();
+    vi.advanceTimersByTime(2000);
+    expect(onNeedCatchUp).toHaveBeenCalledTimes(1);
+    vi.advanceTimersByTime(4000);
+    expect(onNeedCatchUp).toHaveBeenCalledTimes(2);
+    vi.advanceTimersByTime(8000);
+    expect(onNeedCatchUp).toHaveBeenCalledTimes(3);
+    vi.advanceTimersByTime(8000);
+    expect(onNeedCatchUp).toHaveBeenCalledTimes(4);
+    h.stop();
+  });
+
   describe("viewing frames", () => {
     const frames = (ws: MockWS) => ws.sent.map((f) => JSON.parse(f));
     const handle = () =>
