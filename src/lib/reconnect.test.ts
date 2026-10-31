@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   RECONNECT_BASE_MS,
   RECONNECT_CAP_MS,
+  jittered,
   reconnectDelayMs,
 } from "./reconnect";
 
@@ -14,5 +15,13 @@ describe("reconnectDelayMs", () => {
     expect(reconnectDelayMs(5)).toBe(RECONNECT_CAP_MS);
     expect(reconnectDelayMs(100)).toBe(RECONNECT_CAP_MS);
     expect(reconnectDelayMs(-3)).toBe(RECONNECT_BASE_MS);
+  });
+});
+
+describe("jittered (speed PRD A6)", () => {
+  it("spreads a delay over [ms/2, ms]", () => {
+    expect(jittered(4000, () => 0)).toBe(2000);
+    expect(jittered(4000, () => 1)).toBe(4000);
+    expect(jittered(4000, () => 0.5)).toBe(3000);
   });
 });

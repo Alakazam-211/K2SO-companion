@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   DIAL_BACKOFF_MS,
   HANDSHAKE_TIMEOUT_MS,
+  SLOW_HANDSHAKE_TIMEOUT_MS,
   __resetDialQueueForTests,
   dialBackoffRemainingMs,
   dialsInFlight,
@@ -117,5 +118,22 @@ describe("dial queue", () => {
     Sock.all[0].open();
     expect(Sock.all).toHaveLength(2);
     expect(dialsWaiting()).toBe(0);
+  });
+});
+
+describe("slow links (speed PRD A5)", () => {
+  it("after a grid handshake times out, that server's next grid dials get 10 s", () => {
+    dial("b", { failOnTimeout: true });
+    vi.advanceTimersByTime(HANDSHAKE_TIMEOUT_MS);
+    expect(dialsInFlight("b")).toBe(0);
+    dial("b", { failOnTimeout: true });
+    vi.advanceTimersByTime(HANDSHAKE_TIMEOUT_MS);
+    expect(dialsInFlight("b")).toBe(1); // still waiting on a slow link
+    vi.advanceTimersByTime(SLOW_HANDSHAKE_TIMEOUT_MS - HANDSHAKE_TIMEOUT_MS);
+    expect(dialsInFlight("b")).toBe(0);
+    // Other servers keep the normal timeout.
+    dial("c", { failOnTimeout: true });
+    vi.advanceTimersByTime(HANDSHAKE_TIMEOUT_MS);
+    expect(dialsInFlight("c")).toBe(0);
   });
 });

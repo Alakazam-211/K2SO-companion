@@ -8,8 +8,12 @@ import { inBackground, onAppLifecycle } from "../lib/appLifecycle";
 import { revive } from "../lib/revive";
 import { overlayEventsUrl } from "./threadLive";
 import { openSocket } from "../lib/netStats";
+import { jittered, STABLE_OPEN_MS } from "../lib/reconnect";
 
 export const OVERLAY_POLL_MS = 2000;
+/** Speed PRD A5: the poll that stands in for a socket that won't open
+ *  backs off 2 → 4 → 8 s (it was ~1 request a second on a bad link). */
+export const OVERLAY_POLL_MAX_MS = 8000;
 const SLOW_RETRY_MS = 60_000;
 /** Overlay reconnect backoff (MA14): 1 s doubling to 15 s. */
 export const OVERLAY_BACKOFF_BASE_MS = 1000;
@@ -62,6 +66,8 @@ export function connectOverlayEvents(opts: {
   let ws: WebSocket | null = null;
   let handshakeFails = 0;
   let reconnectAttempt = 0;
+  /** When the current socket opened (0 = not open). */
+  let openedAt = 0;
   let everOpened = false;
   let pollTimer: ReturnType<typeof setTimeout> | null = null;
   let wsTimer: ReturnType<typeof setTimeout> | null = null;
@@ -106,14 +112,16 @@ export function connectOverlayEvents(opts: {
 
   function startPoll() {
     if (stopped || pollTimer) return;
+    let delay = OVERLAY_POLL_MS;
     const tick = () => {
       if (stopped) return;
       if (typeof document === "undefined" || document.visibilityState !== "hidden") {
         opts.onNeedCatchUp();
       }
-      pollTimer = setTimeout(tick, OVERLAY_POLL_MS);
+      delay = Math.min(OVERLAY_POLL_MAX_MS, delay * 2);
+      pollTimer = setTimeout(tick, delay);
     };
-    pollTimer = setTimeout(tick, OVERLAY_POLL_MS);
+    pollTimer = setTimeout(tick, delay);
   }
 
   function schedule(delay: number) {
@@ -208,8 +216,8 @@ export function connectOverlayEvents(opts: {
     sock.onopen = () => {
       if (stopped || ws !== sock) return;
       opened = true;
+      openedAt = Date.now();
       handshakeFails = 0;
-      reconnectAttempt = 0;
       const catchUp = everOpened || !!pollTimer;
       if (everOpened) emitServerSignal(opts.scope.id, "reopened");
       stopPoll();
@@ -247,7 +255,7 @@ export function connectOverlayEvents(opts: {
           schedule(SLOW_RETRY_MS);
           return;
         }
-        schedule(overlayBackoffMs(handshakeFails));
+        schedule(jittered(overlayBackoffMs(handshakeFails)));
         return;
       }
       if (e?.code === 1005) {
@@ -260,7 +268,10 @@ export function connectOverlayEvents(opts: {
           return;
         }
       }
-      schedule(overlayBackoffMs(reconnectAttempt++));
+      // Open long enough to count as healthy: the backoff starts over.
+      if (openedAt && Date.now() - openedAt >= STABLE_OPEN_MS) reconnectAttempt = 0;
+      openedAt = 0;
+      schedule(jittered(overlayBackoffMs(reconnectAttempt++)));
     };
     sock.onerror = () => {
       sock.close();

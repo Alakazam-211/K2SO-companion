@@ -20,6 +20,12 @@
 export const MAX_DIALS_PER_SERVER = 2;
 export const MAX_DIALS_TOTAL = 4;
 export const HANDSHAKE_TIMEOUT_MS = 4_000;
+/** Speed PRD A5: after a grid handshake on a server timed out, that
+ *  server's next grid handshakes get this long (a 600 ms link through
+ *  Cloudflare can need more than 4 s), for SLOW_LINK_MEMORY_MS. */
+export const SLOW_HANDSHAKE_TIMEOUT_MS = 10_000;
+export const SLOW_LINK_MEMORY_MS = 5 * 60_000;
+const slowUntil = new Map<string, number>();
 export const FAIL_BURST_WINDOW_MS = 3_000;
 export const FAIL_BURST_COUNT = 3;
 export const DIAL_BACKOFF_MS = 8_000;
@@ -147,7 +153,14 @@ function begin(
   };
   const onOpen = () => settle(false);
   const onFail = () => settle(true);
-  const timer = setTimeout(() => settle(failOnTimeout), HANDSHAKE_TIMEOUT_MS);
+  const slow = (slowUntil.get(key) ?? 0) > Date.now();
+  const timer = setTimeout(
+    () => {
+      if (failOnTimeout) slowUntil.set(key, Date.now() + SLOW_LINK_MEMORY_MS);
+      settle(failOnTimeout);
+    },
+    failOnTimeout && slow ? SLOW_HANDSHAKE_TIMEOUT_MS : HANDSHAKE_TIMEOUT_MS
+  );
   sock.addEventListener("open", onOpen);
   sock.addEventListener("error", onFail);
   sock.addEventListener("close", onFail);
@@ -191,6 +204,7 @@ export function dialsWaiting(): number {
 
 /** Tests only. */
 export function __resetDialQueueForTests(): void {
+  slowUntil.clear();
   total = 0;
   for (const st of servers.values()) if (st.wakeTimer) clearTimeout(st.wakeTimer);
   servers.clear();

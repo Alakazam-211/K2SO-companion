@@ -571,7 +571,7 @@ export function TerminalView({
   // Live grid stream via the daemon grid-WS.
   useEffect(() => {
     if (gridDial === null) return;
-    let polling: ReturnType<typeof setInterval> | null = null;
+    let polling: ReturnType<typeof setTimeout> | null = null;
     let lastText = "";
     let lastHttpRows: RenderRun[][] = [];
     let loadingContent = false;
@@ -938,11 +938,21 @@ export function TerminalView({
 
     // If the WS hasn't produced a frame shortly after connect, fall back
     // to HTTP polling so the user still sees content on WS-restricted
-    // platforms. Cleared automatically once a frame arrives.
+    // platforms. Speed PRD A5: it backs off 2 → 4 → 8 s, skips while the
+    // app is hidden, and stops for good once the grid has painted (it
+    // used to tick every 2 s until the terminal closed).
+    let pollDelay = 2000;
+    const pollTick = () => {
+      polling = null;
+      if (liveRef.current) return;
+      if (typeof document === "undefined" || document.visibilityState !== "hidden") void loadContent();
+      pollDelay = Math.min(8000, pollDelay * 2);
+      polling = setTimeout(pollTick, pollDelay);
+    };
     const fallbackTimer = setTimeout(() => {
       if (!gridSock.isOpen && !scrollbackLoadedRef.current) {
-        loadContent();
-        polling = setInterval(loadContent, 2000);
+        void loadContent();
+        polling = setTimeout(pollTick, pollDelay);
       }
     }, 1500);
 
@@ -970,7 +980,7 @@ export function TerminalView({
       setPendingResize(null);
       clearTimeout(fallbackTimer);
       gridSock.close();
-      if (polling) clearInterval(polling);
+      if (polling) clearTimeout(polling);
       coalescerRef.current = null;
       // Cancels any scheduled rAF flush and drops queued frames —
       // nobody left to render them.
