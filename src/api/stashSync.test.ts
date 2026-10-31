@@ -6,6 +6,7 @@ import {
   parseStashFrame,
   parseStashPull,
   parseStashPush,
+  stashFitsServer,
   stashPushBatches,
 } from "./stashSync";
 import { makeStashItem } from "../zen/stash/stashModel";
@@ -43,6 +44,23 @@ describe("stash-sync-v1 wire", () => {
     expect(batches.length).toBeGreaterThan(1);
     for (const b of batches) expect(JSON.stringify(b).length).toBeLessThan(4 * 1024 * 1024);
     expect(batches.flat()).toHaveLength(40);
+  });
+
+  it("measures pushes in UTF-8 bytes", () => {
+    // 3 bytes a character: 40 × 90 000 characters is ~10.8 MB of UTF-8.
+    const big = Array.from({ length: 40 }, () => makeStashItem({ text: "€".repeat(90_000) }));
+    for (const b of stashPushBatches(big)) {
+      expect(new TextEncoder().encode(JSON.stringify(b)).length).toBeLessThan(4 * 1024 * 1024);
+    }
+  });
+
+  it("a record fits the server's limits: 20 000 characters (Unicode), 10 files, 20 quotes, 128 KiB", () => {
+    expect(stashFitsServer(makeStashItem({ text: "x".repeat(20_000) }))).toBe(true);
+    expect(stashFitsServer(makeStashItem({ text: "x".repeat(20_001) }))).toBe(false);
+    // 20 000 emoji are 40 000 UTF-16 units but 20 000 characters (and under 128 KiB).
+    expect(stashFitsServer(makeStashItem({ text: "😀".repeat(20_000) }))).toBe(true);
+    const file = { id: "f", name: "a", type: "text/plain", size: 1, device_id: "d", path: null };
+    expect(stashFitsServer(makeStashItem({ text: "a", attachments: Array.from({ length: 11 }, (_, i) => ({ ...file, id: `f${i}` })) }))).toBe(false);
   });
 
   it("stash_changed reaches listeners with its cursor; other frames don't", () => {

@@ -80,13 +80,33 @@ export function pushStash(scope: ServerScope, deviceId: string, changes: StashIt
   return syncCall(scope, "/cli/me/stash/push", parseStashPush, { method: "POST", body: { deviceId, changes } });
 }
 
+/** A record's limits on the server (§ Records): text ≤ 20 000
+ *  characters, ≤ 10 attachments, ≤ 20 quotes, ≤ 128 KiB. A record over
+ *  them stays on this device and is not sent. */
+export const STASH_RECORD_MAX_TEXT = 20_000;
+export const STASH_RECORD_MAX_ATTACHMENTS = 10;
+export const STASH_RECORD_MAX_QUOTES = 20;
+export const STASH_RECORD_MAX_BYTES = 128 * 1024;
+
+const utf8 = (v: unknown) => new TextEncoder().encode(JSON.stringify(v)).length;
+
+export function stashFitsServer(item: StashItem): boolean {
+  return (
+    // Unicode scalars, as the server counts (a UTF-16 length is never less).
+    (item.text.length <= STASH_RECORD_MAX_TEXT || [...item.text].length <= STASH_RECORD_MAX_TEXT) &&
+    item.attachments.length <= STASH_RECORD_MAX_ATTACHMENTS &&
+    item.quotes.length <= STASH_RECORD_MAX_QUOTES &&
+    utf8(item) <= STASH_RECORD_MAX_BYTES
+  );
+}
+
 /** Split records into pushes under the limits (§5), in order. */
 export function stashPushBatches(records: StashItem[]): StashItem[][] {
   const out: StashItem[][] = [];
   let batch: StashItem[] = [];
   let bytes = 0;
   for (const r of records) {
-    const size = JSON.stringify(r).length;
+    const size = utf8(r);
     if (batch.length && (batch.length >= STASH_PUSH_MAX_RECORDS || bytes + size > STASH_PUSH_MAX_BYTES)) {
       out.push(batch);
       batch = [];

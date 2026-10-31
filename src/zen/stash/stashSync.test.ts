@@ -42,6 +42,8 @@ function fakeServer() {
   const rows = new Map<string, { item: StashItem; seq: number }>();
   let cursor = 0;
   const registered = new Set<string>();
+  /** Record id → a reason this server refuses it with. */
+  const refuse = new Map<string, string>();
   const live = () => [...rows.values()].filter((r) => r.item.deleted_at == null).length;
   const store = (item: StashItem, by: string) => {
     cursor += 1;
@@ -51,6 +53,7 @@ function fakeServer() {
   return {
     rows,
     registered,
+    refuse,
     get cursor() {
       return cursor;
     },
@@ -78,6 +81,11 @@ function fakeServer() {
       // Tombstones first.
       const ordered = [...changes].sort((a, b) => Number(b.deleted_at != null) - Number(a.deleted_at != null));
       for (const c of ordered) {
+        const why = refuse.get(c.id);
+        if (why) {
+          rejected.push({ id: c.id, reason: why });
+          continue;
+        }
         const cur = rows.get(c.id)?.item;
         const sent = { ...c, updated_by: device };
         if (cur && !stashWins(sent, cur)) {
@@ -305,6 +313,98 @@ describe("stash sync", () => {
     expect(sent.attachments).toEqual([expect.objectContaining({ name: "a.txt", device_id: "phone-1", path: null })]);
     expect(sent.updated_at).toBe(pre.updated_at);
     expect(st().items[0].attachments[0].device_id).toBe("phone-1");
+  });
+
+  it("files saved before sync are claimed even when a save started the sync data first", async () => {
+    // Home sync points at a server that doesn't list stash sync yet.
+    api.boot.mockResolvedValue({ features: ["homes-sync-v1"], featuresKnown: true });
+    await st().save({ text: "old", files: [new File(["x"], "a.txt")] });
+    const pre = st().items[0];
+    useStashStore.setState({
+      items: [{ ...pre, attachments: pre.attachments.map((a) => ({ ...a, device_id: null, path: null })) }],
+    });
+    homeSyncOn();
+    await flush();
+    await st().save({ text: "newer" });
+    await flush(PUSH_DEBOUNCE_MS);
+    expect(__stashSyncMeta()?.serverId).toBe("srv");
+    // The server turns stash sync on.
+    api.boot.mockResolvedValue({ features: ["homes-sync-v1", "stash-sync-v1"], featuresKnown: true });
+    await syncStashNow();
+    const sent = [...srv.rows.values()].find((r) => r.item.text === "old")!.item;
+    expect(sent.attachments[0]).toMatchObject({ device_id: "phone-1", path: null });
+    expect(__stashSyncMeta()?.claim).toEqual([]);
+  });
+
+  it("a record the server refuses stays here, not synced, through a full pull", async () => {
+    const r = await st().save({ text: "refused here" });
+    expect(r).toBe("saved");
+    const id = st().items[0].id;
+    srv.refuse.set(id, "invalid");
+    homeSyncOn();
+    await syncStashNow();
+    expect(texts()).toEqual(["refused here"]);
+    expect(useStashSyncStore.getState().unsynced[id]).toBe("invalid");
+    // Another full pull later keeps it too.
+    __resetStashSyncForTests();
+    localStorage.setItem(STASH_SYNC_KEY, JSON.stringify({ ...__stashSyncMeta(), cursor: null }));
+    __resetStashSyncForTests();
+    startStashSync();
+    await syncStashNow();
+    expect(texts()).toEqual(["refused here"]);
+  });
+
+  it("a record over the server's limits is never sent and stays here", async () => {
+    await st().save({ text: "x".repeat(20_001) });
+    const id = st().items[0].id;
+    homeSyncOn();
+    await syncStashNow();
+    const sentIds = api.push.mock.calls.flatMap((c) => (c[2] as StashItem[]).map((i) => i.id));
+    expect(sentIds).not.toContain(id);
+    expect(texts()).toHaveLength(1);
+    expect(useStashSyncStore.getState().unsynced[id]).toBe("too_large");
+    // Deleting it sends the (small) tombstone.
+    await st().remove(id);
+    await syncStashNow();
+    expect(api.push.mock.calls.flatMap((c) => (c[2] as StashItem[]).map((i) => i.id))).toContain(id);
+    expect(useStashSyncStore.getState().unsynced).toEqual({});
+  });
+
+  it("a save that lands while a pull is merging still goes up", async () => {
+    homeSyncOn();
+    await syncStashNow();
+    srv.seed(makeStashItem({ text: "from desk", now: Date.now() - 1, by: "mac-1" }));
+    // "B" finishes saving between the pull and the merge's end.
+    const orig = st().applySynced;
+    useStashStore.setState({
+      applySynced: async (arg: Parameters<typeof orig>[0]) => {
+        await st().save({ text: "B" });
+        return orig(arg);
+      },
+    });
+    await syncStashNow();
+    useStashStore.setState({ applySynced: orig });
+    const b = liveStash(st().items).find((i) => i.text === "B")!;
+    expect(__stashSyncMeta()?.outbox).toContain(b.id);
+    await syncStashNow();
+    expect(serverTexts()).toEqual(["B", "from desk"]);
+  });
+
+  it("a record refused as full still goes again when the push after a local change fails", async () => {
+    await st().save({ text: "capped" });
+    const id = st().items[0].id;
+    srv.refuse.set(id, "cap_reached");
+    homeSyncOn();
+    await syncStashNow();
+    expect(useStashSyncStore.getState().unsynced[id]).toBe("cap_reached");
+    // A delete elsewhere made room; a local save here, but its push fails.
+    srv.refuse.clear();
+    await st().save({ text: "another" });
+    api.push.mockResolvedValueOnce({ ok: false, kind: "offline", error: "offline" });
+    await syncStashNow();
+    await syncStashNow();
+    expect(serverTexts()).toEqual(["another", "capped"]);
+    expect(useStashSyncStore.getState().unsynced).toEqual({});
   });
 
   it("a pulled record's unnamed files are never claimed by this phone", async () => {
