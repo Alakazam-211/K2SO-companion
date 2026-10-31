@@ -119,6 +119,9 @@ describe("activity from hub frames (speed PRD A2)", () => {
     expect(getActivitySnapshot).toHaveBeenCalledTimes(2);
     useZenStore.getState().applyActivityFrame(frame(21, "idle", { instanceId: "i2" }));
     await flushFrame();
+    // Re-reads are at least 2 s apart.
+    expect(getActivitySnapshot).toHaveBeenCalledTimes(2);
+    await new Promise((r) => setTimeout(r, 2050));
     expect(getActivitySnapshot).toHaveBeenCalledTimes(3);
   });
 

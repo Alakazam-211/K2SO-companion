@@ -472,7 +472,10 @@ class K2PushPlugin: Plugin {
           DispatchQueue.main.async { completion(.newData) }
           return
         }
-        K2DeliveredClear.clear(server: server, op: op) { removed in
+        // iOS can deliver a silent push late: a notification that arrived
+        // in the last few seconds may be newer than the state this push
+        // describes, so it stays (the next open's summary judges it).
+        K2DeliveredClear.clear(server: server, op: op, before: Date().addingTimeInterval(-K2PushPlugin.silentClearMarginSecs)) { removed in
           if removed > 0 { pushLog("cleared \(removed) read notification(s)") }
           DispatchQueue.main.async { completion(.newData) }
         }
@@ -678,6 +681,10 @@ class K2PushPlugin: Plugin {
     pushLog("hooks installed: \(hookDescription)")
     return true
   }
+
+  /** A silent push clears only notifications delivered at least this long
+   *  before it arrived (a late push must not clear a newer alert). */
+  static let silentClearMarginSecs: TimeInterval = 10
 
   private static var originalSuccessImp: IMP?
   private static var originalFailureImp: IMP?

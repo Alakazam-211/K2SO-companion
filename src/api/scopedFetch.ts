@@ -67,6 +67,7 @@ export function priorityOf(path: string): HttpPriority {
 }
 
 export const NOT_CONNECTED = "Not connected";
+const TIMED_OUT = "Request timed out";
 
 /** Build `<base><path>?<query>`. */
 export function buildScopedUrl(base: string, path: string, query?: Record<string, string>): string {
@@ -94,34 +95,49 @@ export async function scopedFetch(
   const timeoutMs = opts.timeoutMs ?? 15000;
 
   // MS26: at most 4 requests in flight per server; the timeout starts
-  // once this request holds a slot. A timeout aborts the request (A4), so
-  // it gives its connection back instead of running on past its slot.
+  // once this request holds a slot. A4: a timeout before the response's
+  // headers aborts the request, so it gives its connection back instead of
+  // running on past its slot. The body read is not timed (as before): a
+  // slow but live download (a big attachment on cellular) finishes.
   const attempt = (): Promise<RawResponse> =>
     withHttpSlot(scope.id, async () => {
       const token = opts.auth === false ? "" : scope.token();
-      let timer: ReturnType<typeof setTimeout> | null = null;
-      const abort = typeof AbortController === "function" ? new AbortController() : null;
+      const send = async (): Promise<Response> => {
+        let timer: ReturnType<typeof setTimeout> | null = null;
+        const abort = typeof AbortController === "function" ? new AbortController() : null;
+        try {
+          return await Promise.race([
+            tauriFetch(url, {
+              method: opts.method || "GET",
+              headers: cliAuthHeaders(token),
+              body: opts.body || undefined,
+              ...(abort ? { signal: abort.signal } : {}),
+            }),
+            new Promise<never>((_, reject) => {
+              timer = setTimeout(() => {
+                abort?.abort();
+                reject(new Error(TIMED_OUT));
+              }, timeoutMs);
+            }),
+          ]);
+        } finally {
+          if (timer) clearTimeout(timer);
+        }
+      };
+      let res: Response;
       try {
-        const res = await Promise.race([
-          tauriFetch(url, {
-            method: opts.method || "GET",
-            headers: cliAuthHeaders(token),
-            body: opts.body || undefined,
-            ...(abort ? { signal: abort.signal } : {}),
-          }),
-          new Promise<never>((_, reject) => {
-            timer = setTimeout(() => {
-              abort?.abort();
-              reject(new Error("Request timed out"));
-            }, timeoutMs);
-          }),
-        ]);
-        const header = (name: string) => res.headers?.get?.(name) ?? "";
-        const via = [header("server"), header("cf-ray") ? "cloudflare" : ""].filter(Boolean).join(", ");
-        return { status: res.status, ok: res.ok, text: await res.text(), contentType: header("content-type"), via };
-      } finally {
-        if (timer) clearTimeout(timer);
+        res = await send();
+      } catch (e) {
+        // A kept-alive connection the tunnel already closed (the phone
+        // slept past its idle time) fails at once: a GET goes again, once,
+        // on a fresh connection. Never a POST (it may have landed).
+        const method = (opts.method || "GET").toUpperCase();
+        if (method !== "GET" || (e instanceof Error && e.message === TIMED_OUT)) throw e;
+        res = await send();
       }
+      const header = (name: string) => res.headers?.get?.(name) ?? "";
+      const via = [header("server"), header("cf-ray") ? "cloudflare" : ""].filter(Boolean).join(", ");
+      return { status: res.status, ok: res.ok, text: await res.text(), contentType: header("content-type"), via };
     }, opts.priority ?? priorityOf(path));
 
   let out = await attempt();
