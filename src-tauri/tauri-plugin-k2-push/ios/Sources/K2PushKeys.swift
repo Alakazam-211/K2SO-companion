@@ -251,7 +251,7 @@ public enum K2PushKeys {
   /// sealed `kid` and `srv.sub` must agree with it.
   public static func open(e2e: String, kind: K2PushKind) -> Result<Opened, OpenFailure> {
     guard let all = all() else { return .failure(.locked) }
-    guard e2e.count == (kind == .alert ? 2159 : 452), let blob = K2PushCrypto.base64url(e2e) else {
+    guard kind.format(base64Chars: e2e.count) != nil, let blob = K2PushCrypto.base64url(e2e) else {
       return .failure(.noKey)
     }
     for r in all.sorted(by: { $0.createdAt > $1.createdAt }) {

@@ -45,6 +45,8 @@ export function sameMessage(a: ThreadMessage, b: ThreadMessage): boolean {
     a.kind === b.kind &&
     !!a.pending === !!b.pending &&
     !!a.failed === !!b.failed &&
+    !!a.provisional === !!b.provisional &&
+    !!a.partial === !!b.partial &&
     (a.readSeq ?? null) === (b.readSeq ?? null) &&
     sameChoice(a.choice, b.choice) &&
     attachmentsKey(a.files) === attachmentsKey(b.files)
@@ -165,11 +167,13 @@ export function cacheSlice(
   return { messages: settled.slice(settled.length - max), truncated: true };
 }
 
-/** Newest server seq in `thread` (delta cursor), else null. */
+/** Newest server seq in `thread` (delta cursor), else null. A message
+ *  that came in a push isn't confirmed yet: counting it would skip any
+ *  message before it that the push didn't carry. */
 export function newestSeq(thread: ThreadMessage[], field: "seq" | "readSeq" = "seq"): number | null {
   let best: number | null = null;
   for (const m of thread) {
-    if (local(m)) continue;
+    if (local(m) || m.provisional) continue;
     const s = field === "readSeq" ? m.readSeq : m.seq;
     if (typeof s !== "number" || !Number.isFinite(s)) continue;
     if (best == null || s > best) best = s;

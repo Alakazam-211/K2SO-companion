@@ -28,6 +28,7 @@ import {
 } from "../stores/pushPreviews";
 import {
   FEATURE_PUSH_E2E,
+  FEATURE_PUSH_E2E_V2,
   e2eCapablePlatform,
   e2eField,
   e2eForget,
@@ -303,7 +304,8 @@ async function sealedRegistration(scope: ServerScope, reg: DeviceReg): Promise<S
   const rotate = !!book.rotate[scope.id];
   const key = await e2eKey(scope.id, label, rotate);
   if (!key) return null;
-  return { deviceId: key.deviceId, label, field: e2eField(key), rotated: rotate };
+  const v = scope.supports(FEATURE_PUSH_E2E_V2) ? 2 : 1;
+  return { deviceId: key.deviceId, label, field: e2eField(key, v), rotated: rotate };
 }
 
 /** After a sealed registration: the install-wide row goes, the

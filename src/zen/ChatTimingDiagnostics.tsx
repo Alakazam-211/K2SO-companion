@@ -1,6 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { chatCache } from "./chatCache";
 import { chatOpenTimings, subscribeChatTimings, type ChatOpenTiming } from "./chatTiming";
+import { pushInboxStats, subscribePushInboxStats, type PushInboxStats } from "../lib/pushInbox";
 
 const MUTED = "#8e8e93";
 
@@ -32,6 +33,28 @@ function size(bytes: number | null): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+/** Messages from pushes this run (every server): how many reached their
+ *  chats, and why the rest didn't. */
+export function pushInboxLine(s: PushInboxStats): string {
+  if (!s.drains) return "Messages from pushes: none yet this session.";
+  const why = (
+    [
+      ["notCached", "chat not on this phone"],
+      ["notText", "card or not text"],
+      ["noServer", "server unclear"],
+      ["otherConversation", "older conversation"],
+      ["alreadyThere", "already there"],
+    ] as const
+  )
+    .filter(([k]) => s.skipped[k] > 0)
+    .map(([k, label]) => `${s.skipped[k]} ${label}`);
+  return (
+    `Messages from pushes: ${s.received} received · ${s.landed} added to chats` +
+    (s.partial ? ` (${s.partial} cut short)` : "") +
+    (why.length ? ` · skipped: ${why.join(", ")}` : "")
+  );
+}
+
 /** One line per open: what was painted from cache and when the server
  *  answered. */
 export function timingLine(t: ChatOpenTiming): string {
@@ -55,6 +78,7 @@ export function ChatTimingRow({ serverId }: { serverId: string }) {
   const all = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
   const rows = all.filter((t) => t.serverId === serverId).slice(0, 12);
   const [stats, setStats] = useState<string | null>(null);
+  const inbox = useSyncExternalStore(subscribePushInboxStats, pushInboxStats, pushInboxStats);
   useEffect(() => {
     if (!open) return;
     let live = true;
@@ -104,6 +128,9 @@ export function ChatTimingRow({ serverId }: { serverId: string }) {
           data-testid="server-settings-chat-timing-panel"
         >
           {stats ? <div style={{ marginBottom: 6 }}>{stats}</div> : null}
+          <div style={{ marginBottom: 6 }} data-testid="push-inbox-stats">
+            {pushInboxLine(inbox)}
+          </div>
           {rows.length === 0 ? (
             <span>No chats opened on this server yet.</span>
           ) : (

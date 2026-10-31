@@ -96,6 +96,10 @@ export const DAEMON_FEATURES = [
   // K2 0.46.3: end-to-end encrypted pushes (register-device `e2e`, sealed
   // alerts and nudges). Read by lib/pushE2e (iOS); absent → today's pushes.
   "push-e2e-v1",
+  // K2 0.46.7: format 2, the bigger sealed buckets (alert 2880, nudge
+  // 1024). Read by lib/pushE2e (register `e2e.v: 2`; an older daemon
+  // answers 400 to it); the NSE opens both formats either way.
+  "push-e2e-v2",
   // K2 0.46.3 (Beta, server switch): permission cards. Read by the Thread
   // reads and sockets (`cards=2`) and the card renderer; absent → nothing
   // new is sent or drawn (the daemon's text fallback renders as today).

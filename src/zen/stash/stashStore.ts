@@ -8,12 +8,15 @@ import {
   newStashId,
   oldestLive,
   stashIsFull,
+  stashWins,
   tombstone,
+  type StashAttachment,
   type StashItem,
   type StashQuote,
   type StashSource,
 } from "./stashModel";
 import { indexedDbStashBackend, type StashBackend, type StashBlob } from "./stashBackend";
+import { homesDeviceId, loadHomesDevices, useHomesSyncStore } from "../homesSync";
 
 // The person's prompt stash on this device (stashModel has the spec).
 // Every write goes to storage before the caller is told "saved", so a
@@ -44,8 +47,57 @@ export type StashSaveInput = {
 /** `full`: the cap is reached; ask, then save with `replaceOldest`. */
 export type StashSaveResult = "saved" | "full" | "empty" | "error";
 
-/** A stash's content for a composer; `missing` files could not be read. */
-export type StashTaken = { text: string; files: File[]; quotes: StashQuote[]; missing: number };
+/** A stash's content for a composer; `missing` files are not here:
+ *  saved on another device (`elsewhere`, synced), or their bytes could
+ *  not be read. */
+export type StashTaken = { text: string; files: File[]; quotes: StashQuote[]; missing: StashMissingFile[] };
+export type StashMissingFile = StashAttachment & { elsewhere: boolean };
+
+/** Device id → name from the Homes-sync device list (the one source of
+ *  device names; they can be renamed), read once when not loaded yet.
+ *  Empty when Home sync is off or the list can't be read. */
+export async function stashDeviceNames(): Promise<Map<string, string>> {
+  const serverId = useHomesSyncStore.getState().serverId;
+  if (!serverId) return new Map();
+  if (!useHomesSyncStore.getState().devices[serverId]) {
+    try {
+      await loadHomesDevices(serverId);
+    } catch {
+      /* "another device" */
+    }
+  }
+  const list = useHomesSyncStore.getState().devices[serverId] ?? [];
+  return new Map(list.map((d) => [d.deviceId, d.name]));
+}
+
+/** This phone's device id (the Homes-sync one), or null if unknown. */
+async function thisDevice(): Promise<string | null> {
+  try {
+    return await homesDeviceId();
+  } catch {
+    return null;
+  }
+}
+
+/** Records changed on this phone (saves, deletes): the sync engine
+ *  queues them for the server. */
+type LocalChangeListener = (ids: string[]) => void;
+const localChangeListeners = new Set<LocalChangeListener>();
+export function onStashLocalChange(fn: LocalChangeListener): () => void {
+  localChangeListeners.add(fn);
+  return () => {
+    localChangeListeners.delete(fn);
+  };
+}
+function changedHere(ids: string[]): void {
+  for (const fn of [...localChangeListeners]) {
+    try {
+      fn(ids);
+    } catch {
+      /* sync never breaks a save */
+    }
+  }
+}
 
 type StashState = {
   items: StashItem[];
@@ -60,6 +112,13 @@ type StashState = {
    *  setting says so), or null when it is gone. */
   take: (id: string) => Promise<StashTaken | null>;
   setRemoveAfterUse: (on: boolean) => void;
+  /** Sync: store the merge winners and drop records the server no longer
+   *  holds, with the bytes of this phone's files they no longer name. */
+  applySynced: (change: { put: StashItem[]; drop: string[] }) => Promise<void>;
+  /** Sync: name this device on files saved before sync (no device_id) in
+   *  `ids`, before they first go up; otherwise other devices would read
+   *  them as their own (stash-sync-v1 §8). Not an edit: updated_at stays. */
+  claimFiles: (deviceId: string, ids: readonly string[]) => Promise<void>;
 };
 
 let backend: StashBackend | null | undefined;
@@ -132,6 +191,7 @@ export const useStashStore = create<StashState>((set, get) => ({
     await get().hydrate();
     const b = store();
     if (!get().hydrated || !b) return "error";
+    const device = await thisDevice();
     return serial(async () => {
       const replacing = stashIsFull(get().items) ? oldestLive(get().items) : null;
       if (replacing && !opts?.replaceOldest) return "full" as const;
@@ -141,15 +201,24 @@ export const useStashStore = create<StashState>((set, get) => ({
           text: input.text,
           quotes: input.quotes,
           source: input.source,
-          attachments: blobs.map((x, i) => ({ id: x.id, name: x.name, type: x.type, size: files[i].size })),
+          by: device,
+          attachments: blobs.map((x, i) => ({
+            id: x.id,
+            name: x.name,
+            type: x.type,
+            size: files[i].size,
+            device_id: device,
+            path: null,
+          })),
         });
-        const dead = replacing ? tombstone(replacing) : null;
+        const dead = replacing ? tombstone(replacing, Date.now(), device) : null;
         await b.write({
           put: dead ? [item, dead] : [item],
           putBlobs: blobs,
           deleteBlobs: replacing ? replacing.attachments.map((a) => a.id) : [],
         });
         set({ items: [...get().items.map((i) => (dead && i.id === dead.id ? dead : i)), item] });
+        changedHere(dead ? [dead.id, item.id] : [item.id]);
         return "saved" as const;
       } catch (e) {
         console.warn("[stash] save failed:", e);
@@ -158,40 +227,91 @@ export const useStashStore = create<StashState>((set, get) => ({
     });
   },
 
-  remove: (id) =>
-    serial(async () => {
+  remove: async (id) => {
+    const device = await thisDevice();
+    return serial(async () => {
       const item = liveStash(get().items).find((i) => i.id === id);
       const b = store();
       if (!item || !b) return;
-      const dead = tombstone(item);
+      const dead = tombstone(item, Date.now(), device);
       try {
         await b.write({ put: [dead], deleteBlobs: item.attachments.map((a) => a.id) });
         set({ items: get().items.map((i) => (i.id === id ? dead : i)) });
+        changedHere([id]);
       } catch (e) {
         console.warn("[stash] delete failed:", e);
       }
-    }),
+    });
+  },
 
   take: async (id) => {
     const item = liveStash(get().items).find((i) => i.id === id);
     if (!item) return null;
-    let files: File[] = [];
-    if (item.attachments.length) {
+    // Only this phone's files have bytes here (no device id: saved
+    // before sync, so here too).
+    const device = item.attachments.length ? await thisDevice() : null;
+    const local = item.attachments.filter((a) => a.device_id == null || a.device_id === device);
+    const byId = new Map<string, StashBlob>();
+    if (local.length) {
       try {
-        const blobs = (await store()?.getBlobs(item.attachments.map((a) => a.id))) ?? [];
-        const byId = new Map(blobs.map((x) => [x.id, x]));
-        files = item.attachments.flatMap((a) => {
-          const x = byId.get(a.id);
-          return x ? [new File([x.buf], a.name, { type: a.type })] : [];
-        });
+        for (const x of (await store()?.getBlobs(local.map((a) => a.id))) ?? []) byId.set(x.id, x);
       } catch (e) {
         console.warn("[stash] attachments unreadable:", e);
       }
     }
-    const taken = { text: item.text, files, quotes: item.quotes, missing: item.attachments.length - files.length };
+    const files: File[] = [];
+    const missing: StashMissingFile[] = [];
+    for (const a of item.attachments) {
+      const x = byId.get(a.id);
+      if (x) files.push(new File([x.buf], a.name, { type: a.type }));
+      else missing.push({ ...a, elsewhere: !local.includes(a) });
+    }
+    const taken = { text: item.text, files, quotes: item.quotes, missing };
     if (get().removeAfterUse) await get().remove(id);
     return taken;
   },
+
+  applySynced: ({ put, drop }) =>
+    serial(async () => {
+      const b = store();
+      if (!b || (!put.length && !drop.length)) return;
+      const byId = new Map(get().items.map((i) => [i.id, i]));
+      // A local write since the merge was decided still wins over it.
+      put = put.filter((n) => {
+        const cur = byId.get(n.id);
+        return !cur || stashWins(n, cur);
+      });
+      // Bytes kept for attachments the new version (or nothing) no longer names.
+      const deleteBlobs: string[] = [];
+      for (const next of put) {
+        const keep = new Set(next.attachments.map((a) => a.id));
+        for (const a of byId.get(next.id)?.attachments ?? []) if (!keep.has(a.id)) deleteBlobs.push(a.id);
+      }
+      for (const id of drop) for (const a of byId.get(id)?.attachments ?? []) deleteBlobs.push(a.id);
+      await b.write({ put, deleteItems: drop, deleteBlobs });
+      const gone = new Set(drop);
+      const fresh = new Map(put.map((i) => [i.id, i]));
+      const items = get()
+        .items.filter((i) => !gone.has(i.id))
+        .map((i) => fresh.get(i.id) ?? i);
+      for (const i of put) if (!byId.has(i.id)) items.push(i);
+      set({ items });
+    }),
+
+  claimFiles: (deviceId, ids) =>
+    serial(async () => {
+      const b = store();
+      const mine = new Set(ids);
+      const claimed = get().items.flatMap((i) =>
+        mine.has(i.id) && i.attachments.some((a) => a.device_id == null)
+          ? [{ ...i, attachments: i.attachments.map((a) => (a.device_id == null ? { ...a, device_id: deviceId, path: null } : a)) }]
+          : []
+      );
+      if (!b || !claimed.length) return;
+      await b.write({ put: claimed });
+      const byId = new Map(claimed.map((i) => [i.id, i]));
+      set({ items: get().items.map((i) => byId.get(i.id) ?? i) });
+    }),
 
   setRemoveAfterUse: (on) => {
     try {

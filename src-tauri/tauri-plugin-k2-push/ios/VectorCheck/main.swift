@@ -1,4 +1,5 @@
-// Checks K2PushCrypto against K2's e2e push vectors (macOS):
+// Checks K2PushCrypto against K2's e2e push vectors (macOS), format 1
+// (e2e_push_vectors.json) and format 2 (e2e_push_vectors_v2.json):
 //   swiftc -O ../Sources/K2PushCrypto.swift main.swift -o /tmp/k2vec && /tmp/k2vec <vectors.json>
 import CryptoKit
 import Foundation
@@ -31,8 +32,20 @@ for c in root["cases"] as! [[String: Any]] {
   let kind: K2PushKind = (c["kind"] as! String) == "nudge" ? .nudge : .alert
   let e2e = c["e2e"] as! String
   do {
-    guard e2e.count == (kind == .alert ? 2159 : 452) else { throw K2PushCryptoError.badLength }
+    guard let format = kind.format(base64Chars: e2e.count) else { throw K2PushCryptoError.badLength }
+    if let want = c["format"] as? Int, want != Int(format.rawValue) {
+      failures += 1
+      print("FAIL", name, "format \(format.rawValue), vectors say \(want)")
+    }
     let blob = K2PushCrypto.base64url(e2e)!
+    // Byte 0 must agree with the length: a format-1 header on a format-2
+    // length (or the reverse) is refused.
+    var swapped = blob
+    swapped[0] = format == .v1 ? 0x02 : 0x01
+    if (try? K2PushCrypto.open(blob: swapped, kind: kind, recipientPublicKeyX963: pub, psk: psk, dh: K2PushCrypto.softwareDH(sk))) != nil {
+      failures += 1
+      print("FAIL", name, "opened with the other format byte")
+    }
     precondition(blob == hex(c["blobHex"] as! String), "\(name): blob decode mismatch")
     let json = try K2PushCrypto.open(blob: blob, kind: kind, recipientPublicKeyX963: pub, psk: psk, dh: K2PushCrypto.softwareDH(sk))
     let want = Data((c["plaintextJson"] as! String).utf8)

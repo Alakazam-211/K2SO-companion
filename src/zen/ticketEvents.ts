@@ -1,5 +1,6 @@
 import { isTicketEventFrame } from "../api/feedbackPure";
 import { emitHomesFrame } from "../api/homesSync";
+import { emitStashFrame } from "../api/stashSync";
 import type { ServerScope } from "../api/scope";
 import { queueDial, type DialTicket } from "../api/dialQueue";
 import { emitServerSignal, onServerSignal } from "../api/serverSignals";
@@ -215,9 +216,10 @@ function dialHub(hub: Hub): WebSocket | "failed" | null {
       if (next) hub.instanceId = next;
       return;
     }
-    // K2 0.46.1 Homes sync: `homes_changed` / `homes_device_removed` go to
-    // the sync engine at once (no debounce, no subscriber needed).
-    if (emitHomesFrame(hub.key, frame)) return;
+    // K2 0.46.1 Homes sync: `homes_changed` / `homes_device_removed` (and
+    // 0.46.7 `stash_changed`) go to the sync engines at once (no debounce,
+    // no subscriber needed).
+    if (emitHomesFrame(hub.key, frame) || emitStashFrame(hub.key, frame)) return;
     for (const sub of hub.subs) {
       if (!sub.match(frame)) continue;
       if (sub.onFrame) {
