@@ -688,29 +688,34 @@ html, body, #root {
 }
 
 /* Working pulse: a dot whose ring breathes out in its own colour (set
-   `color` to the dot's colour; the dot must be positioned). The ring is a
-   ::after fading by opacity, so no color-mix (iOS 15–16.1). A dot with a
-   border sets --k2-pulse-edge to its width so the ring starts outside it. */
+   `color` to the dot's colour; the dot must be positioned). A dot with a
+   border sets --k2-pulse-edge to its width so the ring starts outside it.
+   Speed PRD A7: the ring is drawn once (a 6px band in currentColor around
+   the dot) and only scales and fades, which the compositor does without
+   repainting; it used to animate box-shadow, a repaint every frame for
+   every working dot. No color-mix (iOS 15–16.1). */
 @keyframes k2-pulse {
   0% {
-    box-shadow: 0 0 0 0 currentColor;
+    transform: scale(0.72);
     opacity: 0.55;
   }
   70% {
-    box-shadow: 0 0 0 6px currentColor;
+    transform: scale(1);
     opacity: 0;
   }
   100% {
-    box-shadow: 0 0 0 0 currentColor;
+    transform: scale(1);
     opacity: 0;
   }
 }
 .k2-pulse::after {
   content: "";
   position: absolute;
-  inset: calc(-1 * var(--k2-pulse-edge, 0px));
-  border-radius: inherit;
+  inset: calc(-1 * var(--k2-pulse-edge, 0px) - 6px);
+  border-radius: 50%;
+  border: 6px solid currentColor;
   pointer-events: none;
+  opacity: 0;
   animation: k2-pulse 1.6s ease-out infinite;
 }
 
@@ -757,7 +762,17 @@ html, body, #root {
   -webkit-background-clip: text;
   background-clip: text;
   color: transparent;
-  animation: k2-shimmer 1.8s linear infinite;
+  /* Speed PRD A7: three sweeps, then it holds (T3 measured an endless
+     shimmer at ~60 mW while streaming). */
+  animation: k2-shimmer 1.8s linear 3 forwards;
+}
+
+/* Reduce Motion: no breathing rings or sweeps. */
+@media (prefers-reduced-motion: reduce) {
+  .k2-pulse::after,
+  .k2-shimmer {
+    animation: none;
+  }
 }
 
 /* Servers sheet: after a switch the pinned card (which FLIPs up from the
