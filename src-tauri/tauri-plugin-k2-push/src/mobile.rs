@@ -95,6 +95,12 @@ impl<R: Runtime> K2Push<R> {
             .map_err(Into::into)
     }
 
+    pub fn clear_delivered(&self, req: ClearDeliveredRequest) -> crate::Result<serde_json::Value> {
+        self.0
+            .run_mobile_plugin::<serde_json::Value>("clearDelivered", req)
+            .map_err(Into::into)
+    }
+
     pub fn get_badge_totals(&self) -> crate::Result<BadgeTotalsResponse> {
         self.0
             .run_mobile_plugin::<BadgeTotalsResponse>("getBadgeTotals", ())

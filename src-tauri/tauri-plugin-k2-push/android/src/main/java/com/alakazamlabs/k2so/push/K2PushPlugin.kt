@@ -199,6 +199,16 @@ class K2PushPlugin(private val activity: Activity) : Plugin(activity) {
     invoke.resolve(badgeUnavailable())
   }
 
+  /** Clearing read notifications is iOS-only for now (Jeremie's call). */
+  @Command
+  fun clearDelivered(invoke: Invoke) {
+    val res = JSObject()
+    res.put("removed", 0)
+    res.put("available", false)
+    res.put("reason", "notification clearing is iOS-only")
+    invoke.resolve(res)
+  }
+
   @Command
   fun getBadgeTotals(invoke: Invoke) {
     val res = badgeUnavailable()

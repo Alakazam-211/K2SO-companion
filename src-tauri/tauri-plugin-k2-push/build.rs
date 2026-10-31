@@ -9,6 +9,7 @@ const COMMANDS: &[&str] = &[
     "cache_avatars",
     "set_server_totals",
     "clear_server_totals",
+    "clear_delivered",
     "get_badge_totals",
     "get_badge_diagnostics",
     "e2e_op",
