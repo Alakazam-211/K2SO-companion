@@ -102,7 +102,7 @@ export function StashSheet({ onChoose, onClose }: { onChoose: (id: string) => vo
                       <span className="flex-none tabular-nums">{stashAge(item.created_at, now)}</span>
                       {unsynced[item.id] ? (
                         <span className="flex-none" style={{ color: "#ff9f0a" }} data-testid="stash-item-unsynced">
-                          Not synced
+                          {unsynced[item.id] === "too_large" ? "Too long to sync" : "Not synced"}
                         </span>
                       ) : null}
                       {files ? (
