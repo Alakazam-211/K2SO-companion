@@ -40,7 +40,9 @@ import {
   pinProjectIdForRow,
   rowFocusGroupId,
 } from "./serverPins";
-import { connectProjectEvents, subscribeAppEvents } from "./ticketEvents";
+import { connectProjectEvents, hubState, subscribeAppEvents } from "./ticketEvents";
+import { activityMirrorSeq, isActivityChangedFrame } from "./activityLive";
+import { onServerSignal } from "../api/serverSignals";
 import { useRoomElsewhere, useZenScope } from "./zenScope";
 import { mountainListWhen } from "./threadModel";
 import { usePinDrag } from "./usePinDrag";
@@ -103,10 +105,19 @@ const RECOVERY_DOT: Record<RecoveryState, string> = {
 };
 
 /** Phone-width overlay home. Look is public/imessage-baseline.html (7724968). */
-/** How often the Chats list re-reads agent status. */
+/** How often the Chats list checks its agent status (speed PRD A2). With
+ *  the server's hub open, `activity_changed` frames keep the dots current
+ *  and the snapshot is re-read only every ACTIVITY_SNAPSHOT_MAX_AGE_MS;
+ *  without it, every ACTIVITY_NO_HUB_MS. */
 const ACTIVITY_POLL_MS = 5_000;
+export const ACTIVITY_SNAPSHOT_MAX_AGE_MS = 60_000;
+export const ACTIVITY_NO_HUB_MS = 15_000;
+/** Row snippets (a human post is not a turn end) while frames carry the
+ *  dots. */
+export const PREVIEW_SWEEP_MS = 60_000;
 
-/** How often the list re-reads server pins and focus groups while up. */
+/** Pins follow `projects_changed`; focus groups are read on mount and on
+ *  each return to the app (speed PRD A3: no 30 s poll). */
 export const SERVER_LISTS_POLL_MS = 30_000;
 
 const ROW_HINT_ID = "chats-row-hint";
@@ -731,22 +742,43 @@ export function ChatsList() {
   useEffect(() => {
     if (source !== "live" || zenScreen !== "list") return;
     let timer: ReturnType<typeof setTimeout> | null = null;
+    let snapshotAt = 0;
+    let sweepAt = Date.now();
     const tick = () => {
       if (document.visibilityState !== "hidden") {
-        void refreshActivity();
-        // Server pins + focus groups ride the same cadence, every ~30 s.
-        if (Date.now() - serverListsAt.current >= SERVER_LISTS_POLL_MS) {
-          serverListsAt.current = Date.now();
-          useZenStore.getState().refreshServerLists();
+        const now = Date.now();
+        const id = zen.id;
+        // Speed PRD A2: frames carry the dots while the hub is open and
+        // the mirror is seeded; the snapshot is a fallback.
+        const live = !!id && hubState(id) === "open" && activityMirrorSeq(id) !== null;
+        const maxAge = live ? ACTIVITY_SNAPSHOT_MAX_AGE_MS : ACTIVITY_NO_HUB_MS;
+        if (now - snapshotAt >= maxAge) {
+          snapshotAt = now;
+          sweepAt = now; // the snapshot read sweeps previews too
+          void refreshActivity();
+        } else if (now - sweepAt >= PREVIEW_SWEEP_MS) {
+          sweepAt = now;
+          void useZenStore.getState().refreshThreadPreviews();
         }
       }
       timer = setTimeout(tick, ACTIVITY_POLL_MS);
     };
     tick();
+    // The hub's activity frames; a reopen (frames may have been missed) re-reads.
+    const frames = subscribeAppEvents(zen, isActivityChangedFrame, () => {}, (f) =>
+      useZenStore.getState().applyActivityFrame(f)
+    );
+    const offSignal = onServerSignal((id, signal) => {
+      if (id !== zen.id || (signal !== "reopened" && signal !== "lagged")) return;
+      snapshotAt = Date.now();
+      void refreshActivity();
+    });
     return () => {
       if (timer) clearTimeout(timer);
+      frames.stop();
+      offSignal();
     };
-  }, [source, zenScreen, refreshActivity]);
+  }, [source, zenScreen, refreshActivity, zen]);
 
   // Server pins + focus groups: re-read on mount and on app foreground
   // (group edits and switches send no event), and on `projects_changed`
