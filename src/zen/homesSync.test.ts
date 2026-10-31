@@ -277,6 +277,9 @@ describe("steady state", () => {
     Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
     document.dispatchEvent(new Event("visibilitychange"));
     await flush(0);
+    // After the open chat's reads (speed PRD A1).
+    expect(pulls()).toBe(0);
+    await flush(1500);
     expect(pulls()).toBe(1);
     emitServerSignal("s1", "reopened");
     await flush(0);
@@ -284,6 +287,16 @@ describe("steady state", () => {
     emitServerSignal("s2", "reopened"); // not the sync server
     await flush(0);
     expect(pulls()).toBe(2);
+  });
+
+  it("a return whose socket reopens first pulls once, not twice (speed PRD A1)", async () => {
+    const pulls = () => A.calls.filter((c) => c.path === "/cli/me/homes").length;
+    Object.defineProperty(document, "visibilityState", { value: "visible", configurable: true });
+    document.dispatchEvent(new Event("visibilitychange"));
+    await flush(200);
+    emitServerSignal("s1", "reopened");
+    await flush(3000);
+    expect(pulls()).toBe(1);
   });
 
   it("410 device_removed: stop syncing, keep Homes, one-time notice", async () => {

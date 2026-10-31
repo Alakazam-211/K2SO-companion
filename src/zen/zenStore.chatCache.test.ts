@@ -478,6 +478,27 @@ describe("foreground re-read (refreshOpenThread)", () => {
     expect(ids()).toEqual(["m1", "m2"]);
   });
 
+  it("a burst of re-reads (a return to the foreground) reads at most twice (speed PRD A1)", async () => {
+    useZenStore.setState({ threadAddr: "appa", threadConversationId: "conv-a", threadSource: "live", thread: [cachedMsg(1)] });
+    let release: () => void = () => {};
+    vi.mocked(getThread)
+      .mockImplementationOnce(
+        () =>
+          new Promise((r) => {
+            release = () => r({ ok: true, data: { conversation_id: "conv-a", items: [item(1), item(2)] } } as never);
+          }) as never
+      )
+      .mockResolvedValueOnce({ ok: true, data: { conversation_id: "conv-a", items: [item(1), item(2), item(3)] } } as never);
+    const z = useZenStore.getState();
+    const all = [z.refreshOpenThread(), z.refreshOpenThread(), z.refreshOpenThread(), z.refreshOpenThread()];
+    expect(getThread).toHaveBeenCalledTimes(1);
+    release();
+    await Promise.all(all);
+    // One more run for everything asked while the first ran, not one each.
+    expect(getThread).toHaveBeenCalledTimes(2);
+    expect(ids()).toEqual(["m1", "m2", "m3"]);
+  });
+
   it("a failure keeps the screen; 403 / 404 clears the chat and its cache", async () => {
     setZenScope(fakeScope({ id: "s1", username: "me", token: "tok", features: ["thread-delta-v1"] }));
     seed("s1|t:appa", [cachedMsg(1)]);

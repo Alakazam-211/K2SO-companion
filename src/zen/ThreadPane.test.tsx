@@ -1506,7 +1506,7 @@ describe("ThreadPane", () => {
     );
   });
 
-  it("keeps a late {turn:null} catch-up from clearing a newer live turn", async () => {
+  it("activity reads run one at a time: a second ask waits and runs after (speed PRD A1)", async () => {
     vi.mocked(connectOverlayEvents).mockReturnValue({ stop: vi.fn(), setViewing: vi.fn() });
     vi.mocked(getThreadActivity).mockClear();
     useZenStore.setState({
@@ -1541,9 +1541,13 @@ describe("ThreadPane", () => {
     const opts = vi.mocked(connectOverlayEvents).mock.calls[0][0];
     act(() => opts.onOpen?.());
     act(() => opts.onNeedCatchUp());
-    await waitFor(() => expect(screen.getByTestId("thread-working-strip")).not.toBeNull());
+    act(() => opts.onOpen?.());
+    // The socket's open and its catch-up together: one read in flight.
+    expect(getThreadActivity).toHaveBeenCalledTimes(1);
     await act(async () => resolveOld({ ok: true, data: { turn: null } }));
-    expect(screen.getByTestId("thread-working-strip")).not.toBeNull();
+    // Then exactly one more (not one per ask), and the newer turn shows.
+    await waitFor(() => expect(screen.getByTestId("thread-working-strip")).not.toBeNull());
+    expect(getThreadActivity).toHaveBeenCalledTimes(2);
   });
 
   it("keeps chatter and other non-thread frames out of the message list", async () => {

@@ -93,6 +93,7 @@ import { usePullToRefresh } from "./usePullToRefresh";
 import { projectBadgeCount, rowRefOf, rowUnreadFor } from "./unread";
 import { unreadSupported, useUnreadStore } from "./unreadStore";
 import { UnreadDot } from "./UnreadMarks";
+import { onForegroundLater } from "../lib/foreground";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -755,12 +756,11 @@ export function ChatsList() {
     if (!live) return;
     serverListsAt.current = Date.now();
     useZenStore.getState().refreshServerLists();
-    const onVis = () => {
-      if (document.visibilityState !== "visible") return;
+    // After the open chat's reads (speed PRD A1).
+    const offVis = onForegroundLater("server-lists", () => {
       serverListsAt.current = Date.now();
       useZenStore.getState().refreshServerLists();
-    };
-    document.addEventListener("visibilitychange", onVis);
+    });
     const events = connectProjectEvents(zen, () => void useZenStore.getState().refreshPins());
     // A project chat moved: its badge (and an open project chat) catch up.
     const groupEvents = subscribeAppEvents(zen, isProjectGroupsChangedFrame, () => {
@@ -772,7 +772,7 @@ export function ChatsList() {
       if (z.screen === "thread" && (z.threadGroupId || "").trim()) void z.refreshOpenThread();
     });
     return () => {
-      document.removeEventListener("visibilitychange", onVis);
+      offVis();
       events.stop();
       groupEvents.stop();
     };
@@ -825,13 +825,7 @@ export function ChatsList() {
   useEffect(() => {
     // MA9: Zen rides the server's one shared sessions/events socket.
     useFeedbackStore.getState().ensureLive({ via: "hub" });
-    const onVis = () => {
-      if (document.visibilityState === "visible") {
-        void useFeedbackStore.getState().refresh();
-      }
-    };
-    document.addEventListener("visibilitychange", onVis);
-    return () => document.removeEventListener("visibilitychange", onVis);
+    return onForegroundLater("tickets", () => void useFeedbackStore.getState().refresh());
   }, [activeServerId]);
 
   useEffect(() => {

@@ -1463,10 +1463,30 @@ export function ThreadPane({
         /* keep the strip as it is */
       }
     };
+    // Speed PRD A1: one activity read at a time; calls meanwhile (the
+    // foreground, the socket's catch-up and its open, together on a
+    // return) ask for one more run after it, not one each.
+    let activityRun: Promise<void> | null = null;
+    let activityAgain = false;
+    const readActivity = (): Promise<void> => {
+      if (activityRun) {
+        activityAgain = true;
+        return activityRun;
+      }
+      activityRun = (async () => {
+        do {
+          activityAgain = false;
+          await catchUpActivity();
+        } while (activityAgain && !stopped);
+      })().finally(() => {
+        activityRun = null;
+      });
+      return activityRun;
+    };
     const onVis = () => {
       if (document.visibilityState === "visible") {
         void useZenStore.getState().refreshOpenThread();
-        void catchUpActivity();
+        void readActivity();
       }
     };
     document.addEventListener("visibilitychange", onVis);
@@ -1492,9 +1512,9 @@ export function ThreadPane({
       },
       onNeedCatchUp: () => {
         void useZenStore.getState().refreshOpenThread();
-        void catchUpActivity();
+        void readActivity();
       },
-      onOpen: () => void catchUpActivity(),
+      onOpen: () => void readActivity(),
     }));
     return () => {
       stopped = true;
