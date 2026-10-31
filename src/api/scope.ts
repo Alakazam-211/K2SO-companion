@@ -22,7 +22,7 @@
 // `scope.supports(feature)`, never a version string; an unknown server
 // supports nothing (desktop rule).
 
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { netFetch as tauriFetch } from "../lib/netStats";
 import {
   hostLabel,
   onServerForget,

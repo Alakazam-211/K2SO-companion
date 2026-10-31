@@ -27,7 +27,7 @@
 // the phone always shows the host and the login and asks first, never
 // silently replaces a saved server, and warns on a host outside *.k2.dev.
 
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { netFetch as tauriFetch } from "../lib/netStats";
 import { withNetRetry } from "../lib/netRetry";
 import { apiErrorText } from "../lib/apiError";
 import { k2DevApexLabel } from "../lib/loginUrl";

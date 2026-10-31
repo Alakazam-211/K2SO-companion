@@ -1,5 +1,5 @@
 import { invoke, isTauri } from "@tauri-apps/api/core";
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { netFetch as tauriFetch } from "./netStats";
 import { useServersStore } from "../stores/servers";
 import { iconRevOf, parseCliProjects } from "../zen/agentRow";
 import { PUSH_PLUGIN, pushAvailability } from "./pushAvailability";

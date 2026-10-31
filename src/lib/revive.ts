@@ -32,7 +32,7 @@
 //     foreground request, an explicit sign-out or a server removal may
 //     delete a token.
 
-import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
+import { netFetch as tauriFetch } from "./netStats";
 import { cliAuthHeaders } from "../api/cliAuth";
 import {
   isPairedServer,

@@ -7,6 +7,7 @@ import { emitServerSignal, onServerSignal } from "../api/serverSignals";
 import { inBackground, onAppLifecycle } from "../lib/appLifecycle";
 import { revive } from "../lib/revive";
 import { onServerForget } from "../stores/servers";
+import { openSocket } from "../lib/netStats";
 
 // App-level live events: WS
 // `/cli/sessions/events?path=&token=` (empty path = every app-level
@@ -185,7 +186,7 @@ function dialHub(hub: Hub): WebSocket | "failed" | null {
   if (!url) return null;
   let sock: WebSocket;
   try {
-    sock = new WebSocket(url);
+    sock = openSocket("hub", url);
   } catch {
     schedule(hub);
     return "failed";
