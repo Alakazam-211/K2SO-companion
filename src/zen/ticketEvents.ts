@@ -8,6 +8,7 @@ import { inBackground, onAppLifecycle } from "../lib/appLifecycle";
 import { revive } from "../lib/revive";
 import { onServerForget } from "../stores/servers";
 import { openSocket } from "../lib/netStats";
+import { STABLE_OPEN_MS } from "../lib/reconnect";
 
 // App-level live events: WS
 // `/cli/sessions/events?path=&token=` (empty path = every app-level
@@ -77,6 +78,8 @@ type Hub = {
   subs: Set<Sub>;
   ws: WebSocket | null;
   attempt: number;
+  /** When the current socket opened (0 = not open). */
+  openedAt: number;
   everOpened: boolean;
   instanceId: string | null;
   retryTimer: ReturnType<typeof setTimeout> | null;
@@ -194,7 +197,9 @@ function dialHub(hub: Hub): WebSocket | "failed" | null {
   hub.ws = sock;
   sock.onopen = () => {
     if (hub.dead || hub.ws !== sock) return;
-    hub.attempt = 0;
+    // Speed PRD A6: the backoff starts over only once this socket has
+    // stayed open a while (onclose), not on every open.
+    hub.openedAt = Date.now();
     // A re-open may have missed frames while down: re-pull once.
     if (hub.everOpened) {
       bumpAll(hub);
@@ -235,6 +240,8 @@ function dialHub(hub: Hub): WebSocket | "failed" | null {
   sock.onclose = (e) => {
     if (hub.dead || hub.ws !== sock) return;
     hub.ws = null;
+    if (hub.openedAt && Date.now() - hub.openedAt >= STABLE_OPEN_MS) hub.attempt = 0;
+    hub.openedAt = 0;
     const code = (e as CloseEvent | undefined)?.code;
     if (code === WS_CLOSE_KICKED) {
       // Kicked from this server: never reconnect, never sign in alone.
@@ -289,6 +296,7 @@ export function subscribeAppEvents(
       subs: new Set(),
       ws: null,
       attempt: 0,
+      openedAt: 0,
       everOpened: false,
       instanceId: null,
       retryTimer: null,
