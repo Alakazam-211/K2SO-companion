@@ -42,11 +42,26 @@ describe("activity mirror (speed PRD A2)", () => {
     expect(applyActivityFrame("s", { kind: "activity_changed", seq: 7, instanceId: "i1", removed: "b" })).toBe(
       "applied-resync"
     );
+    // K2 0.46.8: a removal with its workspace's rollup is complete.
+    expect(
+      applyActivityFrame("s", {
+        kind: "activity_changed",
+        seq: 8,
+        instanceId: "i1",
+        removed: "zz",
+        workspace: { workspacePath: "/w", display: "idle" },
+      })
+    ).toBe("applied");
     const body = activityMirrorBody("s")!;
-    expect(body.seq).toBe(7);
+    expect(body.seq).toBe(8);
     expect(body.rows).toEqual([{ sessionId: "a", display: "idle", workspacePath: "/w" }]);
     expect(body.workspaces).toEqual([{ workspacePath: "/w", display: "idle" }]);
     expect(body.staleAfterSecs).toBe(60);
+  });
+
+  it("snapshot rows without a sessionId stay in the mirror (they count in the totals)", () => {
+    seedActivityMirror("s", { ...SNAP, rows: [...SNAP.rows, { display: "working", workspacePath: "/w", counts: { tools: 2 } }] });
+    expect((activityMirrorBody("s")!.rows as unknown[]).length).toBe(3);
   });
 
   it("old frames are ignored; gaps and another daemon instance resync", () => {
