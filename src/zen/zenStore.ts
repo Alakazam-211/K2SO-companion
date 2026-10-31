@@ -904,6 +904,34 @@ function errorText(e: unknown, fallback: string): string {
   return fallback;
 }
 
+/** Speed PRD A1: one open-chat refresh at a time. A call while one runs
+ *  asks for one more run after it (a change the running read may have
+ *  missed), however many calls come: a return to the foreground used to
+ *  read the open chat 3-4 times. */
+function singleFlight(): { run: (fn: () => Promise<void>) => Promise<void> } {
+  let running: Promise<void> | null = null;
+  let again = false;
+  return {
+    run(fn) {
+      if (running) {
+        again = true;
+        return running;
+      }
+      running = (async () => {
+        do {
+          again = false;
+          await fn();
+        } while (again);
+      })().finally(() => {
+        running = null;
+      });
+      return running;
+    },
+  };
+}
+
+const openRefreshFlight = singleFlight();
+
 export const useZenStore = create<ZenState>((set, get) => ({
   // Never start on the stub catalogue. A signed-in first paint used to
   // show STUB_AGENTS until hydrateAgents resolved. Stub is only applied
@@ -2301,104 +2329,105 @@ export const useZenStore = create<ZenState>((set, get) => ({
     });
   },
 
-  refreshOpenThread: async () => {
-    // The foreground / catch-up re-read: what changed while away (cards
-    // answered or voided, new messages) — a delta from the newest seq on
-    // screen when the server has one, else the newest page merged.
-    if (get().agentSource === "stub") return;
-    const gen = get().threadGen;
-    const groupId = (get().threadGroupId || "").trim();
-    const addr = get().threadAddr;
-    if (!groupId && !addr) return;
-    const scope = zenScope();
-    const key = threadRoomKey(scope.id, groupId || null, groupId ? null : addr);
-    const still = () =>
-      get().threadGen === gen &&
-      (groupId ? get().threadGroupId === groupId : get().threadAddr === addr);
-    const gone = (msg: string) => {
-      chatCache().forget(key);
-      set({ thread: [], threadCached: false, threadSource: "error", threadError: msg });
-    };
-    if (groupId) {
+  refreshOpenThread: () =>
+    openRefreshFlight.run(async () => {
+      // The foreground / catch-up re-read: what changed while away (cards
+      // answered or voided, new messages) — a delta from the newest seq on
+      // screen when the server has one, else the newest page merged.
+      if (get().agentSource === "stub") return;
+      const gen = get().threadGen;
+      const groupId = (get().threadGroupId || "").trim();
+      const addr = get().threadAddr;
+      if (!groupId && !addr) return;
+      const scope = zenScope();
+      const key = threadRoomKey(scope.id, groupId || null, groupId ? null : addr);
+      const still = () =>
+        get().threadGen === gen &&
+        (groupId ? get().threadGroupId === groupId : get().threadAddr === addr);
+      const gone = (msg: string) => {
+        chatCache().forget(key);
+        set({ thread: [], threadCached: false, threadSource: "error", threadError: msg });
+      };
+      if (groupId) {
+        try {
+          const read = await fetchGroupRead(scope, groupId, {
+            messages: get().thread,
+            conversationId: null,
+          });
+          if (!still()) return;
+          if (!read.ok) {
+            if (read.gone) gone(read.error);
+            return; // keep what is on screen
+          }
+          const cur = get().thread;
+          const incoming = applyGroupRead(cur, read);
+          if (incoming === cur && !get().threadCached) return;
+          const last = incoming[incoming.length - 1];
+          const atKey = lastAtKey(scope.id, "group", groupId);
+          const lastAt = last?.at ?? get().lastAtByKey[atKey] ?? null;
+          set({
+            thread: incoming,
+            threadCached: false,
+            threadSource: "live",
+            threadError: null,
+            ...(read.mode === "replace" ? { threadHasMore: !!read.hasMore } : null),
+            // Same time: the same map, so the lists behind the chat (which
+            // subscribe to it) do not re-render on every group frame.
+            ...(get().lastAtByKey[atKey] === lastAt
+              ? null
+              : { lastAtByKey: { ...get().lastAtByKey, [atKey]: lastAt } }),
+          });
+          get().markGroupSeen(groupId, last?.at ?? null);
+        } catch {
+          /* keep what is on screen */
+        }
+        return;
+      }
+      const a = addr as string;
+      const live = watchLive();
       try {
-        const read = await fetchGroupRead(scope, groupId, {
+        const prevConv = get().threadConversationId;
+        const read = await fetchThreadRead(scope, a, {
           messages: get().thread,
-          conversationId: null,
-        });
+          conversationId: prevConv,
+        }).finally(live.stop);
         if (!still()) return;
         if (!read.ok) {
           if (read.gone) gone(read.error);
           return; // keep what is on screen
         }
-        const cur = get().thread;
-        const incoming = applyGroupRead(cur, read);
-        if (incoming === cur && !get().threadCached) return;
-        const last = incoming[incoming.length - 1];
-        const atKey = lastAtKey(scope.id, "group", groupId);
-        const lastAt = last?.at ?? get().lastAtByKey[atKey] ?? null;
+        if (read.mode === "reset") chatCache().forget(key);
+        const conv = read.conversationId ?? prevConv;
+        const refreshAfter = () => {
+          if (still()) maybeRefreshAttachments(scope, a, key, read.mode);
+        };
+        const thread = applyThreadRead(get().thread, read, {
+          arrivedLive: live.ids,
+          conversationId: prevConv,
+        });
+        if (thread === get().thread && conv === prevConv && !get().threadCached) {
+          refreshAfter();
+          return;
+        }
+        const last = thread[thread.length - 1];
         set({
-          thread: incoming,
+          thread,
           threadCached: false,
           threadSource: "live",
           threadError: null,
-          ...(read.mode === "replace" ? { threadHasMore: !!read.hasMore } : null),
-          // Same time: the same map, so the lists behind the chat (which
-          // subscribe to it) do not re-render on every group frame.
-          ...(get().lastAtByKey[atKey] === lastAt
-            ? null
-            : { lastAtByKey: { ...get().lastAtByKey, [atKey]: lastAt } }),
+          threadConversationId: conv,
+          // Older pages already on screen stay, so their "more" stays —
+          // unless the copy was replaced.
+          ...(read.mode === "replace" || read.mode === "reset" ? { threadHasMore: !!read.hasMore } : null),
+          threadOldestSeq: oldestSeqOf(thread) ?? get().threadOldestSeq,
+          ...threadRowPatch(get(), scope, a, last),
         });
-        get().markGroupSeen(groupId, last?.at ?? null);
+        refreshAfter();
       } catch {
+        live.stop();
         /* keep what is on screen */
       }
-      return;
-    }
-    const a = addr as string;
-    const live = watchLive();
-    try {
-      const prevConv = get().threadConversationId;
-      const read = await fetchThreadRead(scope, a, {
-        messages: get().thread,
-        conversationId: prevConv,
-      }).finally(live.stop);
-      if (!still()) return;
-      if (!read.ok) {
-        if (read.gone) gone(read.error);
-        return; // keep what is on screen
-      }
-      if (read.mode === "reset") chatCache().forget(key);
-      const conv = read.conversationId ?? prevConv;
-      const refreshAfter = () => {
-        if (still()) maybeRefreshAttachments(scope, a, key, read.mode);
-      };
-      const thread = applyThreadRead(get().thread, read, {
-        arrivedLive: live.ids,
-        conversationId: prevConv,
-      });
-      if (thread === get().thread && conv === prevConv && !get().threadCached) {
-        refreshAfter();
-        return;
-      }
-      const last = thread[thread.length - 1];
-      set({
-        thread,
-        threadCached: false,
-        threadSource: "live",
-        threadError: null,
-        threadConversationId: conv,
-        // Older pages already on screen stay, so their "more" stays —
-        // unless the copy was replaced.
-        ...(read.mode === "replace" || read.mode === "reset" ? { threadHasMore: !!read.hasMore } : null),
-        threadOldestSeq: oldestSeqOf(thread) ?? get().threadOldestSeq,
-        ...threadRowPatch(get(), scope, a, last),
-      });
-      refreshAfter();
-    } catch {
-      live.stop();
-      /* keep what is on screen */
-    }
-  },
+    }),
 
   setAgent: (id) => {
     set({

@@ -7,6 +7,7 @@ import { FEATURE_STASH_SYNC, onStashFrame, pullStash, pushStash, stashFitsServer
 import { homesDeviceId, homesDeviceInfo, retryDelayMs, PUSH_DEBOUNCE_MS, useHomesSyncStore } from "../homesSync";
 import { isOwnSchema, stashWins, type StashItem } from "./stashModel";
 import { onStashLocalChange, useStashStore } from "./stashStore";
+import { cancelForeground, onForegroundLater } from "../../lib/foreground";
 
 // Prompt stash sync (K2 0.46.7 `stash-sync-v1`, pinned contract
 // 2026-10-30). Rides on Home sync: the same server (the one the person
@@ -393,18 +394,15 @@ export function startStashSync(): () => void {
   stops.push(
     onServerSignal((id, signal) => {
       if (id !== syncServer()) return;
-      if (signal === "recovered" || signal === "reopened" || signal === "lagged") void syncStashNow();
+      if (signal === "recovered" || signal === "reopened" || signal === "lagged") {
+        cancelForeground("stash");
+        void syncStashNow();
+      }
     })
   );
 
-  // Foreground.
-  if (typeof document !== "undefined") {
-    const onVis = () => {
-      if (document.visibilityState === "visible") void syncStashNow();
-    };
-    document.addEventListener("visibilitychange", onVis);
-    stops.push(() => document.removeEventListener("visibilitychange", onVis));
-  }
+  // Foreground, after the open chat (speed PRD A1); a reopen first does it.
+  stops.push(onForegroundLater("stash", () => void syncStashNow()));
 
   // Home sync on, off or moved: follow it.
   stops.push(

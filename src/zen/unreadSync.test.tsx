@@ -2,6 +2,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { act, cleanup, renderHook } from "@testing-library/react";
 
+// The stagger (speed PRD A1) runs at once here; lib/foreground has its own tests.
+const foreground = vi.hoisted(() => ({
+  afterForeground: vi.fn((_key: string, fn: () => void) => fn()),
+  cancelForeground: vi.fn(() => false),
+}));
+vi.mock("../lib/foreground", () => foreground);
 vi.mock("../api/threadRead", () => ({
   getThreadUnread: vi.fn(),
   postThreadRead: vi.fn(),
@@ -131,6 +137,7 @@ describe("useUnreadSync", () => {
     await act(async () => {
       document.dispatchEvent(new Event("visibilitychange"));
     });
+    expect(foreground.afterForeground).toHaveBeenCalledWith("unread", expect.any(Function));
     expect(api.getThreadUnread).toHaveBeenCalledTimes(5);
     vi.useRealTimers();
   });
