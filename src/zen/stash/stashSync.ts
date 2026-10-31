@@ -3,7 +3,7 @@ import { getBootStatus } from "../../api/client";
 import { registerHomesDevice, type SyncFailure } from "../../api/homesSync";
 import { scopeFor } from "../../api/scope";
 import { onServerSignal } from "../../api/serverSignals";
-import { FEATURE_STASH_SYNC, onStashFrame, pullStash, pushStash, stashPushBatches } from "../../api/stashSync";
+import { FEATURE_STASH_SYNC, onStashFrame, pullStash, pushStash, stashFitsServer, stashPushBatches } from "../../api/stashSync";
 import { homesDeviceId, homesDeviceInfo, retryDelayMs, PUSH_DEBOUNCE_MS, useHomesSyncStore } from "../homesSync";
 import { isOwnSchema, stashWins, type StashItem } from "./stashModel";
 import { onStashLocalChange, useStashStore } from "./stashStore";
@@ -48,8 +48,13 @@ type Meta = {
   cursor: number | null;
   /** Record ids changed here that the server has not taken yet. */
   outbox: string[];
-  /** Record id → the server's reason it was refused. */
+  /** Record id → the server's reason it was refused (or `too_large`:
+   *  over a record's limits, never sent). Kept here, never dropped by a
+   *  full pull. */
   unsynced: Record<string, string>;
+  /** Records here when sync with this server began: their files saved
+   *  before sync are claimed for this phone before they first go up. */
+  claim: string[];
 };
 
 interface StashSyncState {
@@ -73,6 +78,7 @@ function readMeta(): Meta | null {
       cursor: Number.isInteger(j.cursor) ? j.cursor : null,
       outbox: Array.isArray(j.outbox) ? j.outbox.filter((x: unknown) => typeof x === "string") : [],
       unsynced: j.unsynced && typeof j.unsynced === "object" ? j.unsynced : {},
+      claim: Array.isArray(j.claim) ? j.claim.filter((x: unknown) => typeof x === "string") : [],
     };
   } catch {
     return null;
@@ -99,7 +105,7 @@ function metaFor(serverId: string): Meta {
     .getState()
     .items.filter(isOwnSchema)
     .map((i) => i.id);
-  const fresh = { serverId, cursor: null, outbox: all, unsynced: {} };
+  const fresh = { serverId, cursor: null, outbox: all, unsynced: {}, claim: all };
   saveMeta(fresh);
   return fresh;
 }
@@ -114,9 +120,10 @@ let retryAttempt = 0;
 let pushTimer: ReturnType<typeof setTimeout> | null = null;
 /** Bumped on stop: a run from before quits. */
 let gen = 0;
-/** A local change since the last push: records the server refused as
- *  full (`cap_reached`) go again only then, not on every run. */
-let roomMaybe = true;
+/** Records the server refused as full (`cap_reached`) go again only
+ *  after a local change: the change count they last went at. */
+let localChanges = 0;
+let capTriedAt = -1;
 
 function clearTimers(): void {
   if (retryTimer) clearTimeout(retryTimer);
@@ -184,15 +191,17 @@ async function runOnce(): Promise<void> {
   if (!live()) return;
   put({ status: "syncing", error: null });
 
-  // First sync with this server: files saved before sync get this
-  // phone's id before they first go up. Only then: a record pulled from
-  // the server is never claimed (its unnamed files are not this phone's).
-  if (meta?.serverId !== serverId) {
-    const here = useStashStore.getState().items.filter(isOwnSchema).map((i) => i.id);
-    await useStashStore.getState().claimFiles(deviceId, here);
-    if (!live()) return;
-  }
   let m = metaFor(serverId);
+  // First sync with this server: files saved before sync get this
+  // phone's id before they first go up. Only the records here when it
+  // began: a record pulled from the server is never claimed (its unnamed
+  // files are not this phone's).
+  if (m.claim.length) {
+    await useStashStore.getState().claimFiles(deviceId, m.claim);
+    if (!live()) return;
+    m = { ...meta!, claim: [] };
+    saveMeta(m);
+  }
   let fullNext = m.cursor === null;
   let registeredNow = false;
 
@@ -208,8 +217,19 @@ async function runOnce(): Promise<void> {
     m = { ...m, outbox: waiting.map((i) => i.id) };
     saveMeta(m);
   }
-  const queued = roomMaybe ? waiting : waiting.filter((i) => m.unsynced[i.id] !== "cap_reached");
-  roomMaybe = false;
+  // Over a record's limits: stays here, shown as not synced.
+  const tooLarge = waiting.filter((i) => !stashFitsServer(i));
+  if (tooLarge.some((i) => m.unsynced[i.id] !== "too_large")) {
+    const unsynced = { ...m.unsynced };
+    for (const i of tooLarge) unsynced[i.id] = "too_large";
+    m = { ...m, unsynced };
+    saveMeta(m);
+  }
+  const changesAtStart = localChanges;
+  const tryCapped = capTriedAt !== changesAtStart;
+  const queued = waiting.filter(
+    (i) => stashFitsServer(i) && (tryCapped || m.unsynced[i.id] !== "cap_reached")
+  );
   for (const batch of stashPushBatches(queued)) {
     let r = await pushStash(scope, deviceId, batch);
     if (!live()) return;
@@ -246,6 +266,7 @@ async function runOnce(): Promise<void> {
     saveMeta(m);
     if (r.data.superseded > 0) fullNext = true;
   }
+  if (tryCapped) capTriedAt = changesAtStart;
 
   // Pull and merge.
   const pulled = await pullStash(scope, deviceId, fullNext ? null : m.cursor);
@@ -263,23 +284,36 @@ async function runOnce(): Promise<void> {
     const mine = here.get(theirs.id);
     if (mine && !stashWins(theirs, mine)) continue;
     winners.push(theirs);
-    // The server's version won: ours has nothing left to send.
-    outbox.delete(theirs.id);
-    delete unsynced[theirs.id];
   }
   const drop: string[] = [];
   if (reply.full) {
+    // Not on the server, not waiting to go, and not refused by it (a
+    // refused record was never there): deleted elsewhere.
     const held = new Set(reply.changes.map((i) => i.id));
     for (const i of here.values()) {
-      if (isOwnSchema(i) && !held.has(i.id) && !outbox.has(i.id)) {
-        drop.push(i.id);
-        delete unsynced[i.id];
-      }
+      if (isOwnSchema(i) && !held.has(i.id) && !outbox.has(i.id) && !unsynced[i.id]) drop.push(i.id);
     }
   }
   await useStashStore.getState().applySynced({ put: winners, drop });
   if (!live()) return;
-  saveMeta({ ...meta!, cursor: reply.cursor ?? meta!.cursor, outbox: [...outbox], unsynced });
+  // From the meta as it is now: a save or delete that landed while the
+  // merge waited is still queued. The server's version settles a record
+  // only when it is what this phone now has.
+  const after = byId();
+  const settled = new Set(
+    winners.filter((w) => {
+      const i = after.get(w.id);
+      return !i || sameVersion(i, w);
+    }).map((w) => w.id)
+  );
+  const nextUnsynced = { ...meta!.unsynced };
+  for (const id of settled) delete nextUnsynced[id];
+  saveMeta({
+    ...meta!,
+    cursor: reply.cursor ?? meta!.cursor,
+    outbox: meta!.outbox.filter((id) => !settled.has(id)),
+    unsynced: nextUnsynced,
+  });
   retryAttempt = 0;
   if (retryTimer) clearTimeout(retryTimer);
   retryTimer = null;
@@ -341,7 +375,7 @@ export function startStashSync(): () => void {
       if (!serverId) return;
       const m = metaFor(serverId);
       saveMeta({ ...m, outbox: [...new Set([...m.outbox, ...ids])] });
-      roomMaybe = true;
+      localChanges += 1;
       soon();
     })
   );
@@ -401,7 +435,8 @@ export function __resetStashSyncForTests(): void {
   running = null;
   again = false;
   retryAttempt = 0;
-  roomMaybe = true;
+  localChanges = 0;
+  capTriedAt = -1;
   meta = readMeta();
   useStashSyncStore.setState({ status: "off", error: null, unsynced: meta?.unsynced ?? {} }, true);
 }
