@@ -13,7 +13,8 @@
 // This keeps a raw mirror of the snapshot per server and applies frames to
 // it; the store re-parses the mirror with `parseActivitySnapshot`. A frame
 // that doesn't follow on (a gap, another `instanceId`, no mirror yet) asks
-// for a snapshot; so does a removal, whose frame carries no rollup.
+// for a snapshot; so does a removal without a rollup (K2 adds the rollup
+// to removals in 0.46.8).
 
 type Raw = Record<string, unknown>;
 
@@ -104,8 +105,9 @@ export function applyActivityFrame(serverId: string, frame: unknown): FrameResul
   if (ws && k) m.workspaces.set(k, ws);
   if (typeof f.removed === "string" && f.removed) {
     m.rows.delete(f.removed);
-    // A removal carries no rollup: its workspace's may now be wrong.
-    return "applied-resync";
+    // Before K2 0.46.8 a removal carries no rollup, so its workspace's
+    // may now be wrong; with one, the frame is complete.
+    return ws && k ? "applied" : "applied-resync";
   }
   return "applied";
 }
