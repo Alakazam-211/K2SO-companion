@@ -735,11 +735,22 @@ export type ThreadLatestItem = {
  *  `attachments` (K2 0.46.3, servers with `thread-attachments-v1`):
  *  workspace-relative paths sent as `[{path}]`; files alone are a valid
  *  message (empty text). */
-export const postThread = (scope: ServerScope, addr: string, text: string, attachments?: readonly string[]) =>
+export const postThread = (
+  scope: ServerScope,
+  addr: string,
+  text: string,
+  attachments?: readonly string[],
+  /** K2 0.46.8 `post-idempotency-v1` (the caller checks the feature). */
+  clientMsgId?: string
+) =>
   request<ThreadItem>(scope, "/cli/thread/post",
-    attachments?.length
-      ? { addr, text, via: "compose", attachments: attachments.map((path) => ({ path })) }
-      : { addr, text, via: "compose" },
+    {
+      addr,
+      text,
+      via: "compose",
+      ...(attachments?.length ? { attachments: attachments.map((path) => ({ path })) } : {}),
+      ...(clientMsgId ? { clientMsgId } : {}),
+    },
     { method: "POST" }
   );
 

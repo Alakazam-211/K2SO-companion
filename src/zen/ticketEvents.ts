@@ -91,6 +91,28 @@ type Hub = {
 
 const hubs = new Map<string, Hub>();
 
+/** Told on every hub open, first and re-open (hubViewing re-sends its view). */
+const openListeners = new Set<(serverId: string) => void>();
+
+export function onHubOpen(fn: (serverId: string) => void): () => void {
+  openListeners.add(fn);
+  return () => {
+    openListeners.delete(fn);
+  };
+}
+
+/** Send a client frame on a server's hub; false unless it is open. */
+export function hubSend(serverId: string, frame: unknown): boolean {
+  const ws = hubs.get(serverId)?.ws;
+  if (!ws || ws.readyState !== 1) return false;
+  try {
+    ws.send(JSON.stringify(frame));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 // A removed or re-keyed server (MS3): close its hub. Its subscribers fall
 // back to their polls; a re-subscribe dials the new address.
 onServerForget((id) => {
@@ -206,6 +228,13 @@ function dialHub(hub: Hub): WebSocket | "failed" | null {
       emitServerSignal(hub.key, "reopened");
     }
     hub.everOpened = true;
+    for (const fn of [...openListeners]) {
+      try {
+        fn(hub.key);
+      } catch {
+        /* never breaks the hub */
+      }
+    }
   };
   sock.onmessage = (e) => {
     if (hub.dead || hub.ws !== sock) return;
