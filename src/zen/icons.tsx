@@ -26,7 +26,8 @@ export type IconName =
   | "camera"
   | "folder"
   | "bookmark"
-  | "bookmark-plus";
+  | "bookmark-plus"
+  | "reply";
 
 function Icon({
   name,
@@ -188,6 +189,16 @@ export function BookmarkIcon(props: IconProps) {
   return (
     <Icon name="bookmark" {...props}>
       <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
+    </Icon>
+  );
+}
+
+/** A curved arrow back (lucide "reply"): reply to a message. */
+export function ReplyIcon(props: IconProps) {
+  return (
+    <Icon name="reply" {...props}>
+      <polyline points="9 17 4 12 9 7" />
+      <path d="M20 18v-2a4 4 0 0 0-4-4H4" />
     </Icon>
   );
 }

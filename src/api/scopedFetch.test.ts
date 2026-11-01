@@ -66,6 +66,7 @@ describe("scopedFetch (speed PRD A4)", () => {
     expect(priorityOf("/cli/thread")).toBe("user");
     expect(priorityOf("/cli/thread/post")).toBe("user");
     expect(priorityOf("/cli/project-group/messages?limit=50")).toBe("user");
+    expect(priorityOf("/cli/project-group/msg")).toBe("user");
     expect(priorityOf("/cli/thread/catchup")).toBe("background");
     expect(priorityOf("/cli/me/homes")).toBe("background");
   });
