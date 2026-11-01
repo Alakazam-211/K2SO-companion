@@ -306,6 +306,8 @@ describe("holding an agent's message", () => {
     expect(screen.getByTestId("message-menu")).toBeTruthy();
     // The picked message wears the notification's blue outline.
     expect(bubble.closest("[data-thread-msg]")!.getAttribute("data-highlight")).toBe("true");
+    // The ring follows the bubble's shape, tail included.
+    expect(bubble.className).toContain("zen-outlined");
   });
 
   it("selected words get Reply / Copy / Save to stash above the field", async () => {

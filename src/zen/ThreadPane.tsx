@@ -316,6 +316,7 @@ const Bubble = memo(function Bubble({
   breathe,
   tail,
   holdable,
+  outlined,
   onStashOffer,
 }: {
   m: ThreadMessage;
@@ -341,6 +342,9 @@ const Bubble = memo(function Bubble({
    *  Copy / Save to stash for the selection, useMessageSelection); a press
    *  anywhere else on the bubble holds for the menu (useMessageHold). */
   holdable?: boolean;
+  /** Picked (its menu, a selection) or opened from a notification: a blue
+   *  ring that follows the bubble's shape, tail included (zen-outlined). */
+  outlined?: boolean;
   /** A `stash.offer` card's Save to stash. */
   onStashOffer?: (m: ThreadMessage) => Promise<StashSaveOutcome>;
 }) {
@@ -356,7 +360,7 @@ const Bubble = memo(function Bubble({
       ref={bubbleRef}
       // Not overflow-hidden itself (the tail sits outside its box): the
       // content clips inside.
-      className={`relative px-3 py-2 leading-snug break-words min-w-0 max-w-full${tail ? " zen-tail" : ""}${fadeIn ? " zen-bubble-fade" : breathing ? " zen-bubble-breathe" : ""}`}
+      className={`relative px-3 py-2 leading-snug break-words min-w-0 max-w-full${tail ? " zen-tail" : ""}${fadeIn ? " zen-bubble-fade" : breathing ? " zen-bubble-breathe" : ""}${outlined ? " zen-outlined" : ""}`}
       data-testid="thread-bubble"
       data-fly-target={flying ? "true" : undefined}
       data-tail={tail || undefined}
@@ -586,7 +590,9 @@ const ThreadRow = memo(function ThreadRow({
       data-run={runFirst && runLast ? "solo" : runFirst ? "first" : runLast ? "last" : "middle"}
       className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}${spaced ? " mt-1.5" : ""}`}
       style={
-        highlighted
+        // A bubble wears its own ring (tail included, `outlined`); a row of
+        // files only gets this rounded one.
+        highlighted && !bubble
           ? { borderRadius: 20, boxShadow: "0 0 0 2px rgba(10,132,255,.85)", transition: "box-shadow .4s" }
           : undefined
       }
@@ -628,6 +634,7 @@ const ThreadRow = memo(function ThreadRow({
           breathe={out?.status === "sending"}
           tail={runLast ? (m.mine ? "mine" : "theirs") : null}
           holdable={messageHoldable(m, out)}
+          outlined={highlighted}
           onStashOffer={onStashOffer}
         />
       ) : null}

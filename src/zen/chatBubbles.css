@@ -50,6 +50,18 @@
   transform: scaleX(-1);
 }
 
+/* Picked or opened from a notification: a ring that follows the bubble's
+   real shape, tail included (the tail is a masked pseudo-element, so a
+   drop-shadow traces it; a box-shadow would ignore it). A 2px gap in the
+   page colour, then 2px of blue, so it reads on a blue bubble too. Chained
+   drop-shadows grow the shape step by step (corners included). */
+.zen-outlined {
+  filter: drop-shadow(1.5px 0 0 var(--root, #0a0a0a)) drop-shadow(-1.5px 0 0 var(--root, #0a0a0a))
+    drop-shadow(0 1.5px 0 var(--root, #0a0a0a)) drop-shadow(0 -1.5px 0 var(--root, #0a0a0a))
+    drop-shadow(1.5px 0 0 rgba(10, 132, 255, 0.95)) drop-shadow(-1.5px 0 0 rgba(10, 132, 255, 0.95))
+    drop-shadow(0 1.5px 0 rgba(10, 132, 255, 0.95)) drop-shadow(0 -1.5px 0 rgba(10, 132, 255, 0.95));
+}
+
 /* The receipt: drawn over the newest confirmed outgoing message's fixed-
    height status line (`data-receipt`), so moving it to a newer message, or
    Delivered becoming Read, is a crossfade with no layout change. Going: a
