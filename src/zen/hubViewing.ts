@@ -1,5 +1,6 @@
 import type { ThreadItem } from "../api/client";
 import type { ServerScope } from "../api/scope";
+import { noteServerEvent } from "../lib/netStats";
 import { connectOverlayEvents, type OverlayLiveHandle } from "./overlayEvents";
 import { hubSend, onHubOpen, subscribeAppEvents } from "./ticketEvents";
 
@@ -66,7 +67,12 @@ export function connectHubViewing(opts: {
   let resend: ReturnType<typeof setInterval> | null = null;
   const key = () => `${serverId}|${conv}`;
 
-  const send = (on: boolean) => hubSend(serverId, { t: "viewing", conversationId: conv, visible: on });
+  const short = () => conv.slice(0, 8);
+  const send = (on: boolean) => {
+    const sent = hubSend(serverId, { t: "viewing", conversationId: conv, visible: on });
+    noteServerEvent(opts.scope, `viewing ${on ? "on" : "off"} ${short()}${sent ? "" : " (hub not open)"}`);
+    return sent;
+  };
   const startResend = () => {
     if (resend) return;
     resend = setInterval(() => {
@@ -107,11 +113,17 @@ export function connectHubViewing(opts: {
         // A first view (no mark) rides the open's own read; afterwards,
         // read only when this chat moved past what we had.
         if (prev && !current) opts.onNeedCatchUp();
+        const why = !prev ? "first" : current ? "current, no read" : inst !== prev.instanceId ? "new daemon, read" : "behind, read";
+        noteServerEvent(
+          opts.scope,
+          `viewing_ok ${short()} rev ${rev} convRev ${convRev ?? "?"}${typeof f.reason === "string" ? ` ${f.reason}` : ""} (${why})`
+        );
         if ("turn" in f) opts.onTurn?.({ turn: f.turn });
         return;
       }
       case "viewing_error": {
         // Refused (the view is gone): this chat on its own socket.
+        noteServerEvent(opts.scope, `viewing_error ${short()} ${String(f.code ?? "?")} (own socket)`);
         stopResend();
         fallback = connectOverlayEvents(opts);
         if (visible) fallback.setViewing(true);

@@ -6,7 +6,10 @@ import { fetch as tauriFetch } from "@tauri-apps/plugin-http";
 //   - every HTTP request by host and route (`netFetch`, the one wrapper
 //     around the HTTP plugin's fetch that every caller uses);
 //   - socket opens and frames by host and kind (`openSocket`);
-//   - each return to the foreground: what went out in the 10 s after it.
+//   - each return to the foreground: what went out in the 10 s after it;
+//   - protocol events with their times (`noteServerEvent`): the hub view
+//     asked / answered / refused, a send answered as a repeat. K2 lines
+//     these up against the daemon log.
 // In memory, this session only. Cheap: a counter bump and a timestamp.
 
 export type SocketKind = "hub" | "chat" | "terminal" | "project" | "tickets";
@@ -15,6 +18,7 @@ const WINDOW_MS = 5 * 60_000;
 const RETURN_WINDOW_MS = 10_000;
 const KEEP_RETURNS = 10;
 const KEEP_STAMPS = 2_000;
+const KEEP_EVENTS = 40;
 
 type Host = {
   /** route → total this session. */
@@ -26,7 +30,11 @@ type Host = {
   /** frame kind → total this session. */
   frames: Map<string, number>;
   frameStamps: number[];
+  /** Newest last. */
+  events: NetEvent[];
 };
+
+export type NetEvent = { at: number; text: string };
 
 export type NetReturn = { at: number; awayMs: number; requests: number; opens: number; routes: Record<string, number> };
 
@@ -64,7 +72,7 @@ export function routeOf(path: string): string {
 function entry(host: string): Host {
   let h = hosts.get(host);
   if (!h) {
-    h = { routes: new Map(), stamps: [], errors: 0, opens: new Map(), frames: new Map(), frameStamps: [] };
+    h = { routes: new Map(), stamps: [], errors: 0, opens: new Map(), frames: new Map(), frameStamps: [], events: [] };
     hosts.set(host, h);
   }
   return h;
@@ -119,6 +127,20 @@ export function noteFrame(kind: SocketKind, url: string, data: unknown, now = Da
   h.frames.set(k, (h.frames.get(k) ?? 0) + 1);
   stamp(h.frameStamps, now);
   // Frames are frequent: no `changed()` per frame; the panel polls while open.
+}
+
+/** A protocol event worth a time (Diagnostics → Network → Events). */
+export function noteServerEvent(scope: { httpBase(): string }, text: string, now = Date.now()): void {
+  let base = "";
+  try {
+    base = scope.httpBase();
+  } catch {
+    return;
+  }
+  const list = entry(hostOf(base).host).events;
+  list.push({ at: now, text });
+  if (list.length > KEEP_EVENTS) list.splice(0, list.length - KEEP_EVENTS);
+  changed();
 }
 
 /** The app came back to the foreground (`visibilitychange`). */
@@ -183,6 +205,8 @@ export type NetSummary = {
   opens: Partial<Record<SocketKind, number>>;
   topFrames: { kind: string; count: number }[];
   returns: NetReturn[];
+  /** Newest first. */
+  events: NetEvent[];
 };
 
 function perMin(list: number[], now: number): number {
@@ -208,6 +232,7 @@ export function netSummary(host: string, now = Date.now()): NetSummary | null {
     opens: Object.fromEntries(h.opens) as Partial<Record<SocketKind, number>>,
     topFrames: sorted(h.frames).map(([kind, count]) => ({ kind, count })),
     returns: returns.map((r) => ({ ...r, routes: { ...r.routes } })),
+    events: [...h.events].reverse(),
   };
 }
 

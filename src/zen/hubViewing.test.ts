@@ -23,9 +23,11 @@ vi.mock("./ticketEvents", () => ({
 const overlay = vi.hoisted(() => ({ connect: vi.fn() }));
 vi.mock("./overlayEvents", () => ({ connectOverlayEvents: (...a: unknown[]) => overlay.connect(...a) }));
 
+import { __resetNetStatsForTests, netSummary } from "../lib/netStats";
 import { __resetHubViewingForTests, connectHubViewing, VIEWING_RESEND_MS } from "./hubViewing";
 
-const scope = { id: "s1" } as never;
+const scope = { id: "s1", httpBase: () => "https://z.k2.dev" } as never;
+const events = () => (netSummary("z.k2.dev")?.events ?? []).map((e) => e.text).reverse();
 const frame = (f: Record<string, unknown>) => hub.onFrame!(f);
 const ok = (over: Record<string, unknown> = {}) =>
   frame({ kind: "viewing_ok", conversation_id: "c1", rev: 10, convRev: 7, instanceId: "i1", turn: null, ...over });
@@ -40,6 +42,7 @@ function open() {
 
 beforeEach(() => {
   __resetHubViewingForTests();
+  __resetNetStatsForTests();
   hub.sent = [];
   hub.stopped = 0;
   overlay.connect.mockReset().mockReturnValue({ stop: vi.fn(), setViewing: vi.fn() });
@@ -117,5 +120,19 @@ describe("the open Thread on the hub (K2 0.46.8 hub-viewing-v1)", () => {
     expect(fb.setViewing).toHaveBeenCalledWith(true);
     h.stop();
     expect(fb.stop).toHaveBeenCalled();
+  });
+
+  it("times each ask and answer in Diagnostics for lining up with the daemon log", () => {
+    const { h } = open();
+    h.setViewing(true);
+    ok();
+    ok({ rev: 20, convRev: 18, reason: "lagged" });
+    frame({ kind: "viewing_error", conversation_id: "c1", code: "forbidden" });
+    expect(events()).toEqual([
+      "viewing on c1",
+      "viewing_ok c1 rev 10 convRev 7 (first)",
+      "viewing_ok c1 rev 20 convRev 18 lagged (behind, read)",
+      "viewing_error c1 forbidden (own socket)",
+    ]);
   });
 });

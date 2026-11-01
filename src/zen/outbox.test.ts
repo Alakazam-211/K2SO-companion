@@ -24,6 +24,7 @@ import { useZenStore } from "./zenStore";
 import { fakeScope } from "../test/fakeScope";
 import { setZenScope } from "../test/zenScopeMock";
 import { flyKeyframes } from "./sendFly";
+import { __resetNetStatsForTests, netSummary } from "../lib/netStats";
 
 const msg = (id: string, text: string, mine = true): ThreadMessage => ({
   id,
@@ -162,6 +163,23 @@ describe("sendThread outbox", () => {
     await useZenStore.getState().sendThread("hello", { localId: entry.localId });
     const ids = vi.mocked(postThread).mock.calls.map((c) => c[4]);
     expect(ids).toEqual([entry.clientMsgId, entry.clientMsgId]);
+  });
+
+  it("each keyed send's answer is timed in Diagnostics (failed, then answered as a repeat)", async () => {
+    __resetNetStatsForTests();
+    setZenScope(fakeScope({ id: "s1", username: "baden", features: ["post-idempotency-v1"] }));
+    vi.mocked(postThread)
+      .mockResolvedValueOnce({ ok: false, error: "network" } as never)
+      .mockResolvedValueOnce({ ok: true, data: { id: "m1", duplicate: true } } as never);
+    vi.mocked(getThread).mockResolvedValue({ ok: false, error: "x" } as never);
+    await useZenStore.getState().sendThread("hello");
+    const entry = useZenStore.getState().outbox[0];
+    await useZenStore.getState().sendThread("hello", { localId: entry.localId });
+    const k = entry.clientMsgId!.slice(0, 8);
+    expect((netSummary("s1.k2.dev")?.events ?? []).map((e) => e.text).reverse()).toEqual([
+      `send ${k} failed: network`,
+      `send ${k} duplicate (stored, not posted again)`,
+    ]);
   });
 
   it("without the feature, no clientMsgId is sent", async () => {

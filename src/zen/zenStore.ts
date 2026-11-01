@@ -52,6 +52,7 @@ import { useWorkspacesStore } from "../stores/workspaces";
 import { sidecarRowId } from "./agentRow";
 import { buildServerRows, groupAgentRow, overlaySidecarAgent } from "./serverRows";
 import { queueServerAvatars } from "../lib/avatarCache";
+import { noteServerEvent } from "../lib/netStats";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
 import {
   beginLastAt,
@@ -2204,6 +2205,17 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const clientMsgId = scope.supports(FEATURE_POST_IDEMPOTENCY)
       ? get().outbox.find((o) => o.localId === id)?.clientMsgId
       : undefined;
+    // Diagnostics → Network → Events: each keyed send's answer, timed.
+    const noteSend = (posted: { ok: boolean; data?: unknown; error?: string }) => {
+      if (!clientMsgId) return;
+      const d = (posted.data ?? {}) as { duplicate?: unknown; mismatch?: unknown };
+      const what = !posted.ok
+        ? `failed: ${posted.error || "?"}`
+        : d.duplicate === true
+          ? `duplicate (stored, not posted again)${d.mismatch === true ? ", mismatch" : ""}`
+          : "stored";
+      noteServerEvent(scope, `send ${clientMsgId.slice(0, 8)} ${what}`);
+    };
     if (groupId) {
       // Project chats take text only (attachments ride Thread posts).
       if (!trimmed) return fail(id, "Nothing to send");
@@ -2212,6 +2224,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         const posted = clientMsgId
           ? await postProjectGroupMessage(scope, groupId, trimmed, clientMsgId)
           : await postProjectGroupMessage(scope, groupId, trimmed);
+        noteSend(posted);
         if (!posted.ok || !posted.data) {
           return fail(id, posted.error || "send failed");
         }
@@ -2259,6 +2272,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
         : attachments
           ? await postThread(scope, addr as string, trimmed, attachments)
           : await postThread(scope, addr as string, trimmed);
+      noteSend(posted);
       if (!posted.ok) {
         return fail(id, posted.error || "send failed");
       }
