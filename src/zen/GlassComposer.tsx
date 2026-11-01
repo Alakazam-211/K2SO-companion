@@ -629,7 +629,11 @@ export function GlassComposer({
               onFocus={onFocus}
               onPaste={onPasteFiles}
               placeholder={placeholder}
-              className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--text)] outline-none py-1 placeholder:whitespace-nowrap placeholder:overflow-hidden placeholder:text-ellipsis ${showAttach ? "" : "px-2"}`}
+              className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--text)] outline-none pt-[3px] pb-[5px] placeholder:whitespace-nowrap placeholder:overflow-hidden placeholder:text-ellipsis ${showAttach ? "" : "px-2"}`}
+              // 3px over, 5px under (not 4/4): the system font sits its
+              // lowercase ~1.5px low in a 22px line, so the first line read
+              // as a pixel too low against the pill (Rosson 2026-10-31).
+              // Same 30px field, so nothing around it moves.
               style={{
                 maxHeight: COMPOSER_MAX_PX,
                 fontSize: zenTextPx(17),
