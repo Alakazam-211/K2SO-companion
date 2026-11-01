@@ -152,6 +152,24 @@ describe("sendThread outbox", () => {
     expect(s.sending).toBe(false);
   });
 
+  it("K2 0.46.8 post-idempotency-v1: every try of a send carries its one clientMsgId", async () => {
+    setZenScope(fakeScope({ id: "s1", username: "baden", features: ["post-idempotency-v1"] }));
+    vi.mocked(postThread).mockResolvedValue({ ok: false, error: "network" } as never);
+    expect(await useZenStore.getState().sendThread("hello")).toBe(false);
+    const entry = useZenStore.getState().outbox[0];
+    expect(entry.clientMsgId).toMatch(/^[0-9a-f]{32}$/);
+    // Retry the failed send: the same id goes again.
+    await useZenStore.getState().sendThread("hello", { localId: entry.localId });
+    const ids = vi.mocked(postThread).mock.calls.map((c) => c[4]);
+    expect(ids).toEqual([entry.clientMsgId, entry.clientMsgId]);
+  });
+
+  it("without the feature, no clientMsgId is sent", async () => {
+    vi.mocked(postThread).mockResolvedValue({ ok: false, error: "network" } as never);
+    await useZenStore.getState().sendThread("hello");
+    expect(vi.mocked(postThread).mock.calls[0]).toHaveLength(3);
+  });
+
   it("an entry from another room is never posted here", async () => {
     const id = useZenStore.getState().queueOutgoing({ text: "for appa" });
     useZenStore.setState({ threadAddr: "other", threadGen: useZenStore.getState().threadGen + 1 });
