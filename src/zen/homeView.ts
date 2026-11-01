@@ -22,8 +22,10 @@ import { posixNormalize } from "./workspacePath";
 export type HomeRowView =
   /** On the active server and on its Agents list: opens like Agents. */
   | { kind: "here"; row: HomeRow; agent: StubAgent }
-  /** On the active server, but its Agents list has no such agent now. */
-  | { kind: "missing"; row: HomeRow }
+  /** On the active server, but its Agents list has no such agent now.
+   *  `pending`: the list hasn't loaded yet (launch, a reload), so the row
+   *  is assumed fine and shown as normal until the list says otherwise. */
+  | { kind: "missing"; row: HomeRow; pending?: boolean }
   /** On another server. `server` is null when no saved server matches.
    *  `resolved` is set only with the multi-server flag on. */
   | {
@@ -112,6 +114,9 @@ export function resolveHomeRows(
   ctx: {
     activeHostKey: string | null;
     agents: StubAgent[];
+    /** The active server's list has loaded (default true). Before it has,
+     *  its rows are `pending`, never "not on this server's list". */
+    agentsLoaded?: boolean;
     projects: ServerProject[];
     servers: ServerEntry[];
     /** Multi-server flag on (HM3/HM8): each other server's own lists, by
@@ -135,7 +140,9 @@ export function resolveHomeRows(
       (parsed.host === ctx.activeHostKey || activeEntries.some((s) => entryMatchesHomeHost(s, parsed.host)))
     ) {
       const agent = findAgentForRow(row, ctx.agents, ctx.projects);
-      out.push(agent ? { kind: "here", row, agent } : { kind: "missing", row });
+      if (agent) out.push({ kind: "here", row, agent });
+      else if (ctx.agentsLoaded === false) out.push({ kind: "missing", row, pending: true });
+      else out.push({ kind: "missing", row });
       continue;
     }
     const server = savedServerForHost(ctx.servers, parsed.host, ctx.remote?.tokens);

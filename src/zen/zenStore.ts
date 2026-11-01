@@ -197,6 +197,10 @@ export function sourceWord(s: DataSource): "LIVE" | "STUB" | "ERROR" | "LOADING"
 }
 
 type ZenState = {
+  /** The active server's list while a room on another server is open: the
+   *  list under the room (swipe back peeks at it) reads this, so it never
+   *  shows the room's rows or greys out (`useListField`). */
+  parkedList: ListSlice | null;
   agentSource: DataSource;
   fileSource: DataSource;
   agents: StubAgent[];
@@ -659,6 +663,13 @@ type ListSlice = Pick<
 >;
 let listSlice: { serverId: string; state: ListSlice } | null = null;
 
+/** One field of the active server's list: the parked copy while a room on
+ *  another server is open, else the store's own. The list screens read
+ *  these, so the list under a room stays as it was. */
+export function useListField<K extends keyof ListSlice>(key: K): ListSlice[K] {
+  return useZenStore((s) => (s.parkedList ?? s)[key]);
+}
+
 // The chat cache (`chatCache`, stale-while-revalidate): the newest
 // messages of every chat this phone read, per room (server + addr / group),
 // in memory and on the device. Opening a chat paints its cached copy at
@@ -932,7 +943,10 @@ onServerForget((id) => {
   // A room on a removed / re-keyed server closes; it never falls back to
   // another server's data (MS7).
   if (roomServerId() === id) useZenStore.getState().closeChat();
-  if (listSlice?.serverId === id) listSlice = null;
+  if (listSlice?.serverId === id) {
+    listSlice = null;
+    useZenStore.setState({ parkedList: null });
+  }
 });
 
 // The active server changed under an open room: the parked list is stale,
@@ -940,6 +954,7 @@ onServerForget((id) => {
 useServersStore.subscribe((st, prev) => {
   if (st.activeServerId === prev.activeServerId) return;
   listSlice = null;
+  useZenStore.setState({ parkedList: null });
   if (roomServerId() && roomServerId() === st.activeServerId) setRoomServer(null);
 });
 
@@ -987,6 +1002,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
   // Never start on the stub catalogue. A signed-in first paint used to
   // show STUB_AGENTS until hydrateAgents resolved. Stub is only applied
   // when hydrateAgents sees no token.
+  parkedList: null,
   agentSource: "loading",
   fileSource: "loading",
   agents: [],
@@ -2876,6 +2892,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       activityServer = target;
       focusServer = target;
       set({
+        parkedList: listSlice?.state ?? null,
         agentSource: seed && seed.length ? "live" : "loading",
         agents: seed ?? [],
         agentError: null,
@@ -2912,13 +2929,20 @@ export const useZenStore = create<ZenState>((set, get) => ({
     focusServer = active;
     // A parked list that had failed (its server was down) is read again.
     if (parked && parked.serverId === active && parked.state.agentSource !== "error") {
-      set(parked.state);
+      set({ ...parked.state, parkedList: null });
       // Fresh dots, pins and groups for the list, in the background.
       void get().refreshActivity();
       get().refreshServerLists();
       return;
     }
-    set({ agents: [], agentSource: "loading", activity: EMPTY_ACTIVITY, serverProjects: [], pinnedIds: [] });
+    set({
+      parkedList: null,
+      agents: [],
+      agentSource: "loading",
+      activity: EMPTY_ACTIVITY,
+      serverProjects: [],
+      pinnedIds: [],
+    });
     if (get().screen === "list") void get().hydrateAgents();
   },
   openRoom: async (serverId, target) => {
