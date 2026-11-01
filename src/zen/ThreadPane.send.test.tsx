@@ -361,8 +361,9 @@ describe("send animation (FLIP)", () => {
     expect(ctx[flyIdx]).toBe(clone);
     expect(calls.filter(([f]) => f[0].transform != null)).toHaveLength(2);
     const [frames, timing] = calls[flyIdx];
-    // Bubble text origin (200+12, 500+8) onto the composer's (20, 700).
-    expect(frames[0].transform).toBe("translate3d(-192px, 192px, 0px) scale(1)");
+    // Bubble text origin (200+12, 500+8) onto the composer's text (20,
+    // 700+3: the field's one-line padding over its text).
+    expect(frames[0].transform).toBe("translate3d(-192px, 195px, 0px) scale(1)");
     expect(frames[frames.length - 1].transform).toBe("translate3d(0px, 0px, 0px) scale(1)");
     expect(timing.duration).toBe(FLY_MS);
     // iMessage: ~0.42s from tap to settled.
@@ -781,7 +782,7 @@ describe("the takeoff and the landing", () => {
     expect(glide).toBeDefined();
     // Measured before the glide started: 500, not 560.
     expect(screen.getByTestId("send-fly-clone").style.top).toBe("500px");
-    expect(fly.frames[0].transform).toBe("translate3d(-192px, 192px, 0px) scale(1)");
+    expect(fly.frames[0].transform).toBe("translate3d(-192px, 195px, 0px) scale(1)");
     // The list starts where it was (60px lower) and glides home.
     expect(glide.frames[0].transform).toBe("translate3d(0px, 60px, 0px)");
     expect(glide.frames[glide.frames.length - 1].transform).toBe("translate3d(0px, 0px, 0px)");
@@ -792,7 +793,7 @@ describe("the takeoff and the landing", () => {
     expect(glide.frames.map((k) => k.offset)).toEqual(fly.frames.map((k) => k.offset));
     // Same progress at every keyframe (the same ~2px settle, never more).
     const glideP = glide.frames.map((k) => 1 - parseFloat(/, ([-\d.]+)px/.exec(String(k.transform))![1]) / 60);
-    const flyP = fly.frames.map((k) => 1 - parseFloat(/, ([-\d.]+)px/.exec(String(k.transform))![1]) / 192);
+    const flyP = fly.frames.map((k) => 1 - parseFloat(/, ([-\d.]+)px/.exec(String(k.transform))![1]) / 195);
     glideP.forEach((p, i) => expect(p).toBeCloseTo(flyP[i], 2));
     glideP.forEach((p) => expect(p).toBeLessThanOrEqual(1.01));
     // Started in the same frame, after the clone was placed.
