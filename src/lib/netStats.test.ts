@@ -7,10 +7,11 @@ import {
   noteForeground,
   noteFrame,
   noteRequest,
+  noteServerEvent,
   noteSocketOpen,
   routeOf,
 } from "./netStats";
-import { returnLine, summaryLines } from "../zen/NetDiagnostics";
+import { eventLine, returnLine, summaryLines } from "../zen/NetDiagnostics";
 
 beforeEach(() => __resetNetStatsForTests());
 
@@ -47,5 +48,22 @@ describe("network counters", () => {
     const s = netSummary("a.k2.dev", 3000)!;
     expect(s.topFrames).toEqual([{ kind: "hub:activity_changed", count: 2 }]);
     expect(summaryLines(s)[1]).toContain("frames/min");
+  });
+
+  it("keeps protocol events per server with their times, newest first, 40 at most", () => {
+    const scope = { httpBase: () => "https://a.k2.dev" };
+    const at = new Date(2026, 10, 1, 7, 41, 5).getTime();
+    noteServerEvent(scope, "viewing on 3f2a1b9c", at);
+    noteServerEvent(scope, "send abcd1234 duplicate (stored, not posted again)", at + 1000);
+    const s = netSummary("a.k2.dev")!;
+    expect(s.events.map((e) => e.text)).toEqual([
+      "send abcd1234 duplicate (stored, not posted again)",
+      "viewing on 3f2a1b9c",
+    ]);
+    expect(eventLine(s.events[1])).toBe("07:41:05 viewing on 3f2a1b9c");
+    for (let i = 0; i < 50; i++) noteServerEvent(scope, `e${i}`, at + i);
+    expect(netSummary("a.k2.dev")!.events).toHaveLength(40);
+    // A removed server (httpBase throws) is skipped.
+    noteServerEvent({ httpBase: () => { throw new Error("gone"); } }, "x");
   });
 });

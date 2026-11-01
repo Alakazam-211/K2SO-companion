@@ -1,5 +1,5 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { netStatsVersion, netSummary, subscribeNetStats, type NetReturn, type NetSummary } from "../lib/netStats";
+import { netStatsVersion, netSummary, subscribeNetStats, type NetEvent, type NetReturn, type NetSummary } from "../lib/netStats";
 
 const MUTED = "#8e8e93";
 
@@ -13,6 +13,13 @@ export function returnLine(r: NetReturn): string {
     .join(", ");
   const n = (v: number, one: string) => `${v} ${one}${v === 1 ? "" : "s"}`;
   return `${n(r.requests, "request")}, ${n(r.opens, "socket")} after ${away} away${top ? ` (${top})` : ""}`;
+}
+
+/** "07:41:05 viewing_ok rev 812 (current)": seconds, for lining up logs. */
+export function eventLine(e: NetEvent): string {
+  const d = new Date(e.at);
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())} ${e.text}`;
 }
 
 export function summaryLines(s: NetSummary): string[] {
@@ -82,6 +89,16 @@ export function NetRow({ serverUrl }: { serverUrl: string }) {
                   </div>
                 ))
               )}
+              {s.events.length ? (
+                <>
+                  <div style={{ color: "#fff", marginTop: 6 }}>Events</div>
+                  {s.events.map((e, i) => (
+                    <div key={`${e.at}-${i}`} data-testid="net-event-row">
+                      {eventLine(e)}
+                    </div>
+                  ))}
+                </>
+              ) : null}
             </>
           ) : (
             <span>No requests to this server yet this session.</span>
