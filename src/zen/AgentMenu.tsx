@@ -1,5 +1,6 @@
 import { useEffect, useRef, type ReactNode } from "react";
 import { useBackHandler } from "../lib/androidBack";
+import { useViewport } from "../lib/useViewportHeight";
 import type { RowRef } from "./unread";
 import { MuteMenuItems } from "./UnreadMarks";
 import type { HeldMenu, MenuRect } from "./useHoldMenu";
@@ -34,24 +35,31 @@ function isMute(e: AgentMenuEntry): e is Extract<AgentMenuEntry, { mute: unknown
 }
 
 /** Where the menu sits for a pressed `rect`. Pure (tests). */
+/** `visibleBottom`: the bottom of what can be seen (px from the top): the
+ *  keyboard's top while it is up, else the window's height. The menu is
+ *  always placed by its `top`, so it lands right whatever the window's
+ *  layout height is (iOS keeps that at full height under the keyboard). */
 export function agentMenuPlacement(
   rect: MenuRect,
   count: number,
   align: "center" | "end",
-  viewportH: number
+  visibleBottom: number
 ): { top?: number; bottom?: number; left?: string; right?: number; maxHeight: number } {
   const h = count * ITEM_H + 12;
   const below = rect.bottom + 6;
-  const fitsBelow = below + h <= viewportH - 16;
+  const fitsBelow = below + h <= visibleBottom - 16;
   const fitsAbove = rect.top - 6 - h >= 16;
   const x =
     align === "center"
       ? { left: `clamp(12px, ${rect.left + rect.width / 2}px - ${MENU_W / 2}px, calc(100vw - ${MENU_W + 12}px))` }
       : { right: 16 };
-  if (!fitsBelow && fitsAbove) {
-    return { ...x, bottom: viewportH - rect.top + 6, maxHeight: rect.top - 22 };
+  // No room below (the keyboard, the bottom of the screen): above, if it
+  // fits there, or else whichever side has more room.
+  if (!fitsBelow && (fitsAbove || rect.top - 22 > visibleBottom - below - 16)) {
+    const room = rect.top - 22;
+    return { ...x, top: Math.max(16, rect.top - 6 - Math.min(h, room)), maxHeight: room };
   }
-  return { ...x, top: below, maxHeight: Math.max(ITEM_H * 2, viewportH - below - 16) };
+  return { ...x, top: below, maxHeight: Math.max(ITEM_H * 2, visibleBottom - below - 16) };
 }
 
 export function AgentMenu({
@@ -82,8 +90,10 @@ export function AgentMenu({
     return true;
   };
   useBackHandler(true, onClose);
-  const viewportH = typeof window !== "undefined" ? window.innerHeight : 800;
-  const place = agentMenuPlacement(menu.rect, entries.length, align, viewportH);
+  // What is visible: above the keyboard while it is up (Rosson: the newest
+  // message's menu went under the keyboard).
+  const vp = useViewport();
+  const place = agentMenuPlacement(menu.rect, entries.length, align, vp.offsetTop + vp.height);
   return (
     <div
       data-no-pin="1"
