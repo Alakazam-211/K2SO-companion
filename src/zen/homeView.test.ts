@@ -27,6 +27,18 @@ const BLISTS: ServerLists = {
 describe("resolveHomeRows across servers", () => {
   const base = { activeHostKey: "alpha.k2.dev", agents: [agent("alpha", "/a")], projects: [proj("pa", "alpha", "/a")], servers: [A, B] };
 
+  it("before the active server's list loads, its rows are pending (assumed fine), not missing", () => {
+    const rows = [{ address: homeAddress("alpha", "alpha.k2.dev"), workspaceId: "pa", label: "alpha" }];
+    expect(resolveHomeRows(rows, { ...base, agents: [], agentsLoaded: false })[0]).toMatchObject({
+      kind: "missing",
+      pending: true,
+    });
+    // Loaded and still not there: missing for real.
+    const [gone] = resolveHomeRows(rows, { ...base, agents: [] });
+    expect(gone.kind).toBe("missing");
+    expect("pending" in gone && gone.pending).toBeFalsy();
+  });
+
   it("flag off: a B row only names its server (no resolution)", () => {
     const [v] = resolveHomeRows([{ address: homeAddress("docs", "bravo.k2.dev"), workspaceId: "pd", label: "docs" }], base);
     expect(v).toEqual({ kind: "remote", row: expect.anything(), server: B, serverLabel: "Bravo" });

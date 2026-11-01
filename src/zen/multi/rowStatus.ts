@@ -7,13 +7,15 @@
 //   2. no login held            → sign-in (or signing-in while the user's
 //                                 own sign-in sheet is up; NG5: the phone
 //                                 never signs in on its own)
-//   3. no entry / unknown       → checking
+//   3. no entry / unknown       → (phone) assumed live until checked:
+//                                 the row shows as fine, never "Checking…"
 //   4. offline
 //   5. starting
 //   6. (phone) known version below the floor → too-old (Q9: 0.41.6);
 //      the box's protocol range (K2 0.46.3) leaves this phone out →
 //      too-old with `appTooOld` (the phone needs the update)
 //   7. auth not ok              → sign-in, with the rotate / kicked detail
+//                                 (phone: only once a server answer set it)
 //   8. role not allowed         → no-access (a null role is ALLOWED)
 //   9. the open room's activity, else the summary's by `workspaceId`,
 //      else live
@@ -148,7 +150,9 @@ function foldRowStatus(input: RowStatusInput): RowStatus {
     if (input.signingIn) return status("signing-in");
     return status("sign-in", e?.authNote ?? null);
   }
-  if (!e || e.reach === "unknown") return status("checking");
+  // Optimistic (Rosson): a server with a login is assumed up until a check
+  // says otherwise; rows look normal from the first frame.
+  if (!e || e.reach === "unknown") return liveOrBusy(input, e?.activity ?? null);
   if (e.reach === "offline") return status("offline");
   if (e.reach === "starting") return status("starting");
   const version = e.boot?.version ?? null;
@@ -161,7 +165,7 @@ function foldRowStatus(input: RowStatusInput): RowStatus {
     return out;
   }
   if (input.signingIn && e.auth !== "ok") return status("signing-in");
-  if (e.auth !== "ok") {
+  if (e.auth !== "ok" && e.authKnown !== false) {
     const detail =
       e.authNote ??
       (e.auth === "rotate-required"
@@ -179,10 +183,13 @@ function foldRowStatus(input: RowStatusInput): RowStatus {
       `Your login on ${server} is ${e.role || "unknown"}. Ask its owner for Member access.`
     );
   }
+  return liveOrBusy(input, e.activity);
+}
+
+/** Step 9: the open room's activity, else the summary's, else live. */
+function liveOrBusy(input: RowStatusInput, activity: PresenceActivity[] | null): RowStatus {
   const busy =
-    input.roomActivity != null
-      ? input.roomActivity
-      : activityForWorkspace(e.activity, input.workspaceId ?? null);
+    input.roomActivity != null ? input.roomActivity : activityForWorkspace(activity, input.workspaceId ?? null);
   if (busy !== null && busy !== "idle") return status(busy);
   return status("live");
 }

@@ -173,9 +173,15 @@ describe("rooms on any server (MS21–MS23)", () => {
 
   it("hot cap 1: a room elsewhere moves the room; Back restores A's list untouched", async () => {
     await openRoomOnB();
+    // While the room is open, the list under it (swipe back peeks) still
+    // reads A's rows, live, through the parked copy.
+    const parked = useZenStore.getState().parkedList;
+    expect(parked?.agentSource).toBe("live");
+    expect(parked?.agents.map((a) => a.id)).toEqual(["/a"]);
     act(() => useZenStore.getState().closeChat());
     expect(roomServerId()).toBeNull();
     expect(useZenStore.getState().agents.map((a) => a.id)).toEqual(["/a"]);
+    expect(useZenStore.getState().parkedList).toBeNull();
     expect(useServersStore.getState().activeServerId).toBe("a");
   });
 
