@@ -1017,6 +1017,8 @@ export function ThreadPane({
   // for it, above the field (the desktop's selection actions).
   const msgSel = useMessageSelection(scrollerRef);
   const selectedMessage = msgSel.sel ? thread.find((m) => m.id === msgSel.sel?.id) ?? null : null;
+  /** The message the person has picked: its hold menu, or words in it. */
+  const selectedMsgId = msgHold.menu?.id ?? msgSel.sel?.id ?? null;
   const replyFrom = (m: ThreadMessage) => m.from || (m.mine ? roomScope.username() : threadAddr) || "";
   /** Reply to the selected words (`↩ part of #N name:`, the desktop's). */
   const onReplySelection = () => {
@@ -2520,7 +2522,12 @@ export function ThreadPane({
                     runLast={run.last}
                     spaced={run.first && i > 0}
                     stub={source === "stub"}
-                    highlighted={highlightSeq != null && m.seq != null && m.seq === highlightSeq}
+                    highlighted={
+                      (highlightSeq != null && m.seq != null && m.seq === highlightSeq) ||
+                      // Selected (its hold menu open, or words in it selected):
+                      // the same blue outline as a notification's (Rosson).
+                      m.id === selectedMsgId
+                    }
                     receipt={i === receiptIdx && receipt ? receipt : undefined}
                     canAnswer={
                       !out &&
