@@ -9,6 +9,7 @@ import {
   GlassComposer,
   SETTLED_HEIGHT_ATTR,
   composerBlockHeight,
+  fitComposerField,
   settledHeight,
 } from "./GlassComposer";
 import { FLY_MS, SEND_FLY_DEBUG_KEY } from "./sendFly";
@@ -397,5 +398,36 @@ describe("GlassComposer caret: line height", () => {
     document.documentElement.style.removeProperty("--zen-text-scale");
     spy.mockRestore();
     ta.remove();
+  });
+});
+
+describe("the field's padding over its text (Rosson 2026-10-31)", () => {
+  function field(contentPx: number) {
+    const el = document.createElement("textarea");
+    el.style.lineHeight = "22px";
+    // jsdom has no layout: scrollHeight = text + the padding set now.
+    Object.defineProperty(el, "scrollHeight", {
+      configurable: true,
+      get: () => contentPx + (parseFloat(el.style.paddingTop) || 3) + 5,
+    });
+    return el;
+  }
+
+  it("one line: 3px over (reads centred); more lines: 5px over, like the 5px under", () => {
+    const one = field(22);
+    fitComposerField(one, null);
+    expect(one.style.paddingTop).toBe("3px");
+    expect(one.style.height).toBe("30px");
+    const two = field(44);
+    fitComposerField(two, null);
+    expect(two.style.paddingTop).toBe("5px");
+    expect(two.style.height).toBe("54px");
+    // Back to one line: 3px again.
+    Object.defineProperty(two, "scrollHeight", {
+      configurable: true,
+      get: () => 22 + (parseFloat(two.style.paddingTop) || 3) + 5,
+    });
+    fitComposerField(two, null);
+    expect(two.style.paddingTop).toBe("3px");
   });
 });
