@@ -47,7 +47,7 @@ import { StubMark } from "./StubMark";
 import { mountainTime, type StashOffer, type ThreadMessage } from "./threadModel";
 import { BookmarkPlusIcon, ReplyIcon } from "./icons";
 import { formatThreadReply, parseThreadReply, threadReplyFirstLine, type ThreadReplyTarget } from "./threadReply";
-import { MESSAGE_HOLD_ATTR, useMessageHold } from "./stash/useMessageHold";
+import { MESSAGE_HOLD_ATTR, useMessageHold, useMessageSelection } from "./stash/useMessageHold";
 import { StashButton } from "./stash/StashButton";
 import { StashSheet } from "./stash/StashSheet";
 import { useStashSaver, type StashSaveOutcome } from "./stash/useStashSaver";
@@ -228,6 +228,8 @@ export function bubbleBodyStyle(): BodyStyle {
 
 /** No text selection or iOS callout: a hold is the message menu. */
 const NO_SELECT: CSSProperties = { userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" };
+/** A message's words inside it: selectable with the system's selection. */
+const SELECTABLE: CSSProperties = { userSelect: "text", WebkitUserSelect: "text", WebkitTouchCallout: "default" };
 
 /** A message with words, the agent's or the person's: the hold menu
  *  (Reply, Save to stash, Copy, Select Text; K2 0.46.7 parity). Not cards,
@@ -314,7 +316,6 @@ const Bubble = memo(function Bubble({
   breathe,
   tail,
   holdable,
-  selecting,
   onStashOffer,
 }: {
   m: ThreadMessage;
@@ -336,12 +337,10 @@ const Bubble = memo(function Bubble({
   breathe?: boolean;
   /** The last bubble of its run: an iMessage tail (chatBubbles.css). */
   tail?: "mine" | "theirs" | null;
-  /** An agent's message: press and hold for Save to stash / Copy /
-   *  Select Text (useMessageHold). Its text is not selectable until
-   *  Select Text, so the hold is not also an iOS text selection. */
+  /** A message with words: a press on its text selects it (with Reply /
+   *  Copy / Save to stash for the selection, useMessageSelection); a press
+   *  anywhere else on the bubble holds for the menu (useMessageHold). */
   holdable?: boolean;
-  /** Select Text chosen: selectable now. */
-  selecting?: boolean;
   /** A `stash.offer` card's Save to stash. */
   onStashOffer?: (m: ThreadMessage) => Promise<StashSaveOutcome>;
 }) {
@@ -362,12 +361,11 @@ const Bubble = memo(function Bubble({
       data-fly-target={flying ? "true" : undefined}
       data-tail={tail || undefined}
       {...{ [MESSAGE_HOLD_ATTR]: holdable ? m.id : undefined }}
-      data-selecting={selecting ? "true" : undefined}
       aria-haspopup={holdable ? "menu" : undefined}
-      aria-description={holdable ? "Hold for Reply, Save to stash, Copy and Select Text" : undefined}
+      aria-description={holdable ? "Hold the bubble for Reply, Save to stash and Copy; hold the words to select them" : undefined}
       style={{
         visibility: flying ? "hidden" : undefined,
-        ...(holdable && !selecting ? NO_SELECT : null),
+        ...(holdable ? NO_SELECT : null),
         // Settings → Text Size; the markdown body below scales the same way.
         fontSize: zenTextPx(17),
         borderRadius: 18,
@@ -379,7 +377,12 @@ const Bubble = memo(function Bubble({
         opacity: m.pending ? SENDING_OPACITY : 1,
       }}
     >
-      <div className="min-w-0 max-w-full overflow-hidden" data-bubble-body="">
+      <div
+        className="min-w-0 max-w-full overflow-hidden"
+        data-bubble-body=""
+        // The words select (iOS's own selection); the bubble around them holds.
+        style={holdable ? SELECTABLE : undefined}
+      >
       {choice?.permission ? (
         <ThreadPermissionCard card={choice.permission} id={m.id} enabled={canAnswer && !answerHeld} />
       ) : choice ? (
@@ -532,7 +535,6 @@ const ThreadRow = memo(function ThreadRow({
   flying,
   fadeIn,
   canRestore,
-  selecting,
   onFileLink,
   onAnswer,
   onRetry,
@@ -564,8 +566,6 @@ const ThreadRow = memo(function ThreadRow({
   fadeIn: boolean;
   /** A "Not sent" send can go back into the (empty) composer. */
   canRestore: boolean;
-  /** Select Text chosen on this message (the hold menu). */
-  selecting: boolean;
   onFileLink?: (ref: string) => void;
   onAnswer: (id: string, option: string) => void;
   onRetry: (localId: string) => void;
@@ -628,7 +628,6 @@ const ThreadRow = memo(function ThreadRow({
           breathe={out?.status === "sending"}
           tail={runLast ? (m.mine ? "mine" : "theirs") : null}
           holdable={messageHoldable(m, out)}
-          selecting={selecting}
           onStashOffer={onStashOffer}
         />
       ) : null}
@@ -1014,28 +1013,32 @@ export function ThreadPane({
   const [stashOpen, setStashOpen] = useState(false);
   const stashRefocus = useRef(false);
   const msgHold = useMessageHold(scrollerRef, true);
-  const [selectingId, setSelectingId] = useState<string | null>(null);
-  // Select Text: the message's words selected; done once the selection
-  // goes (a tap elsewhere).
-  useEffect(() => {
-    if (!selectingId) return;
-    const held = Array.from(scrollerRef.current?.querySelectorAll(`[${MESSAGE_HOLD_ATTR}]`) ?? []).find(
-      (el) => el.getAttribute(MESSAGE_HOLD_ATTR) === selectingId
-    );
-    const body = held?.querySelector("[data-bubble-body]");
-    const sel = typeof window === "undefined" ? null : window.getSelection();
-    if (body && sel) sel.selectAllChildren(body);
-    const onChange = () => {
-      const cur = window.getSelection();
-      if (!cur || cur.isCollapsed) setSelectingId(null);
-    };
-    // Let the selection made above settle before listening.
-    const t = setTimeout(() => document.addEventListener("selectionchange", onChange), 0);
-    return () => {
-      clearTimeout(t);
-      document.removeEventListener("selectionchange", onChange);
-    };
-  }, [selectingId]);
+  // A piece of one message's words selected: Reply / Copy / Save to stash
+  // for it, above the field (the desktop's selection actions).
+  const msgSel = useMessageSelection(scrollerRef);
+  const selectedMessage = msgSel.sel ? thread.find((m) => m.id === msgSel.sel?.id) ?? null : null;
+  const replyFrom = (m: ThreadMessage) => m.from || (m.mine ? roomScope.username() : threadAddr) || "";
+  /** Reply to the selected words (`↩ part of #N name:`, the desktop's). */
+  const onReplySelection = () => {
+    const sel = msgSel.sel;
+    if (!sel || !selectedMessage) return;
+    setReplyTo({ id: selectedMessage.id, seq: selectedMessage.seq ?? 0, from: replyFrom(selectedMessage), text: sel.text, part: true });
+    msgSel.clear();
+    composerRef.current?.focus({ preventScroll: true });
+  };
+  const onCopySelection = () => {
+    const sel = msgSel.sel;
+    if (sel) void navigator.clipboard?.writeText(sel.text).catch(() => {});
+    msgSel.clear();
+  };
+  const onStashSelection = () => {
+    const sel = msgSel.sel;
+    msgSel.clear();
+    if (!sel || !selectedMessage) return;
+    void stash
+      .save({ text: sel.text, source: stashSourceNow(selectedMessage.from || undefined) })
+      .then((r) => r === "error" && setAttachError(STASH_FAILED));
+  };
   /** Where a stash comes from (shared field rules): the server's host
    *  key, the login, and the agent written to (a draft) or the sender (a
    *  saved message, an offer: `from`). */
@@ -1107,7 +1110,7 @@ export function ThreadPane({
                   setReplyTo({
                     id: heldMessage.id,
                     seq: heldMessage.seq ?? 0,
-                    from: heldMessage.from || (heldMessage.mine ? roomScope.username() : threadAddr) || "",
+                    from: replyFrom(heldMessage),
                     text: heldMessage.text,
                     part: false,
                   });
@@ -1133,14 +1136,6 @@ export function ThreadPane({
           onSelect: () => {
             msgHold.close();
             void navigator.clipboard?.writeText(heldMessage.text).catch(() => {});
-          },
-        },
-        {
-          key: "select",
-          label: "Select Text",
-          onSelect: () => {
-            msgHold.close();
-            setSelectingId(heldMessage.id);
           },
         },
       ]
@@ -2544,7 +2539,6 @@ export function ThreadPane({
                     onRetry={onRetryRow}
                     onRestore={onRestoreRow}
                     onOpenFile={onOpenFileRow}
-                    selecting={selectingId === m.id}
                     onStashOffer={onStashOfferRow}
                   />
                 );
@@ -2681,6 +2675,35 @@ export function ThreadPane({
             >
               {composerLabel}
             </p>
+            {msgSel.sel && selectedMessage ? (
+              <div
+                className="flex items-center gap-1 mb-1.5 text-[13px] min-w-0"
+                data-testid="selection-bar"
+                role="toolbar"
+                aria-label="Selected words"
+              >
+                {(
+                  [
+                    ...(!threadGroupId && canSend ? [["reply", "Reply", onReplySelection] as const] : []),
+                    ["copy", "Copy", onCopySelection] as const,
+                    ["stash", "Save to stash", onStashSelection] as const,
+                  ] as const
+                ).map(([key, label, run]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className="px-2.5 py-1 rounded-full bg-[var(--card)] text-[var(--text)]"
+                    data-testid={`selection-${key}`}
+                    // Keep the selection (and the keyboard) while tapping.
+                    onPointerDown={(e) => e.preventDefault()}
+                    onMouseDown={(e) => e.preventDefault()}
+                    onClick={run}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            ) : null}
             {replyTo ? (
               <div
                 className="flex items-center gap-1.5 mb-1.5 text-[12px] min-w-0"
