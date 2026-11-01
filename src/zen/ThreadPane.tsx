@@ -2715,7 +2715,7 @@ export function ThreadPane({
                 role="toolbar"
                 aria-label="Selected words"
               >
-                <span className="min-w-0 flex-1 text-[13px] leading-snug truncate" style={{ color: "#8e8e93" }}>
+                <span className="min-w-0 flex-1 text-[13px] leading-snug truncate" style={{ color: "#fff" }}>
                   Selected
                 </span>
                 {(
