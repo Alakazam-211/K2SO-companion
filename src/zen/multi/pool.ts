@@ -82,6 +82,10 @@ export interface PoolEntry {
   reach: PoolReach;
   boot: PoolBoot | null;
   auth: PoolAuth;
+  /** False until a server answer (or a missing token) set `auth`: a new
+   *  entry's `signin-required` is only a placeholder, so rows show the
+   *  server as fine until it says otherwise. Absent = known. */
+  authKnown?: boolean;
   /** Extra copy for the auth state ("Box B needs a new password."). */
   authNote: string | null;
   /** whoami `role`. Null = not read (an older server): allowed (MA10). */
@@ -201,6 +205,7 @@ export function blankEntry(serverId: string, hostKey: string): PoolEntry {
     reach: "unknown",
     boot: null,
     auth: "signin-required",
+    authKnown: false,
     authNote: null,
     role: null,
     username: null,
@@ -265,10 +270,10 @@ export function reducePool(prev: PoolEntry, ev: PoolEvent): PoolEntry {
       };
     }
     case "no-token":
-      return { ...prev, auth: "signin-required", authNote: null, ...noPresence() };
+      return { ...prev, auth: "signin-required", authKnown: true, authNote: null, ...noPresence() };
     case "whoami": {
       const r = ev.read;
-      if (r.kind === "dead") return { ...prev, auth: "signin-required", authNote: null, ...noPresence() };
+      if (r.kind === "dead") return { ...prev, auth: "signin-required", authKnown: true, authNote: null, ...noPresence() };
       if (r.kind === "migrating") return { ...prev, reach: "starting" };
       if (r.kind !== "ok") return prev;
       const b = (r.body && typeof r.body === "object" ? r.body : {}) as Record<string, unknown>;
@@ -278,6 +283,7 @@ export function reducePool(prev: PoolEntry, ev: PoolEvent): PoolEntry {
         return {
           ...prev,
           auth: "rotate-required",
+          authKnown: true,
           authNote: `${ev.serverLabel} needs a new password.`,
           role,
           username,
@@ -288,18 +294,19 @@ export function reducePool(prev: PoolEntry, ev: PoolEvent): PoolEntry {
     }
     case "summary": {
       const r = ev.read;
-      if (r.kind === "dead") return { ...prev, auth: "signin-required", authNote: null, ...noPresence() };
+      if (r.kind === "dead") return { ...prev, auth: "signin-required", authKnown: true, authNote: null, ...noPresence() };
       if (r.kind === "migrating") return { ...prev, reach: "starting" };
       if (r.kind === "failed") {
         // MA11: the login stands if whoami said so; Live with no dots.
         return ev.whoamiAlive
-          ? { ...prev, auth: "ok", authNote: null, ...noPresence() }
+          ? { ...prev, auth: "ok", authKnown: true, authNote: null, ...noPresence() }
           : { ...prev, ...noPresence() };
       }
       const b = (r.body && typeof r.body === "object" ? r.body : {}) as Record<string, unknown>;
       return {
         ...prev,
         auth: "ok",
+        authKnown: true,
         authNote: null,
         presence: Array.isArray(b.workspaces) ? (b.workspaces as PresenceWorkspace[]) : null,
         activity: parsePresenceActivity(b.agentActivity),
@@ -312,12 +319,13 @@ export function reducePool(prev: PoolEntry, ev: PoolEvent): PoolEntry {
       return {
         ...prev,
         auth: "kicked",
+        authKnown: true,
         authNote: `Removed from ${ev.serverLabel}. Sign in again.`,
         ...noPresence(),
       };
     case "signin":
       if (prev.auth === "kicked") return prev; // kicked is the stronger word
-      return { ...prev, auth: "signin-required", authNote: null, ...noPresence() };
+      return { ...prev, auth: "signin-required", authKnown: true, authNote: null, ...noPresence() };
     case "scheduled":
       return { ...prev, nextAt: ev.nextAt };
   }

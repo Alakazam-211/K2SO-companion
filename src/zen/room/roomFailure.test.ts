@@ -8,6 +8,7 @@ const live = (over: Partial<PoolEntry> = {}): PoolEntry => ({
   ...blankEntry("b", "bravo.k2.dev"),
   reach: "live",
   auth: "ok",
+  authKnown: true,
   role: "member",
   boot: { phase: "ready", ready: true, version: "0.45.5", protocol: 1, instanceId: "i", features: [], at: 1 },
   ...over,

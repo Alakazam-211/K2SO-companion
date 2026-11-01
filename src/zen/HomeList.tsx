@@ -5,8 +5,8 @@ import { activityForRow } from "./agentActivity";
 import { AgentRowContent } from "./AgentRowContent";
 import { RowDivider, ZEN_ROW_RIGHT_INSET } from "./RowDivider";
 import { skinInitials } from "./agentRow";
-import { parseHomeAddress } from "./homes";
-import type { HomeRowView } from "./homeView";
+import { parseHomeAddress, type HomeRow } from "./homes";
+import { findAgentForRow, type HomeRowView } from "./homeView";
 import { FailureAction, FailureText } from "./multi/MergedRows";
 import type { FailureAction as FailureActionKind, RowFailure } from "./multi/rowStatus";
 import { roomBelowFloor } from "./multi/useMultiServerList";
@@ -14,7 +14,7 @@ import type { RowActivity } from "./agentActivity";
 import { lastAtKeyFor } from "./lastAtFetch";
 import type { StubAgent } from "./stubData";
 import { mountainListWhen } from "./threadModel";
-import { useZenStore } from "./zenStore";
+import { useListField, useZenStore } from "./zenStore";
 import { useZenScope } from "./zenScope";
 import { rowUnreadFor, type RowRef } from "./unread";
 import { useUnreadStore } from "./unreadStore";
@@ -69,6 +69,27 @@ export async function openHomeRowOnServer(
   }
   await useZenStore.getState().hydrateAgents({ resumeId: handle });
   return true;
+}
+
+/** A Home row tapped before the active server's list loaded: open it once
+ *  the list is in (gives up after 10 s or if the agent isn't there). */
+function openWhenListed(row: HomeRow): void {
+  let done = false;
+  const finish = () => {
+    done = true;
+    unsub();
+    clearTimeout(timer);
+  };
+  const check = (s: ReturnType<typeof useZenStore.getState>) => {
+    if (done || s.agentSource === "loading") return;
+    finish();
+    if (s.agentSource !== "live") return;
+    const agent = findAgentForRow(row, s.agents, s.serverProjects);
+    if (agent) s.setAgent(agent.id);
+  };
+  const unsub = useZenStore.subscribe(check);
+  const timer = setTimeout(() => !done && finish(), 10_000);
+  check(useZenStore.getState());
 }
 
 /** What a row from another server shows with the multi-server flag on
@@ -148,9 +169,9 @@ export function HomeList({
    *  menu. */
   otherHomeOf?: (address: string) => string | null;
 }) {
-  const source = useZenStore((s) => s.agentSource);
-  const activity = useZenStore((s) => s.activity);
-  const chatSessions = useZenStore((s) => s.chatSessions);
+  const source = useListField("agentSource");
+  const activity = useListField("activity");
+  const chatSessions = useListField("chatSessions");
   const lastAtByKey = useZenStore((s) => s.lastAtByKey);
   const zenId = useZenScope().id;
   const setAgent = useZenStore((s) => s.setAgent);
@@ -193,6 +214,7 @@ export function HomeList({
   /** What a row's tap does (and the menu's Open). */
   const openRow = (v: HomeRowView, failure: RowFailure | null, action: (() => void) | null) => {
     if (v.kind === "here") setAgent(v.agent.id);
+    else if (v.kind === "missing" && v.pending) openWhenListed(v.row);
     else if (v.kind === "remote") {
       // Flag on: a server in trouble runs its one fix instead — except one
       // that is down: the chat opens with what is cached and reconnects
@@ -246,6 +268,10 @@ export function HomeList({
         const handle = parseHomeAddress(address)?.handle ?? "";
         const here = v.kind === "here" ? v.agent : null;
         const { look, failure, action } = rowState(v);
+        // Not listed yet (the list is loading): assumed fine, shown as
+        // normal with what this phone remembers of it.
+        const pending = v.kind === "missing" && !!v.pending;
+        const pendingKey = pending ? lastAtKeyFor(zenId, { addr: handle }) : null;
         const there = v.kind === "remote" ? v.resolved?.agent ?? null : null;
         const busy = look
           ? look.busy
@@ -253,10 +279,11 @@ export function HomeList({
             ? activityForRow(here, activity, false, chatSessions)
             : null;
         const lastKey = here && source === "live" ? lastAtKeyFor(zenId, here) ?? undefined : undefined;
+        const whenKey = lastKey ?? pendingKey ?? undefined;
         const when = look
           ? look.when
-          : lastKey && lastAtByKey[lastKey] != null
-            ? mountainListWhen(lastAtByKey[lastKey] as number)
+          : whenKey && lastAtByKey[whenKey] != null
+            ? mountainListWhen(lastAtByKey[whenKey] as number)
             : "";
         const name = here?.name ?? there?.name ?? v.row.label ?? handle;
         const preview = failure ? (
@@ -272,12 +299,14 @@ export function HomeList({
           </span>
         ) : v.kind === "here" ? (
           previewFor(v.agent)
+        ) : pending ? (
+          previewFor({ id: handle, addr: handle, name, kind: "agent" } as StubAgent)
         ) : v.kind === "remote" ? (
           `On ${v.serverLabel}`
         ) : (
           "Not on this server's list right now"
         );
-        const dim = look ? !!failure || look.dim : v.kind !== "here";
+        const dim = look ? !!failure || look.dim : v.kind !== "here" && !pending;
         const target = source === "live" || v.kind === "remote" ? homeRowTarget(v, zenId) : null;
         const unread =
           target && !failure

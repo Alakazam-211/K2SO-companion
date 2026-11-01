@@ -21,6 +21,7 @@ function probe(p: Partial<PoolEntry>): PoolEntry {
     reach: "live",
     boot: { phase: "ready", ready: true, version: "0.45.3", protocol: 1, instanceId: "i1", features: [], at: 1 },
     auth: "ok",
+    authKnown: true,
     role: "member",
     presence: [],
     checkedAt: 1,
@@ -100,9 +101,12 @@ describe("resolveRowStatus — fold order (desktop home-status)", () => {
     expect(kind({ entry: probe({ role: null }) })).toBe("live");
   });
 
-  it("not probed yet → checking; not a saved server → offline", () => {
-    expect(kind({ entry: undefined })).toBe("checking");
-    expect(kind({ entry: probe({ reach: "unknown" }) })).toBe("checking");
+  it("not probed yet → assumed live (optimistic); not a saved server → offline", () => {
+    expect(kind({ entry: undefined })).toBe("live");
+    expect(kind({ entry: probe({ reach: "unknown" }) })).toBe("live");
+    // Booted, but no login answer yet: the placeholder auth is not a refusal.
+    expect(kind({ entry: probe({ auth: "signin-required", authKnown: false }) })).toBe("live");
+    expect(kind({ entry: { ...blankEntry("b", "b.k2.dev"), reach: "live" } })).toBe("live");
     expect(kind({ saved: false, entry: undefined })).toBe("offline");
     // Not saved beats everything, even no login.
     expect(kind({ saved: false, hasLogin: false })).toBe("offline");
@@ -214,9 +218,13 @@ describe("failure rows (MS35 copy table): exactly one action each", () => {
     return rowFailure(resolveRowStatus(input), input.entry, "Box B", now);
   };
 
+  it("a server not checked yet is no failure at all (optimistic)", () => {
+    const s = resolveRowStatus({ ...base, entry: undefined });
+    expect(rowFailure(s, undefined, "Box B", now)).toBeNull();
+  });
+
   it("maps every failure state to its copy and at most one action", () => {
     const table: [Partial<RowStatusInput>, string, string, string | null][] = [
-      [{ entry: undefined }, "checking", "Checking…", null],
       [{ entry: probe({ reach: "offline", nextAt: now + 12_000 }) }, "offline", "Reconnecting…", "retry"],
       [{ entry: probe({ reach: "starting" }) }, "restarting", "Restarting…", "retry"],
       [{ hasLogin: false }, "signin-required", "Sign in to Box B", "sign-in"],

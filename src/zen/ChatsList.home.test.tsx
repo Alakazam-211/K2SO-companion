@@ -205,6 +205,21 @@ describe("Home view (HM3/HM7)", () => {
     expect(screen.queryByTestId("server-filter-menu")).toBeNull();
   });
 
+  it("while the list loads, an active-server row looks normal (optimistic) and a tap opens it once listed", () => {
+    const h = useHomesStore.getState();
+    h.addRow(h.selectedId, { address: homeAddress("bravo", HOST), workspaceId: "pb", label: "bravo" });
+    useZenStore.setState({ agentSource: "loading", agents: [] });
+    mount();
+    goHome();
+    const row = screen.getByTestId("home-row-bravo");
+    expect(row.style.opacity).toBe("1");
+    expect(screen.queryByText("Not on this server's list right now")).toBeNull();
+    fireEvent.click(row);
+    expect(useZenStore.getState().agentId).toBe("");
+    act(() => useZenStore.setState({ agentSource: "live", agents: [LA, LB, SIDE] }));
+    expect(useZenStore.getState().agentId).toBe("/b");
+  });
+
   it("an active-server row opens its chat", () => {
     const h = useHomesStore.getState();
     h.addRow(h.selectedId, { address: homeAddress("bravo", HOST), workspaceId: "pb", label: "bravo" });
