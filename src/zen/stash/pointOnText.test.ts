@@ -41,3 +41,23 @@ describe("pointOnText (a press on the words selects; elsewhere holds)", () => {
     bubble.remove();
   });
 });
+
+describe("keepSelectionInMessage (a selection stays in its message's words)", () => {
+  it("an end that ran past the words (the space below) comes back to their end", async () => {
+    const { keepSelectionInMessage } = await import("./useMessageHold");
+    document.body.innerHTML =
+      '<div id="list"><div data-bubble-body=""><p>Ship it?</p><p>All green.</p></div><div id="pad"></div></div>';
+    const words = document.querySelectorAll("p")[1].firstChild!;
+    const pad = document.getElementById("pad")!;
+    const sel = window.getSelection()!;
+    sel.removeAllRanges();
+    sel.setBaseAndExtent(words, 4, pad, 0);
+    expect(keepSelectionInMessage(sel)).toBe(true);
+    expect(sel.focusNode).toBe(words);
+    expect(sel.focusOffset).toBe("All green.".length);
+    expect(sel.toString()).toBe("green.");
+    // Already inside: left alone.
+    expect(keepSelectionInMessage(sel)).toBe(false);
+    document.body.innerHTML = "";
+  });
+});
