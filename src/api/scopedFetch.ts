@@ -55,6 +55,7 @@ const USER_ROUTES = new Set([
   "/cli/thread/permission-undo",
   "/cli/thread/permission-note",
   "/cli/project-group/messages",
+  "/cli/project-group/msg",
   "/cli/vault/confirm/start",
   "/cli/vault/confirm/finish",
   "/cli/terminal/write",
