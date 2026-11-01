@@ -73,7 +73,7 @@ import type { StubAgent } from "./stubData";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { ZenSettings } from "./ZenSettings";
 import { homeViewRecent, orderRecentFirst, recentSentKey, useRecentFirstStore } from "./recentFirst";
-import { useZenStore } from "./zenStore";
+import { useListField, useZenStore } from "./zenStore";
 import { FOCUS_OFF } from "./serverPins";
 import { labelOf, snapshotCapable, useMultiServerList, type ActiveSlice } from "./multi/useMultiServerList";
 import { homeActivityWord, rowActivityOf } from "./multi/rowStatus";
@@ -216,24 +216,24 @@ export function ChatsList() {
   const columnTrackRef = useViewportTrackRef();
   const searchBarRef = useRef<HTMLDivElement>(null);
   const searchBlurRef = useRef<HTMLDivElement>(null);
-  const agents = useZenStore((s) => s.agents);
+  const agents = useListField("agents");
   const chatRows = useMemo(() => agents.filter((a) => a.kind !== "group"), [agents]);
-  const source = useZenStore((s) => s.agentSource);
-  const agentError = useZenStore((s) => s.agentError);
+  const source = useListField("agentSource");
+  const agentError = useListField("agentError");
   const setAgent = useZenStore((s) => s.setAgent);
   const lastAtByKey = useZenStore((s) => s.lastAtByKey);
   const ensureLastAt = useZenStore((s) => s.ensureLastAt);
   const previewByKey = useZenStore((s) => s.previewByKey);
-  const activity = useZenStore((s) => s.activity);
-  const chatSessions = useZenStore((s) => s.chatSessions);
+  const activity = useListField("activity");
+  const chatSessions = useListField("chatSessions");
   const refreshActivity = useZenStore((s) => s.refreshActivity);
-  const pinnedIds = useZenStore((s) => s.pinnedIds);
-  const serverProjects = useZenStore((s) => s.serverProjects);
+  const pinnedIds = useListField("pinnedIds");
+  const serverProjects = useListField("serverProjects");
   const pinError = useZenStore((s) => s.pinError);
-  const focus = useZenStore((s) => s.focus);
-  const focusGroupsEnabled = useZenStore((s) => s.focusGroupsEnabled);
+  const focus = useListField("focus");
+  const focusGroupsEnabled = useListField("focusGroupsEnabled");
   const selectFocusGroup = useZenStore((s) => s.selectFocusGroup);
-  const hiddenSidecarAddrs = useZenStore((s) => s.hiddenSidecarAddrs);
+  const hiddenSidecarAddrs = useListField("hiddenSidecarAddrs");
   // "Recent agents first" (phone-only setting): re-sorts on every send.
   const recentOn = useRecentFirstStore((s) => s.on);
   const recentSent = useRecentFirstStore((s) => s.sent);
@@ -495,12 +495,13 @@ export function ChatsList() {
     const views = resolveHomeRows(across ? across.rows : home.rows, {
       activeHostKey,
       agents,
+      agentsLoaded: source !== "loading",
       projects: serverProjects,
       servers,
       remote: multi.on ? { byServer: multi.byServer, tokens } : undefined,
     });
     return multi.on ? views : views.filter((v) => v.kind !== "remote");
-  }, [across, home.rows, activeHostKey, agents, serverProjects, servers, multi.on, multi.byServer, tokens, boxIds]);
+  }, [across, home.rows, activeHostKey, agents, source, serverProjects, servers, multi.on, multi.byServer, tokens, boxIds]);
   const otherHomeOf = across
     ? (address: string) => {
         const h = across.homeOf.get(address);
