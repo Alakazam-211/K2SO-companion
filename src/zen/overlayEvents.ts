@@ -61,6 +61,8 @@ export function connectOverlayEvents(opts: {
   /** Every socket open, first and re-open (activity catch-up: K2 never
    *  replays ephemeral `activity` frames). */
   onOpen?: () => void;
+  /** Unused here (the hub path seeds the turn from viewing_ok). */
+  onTurn?: (data: { turn: unknown }) => void;
 }): OverlayLiveHandle {
   let stopped = false;
   let ws: WebSocket | null = null;

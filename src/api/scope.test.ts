@@ -138,8 +138,9 @@ describe("activeScope shim (MS5)", () => {
 });
 
 describe("feature memory (MS31 / MA15)", () => {
-  it("lists all 31 daemon features (0.46.8 adds post-idempotency-v1)", () => {
-    expect(DAEMON_FEATURES).toHaveLength(31);
+  it("lists all 32 daemon features (0.46.8 adds post-idempotency-v1, hub-viewing-v1)", () => {
+    expect(DAEMON_FEATURES).toHaveLength(32);
+    expect(DAEMON_FEATURES).toContain("hub-viewing-v1");
     expect(DAEMON_FEATURES).toContain("post-idempotency-v1");
     expect(DAEMON_FEATURES).toContain("llm-account-for-v1");
     expect(DAEMON_FEATURES).toContain("companion-pairing-v1");
