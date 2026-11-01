@@ -52,6 +52,12 @@ export function composerPlaceholder(
   return suffix ? `Message ${name}/${suffix}` : `Message ${name}`;
 }
 
+/** The field's padding (px) above its text: one line, more lines; and
+ *  below it (always). */
+export const FIELD_PAD_ONE_PX = 3;
+export const FIELD_PAD_MULTI_PX = 5;
+export const FIELD_PAD_UNDER_PX = 5;
+
 /** iMessage grows the field then caps (~5 lines) and scrolls inside. */
 export const COMPOSER_MAX_PX = 132;
 
@@ -76,6 +82,13 @@ export function fitComposerField(field: HTMLTextAreaElement, bar: HTMLElement | 
   // and you had to scroll the field yourself). Keep the caret in view.
   const scrolled = field.scrollTop;
   field.style.height = "auto";
+  // One line: 3px over / 5px under, which reads centred against the pill
+  // (the system font sits lowercase low). More lines: 5px over, so the
+  // first line has as much room above it as the last has below (Rosson
+  // 2026-10-31: the top felt tight once the text wrapped).
+  const multi = field.scrollHeight - FIELD_PAD_ONE_PX - FIELD_PAD_UNDER_PX > fieldLineHeight(field) * 1.5;
+  const padTop = `${multi ? FIELD_PAD_MULTI_PX : FIELD_PAD_ONE_PX}px`;
+  if (field.style.paddingTop !== padTop) field.style.paddingTop = padTop;
   const h = composerHeight(field.scrollHeight);
   field.style.height = `${h}px`;
   if (bar) bar.style.minHeight = held;
