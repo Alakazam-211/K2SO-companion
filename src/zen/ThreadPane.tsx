@@ -1012,8 +1012,6 @@ export function ThreadPane({
               : "";
   // Rows between the bar's top and the field: the bar makes room for the
   // drawer under them rather than let it cover them.
-  const rowsAboveField = roomBlocked || composerLabel !== "" || attachments.length > 0;
-  const drawerCover = drawerOverScroller(drawerSpace, rowsAboveField);
 
   // ── Prompt stash (stash/): the button in the field and its sheet, the
   // composer's ＋ menu, the message hold menu, offer cards. ──
@@ -1025,6 +1023,17 @@ export function ThreadPane({
   // for it, above the field (the desktop's selection actions).
   const msgSel = useMessageSelection(scrollerRef);
   const selectedMessage = msgSel.sel ? thread.find((m) => m.id === msgSel.sel?.id) ?? null : null;
+  // Every row above the field: the working drawer then gets its own room
+  // above them, instead of sliding over them (Rosson's screenshot: the
+  // selection bar under "Thinking…"; the reconnecting banner too).
+  const rowsAboveField =
+    roomBlocked ||
+    roomBanner != null ||
+    composerLabel !== "" ||
+    attachments.length > 0 ||
+    replyTo != null ||
+    (msgSel.sel != null && selectedMessage != null);
+  const drawerCover = drawerOverScroller(drawerSpace, rowsAboveField);
   /** The message the person has picked: its hold menu, or words in it. */
   const selectedMsgId = msgHold.menu?.id ?? msgSel.sel?.id ?? null;
   const replyFrom = (m: ThreadMessage) => m.from || (m.mine ? roomScope.username() : threadAddr) || "";
