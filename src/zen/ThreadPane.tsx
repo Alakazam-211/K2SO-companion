@@ -62,6 +62,7 @@ import {
   type MessageAnchor,
 } from "./threadScroll";
 import { connectOverlayEvents, type OverlayLiveHandle } from "./overlayEvents";
+import { connectHubViewing, FEATURE_HUB_VIEWING } from "./hubViewing";
 import { useNotifyPrefsStore } from "../stores/notifyPrefs";
 import {
   applyActivityCatchUp,
@@ -1223,6 +1224,7 @@ export function ThreadPane({
   const liveRef = useRef<OverlayLiveHandle | null>(null);
   // Viewing frames go to the ROOM's server (the overlay socket's own).
   const serverId = zenServer || null;
+  const hubViewing = useZenScope().supports(FEATURE_HUB_VIEWING);
   const viewingAllowed = useNotifyPrefsStore(
     (s) => !!serverId && s.threadPush[serverId] === true
   );
@@ -1561,9 +1563,17 @@ export function ThreadPane({
     }
     // No catch-up before the socket: onOpen fires on the first open too,
     // and the poll fallback's onNeedCatchUp covers a socket that never opens.
-    const live = (liveRef.current = connectOverlayEvents({
+    // K2 0.46.8: the open chat rides the server's hub (one socket per
+    // server); older servers keep the overlay socket.
+    const connect = scope.supports(FEATURE_HUB_VIEWING) ? connectHubViewing : connectOverlayEvents;
+    const live = (liveRef.current = connect({
       scope,
       conversationId,
+      onTurn: (data) => {
+        catchUps.current.frame();
+        const at = Date.now();
+        setTurn((t) => applyActivityCatchUp(t, data, at));
+      },
       onItem: (raw) => {
         if (isActivityFrame(raw)) {
           catchUps.current.frame();
@@ -1609,7 +1619,8 @@ export function ThreadPane({
   useEffect(() => {
     const apply = () =>
       liveRef.current?.setViewing(
-        viewingAllowed && !covered && document.visibilityState === "visible"
+        // On the hub the view is also what brings this chat's frames.
+        (viewingAllowed || hubViewing) && !covered && document.visibilityState === "visible"
       );
     apply();
     document.addEventListener("visibilitychange", apply);
@@ -1617,7 +1628,7 @@ export function ThreadPane({
       document.removeEventListener("visibilitychange", apply);
       liveRef.current?.setViewing(false);
     };
-  }, [viewingAllowed, covered, source, conversationId, threadGroupId, zenServer]);
+  }, [viewingAllowed, hubViewing, covered, source, conversationId, threadGroupId, zenServer]);
 
   const scrollRoom = useRef<{ dropNow(): void } | null>(null);
   // Keyboard open/close on the compositor (FLIP; mobile chat kit). After

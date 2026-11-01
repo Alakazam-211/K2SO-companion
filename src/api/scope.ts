@@ -114,6 +114,9 @@ export const DAEMON_FEATURES = [
   // K2 0.46.8: Thread and project posts take a `clientMsgId`; a repeat is
   // answered with the stored item and `duplicate:true` (zenStore sends).
   "post-idempotency-v1",
+  // K2 0.46.8: the open Thread rides the hub (`viewing` / `viewing_ok`),
+  // no overlay socket (zen/hubViewing).
+  "hub-viewing-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];
