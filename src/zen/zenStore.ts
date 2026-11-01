@@ -44,6 +44,7 @@ import {
   scopeFor,
   serverMemory,
   type ServerScope,
+  FEATURE_POST_IDEMPOTENCY,
 } from "../api/scope";
 import { roomServerId, setRoomServer, zenScope } from "./zenScope";
 import { onServerForget, useServersStore } from "../stores/servers";
@@ -130,6 +131,7 @@ import {
 } from "./chatTiming";
 import {
   landedId,
+  newClientMsgId,
   newLocalId,
   rememberLanded,
   threadRoomKey,
@@ -2117,6 +2119,7 @@ export const useZenStore = create<ZenState>((set, get) => ({
       beforeIds: s.thread.map((m) => m.id),
       body: null,
       serverId: null,
+      clientMsgId: newClientMsgId(),
     };
     set({ outbox: [...s.outbox, entry] });
     return localId;
@@ -2196,12 +2199,19 @@ export const useZenStore = create<ZenState>((set, get) => ({
     }
     const id = localId;
     const room = threadRoomKey(scope.id, groupId, addr);
+    // K2 0.46.8: every try of this send carries its one id, so a retry
+    // after a lost answer is answered with the stored item, not posted again.
+    const clientMsgId = scope.supports(FEATURE_POST_IDEMPOTENCY)
+      ? get().outbox.find((o) => o.localId === id)?.clientMsgId
+      : undefined;
     if (groupId) {
       // Project chats take text only (attachments ride Thread posts).
       if (!trimmed) return fail(id, "Nothing to send");
       set({ sending: true, sendError: null });
       try {
-        const posted = await postProjectGroupMessage(scope, groupId, trimmed);
+        const posted = clientMsgId
+          ? await postProjectGroupMessage(scope, groupId, trimmed, clientMsgId)
+          : await postProjectGroupMessage(scope, groupId, trimmed);
         if (!posted.ok || !posted.data) {
           return fail(id, posted.error || "send failed");
         }
@@ -2244,9 +2254,11 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const before = get().thread.map((m) => m.id);
     set({ sending: true, sendError: null });
     try {
-      const posted = attachments
-        ? await postThread(scope, addr as string, trimmed, attachments)
-        : await postThread(scope, addr as string, trimmed);
+      const posted = clientMsgId
+        ? await postThread(scope, addr as string, trimmed, attachments, clientMsgId)
+        : attachments
+          ? await postThread(scope, addr as string, trimmed, attachments)
+          : await postThread(scope, addr as string, trimmed);
       if (!posted.ok) {
         return fail(id, posted.error || "send failed");
       }
