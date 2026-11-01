@@ -2677,11 +2677,17 @@ export function ThreadPane({
             </p>
             {msgSel.sel && selectedMessage ? (
               <div
-                className="flex items-center gap-1 mb-1.5 text-[13px] min-w-0"
+                // The room banner's look (RoomBanner): a soft tile in the
+                // field's blurred bar, glass pill buttons.
+                className="flex items-center gap-2 mb-1.5 px-3 py-2 rounded-xl min-w-0"
+                style={{ background: "rgba(255,255,255,0.08)", color: "#fff" }}
                 data-testid="selection-bar"
                 role="toolbar"
                 aria-label="Selected words"
               >
+                <span className="min-w-0 flex-1 text-[13px] leading-snug truncate" style={{ color: "#8e8e93" }}>
+                  Selected
+                </span>
                 {(
                   [
                     ...(!threadGroupId && canSend ? [["reply", "Reply", onReplySelection] as const] : []),
@@ -2692,7 +2698,8 @@ export function ThreadPane({
                   <button
                     key={key}
                     type="button"
-                    className="px-2.5 py-1 rounded-full bg-[var(--card)] text-[var(--text)]"
+                    className="shrink-0 text-[13px] font-semibold zen-glass zen-glass-pill"
+                    style={{ minHeight: 30, padding: "0 12px", color: "#fff" }}
                     data-testid={`selection-${key}`}
                     // Keep the selection (and the keyboard) while tapping.
                     onPointerDown={(e) => e.preventDefault()}
