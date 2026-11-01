@@ -130,8 +130,13 @@ describe("AgentMenu", () => {
     expect(below.bottom).toBeUndefined();
     const low = { ...RECT, top: 640, bottom: 700 };
     const above = agentMenuPlacement(low, 4, "end", 800);
-    expect(above.top).toBeUndefined();
-    expect(above.bottom).toBe(800 - 640 + 6);
+    expect(above.bottom).toBeUndefined();
+    // Placed by its top, ending 6 px above the row.
+    expect(above.top).toBe(640 - 6 - (4 * 44 + 12));
+    // The keyboard takes the bottom: a row near it gets its menu above.
+    const nearKeyboard = { ...RECT, top: 330, bottom: 370 };
+    const withKeyboard = agentMenuPlacement(nearKeyboard, 3, "end", 420);
+    expect(withKeyboard.top).toBeLessThan(330);
     const centred = agentMenuPlacement(RECT, 2, "center", 800);
     expect(centred.left).toContain("200px - 110px");
   });
