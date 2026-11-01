@@ -384,8 +384,9 @@ const Bubble = memo(function Bubble({
       <div
         className="min-w-0 max-w-full overflow-hidden"
         data-bubble-body=""
-        // The words select (iOS's own selection); the bubble around them holds.
-        style={holdable ? SELECTABLE : undefined}
+        // The words select (iOS's own selection); the bubble around them
+        // holds. A card's words too (the list around them never selects).
+        style={SELECTABLE}
       >
       {choice?.permission ? (
         <ThreadPermissionCard card={choice.permission} id={m.id} enabled={canAnswer && !answerHeld} />
@@ -2355,6 +2356,12 @@ export function ThreadPane({
           overflowAnchor: "none",
           paddingTop: threadTopPadding(topInset),
           paddingBottom: threadBottomPadding(composerPx, drawerCover),
+          // Only a message's words select (their own SELECTABLE). Anything
+          // else here (the padding and spacers under the newest message, the
+          // names and times, the space around a bubble's rounded corner)
+          // took a long press as a selection from the nearest words down
+          // into the empty space (Rosson's screenshots, 2026-10-31).
+          ...NO_SELECT,
         }}
         onScroll={(e) => {
           const el = e.currentTarget;
