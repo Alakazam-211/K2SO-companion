@@ -179,6 +179,46 @@ export function useMessageHold(area: RefObject<HTMLElement | null>, enabled: boo
   return { menu, close };
 }
 
+/** A message's words (the selectable part of its bubble). */
+const BODY_SELECTOR = "[data-bubble-body]";
+
+function elementOf(n: Node): Element | null {
+  return n.nodeType === 1 ? (n as Element) : n.parentElement;
+}
+
+/** The first or last caret position on `body`'s words. */
+function edgeOf(body: Element, end: boolean): { node: Node; offset: number } | null {
+  const walk = body.ownerDocument.createTreeWalker(body, 4 /* NodeFilter.SHOW_TEXT */);
+  let first: Node | null = null;
+  let last: Node | null = null;
+  for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+    if (!n.textContent?.trim()) continue;
+    if (!first) first = n;
+    last = n;
+  }
+  const n = end ? last : first;
+  return n ? { node: n, offset: end ? (n.textContent?.length ?? 0) : 0 } : null;
+}
+
+/** A selection that starts in one message's words but ends outside them
+ *  (iOS's long press on the newest message's last line ran on into the
+ *  empty space below, Rosson 2026-10-31): pull its end back to the end
+ *  (or the start) of those words. True when it moved the selection. */
+export function keepSelectionInMessage(sel: Selection): boolean {
+  if (!sel.anchorNode || !sel.focusNode || sel.isCollapsed) return false;
+  const body = elementOf(sel.anchorNode)?.closest(BODY_SELECTOR) ?? null;
+  if (!body || body.contains(sel.focusNode)) return false;
+  const after = (body.compareDocumentPosition(sel.focusNode) & 4) /* DOCUMENT_POSITION_FOLLOWING */ !== 0;
+  const edge = edgeOf(body, after);
+  if (!edge) return false;
+  try {
+    sel.setBaseAndExtent(sel.anchorNode, sel.anchorOffset, edge.node, edge.offset);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 /** What is selected inside one message's words, or null. */
 export type MessageSelection = { id: string; text: string };
 
@@ -198,6 +238,8 @@ export function useMessageSelection(area: RefObject<HTMLElement | null>) {
         setSel((cur) => (cur ? null : cur));
         return;
       }
+      // Kept inside its message; the change this makes reads again.
+      if (root.contains(s.anchorNode) && keepSelectionInMessage(s)) return;
       const at = (n: Node) => (n.nodeType === 1 ? (n as Element) : n.parentElement)?.closest(`[${MESSAGE_HOLD_ATTR}]`) ?? null;
       const a = at(s.anchorNode);
       const text = s.toString().trim();
