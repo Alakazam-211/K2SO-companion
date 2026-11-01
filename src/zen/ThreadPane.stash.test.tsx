@@ -262,18 +262,21 @@ describe("holding an agent's message", () => {
     vi.useRealTimers();
   }
 
-  it("opens Reply / Save to stash / Copy / Select Text; its text is not selectable until Select Text", async () => {
+  it("holding the bubble opens Reply / Save to stash / Copy; the words stay selectable", async () => {
     render(<ThreadPane />);
     const bubble = screen.getByTestId("thread-bubble");
     expect(bubble.getAttribute("data-message-hold")).toBe("m1");
+    // The bubble itself takes no selection or callout; its words do (Rosson
+    // 2026-10-31: a press on the words selects them).
     expect(bubble.style.webkitUserSelect || bubble.style.userSelect).toBe("none");
+    const body = bubble.querySelector<HTMLElement>("[data-bubble-body]")!;
+    expect(body.style.webkitUserSelect || body.style.userSelect).toBe("text");
     hold(bubble);
     const menu = screen.getByTestId("message-menu");
     expect(Array.from(menu.querySelectorAll("[role=menuitem]")).map((b) => b.textContent)).toEqual([
       "Reply",
       "Save to stash",
       "Copy",
-      "Select Text",
     ]);
     // The hold's own release never runs an item: a fresh press does.
     fireEvent.pointerDown(menu);
@@ -282,15 +285,31 @@ describe("holding an agent's message", () => {
     // Saved from a message: the agent is its sender.
     expect(live()[0].source).toMatchObject({ agent: "appa", agent_name: "appa", server_id: "rosson.k2.dev" });
     expect(screen.queryByTestId("message-menu")).toBeNull();
+  });
 
-    hold(screen.getByTestId("thread-bubble"));
-    fireEvent.pointerDown(screen.getByTestId("message-menu"));
-    fireEvent.click(screen.getByRole("menuitem", { name: "Select Text" }));
-    expect(screen.getByTestId("thread-bubble").getAttribute("data-selecting")).toBe("true");
-    expect(screen.getByTestId("thread-bubble").style.userSelect).toBe("");
-    // While its text is selected, a resting finger does not pop the menu.
-    hold(screen.getByTestId("thread-bubble"));
-    expect(screen.queryByTestId("message-menu")).toBeNull();
+  it("selected words get Reply / Copy / Save to stash above the field", async () => {
+    useZenStore.setState({ thread: [agentMsg("m1", 42, "Ship it? All green.")] });
+    render(<ThreadPane />);
+    const body = screen.getByTestId("thread-bubble").querySelector("[data-bubble-body]")!;
+    const text = (function first(n: Node): Node {
+      return n.nodeType === 3 ? n : first(n.firstChild!);
+    })(body);
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 8);
+    await act(async () => {
+      window.getSelection()!.removeAllRanges();
+      window.getSelection()!.addRange(range);
+      document.dispatchEvent(new Event("selectionchange"));
+      await new Promise((r) => setTimeout(r, 30));
+    });
+    expect(screen.getByTestId("selection-bar")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("selection-reply"));
+    expect(screen.getByTestId("reply-chip").textContent).toContain("appa: Ship it?");
+    type("Yes.");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(postThread).toHaveBeenCalled());
+    expect(vi.mocked(postThread).mock.calls[0]).toContainEqual("↩ part of #42 appa:\n> Ship it?\n\nYes.");
   });
 
   it("contextmenu (right-click, VoiceOver, Android) opens it, ready for a tap", async () => {
