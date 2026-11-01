@@ -53,6 +53,7 @@ import { sidecarRowId } from "./agentRow";
 import { buildServerRows, groupAgentRow, overlaySidecarAgent } from "./serverRows";
 import { queueServerAvatars } from "../lib/avatarCache";
 import { noteServerEvent } from "../lib/netStats";
+import { dropListCache, readListCache, writeListCache } from "./listCache";
 import { STUB_AGENTS, STUB_FILES, STUB_THREAD, STUB_THREAD_FALLBACK, type StubAgent, type StubFile } from "./stubData";
 import {
   beginLastAt,
@@ -938,6 +939,7 @@ onServerForget((id) => {
   }
   forgetRememberedSidecars(id);
   forgetHiddenSidecarAddrs(id);
+  dropListCache(id);
   if (activityServer === id) activityServer = null;
   if (focusServer === id) focusServer = null;
   // A room on a removed / re-keyed server closes; it never falls back to
@@ -1549,6 +1551,26 @@ export const useZenStore = create<ZenState>((set, get) => ({
     });
     if (cachedEntry) noteCachedPaint(resumeTiming, "memory", cachedEntry.messages.length);
     else if (resumeKey) paintFromDevice(resumeKey, resumeGen, resumeTiming);
+    // The lists as this phone last saw them, at once (listCache): shown as
+    // live and replaced by the reads below. Only while nothing better is
+    // on screen.
+    let painted = false;
+    if (get().agents.length === 0) {
+      void readListCache(scope.id).then((saved) => {
+        if (!saved || zenId() !== scope.id || get().agentSource !== "loading" || get().agents.length) return;
+        painted = true;
+        set({
+          agentSource: "live",
+          agents: saved.agents,
+          serverProjects: saved.serverProjects,
+          pinnedIds: derivePinnedIds(saved.agents, saved.serverProjects),
+          chatSessions: saved.chatSessions,
+        });
+      });
+    }
+    // Opened a chat from the saved list meanwhile: the answer below must
+    // not take the screen back to the list.
+    const moved = () => !resumeId && (get().screen !== "list" || get().agentId !== "");
     try {
       const [rAgents, rProjects, rGroups, rSessions] = await Promise.all([
         getAgentList(scope),
@@ -1587,6 +1609,11 @@ export const useZenStore = create<ZenState>((set, get) => ({
           });
           return;
         }
+        if (painted) {
+          // The saved list stays up under the usual error / Reconnecting line.
+          set({ agentSource: "error", agentError: msg });
+          return;
+        }
         set({
           agentSource: "error",
           fileSource: "error",
@@ -1616,12 +1643,12 @@ export const useZenStore = create<ZenState>((set, get) => ({
         files: resumeId ? get().files : [],
         fileError: resumeId ? get().fileError : null,
         // Resuming: the chat's own read (setAgent, next) owns the Thread;
-        // a cached copy already on screen stays until it lands.
-        ...(resumeId
+        // a cached copy already on screen stays until it lands. A chat
+        // opened from the saved list meanwhile keeps its screen.
+        ...(resumeId || moved()
           ? {}
           : { threadSource: "live" as DataSource, threadError: null, thread: [], threadCached: false }),
-        screen: resumeId ? "thread" : "list",
-        agentId: resumeId || "",
+        ...(moved() ? {} : { screen: resumeId ? "thread" : "list", agentId: resumeId || "" }),
       });
       void get().refreshFocus();
       if (resumeId) {
@@ -1633,6 +1660,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
     } catch (e) {
       if (zenId() !== scope.id) return;
       const msg = e instanceof Error ? e.message : String(e);
+      if (painted || moved()) {
+        set({ agentSource: "error", agentError: msg });
+        return;
+      }
       set({
         agentSource: "error",
         fileSource: "error",
@@ -3133,3 +3164,18 @@ async function writePins(
     if (zenId() === server) void get().refreshPins();
   }
 }
+
+// Every good list read is saved for the next launch's first paint
+// (listCache), under the server the store is on (a room's own server).
+useZenStore.subscribe((st, prev) => {
+  if (st.agentSource !== "live") return;
+  if (
+    st.agents === prev.agents &&
+    st.serverProjects === prev.serverProjects &&
+    st.chatSessions === prev.chatSessions &&
+    prev.agentSource === "live"
+  ) {
+    return;
+  }
+  writeListCache(zenId(), { agents: st.agents, serverProjects: st.serverProjects, chatSessions: st.chatSessions });
+});
