@@ -39,6 +39,64 @@ function reducedMotion(): boolean {
   }
 }
 
+export type PressSpring = {
+  /** Grow (a finger is down). */
+  press: () => void;
+  /** Spring back (released). */
+  release: () => void;
+  /** Stop, and leave the element as it was. */
+  detach: () => void;
+};
+
+/** The press spring on `el`, driven by the caller (a list that handles its
+ *  rows' presses itself: the message bubbles' hold, Rosson 2026-10-31). */
+export function attachPressSpring(el: HTMLElement): PressSpring {
+  const s: Spring = { value: 1, velocity: 0, target: 1, ...DOWN };
+  let frame = 0;
+  let last = 0;
+  let down = false;
+  const paint = () => {
+    el.style.transform = s.value === 1 ? "" : `scale(${s.value.toFixed(4)})`;
+  };
+  const tick = (t: number) => {
+    const dt = Math.min(0.032, last ? (t - last) / 1000 : 1 / 60);
+    last = t;
+    const moving = stepSpring(s, dt);
+    paint();
+    if (moving) {
+      frame = requestAnimationFrame(tick);
+    } else {
+      frame = 0;
+      last = 0;
+      if (!down) el.classList.remove(PRESSING_CLASS);
+    }
+  };
+  const wake = () => {
+    if (!frame) frame = requestAnimationFrame(tick);
+  };
+  return {
+    press: () => {
+      if (reducedMotion()) return;
+      down = true;
+      Object.assign(s, { target: PRESS_SCALE }, DOWN);
+      el.classList.add(PRESSING_CLASS);
+      wake();
+    },
+    release: () => {
+      if (!down) return;
+      down = false;
+      Object.assign(s, { target: 1 }, UP);
+      wake();
+    },
+    detach: () => {
+      if (frame) cancelAnimationFrame(frame);
+      frame = 0;
+      el.style.transform = "";
+      el.classList.remove(PRESSING_CLASS);
+    },
+  };
+}
+
 /** A ref callback that gives the element the press spring. Listens on its
  *  own (passive) pointer events, so the button's handlers are untouched. */
 export function usePressSpring<T extends HTMLElement>(): (el: T | null) => void {
@@ -48,54 +106,22 @@ export function usePressSpring<T extends HTMLElement>(): (el: T | null) => void 
     detach.current?.();
     detach.current = null;
     if (!el) return;
-    const s: Spring = { value: 1, velocity: 0, target: 1, ...DOWN };
-    let frame = 0;
-    let last = 0;
-    let down = false;
-    const paint = () => {
-      el.style.transform = s.value === 1 ? "" : `scale(${s.value.toFixed(4)})`;
-    };
-    const tick = (t: number) => {
-      const dt = Math.min(0.032, last ? (t - last) / 1000 : 1 / 60);
-      last = t;
-      const moving = stepSpring(s, dt);
-      paint();
-      if (moving) {
-        frame = requestAnimationFrame(tick);
-      } else {
-        frame = 0;
-        last = 0;
-        if (!down) el.classList.remove(PRESSING_CLASS);
-      }
-    };
-    const wake = () => {
-      if (!frame) frame = requestAnimationFrame(tick);
-    };
+    const spring = attachPressSpring(el);
     const onDown = () => {
-      if (reducedMotion() || (el as unknown as HTMLButtonElement).disabled) return;
-      down = true;
-      Object.assign(s, { target: PRESS_SCALE }, DOWN);
-      el.classList.add(PRESSING_CLASS);
-      wake();
+      if ((el as unknown as HTMLButtonElement).disabled) return;
+      spring.press();
     };
-    const onUp = () => {
-      if (!down) return;
-      down = false;
-      Object.assign(s, { target: 1 }, UP);
-      wake();
-    };
+    const onUp = () => spring.release();
     el.addEventListener("pointerdown", onDown, { passive: true });
     el.addEventListener("pointerup", onUp, { passive: true });
     el.addEventListener("pointercancel", onUp, { passive: true });
     el.addEventListener("pointerleave", onUp, { passive: true });
     detach.current = () => {
-      if (frame) cancelAnimationFrame(frame);
       el.removeEventListener("pointerdown", onDown);
       el.removeEventListener("pointerup", onUp);
       el.removeEventListener("pointercancel", onUp);
       el.removeEventListener("pointerleave", onUp);
-      el.style.transform = "";
-      el.classList.remove(PRESSING_CLASS);
+      spring.detach();
     };
   }, []);
 }
