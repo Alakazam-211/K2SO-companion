@@ -45,7 +45,8 @@ import { useTapToDismiss } from "../kit/mobileChat/useTapToDismiss";
 import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
 import { StubMark } from "./StubMark";
 import { mountainTime, type StashOffer, type ThreadMessage } from "./threadModel";
-import { BookmarkPlusIcon } from "./icons";
+import { BookmarkPlusIcon, ReplyIcon } from "./icons";
+import { formatThreadReply, parseThreadReply, threadReplyFirstLine, type ThreadReplyTarget } from "./threadReply";
 import { MESSAGE_HOLD_ATTR, useMessageHold } from "./stash/useMessageHold";
 import { StashButton } from "./stash/StashButton";
 import { StashSheet } from "./stash/StashSheet";
@@ -228,10 +229,11 @@ export function bubbleBodyStyle(): BodyStyle {
 /** No text selection or iOS callout: a hold is the message menu. */
 const NO_SELECT: CSSProperties = { userSelect: "none", WebkitUserSelect: "none", WebkitTouchCallout: "none" };
 
-/** An agent's message with words: the hold menu (Save to stash, Copy,
- *  Select Text). Not cards, secrets or files-only rows. */
+/** A message with words, the agent's or the person's: the hold menu
+ *  (Reply, Save to stash, Copy, Select Text; K2 0.46.7 parity). Not cards,
+ *  secrets, files-only rows or sends still on their way. */
 export function messageHoldable(m: ThreadMessage, out: OutgoingMessage | null): boolean {
-  return !out && !m.mine && !m.choice && m.kind !== "secret" && Boolean(m.text.trim());
+  return !out && !m.choice && m.kind !== "secret" && Boolean(m.text.trim());
 }
 
 /** What a `stash.offer` saves: exactly what its card shows. */
@@ -362,7 +364,7 @@ const Bubble = memo(function Bubble({
       {...{ [MESSAGE_HOLD_ATTR]: holdable ? m.id : undefined }}
       data-selecting={selecting ? "true" : undefined}
       aria-haspopup={holdable ? "menu" : undefined}
-      aria-description={holdable ? "Hold for Save to stash, Copy and Select Text" : undefined}
+      aria-description={holdable ? "Hold for Reply, Save to stash, Copy and Select Text" : undefined}
       style={{
         visibility: flying ? "hidden" : undefined,
         ...(holdable && !selecting ? NO_SELECT : null),
@@ -435,13 +437,7 @@ const Bubble = memo(function Bubble({
       ) : (
         <>
           {m.text.trim() ? (
-            <ChatMessageBody
-              // Cut short to fit its push: the rest comes with the server's copy.
-              text={m.partial ? `${m.text.trimEnd()}…` : m.text}
-              className="!p-0 text-white"
-              style={bubbleBodyStyle()}
-              onFileLink={onFileLink}
-            />
+            <ReplyAwareBody m={m} onFileLink={onFileLink} />
           ) : null}
           {attachments?.length ? (
             <div
@@ -470,6 +466,35 @@ const Bubble = memo(function Bubble({
  *  / receipt line. Memoized: typing, the keyboard, activity frames and the
  *  drawer re-render the pane, not the rows that did not change. Every
  *  callback it gets is stable (ThreadPane's `stableHandler`). */
+/** A message's words; a reply (`↩ #N name:` + quote, the desktop's format)
+ *  draws as one muted quote line above them, as the desktop does. */
+function ReplyAwareBody({ m, onFileLink }: { m: ThreadMessage; onFileLink?: (href: string) => void }) {
+  const reply = useMemo(() => parseThreadReply(m.text), [m.text]);
+  const words = reply ? reply.rest : m.text;
+  // Cut short to fit its push: the rest comes with the server's copy.
+  const shown = m.partial ? `${words.trimEnd()}…` : words;
+  return (
+    <>
+      {reply ? (
+        <div
+          className="flex items-center gap-1.5 min-w-0 mb-1 text-[13px] leading-snug"
+          style={{ color: "rgba(255,255,255,0.65)", borderLeft: "2px solid rgba(255,255,255,0.35)", paddingLeft: 6 }}
+          data-testid="reply-quote"
+        >
+          <span className="flex-1 min-w-0 truncate">
+            {reply.part ? "part of " : ""}
+            {reply.seq ? `#${reply.seq} ` : ""}
+            {reply.from}: {threadReplyFirstLine(reply.quote)}
+          </span>
+        </div>
+      ) : null}
+      {shown.trim() ? (
+        <ChatMessageBody text={shown} className="!p-0 text-white" style={bubbleBodyStyle()} onFileLink={onFileLink} />
+      ) : null}
+    </>
+  );
+}
+
 /** A permission card on the open Thread (K2 0.46.3): its server, its
  *  address, and a re-read after each write so the rewritten doc shows. */
 function ThreadPermissionCard({ card, id, enabled }: { card: PermissionCardModel; id: string; enabled: boolean }) {
@@ -879,6 +904,8 @@ export function ThreadPane({
   const draftApi = useRef<DraftApi | null>(null);
   const [draftBlank, setDraftBlank] = useState(() => !composerDraftOf(draftKey).trim());
   const [attachments, setAttachments] = useState<File[]>([]);
+  /** The message a send replies to (Reply in the hold menu), this chat only. */
+  const [replyTo, setReplyTo] = useState<ThreadReplyTarget | null>(null);
   const [attachError, setAttachError] = useState<string | null>(null);
   // Optimistic sends (iMessage): this room's bubbles not yet confirmed.
   const roomKey = threadRoomKey(zenServer, threadGroupId, threadAddr);
@@ -1068,6 +1095,27 @@ export function ThreadPane({
   const heldMessage = msgHold.menu ? thread.find((m) => m.id === msgHold.menu?.id) ?? null : null;
   const holdEntries: AgentMenuEntry[] = heldMessage
     ? [
+        // A Thread reply (the desktop's format); project chats come later, as on the desktop.
+        ...(!threadGroupId && canSend
+          ? [
+              {
+                key: "reply",
+                label: "Reply",
+                icon: <ReplyIcon size={18} strokeWidth={1.75} />,
+                onSelect: () => {
+                  msgHold.close();
+                  setReplyTo({
+                    id: heldMessage.id,
+                    seq: heldMessage.seq ?? 0,
+                    from: heldMessage.from || (heldMessage.mine ? roomScope.username() : threadAddr) || "",
+                    text: heldMessage.text,
+                    part: false,
+                  });
+                  composerRef.current?.focus({ preventScroll: true });
+                },
+              },
+            ]
+          : []),
         {
           key: "stash",
           label: "Save to stash",
@@ -1430,6 +1478,7 @@ export function ThreadPane({
 
   useLayoutEffect(() => {
     setAttachments([]);
+    setReplyTo(null);
     setAttachError(null);
     setFly(null);
     setOlderFailed(null);
@@ -1843,8 +1892,10 @@ export function ThreadPane({
     draftApi.current?.set("");
     setAttachments([]);
     setAttachError(null);
+    const reply = replyTo;
+    setReplyTo(null);
     const localId = st.queueOutgoing({
-      text: text.trim(),
+      text: reply && text.trim() ? formatThreadReply(reply, text) : text.trim(),
       files,
       attachWorkspace: files.length ? attachWorkspace : null,
       attachDir: files.length ? attachDir : null,
@@ -2630,6 +2681,29 @@ export function ThreadPane({
             >
               {composerLabel}
             </p>
+            {replyTo ? (
+              <div
+                className="flex items-center gap-1.5 mb-1.5 text-[12px] min-w-0"
+                style={{ color: "var(--text-muted)" }}
+                data-testid="reply-chip"
+              >
+                <ReplyIcon size={14} strokeWidth={1.75} />
+                <span className="flex-1 min-w-0 truncate">
+                  <span style={{ color: "var(--text)" }}>{replyTo.from || "Reply"}</span>
+                  {": "}
+                  {threadReplyFirstLine(replyTo.text)}
+                </span>
+                <button
+                  type="button"
+                  className="shrink-0 px-1.5"
+                  aria-label="Cancel reply"
+                  data-testid="reply-chip-cancel"
+                  onClick={() => setReplyTo(null)}
+                >
+                  ✕
+                </button>
+              </div>
+            ) : null}
             {attachments.length ? (
               <div
                 ref={chipsRef}
