@@ -247,6 +247,11 @@ export function useMessageSelection(area: RefObject<HTMLElement | null>) {
       setSel((cur) => (id && text ? (cur?.id === id && cur.text === text ? cur : { id, text }) : cur ? null : cur));
     };
     const onChange = () => {
+      // Pull a selection back into its message at once, as a handle drags,
+      // not a frame later (no flash of the space below).
+      const s = window.getSelection?.();
+      const root = area.current;
+      if (s && root && s.anchorNode && root.contains(s.anchorNode) && keepSelectionInMessage(s)) return;
       if (!frame) frame = requestAnimationFrame(read);
     };
     document.addEventListener("selectionchange", onChange);
