@@ -111,9 +111,15 @@ export const DAEMON_FEATURES = [
   "llm-account-for-v1",
   // K2 0.46.4: pair this phone with a one-time code (src/api/pairing.ts).
   "companion-pairing-v1",
+  // K2 0.46.8: Thread and project posts take a `clientMsgId`; a repeat is
+  // answered with the stored item and `duplicate:true` (zenStore sends).
+  "post-idempotency-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];
+
+/** K2 0.46.8: posts carry a `clientMsgId` (zenStore's sends). */
+export const FEATURE_POST_IDEMPOTENCY = "post-idempotency-v1" as const;
 
 /** The `/boot-status` key that gates project chat older pages. */
 export const FEATURE_PROJECT_CHAT_PAGING = "project-chat-paging-v1" as const;

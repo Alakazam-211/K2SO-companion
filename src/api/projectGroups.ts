@@ -264,11 +264,13 @@ export async function fetchProjectGroupOlder(
 export async function postProjectGroupMessage(
   scope: ServerScope,
   group: string,
-  body: string
+  body: string,
+  /** K2 0.46.8 `post-idempotency-v1` (the caller checks the feature). */
+  clientMsgId?: string
 ): Promise<ApiResponse<PostedProjectGroupMessage>> {
   return pgRequest<PostedProjectGroupMessage>(scope, "/cli/project-group/msg", {
     method: "POST",
-    body: { group, body },
+    body: clientMsgId ? { group, body, clientMsgId } : { group, body },
   });
 }
 

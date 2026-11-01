@@ -30,6 +30,10 @@ export type OutgoingMessage = {
   body: string | null;
   /** The server's id for it, once the POST answered. */
   serverId: string | null;
+  /** K2 0.46.8 `post-idempotency-v1`: one id for every try of this send,
+   *  so a retry after a lost answer never posts twice (the server answers
+   *  `duplicate:true` with the stored item). */
+  clientMsgId?: string;
 };
 
 /** The room an outgoing message belongs to: server + project group or addr. */
@@ -40,6 +44,21 @@ export function threadRoomKey(
 ): string {
   const g = (groupId || "").trim();
   return `${serverId || ""}|${g ? `g:${g}` : `t:${(addr || "").trim()}`}`;
+}
+
+/** A send's idempotency id: 32 hex chars (inside the server's 1–64
+ *  `[A-Za-z0-9_-]`). */
+export function newClientMsgId(): string {
+  try {
+    if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+      return crypto.randomUUID().replace(/-/g, "");
+    }
+  } catch {
+    /* fall through */
+  }
+  let out = "";
+  for (let i = 0; i < 32; i++) out += Math.floor(Math.random() * 16).toString(16);
+  return out;
 }
 
 let nextLocal = 0;
