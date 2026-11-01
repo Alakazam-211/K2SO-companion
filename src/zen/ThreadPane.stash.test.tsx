@@ -271,6 +271,10 @@ describe("holding an agent's message", () => {
     expect(bubble.style.webkitUserSelect || bubble.style.userSelect).toBe("none");
     const body = bubble.querySelector<HTMLElement>("[data-bubble-body]")!;
     expect(body.style.webkitUserSelect || body.style.userSelect).toBe("text");
+    // The list around the bubbles never selects (its spacers took a long
+    // press near the newest bubble's corner as a selection).
+    const list = screen.getByTestId("thread-scroller");
+    expect(list.style.webkitUserSelect || list.style.userSelect).toBe("none");
     hold(bubble);
     const menu = screen.getByTestId("message-menu");
     expect(Array.from(menu.querySelectorAll("[role=menuitem]")).map((b) => b.textContent)).toEqual([
