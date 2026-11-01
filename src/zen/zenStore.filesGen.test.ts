@@ -56,9 +56,11 @@ import { NO_WORKSPACE_PATH, PATH_NOT_OWNED } from "./workspacePath";
 import { fakeScope } from "../test/fakeScope";
 import { setZenScope, zen } from "../test/zenScopeMock";
 import { setChatCacheForTests } from "./chatCache";
+import { __resetListCacheForTests, writeListCache } from "./listCache";
 
 // A fresh fake server per test (was: getActiveServer / getToken mocks).
 beforeEach(() => {
+  __resetListCacheForTests();
   setZenScope(fakeScope({ id: "s1", username: "", token: "" }));
   setChatCacheForTests(null);
 });
@@ -2058,5 +2060,49 @@ describe("full-screen file viewer state", () => {
     await Promise.resolve();
     const f = useZenStore.getState().files.find((x) => x.id === `${WS}/blob.txt`);
     expect(f).toMatchObject({ body: "", loaded: true, readError: "Cannot read binary file" });
+  });
+});
+
+describe("the saved list paints first (listCache, Rosson 2026-11-01)", () => {
+  const saved = [{ id: "/srv/appa", name: "appa", initial: "A", path: "/srv/appa", addr: "appa", kind: "agent" as const }];
+  let answer: (v: unknown) => void = () => {};
+  beforeEach(() => {
+    reset();
+    zen().setToken("tok");
+    vi.mocked(getAgentList).mockReset();
+    vi.mocked(getAgentList).mockReturnValue(new Promise((r) => (answer = r)) as never);
+    vi.mocked(getCliProjectsList).mockResolvedValue({ ok: true, data: [] });
+    vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [] });
+    vi.mocked(fetchProjectGroups).mockResolvedValue({ ok: true, data: [] });
+    writeListCache("s1", { agents: saved, serverProjects: [], chatSessions: { mainByPath: {}, notMain: {} } });
+  });
+
+  it("shows the saved rows as live at once; the server's answer replaces them", async () => {
+    const done = useZenStore.getState().hydrateAgents();
+    await vi.waitFor(() => expect(useZenStore.getState().agentSource).toBe("live"));
+    expect(useZenStore.getState().agents.map((a) => a.id)).toEqual(["/srv/appa"]);
+    answer({ ok: true, data: { ok: true, agents: [{ name: "momo", path: "/srv/momo" }] } });
+    await done;
+    expect(useZenStore.getState().agents.map((a) => a.name)).toEqual(["momo"]);
+  });
+
+  it("a failed read keeps the saved rows under the error, never an empty list", async () => {
+    const done = useZenStore.getState().hydrateAgents();
+    await vi.waitFor(() => expect(useZenStore.getState().agentSource).toBe("live"));
+    answer({ ok: false, error: "GET /cli/agent/list failed" });
+    await done;
+    const s = useZenStore.getState();
+    expect(s.agentSource).toBe("error");
+    expect(s.agents.map((a) => a.id)).toEqual(["/srv/appa"]);
+  });
+
+  it("a chat opened from the saved rows stays open when the answer lands", async () => {
+    const done = useZenStore.getState().hydrateAgents();
+    await vi.waitFor(() => expect(useZenStore.getState().agentSource).toBe("live"));
+    useZenStore.getState().setAgent("/srv/appa");
+    answer({ ok: true, data: { ok: true, agents: [{ name: "appa", path: "/srv/appa" }] } });
+    await done;
+    expect(useZenStore.getState().screen).toBe("thread");
+    expect(useZenStore.getState().agentId).toBe("/srv/appa");
   });
 });
