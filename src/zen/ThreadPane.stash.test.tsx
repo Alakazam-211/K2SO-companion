@@ -287,6 +287,27 @@ describe("holding an agent's message", () => {
     expect(screen.queryByTestId("message-menu")).toBeNull();
   });
 
+  it("while words are selected the bubble's hold menu stays shut; deselecting brings it back", async () => {
+    render(<ThreadPane />);
+    const bubble = screen.getByTestId("thread-bubble");
+    const body = bubble.querySelector("[data-bubble-body]")!;
+    const text = (function first(n: Node): Node {
+      return n.nodeType === 3 ? n : first(n.firstChild!);
+    })(body);
+    const range = document.createRange();
+    range.setStart(text, 0);
+    range.setEnd(text, 4);
+    window.getSelection()!.removeAllRanges();
+    window.getSelection()!.addRange(range);
+    hold(bubble);
+    expect(screen.queryByTestId("message-menu")).toBeNull();
+    window.getSelection()!.removeAllRanges();
+    hold(bubble);
+    expect(screen.getByTestId("message-menu")).toBeTruthy();
+    // The picked message wears the notification's blue outline.
+    expect(bubble.closest("[data-thread-msg]")!.getAttribute("data-highlight")).toBe("true");
+  });
+
   it("selected words get Reply / Copy / Save to stash above the field", async () => {
     useZenStore.setState({ thread: [agentMsg("m1", 42, "Ship it? All green.")] });
     render(<ThreadPane />);
