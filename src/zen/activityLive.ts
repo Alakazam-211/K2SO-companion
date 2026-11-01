@@ -112,8 +112,18 @@ export function applyActivityFrame(serverId: string, frame: unknown): FrameResul
   if (ws && k) m.workspaces.set(k, ws);
   if (typeof f.removed === "string" && f.removed) {
     m.rows.delete(f.removed);
-    // Before K2 0.46.8 a removal carries no rollup, so its workspace's
-    // may now be wrong; with one, the frame is complete.
+    // K2 0.46.8: a removal carries `workspaces`, every rollup as of now
+    // (its own workspace may be gone): replace them all. Before that it
+    // carried none, so its workspace's rollup may be wrong: re-read.
+    if (Array.isArray(f.workspaces)) {
+      m.workspaces.clear();
+      for (const w of f.workspaces) {
+        const one = obj(w);
+        const key = one && workspaceKey(one);
+        if (one && key) m.workspaces.set(key, one);
+      }
+      return "applied";
+    }
     return ws && k ? "applied" : "applied-resync";
   }
   return "applied";
