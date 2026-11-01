@@ -262,7 +262,7 @@ describe("holding an agent's message", () => {
     vi.useRealTimers();
   }
 
-  it("opens Save to stash / Copy / Select Text; its text is not selectable until Select Text", async () => {
+  it("opens Reply / Save to stash / Copy / Select Text; its text is not selectable until Select Text", async () => {
     render(<ThreadPane />);
     const bubble = screen.getByTestId("thread-bubble");
     expect(bubble.getAttribute("data-message-hold")).toBe("m1");
@@ -270,6 +270,7 @@ describe("holding an agent's message", () => {
     hold(bubble);
     const menu = screen.getByTestId("message-menu");
     expect(Array.from(menu.querySelectorAll("[role=menuitem]")).map((b) => b.textContent)).toEqual([
+      "Reply",
       "Save to stash",
       "Copy",
       "Select Text",
@@ -301,7 +302,7 @@ describe("holding an agent's message", () => {
     await waitFor(() => expect(live()).toHaveLength(1));
   });
 
-  it("my own messages and cards have no hold menu", async () => {
+  it("my own messages have the menu too (K2 0.46.7 parity); cards don't", async () => {
     useZenStore.setState({
       thread: [
         agentMsg("me1", 1, "mine", { mine: true, from: "baden" }),
@@ -309,7 +310,45 @@ describe("holding an agent's message", () => {
       ],
     });
     render(<ThreadPane />);
-    for (const b of screen.getAllByTestId("thread-bubble")) expect(b.getAttribute("data-message-hold")).toBeNull();
+    const [mine, card] = screen.getAllByTestId("thread-bubble");
+    expect(mine.getAttribute("data-message-hold")).toBe("me1");
+    expect(card.getAttribute("data-message-hold")).toBeNull();
+  });
+
+  it("Reply: a chip above the field; the send quotes the message in the desktop's format", async () => {
+    useZenStore.setState({ thread: [agentMsg("m1", 42, "Ship it?\nAll green.")] });
+    render(<ThreadPane />);
+    hold(screen.getByTestId("thread-bubble"));
+    fireEvent.pointerDown(screen.getByTestId("message-menu"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reply" }));
+    expect(screen.getByTestId("reply-chip").textContent).toContain("appa: Ship it?");
+    type("Yes, ship it.");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(postThread).toHaveBeenCalled());
+    expect(vi.mocked(postThread).mock.calls[0]).toContainEqual("↩ #42 appa:\n> Ship it?\n> All green.\n\nYes, ship it.");
+    expect(screen.queryByTestId("reply-chip")).toBeNull();
+  });
+
+  it("Reply's ✕ cancels it: the send is plain", async () => {
+    render(<ThreadPane />);
+    hold(screen.getByTestId("thread-bubble"));
+    fireEvent.pointerDown(screen.getByTestId("message-menu"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reply" }));
+    fireEvent.click(screen.getByTestId("reply-chip-cancel"));
+    type("Just this.");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(postThread).toHaveBeenCalled());
+    expect(vi.mocked(postThread).mock.calls[0]).toContainEqual("Just this.");
+  });
+
+  it("a reply draws as a quote line above its words", () => {
+    useZenStore.setState({
+      thread: [agentMsg("me2", 43, "↩ #42 appa:\n> Ship it?\n\nYes, ship it.", { mine: true, from: "baden" })],
+    });
+    render(<ThreadPane />);
+    expect(screen.getByTestId("reply-quote").textContent).toBe("#42 appa: Ship it?");
+    expect(screen.getByTestId("thread-bubble").textContent).toContain("Yes, ship it.");
+    expect(screen.getByTestId("thread-bubble").textContent).not.toContain("↩");
   });
 });
 
