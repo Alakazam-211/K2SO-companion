@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
+import { attachPressSpring, type PressSpring } from "../../lib/usePressSpring";
 import { HOLD_MENU_MS, HOLD_SLOP_PX, rectOf, type HeldMenu } from "../useHoldMenu";
 
 /** The attribute marking a message that opens the hold menu. */
@@ -85,9 +86,18 @@ export function useMessageHold(area: RefObject<HTMLElement | null>, enabled: boo
   useEffect(() => {
     const el = area.current;
     if (!el || !enabled) return;
+    // The bubble under a hold grows like Send while the finger is down and
+    // springs back on release (Rosson 2026-10-31).
+    const springs = new WeakMap<Element, PressSpring>();
+    let pressed: PressSpring | null = null;
+    const letGo = () => {
+      pressed?.release();
+      pressed = null;
+    };
     const clear = () => {
       if (press.current) clearTimeout(press.current.timer);
       press.current = null;
+      letGo();
     };
     const down = (e: PointerEvent) => {
       eatClick.current = false;
@@ -101,10 +111,18 @@ export function useMessageHold(area: RefObject<HTMLElement | null>, enabled: boo
       if (wordsSelected()) return;
       const id = target.getAttribute(MESSAGE_HOLD_ATTR) ?? "";
       if (!id) return;
+      let spring = springs.get(target);
+      if (!spring && target instanceof HTMLElement) {
+        spring = attachPressSpring(target);
+        springs.set(target, spring);
+      }
+      pressed = spring ?? null;
+      pressed?.press();
       press.current = {
         x: e.clientX,
         y: e.clientY,
         timer: setTimeout(() => {
+          // The menu opens; the bubble stays grown until the finger lifts.
           press.current = null;
           eatClick.current = true;
           setMenu({ id, rect: rectOf(target), armed: false });

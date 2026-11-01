@@ -287,6 +287,14 @@ describe("holding an agent's message", () => {
     expect(screen.queryByTestId("message-menu")).toBeNull();
   });
 
+  it("a held bubble grows like Send while the finger is down", () => {
+    render(<ThreadPane />);
+    const bubble = screen.getByTestId("thread-bubble");
+    fireEvent.pointerDown(bubble, { clientX: 10, clientY: 10, button: 0 });
+    expect(bubble.classList.contains("k2-pressing")).toBe(true);
+    fireEvent.pointerUp(bubble);
+  });
+
   it("while words are selected the bubble's hold menu stays shut; deselecting brings it back", async () => {
     render(<ThreadPane />);
     const bubble = screen.getByTestId("thread-bubble");
