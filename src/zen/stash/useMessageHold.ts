@@ -4,6 +4,19 @@ import { HOLD_MENU_MS, HOLD_SLOP_PX, rectOf, type HeldMenu } from "../useHoldMen
 /** The attribute marking a message that opens the hold menu. */
 export const MESSAGE_HOLD_ATTR = "data-message-hold";
 
+/** Words are selected somewhere (the system's selection): while they are,
+ *  a bubble's hold menu stays shut (Rosson 2026-10-31); deselecting brings
+ *  it back. The field's own text doesn't count (a textarea's selection
+ *  reads as empty here). */
+export function wordsSelected(): boolean {
+  try {
+    const sel = window.getSelection?.();
+    return !!sel && !sel.isCollapsed && sel.toString().trim() !== "";
+  } catch {
+    return false;
+  }
+}
+
 /** The holdable message under `t`. */
 function holdTarget(t: EventTarget | null): Element | null {
   return (t as Element | null)?.closest?.(`[${MESSAGE_HOLD_ATTR}]`) ?? null;
@@ -85,6 +98,7 @@ export function useMessageHold(area: RefObject<HTMLElement | null>, enabled: boo
       // words themselves are the system's selection (Rosson 2026-10-31).
       if (!target || (e.target as Element).closest("button, a")) return;
       if (pointOnText(e.clientX, e.clientY, target)) return;
+      if (wordsSelected()) return;
       const id = target.getAttribute(MESSAGE_HOLD_ATTR) ?? "";
       if (!id) return;
       press.current = {
@@ -110,6 +124,8 @@ export function useMessageHold(area: RefObject<HTMLElement | null>, enabled: boo
     const context = (e: MouseEvent) => {
       const target = holdTarget(e.target);
       if (!target) return;
+      // Words selected: the system's menu, never the bubble's.
+      if (wordsSelected()) return;
       // On the words: the system's own menu (Android's long-press selects).
       if (e.button === 0 && pointOnText(e.clientX, e.clientY, target) && !press.current) return;
       e.preventDefault();
