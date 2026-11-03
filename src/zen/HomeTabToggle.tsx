@@ -1,6 +1,6 @@
 import type { ListTab } from "./homes";
 import { SEARCH_BAR_HEIGHT } from "./GlassSearchBar";
-import { AgentIcon, GardenIcon, HomeIcon } from "./icons";
+import { AgentIcon, EnsoIcon, HomeIcon } from "./icons";
 import { useHomesSyncBadge } from "./homesSync";
 
 // Desktop Garden nav rail icons (`./icons`), stroke 1.7 like the ticket
@@ -125,7 +125,7 @@ export function HomeTabToggle({
           style={{ width: TAB_SEG_BTN_W, height: "100%" }}
           onClick={() => onTab("gardens")}
         >
-          <GardenIcon {...ICON} testId="garden-icon" />
+          <EnsoIcon on={gardens} size={ICON.size} testId="garden-icon" />
         </button>
       ) : null}
     </div>

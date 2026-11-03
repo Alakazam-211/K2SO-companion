@@ -23,6 +23,7 @@ vi.mock("../zenScope", async () => (await import("../../test/zenScopeMock")).zen
 import { ZenGardens } from "../../pages/ZenGardens";
 import { fakeScope } from "../../test/fakeScope";
 import { setZenScope } from "../../test/zenScopeMock";
+import { EnsoIcon } from "../icons";
 import { screensOf, shouldRun, stackHeight } from "./gardenLayout";
 import { answerHostVerb, layoutOf, switchAllowed, type HostContext } from "./hostVerbs";
 import type { GardenPageBody } from "./gardensApi";
@@ -148,6 +149,48 @@ describe("the Gardens screen", () => {
   });
 });
 
+describe("screens in a Garden", () => {
+  const two = (canvas?: string) =>
+    body(
+      {
+        layout: { canvas, columns: [{ label: "One" }, { label: "Two" }] },
+        widgets: [
+          { id: "a", kind: "rail", column: 0, name: "A" },
+          { id: "b", kind: "rail", column: 1, name: "B" },
+        ],
+      },
+      [
+        { id: "a", run: "placeholder" },
+        { id: "b", run: "placeholder" },
+      ]
+    );
+
+  it("several screens swipe and have tabs; one has neither tabs nor a bar", async () => {
+    api.page.mockResolvedValue({ ok: true, data: two() });
+    open("/zen/gardens?garden=g1");
+    const tabs = await screen.findAllByTestId("garden-tab");
+    expect(tabs.map((t) => t.textContent)).toEqual(["One", "Two"]);
+    expect(screen.getByTestId("garden-screens").style.overflowX).toBe("auto");
+    cleanup();
+    api.page.mockResolvedValue({ ok: true, data: body({}, [{ id: "b1", run: "placeholder" }]) });
+    open("/zen/gardens?garden=g1");
+    await screen.findByTestId("garden-view");
+    expect(screen.queryByTestId("garden-tabs")).toBeNull();
+  });
+
+  it("a full canvas never takes a swipe: tabs change the screen", async () => {
+    api.page.mockResolvedValue({ ok: true, data: two("full") });
+    open("/zen/gardens?garden=g1");
+    const tabs = await screen.findAllByTestId("garden-tab");
+    const screens = screen.getByTestId("garden-screens");
+    expect(screens.style.overflow).toBe("hidden");
+    screens.scrollTo = vi.fn();
+    fireEvent.click(tabs[1]);
+    expect(screens.scrollTo).toHaveBeenCalledTimes(1);
+    expect(tabs[1].getAttribute("aria-current")).toBe("true");
+  });
+});
+
 describe("a Garden laid out on a phone", () => {
   it("one screen per column that has something, widgets in page order", () => {
     const s = screensOf(
@@ -228,5 +271,27 @@ describe("verbs the phone answers (§5.2)", () => {
     expect(answerHostVerb(c, limit(), "layout.toggle", [{ column: 1 }], true, 0).ok).toBe(false);
     expect(answerHostVerb(c, limit(), "layout.toggle", [{ column: 0 }], true, 0).ok).toBe(true);
     expect(c.setFold).toHaveBeenCalledWith(0, true);
+  });
+});
+
+describe("the ensō (K2's Garden mark)", () => {
+  it("stays still until it's selected, then draws in; leaving plays it too", () => {
+    const { rerender } = render(<EnsoIcon testId="e" />);
+    const svg = () => screen.getByTestId("e");
+    expect(svg().getAttribute("data-enso-motion")).toBe("still");
+    expect(svg().querySelector("mask")).toBeNull();
+    rerender(<EnsoIcon testId="e" on />);
+    expect(svg().getAttribute("data-enso-on")).toBe("true");
+    expect(svg().querySelector(".zen-enso-draw")).not.toBeNull();
+    rerender(<EnsoIcon testId="e" />);
+    expect(svg().getAttribute("data-enso-motion")).toBe("play");
+  });
+
+  it("is the same brush as the desktop's (off state, first and last points)", () => {
+    render(<EnsoIcon testId="e" />);
+    const d = screen.getByTestId("e").querySelector("path")!.getAttribute("d")!;
+    expect(d.startsWith("M")).toBe(true);
+    expect(d.endsWith("Z")).toBe(true);
+    expect(d.split("L").length).toBe(2 * 48 + 1);
   });
 });

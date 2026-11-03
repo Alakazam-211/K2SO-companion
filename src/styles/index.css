@@ -1092,6 +1092,23 @@ button, a, nav {
 /* Zen terminal Viewer/Claimer — iOS segmented control. The thumb is
    absolutely placed inside the glass pill's padding box (see
    ZenTerminal.tsx SEG_*), so the highlight never reaches the outer edge. */
+/* The ensō draws itself in (desktop ZenIcon's 0.75 s). */
+.zen-enso-draw {
+  stroke-dasharray: 1;
+  stroke-dashoffset: 1;
+  animation: zen-enso-draw 750ms cubic-bezier(0.45, 0, 0.3, 1) forwards;
+}
+@keyframes zen-enso-draw {
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .zen-enso-draw {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
 .zen-seg-thumb {
   background: rgba(255, 255, 255, 0.22);
   box-shadow:
