@@ -351,7 +351,7 @@ describe("verbs the phone answers (§5.2)", () => {
 });
 
 describe("the ensō (K2's Garden mark)", () => {
-  it("stays still until it's selected, then draws in; leaving plays it too", () => {
+  it("draws in only when moved to: not when leaving, and not when it mounts selected", () => {
     const { rerender } = render(<EnsoIcon testId="e" />);
     const svg = () => screen.getByTestId("e");
     expect(svg().getAttribute("data-enso-motion")).toBe("still");
@@ -360,7 +360,13 @@ describe("the ensō (K2's Garden mark)", () => {
     expect(svg().getAttribute("data-enso-on")).toBe("true");
     expect(svg().querySelector(".zen-enso-draw")).not.toBeNull();
     rerender(<EnsoIcon testId="e" />);
+    expect(svg().getAttribute("data-enso-motion")).toBe("still");
+    expect(svg().querySelector("mask")).toBeNull();
+    rerender(<EnsoIcon testId="e" on />);
     expect(svg().getAttribute("data-enso-motion")).toBe("play");
+    cleanup();
+    render(<EnsoIcon testId="e" on />);
+    expect(svg().getAttribute("data-enso-motion")).toBe("still");
   });
 
   it("is the same brush as the desktop's (off state, first and last points)", () => {
