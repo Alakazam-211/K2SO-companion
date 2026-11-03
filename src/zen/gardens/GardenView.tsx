@@ -117,6 +117,15 @@ export function GardenView({
   if (!page || !context) return <div className="h-full" data-testid="garden-loading" />;
 
   const hasErrors = !!page.errors?.length;
+  // A full canvas keeps every finger (contract rev 2 §I): no swipe over it;
+  // screens change from the tabs.
+  const swipes = page.page.layout.canvas !== "full";
+  const goTo = (i: number) => {
+    const el = scroller.current;
+    if (!el) return;
+    el.scrollTo({ left: i * el.clientWidth, behavior: swipes ? "smooth" : "auto" });
+    setCurrent(i);
+  };
 
   return (
     <div className="h-full flex flex-col min-h-0" data-testid="garden-view">
@@ -129,7 +138,11 @@ export function GardenView({
         ref={scroller}
         className="flex-1 min-h-0 flex"
         onScroll={onScroll}
-        style={{ overflowX: "auto", overflowY: "hidden", scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch" }}
+        style={
+          swipes
+            ? { overflowX: "auto", overflowY: "hidden", scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch" }
+            : { overflow: "hidden" }
+        }
         data-testid="garden-screens"
       >
         {screens.map((screen, i) => {
@@ -184,6 +197,28 @@ export function GardenView({
           );
         })}
       </div>
+      {screens.length > 1 ? (
+        <nav
+          className="shrink-0 flex justify-center"
+          aria-label="Screens"
+          style={{ columnGap: 6, padding: "6px 12px calc(6px + env(safe-area-inset-bottom))", overflowX: "auto" }}
+          data-testid="garden-tabs"
+        >
+          {screens.map((screen, i) => (
+            <button
+              key={screen.index}
+              type="button"
+              className="shrink-0 text-[13px] zen-glass zen-glass-pill"
+              style={{ padding: "6px 12px", color: "#fff", opacity: i === current ? 1 : 0.55 }}
+              aria-current={i === current || undefined}
+              data-testid="garden-tab"
+              onClick={() => goTo(i)}
+            >
+              {screen.label}
+            </button>
+          ))}
+        </nav>
+      ) : null}
     </div>
   );
 }
