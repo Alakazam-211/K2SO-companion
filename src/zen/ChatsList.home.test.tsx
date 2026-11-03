@@ -39,6 +39,12 @@ vi.mock("../api/projectGroups", () => ({
   postProjectGroupMessage: vi.fn(),
 }));
 
+const gardens = vi.hoisted(() => ({ feed: vi.fn(), on: false }));
+vi.mock("./gardens/gardensApi", async (orig) => ({
+  ...(await orig<typeof import("./gardens/gardensApi")>()),
+  fetchGardenFeed: gardens.feed,
+  gardensAvailable: () => gardens.on,
+}));
 vi.mock("../lib/revive", () => ({
   connectServer: vi.fn(async () => "still-valid"),
 }));
@@ -52,7 +58,8 @@ import { useServersStore } from "../stores/servers";
 import { ChatsList, ZEN_LIST_CONTENT_INSET } from "./ChatsList";
 import { rearrangePadLeft } from "./RearrangeBits";
 import { HOME_EMPTY_BODY, HOME_EMPTY_TITLE } from "./HomeList";
-import { HOMES_STORAGE_KEY, LIST_TAB_KEY, homeAddress, parseHomesDoc, useHomesStore } from "./homes";
+import { HOMES_STORAGE_KEY, LIST_TAB_KEY, homeAddress, parseHomesDoc, readListTab, useHomesStore } from "./homes";
+import { forgetGardenFeed } from "./gardens/GardensList";
 import { FOCUS_OFF, type ServerProject } from "./serverPins";
 import { useZenStore } from "./zenStore";
 import { dragGrip, holdOpen, menuLabels, tap } from "../test/rearrangeDrag";
@@ -570,5 +577,65 @@ describe("Row dividers (Rosson 2026-10-18)", () => {
     ]);
     expectInset(within(rows[0]).getByTestId("row-divider"), ZEN_LIST_CONTENT_INSET);
     expect(within(screen.getByTestId("chats-pins")).queryAllByTestId("row-divider")).toHaveLength(0);
+  });
+});
+
+describe("the Gardens tab (Rosson 2026-11-03)", () => {
+  const FEED = {
+    serverId: "s",
+    person: "owner",
+    setUp: true,
+    cursor: "c",
+    full: true,
+    gardens: [
+      { id: "g-1", name: "Fleet Ops 2", index: 1, version: "v" },
+      { id: "g-2", name: "Diary", index: 2, version: "v" },
+    ],
+  };
+  const on = () => {
+    gardens.on = true;
+  };
+  beforeEach(() => {
+    gardens.on = false;
+    gardens.feed.mockReset().mockResolvedValue({ ok: true, data: FEED });
+    forgetGardenFeed("s1");
+  });
+
+  it("is off where the server or the phone can't show Gardens", () => {
+    mount();
+    expect(screen.queryByTestId("list-tab-gardens")).toBeNull();
+    expect(screen.getByTestId("list-tab-toggle").getAttribute("aria-label")).toBe("Home or Agents");
+  });
+
+  it("is a third tab: the list shows in place, the thumb rests on it, and + goes away", async () => {
+    on();
+    mount();
+    fireEvent.click(screen.getByTestId("list-tab-gardens"));
+    expect(screen.getByTestId("list-tab-toggle").getAttribute("data-tab")).toBe("gardens");
+    expect(screen.getByTestId("list-tab-thumb").style.transform).toBe("translateX(200%)");
+    expect(screen.getByTestId("chats-title-gardens").textContent).toBe("Gardens");
+    expect((await screen.findAllByTestId("gardens-row")).map((r) => r.textContent)).toEqual(["Fleet Ops 2", "Diary"]);
+    expect(screen.queryByLabelText("New workspace")).toBeNull();
+    expect(screen.queryByLabelText("Add agent")).toBeNull();
+  });
+
+  it("remembers the tab; on a server without Gardens it falls to Agents", () => {
+    on();
+    mount();
+    fireEvent.click(screen.getByTestId("list-tab-gardens"));
+    expect(readListTab()).toBe("gardens");
+    cleanup();
+    gardens.on = false;
+    mount();
+    expect(screen.getByTestId("list-tab-toggle").getAttribute("data-tab")).toBe("agents");
+  });
+
+  it("search filters the list", async () => {
+    on();
+    mount();
+    fireEvent.click(screen.getByTestId("list-tab-gardens"));
+    await screen.findAllByTestId("gardens-row");
+    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "dia" } });
+    expect(screen.getAllByTestId("gardens-row").map((r) => r.textContent)).toEqual(["Diary"]);
   });
 });

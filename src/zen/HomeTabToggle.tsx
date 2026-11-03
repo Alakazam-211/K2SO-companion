@@ -14,7 +14,7 @@ export const TAB_SEG_BTN_W = 40;
 const THUMB_R = TAB_SEG_H / 2 - TAB_SEG_PAD;
 
 /**
- * Home | Agents, left of the Agents search field (HM1). Same inset-thumb
+ * Home | Agents (| Gardens), left of the Agents search field (HM1). Same inset-thumb
  * segmented style as the terminal Viewer/Claimer control (a6acec2): the
  * selected highlight sits inside the glass pill, clipped by it, in blue
  * glass (Rosson 2026-10-18).
@@ -22,21 +22,22 @@ const THUMB_R = TAB_SEG_H / 2 - TAB_SEG_PAD;
 export function HomeTabToggle({
   tab,
   onTab,
-  onGardens,
+  showGardens = false,
 }: {
   tab: ListTab;
   onTab: (tab: ListTab) => void;
-  /** This server has Gardens (K2 `gardens-remote-v1`, iOS): a third button
-   *  that opens them. It navigates, so the thumb never rests on it. */
-  onGardens?: () => void;
+  /** This server has Gardens (K2 `gardens-remote-v1`, iOS): a third tab. */
+  showGardens?: boolean;
 }) {
   const home = tab === "home";
+  const gardens = showGardens && tab === "gardens";
+  const agents = !home && !gardens;
   // Homes sync (K2 0.46.1): a tiny chip with the sync server's initial.
   const sync = useHomesSyncBadge();
   return (
     <div
       role="group"
-      aria-label="Home or Agents"
+      aria-label={showGardens ? "Home, Agents or Gardens" : "Home or Agents"}
       className="zen-seg flex items-center shrink-0 zen-glass zen-glass-pill"
       data-testid="list-tab-toggle"
       data-tab={tab}
@@ -57,9 +58,9 @@ export function HomeTabToggle({
           top: TAB_SEG_PAD,
           bottom: TAB_SEG_PAD,
           left: TAB_SEG_PAD,
-          width: onGardens ? TAB_SEG_BTN_W : `calc(50% - ${TAB_SEG_PAD}px)`,
+          width: showGardens ? TAB_SEG_BTN_W : `calc(50% - ${TAB_SEG_PAD}px)`,
           borderRadius: THUMB_R,
-          transform: home ? "translateX(0%)" : "translateX(100%)",
+          transform: home ? "translateX(0%)" : gardens ? "translateX(200%)" : "translateX(100%)",
         }}
       />
       <button
@@ -104,23 +105,25 @@ export function HomeTabToggle({
         className="zen-seg-btn flex items-center justify-center"
         aria-label="Agents"
         title="Agents"
-        aria-pressed={!home}
-        data-selected={!home || undefined}
+        aria-pressed={agents}
+        data-selected={agents || undefined}
         data-testid="list-tab-agents"
         style={{ width: TAB_SEG_BTN_W, height: "100%" }}
         onClick={() => onTab("agents")}
       >
         <AgentIcon {...ICON} testId="agent-icon" />
       </button>
-      {onGardens ? (
+      {showGardens ? (
         <button
           type="button"
           className="zen-seg-btn flex items-center justify-center"
           aria-label="Gardens"
           title="Gardens"
+          aria-pressed={gardens}
+          data-selected={gardens || undefined}
           data-testid="list-tab-gardens"
           style={{ width: TAB_SEG_BTN_W, height: "100%" }}
-          onClick={onGardens}
+          onClick={() => onTab("gardens")}
         >
           <GardenIcon {...ICON} testId="garden-icon" />
         </button>
