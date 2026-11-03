@@ -41,6 +41,8 @@ export interface ScopedFetchOptions {
   /** Queue position under the per-server cap. Default: by route
    *  (`priorityOf`). */
   priority?: HttpPriority;
+  /** Sent beside the auth headers. */
+  headers?: Record<string, string>;
 }
 
 /** Routes the person is waiting on: the chat they opened (its read and
@@ -110,7 +112,7 @@ export async function scopedFetch(
           return await Promise.race([
             tauriFetch(url, {
               method: opts.method || "GET",
-              headers: cliAuthHeaders(token),
+              headers: { ...cliAuthHeaders(token), ...opts.headers },
               body: opts.body || undefined,
               ...(abort ? { signal: abort.signal } : {}),
             }),
