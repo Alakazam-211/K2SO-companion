@@ -1,11 +1,18 @@
 import type { ServerScope } from "../../api/scope";
 import { scopedFetch } from "../../api/scopedFetch";
+import { isIosWebView } from "../../lib/nativePicker";
 
 // Gardens on the phone (K2 `gardens-remote-v1`, wiki "Reference - Gardens
 // Phone Contract v0.46.6"; a golden sample beats the text): the owner person
 // on a paired phone reads a server's Gardens through `/cli/zen/remote/*`.
 
-export const FEATURE_GARDENS_REMOTE = "gardens-remote-v1" as const;
+export const FEATURE_GARDENS_REMOTE = "gardens-remote-v1";
+
+/** Gardens show on this phone for this server. Android can't host widget
+ *  frames safely yet (contract §10): it needs its own frame host. */
+export function gardensAvailable(scope: Pick<ServerScope, "supports">): boolean {
+  return isIosWebView() && scope.supports(FEATURE_GARDENS_REMOTE);
+}
 
 /** A refusal from any remote route, or `unreachable` when none came back. */
 export type GardenRefusal = {

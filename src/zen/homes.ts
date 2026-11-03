@@ -43,7 +43,7 @@ export const LIST_TAB_KEY = "k2.zen.listTab";
 export const DEFAULT_HOME_NAME = "Home";
 export const HOME_NAME_MAX = 60;
 
-export type ListTab = "agents" | "home";
+export type ListTab = "agents" | "home" | "gardens";
 
 export interface HomeRow {
   /** `handle::host`, lowercase — the row key. `host` is the box's
@@ -102,7 +102,7 @@ function lsSet(key: string, value: string): void {
 /** Agents is the default (HM1): no Home can come from another device yet. */
 export function readListTab(): ListTab {
   const r = lsGet(LIST_TAB_KEY);
-  return r.ok && r.value === "home" ? "home" : "agents";
+  return r.ok && (r.value === "home" || r.value === "gardens") ? r.value : "agents";
 }
 
 export function writeListTab(tab: ListTab): void {
