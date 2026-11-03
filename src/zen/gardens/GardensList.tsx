@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import type { ServerScope } from "../../api/scope";
 import { onForegroundLater } from "../../lib/foreground";
-import { fetchGardenFeed, type GardenFeed, type GardenRefusal } from "./gardensApi";
+import { fetchGardenFeed, isZenChanged, type GardenFeed, type GardenRefusal } from "./gardensApi";
 import { RowDivider } from "../RowDivider";
 import { subscribeAppEvents } from "../ticketEvents";
 
@@ -13,10 +13,6 @@ const lastFeed = new Map<string, GardenFeed>();
 
 export function forgetGardenFeed(serverId: string): void {
   lastFeed.delete(serverId);
-}
-
-function isZenChanged(frame: unknown): boolean {
-  return !!frame && typeof frame === "object" && (frame as { kind?: unknown }).kind === "zen_changed";
 }
 
 function Note({ text, testId }: { text: string; testId: string }) {
