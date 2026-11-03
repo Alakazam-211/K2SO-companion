@@ -456,15 +456,16 @@ class K2PushPlugin: Plugin {
         return
       }
       self.emitBadgeTotals(applied.totals, sum: applied.sum)
-      // Read elsewhere: nothing unread left on that server clears its
-      // Thread / project notifications; K2 0.46.8 read hints clear those
-      // chats (Plan - Clear Notifications on Read Elsewhere).
+      // Read elsewhere: nothing unread or waiting left on that server clears
+      // its Thread / project notifications (a chat with a card waiting keeps
+      // its notification, as the app's summary does); K2 0.46.8 read hints
+      // clear those chats (Plan - Clear Notifications on Read Elsewhere).
       let server = K2DeliveredClear.Server(
         badgeKey: push["badgeKey"] as? String, subdomain: push["subdomain"] as? String,
         instanceId: push["instanceId"] as? String)
       let hints = K2DeliveredClear.parseReadHints(push["read"])
       let op: K2DeliveredClear.Op? =
-        applied.totals.unread == 0 ? .keepOnly([]) : (hints.isEmpty ? nil : .read(hints))
+        applied.totals.unread == 0 && (applied.totals.waiting ?? 0) == 0 ? .keepOnly([]) : (hints.isEmpty ? nil : .read(hints))
       // Complete only once the badge is set and the clearing done: iOS may
       // suspend us right after.
       K2PushPlugin.setIconBadge(applied.sum) {
