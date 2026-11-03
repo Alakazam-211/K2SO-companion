@@ -263,13 +263,13 @@ const ENSO_OFF_D = ensoBrush(3.2, 0.6);
 const ENSO_ON_D = ensoBrush(4.4, 0.9);
 const ENSO_SPINE_D = ensoSpine();
 
-/** `on` (its tab is selected): heavier. Draws itself in when it turns on,
- *  and when it changes after mounting; an off icon that just mounted stays
- *  still (`.zen-enso-draw`; reduced motion skips it). */
+/** `on` (its tab is selected): heavier. Draws itself in each time it turns
+ *  on, and only then: not when leaving the tab, and not when it mounts
+ *  already on (Rosson; `.zen-enso-draw`; reduced motion skips it). */
 export function EnsoIcon({ on = false, size = 18, testId }: { on?: boolean; size?: number; testId?: string }) {
-  const [seen, setSeen] = useState({ on, toggled: false });
-  if (seen.on !== on) setSeen({ on, toggled: true });
-  const animate = on || seen.toggled;
+  const [seen, setSeen] = useState({ on, plays: 0 });
+  if (seen.on !== on) setSeen({ on, plays: seen.plays + (on ? 1 : 0) });
+  const animate = on && seen.plays > 0;
   const maskId = `zen-enso-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
   return (
     <svg
@@ -287,9 +287,9 @@ export function EnsoIcon({ on = false, size = 18, testId }: { on?: boolean; size
       {animate ? (
         <defs>
           <mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
-            {/* A new key per state plays it again. */}
+            {/* A new key per turn-on plays it again. */}
             <path
-              key={on ? "on" : "off"}
+              key={seen.plays}
               className="zen-enso-draw"
               d={ENSO_SPINE_D}
               pathLength={1}

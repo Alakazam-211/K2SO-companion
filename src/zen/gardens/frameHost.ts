@@ -53,6 +53,8 @@ export interface FrameHostOptions {
 export interface FrameHost {
   onMessage(data: unknown, transfer?: readonly unknown[]): void;
   setVisible(visible: boolean): void;
+  /** The visible area changed (rev 2 §B.2). */
+  setViewport(viewport: { width: number; height: number }): void;
   stop(): void;
 }
 
@@ -236,6 +238,9 @@ export function createFrameHost(opts: FrameHostOptions, now: () => number = Date
       if (visible === next) return;
       visible = next;
       if (!stopped && ready) opts.post({ visible: next });
+    },
+    setViewport(next) {
+      if (!stopped && ready) opts.post({ viewport: next });
     },
     stop() {
       if (stopped) return;

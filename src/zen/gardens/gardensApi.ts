@@ -47,6 +47,19 @@ export type GardenFeed = {
 
 export type GardenRun = "frame" | "native" | "placeholder";
 
+/** A widget's height on a phone (contract rev 2 §A.4). */
+export type PhoneHeight = "fill" | "auto" | number;
+
+/** A Garden's mobile version (K2 0.46.8, contract rev 2 §A). Absent: its
+ *  desktop layout, one column per screen. */
+export type GardenPhoneLayout = {
+  screens: {
+    label?: string;
+    canvas?: "full";
+    widgets: { id: string; height?: PhoneHeight; config?: Record<string, unknown> }[];
+  }[];
+};
+
 export type GardenColumn = {
   size?: number;
   "min-width"?: number;
@@ -75,11 +88,15 @@ export type GardenPageBody = {
   page: {
     layout: { kind?: string; canvas?: string; columns?: GardenColumn[] };
     widgets: GardenWidget[];
+    phone?: GardenPhoneLayout;
   };
   theme?: { tokens?: Record<string, unknown>; [key: string]: unknown };
   motion?: { reduced?: boolean };
   errors?: unknown[];
-  remote: { widgets: { id: string; run: GardenRun; reason?: string }[]; features?: string[] };
+  remote: {
+    widgets: { id: string; run: GardenRun; reason?: string; frameVersion?: string }[];
+    features?: string[];
+  };
 };
 
 export type GardenLibFile = { name: string; sha256: string; bytes: number };
@@ -106,6 +123,10 @@ export type GardenFrameBody = {
   libs: GardenLib[];
   hello: Record<string, unknown>;
 };
+
+export function isZenChanged(frame: unknown): boolean {
+  return !!frame && typeof frame === "object" && (frame as { kind?: unknown }).kind === "zen_changed";
+}
 
 /** Refusals that end this server's Gardens on this phone (§9): wipe. */
 export function refusalEndsGardens(code: string): boolean {

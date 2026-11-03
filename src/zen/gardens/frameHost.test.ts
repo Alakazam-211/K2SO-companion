@@ -119,6 +119,15 @@ describe("a widget frame's protocol (Gardens contract §4.4, §4.5)", () => {
     expect(end).toHaveBeenCalledTimes(17);
   });
 
+  it("sends a ready frame the new viewport", () => {
+    const { host, posted } = setup();
+    host.setViewport({ width: 1, height: 1 });
+    expect(posted).toEqual([]);
+    host.onMessage({ ready: true });
+    host.setViewport({ width: 390, height: 720 });
+    expect(posted).toEqual([{ viewport: { width: 390, height: 720 } }]);
+  });
+
   it("reports size, and tells a ready frame when it's visible", () => {
     const onSize = vi.fn();
     const { host, posted } = setup({ onSize });
