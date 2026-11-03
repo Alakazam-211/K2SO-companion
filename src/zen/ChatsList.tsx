@@ -74,8 +74,8 @@ import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { ZenSettings } from "./ZenSettings";
 import { homeViewRecent, orderRecentFirst, recentSentKey, useRecentFirstStore } from "./recentFirst";
 import { useListField, useZenStore } from "./zenStore";
-import { FEATURE_GARDENS_REMOTE } from "./gardens/gardensApi";
-import { isIosWebView } from "../lib/nativePicker";
+import { gardensAvailable } from "./gardens/gardensApi";
+import { GardensList } from "./gardens/GardensList";
 import { withServerParam } from "./room/serverRef";
 import { FOCUS_OFF } from "./serverPins";
 import { labelOf, snapshotCapable, useMultiServerList, type ActiveSlice } from "./multi/useMultiServerList";
@@ -441,6 +441,9 @@ export function ChatsList() {
   // pick is this device's (localStorage). Home is one server for now.
   const [tab, setTabState] = useState<ListTab>(readListTab);
   const onHome = tab === "home";
+  // A third tab on servers with Gardens; elsewhere the pick falls to Agents.
+  const showGardens = gardensAvailable(zen);
+  const onGardens = tab === "gardens" && showGardens;
   const setTab = (next: ListTab) => {
     if (next === tab) return;
     writeListTab(next);
@@ -1223,7 +1226,11 @@ export function ChatsList() {
           style={{ letterSpacing: "-0.2px", maxWidth: TITLE_MAX_W }}
           data-testid="chats-title"
         >
-          {onHome ? (
+          {onGardens ? (
+            <span className="block truncate" data-testid="chats-title-gardens">
+              Gardens
+            </span>
+          ) : onHome ? (
             <button
               type="button"
               className="flex items-center min-w-0 max-w-full bg-transparent border-0 p-0"
@@ -1563,7 +1570,13 @@ export function ChatsList() {
           setScrolled(e.currentTarget.scrollTop > 0);
         }}
       >
-      {onHome ? (
+      {onGardens ? (
+        <GardensList
+          scope={zen}
+          query={q}
+          onOpen={(id) => navigate(`${withServerParam("/zen/gardens", zen.id)}${zen.id ? "&" : "?"}garden=${encodeURIComponent(id)}`)}
+        />
+      ) : onHome ? (
         <HomeList
           views={homeShown.filter((v) => homeRowMatches(v, q))}
           homeName={home.name}
@@ -1981,21 +1994,11 @@ export function ChatsList() {
         query={q}
         onQuery={setQ}
         placeholder="Search"
-        leading={
-          <HomeTabToggle
-            tab={tab}
-            onTab={setTab}
-            onGardens={
-              // Android can't host widget frames safely yet (contract §10).
-              isIosWebView() && zen.supports(FEATURE_GARDENS_REMOTE)
-                ? () => navigate(withServerParam("/zen/gardens", zen.id))
-                : undefined
-            }
-          />
-        }
-        onPlus={() => (onHome ? setAddAgent(true) : setNewWorkspace(true))}
-        plusLabel={onHome ? "Add agent" : "New workspace"}
-        plusBlockedNote={onHome || canCreate ? null : createRoleNote()}
+        leading={<HomeTabToggle tab={onGardens ? "gardens" : onHome ? "home" : "agents"} onTab={setTab} showGardens={showGardens} />}
+        // Gardens are built by agents: nothing to add from here.
+        onPlus={onGardens ? undefined : () => (onHome ? setAddAgent(true) : setNewWorkspace(true))}
+        plusLabel={onGardens ? undefined : onHome ? "Add agent" : "New workspace"}
+        plusBlockedNote={onGardens || onHome || canCreate ? null : createRoleNote()}
         barRef={searchBarRef}
         blurRef={searchBlurRef}
       />

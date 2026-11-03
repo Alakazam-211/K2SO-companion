@@ -6,6 +6,7 @@ import { ZEN_SERVER_PARAM, resolveServerRef } from "../zen/room/serverRef";
 import { GardenView } from "../zen/gardens/GardenView";
 import { fetchGardenFeed, refusalEndsGardens, type GardenFeed, type GardenRefusal } from "../zen/gardens/gardensApi";
 import { forgetGardenLibs } from "../zen/gardens/frameDoc";
+import { forgetGardenFeed } from "../zen/gardens/GardensList";
 
 const GARDEN_PARAM = "garden";
 const MUTED = "#8e8e93";
@@ -15,8 +16,8 @@ function feedProblem(r: GardenRefusal, server: string): string {
   return r.hint || "Gardens couldn't load.";
 }
 
-/** `/zen/gardens`: a server's Gardens, then one of them. Back goes from the
- *  Garden to the list, then to the app. */
+/** `/zen/gardens?garden=`: one Garden, opened from the Gardens tab. With no
+ *  `garden` (an old link) it lists them. */
 export function ZenGardens() {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -35,11 +36,12 @@ export function ZenGardens() {
 
   const onEnded = useCallback((_code: string, hint: string) => {
     // §9: nothing of this server's Gardens stays. Pages and frames live only
-    // in this screen's state for now; libraries are the one thing kept.
+    // in this screen's state for now; the list and libraries are all that's kept.
     forgetGardenLibs();
+    forgetGardenFeed(scope.id);
     setFeed(null);
     setProblem(hint || "Gardens aren't available on this phone.");
-  }, []);
+  }, [scope]);
 
   useEffect(() => {
     let cancelled = false;
