@@ -1,4 +1,4 @@
-import type { ReactNode, SVGProps } from "react";
+import { useId, useState, type ReactNode, type SVGProps } from "react";
 
 // The app's stroke icons, one definition each. 24×24 viewBox, drawn in
 // `currentColor`, decorative (`aria-hidden`): the control around an icon
@@ -13,7 +13,6 @@ export type IconProps = Omit<SVGProps<SVGSVGElement>, "children" | "ref" | "name
 };
 
 export type IconName =
-  | "garden"
   | "home"
   | "agent"
   | "cog"
@@ -59,17 +58,6 @@ function Icon({
 }
 
 /** Desktop Garden nav rail HomeIcon (`ZenNavRailWidget.tsx`). */
-/** Gardens: a sprout (Home | Agents | Gardens). */
-export function GardenIcon(props: IconProps) {
-  return (
-    <Icon name="garden" {...props}>
-      <path d="M12 21v-9" />
-      <path d="M12 12C12 8 9 5 4 5c0 5 3 7 8 7Z" />
-      <path d="M12 15c0-3 2.5-5.5 8-5.5 0 4-3 5.5-8 5.5Z" />
-    </Icon>
-  );
-}
-
 export function HomeIcon(props: IconProps) {
   return (
     <Icon name="home" {...props}>
@@ -223,5 +211,97 @@ export function BookmarkPlusIcon(props: IconProps) {
       <line x1="12" x2="12" y1="7" y2="13" />
       <line x1="15" x2="9" y1="10" y2="10" />
     </Icon>
+  );
+}
+
+// The ensō, K2's Garden mark (desktop `components/Zen/ZenIcon.tsx`, Rosson
+// 2026-10-07: one brush stroke, bottom left, clockwise round to bottom right,
+// tapering to a thin tail). The same outline on the same 24 viewBox.
+const ENSO_START_DEG = 98;
+const ENSO_SWEEP_DEG = 318;
+const ENSO_STEPS = 48;
+
+const ensoNum = (n: number): string => String(Math.round(n * 100) / 100);
+
+function ensoPoint(t: number, offset: number): [number, number] {
+  const a = ((ENSO_START_DEG + ENSO_SWEEP_DEG * t) * Math.PI) / 180;
+  // The tail drifts a little inward, like a hand finishing the circle.
+  const r = 7.7 - 0.6 * t ** 3 + offset;
+  return [12 + r * Math.cos(a), 12 + r * Math.sin(a)];
+}
+
+/** The stroke as a filled outline: thick at the entry, tapering. */
+function ensoBrush(maxW: number, minW: number): string {
+  const width = (t: number): number =>
+    minW + (maxW - minW) * (1 - t) ** 0.9 * (t < 0.06 ? 0.9 + 0.1 * (t / 0.06) : 1);
+  const outer: [number, number][] = [];
+  const inner: [number, number][] = [];
+  for (let i = 0; i <= ENSO_STEPS; i++) {
+    const t = i / ENSO_STEPS;
+    outer.push(ensoPoint(t, width(t) / 2));
+    inner.push(ensoPoint(t, -width(t) / 2));
+  }
+  const w0 = width(0);
+  let d = `M${ensoNum(inner[0][0])} ${ensoNum(inner[0][1])}A${ensoNum(w0 / 2)} ${ensoNum(w0 / 2)} 0 0 1 ${ensoNum(outer[0][0])} ${ensoNum(outer[0][1])}`;
+  for (let i = 1; i <= ENSO_STEPS; i++) d += `L${ensoNum(outer[i][0])} ${ensoNum(outer[i][1])}`;
+  d += `A${ensoNum(minW / 2)} ${ensoNum(minW / 2)} 0 0 1 ${ensoNum(inner[ENSO_STEPS][0])} ${ensoNum(inner[ENSO_STEPS][1])}`;
+  for (let i = ENSO_STEPS - 1; i >= 0; i--) d += `L${ensoNum(inner[i][0])} ${ensoNum(inner[i][1])}`;
+  return `${d}Z`;
+}
+
+/** The stroke's centre line: the mask that draws the ensō in. */
+function ensoSpine(): string {
+  let d = "";
+  for (let i = 0; i <= ENSO_STEPS; i++) {
+    const [x, y] = ensoPoint(i / ENSO_STEPS, 0);
+    d += `${i === 0 ? "M" : "L"}${ensoNum(x)} ${ensoNum(y)}`;
+  }
+  return d;
+}
+
+const ENSO_OFF_D = ensoBrush(3.2, 0.6);
+const ENSO_ON_D = ensoBrush(4.4, 0.9);
+const ENSO_SPINE_D = ensoSpine();
+
+/** `on` (its tab is selected): heavier. Draws itself in when it turns on,
+ *  and when it changes after mounting; an off icon that just mounted stays
+ *  still (`.zen-enso-draw`; reduced motion skips it). */
+export function EnsoIcon({ on = false, size = 18, testId }: { on?: boolean; size?: number; testId?: string }) {
+  const [seen, setSeen] = useState({ on, toggled: false });
+  if (seen.on !== on) setSeen({ on, toggled: true });
+  const animate = on || seen.toggled;
+  const maskId = `zen-enso-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`;
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      aria-hidden
+      focusable="false"
+      data-testid={testId}
+      data-enso-on={on ? "true" : "false"}
+      data-enso-motion={animate ? "play" : "still"}
+      style={{ display: "block", overflow: "visible", flexShrink: 0 }}
+    >
+      {animate ? (
+        <defs>
+          <mask id={maskId} maskUnits="userSpaceOnUse" x="0" y="0" width="24" height="24">
+            {/* A new key per state plays it again. */}
+            <path
+              key={on ? "on" : "off"}
+              className="zen-enso-draw"
+              d={ENSO_SPINE_D}
+              pathLength={1}
+              stroke="white"
+              strokeWidth={5.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            />
+          </mask>
+        </defs>
+      ) : null}
+      <path d={on ? ENSO_ON_D : ENSO_OFF_D} fill="currentColor" mask={animate ? `url(#${maskId})` : undefined} />
+    </svg>
   );
 }
