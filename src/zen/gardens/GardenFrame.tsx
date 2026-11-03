@@ -41,6 +41,8 @@ export function GardenFrame({
   label,
   scheme,
   visible,
+  viewport,
+  frameVersion,
   context,
   onSize,
   onEnded,
@@ -52,6 +54,10 @@ export function GardenFrame({
   label: string;
   scheme: string;
   visible: boolean;
+  /** CSS px of the visible area under the chrome. */
+  viewport: { width: number; height: number };
+  /** Reload when it changes (rev 2 §C); `hash` on a daemon before it. */
+  frameVersion?: string;
   context: HostContext;
   onSize?(height: number): void;
   /** The session ended or this login may not see Gardens (§9). */
@@ -69,6 +75,8 @@ export function GardenFrame({
   callbacks.current = { onSize, onEnded, onStaleWidget };
   const visibleRef = useRef(visible);
   visibleRef.current = visible;
+  const viewportRef = useRef(viewport);
+  viewportRef.current = viewport;
 
   useEffect(() => {
     let cancelled = false;
@@ -94,11 +102,15 @@ export function GardenFrame({
     return () => {
       cancelled = true;
     };
-  }, [scope, gardenId, placement, scheme, label, generation]);
+  }, [scope, gardenId, placement, scheme, label, generation, frameVersion]);
 
   useEffect(() => {
     hostRef.current?.setVisible(visible);
   }, [visible]);
+
+  useEffect(() => {
+    hostRef.current?.setViewport(viewport);
+  }, [viewport]);
 
   useEffect(
     () => () => {
@@ -159,7 +171,9 @@ export function GardenFrame({
       hostRef.current = host;
       host.setVisible(visibleRef.current);
       port.onmessage = (e) => host.onMessage(e.data);
-      win.postMessage(frame.hello, "*", [channel.port2]);
+      // `viewport` is the one hello field the phone adds (rev 2 §B.1). An
+      // older runtime drops fields it doesn't know.
+      win.postMessage({ ...frame.hello, viewport: viewportRef.current }, "*", [channel.port2]);
     },
     [doc, scope]
   );

@@ -22,7 +22,8 @@ const ok = (value: unknown = null): VerbAnswer => ({ ok: true, value });
 const fail = (code: string, message = ""): VerbAnswer => ({ ok: false, error: { code, message } });
 
 export function layoutOf(ctx: Pick<HostContext, "page" | "folds">) {
-  const columns = ctx.page.page.layout.columns ?? [];
+  // A mobile version has no columns, so no folds (rev 2 §A.6).
+  const columns = ctx.page.page.phone ? [] : ctx.page.page.layout.columns ?? [];
   return {
     columns: columns.map((c, index) => ({
       index,
@@ -78,6 +79,7 @@ export function answerHostVerb(
       return ok(layoutOf(ctx));
     case "layout.set":
     case "layout.toggle": {
+      if (ctx.page.page.phone) return fail("failed", "this Garden has no columns on a phone");
       if (!pressed) return fail("failed", "needs a tap");
       const column = typeof arg.column === "number" ? arg.column : -1;
       const row = layoutOf(ctx).columns[column];

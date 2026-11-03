@@ -18,13 +18,15 @@ vi.mock("./gardensApi", async (orig) => ({
   reportGardenFrame: api.report,
   callGardenVerb: api.call,
 }));
+const hub = vi.hoisted(() => ({ subscribe: vi.fn() }));
+vi.mock("../ticketEvents", () => ({ subscribeAppEvents: hub.subscribe }));
 vi.mock("../zenScope", async () => (await import("../../test/zenScopeMock")).zenScopeModule);
 
 import { ZenGardens } from "../../pages/ZenGardens";
 import { fakeScope } from "../../test/fakeScope";
 import { setZenScope } from "../../test/zenScopeMock";
 import { EnsoIcon } from "../icons";
-import { screensOf, shouldRun, stackHeight } from "./gardenLayout";
+import { screensOf, shouldRun, slotHeight, stackHeight } from "./gardenLayout";
 import { answerHostVerb, layoutOf, switchAllowed, type HostContext } from "./hostVerbs";
 import type { GardenPageBody } from "./gardensApi";
 
@@ -74,6 +76,7 @@ function open(path = "/zen/gardens") {
 beforeEach(() => {
   setZenScope(fakeScope({ id: "s1" }));
   for (const f of Object.values(api)) f.mockReset();
+  hub.subscribe.mockReset().mockReturnValue({ stop() {} });
   api.feed.mockResolvedValue({ ok: true, data: FEED });
   api.page.mockResolvedValue({ ok: true, data: body() });
   api.frame.mockResolvedValue({ ok: true, data: FRAME });
@@ -117,6 +120,26 @@ describe("the Gardens screen", () => {
     api.page.mockResolvedValue({ ok: true, data: { ...body(), schema: 2 } });
     open("/zen/gardens?garden=g1");
     expect((await screen.findByTestId("garden-problem")).textContent).toContain("Update K2");
+  });
+
+  it("a new mobile version appears on the next read; the same version leaves the page alone", async () => {
+    let zen: () => void = () => {};
+    hub.subscribe.mockImplementation((_s: unknown, _m: unknown, onChange: () => void) => {
+      zen = onChange;
+      return { stop() {} };
+    });
+    open("/zen/gardens?garden=g1");
+    await screen.findByTestId("garden-frame");
+    api.page.mockResolvedValue({
+      ok: true,
+      data: {
+        ...body({ phone: { screens: [{ label: "Phone", widgets: [{ id: "b1", height: 300 }] }] } }),
+        version: "v2",
+      },
+    });
+    await act(async () => zen());
+    await waitFor(() => expect(screen.getByLabelText("Phone")).toBeTruthy());
+    expect(screen.getByTestId("garden-slot").style.height).toBe("300px");
   });
 
   it("the session ending anywhere in a Garden clears it", async () => {
@@ -216,6 +239,51 @@ describe("a Garden laid out on a phone", () => {
     ]);
   });
 
+  it("a mobile version wins: its screens, its order, and unlisted widgets don't load", () => {
+    const s = screensOf(
+      body(
+        {
+          layout: { columns: [{}, {}] },
+          widgets: [
+            { id: "a", kind: "custom", column: 0 },
+            { id: "b", kind: "custom", column: 1 },
+            { id: "c", kind: "custom", column: 1 },
+          ],
+          phone: {
+            screens: [
+              { label: "Fleet", canvas: "full", widgets: [{ id: "c", height: "fill" }] },
+              { widgets: [{ id: "a", height: "auto" }, { id: "gone" }] },
+            ],
+          },
+        },
+        [
+          { id: "a", run: "frame", frameVersion: "fa" },
+          { id: "b", run: "frame" },
+          { id: "c", run: "frame" },
+        ]
+      )
+    );
+    expect(s.map((x) => [x.label, x.full, x.slots.map((y) => y.widget.id)])).toEqual([
+      ["Fleet", true, ["c"]],
+      ["Screen 2", false, ["a"]],
+    ]);
+    expect(s[1].slots[0].frameVersion).toBe("fa");
+  });
+
+  it("no mobile version: the desktop layout, one column per screen", () => {
+    const s = screensOf(body({ layout: { canvas: "full", columns: [{}] }, widgets: [{ id: "a", kind: "custom" }] }, [{ id: "a", run: "frame" }]));
+    expect(s.map((x) => [x.label, x.full])).toEqual([["Column 1", true]]);
+  });
+
+  it("heights: fill, auto and px (px ignores what the frame reports)", () => {
+    expect(slotHeight({}, true, undefined, 700)).toBe("100%");
+    expect(slotHeight({}, false, 300, 700)).toBe(300);
+    expect(slotHeight({ height: "auto" }, true, 300, 700)).toBe(300);
+    expect(slotHeight({ height: 420 }, false, 300, 700)).toBe(420);
+    expect(slotHeight({ height: 9000 }, false, undefined, 700)).toBe(2100);
+    expect(slotHeight({ height: "fill" }, false, 300, 700)).toBe("100%");
+  });
+
   it("the stacked height rule", () => {
     expect(stackHeight(undefined, 700)).toBe(420);
     expect(stackHeight(undefined, 100)).toBe(160);
@@ -241,6 +309,14 @@ describe("verbs the phone answers (§5.2)", () => {
     ...over,
   });
   const limit = () => ({ loadedAt: 0, lastAt: null as number | null });
+
+  it("a mobile version has no columns or folds", () => {
+    const c = ctx({ page: body({ phone: { screens: [{ widgets: [{ id: "b1" }] }] } }) });
+    expect(answerHostVerb(c, limit(), "layout.get", [], false, 0)).toEqual({ ok: true, value: { columns: [] } });
+    expect(answerHostVerb(c, limit(), "layout.toggle", [{ column: 0 }], true, 0)).toMatchObject({
+      error: { message: "this Garden has no columns on a phone" },
+    });
+  });
 
   it("gardens.list and gardens.current", () => {
     expect(answerHostVerb(ctx(), limit(), "gardens.list", [], false, 9000)).toEqual({

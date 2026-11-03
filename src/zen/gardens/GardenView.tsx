@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ServerScope } from "../../api/scope";
 import { GardenFrame } from "./GardenFrame";
-import { screensOf, shouldRun, stackHeight, type GardenSlot } from "./gardenLayout";
-import { fetchGardenPage, refusalEndsGardens, type GardenPageBody, type GardenRow } from "./gardensApi";
+import { screensOf, shouldRun, slotHeight, type GardenSlot } from "./gardenLayout";
+import { fetchGardenPage, isZenChanged, refusalEndsGardens, type GardenPageBody, type GardenRow } from "./gardensApi";
+import { onForegroundLater } from "../../lib/foreground";
+import { subscribeAppEvents } from "../ticketEvents";
 import type { HostContext } from "./hostVerbs";
 
 const SIZE_GAP_MS = 250;
@@ -49,7 +51,8 @@ export function GardenView({
   const [problem, setProblem] = useState<string | null>(null);
   const [generation, setGeneration] = useState(0);
   const [current, setCurrent] = useState(0);
-  const [visibleHeight, setVisibleHeight] = useState(0);
+  const [viewport, setViewport] = useState({ width: 0, height: 0 });
+  const visibleHeight = viewport.height;
   const [reported, setReported] = useState<Record<string, number>>({});
   const [folds, setFolds] = useState<ReadonlyMap<number, boolean>>(new Map());
   const scroller = useRef<HTMLDivElement | null>(null);
@@ -71,17 +74,33 @@ export function GardenView({
         setProblem("Update K2 to show this Garden.");
         return;
       }
-      setPage(r.data);
+      setPage((prev) => (prev?.version === r.data.version ? prev : r.data));
     });
     return () => {
       cancelled = true;
     };
   }, [scope, gardenId, scheme, generation, onEnded]);
 
+  // A desktop edit or a new mobile version: read the page again. It only
+  // replaces what's on screen when its version moved, and frames reload only
+  // when their own frameVersion or hash moved.
+  useEffect(() => {
+    const again = () => setGeneration((n) => n + 1);
+    const off = onForegroundLater("garden-page", again);
+    const events = subscribeAppEvents(scope, isZenChanged, again);
+    return () => {
+      off();
+      events.stop();
+    };
+  }, [scope]);
+
   useEffect(() => {
     const el = scroller.current;
     if (!el) return;
-    const measure = () => setVisibleHeight(el.clientHeight);
+    const measure = () =>
+      setViewport((v) =>
+        v.width === el.clientWidth && v.height === el.clientHeight ? v : { width: el.clientWidth, height: el.clientHeight }
+      );
     measure();
     const ro = typeof ResizeObserver === "function" ? new ResizeObserver(measure) : null;
     ro?.observe(el);
@@ -117,9 +136,9 @@ export function GardenView({
   if (!page || !context) return <div className="h-full" data-testid="garden-loading" />;
 
   const hasErrors = !!page.errors?.length;
-  // A full canvas keeps every finger (contract rev 2 §I): no swipe over it;
-  // screens change from the tabs.
-  const swipes = page.page.layout.canvas !== "full";
+  // A full canvas keeps every finger (contract rev 2 §I): no swipe while one
+  // is on screen; screens change from the tabs.
+  const swipes = !screens[Math.min(current, screens.length - 1)]?.full;
   const goTo = (i: number) => {
     const el = scroller.current;
     if (!el) return;
@@ -152,6 +171,7 @@ export function GardenView({
             <section
               key={screen.index}
               aria-label={screen.label}
+              data-full={screen.full ? "1" : undefined}
               data-testid="garden-screen"
               style={{
                 flex: "0 0 100%",
@@ -165,7 +185,7 @@ export function GardenView({
               {screen.slots.map((slot) => {
                 const id = slot.widget.id;
                 const label = slot.widget.name || id;
-                const height = single ? "100%" : stackHeight(reported[id], visibleHeight);
+                const height = slotHeight(slot, single, reported[id], visibleHeight);
                 const note = slot.run === "frame" ? null : slotNote(slot);
                 return (
                   <div
@@ -184,6 +204,8 @@ export function GardenView({
                         label={label}
                         scheme={scheme}
                         visible={i === current}
+                        viewport={viewport}
+                        frameVersion={slot.frameVersion ?? (slot.widget.hash as string | undefined)}
                         context={context}
                         onSize={(h) => onSize(id, h)}
                         onEnded={onEnded}
