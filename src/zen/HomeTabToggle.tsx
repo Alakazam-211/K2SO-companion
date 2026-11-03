@@ -1,6 +1,6 @@
 import type { ListTab } from "./homes";
 import { SEARCH_BAR_HEIGHT } from "./GlassSearchBar";
-import { AgentIcon, HomeIcon } from "./icons";
+import { AgentIcon, GardenIcon, HomeIcon } from "./icons";
 import { useHomesSyncBadge } from "./homesSync";
 
 // Desktop Garden nav rail icons (`./icons`), stroke 1.7 like the ticket
@@ -19,7 +19,17 @@ const THUMB_R = TAB_SEG_H / 2 - TAB_SEG_PAD;
  * selected highlight sits inside the glass pill, clipped by it, in blue
  * glass (Rosson 2026-10-18).
  */
-export function HomeTabToggle({ tab, onTab }: { tab: ListTab; onTab: (tab: ListTab) => void }) {
+export function HomeTabToggle({
+  tab,
+  onTab,
+  onGardens,
+}: {
+  tab: ListTab;
+  onTab: (tab: ListTab) => void;
+  /** This server has Gardens (K2 `gardens-remote-v1`, iOS): a third button
+   *  that opens them. It navigates, so the thumb never rests on it. */
+  onGardens?: () => void;
+}) {
   const home = tab === "home";
   // Homes sync (K2 0.46.1): a tiny chip with the sync server's initial.
   const sync = useHomesSyncBadge();
@@ -47,7 +57,7 @@ export function HomeTabToggle({ tab, onTab }: { tab: ListTab; onTab: (tab: ListT
           top: TAB_SEG_PAD,
           bottom: TAB_SEG_PAD,
           left: TAB_SEG_PAD,
-          width: `calc(50% - ${TAB_SEG_PAD}px)`,
+          width: onGardens ? TAB_SEG_BTN_W : `calc(50% - ${TAB_SEG_PAD}px)`,
           borderRadius: THUMB_R,
           transform: home ? "translateX(0%)" : "translateX(100%)",
         }}
@@ -102,6 +112,19 @@ export function HomeTabToggle({ tab, onTab }: { tab: ListTab; onTab: (tab: ListT
       >
         <AgentIcon {...ICON} testId="agent-icon" />
       </button>
+      {onGardens ? (
+        <button
+          type="button"
+          className="zen-seg-btn flex items-center justify-center"
+          aria-label="Gardens"
+          title="Gardens"
+          data-testid="list-tab-gardens"
+          style={{ width: TAB_SEG_BTN_W, height: "100%" }}
+          onClick={onGardens}
+        >
+          <GardenIcon {...ICON} testId="garden-icon" />
+        </button>
+      ) : null}
     </div>
   );
 }

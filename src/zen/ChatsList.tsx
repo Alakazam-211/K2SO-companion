@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { useSearchParams } from "react-router-dom";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import {
   fullViewportHeight,
   useViewportSettledWhile,
@@ -74,6 +74,9 @@ import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { ZenSettings } from "./ZenSettings";
 import { homeViewRecent, orderRecentFirst, recentSentKey, useRecentFirstStore } from "./recentFirst";
 import { useListField, useZenStore } from "./zenStore";
+import { FEATURE_GARDENS_REMOTE } from "./gardens/gardensApi";
+import { isIosWebView } from "../lib/nativePicker";
+import { withServerParam } from "./room/serverRef";
 import { FOCUS_OFF } from "./serverPins";
 import { labelOf, snapshotCapable, useMultiServerList, type ActiveSlice } from "./multi/useMultiServerList";
 import { homeActivityWord, rowActivityOf } from "./multi/rowStatus";
@@ -349,6 +352,7 @@ export function ChatsList() {
   // Push-tap deep link `/zen?ticket=<id>`: open Tickets on that ticket.
   // A new id remounts the overlay (key) so it re-opens on the new ticket.
   const [params, setParams] = useSearchParams();
+  const navigate = useNavigate();
   const ticketParam = (params.get(ZEN_TICKET_PARAM) || "").trim();
   const [deepTicket, setDeepTicket] = useState<string | null>(null);
   // Stable: the Tickets overlay (and an open ticket in it) is memoized, so
@@ -1977,7 +1981,18 @@ export function ChatsList() {
         query={q}
         onQuery={setQ}
         placeholder="Search"
-        leading={<HomeTabToggle tab={tab} onTab={setTab} />}
+        leading={
+          <HomeTabToggle
+            tab={tab}
+            onTab={setTab}
+            onGardens={
+              // Android can't host widget frames safely yet (contract §10).
+              isIosWebView() && zen.supports(FEATURE_GARDENS_REMOTE)
+                ? () => navigate(withServerParam("/zen/gardens", zen.id))
+                : undefined
+            }
+          />
+        }
         onPlus={() => (onHome ? setAddAgent(true) : setNewWorkspace(true))}
         plusLabel={onHome ? "Add agent" : "New workspace"}
         plusBlockedNote={onHome || canCreate ? null : createRoleNote()}

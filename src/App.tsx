@@ -8,6 +8,7 @@ import { setLifecycleEnabled } from "./lib/appLifecycle";
 import { useMultiServerPrefs } from "./zen/multi/prefs";
 import { Zen } from "./pages/Zen";
 import { ZenTerminal } from "./pages/ZenTerminal";
+import { ZenGardens } from "./pages/ZenGardens";
 import { overlayHomePath } from "./zen/overlayHome";
 import { zenProjectPath, zenTerminalPath, zenTicketPath } from "./zen/terminalJump";
 import { startHomesSync } from "./zen/homesSync";
@@ -99,6 +100,8 @@ function AppLayout() {
           <Route path="/zen" element={<Zen />} />
           {/* Zen thread's terminal button: the glass terminal page. */}
           <Route path="/zen/terminal/:terminalId" element={<ServerGuard><ZenTerminal /></ServerGuard>} />
+          {/* Gardens on a paired phone (K2 `gardens-remote-v1`). */}
+          <Route path="/zen/gardens" element={<ServerGuard><ZenGardens /></ServerGuard>} />
           {/* Pre-Zen UI was removed (4.1.0). Its deep links that name one
               thing redirect to the Zen screen for it; the rest (`/login`,
               `/servers`, `/sessions`, `/settings`, the lists) go home. */}

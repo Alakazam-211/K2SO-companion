@@ -1986,6 +1986,13 @@ pub fn run() {
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_store::Builder::default().build())
         .plugin(tauri_plugin_k2_push::init())
+        // Gardens contract §10: K2's sealed-frame guard, at document start in
+        // every frame. It does nothing in the top frame.
+        .plugin(
+            tauri::plugin::Builder::<_, ()>::new("k2-frame-guard")
+                .js_init_script_on_all_frames(include_str!("sealed-frame-guard.js").to_string())
+                .build(),
+        )
         .setup(|app| {
             #[cfg(target_os = "ios")]
             {

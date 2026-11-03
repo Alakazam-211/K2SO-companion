@@ -13,6 +13,7 @@ export type IconProps = Omit<SVGProps<SVGSVGElement>, "children" | "ref" | "name
 };
 
 export type IconName =
+  | "garden"
   | "home"
   | "agent"
   | "cog"
@@ -58,6 +59,17 @@ function Icon({
 }
 
 /** Desktop Garden nav rail HomeIcon (`ZenNavRailWidget.tsx`). */
+/** Gardens: a sprout (Home | Agents | Gardens). */
+export function GardenIcon(props: IconProps) {
+  return (
+    <Icon name="garden" {...props}>
+      <path d="M12 21v-9" />
+      <path d="M12 12C12 8 9 5 4 5c0 5 3 7 8 7Z" />
+      <path d="M12 15c0-3 2.5-5.5 8-5.5 0 4-3 5.5-8 5.5Z" />
+    </Icon>
+  );
+}
+
 export function HomeIcon(props: IconProps) {
   return (
     <Icon name="home" {...props}>
