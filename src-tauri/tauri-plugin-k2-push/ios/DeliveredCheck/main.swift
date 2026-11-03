@@ -35,4 +35,24 @@ r = K2DeliveredClear.toRemove(notes, server: K2DeliveredClear.Server(badgeKey: "
 check(r == ["k"], "a note with empty badgeKey and subdomain matches on instanceId: \(r)")
 let hints = K2DeliveredClear.parseReadHints("t:c-1:42,p:proj:x:7,t::3,q:z:1,t:c9:nope,t:c:2:5")
 check(hints == [C(kind:"thread", id:"c-1", seq:42), C(kind:"project", id:"proj:x", seq:7), C(kind:"thread", id:"c:2", seq:5)], "read hints parse: \(hints)")
+// K2's format: plain badge and format-2 nudge `read`, project alert `seq` as a string.
+let wire = K2DeliveredClear.parseReadHints("t:c-77:418,p:pg-9:7")
+check(wire == [C(kind:"thread", id:"c-77", seq:418), C(kind:"project", id:"pg-9", seq:7)], "K2 0.46.8 vector parses: \(wire)")
+let fresh = [
+  note("p12", ["kind":"project","groupId":"pg-9","seq":"12","badgeKey":"abc"], 995),
+  note("p7", ["kind":"project","groupId":"pg-9","seq":"7","badgeKey":"abc"], 995),
+  note("t5", ["kind":"thread","conversationId":"c-1","seq":"5","badgeKey":"abc"], 995),
+  note("card", ["kind":"thread","conversationId":"c-1","seq":"5","permission":"1","requestId":"pr_1","badgeKey":"abc"], 900),
+]
+r = K2DeliveredClear.toRemove(fresh, server: srv, op: .read(wire), before: t0.addingTimeInterval(-10))
+check(r == ["p7"], "a too-new alert still goes by seq; p12 stays: \(r)")
+r = K2DeliveredClear.toRemove(fresh, server: srv, op: .read([C(kind:"thread", id:"c-1", seq:9)]), before: t0)
+check(r == ["t5"], "a read clears the chat's alert, not its card's: \(r)")
+r = K2DeliveredClear.toRemove(fresh, server: srv, op: .keepOnly([]), before: t0.addingTimeInterval(-10))
+check(r == ["card"], "nothing left: the old card goes, too-new alerts wait: \(r)")
+func shape(_ o: [K2DeliveredClear.Op]) -> [String] { o.map { if case .read = $0 { return "read" } else { return "keepOnly" } } }
+check(shape(K2DeliveredClear.silentOps(unread: 0, waiting: 0, hints: wire)) == ["read","keepOnly"], "totals 0 with hints: both, hints first")
+check(shape(K2DeliveredClear.silentOps(unread: 0, waiting: nil, hints: [])) == ["keepOnly"], "bare badge at 0, no waitingTotal: keepOnly")
+check(shape(K2DeliveredClear.silentOps(unread: 0, waiting: 1, hints: [])).isEmpty, "a card waiting, no hints: nothing")
+check(shape(K2DeliveredClear.silentOps(unread: 3, waiting: 0, hints: wire)) == ["read"], "unread left: hints only")
 print(fails == 0 ? "ALL OK" : "\(fails) FAILED")

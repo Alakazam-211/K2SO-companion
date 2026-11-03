@@ -17,7 +17,9 @@
 // state. A notification without a `seq` (project alerts before K2 0.46.8
 // D4) is only removed when it was delivered before the state that clears
 // it. A generic-lane alert (sealed-only server, no key here) names no chat:
-// it goes only when the server has nothing unread left.
+// it goes only when the server has nothing unread left. A permission card's
+// alert (`permission` "1") survives a read of its chat, as the app's summary
+// keeps a chat with a card waiting: reading never answers a card.
 
 import Foundation
 import UserNotifications
@@ -98,6 +100,7 @@ enum K2DeliveredClear {
       guard serverMatches(n.info, server), let chat = chatOf(n.info) else { return nil }
       switch op {
       case .read(let chats):
+        guard str(n.info["permission"]) != "1" else { return nil }
         guard let id = chat.id, let hit = chats.first(where: { $0.kind == chat.kind && $0.id == id }) else { return nil }
         return covered(noteSeq: chat.seq, date: n.date, readSeq: hit.seq, before: before) ? n.id : nil
       case .keepOnly(let unread):
@@ -109,6 +112,15 @@ enum K2DeliveredClear {
         return noteSeq <= readSeq ? n.id : nil
       }
     }
+  }
+
+  /// What a silent badge push clears. Read hints first: they go by seq, so
+  /// they reach an alert too new for the totals' time margin (read within
+  /// seconds of the alert, and K2 won't hint that read again).
+  static func silentOps(unread: Int, waiting: Int?, hints: [Chat]) -> [Op] {
+    var ops: [Op] = hints.isEmpty ? [] : [.read(hints)]
+    if unread == 0 && (waiting ?? 0) == 0 { ops.append(.keepOnly([])) }
+    return ops
   }
 
   /// `"t:<conversationId>:<seq>,p:<groupId>:<seq>"` (K2 0.46.8
@@ -131,6 +143,17 @@ enum K2DeliveredClear {
   }
 
   // ── Notification Center ─────────────────────────────────────────────
+
+  /// Run `ops` in order; `completion` gets the total count.
+  static func clear(server: Server, ops: [Op], before: Date, completion: @escaping (Int) -> Void) {
+    guard let op = ops.first else {
+      completion(0)
+      return
+    }
+    clear(server: server, op: op, before: before) { removed in
+      clear(server: server, ops: Array(ops.dropFirst()), before: before) { completion(removed + $0) }
+    }
+  }
 
   /// Remove what `op` covers; `completion` gets the count (on any queue).
   static func clear(server: Server, op: Op, before: Date = Date(), completion: ((Int) -> Void)? = nil) {
