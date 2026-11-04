@@ -456,26 +456,27 @@ class K2PushPlugin: Plugin {
         return
       }
       self.emitBadgeTotals(applied.totals, sum: applied.sum)
-      // Read elsewhere: nothing unread left on that server clears its
-      // Thread / project notifications; K2 0.46.8 read hints clear those
-      // chats (Plan - Clear Notifications on Read Elsewhere).
+      // Read elsewhere: nothing unread or waiting left on that server clears
+      // its Thread / project notifications (a chat with a card waiting keeps
+      // its notification, as the app's summary does); K2 0.46.8 read hints
+      // clear those chats (Plan - Clear Notifications on Read Elsewhere).
       let server = K2DeliveredClear.Server(
         badgeKey: push["badgeKey"] as? String, subdomain: push["subdomain"] as? String,
         instanceId: push["instanceId"] as? String)
-      let hints = K2DeliveredClear.parseReadHints(push["read"])
-      let op: K2DeliveredClear.Op? =
-        applied.totals.unread == 0 ? .keepOnly([]) : (hints.isEmpty ? nil : .read(hints))
+      let ops = K2DeliveredClear.silentOps(
+        unread: applied.totals.unread, waiting: applied.totals.waiting,
+        hints: K2DeliveredClear.parseReadHints(push["read"]))
       // Complete only once the badge is set and the clearing done: iOS may
       // suspend us right after.
       K2PushPlugin.setIconBadge(applied.sum) {
-        guard let op = op else {
+        guard !ops.isEmpty else {
           DispatchQueue.main.async { completion(.newData) }
           return
         }
         // iOS can deliver a silent push late: a notification that arrived
         // in the last few seconds may be newer than the state this push
         // describes, so it stays (the next open's summary judges it).
-        K2DeliveredClear.clear(server: server, op: op, before: Date().addingTimeInterval(-K2PushPlugin.silentClearMarginSecs)) { removed in
+        K2DeliveredClear.clear(server: server, ops: ops, before: Date().addingTimeInterval(-K2PushPlugin.silentClearMarginSecs)) { removed in
           if removed > 0 { pushLog("cleared \(removed) read notification(s)") }
           DispatchQueue.main.async { completion(.newData) }
         }
