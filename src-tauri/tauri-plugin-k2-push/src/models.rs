@@ -281,7 +281,8 @@ pub struct ScanQrResponse {
 /// `call_op` (iOS): the voice-room call's system UI (CallKit, K2CallShim).
 ///   `start {room, server}` → `{ok, error?}`; `report {state, reason?}`;
 ///   `mute {on}`; `title {title}`; `end`; `speaker {on}` → `{ok, route}`;
-///   `route` → `{route, active}`. Events come back as `call`.
+///   `route` → `{route, active}`; `mic` → `{mic: granted|denied}` (asks the
+///   first time). Events come back as `call`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallOpRequest {

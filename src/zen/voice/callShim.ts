@@ -28,6 +28,8 @@ export interface CallShim {
   setTitle(title: string): void;
   end(): void;
   setSpeaker(on: boolean): Promise<string | null>;
+  /** The microphone permission, asking the first time. */
+  microphone(): Promise<"granted" | "denied">;
   listen(cb: (e: ShimEvent) => void): () => void;
 }
 
@@ -48,6 +50,10 @@ const ios: CallShim = {
   async setSpeaker(on) {
     const r = await op({ op: "speaker", on });
     return r && typeof r.route === "string" ? r.route : null;
+  },
+  async microphone() {
+    const r = await op({ op: "mic" });
+    return r?.mic === "denied" ? "denied" : "granted";
   },
   listen(cb) {
     let off: (() => void) | null = null;
@@ -74,6 +80,7 @@ const none: CallShim = {
   setTitle: () => {},
   end: () => {},
   setSpeaker: async () => null,
+  microphone: async () => "granted",
   listen: () => () => {},
 };
 

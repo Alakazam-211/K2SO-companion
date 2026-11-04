@@ -374,6 +374,8 @@ class K2PushPlugin: Plugin {
       invoke.resolve(["ok": shim.setSpeaker(args.on ?? false), "route": K2CallShim.currentRoute()])
     case "route":
       invoke.resolve(["ok": true, "route": K2CallShim.currentRoute(), "active": shim.active])
+    case "mic":
+      K2CallShim.microphone { invoke.resolve(["ok": true, "mic": $0]) }
     default:
       invoke.reject("callOp: unknown op \(args.op)")
     }

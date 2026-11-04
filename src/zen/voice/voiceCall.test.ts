@@ -14,7 +14,7 @@ import {
 
 const ROOM = { serverId: "s1", serverLabel: "sewlab", roomId: "room-1", roomName: "Standup", limit: 25 };
 
-function fakeShim(refuse: string | null = null) {
+function fakeShim(refuse: string | null = null, mic: "granted" | "denied" = "granted") {
   const calls: string[] = [];
   let listener: ((e: ShimEvent) => void) | null = null;
   const shim: CallShim = {
@@ -24,6 +24,7 @@ function fakeShim(refuse: string | null = null) {
     setTitle: () => {},
     end: () => void calls.push("end"),
     setSpeaker: async () => null,
+    microphone: vi.fn(async () => (calls.push("mic"), mic)),
     listen: (cb) => {
       listener = cb;
       return () => {
@@ -94,6 +95,7 @@ describe("the phone's voice-room call", () => {
     expect(useVoiceCall.getState().phase).toBe("idle");
     expect(useVoiceCall.getState().notice).toBe("You were removed from Standup.");
     expect(s.calls).toEqual([
+      "mic",
       "start",
       "report:connecting",
       "report:connected",
@@ -149,7 +151,7 @@ describe("the phone's voice-room call", () => {
     e.refuse({ code: "room_full" });
     await joining;
     expect(useVoiceCall.getState().notice).toBe("Standup is full (25).");
-    expect(s.calls).toEqual(["start", "report:connecting", "report:ended:failed"]);
+    expect(s.calls).toEqual(["mic", "start", "report:connecting", "report:ended:failed"]);
   });
 
   it("CallKit refusing the call leaves nothing behind", async () => {
@@ -175,5 +177,19 @@ describe("the phone's voice-room call", () => {
     await joining;
     expect(useVoiceCall.getState().notice).toBeNull();
     expect(s.calls.filter((c) => c.startsWith("report:ended"))).toEqual(["report:ended:left"]);
+  });
+
+  it("asks for the microphone before the system call; a refusal still joins, to listen", async () => {
+    const s = fakeShim(null, "denied");
+    const e = fakeEngine();
+    __setCallShimForTests(s.shim);
+    setPhoneVoiceEngine(e.engine);
+    void useVoiceCall.getState().join(ROOM);
+    await flush();
+    expect(s.calls.slice(0, 2)).toEqual(["mic", "start"]);
+    e.state("connected");
+    expect(useVoiceCall.getState().phase).toBe("connected");
+    expect(useVoiceCall.getState().muted).toBe(true);
+    expect(useVoiceCall.getState().notice).toMatch(/You can still listen/);
   });
 });

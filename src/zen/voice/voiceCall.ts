@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { callShim, type CallShim, type ShimEvent } from "./callShim";
-import { callEndedText, joinErrorText, type VoiceErrorCode } from "./voiceWire";
+import { callEndedText, joinErrorText, MIC_DENIED_LINE, type VoiceErrorCode } from "./voiceWire";
 
 // The phone's one voice-room call (rooms only for now: Rosson 2026-11-04).
 // The engine is the truth (Sew's sew-call-client over K2's kessel-audio, in
@@ -118,6 +118,11 @@ export const useVoiceCall = create<CallState>((set, get) => {
         set({ phase: "idle", room: null, notice: joinErrorText("e2ee_unsupported", room.roomName, room.serverLabel, room.limit) });
         return;
       }
+      // Before the system call, so its prompt never lands in CallKit's. A
+      // refusal still joins: the person can listen.
+      const mic = await shim.microphone();
+      if (id !== attempt) return;
+      if (mic === "denied") set({ notice: MIC_DENIED_LINE });
       unlisten = shim.listen(onShim);
       const refused = await shim.start(room.roomName, room.serverLabel);
       if (id !== attempt) return;
@@ -133,7 +138,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
             if (id !== attempt) return;
             if (s === "ended") return ended(reason, id);
             shim.report(s);
-            if (s === "connected") set({ phase: "connected" });
+            if (s === "connected") set({ phase: "connected", ...(mic === "denied" ? { muted: true } : {}) });
             if (s === "reconnecting") set({ phase: "reconnecting" });
           },
         });
