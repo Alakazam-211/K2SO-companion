@@ -155,6 +155,28 @@ public final class K2CallShim: NSObject {
     try s.setCategory(.playAndRecord, mode: .voiceChat, options: [.allowBluetoothHFP, .defaultToSpeaker])
   }
 
+  /// The microphone permission, asking the first time: `granted` or
+  /// `denied`. Asked before the call starts, so the prompt never lands in
+  /// the middle of CallKit's (kessel-audio only reads it; a refusal still
+  /// plays, and the person can listen).
+  public static func microphone(_ completion: @escaping (String) -> Void) {
+    if #available(iOS 17.0, *) {
+      switch AVAudioApplication.shared.recordPermission {
+      case .granted: return completion("granted")
+      case .denied: return completion("denied")
+      default:
+        AVAudioApplication.requestRecordPermission { completion($0 ? "granted" : "denied") }
+      }
+    } else {
+      let s = AVAudioSession.sharedInstance()
+      switch s.recordPermission {
+      case .granted: return completion("granted")
+      case .denied: return completion("denied")
+      default: s.requestRecordPermission { completion($0 ? "granted" : "denied") }
+      }
+    }
+  }
+
   /// Speaker on, or back to the default route (receiver, or a headset).
   public func setSpeaker(_ on: Bool) -> Bool {
     do {
