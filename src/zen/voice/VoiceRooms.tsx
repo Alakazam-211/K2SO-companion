@@ -12,8 +12,10 @@ import { hostingStateText, roomIsFull, type VoiceRoom } from "./voiceWire";
 
 // Voice rooms on every server this phone is signed in to that hosts them
 // (K2's PRD §4.3: each server asked with its own login, never relayed).
-// Re-read on each server's `voice_rooms_changed`, on return to the app, and
-// every 30 s while open.
+// Re-read on each server's `voice_rooms_changed` and on return to the app.
+// The 30 s re-read while open is only a backstop: K2 keeps the event
+// reliable, so a list that's only right after the backstop is a daemon bug
+// to report (K2, 2026-11-04).
 
 const VOICE_HEADER_PX = 64;
 const POLL_MS = 30_000;
