@@ -39,9 +39,14 @@ export interface FrameHostOptions {
   forward(verb: string, args: unknown[]): Promise<VerbAnswer>;
   /** A `host` verb. `pressed`: inside the frame's 5 s press window. */
   hostVerb(verb: string, args: unknown[], pressed: boolean): Promise<VerbAnswer> | VerbAnswer;
-  /** A subscription: `push` per update; returns how to end it, or an error
-   *  when this verb can't be subscribed to. */
-  subscribe?(verb: string, args: unknown[], push: (value: unknown) => void): (() => void) | VerbError;
+  /** A subscription: `push` per update, `fail` when it ends with a refusal;
+   *  returns how to end it, or an error when this verb can't be subscribed to. */
+  subscribe?(
+    verb: string,
+    args: unknown[],
+    push: (value: unknown) => void,
+    fail: (error: VerbError) => void
+  ): (() => void) | VerbError;
   onReady?(): void;
   onError?(error: { message: string; stack?: string }): void;
   onRefusal?(verb: string, code: string): void;
@@ -142,11 +147,22 @@ export function createFrameHost(opts: FrameHostOptions, now: () => number = Date
       noteLimited();
       return;
     }
-    const ended = opts.subscribe?.(verb, args, (value) => {
-      if (!stopped && subs.has(sub)) opts.post({ sub, value });
-    }) ?? { code: phoneOf.get(verb) === "never" ? "not_exposed" : "verb_unavailable" };
-    if (typeof ended === "function") subs.set(sub, ended);
-    else opts.post({ sub, error: { message: "", ...ended } });
+    const refuse = (error: VerbError) => {
+      if (!stopped && subs.delete(sub)) opts.post({ sub, error: { message: "", ...error } });
+    };
+    // Listed first: a subscription may push before it returns.
+    subs.set(sub, () => {});
+    const ended = opts.subscribe?.(
+      verb,
+      args,
+      (value) => {
+        if (!stopped && subs.has(sub)) opts.post({ sub, value });
+      },
+      refuse
+    ) ?? { code: phoneOf.get(verb) === "never" ? "not_exposed" : "verb_unavailable" };
+    if (typeof ended !== "function") refuse(ended);
+    else if (subs.has(sub)) subs.set(sub, ended);
+    else ended();
   }
 
   function sizeOf(message: Record<string, unknown>): number {

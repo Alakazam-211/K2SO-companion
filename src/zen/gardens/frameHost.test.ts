@@ -140,4 +140,23 @@ describe("a widget frame's protocol (Gardens contract §4.4, §4.5)", () => {
     host.onMessage({ size: { height: 320 } });
     expect(onSize).toHaveBeenCalledWith(320);
   });
+
+  it("delivers a push made while subscribing, and a later refusal ends the subscription", async () => {
+    let refuse: (e: { code: string }) => void = () => {};
+    const off = vi.fn();
+    const { host, posted } = setup({
+      subscribe: (_verb, _args, push, fail) => {
+        push("first");
+        refuse = fail;
+        return off;
+      },
+    });
+    host.onMessage({ sub: 1, verb: "sources.subscribe", args: ["fleet"] });
+    await flush();
+    expect(posted).toContainEqual({ sub: 1, value: "first" });
+    refuse({ code: "not_bound" });
+    expect(posted).toContainEqual({ sub: 1, error: { message: "", code: "not_bound" } });
+    host.onMessage({ unsub: 1 });
+    expect(off).not.toHaveBeenCalled();
+  });
 });
