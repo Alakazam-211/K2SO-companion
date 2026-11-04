@@ -8,7 +8,7 @@ import { subscribeAppEvents } from "../ticketEvents";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "../ZenHeaderBlur";
 import { FEATURE_VOICE_ROOMS, fetchVoiceRooms, isVoiceRoomsChanged, type VoiceRoomsResult } from "./voiceApi";
 import { useVoiceCall } from "./voiceCall";
-import { hostingStateText, roomIsFull, type VoiceRoom } from "./voiceWire";
+import { hostingStateText, meOffer, roomIsFull, type VoiceRoom, type VoiceRoomsList } from "./voiceWire";
 
 // Voice rooms on every server this phone is signed in to that hosts them
 // (K2's PRD §4.3: each server asked with its own login, never relayed).
@@ -21,7 +21,11 @@ const VOICE_HEADER_PX = 64;
 const POLL_MS = 30_000;
 
 /** Signed-in servers that host rooms, this one first, then A to Z. */
-export function voiceServers(servers: ServerEntry[], tokens: Record<string, string>, activeId: string | null): ServerEntry[] {
+export function voiceServers(
+  servers: ServerEntry[],
+  tokens: Record<string, string>,
+  activeId: string | null
+): ServerEntry[] {
   return servers
     .filter((s) => !!tokens[s.id] && scopeFor(s.id).supports(FEATURE_VOICE_ROOMS))
     .sort((a, b) =>
@@ -122,6 +126,41 @@ function RoomRow({ server, room }: { server: ServerEntry; room: VoiceRoom }) {
   );
 }
 
+/** Your call on this server from another device, or from this phone before
+ *  the app was killed. The daemon never claims it live (Sew's presence lags
+ *  about 40 s), so the line hedges. */
+function MeOffer({ server, list }: { server: ServerEntry; list: VoiceRoomsList }) {
+  const call = useVoiceCall();
+  const label = serverDisplayName(server);
+  const offer = meOffer(list.me, label);
+  const room = list.rooms.find((x) => x.id === list.me?.roomId);
+  if (!offer || !room || (call.room?.serverId === server.id && call.room.roomId === room.id)) return null;
+  return (
+    <div className="flex items-center" style={{ gap: 10, padding: "10px 14px" }} data-testid="voice-me-offer">
+      <span className="min-w-0 flex-1 text-[14px]" style={{ color: "#c7c7cc" }}>
+        {offer.line}
+      </span>
+      <button
+        type="button"
+        className="zen-glass zen-glass-pill text-[14px] shrink-0"
+        style={{ minHeight: 34, padding: "0 14px", color: "#30d158" }}
+        onClick={() =>
+          void call.join({
+            serverId: server.id,
+            serverLabel: label,
+            roomId: room.id,
+            roomName: room.name,
+            limit: room.limit,
+          })
+        }
+        data-testid="voice-me-action"
+      >
+        {offer.action === "rejoin" ? "Rejoin" : "Move here"}
+      </button>
+    </div>
+  );
+}
+
 function ServerRooms({ server }: { server: ServerEntry }) {
   const r = useRooms(server);
   const label = serverDisplayName(server);
@@ -137,18 +176,25 @@ function ServerRooms({ server }: { server: ServerEntry }) {
           </p>
         ) : !r.ok ? (
           <p className="text-[14px]" style={{ padding: 14, color: "#8e8e93" }} data-testid="voice-server-problem">
-            {r.code === "signin_required"
-              ? `Sign in to ${label} again to see its rooms.`
-              : r.code === "unreachable"
-                ? `Can't reach ${label}.`
-                : `Couldn't load ${label}'s rooms.`}
+            {r.code === "device_session_ended"
+              ? `This phone was signed out of ${label}. Pair it again to see its rooms.`
+              : r.code === "signin_required"
+                ? `Sign in to ${label} again to see its rooms.`
+                : r.code === "unreachable"
+                  ? `Can't reach ${label}.`
+                  : `Couldn't load ${label}'s rooms.`}
           </p>
         ) : r.list.rooms.length === 0 ? (
           <p className="text-[14px]" style={{ padding: 14, color: "#8e8e93" }}>
             {hostingStateText(r.list.hosting) ?? "No voice rooms yet."}
           </p>
         ) : (
-          r.list.rooms.map((room) => <RoomRow key={room.id} server={server} room={room} />)
+          <>
+            <MeOffer server={server} list={r.list} />
+            {r.list.rooms.map((room) => (
+              <RoomRow key={room.id} server={server} room={room} />
+            ))}
+          </>
         )}
       </div>
     </section>
@@ -166,7 +212,11 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
   const list = useMemo(() => voiceServers(servers, tokens, activeId), [servers, tokens, activeId]);
 
   return (
-    <div className="absolute inset-0 flex flex-col" style={{ background: "#000", zIndex: 6 }} data-testid="overlay-voice">
+    <div
+      className="absolute inset-0 flex flex-col"
+      style={{ background: "#000", zIndex: 6 }}
+      data-testid="overlay-voice"
+    >
       <header
         className="absolute top-0 left-0 right-0 w-full min-w-0"
         style={{ zIndex: 3, paddingTop: "env(safe-area-inset-top)", pointerEvents: "none" }}

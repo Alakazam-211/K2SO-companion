@@ -17,7 +17,8 @@ import { useServersStore, type ServerEntry } from "../../stores/servers";
 import { __resetVoiceCallForTests, useVoiceCall } from "./voiceCall";
 import { voiceServers, VoiceRoomsOverlay } from "./VoiceRooms";
 
-const server = (id: string, nickname: string) => ({ id, nickname, url: `https://${id}.k2.dev` }) as unknown as ServerEntry;
+const server = (id: string, nickname: string) =>
+  ({ id, nickname, url: `https://${id}.k2.dev` }) as unknown as ServerEntry;
 const LIST = {
   ok: true,
   list: {
@@ -25,6 +26,7 @@ const LIST = {
     rev: 1,
     canManage: false,
     feedLive: true,
+    me: null as unknown,
     rooms: [
       {
         id: "room-1",
@@ -33,9 +35,19 @@ const LIST = {
         closing: false,
         closesAt: null,
         unavailable: null,
-        occupants: [{ user: "baden", name: "Baden", role: null, color: null, muted: false, deafened: false, speaking: false }],
+        occupants: [
+          { user: "baden", name: "Baden", role: null, color: null, muted: false, deafened: false, speaking: false },
+        ],
       },
-      { id: "room-2", name: "Full one", limit: 1, closing: false, closesAt: null, unavailable: "room_full", occupants: [] },
+      {
+        id: "room-2",
+        name: "Full one",
+        limit: 1,
+        closing: false,
+        closesAt: null,
+        unavailable: "room_full",
+        occupants: [],
+      },
     ],
   },
 };
@@ -93,5 +105,50 @@ describe("voice rooms on the phone", () => {
     scopes.hosts = new Set();
     render(<VoiceRoomsOverlay onClose={() => {}} />);
     expect(screen.getByTestId("voice-empty").textContent).toMatch(/Linux servers with Pro/);
+  });
+
+  it("offers to move a call from another device here, or to rejoin this phone's", async () => {
+    api.rooms.mockResolvedValue({
+      ...LIST,
+      list: {
+        ...LIST.list,
+        me: {
+          inCall: true,
+          roomId: "room-1",
+          roomName: "Standup",
+          here: false,
+          elsewhere: true,
+          on: { kind: "login" },
+          callId: null,
+        },
+      },
+    });
+    render(<VoiceRoomsOverlay onClose={() => {}} />);
+    expect((await screen.findByTestId("voice-me-offer")).textContent).toMatch(/You're in Standup on your computer/);
+    expect(screen.getByTestId("voice-me-action").textContent).toBe("Move here");
+    cleanup();
+    api.rooms.mockResolvedValue({
+      ...LIST,
+      list: {
+        ...LIST.list,
+        me: {
+          inCall: true,
+          roomId: "room-1",
+          roomName: "Standup",
+          here: true,
+          elsewhere: false,
+          on: null,
+          callId: "c1",
+        },
+      },
+    });
+    render(<VoiceRoomsOverlay onClose={() => {}} />);
+    expect((await screen.findByTestId("voice-me-action")).textContent).toBe("Rejoin");
+  });
+
+  it("an ended pairing says pair again, not sign in", async () => {
+    api.rooms.mockResolvedValue({ ok: false, code: "device_session_ended", status: 403 });
+    render(<VoiceRoomsOverlay onClose={() => {}} />);
+    expect((await screen.findByTestId("voice-server-problem")).textContent).toMatch(/Pair it again/);
   });
 });

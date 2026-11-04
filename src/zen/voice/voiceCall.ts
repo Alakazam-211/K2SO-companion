@@ -38,7 +38,13 @@ export const UNAVAILABLE_ENGINE: PhoneVoiceEngine = {
   system: () => {},
 };
 
-export type CallRoom = { serverId: string; serverLabel: string; roomId: string; roomName: string; limit: number | null };
+export type CallRoom = {
+  serverId: string;
+  serverLabel: string;
+  roomId: string;
+  roomName: string;
+  limit: number | null;
+};
 
 type CallState = {
   phase: CallPhase;
@@ -115,7 +121,11 @@ export const useVoiceCall = create<CallState>((set, get) => {
       const id = ++attempt;
       set({ phase: "joining", room, muted: false, notice: null });
       if (!engine.available) {
-        set({ phase: "idle", room: null, notice: joinErrorText("e2ee_unsupported", room.roomName, room.serverLabel, room.limit) });
+        set({
+          phase: "idle",
+          room: null,
+          notice: joinErrorText("e2ee_unsupported", room.roomName, room.serverLabel, room.limit),
+        });
         return;
       }
       // Before the system call, so its prompt never lands in CallKit's. A
@@ -147,7 +157,11 @@ export const useVoiceCall = create<CallState>((set, get) => {
         const { code, hint } = codeOf(err);
         shim.report("ended", "failed");
         stopListening();
-        set({ phase: "idle", room: null, notice: joinErrorText(code, room.roomName, room.serverLabel, room.limit, hint) });
+        set({
+          phase: "idle",
+          room: null,
+          notice: joinErrorText(code, room.roomName, room.serverLabel, room.limit, hint),
+        });
       }
     },
 
