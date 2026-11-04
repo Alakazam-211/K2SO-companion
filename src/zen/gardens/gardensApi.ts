@@ -1,6 +1,7 @@
 import type { ServerScope } from "../../api/scope";
 import { scopedFetch } from "../../api/scopedFetch";
 import { isIosWebView } from "../../lib/nativePicker";
+import type { SourcesChanges } from "./sourcesFeed";
 
 // Gardens on the phone (K2 `gardens-remote-v1`, wiki "Reference - Gardens
 // Phone Contract v0.46.6"; a golden sample beats the text): the owner person
@@ -128,6 +129,10 @@ export function isZenChanged(frame: unknown): boolean {
   return !!frame && typeof frame === "object" && (frame as { kind?: unknown }).kind === "zen_changed";
 }
 
+export function isSourcesChanged(frame: unknown): boolean {
+  return !!frame && typeof frame === "object" && (frame as { kind?: unknown }).kind === "sources_changed";
+}
+
 /** Refusals that end this server's Gardens on this phone (§9): wipe. */
 export function refusalEndsGardens(code: string): boolean {
   return code === "device_session_ended" || code === "garden_person_only";
@@ -204,6 +209,16 @@ export const fetchGardenLibFile = (scope: ServerScope, query: Record<string, str
 
 export const requestGardenLib = (scope: ServerScope, body: Record<string, string>) =>
   json<unknown>(scope, "/cli/zen/remote/lib/fetch", { method: "POST", body, timeoutMs: 60_000 });
+
+/** This placement's sources that moved since `since` (contract rev 2 §G). */
+export const fetchGardenSourceChanges = (
+  scope: ServerScope,
+  frame: { garden: string; placement: string; hash: string },
+  since: number
+) =>
+  json<SourcesChanges>(scope, "/cli/zen/remote/sources-changes", {
+    query: { garden: frame.garden, placement: frame.placement, hash: frame.hash, since: String(since) },
+  });
 
 export type GardenCall = { garden: string; placement: string; hash: string; verb: string; args: unknown[] };
 

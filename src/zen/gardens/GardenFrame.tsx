@@ -1,16 +1,21 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ServerScope } from "../../api/scope";
+import { onForegroundLater } from "../../lib/foreground";
+import { subscribeAppEvents } from "../ticketEvents";
 import { buildFrameDoc } from "./frameDoc";
 import { createFrameHost, type FrameHost, type StopReason, type VerbAnswer } from "./frameHost";
 import {
   callGardenVerb,
   fetchGardenFrame,
+  fetchGardenSourceChanges,
+  isSourcesChanged,
   refusalEndsGardens,
   reportGardenFrame,
   type GardenFrameBody,
   type GardenRefusal,
 } from "./gardensApi";
 import { answerHostVerb, themeOf, layoutOf, type HostContext, type SwitchLimit } from "./hostVerbs";
+import { createSourcesFeed, type SourcesFeed } from "./sourcesFeed";
 
 const REPORTED_REFUSALS = new Set(["not_bound", "cap_not_granted", "rate_limited"]);
 
@@ -69,6 +74,7 @@ export function GardenFrame({
   const [problem, setProblem] = useState<string | null>(null);
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const hostRef = useRef<FrameHost | null>(null);
+  const sourcesRef = useRef<SourcesFeed | null>(null);
   const contextRef = useRef(context);
   contextRef.current = context;
   const callbacks = useRef({ onSize, onEnded, onStaleWidget });
@@ -106,6 +112,7 @@ export function GardenFrame({
 
   useEffect(() => {
     hostRef.current?.setVisible(visible);
+    sourcesRef.current?.setVisible(visible);
   }, [visible]);
 
   useEffect(() => {
@@ -130,20 +137,42 @@ export function GardenFrame({
       const port = channel.port1;
       const limit: SwitchLimit = { loadedAt: Date.now(), lastAt: null };
       const identity = { garden: frame.garden, placement: frame.placement, hash: frame.hash };
-      const forward = async (verb: string, args: unknown[]): Promise<VerbAnswer> => {
-        const r = await callGardenVerb(scope, { ...identity, verb, args });
-        if (r.ok) return { ok: true, value: r.data.result };
-        const { code, hint, cap, room, feature } = r.refusal;
+      const refused = ({ code, hint, cap, room, feature }: GardenRefusal): VerbAnswer => {
         if (refusalEndsGardens(code)) callbacks.current.onEnded(code, hint);
         if (code === "stale_widget") setGeneration((n) => n + 1);
         return { ok: false, error: { code, message: hint, cap, room, feature } };
       };
+      const forward = async (verb: string, args: unknown[]): Promise<VerbAnswer> => {
+        const r = await callGardenVerb(scope, { ...identity, verb, args });
+        return r.ok ? { ok: true, value: r.data.result } : refused(r.refusal);
+      };
+      const sources = createSourcesFeed({
+        readView: (address) => forward("sources.read", [address]),
+        readChanges: async (since) => {
+          const r = await fetchGardenSourceChanges(scope, identity, since);
+          return r.ok ? { ok: true, value: r.data } : refused(r.refusal);
+        },
+        watch: (onChange) => {
+          const events = subscribeAppEvents(scope, isSourcesChanged, onChange);
+          const off = onForegroundLater(`garden-sources-${frame.garden}-${frame.placement}`, onChange);
+          return () => {
+            events.stop();
+            off();
+          };
+        },
+        visible: visibleRef.current,
+      });
+      sourcesRef.current = sources;
       const host = createFrameHost({
         post: (message, transfer) => port.postMessage(message, transfer ?? []),
         forward,
         hostVerb: (verb, args, pressed) =>
           answerHostVerb(contextRef.current, limit, verb, args, pressed, Date.now()),
-        subscribe: (verb, _args, push) => {
+        subscribe: (verb, args, push, fail) => {
+          if (verb === "sources.subscribe") {
+            if (typeof args[0] !== "string") return { code: "bad_args" };
+            return sources.subscribe(args[0], push, fail);
+          }
           // Fixed for the page on screen; live updates come with the next
           // milestone (§6: event + re-read).
           if (verb === "theme.changed") {
