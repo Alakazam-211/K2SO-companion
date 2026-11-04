@@ -120,6 +120,9 @@ export const DAEMON_FEATURES = [
   // K2 0.46.6: Gardens on a paired phone, through `/cli/zen/remote/*`
   // (zen/gardens). The feature gates all of it, per server.
   "gardens-remote-v1",
+  // K2 0.46.8+: a Linux Pro server hosts voice rooms (`/cli/voice/*`,
+  // zen/voice). Listed only while it hosts.
+  "voice-rooms-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];
