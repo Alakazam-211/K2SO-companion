@@ -232,3 +232,37 @@ describe("copy", () => {
     expect(callEndedText("seat_lost", "Standup", "skylab")).toContain("dropped you from Standup");
   });
 });
+
+describe("the phone's `me` (K2 0.46.9)", () => {
+  const base = { hosting: { state: "ok" }, rooms: [] };
+  it("reads it, and says what to offer", async () => {
+    const { meOffer } = await import("./voiceWire");
+    const me = parseVoiceRooms({
+      ...base,
+      me: {
+        user: "riley",
+        inCall: true,
+        room: { id: "room-1", name: "Standup" },
+        here: false,
+        elsewhere: true,
+        on: { kind: "phone", name: "Riley's iPad" },
+        mayBeLeaving: true,
+        presenceLagSecs: 40,
+      },
+    }).me;
+    expect(me).toMatchObject({
+      roomId: "room-1",
+      roomName: "Standup",
+      elsewhere: true,
+      on: { kind: "phone", name: "Riley's iPad" },
+    });
+    expect(meOffer(me, "skylab")).toEqual({ line: "You're in Standup on Riley's iPad.", action: "move" });
+    expect(parseVoiceRooms({ ...base, me: null }).me).toBeNull();
+    expect(meOffer(parseVoiceRooms({ ...base, me: { inCall: false } }).me, "skylab")).toBeNull();
+  });
+
+  it("maps a revoked pairing to pairing again", () => {
+    expect(voiceErrorCode("device_session_ended", null)).toBe("device_session_ended");
+    expect(joinErrorText("device_session_ended", "Standup", "skylab", null)).toMatch(/Pair it again/);
+  });
+});

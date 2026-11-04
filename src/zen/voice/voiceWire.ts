@@ -83,6 +83,60 @@ export interface VoiceRoomsList {
   canManage: boolean;
   /** The daemon's occupancy follower is live, so `occupants` is current. */
   feedLive: boolean;
+  /** This login's own call on this server (K2 0.46.9, phone voice). */
+  me: VoiceMe | null;
+}
+
+/** `me` on `/cli/voice/rooms`. Never claimed live: Sew's presence lags
+ *  about 40 s behind a call that ended (`presenceLagSecs`). */
+export interface VoiceMe {
+  inCall: boolean;
+  /** The room's slug and name. */
+  roomId: string | null;
+  roomName: string | null;
+  /** This phone's own call (the app was killed mid-call): "Rejoin". */
+  here: boolean;
+  /** Another device's: "Move the call here" (joining moves it). */
+  elsewhere: boolean;
+  /** That other device: a desktop login, or a named phone. */
+  on: { kind: "login" } | { kind: "phone"; name: string } | null;
+  /** Only when `here`. */
+  callId: string | null;
+}
+
+function parseMe(raw: unknown): VoiceMe | null {
+  if (!raw || typeof raw !== "object") return null;
+  const m = raw as Record<string, unknown>;
+  const room = m.room && typeof m.room === "object" ? (m.room as Record<string, unknown>) : null;
+  const roomId = room ? str(room.id) : str(m.room);
+  const roomName = room ? str(room.name) : null;
+  const on = m.on && typeof m.on === "object" ? (m.on as Record<string, unknown>) : null;
+  return {
+    inCall: m.inCall === true,
+    roomId,
+    roomName,
+    here: m.here === true,
+    elsewhere: m.elsewhere === true,
+    on:
+      on?.kind === "login"
+        ? { kind: "login" }
+        : on?.kind === "phone"
+          ? { kind: "phone", name: str(on.name) ?? "another phone" }
+          : null,
+    callId: str(m.callId),
+  };
+}
+
+/** The line and button for `me`, or null when there's nothing to offer. */
+export function meOffer(me: VoiceMe | null, serverLabel: string): { line: string; action: "rejoin" | "move" } | null {
+  if (!me?.inCall || !me.roomId) return null;
+  const room = me.roomName ?? "a room";
+  if (me.here) return { line: `You may still be in ${room} on ${serverLabel} from this phone.`, action: "rejoin" };
+  if (me.elsewhere) {
+    const where = me.on?.kind === "phone" ? `on ${me.on.name}` : "on your computer";
+    return { line: `You're in ${room} ${where}.`, action: "move" };
+  }
+  return null;
 }
 
 function str(v: unknown): string | null {
@@ -141,13 +195,21 @@ export function parseVoiceRooms(body: unknown): VoiceRoomsList {
   if (!body || typeof body !== "object" || !Array.isArray((body as { rooms?: unknown }).rooms)) {
     throw new Error("voice/rooms: not a rooms list");
   }
-  const b = body as { rooms: unknown[]; hosting?: unknown; rev?: unknown; canManage?: unknown; feed?: unknown };
+  const b = body as {
+    rooms: unknown[];
+    hosting?: unknown;
+    rev?: unknown;
+    canManage?: unknown;
+    feed?: unknown;
+    me?: unknown;
+  };
   return {
     hosting: parseHosting(b.hosting),
     rooms: b.rooms.map(parseRoom).filter((r): r is VoiceRoom => r !== null),
     rev: typeof b.rev === "number" && Number.isFinite(b.rev) ? b.rev : null,
     canManage: b.canManage === true,
     feedLive: b.feed === "live",
+    me: parseMe(b.me),
   };
 }
 
@@ -234,6 +296,7 @@ export type VoiceErrorCode =
   | "e2ee_refused"
   | "turn_unreachable"
   | "signin_required"
+  | "device_session_ended"
   | "join_timeout"
   | "owner_token_cannot_join"
   | "unknown";
@@ -247,6 +310,8 @@ const CODE_OF: Readonly<Record<string, VoiceErrorCode>> = {
   chat_member_pending: "member_pending",
   e2ee_unsupported_client: "e2ee_unsupported",
   unauthenticated: "signin_required",
+  // A paired phone's session ended (revoked, unpaired, expired): pair again.
+  device_session_ended: "device_session_ended",
   owner_token_cannot_join: "owner_token_cannot_join",
 };
 
@@ -272,6 +337,7 @@ export function nativeJoinErrorCode(code: string, detail: Record<string, unknown
     case "mic_unavailable":
     case "turn_unreachable":
     case "signin_required":
+    case "device_session_ended":
     case "join_timeout":
     case "e2ee_refused":
       return code;
@@ -326,6 +392,8 @@ export function joinErrorText(
       return `Can't reach ${serverLabel}'s voice server from this network.`;
     case "signin_required":
       return `Sign in to ${serverLabel} again to join.`;
+    case "device_session_ended":
+      return `This phone was signed out of ${serverLabel}. Pair it again to join.`;
     case "join_timeout":
       return `${serverLabel} didn't answer in time. Try again in a moment.`;
     case "owner_token_cannot_join":
@@ -366,6 +434,8 @@ export function callEndedText(reason: string, roomName: string, serverLabel: str
     case "signed_out":
     case "signin_required":
       return `You were signed out of ${serverLabel}.`;
+    case "device_session_ended":
+      return `This phone was signed out of ${serverLabel}. Pair it again to join.`;
     case "network":
     case "disconnected":
       return `The call to ${roomName} dropped: the connection was lost.`;
