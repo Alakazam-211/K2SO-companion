@@ -9,6 +9,7 @@ import {
 } from "../lib/loginUrl";
 import { loginErrorFromStatus } from "../lib/loginError";
 import { tryHostKey } from "../lib/hostKey";
+import { syncSecureTokens } from "../lib/secureTokens";
 
 // Multi-server model — the companion mirror of the desktop's
 // `stores/connect-host.ts`. Each saved server is a K2 daemon reachable over
@@ -710,3 +711,8 @@ export async function commitPairedSession(input: {
   if (input.activate !== false) store.setActive(id);
   return { ok: true, id };
 }
+
+// The Keychain copy of every login token (iOS), for native call code.
+useServersStore.subscribe((state, prev) => {
+  if (state.hydrated && (state.tokens !== prev.tokens || !prev.hydrated)) syncSecureTokens(state.tokens);
+});

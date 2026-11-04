@@ -99,6 +99,15 @@ class K2PushPlugin: Plugin {
 
   @objc public override func load(webview: WKWebView) {
     tapDelegate.plugin = self
+    // The call shim's events reach the UI as `call` (Rust gets its own
+    // hook once the voice engine is in).
+    if #available(iOS 14.0, *) {
+      K2CallShim.shared.onEvent = { [weak self] event in
+        DispatchQueue.main.async {
+          if let data = JSTypes.coerceDictionaryToJSObject(event) { self?.trigger("call", data: data) }
+        }
+      }
+    }
     // Push keys left by an earlier install (keychain items outlive it).
     K2PushPlugin.badgeQueue.async { K2PushKeys.wipeIfFreshInstall() }
     DispatchQueue.main.async {
@@ -324,6 +333,75 @@ class K2PushPlugin: Plugin {
         days[day] = row
       }
       invoke.resolve(["available": true, "version": rec.version, "days": days])
+    }
+  }
+
+  // ── Voice-room calls: the system call UI (K2CallShim) ────────────────
+
+  /// `{op, room?, server?, state?, reason?, on?, title?}` (models.rs
+  /// CallOpRequest). `start` answers once CallKit took the call.
+  @objc public func callOp(_ invoke: Invoke) {
+    let args: CallOpArgs
+    do {
+      args = try invoke.parseArgs(CallOpArgs.self)
+    } catch {
+      invoke.reject("callOp: invalid args (\(error.localizedDescription))")
+      return
+    }
+    guard #available(iOS 14.0, *) else {
+      invoke.resolve(["ok": false, "error": "ios_too_old"])
+      return
+    }
+    let shim = K2CallShim.shared
+    switch args.op {
+    case "start":
+      shim.start(room: args.room ?? "", server: args.server ?? "") { error in
+        if let error = error { invoke.resolve(["ok": false, "error": error]) } else { invoke.resolve(["ok": true]) }
+      }
+    case "report":
+      shim.report(state: args.state ?? "", reason: args.reason)
+      invoke.resolve(["ok": true])
+    case "mute":
+      shim.setMuted(args.on ?? false)
+      invoke.resolve(["ok": true])
+    case "title":
+      shim.setTitle(args.title ?? "")
+      invoke.resolve(["ok": true])
+    case "end":
+      shim.end()
+      invoke.resolve(["ok": true])
+    case "speaker":
+      invoke.resolve(["ok": shim.setSpeaker(args.on ?? false), "route": K2CallShim.currentRoute()])
+    case "route":
+      invoke.resolve(["ok": true, "route": K2CallShim.currentRoute(), "active": shim.active])
+    default:
+      invoke.reject("callOp: unknown op \(args.op)")
+    }
+  }
+
+  // ── Login tokens in the Keychain (K2SecureTokens) ───────────────────
+
+  /// `{op: "set"|"remove"|"sync", server?, token?, tokens?}`.
+  @objc public func tokenOp(_ invoke: Invoke) {
+    let args: TokenOpArgs
+    do {
+      args = try invoke.parseArgs(TokenOpArgs.self)
+    } catch {
+      invoke.reject("tokenOp: invalid args (\(error.localizedDescription))")
+      return
+    }
+    DispatchQueue.global(qos: .utility).async {
+      switch args.op {
+      case "set":
+        invoke.resolve(["ok": K2SecureTokens.set(server: args.server ?? "", token: args.token ?? "")])
+      case "remove":
+        K2SecureTokens.remove(server: args.server ?? "")
+        invoke.resolve(["ok": true])
+      case "sync":
+        invoke.resolve(["ok": K2SecureTokens.sync(args.tokens ?? [:])])
+      default:
+        invoke.reject("tokenOp: unknown op \(args.op)")
+      }
     }
   }
 
@@ -790,6 +868,23 @@ private struct BadgeTotalsEvent: Encodable {
 }
 
 /// `key` (current JS) or `subdomain` (older JS); `key` wins.
+private struct CallOpArgs: Decodable {
+  let op: String
+  let room: String?
+  let server: String?
+  let state: String?
+  let reason: String?
+  let on: Bool?
+  let title: String?
+}
+
+private struct TokenOpArgs: Decodable {
+  let op: String
+  let server: String?
+  let token: String?
+  let tokens: [String: String]?
+}
+
 private struct E2eOpArgs: Decodable {
   let op: String
   let server: String?

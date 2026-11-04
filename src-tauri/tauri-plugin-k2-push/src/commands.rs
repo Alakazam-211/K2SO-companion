@@ -125,6 +125,45 @@ pub(crate) async fn pick_documents<R: Runtime>(
 }
 
 #[command]
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn call_op<R: Runtime>(
+    app: AppHandle<R>,
+    op: String,
+    room: Option<String>,
+    server: Option<String>,
+    state: Option<String>,
+    reason: Option<String>,
+    on: Option<bool>,
+    title: Option<String>,
+) -> Result<serde_json::Value> {
+    app.k2_push().call_op(CallOpRequest {
+        op,
+        room,
+        server,
+        state,
+        reason,
+        on,
+        title,
+    })
+}
+
+#[command]
+pub(crate) async fn token_op<R: Runtime>(
+    app: AppHandle<R>,
+    op: String,
+    server: Option<String>,
+    token: Option<String>,
+    tokens: Option<std::collections::HashMap<String, String>>,
+) -> Result<serde_json::Value> {
+    app.k2_push().token_op(TokenOpRequest {
+        op,
+        server,
+        token,
+        tokens,
+    })
+}
+
+#[command]
 pub(crate) async fn scan_qr<R: Runtime>(app: AppHandle<R>) -> Result<ScanQrResponse> {
     app.k2_push().scan_qr().await
 }

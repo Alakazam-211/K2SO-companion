@@ -4,7 +4,7 @@ Default permissions for the k2-push plugin: availability probe,
 permission request, token fetch, launch-tap read, the notification
 avatar cache (Communication Notifications), the app-icon badge
 totals and their delivery diagnostics, clearing read notifications, the composer's attach
-pickers (photo library, document picker), the pairing QR scanner, and the event listener
+pickers (photo library, document picker), the pairing QR scanner, the voice call's system UI, the Keychain copy of login tokens, and the event listener
 plumbing for `tap`/`tokenRefresh`/`badgeTotals`.
 
 #### This default permission set includes the following:
@@ -20,6 +20,8 @@ plumbing for `tap`/`tokenRefresh`/`badgeTotals`.
 - `allow-get-badge-totals`
 - `allow-get-badge-diagnostics`
 - `allow-e2e-op`
+- `allow-call-op`
+- `allow-token-op`
 - `allow-pick-media`
 - `allow-pick-documents`
 - `allow-scan-qr`
@@ -57,6 +59,32 @@ Enables the cache_avatars command without any pre-configured scope.
 <td>
 
 Denies the cache_avatars command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:allow-call-op`
+
+</td>
+<td>
+
+Enables the call_op command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:deny-call-op`
+
+</td>
+<td>
+
+Denies the call_op command without any pre-configured scope.
 
 </td>
 </tr>
@@ -447,6 +475,32 @@ Enables the set_server_totals command without any pre-configured scope.
 <td>
 
 Denies the set_server_totals command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:allow-token-op`
+
+</td>
+<td>
+
+Enables the token_op command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:deny-token-op`
+
+</td>
+<td>
+
+Denies the token_op command without any pre-configured scope.
 
 </td>
 </tr>

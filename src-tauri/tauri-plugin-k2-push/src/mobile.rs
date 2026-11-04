@@ -74,6 +74,18 @@ impl<R: Runtime> K2Push<R> {
             .map_err(Into::into)
     }
 
+    pub fn call_op(&self, req: CallOpRequest) -> crate::Result<serde_json::Value> {
+        self.0
+            .run_mobile_plugin::<serde_json::Value>("callOp", req)
+            .map_err(Into::into)
+    }
+
+    pub fn token_op(&self, req: TokenOpRequest) -> crate::Result<serde_json::Value> {
+        self.0
+            .run_mobile_plugin::<serde_json::Value>("tokenOp", req)
+            .map_err(Into::into)
+    }
+
     pub fn e2e_op(&self, req: E2eOpRequest) -> crate::Result<serde_json::Value> {
         self.0
             .run_mobile_plugin::<serde_json::Value>("e2eOp", req)

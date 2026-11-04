@@ -13,6 +13,8 @@ const COMMANDS: &[&str] = &[
     "get_badge_totals",
     "get_badge_diagnostics",
     "e2e_op",
+    "call_op",
+    "token_op",
     "pick_media",
     "pick_documents",
     "scan_qr",
