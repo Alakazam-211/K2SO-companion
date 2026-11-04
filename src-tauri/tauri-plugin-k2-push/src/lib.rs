@@ -95,6 +95,8 @@ pub fn init<R: Runtime>() -> TauriPlugin<R> {
             commands::get_badge_totals,
             commands::get_badge_diagnostics,
             commands::e2e_op,
+            commands::call_op,
+            commands::token_op,
             commands::pick_media,
             commands::pick_documents,
             commands::scan_qr,

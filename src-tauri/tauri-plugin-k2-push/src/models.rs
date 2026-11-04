@@ -278,6 +278,41 @@ pub struct ScanQrResponse {
     pub denied: bool,
 }
 
+/// `call_op` (iOS): the voice-room call's system UI (CallKit, K2CallShim).
+///   `start {room, server}` → `{ok, error?}`; `report {state, reason?}`;
+///   `mute {on}`; `title {title}`; `end`; `speaker {on}` → `{ok, route}`;
+///   `route` → `{route, active}`. Events come back as `call`.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallOpRequest {
+    pub op: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub room: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub state: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reason: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub on: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+}
+
+/// Login tokens in the Keychain (iOS): `set`, `remove`, or `sync` the set.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TokenOpRequest {
+    pub op: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tokens: Option<std::collections::HashMap<String, String>>,
+}
+
 /// `e2e_op` (K2 0.46.3 `push-e2e-v1`, iOS): the phone's push keys.
 ///   `key {server, subdomain, rotate?}` → `{available, publicKey, psk, createdAt, keyId}`
 ///   (base64url; made on first use; `rotate` makes a new one);
