@@ -99,6 +99,8 @@ import { projectBadgeCount, rowRefOf, rowUnreadFor } from "./unread";
 import { unreadSupported, useUnreadStore } from "./unreadStore";
 import { UnreadDot } from "./UnreadMarks";
 import { onForegroundLater } from "../lib/foreground";
+import { useVoiceAvailable, VoiceRoomsOverlay } from "./voice/VoiceRooms";
+import { useVoiceCall } from "./voice/voiceCall";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -443,6 +445,9 @@ export function ChatsList() {
   const onHome = tab === "home";
   // A third tab on servers with Gardens; elsewhere the pick falls to Agents.
   const showGardens = gardensAvailable(zen);
+  const showVoice = useVoiceAvailable();
+  const inCall = useVoiceCall((s) => s.phase !== "idle");
+  const [voiceOpen, setVoiceOpen] = useState(false);
   const onGardens = tab === "gardens" && showGardens;
   const setTab = (next: ListTab) => {
     if (next === tab) return;
@@ -1295,6 +1300,34 @@ export function ChatsList() {
           style={{ gap: 8, pointerEvents: "auto" }}
           data-testid="chats-header-right"
         >
+          {showVoice ? (
+            <button
+              type="button"
+              className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
+              style={{ width: 34, height: 34, color: inCall ? "#30d158" : "#fff" }}
+              onClick={() => setVoiceOpen(true)}
+              aria-label={inCall ? "Rooms (in a call)" : "Rooms"}
+              title="Rooms"
+              data-testid="chats-header-voice"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.8"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                aria-hidden
+              >
+                {/* A headset: the desktop top bar's voice rooms button. */}
+                <path d="M4 14v-2a8 8 0 0 1 16 0v2" />
+                <rect x="3" y="14" width="4" height="6" rx="1.5" />
+                <rect x="17" y="14" width="4" height="6" rx="1.5" />
+              </svg>
+            </button>
+          ) : null}
           <button
             type="button"
             className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
@@ -2004,6 +2037,7 @@ export function ChatsList() {
       />
 
       {projectsOpen ? <ProjectsOverlay onClose={() => setProjectsOpen(false)} /> : null}
+      {voiceOpen ? <VoiceRoomsOverlay onClose={() => setVoiceOpen(false)} /> : null}
       {tickets ? (
         <TicketsOverlay
           key={deepTicket ?? "list"}
