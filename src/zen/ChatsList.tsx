@@ -448,6 +448,11 @@ export function ChatsList() {
   const showVoice = useVoiceAvailable();
   const inCall = useVoiceCall((s) => s.phase !== "idle");
   const [voiceOpen, setVoiceOpen] = useState(false);
+  // A recording notice needs an answer: show it, wherever the list was.
+  const consentAsked = useVoiceCall((s) => s.consent !== null);
+  useEffect(() => {
+    if (consentAsked) setVoiceOpen(true);
+  }, [consentAsked]);
   const onGardens = tab === "gardens" && showGardens;
   const setTab = (next: ListTab) => {
     if (next === tab) return;

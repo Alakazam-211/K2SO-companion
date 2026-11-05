@@ -7,6 +7,8 @@ import { installAndroidBack } from "./lib/androidBack";
 import { initKbDragRecorder } from "./lib/kbDragRecorder";
 import { initKbDiag } from "./lib/kbDiag";
 import { initLightBlur } from "./lib/lightBlur";
+import { phoneVoiceEngine } from "./zen/voice/sewVoice";
+import { setPhoneVoiceEngine } from "./zen/voice/voiceCall";
 
 // Android's WebView reports env(safe-area-inset-bottom) as 0 while the
 // app draws edge-to-edge behind the system nav — bottom bars need an
@@ -44,6 +46,10 @@ initKbDiag();
 
 // Diagnostics → Light blur (A/B, off by default: one pref read).
 initLightBlur();
+
+// Voice rooms: this build's call engine (Sew's native plugin on iOS).
+const voiceEngine = phoneVoiceEngine();
+if (voiceEngine) setPhoneVoiceEngine(voiceEngine);
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

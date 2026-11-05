@@ -1,0 +1,8 @@
+{
+  "$schema": "../gen/schemas/mobile-schema.json",
+  "identifier": "voice",
+  "description": "Voice rooms (4.2.0, iOS): Sew's native voice plugin's commands for the app's own window",
+  "windows": ["main"],
+  "platforms": ["iOS"],
+  "permissions": ["sew-voice:default"]
+}

@@ -33,7 +33,24 @@ export function syncSecureTokens(tokens: Record<string, string>, ios = isIosWebV
   }, SYNC_DELAY_MS);
 }
 
+// The servers' addresses for the same native code (id → origin), so Rust
+// knows where to send a server's voice join. Kept in Rust's memory only.
+let hostsSent: string | null = null;
+
+export function syncVoiceHosts(servers: ReadonlyArray<{ id: string; url: string }>, ios = isIosWebView()): void {
+  if (!ios) return;
+  const hosts: Record<string, string> = {};
+  for (const s of servers) hosts[s.id] = s.url;
+  const key = JSON.stringify(hosts);
+  if (key === hostsSent) return;
+  hostsSent = key;
+  void invoke("voice_hosts", { hosts }).catch(() => {
+    hostsSent = null;
+  });
+}
+
 export function __resetSecureTokensForTests(): void {
+  hostsSent = null;
   if (timer !== null) clearTimeout(timer);
   timer = null;
   latest = null;

@@ -1,0 +1,4 @@
+# Sew's voice crates need Rust 1.95 (edition 2024).
+[toolchain]
+channel = "1.95"
+targets = ["aarch64-apple-ios", "aarch64-apple-ios-sim"]

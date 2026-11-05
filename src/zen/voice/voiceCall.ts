@@ -11,20 +11,45 @@ import { callEndedText, joinErrorText, MIC_DENIED_LINE, type VoiceErrorCode } fr
 //   - The engine's state goes to the system call (connecting, connected,
 //     reconnecting, ended).
 //   - The system's End and Mute come back as requests the engine carries out.
-// When the engine moves into Rust with a native listener (Sew's mobile
-// hooks), the shim wiring moves with it; the store keeps the same shape.
+// With the native engine (this build on iOS: Sew's plugin, `sewVoice.ts`)
+// Rust does both directions itself, so a call keeps working with the
+// webview asleep; the store then only names the call for the system UI,
+// asks for the microphone, and follows.
 
 export type CallPhase = "idle" | "joining" | "connected" | "reconnecting";
 
-export type EngineState = "connecting" | "connected" | "reconnecting" | "ended";
+/** `held`: a recorded room waits for the person's answer (no mic yet). */
+export type EngineState = "connecting" | "connected" | "reconnecting" | "held" | "ended";
+
+/** A recording notice waiting for an answer, in Sew's kit's words. */
+export type ConsentSheet = {
+  /** `join`: the join is held; `in_call`: a recording started mid-call. */
+  ask: "join" | "in_call";
+  noticeVersion: number;
+  title: string;
+  text: string;
+  /** In order; `granted: null` gives up the held join. */
+  choices: { label: string; granted: boolean | null }[];
+};
+
+export type EngineEvents = {
+  onState(s: EngineState, reason?: string): void;
+  onConsent?(sheet: ConsentSheet | null): void;
+  /** Your own mute, from any source (the system's button, a moderator). */
+  onSelfMute?(muted: boolean): void;
+};
 
 export interface PhoneVoiceEngine {
   /** False until this build carries call audio. */
   readonly available: boolean;
-  /** Resolves once joined; rejects with `{code, hint?}`. */
-  join(serverId: string, roomId: string, events: { onState(s: EngineState, reason?: string): void }): Promise<void>;
+  /** The engine starts and updates the system call itself (native). */
+  readonly drivesSystemCall?: boolean;
+  /** Resolves once the join was taken (held or in); rejects with `{code, hint?}`. */
+  join(serverId: string, roomId: string, events: EngineEvents): Promise<void>;
   leave(): Promise<void>;
   setMuted(muted: boolean): void;
+  /** The person's answer to the recording notice. */
+  consent?(granted: boolean, noticeVersion: number): Promise<void>;
   /** The audio session and interruptions (kessel-audio's phone hooks). */
   system(e: ShimEvent): void;
 }
@@ -52,7 +77,11 @@ type CallState = {
   muted: boolean;
   /** The last line worth showing: why a join failed or a call ended. */
   notice: string | null;
+  /** A recording notice waiting for this person's answer. */
+  consent: ConsentSheet | null;
   join(room: CallRoom): Promise<void>;
+  /** A choice from `consent`: `null` gives up the held join. */
+  answerConsent(granted: boolean | null): Promise<void>;
   leave(): Promise<void>;
   setMuted(muted: boolean): void;
   clearNotice(): void;
@@ -78,12 +107,13 @@ export const useVoiceCall = create<CallState>((set, get) => {
     // A join still in flight belongs to this call: its answer is ignored.
     attempt += 1;
     const room = get().room;
-    shim.report("ended", reason);
+    if (!engine.drivesSystemCall) shim.report("ended", reason);
     stopListening();
     set({
       phase: "idle",
       room: null,
       muted: false,
+      consent: null,
       notice: room && reason && reason !== "left" ? callEndedText(reason, room.roomName, room.serverLabel, true) : null,
     });
   }
@@ -115,6 +145,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
     room: null,
     muted: false,
     notice: null,
+    consent: null,
 
     async join(room) {
       if (get().phase !== "idle") await get().leave();
@@ -133,6 +164,37 @@ export const useVoiceCall = create<CallState>((set, get) => {
       const mic = await shim.microphone();
       if (id !== attempt) return;
       if (mic === "denied") set({ notice: MIC_DENIED_LINE });
+      const onState = (s: EngineState, reason?: string): void => {
+        if (id !== attempt) return;
+        if (s === "ended") return ended(reason, id);
+        if (!engine.drivesSystemCall && s !== "held") shim.report(s);
+        if (s === "connected") set({ phase: "connected", ...(mic === "denied" ? { muted: true } : {}) });
+        if (s === "reconnecting") set({ phase: "reconnecting" });
+      };
+      const onConsent = (sheet: ConsentSheet | null): void => {
+        if (id === attempt) set({ consent: sheet });
+      };
+      const onSelfMute = (muted: boolean): void => {
+        if (id === attempt && get().phase !== "idle") set({ muted });
+      };
+      if (engine.drivesSystemCall) {
+        // Rust starts the system call when the engine connects; it knows
+        // only ids, so name the call first.
+        shim.label(room.roomName, room.serverLabel);
+        try {
+          await engine.join(room.serverId, room.roomId, { onState, onConsent, onSelfMute });
+        } catch (err) {
+          if (id !== attempt) return;
+          const { code, hint } = codeOf(err);
+          set({
+            phase: "idle",
+            room: null,
+            consent: null,
+            notice: joinErrorText(code, room.roomName, room.serverLabel, room.limit, hint),
+          });
+        }
+        return;
+      }
       unlisten = shim.listen(onShim);
       const refused = await shim.start(room.roomName, room.serverLabel);
       if (id !== attempt) return;
@@ -143,15 +205,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
       }
       shim.report("connecting");
       try {
-        await engine.join(room.serverId, room.roomId, {
-          onState: (s, reason) => {
-            if (id !== attempt) return;
-            if (s === "ended") return ended(reason, id);
-            shim.report(s);
-            if (s === "connected") set({ phase: "connected", ...(mic === "denied" ? { muted: true } : {}) });
-            if (s === "reconnecting") set({ phase: "reconnecting" });
-          },
-        });
+        await engine.join(room.serverId, room.roomId, { onState, onConsent });
       } catch (err) {
         if (id !== attempt) return;
         const { code, hint } = codeOf(err);
@@ -175,8 +229,20 @@ export const useVoiceCall = create<CallState>((set, get) => {
     setMuted(muted) {
       if (get().phase === "idle" || get().muted === muted) return;
       engine.setMuted(muted);
-      shim.setMuted(muted);
+      if (!engine.drivesSystemCall) shim.setMuted(muted);
       set({ muted });
+    },
+
+    async answerConsent(granted) {
+      const sheet = get().consent;
+      if (!sheet) return;
+      set({ consent: null });
+      if (granted === null || !engine.consent) return get().leave();
+      try {
+        await engine.consent(granted, sheet.noticeVersion);
+      } catch {
+        set({ notice: "Couldn't send your answer. Try again, or leave the room." });
+      }
     },
 
     clearNotice: () => set({ notice: null }),
@@ -197,5 +263,5 @@ export function __resetVoiceCallForTests(): void {
   shim = callShim();
   unlisten = null;
   attempt = 0;
-  useVoiceCall.setState({ phase: "idle", room: null, muted: false, notice: null });
+  useVoiceCall.setState({ phase: "idle", room: null, muted: false, notice: null, consent: null });
 }

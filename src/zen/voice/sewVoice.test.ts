@@ -1,0 +1,80 @@
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+const handlers = new Map<string, (e: { payload: unknown }) => void>();
+const invoke = vi.fn();
+vi.mock("@tauri-apps/api/core", () => ({ invoke: (...a: unknown[]) => invoke(...a) }));
+vi.mock("@tauri-apps/api/event", () => ({
+  listen: vi.fn(async (name: string, cb: (e: { payload: unknown }) => void) => {
+    handlers.set(name, cb);
+    return () => handlers.delete(name);
+  }),
+}));
+
+import { parseConsentSheet, sewVoiceEngine } from "./sewVoice";
+
+beforeEach(() => {
+  handlers.clear();
+  invoke.mockReset();
+});
+
+describe("Sew's native engine, from the webview", () => {
+  it("joins by server id and room, and follows the plugin's events", async () => {
+    invoke.mockResolvedValue({ call_id: "c1" });
+    const states: string[] = [];
+    const muted: boolean[] = [];
+    const e = sewVoiceEngine();
+    await e.join("s1", "room-1", {
+      onState: (s, r) => void states.push(r ? `${s}:${r}` : s),
+      onSelfMute: (m) => void muted.push(m),
+    });
+    expect(invoke).toHaveBeenCalledWith("plugin:sew-voice|join", { target: "s1", room: "room-1" });
+    handlers.get("sew-voice://state")?.({
+      payload: { state: "consent_required", recording_id: "7", notice_version: 3 },
+    });
+    handlers.get("sew-voice://state")?.({ payload: { state: "connected", target: "s1", room: "room-1" } });
+    handlers.get("sew-voice://participants")?.({
+      payload: [
+        { is_self: false, muted: true },
+        { is_self: true, muted: false, deafened: true },
+      ],
+    });
+    handlers.get("sew-voice://state")?.({ payload: { state: "ended", reason: "left" } });
+    expect(states).toEqual(["held", "connected", "ended:left"]);
+    expect(muted).toEqual([true]);
+  });
+
+  it("a refusal comes back as the app's code, with the server's hint", async () => {
+    invoke.mockRejectedValue({ code: "room_full", detail: { hint: "full", details: null } });
+    await expect(sewVoiceEngine().join("s1", "r", { onState: () => {} })).rejects.toEqual({
+      code: "room_full",
+      hint: "full",
+    });
+    invoke.mockRejectedValue({ code: "device_session_ended", detail: { hint: null } });
+    await expect(sewVoiceEngine().join("s1", "r", { onState: () => {} })).rejects.toEqual({
+      code: "device_session_ended",
+    });
+  });
+
+  it("consent sends the version the person saw", async () => {
+    invoke.mockResolvedValue(null);
+    await sewVoiceEngine().consent?.(true, 3141);
+    expect(invoke).toHaveBeenCalledWith("plugin:sew-voice|consent", { granted: true, notice_version: 3141 });
+  });
+
+  it("reads Rust's consent sheet, and nothing else", () => {
+    const sheet = {
+      ask: "join",
+      noticeVersion: 3141,
+      title: "This call is being recorded",
+      text: "a\nb",
+      choices: [
+        { label: "Join and allow recording", granted: true },
+        { label: "Cancel", granted: null },
+      ],
+    };
+    expect(parseConsentSheet(sheet)).toEqual(sheet);
+    expect(parseConsentSheet(null)).toBeNull();
+    expect(parseConsentSheet({ ...sheet, choices: [] })).toBeNull();
+    expect(parseConsentSheet({ ...sheet, noticeVersion: "3" })).toBeNull();
+  });
+});

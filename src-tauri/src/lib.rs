@@ -1966,6 +1966,20 @@ mod ios_links {
     }
 }
 
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+mod voice;
+
+/// The servers' addresses (id → base URL) for the voice join, whenever the
+/// webview's servers change. Nothing off iOS.
+#[tauri::command]
+fn voice_hosts(_app: tauri::AppHandle, _hosts: std::collections::HashMap<String, String>) {
+    #[cfg(target_os = "ios")]
+    {
+        use tauri::Manager;
+        voice::set_hosts(&_app.state::<voice::Native>(), _hosts);
+    }
+}
+
 /// Pair links that opened the app and the page has not taken yet (oldest
 /// first; each is handed over once). Empty off iOS.
 #[tauri::command]
@@ -1982,10 +1996,16 @@ fn take_open_urls() -> Vec<String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let app = tauri::Builder::default()
+    let builder = tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_store::Builder::default().build())
-        .plugin(tauri_plugin_k2_push::init())
+        .plugin(tauri_plugin_k2_push::init());
+    // Voice rooms (4.2.0): after k2-push, whose native side it uses.
+    #[cfg(target_os = "ios")]
+    let voice_native = voice::Native::default();
+    #[cfg(target_os = "ios")]
+    let builder = builder.plugin(voice::plugin(&voice_native)).manage(voice_native.clone());
+    let app = builder
         // Gardens contract §10: K2's sealed-frame guard, at document start in
         // every frame. It does nothing in the top frame.
         .plugin(
@@ -1993,7 +2013,9 @@ pub fn run() {
                 .js_init_script_on_all_frames(include_str!("sealed-frame-guard.js").to_string())
                 .build(),
         )
-        .setup(|app| {
+        .setup(move |app| {
+            #[cfg(target_os = "ios")]
+            voice::start(app.handle(), &voice_native);
             #[cfg(target_os = "ios")]
             {
                 use tauri::Manager;
@@ -2013,7 +2035,8 @@ pub fn run() {
             ios_keyboard_allow_focus,
             open_external_url,
             aps_environment,
-            take_open_urls
+            take_open_urls,
+            voice_hosts
         ])
         .build(tauri::generate_context!())
         .expect("error while building K2 Companion");

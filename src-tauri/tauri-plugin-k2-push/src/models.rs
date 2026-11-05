@@ -333,3 +333,22 @@ pub struct E2eOpRequest {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub on: Option<bool>,
 }
+
+/// `voice_key` (iOS, Rust only: no JS permission): the voice call's E2EE
+/// device key in the Secure Enclave. `op`: `public` → `{public: base64|null}`,
+/// `generate` → `{public}`, `sign {message: base64}` → `{signature: base64 DER}`,
+/// `delete`. `id` is Sew's `DeviceKeyId::account()`.
+#[derive(Debug, Serialize)]
+pub struct VoiceKeyRequest {
+    pub op: &'static str,
+    pub id: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
+}
+
+/// `voice_watch` (iOS, Rust only): the call shim's events (`end_requested`,
+/// `mute_requested`, `session_activated`, `network_changed`, …) on `channel`.
+#[derive(Serialize)]
+pub struct VoiceWatchRequest {
+    pub channel: tauri::ipc::Channel<serde_json::Value>,
+}

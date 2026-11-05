@@ -270,7 +270,53 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
           list.map((s) => <ServerRooms key={s.id} server={s} />)
         )}
       </div>
+      <ConsentSheet />
       <CallBar />
+    </div>
+  );
+}
+
+/** A recorded room's notice, in Sew's kit's words: the answers in the kit's
+ *  order, none of them a default. Nobody is recorded without a yes. */
+export function ConsentSheet() {
+  const sheet = useVoiceCall((s) => s.consent);
+  const answer = useVoiceCall((s) => s.answerConsent);
+  if (!sheet) return null;
+  return (
+    <div
+      className="absolute left-0 right-0 k2-tile"
+      style={{
+        bottom: "calc(84px + var(--safe-bottom))",
+        margin: "0 12px",
+        padding: 16,
+        borderRadius: 16,
+        zIndex: 5,
+        background: "#1c1c1e",
+      }}
+      role="dialog"
+      aria-labelledby="voice-consent-title"
+      data-testid="voice-consent"
+    >
+      <h2 id="voice-consent-title" className="text-[17px] font-semibold" style={{ color: "#fff", marginBottom: 8 }}>
+        {sheet.title}
+      </h2>
+      <p className="text-[14px]" style={{ color: "#c7c7cc", whiteSpace: "pre-line", marginBottom: 14 }}>
+        {sheet.text}
+      </p>
+      <div className="flex flex-col" style={{ gap: 8 }}>
+        {sheet.choices.map((c) => (
+          <button
+            key={c.label}
+            type="button"
+            className="zen-glass zen-glass-pill text-[15px]"
+            style={{ minHeight: 40, padding: "0 14px", color: "#fff" }}
+            onClick={() => void answer(c.granted)}
+            data-testid="voice-consent-choice"
+          >
+            {c.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }
@@ -279,7 +325,14 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
 export function CallBar() {
   const call = useVoiceCall();
   if (call.phase === "idle" || !call.room) return null;
-  const status = call.phase === "joining" ? "Joining…" : call.phase === "reconnecting" ? "Reconnecting…" : "Connected";
+  const status =
+    call.phase === "joining"
+      ? call.consent?.ask === "join"
+        ? "Waiting for your answer…"
+        : "Joining…"
+      : call.phase === "reconnecting"
+        ? "Reconnecting…"
+        : "Connected";
   return (
     <div
       className="absolute left-0 right-0 flex items-center k2-tile"
