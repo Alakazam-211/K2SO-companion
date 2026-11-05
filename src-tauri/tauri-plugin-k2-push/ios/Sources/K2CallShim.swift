@@ -21,6 +21,7 @@
 import AVFoundation
 import CallKit
 import Foundation
+import Network
 
 // The app's minimum is iOS 15; the plugin package builds for 13.
 @available(iOS 14.0, *)
@@ -38,6 +39,9 @@ public final class K2CallShim: NSObject {
   private var room = ""
   private var muted = false
   private var observers: [NSObjectProtocol] = []
+  private var path: NWPathMonitor?
+  /// The names the app gave the next call (`label`): the engine knows only ids.
+  private var labels: (room: String, server: String)?
 
   override init() {
     let config = CXProviderConfiguration()
@@ -54,11 +58,19 @@ public final class K2CallShim: NSObject {
 
   // ── Engine → system ────────────────────────────────────────────────
 
-  /// Joining a room: an outgoing call named for the room. Fails when a call
-  /// is already up (the app leaves the old room first, after a confirm).
+  /// The room's and server's names for the next `start` (the app sets them
+  /// just before it joins; the engine, which starts the call, has only ids).
+  public func label(room: String, server: String) {
+    queue.async { self.labels = (room, server) }
+  }
+
+  /// Joining a room: an outgoing call named for the room (the `label`, else
+  /// `room` as given). Fails when a call is already up.
   public func start(room: String, server: String, completion: @escaping (String?) -> Void) {
     queue.async {
       guard self.call == nil else { return completion("call_in_progress") }
+      let room = self.labels?.room ?? room
+      let server = self.labels?.server ?? server
       do {
         try Self.configureSession()
       } catch {
@@ -75,7 +87,9 @@ public final class K2CallShim: NSObject {
         self.queue.async {
           if let error = error {
             if self.call == id { self.call = nil }
-            completion("callkit: \((error as NSError).code)")
+            let code = "callkit: \((error as NSError).code)"
+            self.emit(["event": "start_failed", "error": code])
+            completion(code)
           } else {
             completion(nil)
           }
@@ -100,6 +114,7 @@ public final class K2CallShim: NSObject {
         self.rename("\(self.room) · Reconnecting…")
       case "ended":
         self.call = nil
+        self.labels = nil
         self.provider.reportCall(with: id, endedAt: nil, reason: Self.endReason(reason))
         self.stopObserving()
       default:
@@ -203,6 +218,7 @@ public final class K2CallShim: NSObject {
 
   private func observe() {
     stopObserving()
+    watchNetwork()
     let center = NotificationCenter.default
     let session = AVAudioSession.sharedInstance()
     observers.append(
@@ -239,6 +255,27 @@ public final class K2CallShim: NSObject {
   private func stopObserving() {
     for o in observers { NotificationCenter.default.removeObserver(o) }
     observers.removeAll()
+    path?.cancel()
+    path = nil
+  }
+
+  /// The network under the call: `network_changed` when the primary
+  /// interface changes (Wi-Fi to cellular and back), so the engine moves
+  /// the media at once instead of waiting out a dead path. Not the first
+  /// answer, and not a change that keeps the interface (cost, constrained,
+  /// DNS): each one would restart ICE for nothing.
+  private func watchNetwork() {
+    let monitor = NWPathMonitor()
+    var last: String?
+    monitor.pathUpdateHandler = { [weak self] p in
+      guard p.status == .satisfied, let primary = p.availableInterfaces.first else { return }
+      let now = "\(primary.type):\(primary.name)"
+      defer { last = now }
+      guard let before = last, before != now else { return }
+      self?.emit(["event": "network_changed", "interface": "\(primary.type)"])
+    }
+    monitor.start(queue: queue)
+    path = monitor
   }
 
   private func emit(_ event: [String: Any]) {

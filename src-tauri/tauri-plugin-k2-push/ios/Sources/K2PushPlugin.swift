@@ -99,10 +99,11 @@ class K2PushPlugin: Plugin {
 
   @objc public override func load(webview: WKWebView) {
     tapDelegate.plugin = self
-    // The call shim's events reach the UI as `call` (Rust gets its own
-    // hook once the voice engine is in).
+    // The call shim's events: to Rust (`voiceWatch`'s channel), which acts
+    // on them through the voice engine, and to the UI as `call`.
     if #available(iOS 14.0, *) {
       K2CallShim.shared.onEvent = { [weak self] event in
+        self?.sendToRust(event)
         DispatchQueue.main.async {
           if let data = JSTypes.coerceDictionaryToJSObject(event) { self?.trigger("call", data: data) }
         }
@@ -354,6 +355,9 @@ class K2PushPlugin: Plugin {
     }
     let shim = K2CallShim.shared
     switch args.op {
+    case "label":
+      shim.label(room: args.room ?? "", server: args.server ?? "")
+      invoke.resolve(["ok": true])
     case "start":
       shim.start(room: args.room ?? "", server: args.server ?? "") { error in
         if let error = error { invoke.resolve(["ok": false, "error": error]) } else { invoke.resolve(["ok": true]) }
@@ -381,6 +385,77 @@ class K2PushPlugin: Plugin {
     }
   }
 
+  // ── The voice engine's native side (Rust only) ──────────────────────
+  // Neither command has a JS permission: Rust calls them with
+  // `run_mobile_plugin`, from its own threads.
+
+  private let rustEvents = DispatchQueue(label: "k2.voice-events")
+  private var rustChannel: Channel?
+
+  /// `{channel}`: every call shim event goes to Rust on this channel from
+  /// now on (the last one registered wins).
+  @objc public func voiceWatch(_ invoke: Invoke) {
+    do {
+      let args = try invoke.parseArgs(VoiceWatchArgs.self)
+      rustEvents.async { self.rustChannel = args.channel }
+      invoke.resolve(["ok": true])
+    } catch {
+      invoke.reject("voiceWatch: invalid args (\(error.localizedDescription))")
+    }
+  }
+
+  private func sendToRust(_ event: [String: Any]) {
+    rustEvents.async {
+      guard let channel = self.rustChannel, let data = JSTypes.coerceDictionaryToJSObject(event) else { return }
+      try? channel.send(data)
+    }
+  }
+
+  /// The E2EE device key (K2DeviceKey): `{op: "public"|"generate"|"sign"|
+  /// "delete", id, message?}` (base64 in and out). `public` answers
+  /// `{public: null}` when there is no key; anything the Secure Enclave
+  /// can't do rejects (Sew then fails the join: no software fallback).
+  @objc public func voiceKey(_ invoke: Invoke) {
+    let args: VoiceKeyArgs
+    do {
+      args = try invoke.parseArgs(VoiceKeyArgs.self)
+    } catch {
+      invoke.reject("voiceKey: invalid args (\(error.localizedDescription))")
+      return
+    }
+    K2PushPlugin.keyQueue.async {
+      do {
+        switch args.op {
+        case "public":
+          if let pub = try K2DeviceKey.publicKey(args.id) {
+            invoke.resolve(["public": pub.base64EncodedString()])
+          } else {
+            invoke.resolve(["public": NSNull()])
+          }
+        case "generate":
+          invoke.resolve(["public": try K2DeviceKey.generate(args.id).base64EncodedString()])
+        case "sign":
+          guard let msg = Data(base64Encoded: args.message ?? "") else {
+            invoke.reject("voiceKey: message is not base64")
+            return
+          }
+          invoke.resolve(["signature": try K2DeviceKey.sign(args.id, msg).base64EncodedString()])
+        case "delete":
+          K2DeviceKey.delete(args.id)
+          invoke.resolve(["ok": true])
+        default:
+          invoke.reject("voiceKey: unknown op \(args.op)")
+        }
+      } catch K2DeviceKey.Failure.unavailable(let why) {
+        invoke.reject("voiceKey \(args.op): \(why)")
+      } catch {
+        invoke.reject("voiceKey \(args.op): \(error.localizedDescription)")
+      }
+    }
+  }
+
+  private static let keyQueue = DispatchQueue(label: "k2.voice-key")
+
   // ── Login tokens in the Keychain (K2SecureTokens) ───────────────────
 
   /// `{op: "set"|"remove"|"sync", server?, token?, tokens?}`.
@@ -401,6 +476,13 @@ class K2PushPlugin: Plugin {
         invoke.resolve(["ok": true])
       case "sync":
         invoke.resolve(["ok": K2SecureTokens.sync(args.tokens ?? [:])])
+      case "get":
+        // For Rust's voice provider, which may run with the webview asleep.
+        if let token = K2SecureTokens.get(server: args.server ?? "") {
+          invoke.resolve(["ok": true, "token": token])
+        } else {
+          invoke.resolve(["ok": false])
+        }
       default:
         invoke.reject("tokenOp: unknown op \(args.op)")
       }
@@ -878,6 +960,16 @@ private struct CallOpArgs: Decodable {
   let reason: String?
   let on: Bool?
   let title: String?
+}
+
+private struct VoiceWatchArgs: Decodable {
+  let channel: Channel
+}
+
+private struct VoiceKeyArgs: Decodable {
+  let op: String
+  let id: String
+  let message: String?
 }
 
 private struct TokenOpArgs: Decodable {

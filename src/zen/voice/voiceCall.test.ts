@@ -8,6 +8,8 @@ import {
   __setCallShimForTests,
   setPhoneVoiceEngine,
   useVoiceCall,
+  type ConsentSheet,
+  type EngineEvents,
   type EngineState,
   type PhoneVoiceEngine,
 } from "./voiceCall";
@@ -18,6 +20,7 @@ function fakeShim(refuse: string | null = null, mic: "granted" | "denied" = "gra
   const calls: string[] = [];
   let listener: ((e: ShimEvent) => void) | null = null;
   const shim: CallShim = {
+    label: (room, server) => void calls.push(`label:${room}:${server}`),
     start: vi.fn(async () => (calls.push("start"), refuse)),
     report: (s, r) => void calls.push(r ? `report:${s}:${r}` : `report:${s}`),
     setMuted: (on) => void calls.push(`mute:${on}`),
@@ -35,17 +38,22 @@ function fakeShim(refuse: string | null = null, mic: "granted" | "denied" = "gra
   return { shim, calls, fire: (e: ShimEvent) => listener?.(e), listening: () => listener !== null };
 }
 
-function fakeEngine() {
+function fakeEngine(native = false) {
   let onState: ((s: EngineState, reason?: string) => void) | null = null;
+  let events: EngineEvents | null = null;
   let finish: { resolve(): void; reject(e: unknown): void } | null = null;
-  const engine: PhoneVoiceEngine & { muted: boolean[]; systems: ShimEvent[] } = {
+  const engine: PhoneVoiceEngine & { muted: boolean[]; systems: ShimEvent[]; consents: [boolean, number][] } = {
     available: true,
+    drivesSystemCall: native,
     muted: [],
     systems: [],
-    join: vi.fn((_s, _r, events) => {
-      onState = events.onState;
+    consents: [],
+    join: vi.fn((_s, _r, e: EngineEvents) => {
+      onState = e.onState;
+      events = e;
       return new Promise<void>((resolve, reject) => (finish = { resolve, reject }));
     }),
+    consent: vi.fn(async (granted: boolean, version: number) => void engine.consents.push([granted, version])),
     leave: vi.fn(async () => {}),
     setMuted(m) {
       engine.muted.push(m);
@@ -56,6 +64,7 @@ function fakeEngine() {
   };
   return {
     engine,
+    events: () => events,
     state: (s: EngineState, reason?: string) => onState?.(s, reason),
     joined: () => finish?.resolve(),
     refuse: (e: unknown) => finish?.reject(e),
@@ -191,5 +200,93 @@ describe("the phone's voice-room call", () => {
     expect(useVoiceCall.getState().phase).toBe("connected");
     expect(useVoiceCall.getState().muted).toBe(true);
     expect(useVoiceCall.getState().notice).toMatch(/You can still listen/);
+  });
+
+  describe("with the native engine (Rust drives the system call)", () => {
+    const SHEET: ConsentSheet = {
+      ask: "join",
+      noticeVersion: 3141,
+      title: "This call is being recorded",
+      text: "Sew Notes records…",
+      choices: [
+        { label: "Join and allow recording", granted: true },
+        { label: "Join without being recorded", granted: false },
+        { label: "Cancel", granted: null },
+      ],
+    };
+
+    it("names the call, asks for the mic, and never touches the system call itself", async () => {
+      const s = fakeShim();
+      const e = fakeEngine(true);
+      __setCallShimForTests(s.shim);
+      setPhoneVoiceEngine(e.engine);
+      const joining = useVoiceCall.getState().join(ROOM);
+      await flush();
+      e.state("connecting");
+      e.state("connected");
+      e.joined();
+      await joining;
+      expect(useVoiceCall.getState().phase).toBe("connected");
+      useVoiceCall.getState().setMuted(true);
+      expect(e.engine.muted).toEqual([true]);
+      e.state("ended", "removed_by_moderator");
+      expect(useVoiceCall.getState().notice).toBe("You were removed from Standup.");
+      expect(s.calls).toEqual(["mic", "label:Standup:sewlab"]);
+      expect(s.listening()).toBe(false);
+    });
+
+    it("follows a mute from the system's button", async () => {
+      const e = fakeEngine(true);
+      __setCallShimForTests(fakeShim().shim);
+      setPhoneVoiceEngine(e.engine);
+      void useVoiceCall.getState().join(ROOM);
+      await flush();
+      e.state("connected");
+      e.events()?.onSelfMute?.(true);
+      expect(useVoiceCall.getState().muted).toBe(true);
+      expect(e.engine.muted).toEqual([]);
+    });
+
+    it("a held join shows the notice; an answer goes to the engine with its version", async () => {
+      const e = fakeEngine(true);
+      __setCallShimForTests(fakeShim().shim);
+      setPhoneVoiceEngine(e.engine);
+      void useVoiceCall.getState().join(ROOM);
+      await flush();
+      e.state("held");
+      e.events()?.onConsent?.(SHEET);
+      expect(useVoiceCall.getState().phase).toBe("joining");
+      expect(useVoiceCall.getState().consent).toEqual(SHEET);
+      await useVoiceCall.getState().answerConsent(false);
+      expect(e.engine.consents).toEqual([[false, 3141]]);
+      expect(useVoiceCall.getState().consent).toBeNull();
+    });
+
+    it("Cancel on a held join leaves", async () => {
+      const e = fakeEngine(true);
+      __setCallShimForTests(fakeShim().shim);
+      setPhoneVoiceEngine(e.engine);
+      void useVoiceCall.getState().join(ROOM);
+      await flush();
+      e.events()?.onConsent?.(SHEET);
+      await useVoiceCall.getState().answerConsent(null);
+      expect(e.engine.leave).toHaveBeenCalled();
+      expect(e.engine.consents).toEqual([]);
+      expect(useVoiceCall.getState().phase).toBe("idle");
+    });
+
+    it("a refused join says why, with nothing to end", async () => {
+      const s = fakeShim();
+      const e = fakeEngine(true);
+      __setCallShimForTests(s.shim);
+      setPhoneVoiceEngine(e.engine);
+      const joining = useVoiceCall.getState().join(ROOM);
+      await flush();
+      e.refuse({ code: "device_session_ended" });
+      await joining;
+      expect(useVoiceCall.getState().phase).toBe("idle");
+      expect(useVoiceCall.getState().notice).toMatch(/Pair it again/);
+      expect(s.calls.some((c) => c.startsWith("report"))).toBe(false);
+    });
   });
 });

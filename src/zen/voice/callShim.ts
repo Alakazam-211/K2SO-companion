@@ -18,9 +18,13 @@ export type ShimEvent =
   | { event: "session_activated"; route?: string }
   | { event: "session_deactivated" }
   | { event: "route_changed"; route: string }
-  | { event: "media_reset" };
+  | { event: "media_reset" }
+  | { event: "network_changed"; interface?: string }
+  | { event: "start_failed"; error: string };
 
 export interface CallShim {
+  /** The names for the next call the engine starts (it knows only ids). */
+  label(room: string, server: string): void;
   /** Resolves to null once the system took the call, else an error code. */
   start(room: string, server: string): Promise<string | null>;
   report(state: ShimState, reason?: string): void;
@@ -38,6 +42,7 @@ function op(args: Record<string, unknown>): Promise<Record<string, unknown> | nu
 }
 
 const ios: CallShim = {
+  label: (room, server) => void op({ op: "label", room, server }),
   async start(room, server) {
     const r = await op({ op: "start", room, server });
     if (!r) return "unavailable";
@@ -74,6 +79,7 @@ const ios: CallShim = {
 
 /** No system call UI (Android until Jeremie's CallStyle shim, the browser). */
 const none: CallShim = {
+  label: () => {},
   start: async () => null,
   report: () => {},
   setMuted: () => {},

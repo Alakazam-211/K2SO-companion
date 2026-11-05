@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 const core = vi.hoisted(() => ({ invoke: vi.fn(async () => ({ ok: true })) }));
 vi.mock("@tauri-apps/api/core", () => core);
 
-import { __resetSecureTokensForTests, syncSecureTokens } from "./secureTokens";
+import { __resetSecureTokensForTests, syncSecureTokens, syncVoiceHosts } from "./secureTokens";
 
 beforeEach(() => {
   vi.useFakeTimers();
@@ -41,5 +41,20 @@ describe("the Keychain copy of login tokens", () => {
     syncSecureTokens({ a: "1" }, false);
     await vi.advanceTimersByTimeAsync(300);
     expect(core.invoke).not.toHaveBeenCalled();
+  });
+
+  it("gives Rust each server's address for the voice join, once per change", async () => {
+    const servers = [
+      { id: "a", url: "https://a.k2.dev" },
+      { id: "b", url: "https://b.k2.dev" },
+    ];
+    syncVoiceHosts(servers, true);
+    syncVoiceHosts([...servers], true);
+    syncVoiceHosts(servers, false);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(core.invoke).toHaveBeenCalledTimes(1);
+    expect(core.invoke).toHaveBeenCalledWith("voice_hosts", {
+      hosts: { a: "https://a.k2.dev", b: "https://b.k2.dev" },
+    });
   });
 });

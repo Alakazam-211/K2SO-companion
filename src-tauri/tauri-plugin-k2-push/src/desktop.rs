@@ -56,6 +56,18 @@ impl<R: Runtime> K2Push<R> {
         Ok(serde_json::json!({ "ok": false }))
     }
 
+    pub fn token_get(&self, _server: &str) -> Option<String> {
+        None
+    }
+
+    pub fn voice_key(&self, _req: VoiceKeyRequest) -> crate::Result<serde_json::Value> {
+        Ok(serde_json::json!({ "public": null }))
+    }
+
+    pub fn voice_watch(&self, _req: VoiceWatchRequest) -> crate::Result<serde_json::Value> {
+        Ok(serde_json::json!({ "ok": false }))
+    }
+
     pub fn e2e_op(&self, _req: E2eOpRequest) -> crate::Result<serde_json::Value> {
         Ok(serde_json::json!({ "available": false, "reason": "e2e push keys are iOS only" }))
     }

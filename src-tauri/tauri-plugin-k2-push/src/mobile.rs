@@ -86,6 +86,32 @@ impl<R: Runtime> K2Push<R> {
             .map_err(Into::into)
     }
 
+    /// This server's login token from the Keychain copy (`None`: none, or
+    /// the phone not unlocked since boot). Blocking.
+    pub fn token_get(&self, server: &str) -> Option<String> {
+        let req = TokenOpRequest {
+            op: "get".into(),
+            server: Some(server.into()),
+            token: None,
+            tokens: None,
+        };
+        let v = self.token_op(req).ok()?;
+        v.get("token").and_then(|t| t.as_str()).map(str::to_owned)
+    }
+
+    /// Blocking: the Secure Enclave answers on its own queue.
+    pub fn voice_key(&self, req: VoiceKeyRequest) -> crate::Result<serde_json::Value> {
+        self.0
+            .run_mobile_plugin::<serde_json::Value>("voiceKey", req)
+            .map_err(Into::into)
+    }
+
+    pub fn voice_watch(&self, req: VoiceWatchRequest) -> crate::Result<serde_json::Value> {
+        self.0
+            .run_mobile_plugin::<serde_json::Value>("voiceWatch", req)
+            .map_err(Into::into)
+    }
+
     pub fn e2e_op(&self, req: E2eOpRequest) -> crate::Result<serde_json::Value> {
         self.0
             .run_mobile_plugin::<serde_json::Value>("e2eOp", req)

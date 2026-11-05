@@ -151,4 +151,31 @@ describe("voice rooms on the phone", () => {
     render(<VoiceRoomsOverlay onClose={() => {}} />);
     expect((await screen.findByTestId("voice-server-problem")).textContent).toMatch(/Pair it again/);
   });
+
+  it("shows a recording notice with the kit's answers, and sends the one picked", async () => {
+    const answer = vi.fn(async () => {});
+    useVoiceCall.setState({
+      phase: "joining",
+      room: { serverId: "s1", serverLabel: "sewlab", roomId: "room-1", roomName: "Standup", limit: 25 },
+      consent: {
+        ask: "join",
+        noticeVersion: 3141,
+        title: "This call is being recorded",
+        text: "Sew Notes records this call.",
+        choices: [
+          { label: "Join and allow recording", granted: true },
+          { label: "Join without being recorded", granted: false },
+          { label: "Cancel", granted: null },
+        ],
+      },
+      answerConsent: answer,
+    });
+    render(<VoiceRoomsOverlay onClose={() => {}} />);
+    expect(screen.getByTestId("voice-consent").textContent).toContain("This call is being recorded");
+    expect(screen.getByTestId("voice-call-bar").textContent).toContain("Waiting for your answer…");
+    const choices = screen.getAllByTestId("voice-consent-choice").map((b) => b.textContent);
+    expect(choices).toEqual(["Join and allow recording", "Join without being recorded", "Cancel"]);
+    fireEvent.click(screen.getAllByTestId("voice-consent-choice")[1]);
+    expect(answer).toHaveBeenCalledWith(false);
+  });
 });
