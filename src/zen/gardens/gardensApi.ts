@@ -23,6 +23,10 @@ export type GardenRefusal = {
   cap?: string;
   room?: string;
   feature?: string;
+  /** `resync`: the oldest rev K2 still keeps. */
+  reapedRev?: number;
+  /** `rate_limited` from Garden data. */
+  retryAfterSecs?: number;
 };
 
 export type GardenResult<T> = { ok: true; data: T } | { ok: false; refusal: GardenRefusal };
@@ -133,6 +137,18 @@ export function isSourcesChanged(frame: unknown): boolean {
   return !!frame && typeof frame === "object" && (frame as { kind?: unknown }).kind === "sources_changed";
 }
 
+/** `{"kind": "garden_data_changed", "space": "data:<widget>", "rev": N}`. */
+export function isGardenDataChanged(frame: unknown): frame is { kind: string; space: string; rev: number } {
+  const f = frame as { kind?: unknown; space?: unknown; rev?: unknown } | null;
+  return (
+    !!f &&
+    typeof f === "object" &&
+    f.kind === "garden_data_changed" &&
+    typeof f.space === "string" &&
+    typeof f.rev === "number"
+  );
+}
+
 /** Refusals that end this server's Gardens on this phone (§9): wipe. */
 export function refusalEndsGardens(code: string): boolean {
   return code === "device_session_ended" || code === "garden_person_only";
@@ -149,6 +165,8 @@ function refusalOf(status: number, text: string): GardenRefusal {
         ...(typeof e.cap === "string" ? { cap: e.cap } : {}),
         ...(typeof e.room === "string" ? { room: e.room } : {}),
         ...(typeof e.feature === "string" ? { feature: e.feature } : {}),
+        ...(typeof e.reapedRev === "number" ? { reapedRev: e.reapedRev } : {}),
+        ...(typeof e.retryAfterSecs === "number" ? { retryAfterSecs: e.retryAfterSecs } : {}),
       };
     }
   } catch {

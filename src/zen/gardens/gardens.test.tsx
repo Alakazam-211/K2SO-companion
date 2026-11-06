@@ -19,7 +19,7 @@ vi.mock("./gardensApi", async (orig) => ({
   callGardenVerb: api.call,
 }));
 const hub = vi.hoisted(() => ({ subscribe: vi.fn() }));
-vi.mock("../ticketEvents", () => ({ subscribeAppEvents: hub.subscribe }));
+vi.mock("../ticketEvents", () => ({ subscribeAppEvents: hub.subscribe, appEventsOpen: () => true }));
 vi.mock("../zenScope", async () => (await import("../../test/zenScopeMock")).zenScopeModule);
 
 import { ZenGardens } from "../../pages/ZenGardens";
@@ -169,6 +169,55 @@ describe("the Gardens screen", () => {
     open("/zen/gardens?garden=g1");
     expect((await screen.findByTestId("garden-placeholder")).textContent).toBe("Rail: open this on your computer.");
     expect(screen.getByTestId("garden-empty").textContent).toContain("Ask an agent");
+  });
+});
+
+describe("a widget's subscriptions", () => {
+  /** Load the frame and hand back the frame's end of its port. */
+  async function framePort() {
+    open("/zen/gardens?garden=g1");
+    const f = (await screen.findByTestId("garden-frame")) as HTMLIFrameElement;
+    let port: MessagePort | null = null;
+    vi.spyOn(f.contentWindow!, "postMessage").mockImplementation(((_m: unknown, _o: string, transfer?: Transferable[]) => {
+      port = (transfer?.[0] as MessagePort) ?? null;
+    }) as typeof window.postMessage);
+    fireEvent.load(f);
+    await waitFor(() => expect(port).toBeTruthy());
+    const p = port as unknown as MessagePort;
+    const got: Record<string, unknown>[] = [];
+    p.onmessage = (e) => void got.push(e.data as Record<string, unknown>);
+    p.postMessage({ ready: true });
+    return { p, got };
+  }
+
+  it("store.subscribe reads store.changes through the door and pushes, not verb_unavailable", async () => {
+    const item = { key: "a/1", rev: 3, value: { t: "hi" }, by: "you via board", at: 0, deleted: false };
+    api.call.mockResolvedValue({ ok: true, data: { result: { head: 3, items: [item], next: null, partial: false } } });
+    const { p, got } = await framePort();
+    p.postMessage({ sub: 1, verb: "store.changes", args: [{ prefix: "a/" }] });
+    await waitFor(() => expect(got.some((m) => m.sub === 1)).toBe(true));
+    expect(got.filter((m) => m.sub === 1)).toEqual([
+      { sub: 1, value: [{ key: "a/1", rev: 3, value: { t: "hi" }, by: "you via board" }] },
+    ]);
+    expect(api.call).toHaveBeenCalledWith(expect.anything(), {
+      garden: "g1",
+      placement: "b1",
+      hash: "h",
+      verb: "store.changes",
+      args: [{ since: 0, prefix: "a/" }],
+    });
+    // It listens for this widget's space.
+    expect(hub.subscribe).toHaveBeenCalled();
+    p.close();
+  });
+
+  it("a door refusal of store.changes ends the subscription with K2's code", async () => {
+    api.call.mockResolvedValue({ ok: false, refusal: { status: 403, code: "cap_not_granted", hint: "", cap: "store:read" } });
+    const { p, got } = await framePort();
+    p.postMessage({ sub: 2, verb: "store.changes", args: ["a/"] });
+    await waitFor(() => expect(got.some((m) => m.sub === 2)).toBe(true));
+    expect(got.find((m) => m.sub === 2)).toMatchObject({ sub: 2, error: { code: "cap_not_granted", cap: "store:read" } });
+    p.close();
   });
 });
 
@@ -347,6 +396,13 @@ describe("verbs the phone answers (§5.2)", () => {
     expect(answerHostVerb(c, limit(), "layout.toggle", [{ column: 1 }], true, 0).ok).toBe(false);
     expect(answerHostVerb(c, limit(), "layout.toggle", [{ column: 0 }], true, 0).ok).toBe(true);
     expect(c.setFold).toHaveBeenCalledWith(0, true);
+  });
+
+  it("boardFile.* (K2's own board tab only) is verb_unavailable in a Garden, as on a desktop", () => {
+    expect(answerHostVerb(ctx(), limit(), "boardFile.open", [], false, 0)).toEqual({
+      ok: false,
+      error: { code: "verb_unavailable", message: "", feature: "board-file-v1" },
+    });
   });
 });
 
