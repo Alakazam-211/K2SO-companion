@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { scopeFor } from "../../api/scope";
 import { useBackHandler } from "../../lib/androidBack";
+import { useSwipeBack } from "../../lib/useSwipeBack";
 import { isIosWebView } from "../../lib/nativePicker";
 import { onForegroundLater } from "../../lib/foreground";
 import { useServersStore, type ServerEntry } from "../../stores/servers";
@@ -246,6 +247,10 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
   const clearNotice = useVoiceCall((s) => s.clearNotice);
   const inCall = useVoiceCall((s) => s.phase !== "idle");
   const [headerRef, headerPx] = useMeasuredHeight(VOICE_HEADER_PX);
+  // The left-edge swipe goes back too, as on every other screen. Not while
+  // a recording notice waits: that sheet is the person's to answer.
+  const consentUp = useVoiceCall((s) => s.consent !== null);
+  const swipeRef = useSwipeBack(onClose, { enabled: !consentUp });
   // The rooms scroll clear of the call bar, taller with video.
   const [barRef, barPx] = useMeasuredHeight(CALL_BAR_PX);
   const barSpace = (inCall ? Math.max(barPx, CALL_BAR_PX) : CALL_BAR_PX) + CALL_BAR_AIR;
@@ -254,6 +259,7 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
 
   return (
     <div
+      ref={swipeRef}
       className="absolute inset-0 flex flex-col"
       style={{ background: "#000", zIndex: 6 }}
       data-testid="overlay-voice"
@@ -268,14 +274,19 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
             className="grid items-center"
             style={{ gridTemplateColumns: "1fr auto 1fr", minHeight: 44, padding: "12px 12px 8px", columnGap: 8 }}
           >
+            {/* Back, not Done (Rosson): the call area sits over the page it was
+                opened from, mini tile or menu, and closing returns there. */}
             <button
               type="button"
-              className="text-[17px] justify-self-start zen-glass zen-glass-pill"
-              style={{ minHeight: 34, padding: "0 14px", color: "#fff", pointerEvents: "auto" }}
+              className="flex items-center justify-center justify-self-start shrink-0 zen-glass zen-glass-pill"
+              style={{ width: 34, height: 34, color: "#fff", pointerEvents: "auto" }}
               onClick={onClose}
+              aria-label="Back"
               data-testid="voice-done"
             >
-              Done
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
             </button>
             <h1 className="text-[17px] font-semibold pointer-events-none zen-header-text">Rooms</h1>
             <span />
