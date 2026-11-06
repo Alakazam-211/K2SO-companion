@@ -18,6 +18,7 @@ import {
 import { answerHostVerb, themeOf, layoutOf, type HostContext, type SwitchLimit } from "./hostVerbs";
 import { createSourcesFeed, type SourcesFeed } from "./sourcesFeed";
 import { createStoreFeed, gardenDataSpace, type StoreFeed } from "./storeFeed";
+import { namedStoreAnswer, viewerNameCache } from "./storeBy";
 
 const REPORTED_REFUSALS = new Set(["not_bound", "cap_not_granted", "rate_limited"]);
 
@@ -146,9 +147,13 @@ export function GardenFrame({
         if (code === "stale_widget") setGeneration((n) => n + 1);
         return { ok: false, error: { code, message: hint, cap, room, feature } };
       };
+      const viewerName = viewerNameCache(async () => {
+        const r = await callGardenVerb(scope, { ...identity, verb: "viewer.get", args: [] });
+        return r.ok ? r.data.result : null;
+      });
       const forward = async (verb: string, args: unknown[]): Promise<VerbAnswer> => {
         const r = await callGardenVerb(scope, { ...identity, verb, args });
-        return r.ok ? { ok: true, value: r.data.result } : refused(r.refusal);
+        return r.ok ? { ok: true, value: await namedStoreAnswer(verb, r.data.result, viewerName) } : refused(r.refusal);
       };
       const sources = createSourcesFeed({
         readView: (address) => forward("sources.read", [address]),
@@ -172,7 +177,7 @@ export function GardenFrame({
         // placement, hash and args, so the same data scope.
         call: async (verb, args) => {
           const r = await callGardenVerb(scope, { ...identity, verb, args });
-          if (r.ok) return { ok: true, value: r.data.result };
+          if (r.ok) return { ok: true, value: await namedStoreAnswer(verb, r.data.result, viewerName) };
           const { reapedRev, retryAfterSecs } = r.refusal;
           return { ...refused(r.refusal), reapedRev, retryAfterSecs };
         },
