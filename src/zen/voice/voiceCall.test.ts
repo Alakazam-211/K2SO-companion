@@ -6,6 +6,7 @@ import type { CallShim, ShimEvent } from "./callShim";
 import {
   __resetVoiceCallForTests,
   __setCallShimForTests,
+  consentKey,
   setPhoneVoiceEngine,
   useVoiceCall,
   type ConsentSheet,
@@ -383,5 +384,22 @@ describe("the phone's voice-room call", () => {
       expect(useVoiceCall.getState().phase).toBe("idle");
       expect(useVoiceCall.getState().notice).toBeNull();
     });
+  });
+});
+
+describe("which recording notice is up", () => {
+  it("a new recording or version is a new key; the same notice read again is not", () => {
+    const sheet = {
+      ask: "in_call" as const,
+      recordingId: "77",
+      noticeVersion: 3,
+      title: "t",
+      text: "x",
+      choices: [{ label: "Allow", granted: true }],
+    };
+    expect(consentKey(null)).toBeNull();
+    expect(consentKey(sheet)).toBe(consentKey({ ...sheet, text: "x" }));
+    expect(consentKey(sheet)).not.toBe(consentKey({ ...sheet, noticeVersion: 4 }));
+    expect(consentKey(sheet)).not.toBe(consentKey({ ...sheet, recordingId: "78" }));
   });
 });

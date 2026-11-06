@@ -25,12 +25,20 @@ export type EngineState = "connecting" | "connected" | "reconnecting" | "held" |
 export type ConsentSheet = {
   /** `join`: the join is held; `in_call`: a recording started mid-call. */
   ask: "join" | "in_call";
+  /** Sew's recording id (with the version: which notice this is). */
+  recordingId?: string;
   noticeVersion: number;
   title: string;
   text: string;
   /** In order; `granted: null` gives up the held join. */
   choices: { label: string; granted: boolean | null }[];
 };
+
+/** Which notice a sheet is (`null`: none): a new recording or version is
+ *  a new key, the same notice read again is not. */
+export function consentKey(sheet: ConsentSheet | null): string | null {
+  return sheet ? `${sheet.recordingId ?? ""}:${sheet.ask}:${sheet.noticeVersion}` : null;
+}
 
 export type EngineEvents = {
   onState(s: EngineState, reason?: string): void;

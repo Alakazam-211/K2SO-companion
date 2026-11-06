@@ -453,6 +453,9 @@ export function callEndedText(reason: string, roomName: string, serverLabel: str
       return `The call to ${roomName} ended: you were signed out, or joined from another device.`;
     case "mic_denied":
       return `The call to ${roomName} ended: K2 lost your microphone. Turn it on in Settings › K2.`;
+    case "recording_consent_timeout":
+      // K2 left a held re-join after 30 s (or Sew gave up waiting).
+      return `You left ${roomName}: a recording started while you were reconnecting, and its notice wasn't answered. Join again to answer it.`;
     default:
       return `The call to ${roomName} ended.`;
   }

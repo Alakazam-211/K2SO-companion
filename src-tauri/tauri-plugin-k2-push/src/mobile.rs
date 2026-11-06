@@ -106,6 +106,12 @@ impl<R: Runtime> K2Push<R> {
             .map_err(Into::into)
     }
 
+    pub fn voice_notice(&self, req: VoiceNoticeRequest) -> crate::Result<serde_json::Value> {
+        self.0
+            .run_mobile_plugin::<serde_json::Value>("voiceNotice", req)
+            .map_err(Into::into)
+    }
+
     pub fn voice_watch(&self, req: VoiceWatchRequest) -> crate::Result<serde_json::Value> {
         self.0
             .run_mobile_plugin::<serde_json::Value>("voiceWatch", req)
