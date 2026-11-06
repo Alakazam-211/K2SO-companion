@@ -7,7 +7,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null), addPlu
 
 import { useCallScreen } from "./callScreen";
 import { EASE_DURATION, SNAP_SPRING } from "./miniSnap";
-import { MINI_CORNER_KEY, MiniVideoTile, nearestCorner, readCorner, useLayerPlacement } from "./videoLayer";
+import { __resetCornerForTests, MINI_CORNER_KEY, MiniVideoTile, nearestCorner, readCorner, useLayerPlacement } from "./videoLayer";
 import { __resetPipForTests, __setHapticForTests, __setTileSenderForTests, HIDDEN, onPipEvent, type TileFrame } from "./videoTile";
 import { __resetVoiceCallForTests, useVoiceCall } from "./voiceCall";
 
@@ -56,6 +56,7 @@ let reduce = false;
 beforeEach(() => {
   __resetVoiceCallForTests();
   __resetPipForTests();
+  __resetCornerForTests();
   // The layer plays a frame (each test that needs none says so).
   onPipEvent({ event: "pip_first_frame" });
   sent.length = 0;
@@ -296,6 +297,8 @@ describe("the mini video tile", () => {
     const el = shown();
     drag(el, 1, [[0, 300, 140], [300, 60, 700]]);
     expect(tile()?.getAttribute("data-corner")).toBe("bottom-left");
+    // Kept for the session: the call tile comes back to the same corner.
+    expect(readCorner()).toBe("bottom-left");
     get.mockRestore();
     set.mockRestore();
   });
