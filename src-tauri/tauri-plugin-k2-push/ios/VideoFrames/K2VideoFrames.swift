@@ -288,26 +288,55 @@ public final class K2NV12Pool {
 
   public init() {}
 
-  public func pixelBuffer(from f: K2I420Frame) throws -> CVPixelBuffer {
-    guard f.width > 0, f.height > 0, f.strideY >= f.width, f.strideU >= (f.width + 1) / 2,
-      f.strideV >= (f.width + 1) / 2
-    else { throw K2VideoError.badFrame("i420 size \(f.width)x\(f.height)") }
-    if pool == nil || f.width != width || f.height != height {
+  /// A pooled NV12 buffer of `width` x `height` (the pool follows the size).
+  private func buffer(width w: Int, height h: Int) throws -> CVPixelBuffer {
+    if pool == nil || w != width || h != height {
       let attrs: [CFString: Any] = [
         kCVPixelBufferPixelFormatTypeKey: kCVPixelFormatType_420YpCbCr8BiPlanarVideoRange,
-        kCVPixelBufferWidthKey: f.width,
-        kCVPixelBufferHeightKey: f.height,
+        kCVPixelBufferWidthKey: w,
+        kCVPixelBufferHeightKey: h,
         kCVPixelBufferIOSurfacePropertiesKey: [:] as CFDictionary,
       ]
       var created: CVPixelBufferPool?
       try check(CVPixelBufferPoolCreate(kCFAllocatorDefault, nil, attrs as CFDictionary, &created), "pool")
       pool = created
-      width = f.width
-      height = f.height
+      width = w
+      height = h
     }
     var out: CVPixelBuffer?
     try check(CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool!, &out), "pool buffer")
-    let pb = out!
+    return out!
+  }
+
+  /// (d) NV12 planes (Y, then interleaved CbCr), copied row by row.
+  public func pixelBuffer(
+    nv12 w: Int, _ h: Int, y src: UnsafePointer<UInt8>, strideY: Int, uv srcUV: UnsafePointer<UInt8>, strideUV: Int
+  ) throws -> CVPixelBuffer {
+    let cw2 = ((w + 1) / 2) * 2
+    guard w > 0, h > 0, strideY >= w, strideUV >= cw2
+    else { throw K2VideoError.badFrame("nv12 size \(w)x\(h)") }
+    let pb = try buffer(width: w, height: h)
+    try check(CVPixelBufferLockBaseAddress(pb, []), "lock")
+    defer { CVPixelBufferUnlockBaseAddress(pb, []) }
+    let y = CVPixelBufferGetBaseAddressOfPlane(pb, 0)!.assumingMemoryBound(to: UInt8.self)
+    let yStride = CVPixelBufferGetBytesPerRowOfPlane(pb, 0)
+    for row in 0..<h {
+      (y + row * yStride).update(from: src + row * strideY, count: w)
+    }
+    let uv = CVPixelBufferGetBaseAddressOfPlane(pb, 1)!.assumingMemoryBound(to: UInt8.self)
+    let uvStride = CVPixelBufferGetBytesPerRowOfPlane(pb, 1)
+    for row in 0..<(h + 1) / 2 {
+      (uv + row * uvStride).update(from: srcUV + row * strideUV, count: cw2)
+    }
+    CVBufferSetAttachment(pb, kCVImageBufferYCbCrMatrixKey, kCVImageBufferYCbCrMatrix_ITU_R_601_4, .shouldPropagate)
+    return pb
+  }
+
+  public func pixelBuffer(from f: K2I420Frame) throws -> CVPixelBuffer {
+    guard f.width > 0, f.height > 0, f.strideY >= f.width, f.strideU >= (f.width + 1) / 2,
+      f.strideV >= (f.width + 1) / 2
+    else { throw K2VideoError.badFrame("i420 size \(f.width)x\(f.height)") }
+    let pb = try buffer(width: f.width, height: f.height)
 
     try check(CVPixelBufferLockBaseAddress(pb, []), "lock")
     defer { CVPixelBufferUnlockBaseAddress(pb, []) }

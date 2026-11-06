@@ -106,6 +106,20 @@ public func k2PiPI420(
   K2PiP.shared.enqueue(i420: frame, pts: CMTime(value: pts90k, timescale: 90_000))
 }
 
+/// One decoded NV12 frame (Sew's native sink asks the VP8 decoder for
+/// NV12), read during the call and copied into a pooled pixel buffer.
+@_cdecl("k2_pip_nv12")
+public func k2PiPNV12(
+  _ width: UInt32, _ height: UInt32, _ y: UnsafePointer<UInt8>?, _ strideY: UInt32,
+  _ uv: UnsafePointer<UInt8>?, _ strideUV: UInt32, _ pts90k: Int64
+) {
+  guard #available(iOS 15.0, *) else { return }
+  guard let y = y, let uv = uv, width > 0, height > 0 else { return }
+  K2PiP.shared.enqueue(
+    nv12: Int(width), Int(height), y: y, strideY: Int(strideY), uv: uv, strideUV: Int(strideUV),
+    pts: CMTime(value: pts90k, timescale: 90_000))
+}
+
 /// The stream broke or switched: flush, then wait for a keyframe.
 @_cdecl("k2_pip_flush")
 public func k2PiPFlush(_ removeImage: Bool) {
@@ -287,6 +301,21 @@ final class K2PiP: NSObject {
   /// (c) then (a): one decoded I420 frame, read only during the call.
   func enqueue(i420 frame: K2I420Frame, pts: CMTime) {
     queue.sync { pushI420(frame, pts: pts) }
+  }
+
+  /// (d) then (a): one decoded NV12 frame, read only during the call.
+  func enqueue(
+    nv12 w: Int, _ h: Int, y: UnsafePointer<UInt8>, strideY: Int, uv: UnsafePointer<UInt8>, strideUV: Int, pts: CMTime
+  ) {
+    queue.sync {
+      guard layer != nil else { return }
+      do {
+        pushPixelBuffer(
+          try pool.pixelBuffer(nv12: w, h, y: y, strideY: strideY, uv: uv, strideUV: strideUV), pts: pts)
+      } catch {
+        pipLog("nv12: \(error)")
+      }
+    }
   }
 
   /// (a) A decoded frame the caller already holds as a pixel buffer.
