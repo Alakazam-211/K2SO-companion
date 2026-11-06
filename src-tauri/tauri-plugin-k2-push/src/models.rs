@@ -283,7 +283,9 @@ pub struct ScanQrResponse {
 ///   `mute {on}`; `title {title}`; `end`; `speaker {on}` → `{ok, route}`;
 ///   `autoSpeaker {on}` → `{ok, route}` (video's speaker; off undoes only its own);
 ///   `route` → `{route, active, autoSpeaker}`; `mic` → `{mic: granted|denied}`
-///   (asks the first time). Events come back as `call`.
+///   (asks the first time); `pipLayer {on}` → `{ok}` puts PiP's display layer
+///   in the window (on) or takes it down (off) for the frames of [`crate::pip`].
+///   Events come back as `call`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallOpRequest {

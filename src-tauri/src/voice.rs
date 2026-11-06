@@ -10,6 +10,8 @@
 //! - [`CallKitBridge`]: the engine's state drives the system call (CallKit),
 //!   and the system's buttons and audio session come back as [`VoiceControl`]
 //!   calls. Native both ways, so a call keeps working with the webview asleep.
+//! - [`PipSink`]: while the call has video, Sew's native sink on the active
+//!   speaker feeds the picture in picture (K2PiP.swift).
 //!
 //! The webview drives joins through the plugin's own commands
 //! (`plugin:sew-voice|join` …) and follows its `sew-voice://` events.
@@ -25,10 +27,11 @@ use base64::Engine as _;
 use serde_json::{json, Value};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager, Wry};
-use tauri_plugin_k2_push::{CallOpRequest, K2PushExt, VoiceKeyRequest, VoiceNoticeRequest, VoiceWatchRequest};
+use tauri_plugin_k2_push::{pip, CallOpRequest, K2PushExt, VoiceKeyRequest, VoiceNoticeRequest, VoiceWatchRequest};
+use tauri_plugin_sew_voice::native::{NativePayload, NativeSink, NativeSinkTarget, NativeVideoConsumer, NativeVideoEvent};
 use tauri_plugin_sew_voice::sew_call_client::Recording;
 use tauri_plugin_sew_voice::{
-    BoxFuture, CallState, ConsentAnswer, DeviceError, DeviceKeyId, HardwareDeviceKey, JoinAnswer,
+    AppScene, BoxFuture, CallState, ConsentAnswer, DeviceError, DeviceKeyId, HardwareDeviceKey, JoinAnswer,
     JoinProvider, JoinRequest, ProviderError, RecordingInfo, SelfMute, StateEvent, VoiceControl, VoiceListener,
 };
 use tauri_plugin_sew_voice::{ConsentAsk, ConsentPrompt, ErrorInfo};
@@ -55,6 +58,8 @@ pub struct Native {
     log: Arc<Mutex<CallLog>>,
     /// Why the last call ended when K2 left it itself (the engine says `left`).
     ended_why: Arc<Mutex<Option<&'static str>>>,
+    /// The picture in picture's thread ([`pip_loop`]).
+    pip: Arc<OnceLock<mpsc::Sender<ToSink>>>,
 }
 
 /// Sew install id → the app's server ids that joined through it. Sew knows
@@ -130,6 +135,13 @@ impl Native {
         }
     }
 
+    /// To the picture in picture's thread. Only queues: safe in a listener.
+    fn to_pip(&self, msg: ToSink) {
+        if let Some(tx) = self.pip.get() {
+            let _ = tx.send(msg);
+        }
+    }
+
     /// The Keychain's token for `server`, off the async runtime's workers.
     async fn token(&self, server: &str) -> Option<String> {
         let app = self.app()?;
@@ -150,6 +162,13 @@ pub fn plugin(native: &Native) -> tauri::plugin::TauriPlugin<Wry> {
         .spawn(move || callkit_loop(&mut shim, rx))
         .expect("the CallKit thread starts");
     let watch = watch_thread(native);
+    let (pip_tx, pip_rx) = mpsc::channel();
+    let _ = native.pip.set(pip_tx);
+    let mut pip_sink = PipSink { native: native.clone(), sink: None };
+    std::thread::Builder::new()
+        .name("k2-pip".into())
+        .spawn(move || pip_loop(&mut pip_sink, pip_rx))
+        .expect("the PiP thread starts");
     tauri_plugin_sew_voice::Builder::new(K2Provider::new(native.clone()))
         .listener(Arc::new(CallKitBridge { tx, watch, native: native.clone(), held: AtomicBool::new(false) }))
         .hardware_device_key(Arc::new(EnclaveKey { native: native.clone() }))
@@ -165,12 +184,16 @@ pub fn start(app: &AppHandle<Wry>, native: &Native) {
     let channel = Channel::new(move |body: InvokeResponseBody| {
         if let InvokeResponseBody::Json(text) = body {
             if let Ok(event) = serde_json::from_str::<Value>(&text) {
-                log.note(&shim_line(&event));
-                if event.get("event").and_then(Value::as_str) == Some("start_failed") {
+                let name = event.get("event").and_then(Value::as_str);
+                // Up to one a second while a layer waits: not worth the log's lines.
+                if name != Some("pip_keyframe") {
+                    log.note(&shim_line(&event));
+                }
+                if name == Some("start_failed") {
                     // The engine's end says `left`: the webview says why instead.
                     *log.ended_why.lock().unwrap_or_else(|e| e.into_inner()) = Some(SYSTEM_CALL_REFUSED);
                 }
-                on_shim_event(&control, &event);
+                on_shim_event(&control, &log, &event);
             }
         }
         Ok(())
@@ -506,6 +529,9 @@ pub const CONSENT_EVENT: &str = "k2-voice://consent";
 impl VoiceListener for CallKitBridge {
     fn on_state(&self, state: &StateEvent) {
         self.held.store(matches!(state.state, CallState::ConsentRequired { .. }), Ordering::Relaxed);
+        if matches!(state.state, CallState::Ended { .. } | CallState::Idle) {
+            self.native.to_pip(ToSink::Ended);
+        }
         let _ = self.tx.send(ToShim::State(state.clone()));
         self.native.note(&state_line(&state.state));
         let _ = self.watch.send(Watched::State(state.state.clone()));
@@ -531,16 +557,18 @@ impl VoiceListener for CallKitBridge {
         self.native.note(&format!("error {}", code(&error.code)));
     }
 
-    // Sew's native video (M7, not in the plugin yet) goes here:
-    // fn video_changed(&self, has_video: bool) { self.send_video(has_video) }
+    fn video_changed(&self, has_video: bool) {
+        self.send_video(has_video);
+        self.native.note(if has_video { "video on" } else { "video off" });
+    }
 }
 
 impl CallKitBridge {
     /// The call's video came or went: the system call and the speaker follow
-    /// ([`show_video`]). For Sew's `VoiceListener::video_changed`.
-    #[allow(dead_code)]
+    /// ([`show_video`]), and the picture in picture ([`pip_loop`]).
     fn send_video(&self, has_video: bool) {
         let _ = self.tx.send(ToShim::Video(has_video));
+        self.native.to_pip(ToSink::Video(has_video));
     }
 }
 
@@ -694,9 +722,9 @@ fn speaker_for(route: &str, video: bool, ours: bool) -> Speaker {
     }
 }
 
-/// System → engine: the shim's events (K2CallShim.swift), each on the
-/// async runtime, never waiting here.
-fn on_shim_event(control: &VoiceControl, event: &Value) {
+/// System → engine: the shim's events (K2CallShim.swift, and K2PiP.swift's
+/// `pip_…`), each on the async runtime or the PiP thread, never waiting here.
+fn on_shim_event(control: &VoiceControl, native: &Native, event: &Value) {
     let c = control.clone();
     match event.get("event").and_then(Value::as_str).unwrap_or_default() {
         "end_requested" | "start_failed" => {
@@ -719,7 +747,15 @@ fn on_shim_event(control: &VoiceControl, event: &Value) {
         "network_changed" => c.network_changed(),
         "app_scene" => {
             if let Some(scene) = scene_of(event) {
-                app_scene(&c, scene);
+                c.app_scene(sew_scene(scene));
+                native.to_pip(ToSink::Scene(scene));
+            }
+        }
+        "pip_keyframe" => native.to_pip(ToSink::Keyframe),
+        "pip_render_size" => {
+            let px = |k| event.get(k).and_then(Value::as_u64).and_then(|v| u32::try_from(v).ok());
+            if let (Some(w), Some(h)) = (px("width"), px("height")) {
+                native.to_pip(ToSink::RenderSize(w, h));
             }
         }
         _ => {}
@@ -741,13 +777,264 @@ fn scene_of(event: &Value) -> Option<Scene> {
     }
 }
 
-/// The app left the screen or came back. Not `suspend`/`resume`: those are
-/// audio interruptions, and the call goes on here; only video stops (no
-/// camera in the background). Does nothing until Sew's native video (M2),
-/// whose call goes here:
-/// `control.app_scene(AppScene::Background | AppScene::Foreground)`.
-fn app_scene(control: &VoiceControl, scene: Scene) {
-    let _ = (control, scene);
+/// The app left the screen or came back, in Sew's words. Not
+/// `suspend`/`resume`: those are audio interruptions, and the call goes on
+/// here; only video changes (the webview's sinks stop, the PiP sink stays).
+fn sew_scene(scene: Scene) -> AppScene {
+    match scene {
+        Scene::Background => AppScene::Background,
+        Scene::Foreground => AppScene::Foreground,
+    }
+}
+
+// ── Picture in picture ───────────────────────────────────────────────
+
+/// What the PiP sink opens at: Sew's 360p layer.
+const PIP_OPEN_SIZE: (u32, u32) = (640, 360);
+
+/// The PiP window may ask for more, up to 720p (either way round), and never
+/// less than 320 px on its long side.
+const PIP_MAX: (u32, u32) = (1280, 720);
+const PIP_MIN_LONG: u32 = 320;
+
+/// What [`pip_loop`] hears, in order.
+#[derive(Debug)]
+enum ToSink {
+    /// The call's video came or went (`video_changed`).
+    Video(bool),
+    /// The call ended.
+    Ended,
+    Scene(Scene),
+    /// K2PiP's layer wants a keyframe (`pip_keyframe`).
+    Keyframe,
+    /// The PiP window's pixels (`pip_render_size`).
+    RenderSize(u32, u32),
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SinkAct {
+    Open,
+    Close,
+    Keyframe,
+    Resize(u32, u32),
+}
+
+/// When the PiP sink is open: while the call has video, on screen or not.
+/// PiP's automatic start needs frames already playing inline when the app
+/// leaves the screen, and Sew keeps this sink going in the background.
+#[derive(Debug, Default)]
+struct SinkPlan {
+    video: bool,
+    open: bool,
+    /// The size last asked of the open sink.
+    size: Option<(u32, u32)>,
+}
+
+impl SinkPlan {
+    fn next(&mut self, msg: ToSink) -> Option<SinkAct> {
+        match msg {
+            ToSink::Video(on) => {
+                self.video = on;
+                self.want()
+            }
+            ToSink::Ended => {
+                self.video = false;
+                self.want()
+            }
+            // An open that failed (no window yet, say) tries again in front.
+            ToSink::Scene(Scene::Foreground) => self.want(),
+            ToSink::Scene(Scene::Background) => None,
+            ToSink::Keyframe => self.open.then_some(SinkAct::Keyframe),
+            ToSink::RenderSize(w, h) => {
+                let size = pip_max_size(w, h)?;
+                if !self.open || self.size == Some(size) {
+                    return None;
+                }
+                Some(SinkAct::Resize(size.0, size.1))
+            }
+        }
+    }
+
+    fn want(&self) -> Option<SinkAct> {
+        match (self.video, self.open) {
+            (true, false) => Some(SinkAct::Open),
+            (false, true) => Some(SinkAct::Close),
+            _ => None,
+        }
+    }
+
+    /// What `act` did (`ok`: an open opened).
+    fn done(&mut self, act: SinkAct, ok: bool) {
+        match act {
+            SinkAct::Open => {
+                self.open = ok;
+                self.size = ok.then_some(PIP_OPEN_SIZE);
+            }
+            SinkAct::Close => {
+                self.open = false;
+                self.size = None;
+            }
+            SinkAct::Resize(w, h) => self.size = Some((w, h)),
+            SinkAct::Keyframe => {}
+        }
+    }
+}
+
+/// The sink's `max_size` for a PiP window of `w`×`h` pixels: the window's
+/// shape, within [`PIP_MAX`] and not under [`PIP_MIN_LONG`].
+fn pip_max_size(w: u32, h: u32) -> Option<(u32, u32)> {
+    if w == 0 || h == 0 {
+        return None;
+    }
+    let (long, short) = (w.max(h) as f64, w.min(h) as f64);
+    let mut scale = (PIP_MAX.0 as f64 / long).min(PIP_MAX.1 as f64 / short).min(1.0);
+    if long * scale < PIP_MIN_LONG as f64 {
+        scale = PIP_MIN_LONG as f64 / long;
+    }
+    let fit = |v: u32| ((v as f64 * scale).round() as u32).max(1);
+    Some((fit(w), fit(h)))
+}
+
+/// What [`pip_loop`] does, so tests can stand in.
+trait SinkOps {
+    /// True when the sink opened.
+    fn open(&mut self) -> bool;
+    fn close(&mut self);
+    fn keyframe(&mut self);
+    fn resize(&mut self, w: u32, h: u32);
+}
+
+/// The PiP sink's own thread: [`VoiceControl`] can't be called from the
+/// listener (it runs under the plugin's lock), so the listener and the shim
+/// queue here.
+fn pip_loop(ops: &mut impl SinkOps, rx: mpsc::Receiver<ToSink>) {
+    let mut plan = SinkPlan::default();
+    for msg in rx {
+        let Some(act) = plan.next(msg) else { continue };
+        let ok = match act {
+            SinkAct::Open => ops.open(),
+            SinkAct::Close => {
+                ops.close();
+                true
+            }
+            SinkAct::Keyframe => {
+                ops.keyframe();
+                true
+            }
+            SinkAct::Resize(w, h) => {
+                ops.resize(w, h);
+                true
+            }
+        };
+        plan.done(act, ok);
+    }
+}
+
+/// Sew's native sink on the active speaker, into K2PiP.
+struct PipSink {
+    native: Native,
+    sink: Option<NativeSink>,
+}
+
+impl SinkOps for PipSink {
+    fn open(&mut self) -> bool {
+        let Some(app) = self.native.app() else { return false };
+        // The layer first: frames that come before it are dropped.
+        let layer = self.native.call_op("pipLayer", |r| r.on = Some(true));
+        if layer.as_ref().and_then(|v| v.get("ok")).and_then(Value::as_bool) != Some(true) {
+            self.native.note("pip unavailable");
+            return false;
+        }
+        let control = app.state::<VoiceControl>().inner().clone();
+        match control.open_native_sink(NativeSinkTarget::ActiveSpeaker, PIP_OPEN_SIZE, Arc::new(PipFeed)) {
+            Ok(sink) => {
+                self.native.note("pip sink open");
+                self.sink = Some(sink);
+                true
+            }
+            Err(e) => {
+                self.native.note(&format!("pip sink refused {}", code(&e.code)));
+                self.native.call_op("pipLayer", |r| r.on = Some(false));
+                false
+            }
+        }
+    }
+
+    fn close(&mut self) {
+        // The sink first, so no frame races the layer's teardown.
+        if let Some(sink) = self.sink.take() {
+            sink.close();
+        }
+        self.native.call_op("pipLayer", |r| r.on = Some(false));
+        self.native.note("pip sink closed");
+    }
+
+    fn keyframe(&mut self) {
+        if let Some(sink) = &self.sink {
+            sink.request_keyframe();
+        }
+    }
+
+    fn resize(&mut self, w: u32, h: u32) {
+        if let Some(sink) = &self.sink {
+            sink.set_max_size(w, h);
+        }
+    }
+}
+
+/// The sink's frames to K2PiP, on the sink's own thread. Swift copies each
+/// one before returning.
+struct PipFeed;
+
+impl NativeVideoConsumer for PipFeed {
+    fn on_video(&self, event: NativeVideoEvent) {
+        for f in feed(&event) {
+            match f {
+                Feed::Flush { remove_image } => pip::flush(remove_image),
+                Feed::H264 { access_unit, pts_90k } => pip::h264(access_unit, pts_90k),
+            }
+        }
+    }
+}
+
+/// What K2PiP gets for one of the sink's events.
+#[derive(Debug, PartialEq)]
+enum Feed<'a> {
+    Flush { remove_image: bool },
+    H264 { access_unit: &'a [u8], pts_90k: i64 },
+}
+
+fn feed(event: &NativeVideoEvent) -> Vec<Feed<'_>> {
+    match event {
+        NativeVideoEvent::Frame(f) => match &f.payload {
+            NativePayload::H264 { access_unit, .. } => {
+                // Arrival time, not the RTP clock: it keeps rising across a
+                // switch to another sender.
+                let unit = Feed::H264 { access_unit, pts_90k: pts_90k(f.timestamp_us) };
+                if f.discontinuity {
+                    vec![Feed::Flush { remove_image: false }, unit]
+                } else {
+                    vec![unit]
+                }
+            }
+            // VP8 comes decoded, and its CVPixelBuffer can't be reached from
+            // here at this kessel-video (5a21dc83): dropped. Sew's next merge
+            // adds `apple_pixel_buffer`; then hand it to K2PiP's
+            // `k2_pip_pixel_buffer` (+1 retained). Without the `video`
+            // feature there's no VP8 decoder anyway, so none comes.
+            NativePayload::Decoded(_) => Vec::new(),
+            _ => Vec::new(),
+        },
+        NativeVideoEvent::Reset { .. } => vec![Feed::Flush { remove_image: false }],
+        // Nobody left to show: clear the picture too.
+        NativeVideoEvent::Switched { track, .. } => vec![Feed::Flush { remove_image: track.is_none() }],
+        _ => Vec::new(),
+    }
+}
+
+/// µs → the 90 kHz clock K2PiP stamps samples with.
+fn pts_90k(us: u64) -> i64 {
+    i64::try_from(us.saturating_mul(9) / 100).unwrap_or(i64::MAX)
 }
 
 // ── While the app is away ────────────────────────────────────────────
@@ -1441,6 +1728,145 @@ mod tests {
         assert_eq!(scene_of(&json!({ "event": "app_scene", "scene": "foreground" })), Some(Scene::Foreground));
         assert_eq!(scene_of(&json!({ "event": "app_scene", "scene": "inactive" })), None);
         assert_eq!(scene_of(&json!({ "event": "app_scene" })), None);
+        assert_eq!(sew_scene(Scene::Background), AppScene::Background);
+        assert_eq!(sew_scene(Scene::Foreground), AppScene::Foreground);
+    }
+
+    /// The PiP sink as the loop sees it: what it was asked, and whether
+    /// opens work.
+    #[derive(Default)]
+    struct FakeSink {
+        acts: Vec<SinkAct>,
+        refuse: bool,
+    }
+
+    impl SinkOps for FakeSink {
+        fn open(&mut self) -> bool {
+            self.acts.push(SinkAct::Open);
+            !self.refuse
+        }
+        fn close(&mut self) {
+            self.acts.push(SinkAct::Close);
+        }
+        fn keyframe(&mut self) {
+            self.acts.push(SinkAct::Keyframe);
+        }
+        fn resize(&mut self, w: u32, h: u32) {
+            self.acts.push(SinkAct::Resize(w, h));
+        }
+    }
+
+    fn pip_run(sink: &mut FakeSink, msgs: Vec<ToSink>) -> Vec<SinkAct> {
+        let (tx, rx) = mpsc::channel();
+        for m in msgs {
+            tx.send(m).unwrap();
+        }
+        drop(tx);
+        pip_loop(sink, rx);
+        std::mem::take(&mut sink.acts)
+    }
+
+    #[test]
+    fn the_pip_sink_is_open_while_the_call_has_video() {
+        use SinkAct::*;
+        let mut sink = FakeSink::default();
+        let acts = pip_run(
+            &mut sink,
+            vec![
+                // Nothing to ask of a closed sink.
+                ToSink::Keyframe,
+                ToSink::RenderSize(1280, 720),
+                ToSink::Video(true),
+                ToSink::Video(true),
+                // The background keeps it: that's where PiP is.
+                ToSink::Scene(Scene::Background),
+                ToSink::Keyframe,
+                ToSink::RenderSize(1920, 1080),
+                ToSink::RenderSize(1920, 1080),
+                ToSink::Scene(Scene::Foreground),
+                ToSink::Video(false),
+                ToSink::Keyframe,
+                ToSink::Video(true),
+                // The call ends: closed even before video says so.
+                ToSink::Ended,
+                ToSink::Video(false),
+                ToSink::Ended,
+            ],
+        );
+        assert_eq!(acts, vec![Open, Keyframe, Resize(1280, 720), Close, Open, Close]);
+    }
+
+    #[test]
+    fn a_refused_pip_open_tries_again_in_front() {
+        use SinkAct::*;
+        let mut sink = FakeSink { refuse: true, ..FakeSink::default() };
+        let mut plan = SinkPlan::default();
+        let (tx, rx) = mpsc::channel();
+        for m in [ToSink::Video(true), ToSink::Keyframe, ToSink::Scene(Scene::Background)] {
+            tx.send(m).unwrap();
+        }
+        drop(tx);
+        pip_loop(&mut sink, rx);
+        assert_eq!(std::mem::take(&mut sink.acts), vec![Open]);
+        // The same refusal, step by step: back on screen it tries again.
+        assert_eq!(plan.next(ToSink::Video(true)), Some(Open));
+        plan.done(Open, false);
+        assert_eq!(plan.next(ToSink::Keyframe), None);
+        assert_eq!(plan.next(ToSink::Scene(Scene::Background)), None);
+        assert_eq!(plan.next(ToSink::Scene(Scene::Foreground)), Some(Open));
+        plan.done(Open, true);
+        assert_eq!(plan.next(ToSink::Scene(Scene::Foreground)), None);
+        // Once video is gone, nothing to retry.
+        assert_eq!(plan.next(ToSink::Ended), Some(Close));
+        plan.done(Close, true);
+        assert_eq!(plan.next(ToSink::Scene(Scene::Foreground)), None);
+    }
+
+    #[test]
+    fn the_pip_window_size_becomes_the_sinks_max_size() {
+        assert_eq!(pip_max_size(640, 360), Some((640, 360)));
+        assert_eq!(pip_max_size(1920, 1080), Some((1280, 720)));
+        // A portrait window keeps its shape.
+        assert_eq!(pip_max_size(1080, 1920), Some((720, 1280)));
+        assert_eq!(pip_max_size(1000, 1000), Some((720, 720)));
+        assert_eq!(pip_max_size(160, 90), Some((320, 180)));
+        assert_eq!(pip_max_size(0, 360), None);
+        // The size it opened at isn't asked again.
+        let mut plan = SinkPlan::default();
+        assert_eq!(plan.next(ToSink::Video(true)), Some(SinkAct::Open));
+        plan.done(SinkAct::Open, true);
+        assert_eq!(plan.next(ToSink::RenderSize(640, 360)), None);
+        assert_eq!(plan.next(ToSink::RenderSize(0, 0)), None);
+    }
+
+    fn h264(keyframe: bool, discontinuity: bool) -> NativeVideoEvent {
+        NativeVideoEvent::Frame(tauri_plugin_sew_voice::native::NativeVideoFrame {
+            track: "TR_v1".into(),
+            keyframe,
+            discontinuity,
+            timestamp_us: 2_000_000,
+            rtp_ts: 7,
+            payload: NativePayload::H264 { access_unit: vec![0, 0, 0, 1, 0x65, 9], width: 640, height: 360 },
+        })
+    }
+
+    #[test]
+    fn the_sinks_events_to_k2pip() {
+        let unit: &[u8] = &[0, 0, 0, 1, 0x65, 9];
+        let frame = h264(false, false);
+        assert_eq!(feed(&frame), vec![Feed::H264 { access_unit: unit, pts_90k: 180_000 }]);
+        // A discontinuity flushes first.
+        let first = h264(true, true);
+        assert_eq!(
+            feed(&first),
+            vec![Feed::Flush { remove_image: false }, Feed::H264 { access_unit: unit, pts_90k: 180_000 }]
+        );
+        assert_eq!(feed(&NativeVideoEvent::Reset { track: "TR_v1".into() }), vec![Feed::Flush { remove_image: false }]);
+        let to = NativeVideoEvent::Switched { track: Some("TR_v2".into()), member_id: Some("1001".into()) };
+        assert_eq!(feed(&to), vec![Feed::Flush { remove_image: false }]);
+        let nobody = NativeVideoEvent::Switched { track: None, member_id: None };
+        assert_eq!(feed(&nobody), vec![Feed::Flush { remove_image: true }]);
+        assert_eq!(pts_90k(1_000_000), 90_000);
     }
 
     #[test]

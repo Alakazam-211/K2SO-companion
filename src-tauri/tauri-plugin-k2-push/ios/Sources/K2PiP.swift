@@ -1,7 +1,7 @@
 // Picture in Picture for a call's remote video (voice plan M8, "Video on the
-// shim"). Groundwork: Sew's `open_native_sink(track | ActiveSpeaker,
-// max_size)` doesn't exist yet. Until it does, only the debug `pipTest` op
-// feeds this.
+// shim"). Fed by Sew's native sink (`open_native_sink(ActiveSpeaker,
+// 640×360)`, voice.rs `PipSink`) while the call has video; the debug
+// `pipTest` op feeds it too.
 //
 // Placement: the display layer lives in a small view (64×36 pt) inserted at
 // the BOTTOM of the app's key window, under the root view controller's view.
@@ -12,33 +12,33 @@
 // in-call video view, move this view there instead: PiP's start and restore
 // animations run from the layer's frame.
 //
-// Rust seam (when `open_native_sink` lands):
+// The Rust seam:
 // - Frames don't go through `run_mobile_plugin` (JSON on the main run loop:
 //   far too slow for video). Swift exports C entry points with `@_cdecl`,
-//   which the k2-push crate declares `extern "C"` (the plugin's static
-//   library is already linked into the app):
-//     k2_pip_h264(ptr, len, pts_90k)              — one Annex-B access unit
-//     k2_pip_i420(w, h, y, sy, u, su, v, sv, pts) — one decoded VP8 frame
-//     k2_pip_pixel_buffer(cvpixelbuffer_ref, pts) — +1 retained, if Sew's
-//                                                   decoder ever hands one
+//   which the k2-push crate declares `extern "C"` (`pip::h264`, `pip::flush`;
+//   the plugin's static library is already linked into the app):
+//     k2_pip_h264(ptr, len, pts_90k)  — one Annex-B access unit
+//     k2_pip_flush(remove_image)      — Sew's reset, switch or discontinuity
+//   Not yet: VP8 comes decoded, and its CVPixelBuffer isn't reachable from
+//   Rust until Sew's kessel-video bump (`apple_pixel_buffer`). Then:
+//     k2_pip_pixel_buffer(cvpixelbuffer_ref, pts) — +1 retained
+//   (`enqueue(i420:)` is there too, should the planes ever be all we get.)
 // - Called on Sew's sink thread (never main). Pointers are borrowed for the
-//   call only: `enqueue(h264:)` and `enqueue(i420:)` run `queue.sync`, copy
-//   (AVCC repack / I420 → NV12, both copies anyway) and return, so Rust
-//   frees or reuses its buffer at once. That costs one memcpy per frame
-//   (tens of KB for H.264, ~0.3 MB for 640×360 I420) and never ties a Rust
-//   lifetime to Core Media. A CVPixelBuffer crosses with its retain
-//   (`Unmanaged.takeRetainedValue`), no copy.
-// - pts: the RTP timestamp as CMTime(value, 90_000). Samples are
+//   call only: `enqueue(h264:)` runs `queue.sync`, copies (the AVCC repack)
+//   and returns, so Rust frees or reuses its buffer at once. One memcpy per
+//   frame (tens of KB), and no Rust lifetime tied to Core Media. A
+//   CVPixelBuffer would cross with its retain (`takeRetainedValue`), no copy.
+// - pts: Sew's arrival time as CMTime(value, 90_000). Samples are
 //   DisplayImmediately, so it only orders; it never delays.
-// - Control stays on `callOp` (`pip`) and events: `pip_render_size` →
-//   Sew's `max_size`, `pip_keyframe` → Sew's keyframe request (PLI) after a
-//   flush or a start mid-GOP; `pip_started`/`pip_stopped` → the sink's
-//   ActiveSpeaker on or off. Today these reach the UI as the `pip` event;
-//   voice.rs ignores unknown shim events, so sending them to Rust later is
-//   safe.
-// - Teardown: `callOp end` (or `report ended`) closes PiP and drops the
-//   layer; Rust closes the sink first so no frame races the teardown (a
-//   late frame finds no layer and is dropped).
+// - Control: `callOp pipLayer {on}` puts the layer in the window when the
+//   sink opens (PiP's automatic start needs frames playing inline before
+//   the app leaves the screen) and takes it down when it closes; `callOp
+//   pip {on}` starts or stops PiP itself. Events go to the UI as `pip` and
+//   to Rust: `pip_keyframe` → the sink's keyframe request (after a flush or
+//   a start mid-GOP), `pip_render_size` → its `set_max_size`.
+// - Teardown: Rust closes the sink first, then `pipLayer off`, so no frame
+//   races it (a late frame finds no layer and is dropped). `callOp end` and
+//   `report ended` tear down too.
 
 import AVFoundation
 import AVKit
@@ -54,6 +54,24 @@ private func pipLog(_ message: String) {
 /// The call ended: close PiP (callOp `end` / `report ended`).
 func k2PiPCallEnded() {
   if #available(iOS 15.0, *) { K2PiP.shared.teardown() }
+}
+
+// ── Rust's entry points (k2-push `pip`), on Sew's sink thread ─────────
+
+/// One H.264 Annex-B access unit, copied before this returns.
+@_cdecl("k2_pip_h264")
+public func k2PiPH264(_ bytes: UnsafePointer<UInt8>?, _ len: Int, _ pts90k: Int64) {
+  guard #available(iOS 15.0, *) else { return }
+  guard let bytes = bytes, len > 0 else { return }
+  K2PiP.shared.enqueue(
+    h264: UnsafeRawBufferPointer(start: bytes, count: len), pts: CMTime(value: pts90k, timescale: 90_000))
+}
+
+/// The stream broke or switched: flush, then wait for a keyframe.
+@_cdecl("k2_pip_flush")
+public func k2PiPFlush(_ removeImage: Bool) {
+  guard #available(iOS 15.0, *) else { return }
+  K2PiP.shared.flush(removeImage: removeImage)
 }
 
 /// A view whose own layer is the display layer.
@@ -189,6 +207,17 @@ final class K2PiP: NSObject {
   /// (a) A decoded frame the caller already holds as a pixel buffer.
   func enqueue(pixelBuffer: CVPixelBuffer, pts: CMTime) {
     queue.async { self.pushPixelBuffer(pixelBuffer, pts: pts) }
+  }
+
+  /// A break in the stream (Sew's reset, switch or discontinuity): drop what
+  /// the layer holds and take nothing until the next keyframe, which Sew
+  /// sends next. `removeImage` when there's nobody left to show.
+  func flush(removeImage: Bool) {
+    queue.sync {
+      guard let layer = layer else { return }
+      Self.flush(layer, removeImage: removeImage)
+      packer.requireKeyframe()
+    }
   }
 
   // ── Frames (queue) ─────────────────────────────────────────────────

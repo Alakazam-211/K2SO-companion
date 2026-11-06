@@ -1,0 +1,6 @@
+# Sew main is private (Cargo.toml's voice rows point at an unpublished commit
+# until Sew publishes it to the public mirror): fetch git deps with the git
+# CLI, which has this machine's GitHub credentials. Drop with the move back
+# to github.com/Alakazam-211/sew-crates.
+[net]
+git-fetch-with-cli = true

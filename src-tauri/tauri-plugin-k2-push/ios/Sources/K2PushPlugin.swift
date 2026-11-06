@@ -109,9 +109,11 @@ class K2PushPlugin: Plugin {
         }
       }
     }
-    // Picture in Picture's events (K2PiP) go to the UI as `pip`.
+    // Picture in Picture's events (K2PiP) go to the UI as `pip`, and to Rust
+    // (the sink's keyframe and size).
     if #available(iOS 15.0, *) {
       K2PiP.shared.onEvent = { [weak self] event in
+        self?.sendToRust(event)
         DispatchQueue.main.async {
           if let data = JSTypes.coerceDictionaryToJSObject(event) { self?.trigger("pip", data: data) }
         }
@@ -400,6 +402,19 @@ class K2PushPlugin: Plugin {
       // Picture in Picture (K2PiP): `{on?}` starts or stops it, answers its state.
       guard #available(iOS 15.0, *) else { return invoke.resolve(["ok": false, "error": "ios_too_old"]) }
       DispatchQueue.main.async { invoke.resolve(K2PiP.shared.op(on: args.on)) }
+    case "pipLayer":
+      // Rust's PiP sink opened (`on`: the layer goes in the window, for
+      // PiP's automatic start) or closed (`off`: PiP and the layer go).
+      guard #available(iOS 15.0, *) else { return invoke.resolve(["ok": false, "error": "ios_too_old"]) }
+      DispatchQueue.main.async {
+        if args.on == true {
+          let ok = K2PiP.shared.prepare()
+          invoke.resolve(K2PiP.shared.state().merging(["ok": ok]) { $1 })
+        } else {
+          K2PiP.shared.teardown()
+          invoke.resolve(["ok": true])
+        }
+      }
     #if DEBUG
     case "pipTest":
       // Debug builds only: `{on, state?: "h264"}` plays K2PiP's test pattern.

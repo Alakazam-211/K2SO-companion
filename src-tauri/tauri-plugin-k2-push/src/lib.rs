@@ -64,6 +64,40 @@ mod mobile;
 pub use error::{Error, Result};
 pub use models::*;
 
+/// Picture in Picture's frames (K2PiP.swift's `@_cdecl` entry points), not
+/// through `run_mobile_plugin`: called on Sew's native sink thread, never
+/// the main one. Swift copies before it returns. No-ops off iOS.
+pub mod pip {
+    #[cfg(target_os = "ios")]
+    extern "C" {
+        fn k2_pip_h264(bytes: *const u8, len: usize, pts_90k: i64);
+        fn k2_pip_flush(remove_image: bool);
+    }
+
+    /// One H.264 access unit, Annex B. `pts_90k` only orders frames.
+    pub fn h264(access_unit: &[u8], pts_90k: i64) {
+        #[cfg(target_os = "ios")]
+        // SAFETY: Swift reads `len` bytes during the call and keeps nothing.
+        unsafe {
+            k2_pip_h264(access_unit.as_ptr(), access_unit.len(), pts_90k)
+        }
+        #[cfg(not(target_os = "ios"))]
+        let _ = (access_unit, pts_90k);
+    }
+
+    /// A break in the stream: the layer drops what it holds and waits for a
+    /// keyframe. `remove_image` when there's nothing left to show.
+    pub fn flush(remove_image: bool) {
+        #[cfg(target_os = "ios")]
+        // SAFETY: no arguments to keep.
+        unsafe {
+            k2_pip_flush(remove_image)
+        }
+        #[cfg(not(target_os = "ios"))]
+        let _ = remove_image;
+    }
+}
+
 #[cfg(desktop)]
 use desktop::K2Push;
 #[cfg(mobile)]
