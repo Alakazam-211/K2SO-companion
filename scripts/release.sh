@@ -141,7 +141,7 @@ echo "  K2 iOS Release"
 echo "  Version: $VERSION"
 echo "  Build:   $BUILD_NUMBER"
 [ -n "$NO_UPLOAD" ] && echo "  Mode:    dry run (--no-upload)"
-[ -n "${VOICE_CRYPTO:-}" ] && echo "  Crypto:  VOICE_CRYPTO=1 (uses encryption: standard algorithms, mass market)"
+[ -n "${VOICE_CRYPTO:-}" ] && echo "  Crypto:  VOICE_CRYPTO=1 (standard algorithms, mass market; not on the French store)"
 echo "═══════════════════════════════════════"
 echo ""
 
@@ -224,7 +224,18 @@ export PATH="$HOME/.cargo/bin:$PATH"
 #   in France? Standard algorithms + France = upload the French (ANSSI)
 #   encryption declaration; Apple reviews it and issues a code. Pass that
 #   code as EXPORT_COMPLIANCE_CODE so later builds skip the questions.
-if [ -n "${VOICE_CRYPTO:-}" ]; then
+#
+# 2026-11-05: K2 is off the French store (Rosson), and App Store Connect
+# then needs no documentation: its API refuses an encryption declaration
+# for standard algorithms outside France, and a build declaring true with
+# no code fails validation (90592). So without EXPORT_COMPLIANCE_CODE the
+# voice build keeps ITSAppUsesNonExemptEncryption false (no documentation
+# required) and only skips the ring guard. Back on the French store, the
+# ANSSI declaration's code goes in EXPORT_COMPLIANCE_CODE and the flag
+# turns true.
+if [ -n "${VOICE_CRYPTO:-}" ] && [ -z "${EXPORT_COMPLIANCE_CODE:-}" ]; then
+  echo "→ Voice build (VOICE_CRYPTO=1): standard algorithms, not on the French store, no documentation required"
+elif [ -n "${VOICE_CRYPTO:-}" ]; then
   echo "→ Declaring encryption (VOICE_CRYPTO=1): ITSAppUsesNonExemptEncryption true"
   sed -i '' '/<key>ITSAppUsesNonExemptEncryption<\/key>/{ n; s/<false\/>/<true\/>/; }' "$INFO_PLIST" "$IOS_PLIST"
   sed -i '' 's/ITSAppUsesNonExemptEncryption: false/ITSAppUsesNonExemptEncryption: true/' "$PROJECT_YML"
@@ -250,7 +261,7 @@ if [ ! -d "$ARCHIVE_PATH" ]; then
   exit 1
 fi
 echo "  ✓ Archive built"
-if [ -n "${VOICE_CRYPTO:-}" ]; then
+if [ -n "${VOICE_CRYPTO:-}" ] && [ -n "${EXPORT_COMPLIANCE_CODE:-}" ]; then
   # The flag must reach the binary: tauri merges Info.ios.plist on build.
   ARCHIVED_ITS="$(/usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' "$ARCHIVE_PATH/Products/Applications/K2.app/Info.plist" 2>/dev/null || true)"
   if [ "$ARCHIVED_ITS" != "true" ]; then
