@@ -1,8 +1,8 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "voice",
-  "description": "Voice rooms (4.2.0, iOS): Sew's native voice plugin's commands for the app's own window",
+  "description": "Voice rooms (4.2.0, iOS): Sew's native voice plugin's commands for the app's own window. call_details for Sew's call kit (security code, roster, quality, a ring for a window opened mid-call); not the full sew-voice:call-details set, whose ring and ring_ended would let the webview ring CallKit a second time (rings are native)",
   "windows": ["main"],
   "platforms": ["iOS"],
-  "permissions": ["sew-voice:default"]
+  "permissions": ["sew-voice:default", "sew-voice:allow-call-details"]
 }
