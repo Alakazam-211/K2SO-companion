@@ -22,6 +22,7 @@ import AVFoundation
 import CallKit
 import Foundation
 import Network
+import UIKit
 
 // The app's minimum is iOS 15; the plugin package builds for 13.
 @available(iOS 14.0, *)
@@ -31,6 +32,10 @@ public final class K2CallShim: NSObject {
   /// `{"event": …}` for Rust and the UI. Set once by the plugin.
   public var onEvent: (([String: Any]) -> Void)?
 
+  /// Video calls (Sew's native video): turn on when video ships. Until then
+  /// the system shows every call as audio, whatever `report` says.
+  static let videoCalls = false
+
   private let provider: CXProvider
   private let controller = CXCallController()
   private let queue = DispatchQueue(label: "k2.call-shim")
@@ -38,6 +43,12 @@ public final class K2CallShim: NSObject {
   private var call: UUID?
   private var room = ""
   private var muted = false
+  /// The call has video (the engine's `video_changed`), and its name as shown.
+  private var video = false
+  private var shown = ""
+  /// The speaker is on because video turned it on (`autoSpeaker`), not by
+  /// the person's choice. A route change ends it.
+  private var autoSpeakerOn = false
   private var observers: [NSObjectProtocol] = []
   private var path: NWPathMonitor?
   /// The names the app gave the next call (`label`): the engine knows only ids.
@@ -45,7 +56,7 @@ public final class K2CallShim: NSObject {
 
   override init() {
     let config = CXProviderConfiguration()
-    config.supportsVideo = false
+    config.supportsVideo = Self.videoCalls
     config.maximumCallGroups = 1
     config.maximumCallsPerCallGroup = 1
     config.supportedHandleTypes = [.generic]
@@ -79,7 +90,10 @@ public final class K2CallShim: NSObject {
       let id = UUID()
       self.call = id
       self.room = room
+      self.shown = room
       self.muted = false
+      self.video = false
+      self.autoSpeakerOn = false
       let handle = CXHandle(type: .generic, value: server.isEmpty ? room : "\(room) · \(server)")
       let action = CXStartCallAction(call: id, handle: handle)
       action.contactIdentifier = room
@@ -99,10 +113,15 @@ public final class K2CallShim: NSObject {
   }
 
   /// The engine's state. `reconnecting` keeps the call and says so in its
-  /// name; `ended` takes it off the system UI.
-  public func report(state: String, reason: String? = nil) {
+  /// name; `ended` takes it off the system UI. `video` with no state updates
+  /// the call in place.
+  public func report(state: String, reason: String? = nil, video: Bool? = nil) {
     queue.async {
       guard let id = self.call else { return }
+      if let video = video, video != self.video {
+        self.video = video
+        if state.isEmpty { self.rename(self.shown) }
+      }
       switch state {
       case "connecting":
         self.provider.reportOutgoingCall(with: id, startedConnectingAt: nil)
@@ -115,6 +134,8 @@ public final class K2CallShim: NSObject {
       case "ended":
         self.call = nil
         self.labels = nil
+        self.video = false
+        self.autoSpeakerOn = false
         self.provider.reportCall(with: id, endedAt: nil, reason: Self.endReason(reason))
         self.stopObserving()
       default:
@@ -157,7 +178,8 @@ public final class K2CallShim: NSObject {
     update.supportsGrouping = false
     update.supportsUngrouping = false
     update.supportsDTMF = false
-    update.hasVideo = false
+    update.hasVideo = Self.videoCalls && video
+    shown = name
     provider.reportCall(with: id, updated: update)
   }
 
@@ -196,14 +218,34 @@ public final class K2CallShim: NSObject {
   public func setSpeaker(_ on: Bool) -> Bool {
     do {
       try AVAudioSession.sharedInstance().overrideOutputAudioPort(on ? .speaker : .none)
+      // The person's choice now, not video's.
+      queue.sync { autoSpeakerOn = false }
       return true
     } catch {
       return false
     }
   }
 
+  /// Video turned the speaker on (Rust decides when: `speaker_for` in
+  /// voice.rs), or off again: off undoes only an override made here.
+  public func autoSpeaker(_ on: Bool) -> Bool {
+    queue.sync {
+      guard on || autoSpeakerOn else { return true }
+      do {
+        try AVAudioSession.sharedInstance().overrideOutputAudioPort(on ? .speaker : .none)
+        autoSpeakerOn = on
+        return true
+      } catch {
+        return false
+      }
+    }
+  }
+
+  /// The speaker is on because of video (see `autoSpeaker`).
+  public var autoSpeakerActive: Bool { queue.sync { autoSpeakerOn } }
+
   /// Where audio goes now: `speaker`, `receiver`, `bluetooth`, `headphones`,
-  /// `carplay`, or `other`.
+  /// `carplay`, `airplay`, or `other`.
   public static func currentRoute() -> String {
     guard let port = AVAudioSession.sharedInstance().currentRoute.outputs.first?.portType else { return "other" }
     switch port {
@@ -212,6 +254,7 @@ public final class K2CallShim: NSObject {
     case .bluetoothHFP, .bluetoothA2DP, .bluetoothLE: return "bluetooth"
     case .headphones, .usbAudio: return "headphones"
     case .carAudio: return "carplay"
+    case .airPlay: return "airplay"
     default: return "other"
     }
   }
@@ -227,7 +270,11 @@ public final class K2CallShim: NSObject {
         let reason = raw.flatMap { AVAudioSession.RouteChangeReason(rawValue: $0) }
         // A category change is our own doing; the rest can change the rate.
         guard reason != .categoryChange else { return }
-        self?.emit(["event": "route_changed", "route": Self.currentRoute()])
+        let route = Self.currentRoute()
+        // A new route (headphones in, the person's pick) drops the
+        // system's override: video's speaker is gone with it.
+        if route != "speaker" { self?.queue.async { self?.autoSpeakerOn = false } }
+        self?.emit(["event": "route_changed", "route": route])
       })
     // Siri, an alarm, another app's audio. A cellular call comes as a hold.
     observers.append(
@@ -248,7 +295,19 @@ public final class K2CallShim: NSObject {
         [weak self] _ in
         // The audio server restarted: everything must be set up again.
         try? Self.configureSession()
+        self?.queue.async { self?.autoSpeakerOn = false }
         self?.emit(["event": "media_reset"])
+      })
+    // The app left the screen or came back: the engine stops and restarts
+    // video (no camera in the background). Not an audio interruption: the
+    // call goes on.
+    observers.append(
+      center.addObserver(forName: UIScene.didEnterBackgroundNotification, object: nil, queue: nil) { [weak self] _ in
+        self?.emit(["event": "app_scene", "scene": "background"])
+      })
+    observers.append(
+      center.addObserver(forName: UIScene.willEnterForegroundNotification, object: nil, queue: nil) { [weak self] _ in
+        self?.emit(["event": "app_scene", "scene": "foreground"])
       })
   }
 

@@ -20,6 +20,7 @@ export type ShimEvent =
   | { event: "route_changed"; route: string }
   | { event: "media_reset" }
   | { event: "network_changed"; interface?: string }
+  | { event: "app_scene"; scene: "background" | "foreground" }
   | { event: "start_failed"; error: string };
 
 export interface CallShim {

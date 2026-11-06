@@ -140,10 +140,10 @@ impl Native {
 /// The voice plugin, set up for this app. Call [`start`] from `setup`.
 pub fn plugin(native: &Native) -> tauri::plugin::TauriPlugin<Wry> {
     let (tx, rx) = mpsc::channel();
-    let bridge_native = native.clone();
+    let mut shim = native.clone();
     std::thread::Builder::new()
         .name("k2-callkit".into())
-        .spawn(move || callkit_loop(&bridge_native, rx))
+        .spawn(move || callkit_loop(&mut shim, rx))
         .expect("the CallKit thread starts");
     tauri_plugin_sew_voice::Builder::new(K2Provider::new(native.clone()))
         .listener(Arc::new(CallKitBridge { tx, native: native.clone(), held: AtomicBool::new(false) }))
@@ -459,6 +459,8 @@ impl HardwareDeviceKey for EnclaveKey {
 enum ToShim {
     State(StateEvent),
     Muted(bool),
+    /// The call has video (a camera or a screen share), or no longer.
+    Video(bool),
 }
 
 /// Engine → system call. The listener runs under the plugin's lock, so it
@@ -493,6 +495,18 @@ impl VoiceListener for CallKitBridge {
     fn on_self_mute(&self, me: &SelfMute) {
         let _ = self.tx.send(ToShim::Muted(me.muted));
     }
+
+    // Sew's native video (M7, not in the plugin yet) goes here:
+    // fn video_changed(&self, has_video: bool) { self.send_video(has_video) }
+}
+
+impl CallKitBridge {
+    /// The call's video came or went: the system call and the speaker follow
+    /// ([`show_video`]). For Sew's `VoiceListener::video_changed`.
+    #[allow(dead_code)]
+    fn send_video(&self, has_video: bool) {
+        let _ = self.tx.send(ToShim::Video(has_video));
+    }
 }
 
 /// What the sheet shows, while this person still owes an answer.
@@ -514,16 +528,30 @@ fn consent_sheet(r: &RecordingInfo, ask: ConsentAsk) -> Option<Value> {
     }))
 }
 
-fn call_op(native: &Native, op: &str, f: impl FnOnce(&mut CallOpRequest)) -> Option<Value> {
-    let app = native.app()?;
-    let mut req = CallOpRequest { op: op.into(), room: None, server: None, state: None, reason: None, on: None, title: None };
+fn call_req(op: &str, f: impl FnOnce(&mut CallOpRequest)) -> CallOpRequest {
+    let mut req =
+        CallOpRequest { op: op.into(), room: None, server: None, state: None, reason: None, on: None, title: None, video: None };
     f(&mut req);
-    app.k2_push().call_op(req).ok()
+    req
 }
 
-fn callkit_loop(native: &Native, rx: mpsc::Receiver<ToShim>) {
+/// Where [`callkit_loop`] sends its `callOp`s: Swift, or a test's record.
+trait CallOps {
+    fn call_op(&mut self, op: &str, f: impl FnOnce(&mut CallOpRequest)) -> Option<Value>;
+}
+
+impl CallOps for Native {
+    fn call_op(&mut self, op: &str, f: impl FnOnce(&mut CallOpRequest)) -> Option<Value> {
+        let app = self.app()?;
+        app.k2_push().call_op(call_req(op, f)).ok()
+    }
+}
+
+fn callkit_loop(native: &mut impl CallOps, rx: mpsc::Receiver<ToShim>) {
     // Whether a system call is up (the shim's own `call`, as this side last made it).
     let mut up = false;
+    // Whether the call has video, as the engine last said.
+    let mut video = false;
     for msg in rx {
         match msg {
             ToShim::State(ev) => match &ev.state {
@@ -532,7 +560,7 @@ fn callkit_loop(native: &Native, rx: mpsc::Receiver<ToShim>) {
                         // The first sign of a call: start the system call, which
                         // activates the audio session (kessel-audio waits for it).
                         let room = ev.room.clone();
-                        let answer = call_op(native, "start", |r| r.room = room);
+                        let answer = native.call_op("start", |r| r.room = room);
                         up = answer.as_ref().and_then(|v| v.get("ok")).and_then(Value::as_bool) == Some(true);
                         // Refused (another app's call, CallKit down): the shim
                         // emitted `start_failed`, and the engine leaves.
@@ -545,40 +573,88 @@ fn callkit_loop(native: &Native, rx: mpsc::Receiver<ToShim>) {
                         CallState::Reconnecting { .. } => "reconnecting",
                         _ => "connecting",
                     };
-                    call_op(native, "report", |r| r.state = Some(state.into()));
+                    native.call_op("report", |r| {
+                        r.state = Some(state.into());
+                        r.video = Some(video);
+                    });
                 }
                 // A re-join held for a recording answer: the call stays, waiting.
                 CallState::ConsentRequired { .. } => {
                     if up {
-                        call_op(native, "report", |r| r.state = Some("reconnecting".into()));
+                        native.call_op("report", |r| r.state = Some("reconnecting".into()));
                     }
                 }
                 CallState::Ended { reason } => {
                     if up {
                         let reason = reason.clone();
-                        call_op(native, "report", |r| {
+                        native.call_op("report", |r| {
                             r.state = Some("ended".into());
                             r.reason = Some(reason);
                         });
                         up = false;
+                        video = false;
                     }
                 }
                 CallState::Idle => {
                     if up {
-                        call_op(native, "report", |r| {
+                        native.call_op("report", |r| {
                             r.state = Some("ended".into());
                             r.reason = Some("left".into());
                         });
                         up = false;
+                        video = false;
                     }
                 }
             },
             ToShim::Muted(muted) => {
                 if up {
-                    call_op(native, "mute", |r| r.on = Some(muted));
+                    native.call_op("mute", |r| r.on = Some(muted));
+                }
+            }
+            ToShim::Video(on) => {
+                // Before the call is up, the first `report` carries it.
+                if on != video {
+                    video = on;
+                    if up {
+                        show_video(native, on);
+                    }
                 }
             }
         }
+    }
+}
+
+/// Video came or went: the system call shows it (`hasVideo`), and the sound
+/// moves as [`speaker_for`] says.
+fn show_video(native: &mut impl CallOps, on: bool) {
+    native.call_op("report", |r| r.video = Some(on));
+    let now = native.call_op("route", |_| {}).unwrap_or(Value::Null);
+    let route = now.get("route").and_then(Value::as_str).unwrap_or("other");
+    let ours = now.get("autoSpeaker").and_then(Value::as_bool).unwrap_or(false);
+    match speaker_for(route, on, ours) {
+        Speaker::Override => native.call_op("autoSpeaker", |r| r.on = Some(true)),
+        Speaker::Undo => native.call_op("autoSpeaker", |r| r.on = Some(false)),
+        Speaker::Leave => None,
+    };
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Speaker {
+    Override,
+    Undo,
+    Leave,
+}
+
+/// Where the sound goes when video changes. A video call held to the ear
+/// makes no sense: the receiver becomes the speaker. Headphones, Bluetooth,
+/// CarPlay and AirPlay are the person's pick and stay. Video off undoes only
+/// an override video made (`ours`; the shim drops it on a route change).
+/// `route` is the shim's `currentRoute()`.
+fn speaker_for(route: &str, video: bool, ours: bool) -> Speaker {
+    match (video, ours) {
+        (true, false) if route == "receiver" => Speaker::Override,
+        (false, true) => Speaker::Undo,
+        _ => Speaker::Leave,
     }
 }
 
@@ -605,8 +681,37 @@ fn on_shim_event(control: &VoiceControl, event: &Value) {
         // The audio server restarted: reopen the device as a route change does.
         "route_changed" | "media_reset" => c.route_changed(),
         "network_changed" => c.network_changed(),
+        "app_scene" => {
+            if let Some(scene) = scene_of(event) {
+                app_scene(&c, scene);
+            }
+        }
         _ => {}
     }
+}
+
+/// The app on screen or not (the shim's `app_scene`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Scene {
+    Background,
+    Foreground,
+}
+
+fn scene_of(event: &Value) -> Option<Scene> {
+    match event.get("scene").and_then(Value::as_str)? {
+        "background" => Some(Scene::Background),
+        "foreground" => Some(Scene::Foreground),
+        _ => None,
+    }
+}
+
+/// The app left the screen or came back. Not `suspend`/`resume`: those are
+/// audio interruptions, and the call goes on here; only video stops (no
+/// camera in the background). Does nothing until Sew's native video (M2),
+/// whose call goes here:
+/// `control.app_scene(AppScene::Background | AppScene::Foreground)`.
+fn app_scene(control: &VoiceControl, scene: Scene) {
+    let _ = (control, scene);
 }
 
 #[cfg(test)]
@@ -711,6 +816,120 @@ mod tests {
         assert_eq!(i.0.keys().cloned().collect::<Vec<_>>(), vec!["9".to_owned()]);
         let json = serde_json::to_string(&i).unwrap();
         assert_eq!(serde_json::from_str::<Installs>(&json).unwrap(), i);
+    }
+
+    /// The shim as the loop sees it: every `callOp` it got, and a route.
+    struct FakeShim {
+        ops: Vec<Value>,
+        route: &'static str,
+        auto: bool,
+    }
+
+    impl CallOps for FakeShim {
+        fn call_op(&mut self, op: &str, f: impl FnOnce(&mut CallOpRequest)) -> Option<Value> {
+            let req = call_req(op, f);
+            self.ops.push(json!(req));
+            match op {
+                "route" => Some(json!({ "ok": true, "route": self.route, "autoSpeaker": self.auto })),
+                "autoSpeaker" => {
+                    self.auto = req.on == Some(true);
+                    Some(json!({ "ok": true }))
+                }
+                _ => Some(json!({ "ok": true })),
+            }
+        }
+    }
+
+    fn run(route: &'static str, msgs: Vec<ToShim>) -> Vec<Value> {
+        let (tx, rx) = mpsc::channel();
+        for m in msgs {
+            tx.send(m).unwrap();
+        }
+        drop(tx);
+        let mut shim = FakeShim { ops: Vec::new(), route, auto: false };
+        callkit_loop(&mut shim, rx);
+        shim.ops
+    }
+
+    fn state(s: CallState) -> ToShim {
+        ToShim::State(StateEvent::bare(s))
+    }
+
+    #[test]
+    fn video_on_the_system_call_and_the_speaker() {
+        let ops = run(
+            "receiver",
+            vec![
+                state(CallState::Connected),
+                ToShim::Video(true),
+                ToShim::Video(true),
+                ToShim::Video(false),
+                state(CallState::Ended { reason: "left".into() }),
+            ],
+        );
+        assert_eq!(
+            ops,
+            vec![
+                json!({ "op": "start" }),
+                json!({ "op": "report", "state": "connected", "video": false }),
+                json!({ "op": "report", "video": true }),
+                json!({ "op": "route" }),
+                json!({ "op": "autoSpeaker", "on": true }),
+                json!({ "op": "report", "video": false }),
+                json!({ "op": "route" }),
+                json!({ "op": "autoSpeaker", "on": false }),
+                json!({ "op": "report", "state": "ended", "reason": "left" }),
+            ]
+        );
+    }
+
+    #[test]
+    fn video_before_the_call_rides_its_first_report_and_ends_with_it() {
+        let ops = run(
+            "headphones",
+            vec![
+                ToShim::Video(true),
+                state(CallState::Connecting),
+                state(CallState::Idle),
+                state(CallState::Connecting),
+                ToShim::Video(true),
+            ],
+        );
+        assert_eq!(
+            ops,
+            vec![
+                json!({ "op": "start" }),
+                json!({ "op": "report", "state": "connecting", "video": true }),
+                json!({ "op": "report", "state": "ended", "reason": "left" }),
+                json!({ "op": "start" }),
+                json!({ "op": "report", "state": "connecting", "video": false }),
+                // Headphones: the route stays.
+                json!({ "op": "report", "video": true }),
+                json!({ "op": "route" }),
+            ]
+        );
+    }
+
+    #[test]
+    fn the_speaker_moves_only_from_the_receiver_and_back_only_if_ours() {
+        use Speaker::*;
+        assert_eq!(speaker_for("receiver", true, false), Override);
+        for route in ["speaker", "headphones", "bluetooth", "carplay", "airplay", "other"] {
+            assert_eq!(speaker_for(route, true, false), Leave, "{route}");
+        }
+        assert_eq!(speaker_for("speaker", true, true), Leave);
+        assert_eq!(speaker_for("speaker", false, true), Undo);
+        // The person took the speaker themselves, or the route moved on.
+        assert_eq!(speaker_for("speaker", false, false), Leave);
+        assert_eq!(speaker_for("receiver", false, false), Leave);
+    }
+
+    #[test]
+    fn scene_events() {
+        assert_eq!(scene_of(&json!({ "event": "app_scene", "scene": "background" })), Some(Scene::Background));
+        assert_eq!(scene_of(&json!({ "event": "app_scene", "scene": "foreground" })), Some(Scene::Foreground));
+        assert_eq!(scene_of(&json!({ "event": "app_scene", "scene": "inactive" })), None);
+        assert_eq!(scene_of(&json!({ "event": "app_scene" })), None);
     }
 
     #[test]
