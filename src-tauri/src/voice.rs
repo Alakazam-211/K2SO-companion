@@ -948,6 +948,8 @@ struct PipCounts {
     h264: AtomicU64,
     keyframes: AtomicU64,
     pixel_buffers: AtomicU64,
+    /// Decoded frames as I420 planes (the software VP8 decoder).
+    i420: AtomicU64,
     /// Decoded frames with no CVPixelBuffer (CPU planes): not shown.
     no_buffer: AtomicU64,
     discontinuities: AtomicU64,
@@ -971,6 +973,7 @@ impl PipCounts {
                 match feed.last() {
                     Some(Feed::H264 { .. }) => add(&self.h264),
                     Some(Feed::PixelBuffer { .. }) => add(&self.pixel_buffers),
+                    Some(Feed::I420 { .. }) => add(&self.i420),
                     _ => add(&self.no_buffer),
                 }
             }
@@ -983,10 +986,11 @@ impl PipCounts {
     fn line(&self) -> String {
         let n = |a: &AtomicU64| a.load(Ordering::Relaxed);
         format!(
-            "pip frames h264={} keyframes={} pixel_buffers={} no_buffer={} discontinuities={} resets={} switches={}",
+            "pip frames h264={} keyframes={} pixel_buffers={} i420={} no_buffer={} discontinuities={} resets={} switches={}",
             n(&self.h264),
             n(&self.keyframes),
             n(&self.pixel_buffers),
+            n(&self.i420),
             n(&self.no_buffer),
             n(&self.discontinuities),
             n(&self.resets),
@@ -1076,6 +1080,7 @@ impl NativeVideoConsumer for PipFeed {
                 Feed::Flush { remove_image } => pip::flush(remove_image),
                 Feed::H264 { access_unit, pts_90k } => pip::h264(access_unit, pts_90k),
                 Feed::PixelBuffer { buffer, pts_90k } => pip::pixel_buffer(buffer, pts_90k),
+                Feed::I420 { frame, pts_90k } => pip::i420(&frame, pts_90k),
             }
         }
     }
@@ -1100,6 +1105,8 @@ enum Feed<'a> {
     H264 { access_unit: &'a [u8], pts_90k: i64 },
     /// A decoded frame's CVPixelBufferRef, borrowed while the event lives.
     PixelBuffer { buffer: *mut std::ffi::c_void, pts_90k: i64 },
+    /// A decoded frame's I420 planes, borrowed while the event lives.
+    I420 { frame: pip::I420<'a>, pts_90k: i64 },
 }
 
 fn feed(event: &NativeVideoEvent) -> Vec<Feed<'_>> {
@@ -1111,11 +1118,12 @@ fn feed(event: &NativeVideoEvent) -> Vec<Feed<'_>> {
                 let pts_90k = pts_90k(f.timestamp_us);
                 let unit = match payload {
                     NativePayload::H264 { access_unit, .. } => Feed::H264 { access_unit, pts_90k },
-                    // VP8, decoded by kessel-video's Apple backend. Not a
-                    // pixel buffer (CPU planes): nothing to show.
-                    _ => match pixel_buffer(payload) {
-                        Some(buffer) => Feed::PixelBuffer { buffer, pts_90k },
-                        None => return Vec::new(),
+                    // VP8, decoded: a CVPixelBuffer, or (kessel-video's
+                    // software VP8 decoder on iOS) I420 CPU planes.
+                    _ => match (pixel_buffer(payload), i420(payload)) {
+                        (Some(buffer), _) => Feed::PixelBuffer { buffer, pts_90k },
+                        (None, Some(frame)) => Feed::I420 { frame, pts_90k },
+                        (None, None) => return Vec::new(),
                     },
                 };
                 if f.discontinuity {
@@ -1130,6 +1138,32 @@ fn feed(event: &NativeVideoEvent) -> Vec<Feed<'_>> {
         NativeVideoEvent::Switched { track, .. } => vec![Feed::Flush { remove_image: track.is_none() }],
         _ => Vec::new(),
     }
+}
+
+/// A decoded frame's I420 planes, checked against its size.
+fn i420(payload: &NativePayload) -> Option<pip::I420<'_>> {
+    use sew_call_client::kessel_video::PixelFormat;
+    let NativePayload::Decoded(f) = payload else { return None };
+    let p = f.planes().filter(|p| p.format == PixelFormat::I420)?;
+    let plane = |i: usize| -> Option<&[u8]> {
+        let (_, rows) = PixelFormat::I420.plane_size(i, f.width, f.height);
+        let stride = p.strides[i] as usize;
+        let start = p.offsets[i];
+        // The last row needs only its width, not the whole stride.
+        let (row, _) = PixelFormat::I420.plane_size(i, f.width, f.height);
+        let len = stride.checked_mul(rows.checked_sub(1)?)?.checked_add(row)?;
+        p.data.get(start..start.checked_add(len)?)
+    };
+    Some(pip::I420 {
+        width: f.width,
+        height: f.height,
+        y: plane(0)?,
+        u: plane(1)?,
+        v: plane(2)?,
+        stride_y: p.strides[0],
+        stride_u: p.strides[1],
+        stride_v: p.strides[2],
+    })
 }
 
 /// A decoded frame's CVPixelBufferRef (Sew's `apple_pixel_buffer`).
@@ -1956,6 +1990,36 @@ mod tests {
     }
 
     #[test]
+    fn a_decoded_i420_frame_goes_to_k2pip_as_planes() {
+        use sew_call_client::kessel_video::{Planes, PixelFormat, VideoFrame};
+        // 4x2 I420, Y stride 8 (padded rows), chroma 2x1 tight.
+        let mut data = vec![0u8; 16 + 2 + 2];
+        data[0] = 11;
+        data[16] = 22;
+        data[18] = 33;
+        let planes = Planes::new(PixelFormat::I420, 4, 2, data, [8, 2, 2], [0, 16, 18]).unwrap();
+        let frame = VideoFrame::from_planes(planes, 4, 2, 0).unwrap();
+        let event = NativeVideoEvent::Frame(tauri_plugin_sew_voice::native::NativeVideoFrame {
+            track: "TR_v2".into(),
+            keyframe: true,
+            discontinuity: false,
+            timestamp_us: 1_000_000,
+            rtp_ts: 1,
+            payload: NativePayload::Decoded(frame),
+        });
+        let fed = feed(&event);
+        let [Feed::I420 { frame, pts_90k }] = fed.as_slice() else { panic!("{fed:?}") };
+        assert_eq!(*pts_90k, 90_000);
+        assert_eq!((frame.width, frame.height, frame.stride_y, frame.stride_u), (4, 2, 8, 2));
+        // Y: one full stride plus the last row's width.
+        assert_eq!((frame.y.len(), frame.y[0]), (12, 11));
+        assert_eq!((frame.u, frame.v), (&[22u8, 0][..], &[33u8, 0][..]));
+        let counts = PipCounts::default();
+        counts.count(&event, &fed);
+        assert!(counts.line().contains("i420=1 no_buffer=0"), "{}", counts.line());
+    }
+
+    #[test]
     fn the_sinks_events_to_k2pip() {
         let unit: &[u8] = &[0, 0, 0, 1, 0x65, 9];
         let frame = h264(false, false);
@@ -1986,7 +2050,7 @@ mod tests {
         counts.count(&reset, &feed(&reset));
         assert_eq!(
             counts.line(),
-            "pip frames h264=2 keyframes=1 pixel_buffers=0 no_buffer=0 discontinuities=1 resets=1 switches=2"
+            "pip frames h264=2 keyframes=1 pixel_buffers=0 i420=0 no_buffer=0 discontinuities=1 resets=1 switches=2"
         );
     }
 

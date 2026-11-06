@@ -73,6 +73,53 @@ pub mod pip {
         fn k2_pip_h264(bytes: *const u8, len: usize, pts_90k: i64);
         fn k2_pip_flush(remove_image: bool);
         fn k2_pip_pixel_buffer(buffer: *mut std::ffi::c_void, pts_90k: i64);
+        #[allow(clippy::too_many_arguments)]
+        fn k2_pip_i420(
+            width: u32,
+            height: u32,
+            y: *const u8,
+            stride_y: u32,
+            u: *const u8,
+            stride_u: u32,
+            v: *const u8,
+            stride_v: u32,
+            pts_90k: i64,
+        );
+    }
+
+    /// One decoded I420 frame's planes, borrowed.
+    #[derive(Debug, PartialEq)]
+    pub struct I420<'a> {
+        pub width: u32,
+        pub height: u32,
+        pub y: &'a [u8],
+        pub u: &'a [u8],
+        pub v: &'a [u8],
+        pub stride_y: u32,
+        pub stride_u: u32,
+        pub stride_v: u32,
+    }
+
+    /// One decoded I420 frame (the software VP8 decoder): Swift copies it
+    /// into an NV12 pixel buffer before returning.
+    pub fn i420(frame: &I420<'_>, pts_90k: i64) {
+        #[cfg(target_os = "ios")]
+        // SAFETY: the planes outlive the call; Swift reads them during it.
+        unsafe {
+            k2_pip_i420(
+                frame.width,
+                frame.height,
+                frame.y.as_ptr(),
+                frame.stride_y,
+                frame.u.as_ptr(),
+                frame.stride_u,
+                frame.v.as_ptr(),
+                frame.stride_v,
+                pts_90k,
+            )
+        }
+        #[cfg(not(target_os = "ios"))]
+        let _ = (frame, pts_90k);
     }
 
     /// One H.264 access unit, Annex B. `pts_90k` only orders frames.

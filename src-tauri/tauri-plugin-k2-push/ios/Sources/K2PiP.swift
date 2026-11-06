@@ -91,6 +91,21 @@ public func k2PiPPixelBuffer(_ buffer: UnsafeMutableRawPointer?, _ pts90k: Int64
   K2PiP.shared.enqueue(pixelBuffer: pixelBuffer, pts: CMTime(value: pts90k, timescale: 90_000))
 }
 
+/// One decoded I420 frame (kessel-video's software VP8 decoder), read
+/// during the call: K2NV12Pool copies it into an NV12 pixel buffer.
+@_cdecl("k2_pip_i420")
+public func k2PiPI420(
+  _ width: UInt32, _ height: UInt32, _ y: UnsafePointer<UInt8>?, _ strideY: UInt32,
+  _ u: UnsafePointer<UInt8>?, _ strideU: UInt32, _ v: UnsafePointer<UInt8>?, _ strideV: UInt32, _ pts90k: Int64
+) {
+  guard #available(iOS 15.0, *) else { return }
+  guard let y = y, let u = u, let v = v, width > 0, height > 0 else { return }
+  let frame = K2I420Frame(
+    width: Int(width), height: Int(height), y: y, strideY: Int(strideY), u: u, strideU: Int(strideU), v: v,
+    strideV: Int(strideV))
+  K2PiP.shared.enqueue(i420: frame, pts: CMTime(value: pts90k, timescale: 90_000))
+}
+
 /// The stream broke or switched: flush, then wait for a keyframe.
 @_cdecl("k2_pip_flush")
 public func k2PiPFlush(_ removeImage: Bool) {
