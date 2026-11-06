@@ -229,6 +229,10 @@ describe("copy", () => {
     expect(callEndedText("signed_out", "Standup", "sewlab")).toBe("You were signed out of sewlab.");
     expect(callEndedText("removed_by_moderator", "Standup", "sewlab")).toBe("You were removed from Standup.");
     expect(callEndedText("channel_archived", "Standup", "sewlab")).toBe("Standup closed.");
+    // K2 left a held re-join nobody answered.
+    expect(callEndedText("recording_consent_timeout", "Standup", "sewlab", true)).toContain(
+      "You left Standup: a recording started while you were reconnecting"
+    );
     expect(callEndedText("seat_lost", "Standup", "sewlab")).toContain("dropped you from Standup");
   });
 });

@@ -100,7 +100,7 @@ import { unreadSupported, useUnreadStore } from "./unreadStore";
 import { UnreadDot } from "./UnreadMarks";
 import { onForegroundLater } from "../lib/foreground";
 import { useVoiceAvailable, VoiceRoomsOverlay } from "./voice/VoiceRooms";
-import { useVoiceCall } from "./voice/voiceCall";
+import { consentKey, useVoiceCall } from "./voice/voiceCall";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
   connected: "#22c55e",
@@ -449,7 +449,9 @@ export function ChatsList() {
   const inCall = useVoiceCall((s) => s.phase !== "idle");
   const [voiceOpen, setVoiceOpen] = useState(false);
   // A recording notice needs an answer: show it, wherever the list was.
-  const consentAsked = useVoiceCall((s) => s.consent !== null);
+  // Each new notice opens it again (a background one's notification brings
+  // the person here), not each resync of the same one.
+  const consentAsked = useVoiceCall((s) => consentKey(s.consent));
   useEffect(() => {
     if (consentAsked) setVoiceOpen(true);
   }, [consentAsked]);

@@ -10,7 +10,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   }),
 }));
 
-import { parseConsentSheet, parseSnapshot, sewVoiceEngine } from "./sewVoice";
+import { parseConsentSheet, parseSnapshot, sewVoiceEngine, shareCallLog } from "./sewVoice";
 
 beforeEach(() => {
   handlers.clear();
@@ -39,8 +39,42 @@ describe("Sew's native engine, from the webview", () => {
       ],
     });
     handlers.get("sew-voice://state")?.({ payload: { state: "ended", reason: "left" } });
-    expect(states).toEqual(["held", "connected", "ended:left"]);
+    await vi.waitFor(() => expect(states).toEqual(["held", "connected", "ended:left"]));
     expect(muted).toEqual([true]);
+  });
+
+  it("a leave K2 made itself ends with K2's reason, live and on resync", async () => {
+    const why = (cmd: string) => (cmd === "voice_ended_why" ? "recording_consent_timeout" : null);
+    invoke.mockImplementation(async (cmd: string) => why(cmd) ?? { call_id: "c1" });
+    const states: string[] = [];
+    const e = sewVoiceEngine();
+    await e.join("s1", "room-1", { onState: (s, r) => void states.push(r ? `${s}:${r}` : s) });
+    handlers.get("sew-voice://state")?.({ payload: { state: "ended", reason: "left" } });
+    await vi.waitFor(() => expect(states).toEqual(["ended:recording_consent_timeout"]));
+    // Any other reason is the engine's own; no ask.
+    invoke.mockClear();
+    handlers.get("sew-voice://state")?.({ payload: { state: "ended", reason: "kicked" } });
+    await vi.waitFor(() => expect(states).toContain("ended:kicked"));
+    expect(invoke).not.toHaveBeenCalledWith("voice_ended_why");
+
+    invoke.mockImplementation(async (cmd: string) =>
+      cmd === "plugin:sew-voice|state" ? { state: "ended", reason: "left" } : why(cmd)
+    );
+    const now = await e.resync?.({ onState: () => {} });
+    expect(now).toMatchObject({ state: "ended", reason: "recording_consent_timeout" });
+  });
+
+  it("Send call log shares Rust's text as a file", async () => {
+    const share = vi.fn(async () => undefined);
+    Object.assign(navigator, { share, canShare: () => true });
+    invoke.mockResolvedValue("K2 call log (K2 4.2.0, iOS). Times are UTC.\n");
+    await expect(shareCallLog()).resolves.toBe("shared");
+    expect(invoke).toHaveBeenCalledWith("voice_call_log");
+    const files = (share.mock.calls[0] as unknown as [{ files: File[] }])[0].files;
+    expect(files[0].name).toBe("K2 call log.txt");
+    expect(await files[0].text()).toContain("K2 call log");
+    invoke.mockRejectedValue(new Error("no command"));
+    await expect(shareCallLog()).resolves.toBe("failed");
   });
 
   it("a refusal comes back as the app's code, with the server's hint", async () => {
@@ -73,6 +107,7 @@ describe("Sew's native engine, from the webview", () => {
       ],
     };
     expect(parseConsentSheet(sheet)).toEqual(sheet);
+    expect(parseConsentSheet({ ...sheet, recordingId: "77" })).toEqual({ ...sheet, recordingId: "77" });
     expect(parseConsentSheet(null)).toBeNull();
     expect(parseConsentSheet({ ...sheet, choices: [] })).toBeNull();
     expect(parseConsentSheet({ ...sheet, noticeVersion: "3" })).toBeNull();

@@ -64,6 +64,10 @@ impl<R: Runtime> K2Push<R> {
         Ok(serde_json::json!({ "public": null }))
     }
 
+    pub fn voice_notice(&self, _req: VoiceNoticeRequest) -> crate::Result<serde_json::Value> {
+        Ok(serde_json::json!({ "ok": false }))
+    }
+
     pub fn voice_watch(&self, _req: VoiceWatchRequest) -> crate::Result<serde_json::Value> {
         Ok(serde_json::json!({ "ok": false }))
     }
