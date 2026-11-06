@@ -1,5 +1,5 @@
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
-import { useEffect, type RefObject } from "react";
+import { useEffect, useRef, type RefObject } from "react";
 import { create } from "zustand";
 import { isIosWebView } from "../../lib/nativePicker";
 
@@ -100,6 +100,38 @@ export function placeTile(f: TileFrame): void {
   send(f);
 }
 
+// ── Who holds the layer ──────────────────────────────────────────────
+// Several places can show the one layer (the call screen's tile, the mini
+// tile elsewhere in the app). The last to claim it holds it; a release by
+// one that no longer holds it changes nothing, so a tile going away just
+// after another took the layer never hides it.
+
+let holder = 0;
+let nextHolder = 1;
+
+/** Take the layer: an id for `placeLayerFor` / `releaseLayer`. */
+export function claimLayer(): number {
+  holder = nextHolder++;
+  return holder;
+}
+
+/** Place the layer, if `id` still holds it. */
+export function placeLayerFor(id: number, f: TileFrame): void {
+  if (id === holder) placeTile(f);
+}
+
+/** Give the layer back: under the page, if `id` still held it. */
+export function releaseLayer(id: number): void {
+  if (id !== holder) return;
+  holder = 0;
+  placeTile(HIDDEN);
+}
+
+/** The layer's frame for a tile's bounds (`getBoundingClientRect()`). */
+export function frameAt(rect: Rect, radius: number, border = 0): TileFrame {
+  return tileFrame(rect, currentViewport(), radius, border);
+}
+
 // ── PiP's status (K2PiP's `pip` events) ─────────────────────────────────
 
 type PipStatus = {
@@ -167,22 +199,29 @@ export function togglePip(): void {
  *  and the return to the app. Hidden when `show` goes false or it unmounts.
  *  Going to the background leaves it in place: PiP's start and restore
  *  animate from the layer, and the page is measured again on return. */
-export function useVideoTile(ref: RefObject<HTMLElement | null>, show: boolean, radius: number, border = 0): void {
+export function useVideoTile(
+  ref: RefObject<HTMLElement | null>,
+  show: boolean,
+  radius: number,
+  border = 0,
+  /** Measure again when this changes (a move no resize sees: a drag). */
+  remeasure?: unknown
+): void {
+  const scheduleRef = useRef<(() => void) | null>(null);
   useEffect(() => {
     const el = ref.current;
-    if (!show || !el) {
-      placeTile(HIDDEN);
-      return;
-    }
+    if (!show || !el) return;
+    const id = claimLayer();
     let raf = 0;
     const measure = () => {
       raf = 0;
       if (document.visibilityState === "hidden") return;
-      placeTile(tileFrame(el.getBoundingClientRect(), currentViewport(), radius, border));
+      placeLayerFor(id, tileFrame(el.getBoundingClientRect(), currentViewport(), radius, border));
     };
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(measure);
     };
+    scheduleRef.current = schedule;
     const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     ro?.observe(el);
     if (el.parentElement) ro?.observe(el.parentElement);
@@ -198,6 +237,7 @@ export function useVideoTile(ref: RefObject<HTMLElement | null>, show: boolean, 
     vv?.addEventListener("scroll", schedule);
     schedule();
     return () => {
+      scheduleRef.current = null;
       if (raf) cancelAnimationFrame(raf);
       ro?.disconnect();
       window.removeEventListener("resize", schedule);
@@ -206,14 +246,18 @@ export function useVideoTile(ref: RefObject<HTMLElement | null>, show: boolean, 
       document.removeEventListener("visibilitychange", schedule);
       vv?.removeEventListener("resize", schedule);
       vv?.removeEventListener("scroll", schedule);
-      placeTile(HIDDEN);
+      releaseLayer(id);
     };
   }, [ref, show, radius, border]);
+  useEffect(() => {
+    scheduleRef.current?.();
+  }, [remeasure]);
 }
 
 export function __setTileSenderForTests(next: ((f: TileFrame) => void) | null): void {
   send = next ?? nativeSend;
   last = null;
+  holder = 0;
 }
 
 export function __resetPipForTests(): void {
