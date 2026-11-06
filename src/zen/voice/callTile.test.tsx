@@ -4,7 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null), addPluginListener: vi.fn(async () => ({ unregister() {} })) }));
 
-import { CALL_TILE_H, CALL_TILE_W, CALL_TILE_W_CAMERA, CallTile, CARD_EDGE, CARD_TOP_RADIUS, cardVideoHeight } from "./callTile";
+import { CALL_TILE_H, CALL_TILE_W, CALL_TILE_W_CAMERA, CallTile, CARD_EDGE, CARD_TOP_RADIUS, cardVideoHeight, DURATION_BAND } from "./callTile";
 import { SNAP_SPRING } from "./miniSnap";
 import { __setTileCameraLoaderForTests, useTileCamera, type TileCamera } from "./tileCamera";
 import { __resetCornerForTests, anchorStyle, MINI_CORNER_KEY, type Corner } from "./videoLayer";
@@ -44,7 +44,7 @@ function flush(max = 600) {
 // picture sits inside its 1 pt edge at the top. Rects follow the corner and
 // the transform like a browser's.
 const VIDEO_H = cardVideoHeight(CALL_TILE_W); // 84
-const CARD_H = CALL_TILE_H + VIDEO_H; // 140
+const CARD_H = CALL_TILE_H + VIDEO_H + DURATION_BAND; // 162: the call's time under the picture
 const size = (el: HTMLElement): [number, number] => [parseFloat(el.style.width) || CALL_TILE_W, parseFloat(el.style.height) || CALL_TILE_H];
 function home(corner: string, w: number, h: number) {
   const [v, side] = corner.split("-");
@@ -257,9 +257,11 @@ describe("the call tile", () => {
     const e = await inCall();
     videoLive(e);
     flush();
-    // In a bottom corner the strip stays put and the picture grew above it.
+    // In a bottom corner the strip stays put and the picture grew above it
+    // (the time's band between them grows with it).
     expect(last(sent)).toEqual({ visible: true, x: 13, y: 728 - CARD_H + 1, w: 150, h: 84, radius: 15, corners: "top" });
-    expect(visibleFrames().every((f) => f.visible && Math.abs(f.y + f.h - (728 - CALL_TILE_H + 1)) <= 0.5)).toBe(true);
+    const band = (h: number) => (h * DURATION_BAND) / VIDEO_H;
+    expect(visibleFrames().every((f) => f.visible && Math.abs(f.y + f.h + band(f.h) - (728 - CALL_TILE_H + 1)) <= 1)).toBe(true);
     act(() => onPipEvent({ event: "pip_stalled" }));
     // The layer goes under the page at once (no live picture to show).
     expect(last(sent)).toEqual(HIDDEN);
@@ -269,7 +271,7 @@ describe("the call tile", () => {
     expect(h).toBeGreaterThan(CALL_TILE_H);
     expect(h).toBeLessThan(CARD_H);
     // Fading as it folds.
-    expect(Number(picture().style.opacity)).toBeLessThan(1);
+    expect(Number(screen.getByTestId("voice-call-tile-media").style.opacity)).toBeLessThan(1);
     flush();
     expect(card()?.style.height).toBe("56px");
     expect(card()?.getAttribute("data-corner")).toBe("bottom-left");
@@ -278,7 +280,7 @@ describe("the call tile", () => {
     act(() => onPipEvent({ event: "pip_first_frame" }));
     flush();
     expect(card()?.style.height).toBe(`${CARD_H}px`);
-    expect(last(sent)).toMatchObject({ visible: true, x: 13, y: 589, h: 84 });
+    expect(last(sent)).toMatchObject({ visible: true, x: 13, y: 728 - CARD_H + 1, h: 84 });
     act(() => e.events()?.onVideo?.(false));
     flush();
     expect(card()?.style.height).toBe("56px");
@@ -385,7 +387,7 @@ describe("the call tile", () => {
     // Back up the same way, slowly, with a pause before letting go: it stays.
     drag(card()!, 2, [[1000, 60, 690], [1200, 70, 670], [1400, 90, 630], [1600, 110, 590], [1900, 110, 590]]);
     expect(card()?.getAttribute("data-corner")).toBe("bottom-left");
-    expect(last(sent)).toMatchObject({ x: 13, y: 589, animate: { velocityX: 0, velocityY: 0 } });
+    expect(last(sent)).toMatchObject({ x: 13, y: 728 - CARD_H + 1, animate: { velocityX: 0, velocityY: 0 } });
   });
 
   it("while Swift springs the layer, the page doesn't move it", async () => {
@@ -429,7 +431,7 @@ describe("the call tile", () => {
       const r = cardRect(el);
       expect(r.height).toBe(CARD_H);
       expect(v === "top" ? r.top : r.top + r.height).toBe(v === "top" ? 110 : 728);
-      expect(last(sent)).toMatchObject({ x: h === "left" ? 13 : 212, y: v === "top" ? 111 : 589, h: 84 });
+      expect(last(sent)).toMatchObject({ x: h === "left" ? 13 : 212, y: v === "top" ? 111 : 728 - CARD_H + 1, h: 84 });
     }
   });
 
@@ -568,7 +570,7 @@ describe("the call tile", () => {
     videoLive(e);
     flush();
     expect(card()?.getAttribute("data-corner")).toBe("bottom-left");
-    expect(last(sent)).toMatchObject({ visible: true, x: 13, y: 589, w: 150, h: 84 });
+    expect(last(sent)).toMatchObject({ visible: true, x: 13, y: 728 - CARD_H + 1, w: 150, h: 84 });
     drag(card()!, 2, [[1000, 60, 690], [1300, 330, 690]]);
     flush();
     expect(localStorage.getItem(MINI_CORNER_KEY)).toBe("bottom-right");
@@ -631,7 +633,7 @@ describe("the call tile's camera", () => {
     camera({ state: "on", selfOn: true, self: handle, mirrored: true });
     flush();
     expect(card()?.getAttribute("data-picture")).toBe("self");
-    expect(card()?.style.height).toBe(`${cardVideoHeight(CALL_TILE_W_CAMERA) + CALL_TILE_H}px`);
+    expect(card()?.style.height).toBe(`${cardVideoHeight(CALL_TILE_W_CAMERA) + DURATION_BAND + CALL_TILE_H}px`);
     const view = screen.getByTestId("voice-self-view");
     expect(view.getAttribute("data-mirrored")).toBe("yes");
     expect(handle.attach).toHaveBeenCalledTimes(1);
@@ -646,6 +648,52 @@ describe("the call tile's camera", () => {
     expect(screen.getByTestId("voice-self-view").getAttribute("data-mirrored")).toBe("no");
     // Never the layer (so never PiP).
     expect(visibleFrames()).toEqual([]);
+  });
+
+  it("the call's time: bottom-left of the picture with your camera on, in the band under someone's video; none on the pill", async () => {
+    render(<Float />);
+    const e = await inCall();
+    const duration = () => screen.queryByTestId("voice-call-tile-duration");
+    act(() => useVoiceCall.setState({ startedAt: Date.now() - 754_000 }));
+    // Camera off, nobody's video: the plain pill, no time.
+    expect(card()?.getAttribute("data-picture")).toBe("none");
+    expect(duration()).toBeNull();
+    // Your camera on: the time over your picture, its bottom-left corner.
+    const handle = { key: "local:camera", attach: vi.fn(), detach: vi.fn() };
+    camera({ state: "on", selfOn: true, self: handle });
+    flush();
+    expect(duration()?.textContent).toBe("12:34");
+    expect(duration()?.style.left).toBe("8px");
+    expect(duration()?.style.fontVariantNumeric).toBe("tabular-nums");
+    const media = screen.getByTestId("voice-call-tile-media");
+    expect(media.contains(duration())).toBe(true);
+    expect(media.contains(screen.getByTestId("voice-self-view"))).toBe(true);
+    // Someone's video on the native layer: the layer keeps to the picture,
+    // the time sits in the band under it, where nothing covers it.
+    videoLive(e);
+    flush();
+    expect(card()?.getAttribute("data-picture")).toBe("remote");
+    expect(duration()?.textContent).toBe("12:34");
+    expect(picture().contains(duration())).toBe(false);
+    expect(media.style.height).toBe(`${cardVideoHeight(CALL_TILE_W_CAMERA) + DURATION_BAND}px`);
+    expect(last(sent)).toMatchObject({ visible: true, h: cardVideoHeight(CALL_TILE_W_CAMERA) });
+    // All video off: the pill, no time.
+    act(() => onPipEvent({ event: "pip_stalled" }));
+    camera({ state: "off", selfOn: false, self: null });
+    flush();
+    expect(card()?.getAttribute("data-picture")).toBe("none");
+    expect(duration()).toBeNull();
+  });
+
+  it("no time on the card before the call connects", async () => {
+    render(<Float />);
+    setPhoneVoiceEngine(fakeEngine().engine);
+    __setCallShimForTests({ ...callShim(), microphone: async () => "granted" as const, label: () => {} });
+    await act(() => useVoiceCall.getState().join(ROOM));
+    camera({ state: "on", selfOn: true, self: null });
+    flush();
+    expect(card()?.getAttribute("data-picture")).toBe("self");
+    expect(screen.queryByTestId("voice-call-tile-duration")).toBeNull();
   });
 
   it("no self-view this webview can draw: the camera note stands in", async () => {
