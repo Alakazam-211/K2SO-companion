@@ -1,10 +1,13 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
+  type RefObject,
 } from "react";
 import type { VideoHandle } from "@sew/voice";
 import { createPortal } from "react-dom";
@@ -32,6 +35,7 @@ import {
   togglePip,
   usePipStatus,
   useVideoTile,
+  type TileHandle,
 } from "./videoTile";
 import { useVoiceCall } from "./voiceCall";
 
@@ -53,6 +57,8 @@ import { useVoiceCall } from "./voiceCall";
 // lost stream) or once the video ends, no tile and no mini tile; the kit's
 // avatar tile stands for the person instead. Your own camera is never on
 // this layer (the sink never shows you): `SelfView` draws it in the page.
+// With no live picture the call tile (callTile.tsx: Mute, Deafen, Hang up)
+// floats in the mini tile's place, on the same motion (`useCornerDrag`).
 
 export const TILE_RADIUS = 12;
 const TILE_BORDER = 1;
@@ -196,16 +202,26 @@ export function nearestCorner(cx: number, cy: number, width: number, height: num
   return `${cy < height / 2 ? "top" : "bottom"}-${cx < width / 2 ? "left" : "right"}` as Corner;
 }
 
+/** The last corner set, for when storage is unavailable: the video tile
+ *  and the call tile still share it for the session. */
+let sessionCorner: Corner | null = null;
+
+/** The floating tile's corner: the video tile's and the call tile's. */
 export function readCorner(): Corner {
   try {
     const v = localStorage.getItem(MINI_CORNER_KEY);
     return CORNERS.includes(v as Corner) ? (v as Corner) : "top-right";
   } catch {
-    return "top-right";
+    return sessionCorner ?? "top-right";
   }
 }
 
+export function __resetCornerForTests(): void {
+  sessionCorner = null;
+}
+
 function writeCorner(c: Corner): void {
+  sessionCorner = c;
   try {
     localStorage.setItem(MINI_CORNER_KEY, c);
   } catch {
@@ -232,7 +248,7 @@ export function MiniVideoTile({ callViewOpen, onOpen }: { callViewOpen: boolean;
 type Rect = { left: number; top: number; width: number; height: number };
 
 /** Where each corner puts the tile: clear of the edges, header and composer. */
-function anchorStyle(corner: Corner): CSSProperties {
+export function anchorStyle(corner: Corner): CSSProperties {
   const [v, h] = corner.split("-") as ["top" | "bottom", "left" | "right"];
   return {
     [v]: v === "top" ? TOP_CLEAR : BOTTOM_CLEAR,
@@ -283,22 +299,51 @@ const now = () => performance.now();
 
 type Press = { id: number; x: number; y: number; from: Pose; moved: boolean; samples: Sample[] };
 
-const SHADOW = "0 8px 24px rgba(0, 0, 0, 0.45)";
-const HELD_SHADOW = "0 16px 36px rgba(0, 0, 0, 0.55)";
+export const FLOAT_SHADOW = "0 8px 24px rgba(0, 0, 0, 0.45)";
+export const FLOAT_HELD_SHADOW = "0 16px 36px rgba(0, 0, 0, 0.55)";
 
-function Mini({ onOpen }: { onOpen: () => void }) {
-  const ref = useRef<HTMLButtonElement>(null);
+/** What moves with the floating tile besides the page's element: the native
+ *  video layer under the video tile (the call tile has none). */
+export type Follower = Pick<TileHandle, "placeNow" | "schedule" | "animateTo">;
+
+type CornerDragOptions = {
+  follower?: Follower;
+  /** A press that never became a drag, let go on `target`. */
+  onTap(target: EventTarget | null): void;
+  /** Take the finger only once it drags: a tap on a button inside stays the
+   *  button's (the call tile). The video tile takes it at once. */
+  captureOnDrag?: boolean;
+};
+
+export type CornerDrag = {
+  corner: Corner;
+  /** Held (dragged) now: lifted, the deeper shadow. */
+  held: boolean;
+  /** For the element: the finger, and no click after a drag. */
+  handlers: {
+    onPointerDown(e: ReactPointerEvent): void;
+    onPointerMove(e: ReactPointerEvent): void;
+    onPointerUp(e: ReactPointerEvent): void;
+    onPointerCancel(e: ReactPointerEvent): void;
+    onClickCapture(e: ReactMouseEvent): void;
+  };
+};
+
+/** The floating tile's motion, shared by the video tile and the call tile:
+ *  drag past `TAP_SLOP` (lifted), let go to the corner it would coast to on
+ *  a spring (Reduce Motion: a short ease, no lift), a light tap as it lands,
+ *  caught mid-flight it stops under the finger. One saved corner for both. */
+export function useCornerDrag(ref: RefObject<HTMLElement | null>, opts: CornerDragOptions): CornerDrag {
   const [corner, setCorner] = useState<Corner>(readCorner);
   const [held, setHeld] = useState(false);
   /** Where it's drawn now (the page moves it itself, never through React). */
   const pose = useRef<Pose>(REST);
   const raf = useRef(0);
   const press = useRef<Press | null>(null);
-  const pip = usePipStatus((s) => s.active);
-  useEffect(() => followPip(), []);
-  // Resize, scroll, rotation and the return to the app re-place the layer;
-  // the drag and the snap below move it too.
-  const tile = useVideoTile(ref, true, MINI_RADIUS, 0);
+  /** A drag just ended: the click it makes is not a tap. */
+  const dragged = useRef(false);
+  const o = useRef(opts);
+  o.current = opts;
 
   const stop = () => {
     if (raf.current) cancelAnimationFrame(raf.current);
@@ -319,7 +364,7 @@ function Mini({ onOpen }: { onOpen: () => void }) {
     const tick = () => {
       const u = Math.min(1, (now() - start) / (LIFT_DURATION * 1000));
       draw({ ...pose.current, s: s0 + (LIFT_SCALE - s0) * easeOut(u) });
-      tile.placeNow();
+      o.current.follower?.placeNow();
       raf.current = u < 1 ? requestAnimationFrame(tick) : 0;
     };
     raf.current = requestAnimationFrame(tick);
@@ -331,6 +376,7 @@ function Mini({ onOpen }: { onOpen: () => void }) {
     const el = ref.current;
     if (!el) return;
     stop();
+    const follower = o.current.follower;
     const homes = measureHomes(el, corner);
     const here = centre(homes[corner]);
     const at = { x: here.x + pose.current.x, y: here.y + pose.current.y };
@@ -345,12 +391,12 @@ function Mini({ onOpen }: { onOpen: () => void }) {
     const from = { x: at.x - there.x, y: at.y - there.y, s: pose.current.s };
     applyAnchor(el, next);
     draw(from);
-    tile.placeNow();
+    follower?.placeNow();
     writeCorner(next);
     setCorner(next);
     setHeld(false);
     const plan = planSnap(from, velocity, reduceMotion());
-    tile.animateTo(homes[next], plan.animate);
+    follower?.animateTo(homes[next], plan.animate);
     tileHaptic(true);
     const start = now();
     let landed = false;
@@ -365,18 +411,27 @@ function Mini({ onOpen }: { onOpen: () => void }) {
         raf.current = requestAnimationFrame(tick);
       } else {
         raf.current = 0;
-        tile.placeNow();
+        o.current.follower?.placeNow();
       }
     };
     raf.current = requestAnimationFrame(tick);
   };
 
-  const down = (e: ReactPointerEvent) => {
+  const capture = (el: Element, id: number) => {
+    try {
+      el.setPointerCapture?.(id);
+    } catch {
+      // a synthetic pointer
+    }
+  };
+
+  const onPointerDown = (e: ReactPointerEvent) => {
     if (press.current) return;
+    dragged.current = false;
     if (raf.current) {
       // Caught on its way: it stops under the finger, the layer with it.
       stop();
-      tile.placeNow();
+      o.current.follower?.placeNow();
     }
     press.current = {
       id: e.pointerId,
@@ -386,13 +441,9 @@ function Mini({ onOpen }: { onOpen: () => void }) {
       moved: false,
       samples: [{ t: now(), x: e.clientX, y: e.clientY }],
     };
-    try {
-      (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
-    } catch {
-      // a synthetic pointer
-    }
+    if (!o.current.captureOnDrag) capture(e.currentTarget as Element, e.pointerId);
   };
-  const move = (e: ReactPointerEvent) => {
+  const onPointerMove = (e: ReactPointerEvent) => {
     const p = press.current;
     if (!p || p.id !== e.pointerId) return;
     const dx = e.clientX - p.x;
@@ -400,32 +451,65 @@ function Mini({ onOpen }: { onOpen: () => void }) {
     if (!p.moved && Math.hypot(dx, dy) < TAP_SLOP) return;
     if (!p.moved) {
       p.moved = true;
+      if (o.current.captureOnDrag) capture(e.currentTarget as Element, e.pointerId);
       setHeld(true);
       lift();
     }
     p.samples.push({ t: now(), x: e.clientX, y: e.clientY });
     if (p.samples.length > 16) p.samples.shift();
     draw({ x: p.from.x + dx, y: p.from.y + dy, s: pose.current.s });
-    tile.schedule();
+    o.current.follower?.schedule();
   };
-  const up = (e: ReactPointerEvent) => {
+  const onPointerUp = (e: ReactPointerEvent) => {
     const p = press.current;
     if (!p || p.id !== e.pointerId) return;
     press.current = null;
     if (!p.moved) {
       if (!atRest(pose.current)) snap({ x: 0, y: 0 });
-      onOpen();
+      o.current.onTap(e.target);
       return;
     }
+    dragged.current = true;
     p.samples.push({ t: now(), x: e.clientX, y: e.clientY });
     snap(releaseVelocity(p.samples));
   };
-  const cancel = (e: ReactPointerEvent) => {
+  const onPointerCancel = (e: ReactPointerEvent) => {
     const p = press.current;
     if (!p || p.id !== e.pointerId) return;
     press.current = null;
+    if (p.moved) dragged.current = true;
     if (p.moved || !atRest(pose.current)) snap({ x: 0, y: 0 });
   };
+  const onClickCapture = (e: ReactMouseEvent) => {
+    // The click a drag ends in (WebKit can still send one): never a button's.
+    if (!dragged.current) return;
+    dragged.current = false;
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  return { corner, held, handlers: { onPointerDown, onPointerMove, onPointerUp, onPointerCancel, onClickCapture } };
+}
+
+/** A floating tile comes in with a short fade (none with Reduce Motion):
+ *  the call tile and the video tile swap in place without a pop. */
+export function useFadeIn(ref: RefObject<HTMLElement | null>): void {
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el || reduceMotion() || typeof el.animate !== "function") return;
+    el.animate([{ opacity: 0 }, { opacity: 1 }], { duration: 180, easing: "ease-out" });
+  }, [ref]);
+}
+
+function Mini({ onOpen }: { onOpen: () => void }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const pip = usePipStatus((s) => s.active);
+  useEffect(() => followPip(), []);
+  // Resize, scroll, rotation and the return to the app re-place the layer;
+  // the drag and the snap move it too.
+  const tile = useVideoTile(ref, true, MINI_RADIUS, 0);
+  const { corner, held, handlers } = useCornerDrag(ref, { follower: tile, onTap: () => onOpen() });
+  useFadeIn(ref);
 
   return (
     <button
@@ -439,17 +523,14 @@ function Mini({ onOpen }: { onOpen: () => void }) {
         borderRadius: MINI_RADIUS,
         background: "#000",
         border: "1px solid var(--tile-edge)",
-        boxShadow: held ? HELD_SHADOW : SHADOW,
+        boxShadow: held ? FLOAT_HELD_SHADOW : FLOAT_SHADOW,
         transition: "box-shadow 0.18s ease-out",
         willChange: "transform",
         padding: 0,
         zIndex: 40,
         touchAction: "none",
       }}
-      onPointerDown={down}
-      onPointerMove={move}
-      onPointerUp={up}
-      onPointerCancel={cancel}
+      {...handlers}
       aria-label="The call's video. Tap to open the call."
       data-testid="voice-mini-tile"
       data-corner={corner}
