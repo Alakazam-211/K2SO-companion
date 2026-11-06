@@ -166,6 +166,10 @@ pub fn start(app: &AppHandle<Wry>, native: &Native) {
         if let InvokeResponseBody::Json(text) = body {
             if let Ok(event) = serde_json::from_str::<Value>(&text) {
                 log.note(&shim_line(&event));
+                if event.get("event").and_then(Value::as_str) == Some("start_failed") {
+                    // The engine's end says `left`: the webview says why instead.
+                    *log.ended_why.lock().unwrap_or_else(|e| e.into_inner()) = Some(SYSTEM_CALL_REFUSED);
+                }
                 on_shim_event(&control, &event);
             }
         }
@@ -377,6 +381,11 @@ pub fn answer_from(
                 return Err(ProviderError::from_sew_error(409, None, body));
             }
             match error.get("code").and_then(Value::as_str) {
+                // The room, its Sew channel or (a K2 before 0.46.9) the
+                // phone's join itself isn't there.
+                Some("not_found") if status == 404 => {
+                    Err(refused(ROOM_UNAVAILABLE, "the server has no such voice room or join"))
+                }
                 // `device_session_ended` (pair again), `room_full`, … as K2 said.
                 Some(code) => {
                     let detail = json!({
@@ -750,6 +759,13 @@ const HELD_REJOIN_WAIT: Duration = Duration::from_secs(30);
 /// The end reason of a call K2 left for that (Sew's own word for a notice
 /// that went unanswered).
 pub const CONSENT_TIMEOUT: &str = "recording_consent_timeout";
+
+/// A join answered 404 `not_found`.
+pub const ROOM_UNAVAILABLE: &str = "room_unavailable";
+
+/// The end reason of a call K2 left because the system call (CallKit)
+/// wouldn't start.
+pub const SYSTEM_CALL_REFUSED: &str = "system_call_refused";
 
 /// What the listener passes on to [`watch_loop`], in order.
 enum Watched {
@@ -1435,6 +1451,11 @@ mod tests {
             other => panic!("{other:?}"),
         }
         assert!(matches!(answer_from(401, None, b"{}", "https://a.example", "tok"), Err(ProviderError::SigninRequired)));
+        let old_k2 = br#"{"ok":false,"error":{"code":"not_found","hint":"no such route"}}"#;
+        match answer_from(404, None, old_k2, "https://a.example", "tok") {
+            Err(ProviderError::Refused { code, .. }) => assert_eq!(code, ROOM_UNAVAILABLE),
+            other => panic!("{other:?}"),
+        }
         assert!(matches!(
             answer_from(503, Some(2), b"", "https://a.example", "tok"),
             Err(ProviderError::Unavailable { retry_after_ms: Some(2000) })
