@@ -276,6 +276,15 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Catch the call store up with the engine, naming an adopted call from
+ *  the saved servers (the room's name comes back with the next rooms read). */
+export function resyncVoiceCall(): Promise<void> {
+  return useVoiceCall.getState().resync((serverId) => {
+    const server = useServersStore.getState().servers.find((s) => s.id === serverId);
+    return { serverLabel: server ? serverDisplayName(server) : "", roomName: "Voice room", limit: null };
+  });
+}
+
 /** A recorded room's notice, in Sew's kit's words: the answers in the kit's
  *  order, none of them a default. Nobody is recorded without a yes. */
 export function ConsentSheet() {

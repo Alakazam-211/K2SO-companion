@@ -10,6 +10,7 @@ import {
   useVoiceCall,
   type ConsentSheet,
   type EngineEvents,
+  type EngineNow,
   type EngineState,
   type PhoneVoiceEngine,
 } from "./voiceCall";
@@ -38,7 +39,7 @@ function fakeShim(refuse: string | null = null, mic: "granted" | "denied" = "gra
   return { shim, calls, fire: (e: ShimEvent) => listener?.(e), listening: () => listener !== null };
 }
 
-function fakeEngine(native = false) {
+function fakeEngine(native = false, now: EngineNow | null = null) {
   let onState: ((s: EngineState, reason?: string) => void) | null = null;
   let events: EngineEvents | null = null;
   let finish: { resolve(): void; reject(e: unknown): void } | null = null;
@@ -54,6 +55,11 @@ function fakeEngine(native = false) {
       return new Promise<void>((resolve, reject) => (finish = { resolve, reject }));
     }),
     consent: vi.fn(async (granted: boolean, version: number) => void engine.consents.push([granted, version])),
+    resync: vi.fn(async (e: EngineEvents) => {
+      onState = e.onState;
+      events = e;
+      return now;
+    }),
     leave: vi.fn(async () => {}),
     setMuted(m) {
       engine.muted.push(m);
@@ -287,6 +293,75 @@ describe("the phone's voice-room call", () => {
       expect(useVoiceCall.getState().phase).toBe("idle");
       expect(useVoiceCall.getState().notice).toMatch(/Pair it again/);
       expect(s.calls.some((c) => c.startsWith("report"))).toBe(false);
+    });
+
+    it("back in the foreground: a call that ended while asleep ends here too", async () => {
+      const e = fakeEngine(true, { state: "ended", reason: "removed_by_moderator", muted: false, consent: null });
+      __setCallShimForTests(fakeShim().shim);
+      setPhoneVoiceEngine(e.engine);
+      void useVoiceCall.getState().join(ROOM);
+      await flush();
+      e.state("connected");
+      await useVoiceCall.getState().resync();
+      expect(useVoiceCall.getState().phase).toBe("idle");
+      expect(useVoiceCall.getState().notice).toBe("You were removed from Standup.");
+    });
+
+    it("back in the foreground: a missed notice and mute show", async () => {
+      const sheet = {
+        ask: "in_call" as const,
+        noticeVersion: 4,
+        title: "t",
+        text: "x",
+        choices: [{ label: "Allow", granted: true }],
+      };
+      const e = fakeEngine(true, { state: "connected", serverId: "s1", roomId: "room-1", muted: true, consent: sheet });
+      __setCallShimForTests(fakeShim().shim);
+      setPhoneVoiceEngine(e.engine);
+      void useVoiceCall.getState().join(ROOM);
+      await flush();
+      e.state("connected");
+      await useVoiceCall.getState().resync();
+      const st = useVoiceCall.getState();
+      expect([st.phase, st.muted, st.consent, st.room?.roomName]).toEqual(["connected", true, sheet, "Standup"]);
+    });
+
+    it("after a reload mid-call, takes the call back and follows it", async () => {
+      const e = fakeEngine(true, {
+        state: "reconnecting",
+        serverId: "s1",
+        roomId: "room-1",
+        muted: false,
+        consent: null,
+      });
+      setPhoneVoiceEngine(e.engine);
+      await useVoiceCall
+        .getState()
+        .resync((serverId) => ({
+          serverLabel: serverId === "s1" ? "sewlab" : "",
+          roomName: "Voice room",
+          limit: null,
+        }));
+      expect(useVoiceCall.getState().phase).toBe("reconnecting");
+      expect(useVoiceCall.getState().room).toEqual({
+        serverId: "s1",
+        roomId: "room-1",
+        serverLabel: "sewlab",
+        roomName: "Voice room",
+        limit: null,
+      });
+      e.state("connected");
+      expect(useVoiceCall.getState().phase).toBe("connected");
+      e.state("ended", "left");
+      expect(useVoiceCall.getState().phase).toBe("idle");
+    });
+
+    it("no call anywhere: nothing changes", async () => {
+      const e = fakeEngine(true, { state: "idle", muted: false, consent: null });
+      setPhoneVoiceEngine(e.engine);
+      await useVoiceCall.getState().resync();
+      expect(useVoiceCall.getState().phase).toBe("idle");
+      expect(useVoiceCall.getState().notice).toBeNull();
     });
   });
 });

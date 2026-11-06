@@ -52,7 +52,20 @@ export interface PhoneVoiceEngine {
   consent?(granted: boolean, noticeVersion: number): Promise<void>;
   /** The audio session and interruptions (kessel-audio's phone hooks). */
   system(e: ShimEvent): void;
+  /** The call as the engine has it now, following it from here with
+   *  `events`: for a webview that slept through events, or reloaded mid-call. */
+  resync?(events: EngineEvents): Promise<EngineNow | null>;
 }
+
+/** The engine's call right now. */
+export type EngineNow = {
+  state: "idle" | EngineState;
+  reason?: string;
+  serverId?: string;
+  roomId?: string;
+  muted: boolean;
+  consent: ConsentSheet | null;
+};
 
 /** This build: no call audio yet. Join explains, nothing else happens. */
 export const UNAVAILABLE_ENGINE: PhoneVoiceEngine = {
@@ -82,6 +95,9 @@ type CallState = {
   join(room: CallRoom): Promise<void>;
   /** A choice from `consent`: `null` gives up the held join. */
   answerConsent(granted: boolean | null): Promise<void>;
+  /** Catch up with the engine (back in the foreground, or after a reload).
+   *  `name` gives an adopted call its names. */
+  resync(name?: (serverId: string, roomId: string) => Omit<CallRoom, "serverId" | "roomId">): Promise<void>;
   leave(): Promise<void>;
   setMuted(muted: boolean): void;
   clearNotice(): void;
@@ -140,6 +156,25 @@ export const useVoiceCall = create<CallState>((set, get) => {
     unlisten = null;
   }
 
+  /** The engine's events for call `id`. */
+  function follow(id: number, micDenied: boolean): EngineEvents {
+    return {
+      onState(s, reason) {
+        if (id !== attempt) return;
+        if (s === "ended") return ended(reason, id);
+        if (!engine.drivesSystemCall && s !== "held") shim.report(s);
+        if (s === "connected") set({ phase: "connected", ...(micDenied ? { muted: true } : {}) });
+        if (s === "reconnecting") set({ phase: "reconnecting" });
+      },
+      onConsent(sheet) {
+        if (id === attempt) set({ consent: sheet });
+      },
+      onSelfMute(muted) {
+        if (id === attempt && get().phase !== "idle") set({ muted });
+      },
+    };
+  }
+
   return {
     phase: "idle",
     room: null,
@@ -164,25 +199,13 @@ export const useVoiceCall = create<CallState>((set, get) => {
       const mic = await shim.microphone();
       if (id !== attempt) return;
       if (mic === "denied") set({ notice: MIC_DENIED_LINE });
-      const onState = (s: EngineState, reason?: string): void => {
-        if (id !== attempt) return;
-        if (s === "ended") return ended(reason, id);
-        if (!engine.drivesSystemCall && s !== "held") shim.report(s);
-        if (s === "connected") set({ phase: "connected", ...(mic === "denied" ? { muted: true } : {}) });
-        if (s === "reconnecting") set({ phase: "reconnecting" });
-      };
-      const onConsent = (sheet: ConsentSheet | null): void => {
-        if (id === attempt) set({ consent: sheet });
-      };
-      const onSelfMute = (muted: boolean): void => {
-        if (id === attempt && get().phase !== "idle") set({ muted });
-      };
+      const events = follow(id, mic === "denied");
       if (engine.drivesSystemCall) {
         // Rust starts the system call when the engine connects; it knows
         // only ids, so name the call first.
         shim.label(room.roomName, room.serverLabel);
         try {
-          await engine.join(room.serverId, room.roomId, { onState, onConsent, onSelfMute });
+          await engine.join(room.serverId, room.roomId, events);
         } catch (err) {
           if (id !== attempt) return;
           const { code, hint } = codeOf(err);
@@ -205,7 +228,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
       }
       shim.report("connecting");
       try {
-        await engine.join(room.serverId, room.roomId, { onState, onConsent });
+        await engine.join(room.serverId, room.roomId, events);
       } catch (err) {
         if (id !== attempt) return;
         const { code, hint } = codeOf(err);
@@ -243,6 +266,31 @@ export const useVoiceCall = create<CallState>((set, get) => {
       } catch {
         set({ notice: "Couldn't send your answer. Try again, or leave the room." });
       }
+    },
+
+    async resync(name) {
+      if (!engine.resync || get().phase === "joining") return;
+      const id = get().phase === "idle" ? ++attempt : attempt;
+      const now = await engine.resync(follow(id, false));
+      if (!now || id !== attempt) return;
+      if (now.state === "idle" || now.state === "ended") {
+        // The call ended while the webview slept.
+        if (get().phase !== "idle") ended(now.reason, id);
+        return;
+      }
+      let room = get().room;
+      if (!room) {
+        // The webview reloaded mid-call: take the call back.
+        if (!now.serverId || !now.roomId) return;
+        const names = name?.(now.serverId, now.roomId) ?? { serverLabel: "", roomName: "Voice room", limit: null };
+        room = { serverId: now.serverId, roomId: now.roomId, ...names };
+      }
+      set({
+        room,
+        phase: now.state === "connected" ? "connected" : now.state === "reconnecting" ? "reconnecting" : "joining",
+        muted: now.muted,
+        consent: now.consent,
+      });
     },
 
     clearNotice: () => set({ notice: null }),

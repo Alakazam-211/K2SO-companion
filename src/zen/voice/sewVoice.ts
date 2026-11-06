@@ -1,7 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { isIosWebView } from "../../lib/nativePicker";
-import type { ConsentSheet, EngineEvents, PhoneVoiceEngine } from "./voiceCall";
+import type { ConsentSheet, EngineEvents, EngineNow, PhoneVoiceEngine } from "./voiceCall";
 import { nativeJoinErrorCode } from "./voiceWire";
 
 // The call engine in this build (iOS): Sew's native voice plugin, in Rust
@@ -43,6 +43,34 @@ export function parseConsentSheet(body: unknown): ConsentSheet | null {
     title: b.title,
     text: b.text,
     choices,
+  };
+}
+
+type Snapshot = {
+  state?: string;
+  reason?: string;
+  target?: string;
+  room?: string;
+  participants?: { is_self?: boolean; muted?: boolean; deafened?: boolean }[];
+};
+
+/** The plugin's `state` answer as the store reads it. */
+export function parseSnapshot(snap: unknown, consent: unknown): EngineNow {
+  const s = snap && typeof snap === "object" ? (snap as Snapshot) : {};
+  const state =
+    s.state === "connecting" || s.state === "connected" || s.state === "reconnecting" || s.state === "ended"
+      ? s.state
+      : s.state === "consent_required"
+        ? "held"
+        : "idle";
+  const me = Array.isArray(s.participants) ? s.participants.find((p) => p?.is_self) : undefined;
+  return {
+    state,
+    ...(typeof s.reason === "string" ? { reason: s.reason } : {}),
+    ...(typeof s.target === "string" ? { serverId: s.target } : {}),
+    ...(typeof s.room === "string" ? { roomId: s.room } : {}),
+    muted: me?.muted === true || me?.deafened === true,
+    consent: parseConsentSheet(consent),
   };
 }
 
@@ -93,6 +121,16 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
     },
     // Rust hears the system call itself.
     system: () => {},
+    async resync(e) {
+      events = e;
+      await follow();
+      try {
+        const [snap, consent] = await Promise.all([invoke(`${CMD}state`), invoke("voice_consent")]);
+        return parseSnapshot(snap, consent);
+      } catch {
+        return null;
+      }
+    },
   };
 }
 

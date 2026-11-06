@@ -9,6 +9,8 @@ import { initKbDiag } from "./lib/kbDiag";
 import { initLightBlur } from "./lib/lightBlur";
 import { phoneVoiceEngine } from "./zen/voice/sewVoice";
 import { setPhoneVoiceEngine } from "./zen/voice/voiceCall";
+import { resyncVoiceCall } from "./zen/voice/VoiceRooms";
+import { onForegroundLater } from "./lib/foreground";
 
 // Android's WebView reports env(safe-area-inset-bottom) as 0 while the
 // app draws edge-to-edge behind the system nav — bottom bars need an
@@ -49,7 +51,14 @@ initLightBlur();
 
 // Voice rooms: this build's call engine (Sew's native plugin on iOS).
 const voiceEngine = phoneVoiceEngine();
-if (voiceEngine) setPhoneVoiceEngine(voiceEngine);
+if (voiceEngine) {
+  setPhoneVoiceEngine(voiceEngine);
+  // The webview misses the engine's events while it sleeps, and loses the
+  // call store if it reloads: catch up now and on every return.
+  // Not staggered: the call bar is what the person looks at first.
+  void resyncVoiceCall();
+  onForegroundLater("voice-call", () => void resyncVoiceCall(), 0);
+}
 
 createRoot(document.getElementById("root")!).render(
   <StrictMode>

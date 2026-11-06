@@ -19,7 +19,8 @@ public enum K2DeviceKey {
 
   /// `id` is Sew's `DeviceKeyId::account()`
   /// ("<install_id>:<member_id>:<device_scope>", stable, at most ~100 chars).
-  static func tag(_ id: String) -> Data { Data("com.alakazamlabs.k2so.companion.voice.\(id)".utf8) }
+  static let tagPrefix = "com.alakazamlabs.k2so.companion.voice."
+  static func tag(_ id: String) -> Data { Data("\(tagPrefix)\(id)".utf8) }
 
   static func find(_ id: String) throws -> SecKey? {
     let q: [String: Any] = [
@@ -89,5 +90,34 @@ public enum K2DeviceKey {
       kSecAttrApplicationTag as String: tag(id),
     ]
     SecItemDelete(q as CFDictionary)
+  }
+
+  // Keychain items, Secure Enclave keys included, outlive an uninstall,
+  // but the app's data (Sew's record of each key) doesn't. A fresh install
+  // starts with no voice keys, so the engine enrols cleanly and an old
+  // member's key never lingers on a phone that changed hands.
+  static let installMarker = "k2.voice.installed"
+
+  public static func wipeIfFreshInstall() {
+    let d = UserDefaults.standard
+    if d.bool(forKey: installMarker) { return }
+    wipeAll()
+    d.set(true, forKey: installMarker)
+  }
+
+  static func wipeAll() {
+    let q: [String: Any] = [
+      kSecClass as String: kSecClassKey,
+      kSecAttrKeyType as String: kSecAttrKeyTypeECSECPrimeRandom,
+      kSecReturnAttributes as String: true,
+      kSecMatchLimit as String: kSecMatchLimitAll,
+    ]
+    var out: CFTypeRef?
+    guard SecItemCopyMatching(q as CFDictionary, &out) == errSecSuccess, let rows = out as? [[String: Any]] else { return }
+    let prefix = Data(tagPrefix.utf8)
+    for row in rows {
+      guard let tag = row[kSecAttrApplicationTag as String] as? Data, tag.starts(with: prefix) else { continue }
+      SecItemDelete([kSecClass as String: kSecClassKey, kSecAttrApplicationTag as String: tag] as CFDictionary)
+    }
   }
 }
