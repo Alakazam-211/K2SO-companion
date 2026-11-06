@@ -95,6 +95,10 @@ export function CallTile({ callViewOpen, onOpen }: { callViewOpen: boolean; onOp
 const GLASS_BG = "rgba(255, 255, 255, 0.1)";
 const GLASS_EDGE = "rgba(255, 255, 255, 0.22)";
 const SHEEN = "inset 0 1px 0 rgba(255, 255, 255, 0.28)";
+/** Hang up keeps its red but gets the glass rim too (Rosson): light along
+ *  the top edge, a little shade along the bottom. */
+const DANGER_EDGE = "rgba(255, 255, 255, 0.28)";
+const DANGER_SHEEN = "inset 0 1px 0 rgba(255, 255, 255, 0.38), inset 0 -1px 0 rgba(0, 0, 0, 0.22)";
 const PILL_RADIUS = CALL_TILE_H / 2;
 const MUTED_TEXT = "#8e8e93";
 
@@ -149,9 +153,9 @@ function TileButton({
         height: CALL_TILE_BUTTON,
         borderRadius: CALL_TILE_BUTTON / 2,
         padding: 0,
-        border: `0.5px solid ${danger ? "#ff453a" : off ? "#fff" : GLASS_EDGE}`,
+        border: `0.5px solid ${danger ? DANGER_EDGE : off ? "#fff" : GLASS_EDGE}`,
         background: danger ? "#ff453a" : off ? "#fff" : GLASS_BG,
-        boxShadow: danger || off ? "none" : SHEEN,
+        boxShadow: danger ? DANGER_SHEEN : off ? "none" : SHEEN,
         color: danger || off ? "#000" : "#fff",
         opacity: dead ? 0.55 : 1,
       }}
