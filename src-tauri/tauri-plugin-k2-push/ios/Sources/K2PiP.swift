@@ -15,6 +15,13 @@
 //   sends it back to the hidden spot. Only its place among the window's
 //   subviews changes, so it never leaves the window. PiP's start and restore
 //   animations run from wherever it is.
+// - The mini tile's snap: `pipFrame`'s `animate` moves the view from where it
+//   is now to the new frame on its own, on the render server: a
+//   CASpringAnimation per axis with the page's mass, stiffness, damping and
+//   release velocity (the page runs the same spring in JS on its tile, so
+//   the two stay together), or an ease-out (Reduce Motion). It starts when
+//   the page's tile shows the start (`startedAt` + `pageLag`). Any frame
+//   without `animate` stops it where it is and puts the view there.
 // - Touches: `isUserInteractionEnabled = false`, so every touch goes through
 //   to the webview under it (the page's tile takes the tap that starts PiP).
 // - Aspect fit (`resizeAspect`), not fill: a shared screen or a portrait
@@ -127,6 +134,15 @@ public func k2PiPFlush(_ removeImage: Bool) {
   K2PiP.shared.flush(removeImage: removeImage)
 }
 
+/// `pipFrame`'s `animate`: seconds; a spring (else ease-out); points/s;
+/// when the page started it (seconds since 1970).
+struct K2TileMotion {
+  let duration: Double
+  let spring: (mass: Double, stiffness: Double, damping: Double)?
+  let velocity: CGVector
+  let startedAt: Double?
+}
+
 /// A view whose own layer is the display layer.
 private final class K2PiPView: UIView {
   override class var layerClass: AnyClass { AVSampleBufferDisplayLayer.self }
@@ -212,12 +228,13 @@ final class K2PiP: NSObject {
   }
 
   /// `pipFrame`: the page's tile at `rect` (webview points), or nil when it
-  /// isn't on screen. Before the layer exists, kept for it.
-  func setTile(_ rect: CGRect?, radius: CGFloat) -> [String: Any] {
+  /// isn't on screen. Before the layer exists, kept for it. `motion`: get
+  /// there from where it is on that curve (only from one tile to another).
+  func setTile(_ rect: CGRect?, radius: CGFloat, motion: K2TileMotion? = nil) -> [String: Any] {
     dispatchPrecondition(condition: .onQueue(.main))
     let was = tile != nil
     tile = rect.map { ($0, max(0, radius)) }
-    place()
+    place(motion: was ? motion : nil)
     if was != (tile != nil) {
       pipLog("tile \(tile != nil ? "on" : "off"), possible=\(controller?.isPictureInPicturePossible ?? false)")
     }
@@ -227,16 +244,94 @@ final class K2PiP: NSObject {
   /// The view over the webview at the tile, or back in the hidden spot.
   /// Same superview either way: only the order changes, so PiP never sees
   /// the layer leave its window.
-  private func place() {
+  private func place(motion: K2TileMotion? = nil) {
     guard let v = view, let window = v.superview else { return }
     if let t = tile, let web = webView, web.window === window, t.rect.width > 0, t.rect.height > 0 {
-      v.frame = web.convert(t.rect, to: window)
+      let frame = web.convert(t.rect, to: window)
+      if let m = motion, m.duration > 0, v.frame != Self.hiddenFrame {
+        move(v, to: frame, m)
+      } else {
+        stopMotion(v)
+        v.frame = frame
+      }
       v.layer.cornerRadius = t.radius
       window.bringSubviewToFront(v)
     } else {
+      stopMotion(v)
       v.frame = Self.hiddenFrame
       v.layer.cornerRadius = 0
       window.sendSubviewToBack(v)
+    }
+  }
+
+  private static let motionKeys = ["k2.tile.x", "k2.tile.y", "k2.tile.size"]
+  /// How much later than its JS the page's tile reaches the screen: about
+  /// one frame (simulator, recorded: started at once, the layer led the
+  /// tile by about a frame; started this late, a still release's snap
+  /// showed next to no drift). The one constant to tune on a device.
+  private static let pageLag: Double = 1.0 / 60
+
+  /// Stop a snap where it is: the next frame set is where the view goes.
+  private func stopMotion(_ v: UIView) {
+    for key in Self.motionKeys { v.layer.removeAnimation(forKey: key) }
+  }
+
+  /// The view to `frame` from where it shows now (mid-snap included), on
+  /// `m`'s curve. The model goes straight to `frame`; the animations only
+  /// draw the way there, removed when done.
+  private func move(_ v: UIView, to frame: CGRect, _ m: K2TileMotion) {
+    let layer = v.layer
+    let shown = layer.presentation() ?? layer
+    let fromPosition = shown.position
+    let fromSize = shown.bounds.size
+    stopMotion(v)
+    v.frame = frame
+    let toPosition = layer.position
+    let toSize = layer.bounds.size
+    // Start it when the page's tile shows the same motion: the page started
+    // it `trip` ago, and its frames reach the screen about `pageLag` after
+    // its JS runs (WebContent → app → render server), while ours go
+    // straight to the render server. Until then the layer holds where it is.
+    let trip = m.startedAt.map { Date().timeIntervalSince1970 - $0 } ?? 0
+    let delay = min(0.05, max(-0.1, Self.pageLag - trip))
+    let begin = layer.convertTime(CACurrentMediaTime() + delay, from: nil)
+    func add(_ key: String, _ path: String, from: Any, to: Any, distance: CGFloat, velocity: CGFloat) {
+      let a: CABasicAnimation
+      if let s = m.spring {
+        let spring = CASpringAnimation(keyPath: path)
+        spring.mass = CGFloat(s.mass)
+        spring.stiffness = CGFloat(s.stiffness)
+        spring.damping = CGFloat(s.damping)
+        // Core Animation's spring velocity is relative to the distance.
+        spring.initialVelocity = abs(distance) >= 0.5 ? velocity / distance : 0
+        a = spring
+      } else {
+        a = CABasicAnimation(keyPath: path)
+        a.timingFunction = CAMediaTimingFunction(name: .easeOut)
+      }
+      a.fromValue = from
+      a.toValue = to
+      a.duration = m.duration
+      a.beginTime = begin
+      a.fillMode = .backwards
+      layer.add(a, forKey: key)
+    }
+    let dx = toPosition.x - fromPosition.x
+    let dy = toPosition.y - fromPosition.y
+    if abs(dx) >= 0.25 {
+      add(
+        "k2.tile.x", "position.x", from: NSNumber(value: Double(fromPosition.x)),
+        to: NSNumber(value: Double(toPosition.x)), distance: dx, velocity: m.velocity.dx)
+    }
+    if abs(dy) >= 0.25 {
+      add(
+        "k2.tile.y", "position.y", from: NSNumber(value: Double(fromPosition.y)),
+        to: NSNumber(value: Double(toPosition.y)), distance: dy, velocity: m.velocity.dy)
+    }
+    if abs(fromSize.width - toSize.width) >= 0.25 || abs(fromSize.height - toSize.height) >= 0.25 {
+      add(
+        "k2.tile.size", "bounds.size", from: NSValue(cgSize: fromSize), to: NSValue(cgSize: toSize), distance: 0,
+        velocity: 0)
     }
   }
 
