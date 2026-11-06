@@ -2794,10 +2794,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "kessel-video"
-version = "0.1.2"
+name = "kessel-frame-ring"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "35225d6542d4631811f8a9ffc2388120dfdda30b7e06a4ee65a10d7eb3bf81d9"
+checksum = "21acd697bc1be4dfb140c889c03bddc45c99edfa331ef34657ec53532f4af7a7"
+dependencies = [
+ "libc",
+]
+
+[[package]]
+name = "kessel-video"
+version = "0.1.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "19ed830a4e92b88843d10e1a2aafed2c3ecb88e192ddd06e70e727616fa8b6bc"
 dependencies = [
  "block2",
  "bytes",
@@ -4994,7 +5003,7 @@ dependencies = [
 [[package]]
 name = "sew-call-client"
 version = "0.4.1"
-source = "git+https://github.com/Alakazam-211/sew?rev=b817fda8b2cfc57c0539ae33f086f1b678a49927#b817fda8b2cfc57c0539ae33f086f1b678a49927"
+source = "git+https://github.com/Alakazam-211/sew?rev=c1b1151768d03c68770859503f22945009a569d0#c1b1151768d03c68770859503f22945009a569d0"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -5008,6 +5017,7 @@ dependencies = [
  "jni 0.21.1",
  "kessel-audio",
  "kessel-video",
+ "png 0.18.1",
  "prost",
  "rand 0.8.8",
  "rcgen",
@@ -5035,7 +5045,7 @@ dependencies = [
 [[package]]
 name = "sew-e2ee"
 version = "0.8.1"
-source = "git+https://github.com/Alakazam-211/sew?rev=b817fda8b2cfc57c0539ae33f086f1b678a49927#b817fda8b2cfc57c0539ae33f086f1b678a49927"
+source = "git+https://github.com/Alakazam-211/sew?rev=c1b1151768d03c68770859503f22945009a569d0#c1b1151768d03c68770859503f22945009a569d0"
 dependencies = [
  "aes-gcm",
  "ed25519-dalek",
@@ -5062,7 +5072,7 @@ dependencies = [
 [[package]]
 name = "sew-lk-compat"
 version = "0.8.1"
-source = "git+https://github.com/Alakazam-211/sew?rev=b817fda8b2cfc57c0539ae33f086f1b678a49927#b817fda8b2cfc57c0539ae33f086f1b678a49927"
+source = "git+https://github.com/Alakazam-211/sew?rev=c1b1151768d03c68770859503f22945009a569d0#c1b1151768d03c68770859503f22945009a569d0"
 dependencies = [
  "aes-gcm",
  "aws-lc-rs",
@@ -5083,7 +5093,7 @@ dependencies = [
 [[package]]
 name = "sew-lkproto"
 version = "0.8.1"
-source = "git+https://github.com/Alakazam-211/sew?rev=b817fda8b2cfc57c0539ae33f086f1b678a49927#b817fda8b2cfc57c0539ae33f086f1b678a49927"
+source = "git+https://github.com/Alakazam-211/sew?rev=c1b1151768d03c68770859503f22945009a569d0#c1b1151768d03c68770859503f22945009a569d0"
 dependencies = [
  "pbjson",
  "pbjson-types",
@@ -5094,7 +5104,7 @@ dependencies = [
 [[package]]
 name = "sew-mls-crypto"
 version = "0.8.1"
-source = "git+https://github.com/Alakazam-211/sew?rev=b817fda8b2cfc57c0539ae33f086f1b678a49927#b817fda8b2cfc57c0539ae33f086f1b678a49927"
+source = "git+https://github.com/Alakazam-211/sew?rev=c1b1151768d03c68770859503f22945009a569d0#c1b1151768d03c68770859503f22945009a569d0"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -5116,7 +5126,7 @@ dependencies = [
 [[package]]
 name = "sew-proto"
 version = "0.8.1"
-source = "git+https://github.com/Alakazam-211/sew?rev=b817fda8b2cfc57c0539ae33f086f1b678a49927#b817fda8b2cfc57c0539ae33f086f1b678a49927"
+source = "git+https://github.com/Alakazam-211/sew?rev=c1b1151768d03c68770859503f22945009a569d0#c1b1151768d03c68770859503f22945009a569d0"
 dependencies = [
  "chrono",
  "schemars 1.2.1",
@@ -5834,9 +5844,12 @@ dependencies = [
 [[package]]
 name = "tauri-plugin-sew-voice"
 version = "0.4.1"
-source = "git+https://github.com/Alakazam-211/sew?rev=b817fda8b2cfc57c0539ae33f086f1b678a49927#b817fda8b2cfc57c0539ae33f086f1b678a49927"
+source = "git+https://github.com/Alakazam-211/sew?rev=c1b1151768d03c68770859503f22945009a569d0#c1b1151768d03c68770859503f22945009a569d0"
 dependencies = [
+ "base64 0.22.1",
  "cpal",
+ "kessel-frame-ring",
+ "libc",
  "serde",
  "serde_json",
  "sew-call-client",
@@ -6600,15 +6613,15 @@ dependencies = [
 
 [[package]]
 name = "vp8-decoder"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d6056992e528ab4054b3f57300b0af7095d0c179a3dbefa29a2a6179bf5f1241"
+checksum = "5e0950d7ffa096605272fd9285825cfd82b32cd72c713eb26887217fa9afd8e0"
 
 [[package]]
 name = "vp8-encoder"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "d4b70c621da80f3af1ab42956a24d1e4ee723a5efcaa446c11817d0c296dd947"
+checksum = "293585438b38a11edc42d7ea23b2e03b1a96a6818d86b0dc373feb083071d424"
 dependencies = [
  "vp8-decoder",
 ]
