@@ -1,6 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { scopeFor } from "../../api/scope";
 import { useBackHandler } from "../../lib/androidBack";
+import { useSwipeBack } from "../../lib/useSwipeBack";
 import { isIosWebView } from "../../lib/nativePicker";
 import { onForegroundLater } from "../../lib/foreground";
 import { useServersStore, type ServerEntry } from "../../stores/servers";
@@ -9,8 +10,8 @@ import { subscribeAppEvents } from "../ticketEvents";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "../ZenHeaderBlur";
 import { FEATURE_VOICE_ROOMS, fetchVoiceRooms, isVoiceRoomsChanged, type VoiceRoomsResult } from "./voiceApi";
 import { shareCallLog } from "./sewVoice";
-import { VideoTile } from "./videoLayer";
-import { useVoiceCall, type CallRoom } from "./voiceCall";
+import { useLiveVideo, VideoTile } from "./videoLayer";
+import { canJoinWithCamera, useVoiceCall, type CallRoom } from "./voiceCall";
 import { useVoiceNames } from "./voiceNames";
 import { hostingStateText, meOffer, roomIsFull, type VoiceRoom, type VoiceRoomsList } from "./voiceWire";
 
@@ -82,12 +83,27 @@ function Occupants({ room }: { room: VoiceRoom }) {
   return <span>{names.length > 3 ? `${shown} and ${names.length - 3} more` : shown}</span>;
 }
 
+/** A video camera, for "Join with camera". */
+function CameraIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M16 13l5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11" />
+      <rect x="2" y="6" width="14" height="12" rx="2" />
+    </svg>
+  );
+}
+
 function RoomRow({ server, room }: { server: ServerEntry; room: VoiceRoom }) {
   const call = useVoiceCall();
   const here = call.room?.serverId === server.id && call.room.roomId === room.id;
   const full = roomIsFull(room);
   const closed = room.closing || (!!room.unavailable && room.unavailable !== "room_full");
   const label = serverDisplayName(server);
+  const join = (camera: boolean) =>
+    void call.join(
+      { serverId: server.id, serverLabel: label, roomId: room.id, roomName: room.name, limit: room.limit },
+      camera ? { camera: true } : undefined
+    );
   return (
     <div
       className="flex items-center"
@@ -113,24 +129,30 @@ function RoomRow({ server, room }: { server: ServerEntry; room: VoiceRoom }) {
           {call.phase === "joining" ? "Joining…" : "In call"}
         </span>
       ) : (
-        <button
-          type="button"
-          className="zen-glass zen-glass-pill text-[15px]"
-          style={{ minHeight: 34, padding: "0 16px", color: "#fff", opacity: full || closed ? 0.4 : 1 }}
-          disabled={full || closed}
-          onClick={() =>
-            void call.join({
-              serverId: server.id,
-              serverLabel: label,
-              roomId: room.id,
-              roomName: room.name,
-              limit: room.limit,
-            })
-          }
-          data-testid="voice-room-join"
-        >
-          {full ? "Full" : room.closing ? "Closing" : "Join"}
-        </button>
+        <>
+          {canJoinWithCamera() && !full && !closed ? (
+            <button
+              type="button"
+              className="zen-glass zen-glass-pill flex items-center justify-center"
+              style={{ minHeight: 34, width: 40, padding: 0, color: "#fff" }}
+              onClick={() => join(true)}
+              aria-label={`Join ${room.name} with camera`}
+              data-testid="voice-room-join-camera"
+            >
+              <CameraIcon />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="zen-glass zen-glass-pill text-[15px]"
+            style={{ minHeight: 34, padding: "0 16px", color: "#fff", opacity: full || closed ? 0.4 : 1 }}
+            disabled={full || closed}
+            onClick={() => join(false)}
+            data-testid="voice-room-join"
+          >
+            {full ? "Full" : room.closing ? "Closing" : "Join"}
+          </button>
+        </>
       )}
     </div>
   );
@@ -225,6 +247,10 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
   const clearNotice = useVoiceCall((s) => s.clearNotice);
   const inCall = useVoiceCall((s) => s.phase !== "idle");
   const [headerRef, headerPx] = useMeasuredHeight(VOICE_HEADER_PX);
+  // The left-edge swipe goes back too, as on every other screen. Not while
+  // a recording notice waits: that sheet is the person's to answer.
+  const consentUp = useVoiceCall((s) => s.consent !== null);
+  const swipeRef = useSwipeBack(onClose, { enabled: !consentUp });
   // The rooms scroll clear of the call bar, taller with video.
   const [barRef, barPx] = useMeasuredHeight(CALL_BAR_PX);
   const barSpace = (inCall ? Math.max(barPx, CALL_BAR_PX) : CALL_BAR_PX) + CALL_BAR_AIR;
@@ -233,6 +259,7 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
 
   return (
     <div
+      ref={swipeRef}
       className="absolute inset-0 flex flex-col"
       style={{ background: "#000", zIndex: 6 }}
       data-testid="overlay-voice"
@@ -247,14 +274,19 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
             className="grid items-center"
             style={{ gridTemplateColumns: "1fr auto 1fr", minHeight: 44, padding: "12px 12px 8px", columnGap: 8 }}
           >
+            {/* Back, not Done (Rosson): the call area sits over the page it was
+                opened from, mini tile or menu, and closing returns there. */}
             <button
               type="button"
-              className="text-[17px] justify-self-start zen-glass zen-glass-pill"
-              style={{ minHeight: 34, padding: "0 14px", color: "#fff", pointerEvents: "auto" }}
+              className="flex items-center justify-center justify-self-start shrink-0 zen-glass zen-glass-pill"
+              style={{ width: 34, height: 34, color: "#fff", pointerEvents: "auto" }}
               onClick={onClose}
+              aria-label="Back"
               data-testid="voice-done"
             >
-              Done
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                <polyline points="15 18 9 12 15 6" />
+              </svg>
             </button>
             <h1 className="text-[17px] font-semibold pointer-events-none zen-header-text">Rooms</h1>
             <span />
@@ -403,6 +435,7 @@ function CallLine({ room, status }: { room: CallRoom; status: string }) {
  *  the E2EE status and quality, Mute, Deafen and Leave. */
 export function CallBar({ measureRef }: { measureRef?: (el: HTMLElement | null) => void }) {
   const call = useVoiceCall();
+  const live = useLiveVideo();
   if (call.phase === "idle" || !call.room) return null;
   const held = call.phase === "joining" && call.consent?.ask === "join";
   return (
@@ -427,7 +460,7 @@ export function CallBar({ measureRef }: { measureRef?: (el: HTMLElement | null) 
         fallback={
           <>
             {/* The recording sheet sits over the tile: the layer steps under the page. */}
-            {call.video ? <VideoTile covered={!!call.consent} /> : null}
+            {live ? <VideoTile covered={!!call.consent} /> : null}
             <CallLine room={call.room} status={call.phase === "joining" ? "Joining…" : call.phase === "reconnecting" ? "Reconnecting…" : "Connected"} />
           </>
         }

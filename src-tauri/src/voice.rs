@@ -32,7 +32,8 @@ use tauri_plugin_sew_voice::native::{NativePayload, NativeSink, NativeSinkTarget
 use tauri_plugin_sew_voice::sew_call_client::Recording;
 use tauri_plugin_sew_voice::{
     AppScene, BoxFuture, CallState, ConsentAnswer, DeviceError, DeviceKeyId, HardwareDeviceKey, JoinAnswer,
-    JoinProvider, JoinRequest, ProviderError, RecordingInfo, SelfMute, StateEvent, VoiceControl, VoiceListener,
+    JoinArgs, JoinOptions, JoinProvider, JoinRequest, ProviderError, RecordingInfo, SelfMute, StateEvent, VoiceControl,
+    VoiceListener,
 };
 use tauri_plugin_sew_voice::{ConsentAsk, ConsentPrompt, ErrorInfo};
 
@@ -60,6 +61,11 @@ pub struct Native {
     ended_why: Arc<Mutex<Option<&'static str>>>,
     /// The picture in picture's thread ([`pip_loop`]).
     pip: Arc<OnceLock<mpsc::Sender<ToSink>>>,
+    /// The CallKit thread ([`callkit_loop`]), for a join with the camera.
+    shim: Arc<OnceLock<mpsc::Sender<ToShim>>>,
+    /// Whom the picture shows (the sink's last `Switched`), for a call
+    /// screen opened after the event went by.
+    speaker: Arc<Mutex<Value>>,
 }
 
 /// Sew install id → the app's server ids that joined through it. Sew knows
@@ -156,6 +162,7 @@ impl Native {
 /// The voice plugin, set up for this app. Call [`start`] from `setup`.
 pub fn plugin(native: &Native) -> tauri::plugin::TauriPlugin<Wry> {
     let (tx, rx) = mpsc::channel();
+    let _ = native.shim.set(tx.clone());
     let mut shim = native.clone();
     std::thread::Builder::new()
         .name("k2-callkit".into())
@@ -234,6 +241,30 @@ pub fn set_hosts(native: &Native, hosts: HashMap<String, String>) {
         }
         native.save_installs();
     });
+}
+
+/// A join with the camera on ("Join with camera"): the system call starts as
+/// a video call (`CXStartCallAction.isVideo`), and Sew turns the camera on
+/// once the call is connected and the app is in front (never from the lock
+/// screen). The webview asked for the camera permission first; without it
+/// the call still joins, and `local_video` says why the camera stayed off.
+pub async fn join_with_camera(control: &VoiceControl, native: &Native, target: String, room: String) -> Result<Value, ErrorInfo> {
+    let to_shim = |video: bool| {
+        if let Some(tx) = native.shim.get() {
+            let _ = tx.send(ToShim::StartVideo(video));
+        }
+    };
+    // Before the join: the system call starts on its first `connecting`.
+    to_shim(true);
+    native.note("join with camera");
+    let args = JoinArgs { target, room, muted: None, deafened: None };
+    match control.join_with(args, JoinOptions::with_camera()).await {
+        Ok(joined) => Ok(serde_json::to_value(joined).unwrap_or(Value::Null)),
+        Err(e) => {
+            to_shim(false);
+            Err(e)
+        }
+    }
 }
 
 /// The consent sheet the webview should show now (`null`: none), for a
@@ -508,6 +539,9 @@ enum ToShim {
     Muted(bool),
     /// The call has video (a camera or a screen share), or no longer.
     Video(bool),
+    /// The next system call starts as a video call (a join with the camera),
+    /// or not after all (that join failed).
+    StartVideo(bool),
 }
 
 /// Engine → system call. The listener runs under the plugin's lock, so it
@@ -621,6 +655,8 @@ fn callkit_loop(native: &mut impl CallOps, rx: mpsc::Receiver<ToShim>) {
     let mut up = false;
     // Whether the call has video, as the engine last said.
     let mut video = false;
+    // The next start is a video call ([`join_with_camera`]).
+    let mut start_video = false;
     for msg in rx {
         match msg {
             ToShim::State(ev) => match &ev.state {
@@ -629,7 +665,11 @@ fn callkit_loop(native: &mut impl CallOps, rx: mpsc::Receiver<ToShim>) {
                         // The first sign of a call: start the system call, which
                         // activates the audio session (kessel-audio waits for it).
                         let room = ev.room.clone();
-                        let answer = native.call_op("start", |r| r.room = room);
+                        let as_video = std::mem::take(&mut start_video);
+                        let answer = native.call_op("start", |r| {
+                            r.room = room;
+                            r.video = as_video.then_some(true);
+                        });
                         up = answer.as_ref().and_then(|v| v.get("ok")).and_then(Value::as_bool) == Some(true);
                         // Refused (another app's call, CallKit down): the shim
                         // emitted `start_failed`, and the engine leaves.
@@ -680,6 +720,7 @@ fn callkit_loop(native: &mut impl CallOps, rx: mpsc::Receiver<ToShim>) {
                     native.call_op("mute", |r| r.on = Some(muted));
                 }
             }
+            ToShim::StartVideo(on) => start_video = on,
             ToShim::Video(on) => {
                 // Before the call is up, the first `report` carries it.
                 if on != video {
@@ -1033,6 +1074,7 @@ impl SinkOps for PipSink {
         if let Some(sink) = self.sink.take() {
             sink.close();
         }
+        *self.native.speaker.lock().unwrap_or_else(|e| e.into_inner()) = Value::Null;
         self.native.call_op("pipLayer", |r| r.on = Some(false));
         self.native.note(&self.counts.line());
         self.native.note("pip sink closed");
@@ -1065,6 +1107,8 @@ struct PipFeed {
 impl NativeVideoConsumer for PipFeed {
     fn on_video(&self, event: NativeVideoEvent) {
         if let Some(who) = speaker_of(&event) {
+            self.native.note(&speaker_line(&who));
+            *self.native.speaker.lock().unwrap_or_else(|e| e.into_inner()) = who.clone();
             if let Some(app) = self.native.app() {
                 let _ = app.emit(PIP_SPEAKER_EVENT, who);
             }
@@ -1088,6 +1132,18 @@ impl NativeVideoConsumer for PipFeed {
             }
         }
     }
+}
+
+/// Whom the picture shows now (`{member_id, track}`, or `null`: no sink or
+/// no switch yet), for a call screen that opened after the event.
+pub fn pip_speaker(native: &Native) -> Value {
+    native.speaker.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// The call log's line for a switch: which ids came, never the ids.
+fn speaker_line(who: &Value) -> String {
+    let has = |k: &str| if who.get(k).is_some_and(|v| !v.is_null()) { "yes" } else { "no" };
+    format!("pip switched member={} track={}", has("member_id"), has("track"))
 }
 
 /// Whom the picture shows now (the active speaker the sink moved to), so
@@ -1483,6 +1539,15 @@ impl Native {
     }
 }
 
+/// A line from the page (the kit's camera calls and `local_video`): words
+/// as codes only, at most 6, so nothing but codes reaches the log.
+pub fn note_from_page(native: &Native, words: &[String]) {
+    let line: Vec<String> = words.iter().take(6).map(|w| code(w)).collect();
+    if !line.is_empty() {
+        native.note(&line.join(" "));
+    }
+}
+
 /// The call log for "Send call log".
 pub fn call_log_text(native: &Native, version: &str) -> String {
     native.log.lock().unwrap_or_else(|e| e.into_inner()).text(version)
@@ -1849,6 +1914,40 @@ mod tests {
     }
 
     #[test]
+    fn a_join_with_the_camera_starts_a_video_call_and_your_camera_takes_the_speaker() {
+        let ops = run(
+            "receiver",
+            vec![
+                ToShim::StartVideo(true),
+                state(CallState::Connecting),
+                state(CallState::Connected),
+                // Your own camera turned on once connected: Sew's `video_changed`.
+                ToShim::Video(true),
+                state(CallState::Ended { reason: "left".into() }),
+                // The next call is a plain one again.
+                state(CallState::Connecting),
+            ],
+        );
+        assert_eq!(
+            ops,
+            vec![
+                json!({ "op": "start", "video": true }),
+                json!({ "op": "report", "state": "connecting", "video": false }),
+                json!({ "op": "report", "state": "connected", "video": false }),
+                json!({ "op": "report", "video": true }),
+                json!({ "op": "route" }),
+                json!({ "op": "autoSpeaker", "on": true }),
+                json!({ "op": "report", "state": "ended", "reason": "left" }),
+                json!({ "op": "start" }),
+                json!({ "op": "report", "state": "connecting", "video": false }),
+            ]
+        );
+        // A camera join that failed before the call started: a plain start next.
+        let ops = run("speaker", vec![ToShim::StartVideo(true), ToShim::StartVideo(false), state(CallState::Connecting)]);
+        assert_eq!(ops[0], json!({ "op": "start" }));
+    }
+
+    #[test]
     fn video_before_the_call_rides_its_first_report_and_ends_with_it() {
         let ops = run(
             "headphones",
@@ -1887,6 +1986,13 @@ mod tests {
         // The person took the speaker themselves, or the route moved on.
         assert_eq!(speaker_for("speaker", false, false), Leave);
         assert_eq!(speaker_for("receiver", false, false), Leave);
+    }
+
+    #[test]
+    fn a_switch_is_logged_without_its_ids() {
+        assert_eq!(speaker_line(&json!({ "member_id": "55769769701277696", "track": "TR_x" })), "pip switched member=yes track=yes");
+        assert_eq!(speaker_line(&json!({ "member_id": null, "track": "TR_x" })), "pip switched member=no track=yes");
+        assert_eq!(speaker_line(&json!({ "member_id": null, "track": null })), "pip switched member=no track=no");
     }
 
     #[test]
@@ -2045,6 +2151,13 @@ mod tests {
         let counts = PipCounts::default();
         counts.count(&event, &fed);
         assert!(counts.line().contains("nv12=0 i420=1 no_buffer=0"), "{}", counts.line());
+    }
+
+    #[test]
+    fn page_notes_are_codes_only() {
+        let words = |w: &[&str]| w.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let line: Vec<String> = words(&["camera", "Permission", "granted", "sewcc_abcdefghijklmnopqrstu"]).iter().map(|w| code(w)).collect();
+        assert_eq!(line.join(" "), "camera permission granted redacted");
     }
 
     #[test]

@@ -8,7 +8,7 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(async () => null), addPlu
 import { useCallScreen } from "./callScreen";
 import { EASE_DURATION, SNAP_SPRING } from "./miniSnap";
 import { MINI_CORNER_KEY, MiniVideoTile, nearestCorner, readCorner, useLayerPlacement } from "./videoLayer";
-import { __setHapticForTests, __setTileSenderForTests, HIDDEN, type TileFrame } from "./videoTile";
+import { __resetPipForTests, __setHapticForTests, __setTileSenderForTests, HIDDEN, onPipEvent, type TileFrame } from "./videoTile";
 import { __resetVoiceCallForTests, useVoiceCall } from "./voiceCall";
 
 const ROOM = { serverId: "s1", serverLabel: "sewlab", roomId: "room-1", roomName: "Standup", limit: 25 };
@@ -55,6 +55,9 @@ let reduce = false;
 
 beforeEach(() => {
   __resetVoiceCallForTests();
+  __resetPipForTests();
+  // The layer plays a frame (each test that needs none says so).
+  onPipEvent({ event: "pip_first_frame" });
   sent.length = 0;
   haptics.length = 0;
   __setTileSenderForTests((f) => void sent.push(f));
@@ -113,6 +116,25 @@ function shown(onOpen: () => void = () => {}) {
 }
 
 describe("the mini video tile", () => {
+  it("never shows empty: only once a frame plays, and not after a stall or a clear", () => {
+    __resetPipForTests();
+    act(() => useVoiceCall.setState({ phase: "connected", room: ROOM, video: true }));
+    render(<MiniVideoTile callViewOpen={false} onOpen={() => {}} />);
+    // Video, but no frame yet (your own camera alone, a stream on its way).
+    expect(tile()).toBeNull();
+    act(() => onPipEvent({ event: "pip_first_frame" }));
+    expect(tile()).toBeTruthy();
+    act(() => onPipEvent({ event: "pip_stalled" }));
+    expect(tile()).toBeNull();
+    act(() => onPipEvent({ event: "pip_first_frame" }));
+    expect(tile()).toBeTruthy();
+    act(() => onPipEvent({ event: "pip_cleared" }));
+    expect(tile()).toBeNull();
+    // In Picture in Picture it stays (the tap brings the call back).
+    act(() => onPipEvent({ event: "pip_started" }));
+    expect(tile()).toBeTruthy();
+  });
+
   it("shows only while the call has video and its screen is closed", () => {
     const { rerender } = render(<MiniVideoTile callViewOpen={false} onOpen={() => {}} />);
     expect(tile()).toBeNull();

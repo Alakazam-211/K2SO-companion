@@ -374,7 +374,7 @@ class K2PushPlugin: Plugin {
       shim.label(room: args.room ?? "", server: args.server ?? "")
       invoke.resolve(["ok": true])
     case "start":
-      shim.start(room: args.room ?? "", server: args.server ?? "") { error in
+      shim.start(room: args.room ?? "", server: args.server ?? "", video: args.video ?? false) { error in
         if let error = error { invoke.resolve(["ok": false, "error": error]) } else { invoke.resolve(["ok": true]) }
       }
     case "report":

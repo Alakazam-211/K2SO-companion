@@ -465,6 +465,21 @@ export function callEndedText(reason: string, roomName: string, serverLabel: str
   }
 }
 
+/** The camera permission's refusals (Sew's plugin never asks on its own:
+ *  the camera button and "Join with camera" do), in Sew's kit's words, with
+ *  the iPhone's own settings path. */
+export type CameraRefusal = "camera_permission_not_determined" | "camera_permission_denied" | "camera_denied";
+
+export function isCameraRefusal(code: unknown): code is CameraRefusal {
+  return code === "camera_permission_not_determined" || code === "camera_permission_denied" || code === "camera_denied";
+}
+
+export function cameraRefusalText(code: CameraRefusal): string {
+  return code === "camera_permission_not_determined"
+    ? "Allow camera access to turn your camera on."
+    : "Camera access is off. Turn it on in Settings › K2 › Camera.";
+}
+
 /** The system refused the mic: the person stays in the call and can listen. */
 export const MIC_DENIED_LINE = "Your microphone is blocked, so no one can hear you. You can still listen.";
 

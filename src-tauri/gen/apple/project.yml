@@ -69,7 +69,7 @@ targets:
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
         CFBundleShortVersionString: 4.2.0
-        CFBundleVersion: "202611060932"
+        CFBundleVersion: "202611061003"
         # Communication Notifications: the app declares the intent the
         # Notification Service Extension donates. Durable copy also in
         # src-tauri/Info.ios.plist (tauri merges it on every build).
@@ -80,7 +80,7 @@ targets:
         UIBackgroundModes: [remote-notification, audio, voip]
         # Composer attach menu: camera (capture input) and the sound of a
         # recorded video. Durable copy also in src-tauri/Info.ios.plist.
-        NSCameraUsageDescription: K2 uses the camera so you can attach a photo or video to a message, and to scan the pairing QR code from your computer.
+        NSCameraUsageDescription: K2 uses the camera so people in a voice room can see you when you turn your camera on, so you can attach a photo or video to a message, and to scan the pairing QR code from your computer.
         NSMicrophoneUsageDescription: K2 uses the microphone for voice rooms, and to record sound when you attach a video to a message.
         ITSAppUsesNonExemptEncryption: false
         # Pair links (K2 0.46.4): k2companion://pair?server=<host>#<code>.
@@ -172,7 +172,7 @@ targets:
       properties:
         CFBundleDisplayName: K2 Notification Service
         CFBundleShortVersionString: 4.2.0
-        CFBundleVersion: "202611060932"
+        CFBundleVersion: "202611061003"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
