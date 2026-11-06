@@ -79,7 +79,9 @@ export function ZenGardens() {
 
   return (
     <div className="h-full min-h-0 flex flex-col zen-font" style={{ background: "#000", color: "#fff" }} data-testid="zen-gardens">
-      <header className="shrink-0" style={{ paddingTop: "env(safe-area-inset-top)" }}>
+      {/* In the page flow under #root, which already keeps clear of the
+          status bar (index.css): no inset of its own, or it doubles. */}
+      <header className="shrink-0">
         <div className="flex items-center" style={{ height: 52, padding: "0 12px", columnGap: 10 }}>
           <button
             type="button"
