@@ -4714,7 +4714,7 @@ dependencies = [
 [[package]]
 name = "sew-call-client"
 version = "0.4.1"
-source = "git+https://github.com/Alakazam-211/sew?rev=86c9ee94909e9e761cc221cc3db590e1e31adc8f#86c9ee94909e9e761cc221cc3db590e1e31adc8f"
+source = "git+https://github.com/Alakazam-211/sew-crates?rev=96e63ae49927b4ca356e72e6342a073f20ab517c#96e63ae49927b4ca356e72e6342a073f20ab517c"
 dependencies = [
  "aes",
  "aes-gcm",
@@ -4753,8 +4753,8 @@ dependencies = [
 
 [[package]]
 name = "sew-e2ee"
-version = "0.8.0"
-source = "git+https://github.com/Alakazam-211/sew?rev=86c9ee94909e9e761cc221cc3db590e1e31adc8f#86c9ee94909e9e761cc221cc3db590e1e31adc8f"
+version = "0.8.1"
+source = "git+https://github.com/Alakazam-211/sew-crates?rev=96e63ae49927b4ca356e72e6342a073f20ab517c#96e63ae49927b4ca356e72e6342a073f20ab517c"
 dependencies = [
  "aes-gcm",
  "ed25519-dalek",
@@ -4780,8 +4780,8 @@ dependencies = [
 
 [[package]]
 name = "sew-lk-compat"
-version = "0.8.0"
-source = "git+https://github.com/Alakazam-211/sew?rev=86c9ee94909e9e761cc221cc3db590e1e31adc8f#86c9ee94909e9e761cc221cc3db590e1e31adc8f"
+version = "0.8.1"
+source = "git+https://github.com/Alakazam-211/sew-crates?rev=96e63ae49927b4ca356e72e6342a073f20ab517c#96e63ae49927b4ca356e72e6342a073f20ab517c"
 dependencies = [
  "aes-gcm",
  "aws-lc-rs",
@@ -4801,8 +4801,8 @@ dependencies = [
 
 [[package]]
 name = "sew-lkproto"
-version = "0.8.0"
-source = "git+https://github.com/Alakazam-211/sew?rev=86c9ee94909e9e761cc221cc3db590e1e31adc8f#86c9ee94909e9e761cc221cc3db590e1e31adc8f"
+version = "0.8.1"
+source = "git+https://github.com/Alakazam-211/sew-crates?rev=96e63ae49927b4ca356e72e6342a073f20ab517c#96e63ae49927b4ca356e72e6342a073f20ab517c"
 dependencies = [
  "pbjson",
  "pbjson-types",
@@ -4812,8 +4812,8 @@ dependencies = [
 
 [[package]]
 name = "sew-mls-crypto"
-version = "0.8.0"
-source = "git+https://github.com/Alakazam-211/sew?rev=86c9ee94909e9e761cc221cc3db590e1e31adc8f#86c9ee94909e9e761cc221cc3db590e1e31adc8f"
+version = "0.8.1"
+source = "git+https://github.com/Alakazam-211/sew-crates?rev=96e63ae49927b4ca356e72e6342a073f20ab517c#96e63ae49927b4ca356e72e6342a073f20ab517c"
 dependencies = [
  "aes-gcm",
  "chacha20poly1305",
@@ -4834,8 +4834,8 @@ dependencies = [
 
 [[package]]
 name = "sew-proto"
-version = "0.8.0"
-source = "git+https://github.com/Alakazam-211/sew?rev=86c9ee94909e9e761cc221cc3db590e1e31adc8f#86c9ee94909e9e761cc221cc3db590e1e31adc8f"
+version = "0.8.1"
+source = "git+https://github.com/Alakazam-211/sew-crates?rev=96e63ae49927b4ca356e72e6342a073f20ab517c#96e63ae49927b4ca356e72e6342a073f20ab517c"
 dependencies = [
  "chrono",
  "schemars 1.2.1",
@@ -5553,7 +5553,7 @@ dependencies = [
 [[package]]
 name = "tauri-plugin-sew-voice"
 version = "0.4.1"
-source = "git+https://github.com/Alakazam-211/sew?rev=86c9ee94909e9e761cc221cc3db590e1e31adc8f#86c9ee94909e9e761cc221cc3db590e1e31adc8f"
+source = "git+https://github.com/Alakazam-211/sew-crates?rev=96e63ae49927b4ca356e72e6342a073f20ab517c#96e63ae49927b4ca356e72e6342a073f20ab517c"
 dependencies = [
  "cpal",
  "serde",
