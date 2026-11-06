@@ -132,7 +132,7 @@
   }
 }
 
-/* "See more" (MessageFold.tsx): a message taller than 12 lines folds to
+/* "See more" (MessageFold.tsx): a message taller than 14 lines folds to
    its first ~12. The clip holds one row more than it shows; on that row a
    fade into the bubble's own colour (`--k2-bubble`: blue mine, grey
    theirs) and the button, drawn over the clip, so measuring never moves
