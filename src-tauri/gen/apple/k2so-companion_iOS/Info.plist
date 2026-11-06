@@ -70,7 +70,7 @@
 	<key>UIUserInterfaceStyle</key>
 	<string>Dark</string>
 	<key>NSCameraUsageDescription</key>
-	<string>K2 uses the camera so you can attach a photo or video to a message, and to scan the pairing QR code from your computer.</string>
+	<string>K2 uses the camera so people in a voice room can see you when you turn your camera on, so you can attach a photo or video to a message, and to scan the pairing QR code from your computer.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>K2 uses the microphone for voice rooms, and to record sound when you attach a video to a message.</string>
 	<key>CFBundleURLTypes</key>

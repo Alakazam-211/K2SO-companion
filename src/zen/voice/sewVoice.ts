@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { isIosWebView } from "../../lib/nativePicker";
 import { shareOrSaveBytes, type ShareOutcome } from "../files/shareFile";
-import type { ConsentSheet, EngineEvents, EngineNow, PhoneVoiceEngine } from "./voiceCall";
+import type { CameraAsk, ConsentSheet, EngineEvents, EngineNow, PhoneVoiceEngine } from "./voiceCall";
 import { nativeJoinErrorCode } from "./voiceWire";
 
 // The call engine in this build (iOS): Sew's native voice plugin, in Rust
@@ -12,7 +12,10 @@ import { nativeJoinErrorCode } from "./voiceWire";
 //   - events `sew-voice://state` (the call), `sew-voice://participants`
 //     (your own mute, which the system's button can change),
 //     `k2-voice://consent` (the recording notice, already in the kit's words)
-//     and `k2-voice://video` (the call has video: Sew's `video_changed`).
+//     and `k2-voice://video` (the call has video: Sew's `video_changed`);
+//   - "Join with camera": `camera_permission` / `request_camera_permission`
+//     (the plugin never prompts on its own), then K2's `voice_join_camera`
+//     (Sew's `join_with`: CallKit starts a video call).
 
 const CMD = "plugin:sew-voice|";
 
@@ -79,6 +82,31 @@ export function parseSnapshot(snap: unknown, consent: unknown): EngineNow {
   };
 }
 
+/** The camera permission as the plugin reports it. */
+type CameraPermission = "granted" | "denied" | "prompt" | "unsupported";
+
+/** Read the camera permission and, never asked, ask (iOS's prompt). Only
+ *  from the person's own tap. The kit's own gate (`ensureCameraPermission`)
+ *  does the same for the call screen's camera button. */
+export async function askCamera(): Promise<CameraAsk> {
+  let p: CameraPermission;
+  try {
+    p = await invoke<CameraPermission>(`${CMD}camera_permission`);
+  } catch {
+    // An older plugin: the join's camera says itself.
+    return { ok: true };
+  }
+  if (p === "prompt") {
+    try {
+      p = await invoke<CameraPermission>(`${CMD}request_camera_permission`);
+    } catch {
+      p = "prompt";
+    }
+  }
+  if (p === "granted" || p === "unsupported") return { ok: true };
+  return { ok: false, code: p === "denied" ? "camera_permission_denied" : "camera_permission_not_determined" };
+}
+
 /** The engine says `left` for any leave: K2's own (a held re-join nobody
  *  answered) has its reason in Rust. */
 export async function endReason(reason: string | undefined): Promise<string | undefined> {
@@ -135,15 +163,18 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
   return {
     available: true,
     drivesSystemCall: true,
-    async join(serverId, roomId, e) {
+    cameraJoin: true,
+    async join(serverId, roomId, e, options) {
       events = e;
       await follow();
       try {
-        await invoke(`${CMD}join`, { target: serverId, room: roomId });
+        if (options?.camera) await invoke("voice_join_camera", { target: serverId, room: roomId });
+        else await invoke(`${CMD}join`, { target: serverId, room: roomId });
       } catch (err) {
         throw joinError(err);
       }
     },
+    cameraPermission: askCamera,
     async leave() {
       await invoke(`${CMD}leave`).catch(() => {});
     },

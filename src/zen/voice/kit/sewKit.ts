@@ -1,4 +1,4 @@
-import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { Channel, invoke as tauriInvoke } from "@tauri-apps/api/core";
 import { listen as tauriListen } from "@tauri-apps/api/event";
 import { SewStore } from "@sew/client/store";
 import {
@@ -9,8 +9,10 @@ import {
   type VoiceAnswer,
   type VoiceControllerApi,
   type VoiceHost,
+  type VoiceSnapshot,
 } from "@sew/voice";
 import { useVoiceCall } from "../voiceCall";
+import { cameraRefusalText, isCameraRefusal } from "../voiceWire";
 import { LayerVideo } from "./layerVideo";
 
 // Sew's call UI kit (@sew/voice) on the phone, over the same native plugin
@@ -25,8 +27,12 @@ import { LayerVideo } from "./layerVideo";
 //   - Rings are native (K2 push → CallKit in Rust): the bridge refuses the
 //     kit's `ring` / `ring_ended`, and nothing feeds it `call_ring`.
 //   - Leave goes through the store (one leave path, the bar goes at once).
-//   - Video is the phone's native layer: `LayerVideo` tells the kit whose
-//     tile it belongs on (and keeps the kit's own PluginVideo sinks shut).
+//   - Video: `LayerVideo` (layerVideo.ts). Your camera is the kit's own
+//     PluginVideo (on, off, flip, the permission step, your self-view on a
+//     `local:camera` sink); everyone else is the phone's native layer, and
+//     LayerVideo tells the kit whose tile it belongs on (no remote sinks).
+//   - The camera's permission sentences name the iPhone's settings
+//     (Settings › K2 › Camera), not the Mac's (`phoneController`).
 //   - No Sew-API sender yet: K2's door passes only the call-credential
 //     routes. `send` rejects with `sew_api_unavailable`, the store stays
 //     empty, and the parts that need either stay hidden.
@@ -62,11 +68,18 @@ export function kitRoomOf(channelId: string): { serverId: string; roomKey: strin
 export type BaseBridge = {
   invoke(cmd: string, args?: Record<string, unknown>): Promise<unknown>;
   listen(event: string, handler: (payload: unknown) => void): Promise<() => void>;
+  /** A Tauri Channel for a video sink's frames (your self-view). */
+  channel?(onMessage: (msg: ArrayBuffer | Uint8Array) => void): unknown;
 };
 
 const tauriBridge: BaseBridge = {
   invoke: (cmd, args) => tauriInvoke(cmd, args),
   listen: (event, handler) => tauriListen(event, (e) => handler(e.payload)),
+  channel(onMessage) {
+    const ch = new Channel<ArrayBuffer | Uint8Array>();
+    ch.onmessage = onMessage;
+    return ch;
+  },
 };
 
 /** Your own Sew member id, as the plugin last said (`is_self`). */
@@ -109,7 +122,37 @@ export function k2Bridge(base: BaseBridge = tauriBridge): NativeBridge {
         handler(payload as T);
       });
     },
+    ...(base.channel ? { channel: base.channel.bind(base) } : {}),
   };
+}
+
+/** A snapshot with the camera's permission sentences in the iPhone's words. */
+export function phoneSnapshot(s: VoiceSnapshot): VoiceSnapshot {
+  const reason = s.notice?.reason;
+  if (!s.notice || !isCameraRefusal(reason)) return s;
+  return { ...s, notice: { ...s.notice, text: cameraRefusalText(reason) } };
+}
+
+/** The kit's controller, its snapshot through `phoneSnapshot` (the same
+ *  object back while the kit's is unchanged, as the kit's hooks need). */
+export function phoneController(c: VoiceControllerApi): VoiceControllerApi {
+  let seen: VoiceSnapshot | null = null;
+  let out: VoiceSnapshot | null = null;
+  const snapshot = (): VoiceSnapshot => {
+    const s = c.snapshot();
+    if (s !== seen || !out) {
+      seen = s;
+      out = phoneSnapshot(s);
+    }
+    return out;
+  };
+  return new Proxy(c, {
+    get(target, prop) {
+      if (prop === "snapshot") return snapshot;
+      const v = Reflect.get(target, prop, target) as unknown;
+      return typeof v === "function" ? (v as (...a: unknown[]) => unknown).bind(target) : v;
+    },
+  });
 }
 
 function noSewApi(method: string, path: string): Promise<VoiceAnswer> {
@@ -146,7 +189,7 @@ export function joinArgs(_kind: CallKind, channelId: string): { target: string; 
   return r ? { target: r.serverId, room: r.roomKey } : { target: "", room: channelId };
 }
 
-export type SewKit = { controller: VoiceControllerApi; store: SewStore };
+export type SewKit = { controller: VoiceControllerApi; store: SewStore; video: LayerVideo };
 
 let kit: SewKit | null = null;
 
@@ -155,10 +198,11 @@ let kit: SewKit | null = null;
 export function createSewKit(base?: BaseBridge): SewKit {
   const store = new SewStore();
   const bridge = k2Bridge(base);
+  const video = new LayerVideo(bridge);
   const controller = createVoiceController(k2VoiceHost(store), {
-    native: { bridge, joinArgs, callOf, video: new LayerVideo(bridge) },
+    native: { bridge, joinArgs, callOf, video },
   });
-  return { controller, store };
+  return { controller: phoneController(controller), store, video };
 }
 
 export function sewKit(): SewKit {

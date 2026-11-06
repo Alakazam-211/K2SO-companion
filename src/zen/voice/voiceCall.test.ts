@@ -222,6 +222,46 @@ describe("the phone's voice-room call", () => {
       ],
     };
 
+    it("Join with camera: the mic, then the camera's permission, then a join with the camera", async () => {
+      const s = fakeShim();
+      const e = fakeEngine(true);
+      const asks: string[] = [];
+      Object.assign(e.engine, {
+        cameraJoin: true,
+        cameraPermission: vi.fn(async () => (asks.push("camera"), { ok: true as const })),
+      });
+      __setCallShimForTests(s.shim);
+      setPhoneVoiceEngine(e.engine);
+      void useVoiceCall.getState().join(ROOM, { camera: true });
+      await flush();
+      expect(s.calls).toEqual(["mic", "label:Standup:sewlab"]);
+      expect(asks).toEqual(["camera"]);
+      expect(e.engine.join).toHaveBeenCalledWith("s1", "room-1", expect.anything(), { camera: true });
+      // A plain Join never asks for the camera.
+      await useVoiceCall.getState().leave();
+      void useVoiceCall.getState().join(ROOM);
+      await flush();
+      expect(asks).toEqual(["camera"]);
+      expect(e.engine.join).toHaveBeenLastCalledWith("s1", "room-1", expect.anything(), undefined);
+    });
+
+    it("Join with camera refused: joins without it and says where to turn it on", async () => {
+      const s = fakeShim();
+      const e = fakeEngine(true);
+      Object.assign(e.engine, {
+        cameraJoin: true,
+        cameraPermission: vi.fn(async () => ({ ok: false as const, code: "camera_permission_denied" as const })),
+      });
+      __setCallShimForTests(s.shim);
+      setPhoneVoiceEngine(e.engine);
+      void useVoiceCall.getState().join(ROOM, { camera: true });
+      await flush();
+      expect(e.engine.join).toHaveBeenCalledWith("s1", "room-1", expect.anything(), undefined);
+      expect(useVoiceCall.getState().notice).toBe("Camera access is off. Turn it on in Settings › K2 › Camera.");
+      e.state("connected");
+      expect(useVoiceCall.getState().phase).toBe("connected");
+    });
+
     it("names the call, asks for the mic, and never touches the system call itself", async () => {
       const s = fakeShim();
       const e = fakeEngine(true);
