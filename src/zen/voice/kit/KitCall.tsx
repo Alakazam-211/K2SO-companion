@@ -1,10 +1,23 @@
 import "@sew/voice/theme.css";
 import "@sew/voice/styles.css";
 import "./sewKit.css";
-import { useCallback, useEffect, useMemo, useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+  type MouseEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
+import { createPortal } from "react-dom";
 import type { Member } from "@sew/client/proto";
 import { CallBar, CallView, useVoice, VoiceProvider, type HostTileInfo, type VoiceUi } from "@sew/voice";
 import { useServersStore } from "../../../stores/servers";
+import { useCallDuration } from "../callDuration";
 import { serverDisplayName } from "../../homeView";
 import { LayerSlot, SelfView, useLayerPlacement, useLiveVideo, VideoTile } from "../videoLayer";
 import { useVoiceCall, type CallRoom } from "../voiceCall";
@@ -20,7 +33,8 @@ import { kitChannelId, kitRoomOf, kitSelfId, note, sewKit } from "./sewKit";
 //     shows gets a video tile: `renderTile` draws the phone's LayerSlot in
 //     its rect, `onTileRect` puts the layer there (videoLayer.tsx);
 //   - the kit's CallBar, docked: E2EE status, quality, the security code,
-//     Mute, Deafen, the camera (with its switch while on) and Leave;
+//     Mute, Deafen, the camera (with its switch while on) and Leave; the
+//     call's time beside the room's name is ours (BarTime);
 //   - your own tile, while your camera is on: `SelfView` in its rect (the
 //     kit's `local:camera` sink, mirrored for the front camera, "Camera
 //     paused" in the background). Never the native layer, never PiP.
@@ -215,15 +229,45 @@ function Joining({ room }: { room: CallRoom }) {
   );
 }
 
-function Bar({ room }: { room: CallRoom }) {
+/** The kit's bar's text column: the status line, then the room's name. */
+const BAR_TEXT = '[data-testid="call-bar"] .sv-bar-text';
+
+/** The call's time beside the room's name, "Standup · sewlab · 12:34",
+ *  from the first connect, through a reconnect (the kit's status line says
+ *  "Reconnecting…" over it). The kit's bar has no place for it, so a span
+ *  of ours joins its text column (sewKit.css puts it beside the name, which
+ *  gives way first), placed again whenever the bar renders. */
+function BarTime({ scope }: { scope: RefObject<HTMLElement | null> }) {
+  const time = useCallDuration();
+  const [slot] = useState(() => {
+    const el = document.createElement("span");
+    el.className = "k2-kit-call-time";
+    el.dataset.testid = "voice-call-duration";
+    return el;
+  });
+  useLayoutEffect(() => {
+    const text = scope.current?.querySelector(BAR_TEXT);
+    if (text && text.lastChild !== slot) text.appendChild(slot);
+  });
+  useLayoutEffect(() => () => slot.remove(), [slot]);
+  return time ? createPortal(`\u00a0· ${time}`, slot) : null;
+}
+
+function Bar({ room, scope }: { room: CallRoom; scope: RefObject<HTMLElement | null> }) {
   const v = useVoice();
   if (v.phase === "idle") return <Joining room={room} />;
-  return <CallBar docked />;
+  return (
+    <>
+      <CallBar docked />
+      <BarTime scope={scope} />
+    </>
+  );
 }
 
 /** The kit's part of the call bar. */
 export default function KitCall() {
   const kit = sewKit();
+  const rootRef = useRef<HTMLDivElement>(null);
   const room = useVoiceCall((s) => s.room);
   const rooms = useVoiceNames((s) => s.rooms);
   const covered = useVoiceCall((s) => !!s.consent);
@@ -255,10 +299,10 @@ export default function KitCall() {
   }, [kit, room, rooms, servers]);
   if (!room) return null;
   return (
-    <div className="sew-kit k2-kit-call" onClickCapture={guard} data-testid="voice-kit">
+    <div ref={rootRef} className="sew-kit k2-kit-call" onClickCapture={guard} data-testid="voice-kit">
       <VoiceProvider value={ui}>
         <People covered={covered} video={kit.video} />
-        <Bar room={room} />
+        <Bar room={room} scope={rootRef} />
       </VoiceProvider>
     </div>
   );

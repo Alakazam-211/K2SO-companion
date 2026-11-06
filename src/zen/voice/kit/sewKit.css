@@ -189,3 +189,24 @@
   line-height: 1.2;
   white-space: nowrap;
 }
+
+/* The call's time beside the room's name (KitCall's BarTime): the status
+   line across the top, then the name and the time; the name gives way
+   (its ellipsis), the time never does. */
+.k2-kit-call .sv-bar-text {
+  grid-template-columns: minmax(0, max-content) auto;
+  justify-content: start;
+}
+.k2-kit-call .sv-bar-status {
+  grid-column: 1 / -1;
+}
+.k2-kit-call-time {
+  align-self: baseline;
+  font-size: 15px;
+  color: var(--text-soft);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+.k2-kit-call-time:empty {
+  display: none;
+}

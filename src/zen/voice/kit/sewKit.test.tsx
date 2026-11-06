@@ -309,6 +309,38 @@ describe("Sew's call kit on the phone", () => {
     expect(kitRoomOf(kitChannelId("s/1", "room 1"))).toEqual({ serverId: "s/1", roomKey: "room 1" });
   });
 
+  it("the call bar shows the call's time beside the room's name once connected, through a reconnect", async () => {
+    const { controller } = sewKit();
+    await (controller as NativeVoiceController).started;
+    useVoiceNames.getState().put("s1", ROOMS);
+    await act(async () => {
+      await useVoiceCall.getState().join(ROOM);
+    });
+    render(<KitCall />);
+    // Joining: the room and its state, no time yet.
+    expect(screen.getByTestId("voice-kit-joining").textContent).toContain("Joining…");
+    expect(screen.queryByTestId("voice-call-duration")?.textContent ?? "").toBe("");
+    act(() => {
+      plugin.emit("sew-voice://state", { state: "connecting", target: "s1", room: "room-1" });
+      plugin.emit("sew-voice://participants", PEOPLE);
+      plugin.emit("sew-voice://state", { state: "connected", target: "s1", room: "room-1" });
+    });
+    await waitFor(() => expect(screen.getByTestId("voice-call-duration").textContent).toBe("\u00a0· 0:00"));
+    // In the kit's text column, right after the room's name.
+    const time = screen.getByTestId("voice-call-duration");
+    expect(time.parentElement?.classList.contains("sv-bar-text")).toBe(true);
+    expect(time.previousElementSibling).toBe(screen.getByTestId("call-channel"));
+    expect(screen.getByTestId("call-channel").textContent).toBe("Standup · sewlab");
+    act(() => useVoiceCall.setState({ startedAt: Date.now() - 754_000 }));
+    expect(time.textContent).toBe("\u00a0· 12:34");
+    // Reconnecting: the kit's status says so, the time stays.
+    act(() => plugin.emit("sew-voice://state", { state: "reconnecting", target: "s1", room: "room-1" }));
+    await waitFor(() => expect(useVoiceCall.getState().phase).toBe("reconnecting"));
+    expect(screen.getByTestId("voice-call-duration").textContent).toBe("\u00a0· 12:34");
+    act(() => plugin.emit("sew-voice://state", { state: "connected", target: "s1", room: "room-1" }));
+    expect(screen.getByTestId("voice-call-duration").textContent).toBe("\u00a0· 12:34");
+  });
+
   it("a speaking member's tile gets the ring", async () => {
     const { controller } = sewKit();
     await (controller as NativeVoiceController).started;
