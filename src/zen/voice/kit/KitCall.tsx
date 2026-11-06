@@ -1,15 +1,16 @@
 import "@sew/voice/theme.css";
 import "@sew/voice/styles.css";
 import "./sewKit.css";
-import { useEffect, useMemo, type MouseEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useSyncExternalStore, type MouseEvent, type ReactNode } from "react";
 import type { Member } from "@sew/client/proto";
 import { CallBar, CallView, useVoice, VoiceProvider, type HostTileInfo, type VoiceUi } from "@sew/voice";
 import { useServersStore } from "../../../stores/servers";
 import { serverDisplayName } from "../../homeView";
-import { LayerSlot, useLayerPlacement, VideoTile } from "../videoLayer";
+import { LayerSlot, SelfView, useLayerPlacement, useLiveVideo, VideoTile } from "../videoLayer";
 import { useVoiceCall, type CallRoom } from "../voiceCall";
 import { occupantByMember, roomByKey, useVoiceNames } from "../voiceNames";
 import type { VoiceRoom } from "../voiceWire";
+import type { LayerVideo } from "./layerVideo";
 import { kitChannelId, kitRoomOf, kitSelfId, sewKit } from "./sewKit";
 
 // The call screen's kit parts (Sew's @sew/voice), loaded with the call
@@ -19,7 +20,10 @@ import { kitChannelId, kitRoomOf, kitSelfId, sewKit } from "./sewKit";
 //     shows gets a video tile: `renderTile` draws the phone's LayerSlot in
 //     its rect, `onTileRect` puts the layer there (videoLayer.tsx);
 //   - the kit's CallBar, docked: E2EE status, quality, the security code,
-//     Mute, Deafen, Leave.
+//     Mute, Deafen, the camera (with its switch while on) and Leave;
+//   - your own tile, while your camera is on: `SelfView` in its rect (the
+//     kit's `local:camera` sink, mirrored for the front camera, "Camera
+//     paused" in the background). Never the native layer, never PiP.
 // The phone's own parts stay around it in VoiceRooms.tsx: the recording
 // notice (ConsentSheet, wired to CallKit and the background notice; the
 // kit's RecordingConsent is never placed), and the mini tile outside the
@@ -27,8 +31,8 @@ import { kitChannelId, kitRoomOf, kitSelfId, sewKit } from "./sewKit";
 //
 // Hidden until K2 passes Sew's API through and a gateway feeds the store:
 // RecordingBadge/RecordingControls (need the store), VoiceChannelMembers
-// (not placed). Camera and screen stay hidden: the phone doesn't send video
-// here (layerVideo.ts). The bar's device check opens the webview's own mic
+// (not placed). The screen button stays hidden: no phone screen share yet
+// (layerVideo.ts). The bar's device check opens the webview's own mic
 // prompt, so its button is hidden and never answers here (sewKit.css,
 // `guard`).
 
@@ -63,6 +67,35 @@ function Avatar({ name, color, size }: { name: string; color: string | null; siz
       {initials(name)}
     </span>
   );
+}
+
+function useLayerVideo<T>(video: LayerVideo, read: (v: LayerVideo) => T): T {
+  const sub = useCallback((fn: () => void) => video.subscribe(fn), [video]);
+  return useSyncExternalStore(sub, () => read(video), () => read(video));
+}
+
+/** Under a call tile's avatar: "Video starting…" for a few seconds before
+ *  someone's first frame (then the plain avatar), and your camera's state
+ *  when this webview can't draw your self-view. */
+export function AvatarNote({ memberId, video }: { memberId: string; video: LayerVideo }) {
+  const starting = useLayerVideo(video, (v) => v.starting() === memberId);
+  const self = memberId === kitSelfId();
+  const undrawn = useLayerVideo(video, (v) => self && v.selfUndrawn());
+  const paused = useLayerVideo(video, (v) => v.selfState() === "paused");
+  const text = starting ? "Video starting…" : undrawn ? (paused ? "Camera paused" : "Camera on") : null;
+  if (!text) return null;
+  return (
+    <span className="k2-kit-avatar-note" style={{ color: "#8e8e93", fontSize: 11 }} data-testid="voice-avatar-note">
+      {text}
+    </span>
+  );
+}
+
+/** Your own tile's video rect while your camera is on. */
+function Self({ handle, video }: { handle: HostTileInfo["handle"]; video: LayerVideo }) {
+  const mirrored = useLayerVideo(video, (v) => v.selfMirrored());
+  const paused = useLayerVideo(video, (v) => v.selfState() === "paused");
+  return <SelfView handle={handle} mirrored={mirrored} paused={paused} />;
 }
 
 /** Names for the kit, from what the phone knows: the rooms lists (each
@@ -101,9 +134,17 @@ export function kitNames(
       };
     },
     memberName: (memberId: string) => person(memberId).name,
-    avatar: (memberId: string, size: number): ReactNode => {
+    avatar: (memberId: string, size: number, video?: LayerVideo): ReactNode => {
       const p = person(memberId);
-      return <Avatar name={p.name} color={p.color} size={size} />;
+      const avatar = <Avatar name={p.name} color={p.color} size={size} />;
+      // A call tile (the kit asks 64): room for its note.
+      if (!video || size < 64) return avatar;
+      return (
+        <span className="k2-kit-avatar-stack">
+          {avatar}
+          <AvatarNote memberId={memberId} video={video} />
+        </span>
+      );
     },
     channelName: (channelId: string) => {
       const l = listed(channelId);
@@ -115,21 +156,28 @@ export function kitNames(
   };
 }
 
-/** The people, and the video on the tile of whoever the layer shows. */
-function People({ covered }: { covered: boolean }) {
+/** The people, the video on the tile of whoever the layer shows, and your
+ *  own camera on yours. */
+function People({ covered, video }: { covered: boolean; video: LayerVideo }) {
   const v = useVoice();
-  const video = useVoiceCall((s) => s.video);
+  // Someone else's picture plays (never yours: the sink never shows you).
+  const playing = useLiveVideo();
+  const others = useLayerVideo(video, (x) => x.othersPlaying());
+  const live = playing && others;
   const place = useLayerPlacement(covered);
   if (v.phase === "idle" || !v.channelId) return null;
-  const hosted = v.participants.some((p) => p.camera || p.screen);
+  const hosted = v.participants.some((p) => !p.local && (p.camera || p.screen));
   return (
     <>
-      {/* The call has video but the kit can't tell whose yet: the tile alone. */}
-      {video && !hosted ? <VideoTile covered={covered} /> : null}
+      {/* The picture plays but the kit can't tell whose yet: the tile alone. */}
+      {live && !hosted ? <VideoTile covered={covered} /> : null}
       <CallView
         channelId={v.channelId}
-        renderTile={() => <LayerSlot />}
-        onTileRect={(_t: HostTileInfo, rect) => place(rect)}
+        renderTile={(t: HostTileInfo) => (t.participant.local ? <Self handle={t.handle} video={video} /> : <LayerSlot />)}
+        // The layer goes on someone else's tile only: never yours.
+        onTileRect={(t: HostTileInfo, rect) => {
+          if (!t.participant.local) place(rect);
+        }}
         tileChrome="below"
       />
     </>
@@ -186,11 +234,12 @@ export default function KitCall() {
       const s = servers.find((x) => x.id === id);
       return s ? s.username || serverDisplayName(s) : null;
     };
-    const { memberRecord, ...names } = kitNames(room, rooms, username);
+    const { memberRecord, avatar, ...names } = kitNames(room, rooms, username);
     return {
       controller: kit.controller,
       store: kit.store,
       ...names,
+      avatar: (memberId: string, size: number) => avatar(memberId, size, kit.video),
       // No Sew member lookup through K2 yet: the rooms list is the phone's
       // member loader (the kit shows a name at once for those it knows);
       // anyone else keeps the fallback.
@@ -204,7 +253,7 @@ export default function KitCall() {
   return (
     <div className="sew-kit k2-kit-call" onClickCapture={guard} data-testid="voice-kit">
       <VoiceProvider value={ui}>
-        <People covered={covered} />
+        <People covered={covered} video={kit.video} />
         <Bar room={room} />
       </VoiceProvider>
     </div>

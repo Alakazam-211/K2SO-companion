@@ -6,6 +6,7 @@ import {
   type CSSProperties,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import type { VideoHandle } from "@sew/voice";
 import { createPortal } from "react-dom";
 import {
   CORNERS,
@@ -45,9 +46,24 @@ import { useVoiceCall } from "./voiceCall";
 //     corner. iOS starts PiP on its own only from a layer that's on screen,
 //     so during a video call the layer always is.
 // The layer lets touches through: these webview elements take the taps.
+//
+// Only while the picture is really live (the call has video and the layer
+// shows a frame since its last flush, or plays in PiP): before the first
+// frame, after a stall (K2PiP's `pip_stalled`: a muted or paused camera, a
+// lost stream) or once the video ends, no tile and no mini tile; the kit's
+// avatar tile stands for the person instead. Your own camera is never on
+// this layer (the sink never shows you): `SelfView` draws it in the page.
 
 export const TILE_RADIUS = 12;
 const TILE_BORDER = 1;
+
+/** The call's picture plays now: video, and a frame on the layer (or PiP). */
+export function useLiveVideo(): boolean {
+  useEffect(() => followPip(), []);
+  const video = useVoiceCall((s) => s.phase !== "idle" && s.video);
+  const shows = usePipStatus((s) => s.frame || s.active);
+  return video && shows;
+}
 
 function useLayerLine(): string | null {
   const frame = usePipStatus((s) => s.frame);
@@ -197,9 +213,12 @@ function writeCorner(c: Corner): void {
   }
 }
 
-/** The mini tile shows while the call has video and its screen is closed. */
+/** The mini tile shows while the call's picture is live and its screen is
+ *  closed: never an empty or black tile. */
 export function useMiniTileShown(callViewOpen: boolean): boolean {
-  return useVoiceCall((s) => s.phase !== "idle" && !!s.room && s.video && !callViewOpen);
+  const live = useLiveVideo();
+  const inCall = useVoiceCall((s) => s.phase !== "idle" && !!s.room);
+  return inCall && live && !callViewOpen;
 }
 
 /** FaceTime's small video, over the app while the call screen is closed:
@@ -437,5 +456,53 @@ function Mini({ onOpen }: { onOpen: () => void }) {
     >
       {pip ? <Line text="Picture in Picture" small /> : null}
     </button>
+  );
+}
+
+// ── Your camera ──────────────────────────────────────────────────────
+
+/** Your own tile's video while your camera is on: the kit's `local:camera`
+ *  sink drawn in the page (never the native layer, never PiP), mirrored for
+ *  the front camera, and "Camera paused" while the app was in the
+ *  background (Sew pauses the camera there; it turns off after 5 minutes). */
+export function SelfView({ handle, mirrored, paused }: { handle: VideoHandle; mirrored: boolean; paused: boolean }) {
+  const ref = useRef<HTMLVideoElement>(null);
+  // Attach once per track, as the kit's own tile does: a new handle object
+  // for the same track must not restart the stream.
+  const latest = useRef(handle);
+  latest.current = handle;
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const h = latest.current;
+    h.attach(el);
+    return () => h.detach(el);
+  }, [handle.key]);
+  return (
+    <div
+      className="absolute inset-0 overflow-hidden"
+      style={{ borderRadius: TILE_RADIUS, background: "#000" }}
+      data-testid="voice-self-view"
+      data-mirrored={mirrored ? "yes" : "no"}
+      data-paused={paused ? "yes" : "no"}
+    >
+      <video
+        ref={ref}
+        className="block"
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          transform: mirrored ? "scaleX(-1)" : undefined,
+          opacity: paused ? 0.35 : 1,
+        }}
+        autoPlay
+        playsInline
+        muted
+        aria-label="Your camera"
+        data-testid="voice-self-video"
+      />
+      {paused ? <Line text="Camera paused" /> : null}
+    </div>
   );
 }
