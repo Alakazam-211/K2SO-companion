@@ -64,6 +64,20 @@ strip = true
 lto = true
 codegen-units = 1
 
+# Debug and simulator builds: the media crates run hot (VP8 decode is about
+# 45 ms a frame at opt-level 0, about 1 ms at 3; K2 11-06). TestFlight and the
+# App Store link the release profile anyway.
+[profile.dev.package.vp8-decoder]
+opt-level = 3
+[profile.dev.package.vp8-encoder]
+opt-level = 3
+[profile.dev.package.kessel-video]
+opt-level = 3
+[profile.dev.package.sew-call-client]
+opt-level = 3
+[profile.dev.package.str0m]
+opt-level = 3
+
 # iOS 27 requires UIApplicationSceneManifest (Info.ios.plist). That makes
 # tao take its scene path. 0.35.3 then UAF-crashes in
 # configurationForConnectingSceneSession (Retained::as_ptr). Upstream
