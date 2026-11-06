@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { isIosWebView } from "../../lib/nativePicker";
+import { shareOrSaveBytes, type ShareOutcome } from "../files/shareFile";
 import type { ConsentSheet, EngineEvents, EngineNow, PhoneVoiceEngine } from "./voiceCall";
 import { nativeJoinErrorCode } from "./voiceWire";
 
@@ -39,6 +40,7 @@ export function parseConsentSheet(body: unknown): ConsentSheet | null {
   if (choices.length === 0) return null;
   return {
     ask: b.ask === "join" ? "join" : "in_call",
+    ...(typeof b.recordingId === "string" ? { recordingId: b.recordingId } : {}),
     noticeVersion: b.noticeVersion,
     title: b.title,
     text: b.text,
@@ -74,6 +76,31 @@ export function parseSnapshot(snap: unknown, consent: unknown): EngineNow {
   };
 }
 
+/** The engine says `left` for any leave: K2's own (a held re-join nobody
+ *  answered) has its reason in Rust. */
+export async function endReason(reason: string | undefined): Promise<string | undefined> {
+  if (reason !== "left") return reason;
+  try {
+    const why = await invoke<unknown>("voice_ended_why");
+    return typeof why === "string" && why ? why : reason;
+  } catch {
+    return reason;
+  }
+}
+
+/** "Send call log": the last call events (codes and times only) to the
+ *  Share sheet as a text file. */
+export async function shareCallLog(): Promise<ShareOutcome> {
+  let text: string;
+  try {
+    text = await invoke<string>("voice_call_log");
+  } catch {
+    return "failed";
+  }
+  if (!text) return "failed";
+  return shareOrSaveBytes(new TextEncoder().encode(text), "K2 call log.txt", "text/plain");
+}
+
 export function sewVoiceEngine(): PhoneVoiceEngine {
   let events: EngineEvents | null = null;
   let listening: Promise<UnlistenFn[]> | null = null;
@@ -84,7 +111,10 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
         const s = payload?.state;
         if (s === "connecting" || s === "connected" || s === "reconnecting") events?.onState(s);
         else if (s === "consent_required") events?.onState("held");
-        else if (s === "ended") events?.onState("ended", payload.reason);
+        else if (s === "ended") {
+          const e = events;
+          void endReason(payload.reason).then((why) => e?.onState("ended", why));
+        }
       }),
       listen<unknown>("k2-voice://consent", ({ payload }) => events?.onConsent?.(parseConsentSheet(payload))),
       listen<{ is_self?: boolean; muted?: boolean; deafened?: boolean }[]>(
@@ -126,7 +156,8 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
       await follow();
       try {
         const [snap, consent] = await Promise.all([invoke(`${CMD}state`), invoke("voice_consent")]);
-        return parseSnapshot(snap, consent);
+        const now = parseSnapshot(snap, consent);
+        return now.state === "ended" ? { ...now, reason: await endReason(now.reason) } : now;
       } catch {
         return null;
       }

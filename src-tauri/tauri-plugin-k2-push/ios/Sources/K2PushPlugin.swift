@@ -458,6 +458,24 @@ class K2PushPlugin: Plugin {
 
   private static let keyQueue = DispatchQueue(label: "k2.voice-key")
 
+  /// `{op: "post", title, body}` or `{op: "clear"}`: the recording notice's
+  /// local notification (K2CallNotice).
+  @objc public func voiceNotice(_ invoke: Invoke) {
+    do {
+      let args = try invoke.parseArgs(VoiceNoticeArgs.self)
+      switch args.op {
+      case "post": K2CallNotice.post(title: args.title ?? "", body: args.body ?? "")
+      case "clear": K2CallNotice.clear()
+      default:
+        invoke.reject("voiceNotice: unknown op \(args.op)")
+        return
+      }
+      invoke.resolve(["ok": true])
+    } catch {
+      invoke.reject("voiceNotice: invalid args (\(error.localizedDescription))")
+    }
+  }
+
   // ── Login tokens in the Keychain (K2SecureTokens) ───────────────────
 
   /// `{op: "set"|"remove"|"sync", server?, token?, tokens?}`.
@@ -924,6 +942,11 @@ private class K2PushTapDelegate: NSObject, UNUserNotificationCenterDelegate {
     withCompletionHandler completionHandler:
       @escaping (UNNotificationPresentationOptions) -> Void
   ) {
+    // A recording notice in the foreground: the sheet is already showing.
+    if K2CallNotice.isOurs(notification) {
+      completionHandler([])
+      return
+    }
     plugin?.handlePresentedTotals(notification.request.content.userInfo)
     if #available(iOS 14.0, *) {
       completionHandler([.banner, .sound, .badge])
@@ -937,7 +960,11 @@ private class K2PushTapDelegate: NSObject, UNUserNotificationCenterDelegate {
     didReceive response: UNNotificationResponse,
     withCompletionHandler completionHandler: @escaping () -> Void
   ) {
-    plugin?.handleTap(response.notification.request.content.userInfo)
+    // A recording notice's tap only opens the app (the call's resync shows
+    // the sheet): it is no push to route.
+    if !K2CallNotice.isOurs(response.notification) {
+      plugin?.handleTap(response.notification.request.content.userInfo)
+    }
     completionHandler()
   }
 }
@@ -966,6 +993,12 @@ private struct CallOpArgs: Decodable {
 
 private struct VoiceWatchArgs: Decodable {
   let channel: Channel
+}
+
+private struct VoiceNoticeArgs: Decodable {
+  let op: String
+  let title: String?
+  let body: String?
 }
 
 private struct VoiceKeyArgs: Decodable {

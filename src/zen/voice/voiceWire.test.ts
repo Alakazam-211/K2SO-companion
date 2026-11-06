@@ -229,6 +229,10 @@ describe("copy", () => {
     expect(callEndedText("signed_out", "Standup", "skylab")).toBe("You were signed out of skylab.");
     expect(callEndedText("removed_by_moderator", "Standup", "skylab")).toBe("You were removed from Standup.");
     expect(callEndedText("channel_archived", "Standup", "skylab")).toBe("Standup closed.");
+    // K2 left a held re-join nobody answered.
+    expect(callEndedText("recording_consent_timeout", "Standup", "skylab", true)).toContain(
+      "You left Standup: a recording started while you were reconnecting"
+    );
     expect(callEndedText("seat_lost", "Standup", "skylab")).toContain("dropped you from Standup");
   });
 });

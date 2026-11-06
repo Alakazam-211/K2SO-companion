@@ -14,24 +14,24 @@
 //! The webview drives joins through the plugin's own commands
 //! (`plugin:sew-voice|join` …) and follows its `sew-voice://` events.
 
-use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, OnceLock, RwLock};
-use std::time::Duration;
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use base64::engine::general_purpose::STANDARD as B64;
 use base64::Engine as _;
 use serde_json::{json, Value};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager, Wry};
-use tauri_plugin_k2_push::{CallOpRequest, K2PushExt, VoiceKeyRequest, VoiceWatchRequest};
+use tauri_plugin_k2_push::{CallOpRequest, K2PushExt, VoiceKeyRequest, VoiceNoticeRequest, VoiceWatchRequest};
 use tauri_plugin_sew_voice::sew_call_client::Recording;
 use tauri_plugin_sew_voice::{
     BoxFuture, CallState, ConsentAnswer, DeviceError, DeviceKeyId, HardwareDeviceKey, JoinAnswer,
     JoinProvider, JoinRequest, ProviderError, RecordingInfo, SelfMute, StateEvent, VoiceControl, VoiceListener,
 };
-use tauri_plugin_sew_voice::{ConsentAsk, ConsentPrompt};
+use tauri_plugin_sew_voice::{ConsentAsk, ConsentPrompt, ErrorInfo};
 
 /// The longest a daemon takes to answer a join (K2 desktop's figure: a
 /// reconnecting lane, the member gate and Sew's answer add up to 51 s).
@@ -51,6 +51,10 @@ pub struct Native {
     installs: Arc<Mutex<Option<Installs>>>,
     /// The server of the join in progress (the keys used next are its).
     joining: Arc<Mutex<Option<String>>>,
+    /// The last call events, for "Send call log".
+    log: Arc<Mutex<CallLog>>,
+    /// Why the last call ended when K2 left it itself (the engine says `left`).
+    ended_why: Arc<Mutex<Option<&'static str>>>,
 }
 
 /// Sew install id → the app's server ids that joined through it. Sew knows
@@ -145,8 +149,9 @@ pub fn plugin(native: &Native) -> tauri::plugin::TauriPlugin<Wry> {
         .name("k2-callkit".into())
         .spawn(move || callkit_loop(&bridge_native, rx))
         .expect("the CallKit thread starts");
+    let watch = watch_thread(native);
     tauri_plugin_sew_voice::Builder::new(K2Provider::new(native.clone()))
-        .listener(Arc::new(CallKitBridge { tx, native: native.clone(), held: AtomicBool::new(false) }))
+        .listener(Arc::new(CallKitBridge { tx, watch, native: native.clone(), held: AtomicBool::new(false) }))
         .hardware_device_key(Arc::new(EnclaveKey { native: native.clone() }))
         .build()
 }
@@ -156,9 +161,11 @@ pub fn plugin(native: &Native) -> tauri::plugin::TauriPlugin<Wry> {
 pub fn start(app: &AppHandle<Wry>, native: &Native) {
     let _ = native.app.set(app.clone());
     let control = app.state::<VoiceControl>().inner().clone();
+    let log = native.clone();
     let channel = Channel::new(move |body: InvokeResponseBody| {
         if let InvokeResponseBody::Json(text) = body {
             if let Ok(event) = serde_json::from_str::<Value>(&text) {
+                log.note(&shim_line(&event));
                 on_shim_event(&control, &event);
             }
         }
@@ -295,11 +302,19 @@ pub fn consent_from(status: u16, retry_after_secs: Option<u64>, body: &[u8], tok
 
 impl JoinProvider for K2Provider {
     fn join(&self, req: JoinRequest) -> BoxFuture<'_, Result<JoinAnswer, ProviderError>> {
-        Box::pin(self.join_inner(req))
+        Box::pin(async move {
+            let answer = self.join_inner(req).await;
+            self.native.note(&format!("join {}", outcome(answer.as_ref().err())));
+            answer
+        })
     }
 
     fn consent(&self, answer: ConsentAnswer) -> BoxFuture<'_, Result<Recording, ProviderError>> {
-        Box::pin(self.consent_inner(answer))
+        Box::pin(async move {
+            let answer = self.consent_inner(answer).await;
+            self.native.note(&format!("consent answer {}", outcome(answer.as_ref().err())));
+            answer
+        })
     }
 }
 
@@ -469,6 +484,8 @@ struct CallKitBridge {
     /// The call is held for a recording answer (`consent_required`): the
     /// notice that follows is the join's, not the call's.
     held: AtomicBool,
+    /// The same events for [`watch_loop`] (the app in the background).
+    watch: mpsc::Sender<Watched>,
 }
 
 /// The webview's consent sheet: Sew's notice in the kit's own words
@@ -479,9 +496,13 @@ impl VoiceListener for CallKitBridge {
     fn on_state(&self, state: &StateEvent) {
         self.held.store(matches!(state.state, CallState::ConsentRequired { .. }), Ordering::Relaxed);
         let _ = self.tx.send(ToShim::State(state.clone()));
+        self.native.note(&state_line(&state.state));
+        let _ = self.watch.send(Watched::State(state.state.clone()));
     }
 
     fn on_recording(&self, recording: Option<&RecordingInfo>) {
+        self.native.note_recording(recording);
+        let _ = self.watch.send(Watched::Recording(recording.cloned()));
         let ask = if self.held.load(Ordering::Relaxed) { ConsentAsk::Join } else { ConsentAsk::InCall };
         let sheet = recording.and_then(|r| consent_sheet(r, ask)).unwrap_or(Value::Null);
         // Emitting only queues: nothing here waits.
@@ -492,6 +513,11 @@ impl VoiceListener for CallKitBridge {
 
     fn on_self_mute(&self, me: &SelfMute) {
         let _ = self.tx.send(ToShim::Muted(me.muted));
+        self.native.note(if me.muted { "mute on" } else { "mute off" });
+    }
+
+    fn on_error(&self, error: &ErrorInfo) {
+        self.native.note(&format!("error {}", code(&error.code)));
     }
 }
 
@@ -507,6 +533,7 @@ fn consent_sheet(r: &RecordingInfo, ask: ConsentAsk) -> Option<Value> {
         prompt.choices_en(ask).iter().map(|c| json!({ "label": c.label, "granted": c.granted })).collect();
     Some(json!({
         "ask": if ask == ConsentAsk::Join { "join" } else { "in_call" },
+        "recordingId": r.recording_id,
         "noticeVersion": prompt.notice_version,
         "title": prompt.title_en(ask),
         "text": prompt.text_en(ask, &name),
@@ -609,6 +636,364 @@ fn on_shim_event(control: &VoiceControl, event: &Value) {
     }
 }
 
+// ── While the app is away ────────────────────────────────────────────
+
+/// How long a re-join held for a recording answer waits for one before K2
+/// leaves, so the system call doesn't say "Reconnecting…" for good.
+const HELD_REJOIN_WAIT: Duration = Duration::from_secs(30);
+
+/// The end reason of a call K2 left for that (Sew's own word for a notice
+/// that went unanswered).
+pub const CONSENT_TIMEOUT: &str = "recording_consent_timeout";
+
+/// What the listener passes on to [`watch_loop`], in order.
+enum Watched {
+    State(CallState),
+    Recording(Option<RecordingInfo>),
+}
+
+/// What [`watch_loop`] does next.
+#[derive(Debug, PartialEq)]
+enum Act {
+    Notify { title: String, body: String },
+    Unnotify,
+    Leave,
+    /// A new call: the last one's end reason is old news.
+    Fresh,
+}
+
+/// The call as the background needs it: the recording notice's local
+/// notification, and the held re-join's clock.
+#[derive(Debug, Default)]
+struct Watch {
+    /// Past `connecting` (the call started).
+    live: bool,
+    /// The call got through once: a hold now is a re-join's.
+    was_connected: bool,
+    held: bool,
+    leave_at: Option<Instant>,
+    /// The last notice notified (recording id, notice version): never twice.
+    notified: Option<(String, u32)>,
+    /// A notification may be up.
+    shown: bool,
+}
+
+impl Watch {
+    fn state(&mut self, s: &CallState, now: Instant) -> Vec<Act> {
+        if matches!(s, CallState::Ended { .. } | CallState::Idle) {
+            let shown = std::mem::take(self).shown;
+            return if shown { vec![Act::Unnotify] } else { Vec::new() };
+        }
+        let fresh = !std::mem::replace(&mut self.live, true);
+        self.held = matches!(s, CallState::ConsentRequired { .. });
+        if matches!(s, CallState::Connected) {
+            self.was_connected = true;
+        }
+        if !self.held {
+            self.leave_at = None;
+        } else if self.was_connected && self.leave_at.is_none() {
+            // A join held at the start is the person's to answer: no clock.
+            self.leave_at = Some(now + HELD_REJOIN_WAIT);
+        }
+        if fresh { vec![Act::Fresh] } else { Vec::new() }
+    }
+
+    fn recording(&mut self, r: Option<&RecordingInfo>) -> Vec<Act> {
+        let waiting = match (self.held, self.was_connected) {
+            (false, _) => Waiting::InCall,
+            (true, false) => Waiting::Join,
+            (true, true) => Waiting::Rejoin,
+        };
+        match r.and_then(|r| recording_notice(r, waiting)) {
+            Some(n) if self.notified.as_ref() == Some(&n.key) => Vec::new(),
+            Some(n) => {
+                self.notified = Some(n.key);
+                self.shown = true;
+                vec![Act::Notify { title: n.title, body: n.body }]
+            }
+            None if self.shown => {
+                self.shown = false;
+                vec![Act::Unnotify]
+            }
+            None => Vec::new(),
+        }
+    }
+
+    fn tick(&mut self, now: Instant) -> Vec<Act> {
+        match self.leave_at {
+            Some(at) if self.held && now >= at => {
+                self.leave_at = None;
+                vec![Act::Leave]
+            }
+            _ => Vec::new(),
+        }
+    }
+}
+
+/// Who owes the answer, and what's at stake.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum Waiting {
+    /// A recording started in the call.
+    InCall,
+    /// The join is held (the person just asked to join).
+    Join,
+    /// The call's re-join is held: K2 leaves without an answer.
+    Rejoin,
+}
+
+#[derive(Debug, PartialEq)]
+struct Notice {
+    key: (String, u32),
+    title: String,
+    body: String,
+}
+
+/// The local notification for a notice waiting on this person, in plain
+/// words (the sheet itself has the kit's).
+fn recording_notice(r: &RecordingInfo, waiting: Waiting) -> Option<Notice> {
+    let prompt = r.consent_prompt.as_ref().filter(|_| r.my_consent == "pending")?;
+    let what = Some(prompt.feature_label.trim()).filter(|l| !l.is_empty()).unwrap_or("A recorder");
+    let call = match prompt.room.name.as_deref().map(str::trim) {
+        Some(room) if !room.is_empty() => format!("the call in {room}"),
+        _ => "the call".to_owned(),
+    };
+    let (title, body) = match waiting {
+        Waiting::InCall => (
+            "Recording started",
+            format!("{what} is recording {call}. Open K2 to choose whether you're recorded. You aren't until you say yes."),
+        ),
+        Waiting::Join => (
+            "This room is recorded",
+            format!("{what} is recording {call}. Open K2 to choose how to join."),
+        ),
+        Waiting::Rejoin => (
+            "Recording started",
+            format!(
+                "{what} started recording {call} while you were reconnecting. Open K2 to answer, \
+                 or K2 leaves the call in {} seconds.",
+                HELD_REJOIN_WAIT.as_secs()
+            ),
+        ),
+    };
+    Some(Notice { key: (r.recording_id.clone(), prompt.notice_version), title: title.to_owned(), body })
+}
+
+fn watch_thread(native: &Native) -> mpsc::Sender<Watched> {
+    let (tx, rx) = mpsc::channel();
+    let native = native.clone();
+    std::thread::Builder::new()
+        .name("k2-voice-watch".into())
+        .spawn(move || watch_loop(&native, rx))
+        .expect("the voice watch thread starts");
+    tx
+}
+
+/// The listener's events, off its lock: the notification goes to Swift
+/// (blocking), and a held re-join's clock runs here.
+fn watch_loop(native: &Native, rx: mpsc::Receiver<Watched>) {
+    let mut watch = Watch::default();
+    loop {
+        let next = match watch.leave_at {
+            Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
+                Ok(m) => Some(m),
+                Err(mpsc::RecvTimeoutError::Timeout) => None,
+                Err(mpsc::RecvTimeoutError::Disconnected) => return,
+            },
+            None => match rx.recv() {
+                Ok(m) => Some(m),
+                Err(_) => return,
+            },
+        };
+        let acts = match next {
+            Some(Watched::State(s)) => watch.state(&s, Instant::now()),
+            Some(Watched::Recording(r)) => watch.recording(r.as_ref()),
+            None => watch.tick(Instant::now()),
+        };
+        for act in acts {
+            watch_act(native, act);
+        }
+    }
+}
+
+fn watch_act(native: &Native, act: Act) {
+    let Some(app) = native.app() else { return };
+    match act {
+        Act::Notify { title, body } => {
+            native.note("notice sent");
+            let req = VoiceNoticeRequest { op: "post", title: Some(title), body: Some(body) };
+            let _ = app.k2_push().voice_notice(req);
+        }
+        Act::Unnotify => {
+            native.note("notice cleared");
+            let _ = app.k2_push().voice_notice(VoiceNoticeRequest { op: "clear", title: None, body: None });
+        }
+        Act::Fresh => *native.ended_why.lock().unwrap_or_else(|e| e.into_inner()) = None,
+        Act::Leave => {
+            let control = app.state::<VoiceControl>().inner().clone();
+            // Answered just now: nothing to give up.
+            if !matches!(control.snapshot().state, CallState::ConsentRequired { .. }) {
+                return;
+            }
+            native.note("leaving: held re-join unanswered");
+            *native.ended_why.lock().unwrap_or_else(|e| e.into_inner()) = Some(CONSENT_TIMEOUT);
+            tauri::async_runtime::spawn(async move {
+                let _ = control.leave().await;
+            });
+        }
+    }
+}
+
+/// Why the last call ended when K2 left it itself (the engine's `left`
+/// would read as the person's own choice), else `None`.
+pub fn ended_why(native: &Native) -> Option<&'static str> {
+    *native.ended_why.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+// ── The call log ─────────────────────────────────────────────────────
+
+/// How many lines "Send call log" keeps.
+const CALL_LOG_LINES: usize = 300;
+
+/// The last call events, for "Send call log": states, error codes, the
+/// system call's events, the join's outcome. Codes and numbers only
+/// ([`code`]): never a token, a URL, a name or the notice's words.
+#[derive(Debug, Default)]
+pub struct CallLog {
+    lines: VecDeque<String>,
+    /// The last recording line (it repeats with every answer in the room).
+    recording: Option<String>,
+}
+
+impl CallLog {
+    fn push(&mut self, at_ms: u64, line: &str) {
+        if self.lines.len() == CALL_LOG_LINES {
+            self.lines.pop_front();
+        }
+        self.lines.push_back(format!("{} {line}", stamp(at_ms)));
+    }
+
+    fn push_recording(&mut self, at_ms: u64, line: String) {
+        if self.recording.as_deref() != Some(&line) {
+            self.push(at_ms, &line);
+            self.recording = Some(line);
+        }
+    }
+
+    /// The log as text, oldest first, under a header.
+    pub fn text(&self, version: &str) -> String {
+        let mut out = format!("K2 call log (K2 {}, iOS). Times are UTC.\n", code(version));
+        if self.lines.is_empty() {
+            out.push_str("No call events since K2 started.\n");
+        }
+        for l in &self.lines {
+            out.push_str(l);
+            out.push('\n');
+        }
+        out
+    }
+}
+
+impl Native {
+    /// One line in the call log.
+    fn note(&self, line: &str) {
+        self.log.lock().unwrap_or_else(|e| e.into_inner()).push(now_ms(), line);
+    }
+
+    fn note_recording(&self, r: Option<&RecordingInfo>) {
+        let line = match r {
+            Some(r) => format!("recording my_consent={} recorder_present={}", code(&r.my_consent), r.recorder_present),
+            None => "recording none".to_owned(),
+        };
+        self.log.lock().unwrap_or_else(|e| e.into_inner()).push_recording(now_ms(), line);
+    }
+}
+
+/// The call log for "Send call log".
+pub fn call_log_text(native: &Native, version: &str) -> String {
+    native.log.lock().unwrap_or_else(|e| e.into_inner()).text(version)
+}
+
+/// A code as the log keeps it: `[a-z0-9_.:-]`, short, and nothing shaped
+/// like a secret (a credential, or a long unbroken run like a token: the
+/// rule [`clean`] keeps for refusals).
+fn code(s: &str) -> String {
+    let c: String = s
+        .chars()
+        .filter_map(|ch| match ch {
+            'a'..='z' | '0'..='9' | '_' | '.' | ':' | '-' => Some(ch),
+            'A'..='Z' => Some(ch.to_ascii_lowercase()),
+            _ => None,
+        })
+        .take(48)
+        .collect();
+    let secret = c.contains("sewcc_") || c.split(['_', '.', ':', '-']).any(|w| w.len() >= 16);
+    if secret {
+        "redacted".to_owned()
+    } else if c.is_empty() {
+        "none".to_owned()
+    } else {
+        c
+    }
+}
+
+fn state_line(s: &CallState) -> String {
+    match s {
+        CallState::Idle => "state idle".to_owned(),
+        CallState::Connecting => "state connecting".to_owned(),
+        CallState::Connected => "state connected".to_owned(),
+        CallState::Reconnecting { attempt } => format!("state reconnecting attempt={attempt}"),
+        CallState::ConsentRequired { notice_version, .. } => format!("state consent_required notice={notice_version}"),
+        CallState::Ended { reason } => format!("state ended reason={}", code(reason)),
+    }
+}
+
+/// A shim event (K2CallShim.swift): its name and the fields worth knowing.
+fn shim_line(event: &Value) -> String {
+    let mut line = format!("system {}", code(event.get("event").and_then(Value::as_str).unwrap_or_default()));
+    for key in ["why", "route", "interface", "error"] {
+        if let Some(v) = event.get(key).and_then(Value::as_str) {
+            line.push_str(&format!(" {key}={}", code(v)));
+        }
+    }
+    if let Some(m) = event.get("muted").and_then(Value::as_bool) {
+        line.push_str(&format!(" muted={m}"));
+    }
+    line
+}
+
+/// A provider answer for the log.
+fn outcome(e: Option<&ProviderError>) -> String {
+    match e {
+        None => "ok".to_owned(),
+        Some(ProviderError::SigninRequired) => "signin_required".to_owned(),
+        Some(ProviderError::Refused { code: c, .. }) => format!("refused {}", code(c)),
+        Some(ProviderError::Unavailable { .. }) => "unavailable".to_owned(),
+        Some(ProviderError::ConsentRequired(_)) => "consent_required".to_owned(),
+        Some(_) => "failed".to_owned(),
+    }
+}
+
+fn now_ms() -> u64 {
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
+}
+
+/// `2026-11-05 14:03:22.123` (UTC).
+fn stamp(ms: u64) -> String {
+    let secs = ms / 1000;
+    let (h, m, s) = (secs / 3600 % 24, secs / 60 % 60, secs % 60);
+    // Days to a civil date (Howard Hinnant's `civil_from_days`).
+    let z = (secs / 86_400) as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z - era * 146_097;
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let day = doy - (153 * mp + 2) / 5 + 1;
+    let month = if mp < 10 { mp + 3 } else { mp - 9 };
+    let year = yoe + era * 400 + i64::from(month <= 2);
+    format!("{year:04}-{month:02}-{day:02} {h:02}:{m:02}:{s:02}.{:03}", ms % 1000)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -697,6 +1082,116 @@ mod tests {
         let mut granted = held();
         granted.my_consent = "granted".into();
         assert!(consent_sheet(&granted, ConsentAsk::InCall).is_none());
+    }
+
+    fn held_at(version: u32) -> CallState {
+        CallState::ConsentRequired { recording_id: "48831765147549720".into(), notice_version: version }
+    }
+
+    #[test]
+    fn a_held_rejoin_is_left_after_30_seconds_and_a_held_join_is_not() {
+        let t0 = Instant::now();
+        let mut w = Watch::default();
+        // Held at the start: the person is looking at the sheet.
+        assert_eq!(w.state(&CallState::Connecting, t0), vec![Act::Fresh]);
+        assert!(w.state(&held_at(3141), t0).is_empty());
+        assert_eq!(w.leave_at, None);
+        assert!(w.tick(t0 + Duration::from_secs(600)).is_empty());
+        // Answered, connected, then a recording starts during a re-join.
+        assert!(w.state(&CallState::Connected, t0).is_empty());
+        assert!(w.state(&CallState::Reconnecting { attempt: 1 }, t0).is_empty());
+        assert!(w.state(&held_at(3141), t0).is_empty());
+        assert_eq!(w.leave_at, Some(t0 + HELD_REJOIN_WAIT));
+        // A newer notice keeps the clock.
+        assert!(w.state(&held_at(3142), t0 + Duration::from_secs(10)).is_empty());
+        assert!(w.tick(t0 + Duration::from_secs(29)).is_empty());
+        assert_eq!(w.tick(t0 + Duration::from_secs(30)), vec![Act::Leave]);
+        assert!(w.tick(t0 + Duration::from_secs(31)).is_empty(), "once");
+        // Answered in time: no leave.
+        let mut w = Watch::default();
+        w.state(&CallState::Connected, t0);
+        w.state(&held_at(3141), t0);
+        w.state(&CallState::Connected, t0 + Duration::from_secs(5));
+        assert!(w.tick(t0 + Duration::from_secs(60)).is_empty());
+        // A call that ended forgets it was connected: the next call's first hold is a join's.
+        w.state(&CallState::Ended { reason: "left".into() }, t0);
+        assert_eq!(w.state(&CallState::Connecting, t0), vec![Act::Fresh]);
+        w.state(&held_at(1), t0);
+        assert_eq!(w.leave_at, None);
+    }
+
+    #[test]
+    fn the_recording_notice_is_notified_once_and_taken_away() {
+        let t0 = Instant::now();
+        let mut w = Watch::default();
+        w.state(&CallState::Connected, t0);
+        let acts = w.recording(Some(&held()));
+        let [Act::Notify { title, body }] = acts.as_slice() else { panic!("{acts:?}") };
+        assert_eq!(title, "Recording started");
+        assert!(body.contains("Sew Notes is recording the call in lounge"), "{body}");
+        // The same notice again (another member answered): not twice.
+        assert!(w.recording(Some(&held())).is_empty());
+        // Answered: the notification goes.
+        let mut granted = held();
+        granted.my_consent = "granted".into();
+        assert_eq!(w.recording(Some(&granted)), vec![Act::Unnotify]);
+        assert!(w.recording(None).is_empty());
+        // A new version of the notice is news.
+        let mut newer = held();
+        newer.consent_prompt.as_mut().unwrap().notice_version = 3142;
+        assert!(matches!(w.recording(Some(&newer)).as_slice(), [Act::Notify { .. }]));
+        // The call ends: the notification goes with it.
+        assert_eq!(w.state(&CallState::Ended { reason: "left".into() }, t0), vec![Act::Unnotify]);
+        assert!(w.state(&CallState::Idle, t0).is_empty());
+        // A held re-join says what happens without an answer.
+        let mut w = Watch::default();
+        w.state(&CallState::Connected, t0);
+        w.state(&held_at(3141), t0);
+        let acts = w.recording(Some(&held()));
+        let [Act::Notify { body, .. }] = acts.as_slice() else { panic!("{acts:?}") };
+        assert!(body.contains("leaves the call in 30 seconds"), "{body}");
+        // A held first join.
+        let mut w = Watch::default();
+        w.state(&held_at(3141), t0);
+        let acts = w.recording(Some(&held()));
+        let [Act::Notify { title, .. }] = acts.as_slice() else { panic!("{acts:?}") };
+        assert_eq!(title, "This room is recorded");
+    }
+
+    #[test]
+    fn the_call_log_keeps_codes_and_the_last_300_lines() {
+        assert_eq!(code("credential_lost"), "credential_lost");
+        assert_eq!(code("callkit: 1"), "callkit:1");
+        assert_eq!(code("Bearer sewcc_abc"), "redacted");
+        assert_eq!(code("k2d_9f8e7d6c5b4a39281706"), "redacted");
+        assert_eq!(code("https://a.example/x?t=1"), "https:a.examplext1");
+        assert_eq!(code(""), "none");
+        assert_eq!(stamp(0), "1970-01-01 00:00:00.000");
+        assert_eq!(stamp(1_793_196_202_123), "2026-10-28 14:03:22.123");
+        assert_eq!(stamp(951_782_400_000), "2000-02-29 00:00:00.000");
+        assert_eq!(state_line(&CallState::Ended { reason: "recording_consent_timeout".into() }), "state ended reason=recording_consent_timeout");
+        assert_eq!(state_line(&held_at(7)), "state consent_required notice=7");
+        let ev = json!({ "event": "start_failed", "error": "callkit: 3", "call": "UUID-1", "token": "tok" });
+        assert_eq!(shim_line(&ev), "system start_failed error=callkit:3");
+        assert_eq!(shim_line(&json!({ "event": "mute_requested", "muted": true })), "system mute_requested muted=true");
+        assert_eq!(outcome(Some(&refused("room_full", "x"))), "refused room_full");
+        assert_eq!(outcome(Some(&ProviderError::Other("https://a.example".into()))), "failed");
+
+        let mut log = CallLog::default();
+        for i in 0..(CALL_LOG_LINES + 5) {
+            log.push(0, &format!("line {i}"));
+        }
+        let text = log.text("4.2.0");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(lines[0], "K2 call log (K2 4.2.0, iOS). Times are UTC.");
+        assert_eq!(lines.len(), CALL_LOG_LINES + 1);
+        assert_eq!(lines[1], "1970-01-01 00:00:00.000 line 5");
+        // A recording line that didn't change isn't repeated.
+        let mut log = CallLog::default();
+        log.push_recording(0, "recording my_consent=pending recorder_present=true".into());
+        log.push_recording(0, "recording my_consent=pending recorder_present=true".into());
+        assert_eq!(log.lines.len(), 1);
+        assert!(CallLog::default().text("4.2.0").contains("No call events"));
     }
 
     #[test]
