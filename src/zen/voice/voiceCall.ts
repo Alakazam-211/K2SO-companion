@@ -144,6 +144,10 @@ type CallState = SelfFlags & {
   notice: string | null;
   /** A recording notice waiting for this person's answer. */
   consent: ConsentSheet | null;
+  /** When the call first connected (ms since the epoch): the call's time
+   *  for the person. A reconnect keeps it, a new call starts it again, and
+   *  a webview reload takes it back from sessionStorage (`resync`). */
+  startedAt: number | null;
   /** `camera`: "Join with camera" (the permission first; refused, the call
    *  still joins, without it). */
   join(room: CallRoom, options?: JoinOptions): Promise<void>;
@@ -159,6 +163,40 @@ type CallState = SelfFlags & {
   setDeafened(deafened: boolean): void;
   clearNotice(): void;
 };
+
+/** The call's start, kept through a webview reload mid-call (sessionStorage
+ *  lives as long as the webview): `{serverId, roomId, at}`, read back only
+ *  for the same server and room. Sew's plugin has no join time to read
+ *  (its `state` answer: the state, target, room, roster, call id, video). */
+export const CALL_START_KEY = "k2.voice.callStart.v1";
+
+function saveStart(room: CallRoom, at: number): void {
+  try {
+    sessionStorage.setItem(CALL_START_KEY, JSON.stringify({ serverId: room.serverId, roomId: room.roomId, at }));
+  } catch {
+    // No storage: a reload restarts the time.
+  }
+}
+
+function savedStart(serverId: string, roomId: string): number | null {
+  try {
+    const v = JSON.parse(sessionStorage.getItem(CALL_START_KEY) ?? "null") as Record<string, unknown> | null;
+    if (!v || v.serverId !== serverId || v.roomId !== roomId) return null;
+    const at = v.at;
+    // Never a start in the future (a clock that moved back): now instead.
+    return typeof at === "number" && Number.isFinite(at) && at <= Date.now() ? at : null;
+  } catch {
+    return null;
+  }
+}
+
+function forgetStart(): void {
+  try {
+    sessionStorage.removeItem(CALL_START_KEY);
+  } catch {
+    // Nothing kept.
+  }
+}
 
 let engine: PhoneVoiceEngine = UNAVAILABLE_ENGINE;
 let shim: CallShim = callShim();
@@ -182,6 +220,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
     const room = get().room;
     if (!engine.drivesSystemCall) shim.report("ended", reason);
     stopListening();
+    forgetStart();
     set({
       phase: "idle",
       room: null,
@@ -189,6 +228,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
       ...NO_FLAGS,
       video: false,
       consent: null,
+      startedAt: null,
       notice: room && reason && reason !== "left" ? callEndedText(reason, room.roomName, room.serverLabel, true) : null,
     });
   }
@@ -222,7 +262,13 @@ export const useVoiceCall = create<CallState>((set, get) => {
         if (id !== attempt) return;
         if (s === "ended") return ended(reason, id);
         if (!engine.drivesSystemCall && s !== "held") shim.report(s);
-        if (s === "connected") set({ phase: "connected", ...(micDenied ? { muted: true } : {}) });
+        if (s === "connected") {
+          // The call's time starts at its first connect; a reconnect keeps it.
+          const { room, startedAt } = get();
+          const at = startedAt ?? Date.now();
+          if (startedAt === null && room) saveStart(room, at);
+          set({ phase: "connected", startedAt: at, ...(micDenied ? { muted: true } : {}) });
+        }
         if (s === "reconnecting") set({ phase: "reconnecting" });
       },
       onConsent(sheet) {
@@ -245,11 +291,14 @@ export const useVoiceCall = create<CallState>((set, get) => {
     video: false,
     notice: null,
     consent: null,
+    startedAt: null,
 
     async join(room, options) {
       if (get().phase !== "idle") await get().leave();
       const id = ++attempt;
-      set({ phase: "joining", room, muted: false, ...NO_FLAGS, video: false, notice: null });
+      // A new call: its own time, from its own connect.
+      forgetStart();
+      set({ phase: "joining", room, muted: false, ...NO_FLAGS, video: false, notice: null, startedAt: null });
       if (!engine.available) {
         set({
           phase: "idle",
@@ -382,6 +431,13 @@ export const useVoiceCall = create<CallState>((set, get) => {
         const names = name?.(now.serverId, now.roomId) ?? { serverLabel: "", roomName: "Voice room", limit: null };
         room = { serverId: now.serverId, roomId: now.roomId, ...names };
       }
+      // The call's time: this store's own, else the one kept through a
+      // reload, else from now (it connected while nobody was looking).
+      let startedAt = get().startedAt;
+      if (startedAt === null && (now.state === "connected" || now.state === "reconnecting")) {
+        startedAt = savedStart(room.serverId, room.roomId) ?? Date.now();
+        saveStart(room, startedAt);
+      }
       set({
         room,
         phase: now.state === "connected" ? "connected" : now.state === "reconnecting" ? "reconnecting" : "joining",
@@ -391,6 +447,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
         deafLocked: now.deafLocked === true,
         video: now.video === true,
         consent: now.consent,
+        startedAt,
       });
     },
 
@@ -417,5 +474,6 @@ export function __resetVoiceCallForTests(): void {
   shim = callShim();
   unlisten = null;
   attempt = 0;
-  useVoiceCall.setState({ phase: "idle", room: null, muted: false, ...NO_FLAGS, video: false, notice: null, consent: null });
+  forgetStart();
+  useVoiceCall.setState({ phase: "idle", room: null, muted: false, ...NO_FLAGS, video: false, notice: null, consent: null, startedAt: null });
 }
