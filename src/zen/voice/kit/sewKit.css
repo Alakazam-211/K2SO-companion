@@ -200,8 +200,11 @@
 .k2-kit-call .sv-bar-status {
   grid-column: 1 / -1;
 }
+/* The time alone is in the monospace face (Rosson: fine for the counter,
+   only the counter); everything around it keeps the chosen font. */
 .k2-kit-call-time {
   align-self: baseline;
+  font-family: "MesloLGM Nerd Font Mono", ui-monospace, monospace;
   font-size: 15px;
   color: var(--text-soft);
   font-variant-numeric: tabular-nums;

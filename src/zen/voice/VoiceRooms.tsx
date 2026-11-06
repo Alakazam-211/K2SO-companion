@@ -1,5 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { scopeFor } from "../../api/scope";
+import { onBootInfo, scopeFor } from "../../api/scope";
 import { useBackHandler } from "../../lib/androidBack";
 import { useSwipeBack } from "../../lib/useSwipeBack";
 import { isIosWebView } from "../../lib/nativePicker";
@@ -45,11 +45,16 @@ export function voiceServers(
     );
 }
 
-/** Show the headset at all: a server hosts rooms, or a call is up. */
+/** Show the headset at all: a signed-in server hosts rooms (it says
+ *  `voice-rooms-v1` in `/boot-status`), or a call is up. Hidden on phones
+ *  with no such server (Rosson, 4.2.0), and it appears the moment one
+ *  reports it: boot info isn't in a store, so its updates re-render here. */
 export function useVoiceAvailable(): boolean {
   const servers = useServersStore((s) => s.servers);
   const tokens = useServersStore((s) => s.tokens);
   const inCall = useVoiceCall((s) => s.phase !== "idle");
+  const [, setBoot] = useState(0);
+  useEffect(() => onBootInfo(() => setBoot((n) => n + 1)), []);
   return inCall || voiceServers(servers, tokens, null).length > 0;
 }
 
