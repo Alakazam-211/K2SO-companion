@@ -85,6 +85,8 @@ class K2PushPlugin: Plugin {
   private var hookedClass: AnyClass?
   private var hookDescription = "not installed"
   private let tapDelegate = K2PushTapDelegate()
+  /// `callOp haptic` (main thread only).
+  private lazy var tileHaptic = UIImpactFeedbackGenerator(style: .light)
 
   override init() {
     super.init()
@@ -419,12 +421,33 @@ class K2PushPlugin: Plugin {
     case "pipFrame":
       // The call screen's video tile: `{x, y, w, h, visible, radius?}` in the
       // webview's points puts K2PiP's layer over it; `visible: false` puts
-      // it back under the webview (PiP still works from there).
+      // it back under the webview (PiP still works from there). `animate`
+      // (the mini tile's snap) gets it there on its own, on the page's curve.
       guard #available(iOS 15.0, *) else { return invoke.resolve(["ok": false, "error": "ios_too_old"]) }
       let rect: CGRect? =
         args.visible == true
         ? CGRect(x: args.x ?? 0, y: args.y ?? 0, width: args.w ?? 0, height: args.h ?? 0) : nil
-      DispatchQueue.main.async { invoke.resolve(K2PiP.shared.setTile(rect, radius: CGFloat(args.radius ?? 0))) }
+      let motion = args.animate.map { a in
+        K2TileMotion(
+          duration: a.duration,
+          spring: a.stiffness.map { (mass: a.mass ?? 1, stiffness: $0, damping: a.damping ?? 10) },
+          velocity: CGVector(dx: a.velocityX ?? 0, dy: a.velocityY ?? 0),
+          startedAt: a.startedAt.map { $0 / 1000 })
+      }
+      DispatchQueue.main.async {
+        invoke.resolve(K2PiP.shared.setTile(rect, radius: CGFloat(args.radius ?? 0), motion: motion))
+      }
+    case "haptic":
+      // The mini video tile landing in its corner: a light tap. `state:
+      // "prepare"` just warms the engine up for it.
+      DispatchQueue.main.async {
+        if args.state == "prepare" {
+          self.tileHaptic.prepare()
+        } else {
+          self.tileHaptic.impactOccurred()
+        }
+        invoke.resolve(["ok": true])
+      }
     #if DEBUG
     case "pipTest":
       // Debug builds only: `{on, state?: "h264"}` plays K2PiP's test pattern.
@@ -1054,6 +1077,19 @@ private struct CallOpArgs: Decodable {
   let h: Double?
   let visible: Bool?
   let radius: Double?
+  let animate: PipAnimateArgs?
+}
+
+/// `pipFrame`'s `animate` (seconds, points/s): a spring when `stiffness`
+/// is there, else an ease-out.
+private struct PipAnimateArgs: Decodable {
+  let duration: Double
+  let mass: Double?
+  let stiffness: Double?
+  let damping: Double?
+  let velocityX: Double?
+  let velocityY: Double?
+  let startedAt: Double?
 }
 
 private struct VoiceWatchArgs: Decodable {

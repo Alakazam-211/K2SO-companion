@@ -22,7 +22,26 @@ export type TileFrame =
       w: number;
       h: number;
       radius: number;
+      /** Get there on its own from where it is now (the mini tile's snap). */
+      animate?: TileAnimation;
     };
+
+/** How the layer moves to a frame (seconds, points/s): a Core Animation
+ *  spring with these constants carrying the velocity in, or, with no
+ *  `stiffness`, an ease-out (`miniSnap`). `startedAt` (wall clock, ms):
+ *  when the page started the same motion, so Swift starts it when the
+ *  page's tile shows it starting (`animateTo` sets it). */
+export type TileAnimation = { startedAt?: number } & (
+  | {
+      duration: number;
+      mass: number;
+      stiffness: number;
+      damping: number;
+      velocityX: number;
+      velocityY: number;
+    }
+  | { duration: number }
+);
 
 export const HIDDEN: TileFrame = { visible: false };
 
@@ -60,6 +79,7 @@ export function tileFrame(rect: Rect, view: Viewport, radius: number, border = 0
   };
 }
 
+/** Same place (how it gets there aside). */
 export function sameFrame(a: TileFrame | null, b: TileFrame): boolean {
   if (!a || a.visible !== b.visible) return false;
   if (!a.visible || !b.visible) return true;
@@ -189,6 +209,21 @@ export function followPip(): void {
   );
 }
 
+function nativeHaptic(prepare: boolean): void {
+  if (!isIosWebView()) return;
+  void invoke(`plugin:${PLUGIN}|call_op`, prepare ? { op: "haptic", state: "prepare" } : { op: "haptic" }).catch(
+    () => {}
+  );
+}
+
+let haptic: (prepare: boolean) => void = nativeHaptic;
+
+/** A light tap (UIImpactFeedbackGenerator .light): the mini tile landing in
+ *  its corner. `prepare` warms the engine up just before. */
+export function tileHaptic(prepare = false): void {
+  haptic(prepare);
+}
+
 /** The tile's tap: Picture in Picture on, or back off. */
 export function togglePip(): void {
   if (!isIosWebView()) return;
@@ -197,6 +232,23 @@ export function togglePip(): void {
 }
 
 // ── The tile ────────────────────────────────────────────────────────────
+
+/** What a tile that moves itself (the mini tile) does with the layer. */
+export type TileHandle = {
+  /** Measure on the next frame (a move no resize sees: a drag). */
+  schedule(): void;
+  /** Measure now: inside a frame the page just moved the tile in. */
+  placeNow(): void;
+  /** The layer goes to the tile's spot at `rect` on its own (`animate`),
+   *  started now: the page starts its own motion at the same moment. The
+   *  page's own measurements wait until it's done, or the next `placeNow`. */
+  animateTo(rect: Rect, animate: TileAnimation): void;
+};
+
+const now = () => (typeof performance !== "undefined" ? performance.now() : Date.now());
+/** The wall clock in ms, at `now()`'s resolution (Swift reads the same clock). */
+const wallClock = () =>
+  typeof performance !== "undefined" && performance.timeOrigin ? performance.timeOrigin + performance.now() : Date.now();
 
 /** Keeps the layer on `ref`'s element while `show`, re-measured (once a
  *  frame at most) on its resize, any scroll, a window or keyboard change,
@@ -210,22 +262,61 @@ export function useVideoTile(
   border = 0,
   /** Measure again when this changes (a move no resize sees: a drag). */
   remeasure?: unknown
-): void {
+): TileHandle {
   const scheduleRef = useRef<(() => void) | null>(null);
+  const live = useRef<Omit<TileHandle, "schedule"> | null>(null);
+  const handle = useRef<TileHandle>({
+    schedule: () => scheduleRef.current?.(),
+    placeNow: () => live.current?.placeNow(),
+    animateTo: (rect, animate) => live.current?.animateTo(rect, animate),
+  });
   useEffect(() => {
     const el = ref.current;
     if (!show || !el) return;
     const id = claimLayer();
     let raf = 0;
-    const measure = () => {
+    // While the layer animates on its own, page frames would cut it short.
+    let busyUntil = 0;
+    let busyTimer: ReturnType<typeof setTimeout> | null = null;
+    const measure = (force = false) => {
       raf = 0;
       if (document.visibilityState === "hidden") return;
+      const t = now();
+      if (!force && t < busyUntil) {
+        busyTimer ??= setTimeout(() => {
+          busyTimer = null;
+          schedule();
+        }, busyUntil - t);
+        return;
+      }
+      busyUntil = 0;
       placeLayerFor(id, tileFrame(el.getBoundingClientRect(), currentViewport(), radius, border));
     };
     const schedule = () => {
-      if (!raf) raf = requestAnimationFrame(measure);
+      if (!raf) raf = requestAnimationFrame(() => measure());
     };
     scheduleRef.current = schedule;
+    live.current = {
+      placeNow: () => {
+        if (raf) cancelAnimationFrame(raf);
+        measure(true);
+      },
+      animateTo: (rect, animate) => {
+        const view = currentViewport();
+        const f = tileFrame(rect, view, radius, border);
+        if (!f.visible) return placeLayerFor(id, f);
+        const s = view.scale > 0 ? view.scale : 1;
+        busyUntil = now() + animate.duration * 1000 + 50;
+        const startedAt = Math.round(wallClock() * 10) / 10;
+        placeLayerFor(id, {
+          ...f,
+          animate:
+            "stiffness" in animate
+              ? { ...animate, velocityX: animate.velocityX * s, velocityY: animate.velocityY * s, startedAt }
+              : { ...animate, startedAt },
+        });
+      },
+    };
     const ro = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     ro?.observe(el);
     if (el.parentElement) ro?.observe(el.parentElement);
@@ -242,7 +333,9 @@ export function useVideoTile(
     schedule();
     return () => {
       scheduleRef.current = null;
+      live.current = null;
       if (raf) cancelAnimationFrame(raf);
+      if (busyTimer) clearTimeout(busyTimer);
       ro?.disconnect();
       window.removeEventListener("resize", schedule);
       window.removeEventListener("orientationchange", schedule);
@@ -256,12 +349,17 @@ export function useVideoTile(
   useEffect(() => {
     scheduleRef.current?.();
   }, [remeasure]);
+  return handle.current;
 }
 
 export function __setTileSenderForTests(next: ((f: TileFrame) => void) | null): void {
   send = next ?? nativeSend;
   last = null;
   holder = 0;
+}
+
+export function __setHapticForTests(next: ((prepare: boolean) => void) | null): void {
+  haptic = next ?? nativeHaptic;
 }
 
 export function __resetPipForTests(): void {

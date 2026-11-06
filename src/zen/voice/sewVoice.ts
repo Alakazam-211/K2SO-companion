@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { isIosWebView } from "../../lib/nativePicker";
 import { shareOrSaveBytes, type ShareOutcome } from "../files/shareFile";
-import type { CameraAsk, ConsentSheet, EngineEvents, EngineNow, PhoneVoiceEngine } from "./voiceCall";
+import type { CameraAsk, ConsentSheet, EngineEvents, EngineNow, PhoneVoiceEngine, SelfFlags } from "./voiceCall";
 import { nativeJoinErrorCode } from "./voiceWire";
 
 // The call engine in this build (iOS): Sew's native voice plugin, in Rust
@@ -10,7 +10,8 @@ import { nativeJoinErrorCode } from "./voiceWire";
 // with the Keychain's token; the webview only asks and follows:
 //   - commands `plugin:sew-voice|join` / `leave` / `mute` / `consent`;
 //   - events `sew-voice://state` (the call), `sew-voice://participants`
-//     (your own mute, which the system's button can change),
+//     (your own mute and deafen, which the system's button or a moderator
+//     can change; the call tile's buttons send `mute {muted?, deafened?}`),
 //     `k2-voice://consent` (the recording notice, already in the kit's words)
 //     and `k2-voice://video` (the call has video: Sew's `video_changed`);
 //   - "Join with camera": `camera_permission` / `request_camera_permission`
@@ -52,14 +53,33 @@ export function parseConsentSheet(body: unknown): ConsentSheet | null {
   };
 }
 
+/** One row of the plugin's roster (`Participant`, wire.rs). */
+type Row = {
+  is_self?: boolean;
+  muted?: boolean;
+  deafened?: boolean;
+  server_muted?: boolean;
+  server_deafened?: boolean;
+  speak_denied?: boolean;
+};
+
 type Snapshot = {
   state?: string;
   reason?: string;
   target?: string;
   room?: string;
-  participants?: { is_self?: boolean; muted?: boolean; deafened?: boolean }[];
+  participants?: Row[];
   has_video?: boolean;
 };
+
+/** Your own row's deafen and what a moderator (or a lost SPEAK) holds. */
+export function selfFlags(me: Row): SelfFlags {
+  return {
+    deafened: me.deafened === true,
+    muteLocked: me.server_muted === true || me.speak_denied === true,
+    deafLocked: me.server_deafened === true,
+  };
+}
 
 /** The plugin's `state` answer as the store reads it. */
 export function parseSnapshot(snap: unknown, consent: unknown): EngineNow {
@@ -71,6 +91,7 @@ export function parseSnapshot(snap: unknown, consent: unknown): EngineNow {
         ? "held"
         : "idle";
   const me = Array.isArray(s.participants) ? s.participants.find((p) => p?.is_self) : undefined;
+  const flags = me ? selfFlags(me) : null;
   return {
     state,
     ...(typeof s.reason === "string" ? { reason: s.reason } : {}),
@@ -79,6 +100,9 @@ export function parseSnapshot(snap: unknown, consent: unknown): EngineNow {
     muted: me?.muted === true || me?.deafened === true,
     consent: parseConsentSheet(consent),
     ...(s.has_video === true ? { video: true } : {}),
+    ...(flags?.deafened ? { deafened: true } : {}),
+    ...(flags?.muteLocked ? { muteLocked: true } : {}),
+    ...(flags?.deafLocked ? { deafLocked: true } : {}),
   };
 }
 
@@ -149,13 +173,10 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
       }),
       listen<unknown>("k2-voice://consent", ({ payload }) => events?.onConsent?.(parseConsentSheet(payload))),
       listen<unknown>("k2-voice://video", ({ payload }) => events?.onVideo?.(payload === true)),
-      listen<{ is_self?: boolean; muted?: boolean; deafened?: boolean }[]>(
-        "sew-voice://participants",
-        ({ payload }) => {
-          const me = Array.isArray(payload) ? payload.find((p) => p?.is_self) : undefined;
-          if (me) events?.onSelfMute?.(me.muted === true || me.deafened === true);
-        }
-      ),
+      listen<Row[]>("sew-voice://participants", ({ payload }) => {
+        const me = Array.isArray(payload) ? payload.find((p) => p?.is_self) : undefined;
+        if (me) events?.onSelfMute?.(me.muted === true || me.deafened === true, selfFlags(me));
+      }),
     ]);
     return listening;
   }
@@ -180,6 +201,9 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
     },
     setMuted(muted) {
       void invoke(`${CMD}mute`, { muted }).catch(() => {});
+    },
+    setDeafened(deafened, muted) {
+      void invoke(`${CMD}mute`, muted === undefined ? { deafened } : { muted, deafened }).catch(() => {});
     },
     async consent(granted, noticeVersion) {
       await invoke(`${CMD}consent`, { granted, notice_version: noticeVersion });
