@@ -9,11 +9,15 @@ import {
   FileIcon,
   FolderIcon,
   GaugeIcon,
+  HeadsetIcon,
   HomeIcon,
+  MoreIcon,
   PencilIcon,
   PhotoIcon,
+  ProjectsIcon,
   SearchIcon,
   TerminalIcon,
+  TicketIcon,
 } from "./icons";
 import { HomeTabToggle } from "./HomeTabToggle";
 import { ConsoleGlyph } from "./LlmIcon";
@@ -44,6 +48,10 @@ const ALL = {
   photo: PhotoIcon,
   camera: CameraIcon,
   folder: FolderIcon,
+  more: MoreIcon,
+  headset: HeadsetIcon,
+  projects: ProjectsIcon,
+  ticket: TicketIcon,
 };
 
 describe("shared icons", () => {
@@ -94,6 +102,8 @@ describe("original call sites draw through the shared module", () => {
       "M14 2H6a2 2 0 0 0-2 2v16", // file
       "M3 10.5 12 3l9 7.5", // home
       "M20 6 9 17l-5-5", // check
+      "M4 14v-2a8 8 0 0 1 16 0v2", // headset
+      "M14 6v2M14 11v2M14 16v2", // ticket
     ];
     const sites: Record<string, string> = {
       HomeTabToggle: homeTabToggleSrc,

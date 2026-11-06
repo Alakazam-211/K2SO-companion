@@ -123,8 +123,14 @@ async function openAgents() {
   await waitFor(() => expect(useZenStore.getState().agentSource).toBe("live"));
 }
 
+/** Projects is in the header's 3-dot More menu. */
+function clickProjects() {
+  fireEvent.click(screen.getByTestId("chats-header-more"));
+  fireEvent.click(screen.getByRole("menuitem", { name: "Projects" }));
+}
+
 async function openSheet() {
-  fireEvent.click(screen.getByRole("button", { name: "Projects" }));
+  clickProjects();
   const sheet = await screen.findByTestId("overlay-projects");
   await waitFor(() => expect(within(sheet).getAllByTestId("project-row")).toHaveLength(groups.length));
   return sheet;
@@ -207,7 +213,7 @@ afterEach(() => {
 });
 
 describe("Zen Projects", () => {
-  it("project chats are only behind the Projects button, with an unread badge", async () => {
+  it("project chats are only behind More → Projects, with an unread badge on both", async () => {
     await openAgents();
     // The group rows are on the read (setAgent needs them) but not listed.
     expect(useZenStore.getState().agents.some((a) => a.kind === "group")).toBe(true);
@@ -218,11 +224,18 @@ describe("Zen Projects", () => {
     fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "" } });
 
     const right = screen.getByTestId("chats-header-right");
-    const projects = screen.getByRole("button", { name: "Projects" });
-    expect(right.firstElementChild).toBe(projects);
-    expect(projects.nextElementSibling).toBe(screen.getByRole("button", { name: /^Tickets/ }));
-    // Alpha and Bravo have messages this device never saw.
-    await waitFor(() => expect(screen.getByTestId("projects-badge").textContent).toBe("2"));
+    const more = screen.getByTestId("chats-header-more");
+    expect(right.firstElementChild).toBe(more);
+    // Alpha and Bravo have messages this device never saw: blue on More.
+    await waitFor(() => expect(screen.getByTestId("chats-header-more-badge").textContent).toBe("2"));
+    expect(screen.getByTestId("chats-header-more-badge").getAttribute("data-tone")).toBe("projects");
+    expect(more.getAttribute("aria-label")).toBe("More, 2 project chats unread");
+    fireEvent.click(more);
+    const projects = screen.getByRole("menuitem", { name: "Projects" });
+    expect(projects.getAttribute("data-testid")).toBe("chats-header-projects");
+    expect(projects.nextElementSibling).toBe(screen.getByRole("menuitem", { name: /^Tickets/ }));
+    expect(screen.getByTestId("projects-badge").textContent).toBe("2");
+    expect(projects.contains(screen.getByTestId("projects-badge"))).toBe(true);
   });
 
   it("the sheet lists groups by most recent message, with previews and search", async () => {
@@ -253,7 +266,7 @@ describe("Zen Projects", () => {
   it("empty state", async () => {
     groups = [];
     await openAgents();
-    fireEvent.click(screen.getByRole("button", { name: "Projects" }));
+    clickProjects();
     expect((await screen.findByTestId("projects-empty")).textContent).toBe("No project chats yet");
   });
 
@@ -278,7 +291,7 @@ describe("Zen Projects", () => {
     expect(useZenStore.getState().screen).toBe("list");
     expect(screen.getByTestId("overlay-projects")).not.toBeNull();
     // Bravo was read in the chat: only Alpha is still unread.
-    await waitFor(() => expect(screen.getByTestId("projects-badge").textContent).toBe("1"));
+    await waitFor(() => expect(screen.getByTestId("chats-header-more-badge").textContent).toBe("1"));
 
     fireEvent.click(screen.getByTestId("projects-done"));
     expect(screen.queryByTestId("overlay-projects")).toBeNull();

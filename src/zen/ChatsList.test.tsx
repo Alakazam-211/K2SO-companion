@@ -173,6 +173,12 @@ function mount() {
   );
 }
 
+/** The header's 3-dot button: Rooms, Projects, Tickets, Settings live in its menu. */
+function openMore() {
+  fireEvent.click(screen.getByTestId("chats-header-more"));
+  return screen.getByTestId("chats-more-menu");
+}
+
 describe("ChatsList", () => {
   it("zero stored servers is the overlay Add server form, not /login or stub chats", () => {
     useServersStore.setState({
@@ -244,15 +250,17 @@ describe("ChatsList", () => {
     expect(screen.getByPlaceholderText("Search").closest("label")?.className).toMatch(
       /zen-glass/
     );
-    expect(screen.getByRole("button", { name: "Settings" }).className).toMatch(/zen-glass/);
+    expect(screen.getByRole("button", { name: "More" }).className).toMatch(/zen-glass/);
     expect(screen.getByLabelText(/STUB \[STUB\] not-a-real-agent-1/)).not.toBeNull();
     expect((screen.getByRole("button", { name: "New workspace" }) as HTMLButtonElement).disabled).toBe(false);
-    expect(screen.getByRole("button", { name: "Tickets" })).not.toBeNull();
     expect(screen.getByRole("button", { name: /Server / })).not.toBeNull();
+    expect(screen.queryByTestId("chats-header-more-badge")).toBeNull();
+    openMore();
+    expect(screen.getByRole("menuitem", { name: "Tickets" })).not.toBeNull();
     expect(screen.queryByTestId("tickets-badge")).toBeNull();
   });
 
-  it("header: server button on the left, Projects, Tickets then the settings cog on the right, all 34px", () => {
+  it("header: server button on the left, one 34px 3-dot More button on the right", () => {
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
@@ -268,29 +276,96 @@ describe("ChatsList", () => {
     expect(serverBtn.querySelector("[data-testid=server-status-dot]")).not.toBeNull();
 
     const right = screen.getByTestId("chats-header-right");
-    const cog = screen.getByRole("button", { name: "Settings" });
-    expect(right.contains(cog)).toBe(true);
-    expect(cog.textContent).toBe("");
-    expect(cog.querySelector("[data-testid=settings-icon]")?.getAttribute("data-k2-icon")).toBe("cog");
-    const rightButtons = Array.from(right.children);
-    const projects = screen.getByRole("button", { name: "Projects" });
-    expect(rightButtons).toEqual([projects, screen.getByRole("button", { name: "Tickets" }), cog]);
-    // Desktop Garden nav rail Projects glyph (DashboardIcon), ticket stroke.
-    const icon = projects.querySelector("[data-testid=projects-icon]")!;
-    expect(icon.getAttribute("stroke-width")).toBe("1.7");
-    expect(icon.querySelectorAll("rect")).toHaveLength(4);
-    expect(projects.style.width).toBe("34px");
-    expect(projects.style.height).toBe("34px");
-    expect(projects.className).toMatch(/zen-glass-pill/);
-    expect(screen.queryByTestId("projects-badge")).toBeNull();
-
+    const more = screen.getByRole("button", { name: "More" });
+    expect(Array.from(right.children)).toEqual([more]);
+    expect(more.getAttribute("data-testid")).toBe("chats-header-more");
+    expect(more.textContent).toBe("");
+    expect(more.querySelector("[data-testid=more-icon]")?.getAttribute("data-k2-icon")).toBe("more");
+    expect(more.querySelector("[data-testid=more-icon]")?.querySelectorAll("circle")).toHaveLength(3);
+    expect(more.style.width).toBe("34px");
+    expect(more.style.height).toBe("34px");
+    expect(more.className).toMatch(/zen-glass-pill/);
+    expect(more.getAttribute("aria-haspopup")).toBe("menu");
+    expect(more.getAttribute("aria-expanded")).toBe("false");
+    // The old buttons are not in the header any more.
+    for (const id of ["chats-header-voice", "chats-header-projects", "chats-header-tickets", "chats-header-settings"]) {
+      expect(screen.queryByTestId(id)).toBeNull();
+    }
+    expect(screen.queryByTestId("chats-header-more-call")).toBeNull();
     expect(serverBtn.style.height).toBe("34px");
     expect(serverBtn.className).toMatch(/zen-glass-pill/);
-    expect(cog.style.width).toBe("34px");
-    expect(cog.style.height).toBe("34px");
-    expect(cog.className).toMatch(/zen-glass-pill/);
-    fireEvent.click(cog);
+  });
+
+  it("More menu: Projects, Tickets then Settings, each with its icon and a plain label", () => {
+    useZenStore.setState({ agentSource: "stub", agents: STUB_AGENTS, screen: "list" });
+    mount();
+    expect(screen.queryByTestId("chats-more-menu")).toBeNull();
+    const menu = openMore();
+    expect(screen.getByTestId("chats-header-more").getAttribute("aria-expanded")).toBe("true");
+    expect(menu.getAttribute("role")).toBe("menu");
+    expect(menu.className).toMatch(/zen-glass/);
+    expect(menu.className).toMatch(/k2-more-menu/);
+    expect(menu.style.top).toMatch(/env\(safe-area-inset-top\)/);
+    // Under the button, on the header row's 12px right edge.
+    expect(menu.style.right).toBe("12px");
+    const items = Array.from(menu.querySelectorAll("[role=menuitem]"));
+    expect(items.map((i) => i.getAttribute("data-testid"))).toEqual([
+      "chats-header-projects",
+      "chats-header-tickets",
+      "chats-header-settings",
+    ]);
+    expect(items.map((i) => i.textContent)).toEqual(["Projects", "Tickets", "Settings"]);
+    // No voice rooms on this server: no Rooms row.
+    expect(screen.queryByTestId("chats-header-voice")).toBeNull();
+    // Desktop Garden nav rail Projects glyph (DashboardIcon), ticket stroke, cog.
+    const projectsIcon = screen.getByTestId("projects-icon");
+    expect(projectsIcon.getAttribute("data-k2-icon")).toBe("projects");
+    expect(projectsIcon.getAttribute("stroke-width")).toBe("1.7");
+    expect(projectsIcon.querySelectorAll("rect")).toHaveLength(4);
+    expect(screen.getByTestId("tickets-icon").getAttribute("data-k2-icon")).toBe("ticket");
+    expect(screen.getByTestId("settings-icon").getAttribute("data-k2-icon")).toBe("cog");
+    expect(screen.queryByTestId("projects-badge")).toBeNull();
+  });
+
+  it("More menu: a row runs its action and closes the menu", () => {
+    useZenStore.setState({ agentSource: "stub", agents: STUB_AGENTS, screen: "list", projectsOpen: false });
+    mount();
+    openMore();
+    fireEvent.click(screen.getByTestId("chats-header-settings"));
+    expect(screen.queryByTestId("chats-more-menu")).toBeNull();
     expect(screen.getByTestId("overlay-settings")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+
+    openMore();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Tickets" }));
+    expect(screen.queryByTestId("chats-more-menu")).toBeNull();
+    expect(screen.getByTestId("overlay-tickets")).not.toBeNull();
+    cleanup();
+
+    mount();
+    openMore();
+    fireEvent.click(screen.getByTestId("chats-header-projects"));
+    expect(screen.queryByTestId("chats-more-menu")).toBeNull();
+    expect(useZenStore.getState().projectsOpen).toBe(true);
+    act(() => useZenStore.getState().setProjectsOpen(false));
+  });
+
+  it("More menu: closes on an outside tap, Escape and the button again, running nothing", () => {
+    useZenStore.setState({ agentSource: "stub", agents: STUB_AGENTS, screen: "list" });
+    mount();
+    openMore();
+    fireEvent.click(screen.getByTestId("chats-more-backdrop"));
+    expect(screen.queryByTestId("chats-more-menu")).toBeNull();
+    expect(screen.queryByTestId("overlay-settings")).toBeNull();
+
+    openMore();
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(screen.queryByTestId("chats-more-menu")).toBeNull();
+    expect(screen.getByTestId("chats-header-more").getAttribute("aria-expanded")).toBe("false");
+
+    openMore();
+    fireEvent.click(screen.getByTestId("chats-header-more"));
+    expect(screen.queryByTestId("chats-more-menu")).toBeNull();
   });
 
   it("header floats over the list with the chat header's progressive blur", () => {
@@ -438,12 +513,20 @@ describe("ChatsList", () => {
       screen: "list",
     });
     mount();
+    // The More button carries the count (amber: tickets are in it).
+    const more = screen.getByTestId("chats-header-more");
+    expect(more.getAttribute("aria-label")).toBe("More, 2 tickets waiting on you");
+    const moreBadge = screen.getByTestId("chats-header-more-badge");
+    expect(moreBadge.textContent).toBe("2");
+    expect(moreBadge.getAttribute("data-tone")).toBe("tickets");
+    expect(moreBadge.style.background).toMatch(/#f59e0b|rgb\(245,\s*158,\s*11\)/);
+    openMore();
     const badge = screen.getByTestId("tickets-badge");
     expect(badge.textContent).toBe("2");
     expect(badge.getAttribute("data-tone")).toBe("mine");
     expect(badge.style.background).toMatch(/#f59e0b|rgb\(245,\s*158,\s*11\)/);
     fireEvent.click(
-      screen.getByRole("button", { name: "Tickets, 2 waiting on you, 4 waiting in all" })
+      screen.getByRole("menuitem", { name: "Tickets, 2 waiting on you, 4 waiting in all" })
     );
     expect(screen.getByTestId("overlay-tickets")).not.toBeNull();
   });
@@ -457,13 +540,16 @@ describe("ChatsList", () => {
     });
     useZenStore.setState({ agentSource: "stub", agents: STUB_AGENTS, screen: "list" });
     mount();
+    expect(screen.getByTestId("chats-header-more-badge").textContent).toBe("2");
+    expect(screen.getByTestId("chats-header-more").getAttribute("aria-label")).toBe("More, 2 tickets waiting");
+    openMore();
     const badge = screen.getByTestId("tickets-badge");
     expect(badge.textContent).toBe("2");
     expect(badge.getAttribute("data-tone")).toBe("others");
     expect(badge.style.background).toMatch(/#f59e0b|rgb\(245,\s*158,\s*11\)/);
     expect(badge.style.color).toMatch(/#000|rgb\(0,\s*0,\s*0\)/);
     expect(
-      screen.getByRole("button", { name: "Tickets, none waiting on you, 2 waiting in all" })
+      screen.getByRole("menuitem", { name: "Tickets, none waiting on you, 2 waiting in all" })
     ).not.toBeNull();
   });
 
@@ -487,7 +573,8 @@ describe("ChatsList", () => {
       screen: "list",
     });
     mount();
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    openMore();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
     expect(screen.getByTestId("overlay-settings")).not.toBeNull();
     expect(screen.queryByRole("button", { name: "Leave Zen Mode" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Terminal view/ })).toBeNull();
@@ -1196,7 +1283,8 @@ describe("ChatsList", () => {
       screen: "list",
     });
     mount();
-    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    openMore();
+    fireEvent.click(screen.getByRole("menuitem", { name: "Settings" }));
     expect(screen.queryByText(/DEBUG/)).toBeNull();
     expect(screen.queryByTestId("summary-dump")).toBeNull();
   });
@@ -2121,7 +2209,7 @@ describe("ChatsList", () => {
       mount();
       const title = screen.getByTestId("chats-title");
       expect(title.textContent).toBe("Work");
-      // 375pt: 375 - 24 padding - 16 gaps - 2 × 118 (Projects, Tickets, cog) = 99px.
+      // 375pt: 375 - 24 padding - 16 gaps - 2 × 118 (the server pill's room) = 99px.
       expect(title.style.maxWidth).toBe("min(calc(100vw - 276px), 140px)");
       expect(screen.getByTestId("chats-title-dot").style.background).toMatch(/rgb\(255, 0, 0\)|#ff0000/);
       expect(title.querySelector(".truncate")?.textContent).toBe("Work");
