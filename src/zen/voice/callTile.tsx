@@ -307,6 +307,8 @@ function Duration() {
         borderRadius: 8,
         background: "rgba(0, 0, 0, 0.5)",
         color: "#fff",
+        // The counter alone in the monospace face; the card keeps the chosen font.
+        fontFamily: '"MesloLGM Nerd Font Mono", ui-monospace, monospace',
         fontVariantNumeric: "tabular-nums",
         whiteSpace: "nowrap",
         pointerEvents: "none",
