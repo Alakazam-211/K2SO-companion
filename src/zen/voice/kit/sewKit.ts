@@ -99,8 +99,21 @@ export function kitSelfId(): string | null {
 const CAMERA_CMDS = new Set(["camera_permission", "request_camera_permission", "camera", "set_video_device", "video_devices"]);
 
 /** One call-log line (codes only; Rust keeps nothing else). */
-function note(words: string[]): void {
+export function note(words: string[]): void {
   void tauriInvoke("voice_note", { words }).catch(() => {});
+}
+
+/** The function that asked for camera off: the nearest caller frame's
+ *  name, outside this bridge (a code; never a path or argument). */
+function offCaller(): string {
+  const lines = (new Error().stack ?? "").split("\n").slice(1);
+  for (const l of lines) {
+    const m = /^\s*(?:at\s+)?([A-Za-z_$][\w$.]*)/.exec(l.replace(/@.*$/, ""));
+    const fn = m?.[1] ?? "";
+    if (!fn || /^(offCaller|invoke|Object\.invoke|k2Bridge|Promise|async)$/.test(fn) || fn.endsWith(".invoke")) continue;
+    return fn.replace(/[^\w.$]/g, "").slice(0, 40) || "unknown";
+  }
+  return "unknown";
 }
 
 function outcomeOf(v: unknown): string {
@@ -131,6 +144,9 @@ export function k2Bridge(base: BaseBridge = tauriBridge): NativeBridge {
       const out = base.invoke(cmd, args);
       if (name && CAMERA_CMDS.has(name)) {
         const on = name === "camera" ? [args?.on === true ? "on" : "off"] : [];
+        // Who turned it off (Sew asked): the first of our own or the kit's
+        // frames above this bridge, as a code.
+        if (name === "camera" && args?.on !== true) note(["camera", "off_from", offCaller()]);
         void out.then(
           (v) => note(["camera", name, ...on, outcomeOf(v)]),
           (e) => note(["camera", name, ...on, "refused", outcomeOf(e)])

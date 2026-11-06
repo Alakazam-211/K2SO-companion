@@ -184,10 +184,12 @@
   position: absolute;
   inset: -10px -14px;
 }
+/* Folded: the pill sits ~5px lower than its row (Rosson), into the
+   bubble's bottom padding, clear of the faded words above it. */
 .zen-fold[data-fold="folded"] .zen-fold-toggle {
   position: absolute;
   left: 0;
-  bottom: calc(var(--zen-fold-line, 1.5em) * 0.04);
+  bottom: calc(var(--zen-fold-line, 1.5em) * 0.04 - 5px);
 }
 .zen-fold[data-fold="open"] .zen-fold-toggle {
   margin-top: 0.25em;
