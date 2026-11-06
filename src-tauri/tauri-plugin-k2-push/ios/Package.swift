@@ -3,7 +3,12 @@
 // plugin build (`link_apple_library`) compiles this package under
 // `CARGO_PKG_NAME` when targeting iOS.
 
+import Foundation
 import PackageDescription
+
+// The app build (cargo → swift-rs) runs `swift build` on every target, for
+// iOS, in release for the store: the macOS checks stay out of it.
+let forApp = ProcessInfo.processInfo.environment["CARGO_PKG_NAME"] != nil
 
 let package = Package(
   name: "tauri-plugin-k2-push",
@@ -24,8 +29,19 @@ let package = Package(
     .target(
       name: "tauri-plugin-k2-push",
       dependencies: [
-        .byName(name: "Tauri")
+        .byName(name: "Tauri"),
+        "K2VideoFrames",
       ],
-      path: "Sources")
-  ]
+      path: "Sources"),
+    // PiP frame wrapping, no UIKit: the plugin uses it, and so does the
+    // macOS check (`swift run PiPCheck`).
+    .target(
+      name: "K2VideoFrames",
+      path: "VideoFrames"),
+  ] + (forApp ? [] : [
+    .executableTarget(
+      name: "PiPCheck",
+      dependencies: ["K2VideoFrames"],
+      path: "PiPCheck"),
+  ])
 )

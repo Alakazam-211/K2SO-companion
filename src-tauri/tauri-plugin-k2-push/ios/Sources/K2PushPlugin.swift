@@ -109,6 +109,14 @@ class K2PushPlugin: Plugin {
         }
       }
     }
+    // Picture in Picture's events (K2PiP) go to the UI as `pip`.
+    if #available(iOS 15.0, *) {
+      K2PiP.shared.onEvent = { [weak self] event in
+        DispatchQueue.main.async {
+          if let data = JSTypes.coerceDictionaryToJSObject(event) { self?.trigger("pip", data: data) }
+        }
+      }
+    }
     // Push keys left by an earlier install (keychain items outlive it).
     K2PushPlugin.badgeQueue.async { K2PushKeys.wipeIfFreshInstall() }
     // The voice call's device keys, the same way (before any join can sign).
@@ -366,6 +374,7 @@ class K2PushPlugin: Plugin {
       }
     case "report":
       shim.report(state: args.state ?? "", reason: args.reason)
+      if args.state == "ended" { k2PiPCallEnded() }
       invoke.resolve(["ok": true])
     case "mute":
       shim.setMuted(args.on ?? false)
@@ -375,6 +384,7 @@ class K2PushPlugin: Plugin {
       invoke.resolve(["ok": true])
     case "end":
       shim.end()
+      k2PiPCallEnded()
       invoke.resolve(["ok": true])
     case "speaker":
       invoke.resolve(["ok": shim.setSpeaker(args.on ?? false), "route": K2CallShim.currentRoute()])
@@ -382,6 +392,24 @@ class K2PushPlugin: Plugin {
       invoke.resolve(["ok": true, "route": K2CallShim.currentRoute(), "active": shim.active])
     case "mic":
       K2CallShim.microphone { invoke.resolve(["ok": true, "mic": $0]) }
+    case "pip":
+      // Picture in Picture (K2PiP): `{on?}` starts or stops it, answers its state.
+      guard #available(iOS 15.0, *) else { return invoke.resolve(["ok": false, "error": "ios_too_old"]) }
+      DispatchQueue.main.async { invoke.resolve(K2PiP.shared.op(on: args.on)) }
+    #if DEBUG
+    case "pipTest":
+      // Debug builds only: `{on, state?: "h264"}` plays K2PiP's test pattern.
+      guard #available(iOS 15.0, *) else { return invoke.resolve(["ok": false, "error": "ios_too_old"]) }
+      let callActive = shim.active
+      DispatchQueue.main.async {
+        if args.on == true {
+          invoke.resolve(K2PiP.shared.startTestPattern(h264: args.state == "h264", callActive: callActive))
+        } else {
+          K2PiP.shared.teardown()
+          invoke.resolve(["ok": true])
+        }
+      }
+    #endif
     default:
       invoke.reject("callOp: unknown op \(args.op)")
     }
