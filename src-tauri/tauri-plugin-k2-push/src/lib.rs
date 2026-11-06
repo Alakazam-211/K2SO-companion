@@ -73,6 +73,7 @@ pub mod pip {
         fn k2_pip_h264(bytes: *const u8, len: usize, pts_90k: i64);
         fn k2_pip_flush(remove_image: bool);
         fn k2_pip_pixel_buffer(buffer: *mut std::ffi::c_void, pts_90k: i64);
+        fn k2_pip_nv12(width: u32, height: u32, y: *const u8, stride_y: u32, uv: *const u8, stride_uv: u32, pts_90k: i64);
         #[allow(clippy::too_many_arguments)]
         fn k2_pip_i420(
             width: u32,
@@ -85,6 +86,37 @@ pub mod pip {
             stride_v: u32,
             pts_90k: i64,
         );
+    }
+
+    /// One decoded NV12 frame's planes, borrowed.
+    #[derive(Debug, PartialEq)]
+    pub struct Nv12<'a> {
+        pub width: u32,
+        pub height: u32,
+        pub y: &'a [u8],
+        pub uv: &'a [u8],
+        pub stride_y: u32,
+        pub stride_uv: u32,
+    }
+
+    /// One decoded NV12 frame (what Sew's native sink asks the VP8 decoder
+    /// for): Swift copies it into a pooled pixel buffer before returning.
+    pub fn nv12(frame: &Nv12<'_>, pts_90k: i64) {
+        #[cfg(target_os = "ios")]
+        // SAFETY: the planes outlive the call; Swift reads them during it.
+        unsafe {
+            k2_pip_nv12(
+                frame.width,
+                frame.height,
+                frame.y.as_ptr(),
+                frame.stride_y,
+                frame.uv.as_ptr(),
+                frame.stride_uv,
+                pts_90k,
+            )
+        }
+        #[cfg(not(target_os = "ios"))]
+        let _ = (frame, pts_90k);
     }
 
     /// One decoded I420 frame's planes, borrowed.
