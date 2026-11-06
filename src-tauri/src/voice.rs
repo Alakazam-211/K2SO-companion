@@ -263,17 +263,33 @@ impl K2Provider {
         });
         let (status, retry_after, bytes) =
             self.post(&format!("{base}/cli/voice/recording/consent"), &token, &body).await?;
-        match status {
-            200 => {
-                // Sew's recording, or K2's `{recording}` around it.
-                let v: Value = serde_json::from_slice(&bytes).unwrap_or(Value::Null);
-                let inner = v.get("recording").filter(|r| r.is_object()).map(|r| r.to_string());
-                ConsentAnswer::recording_from_json(inner.as_deref().map(str::as_bytes).unwrap_or(&bytes))
-            }
-            // A K2 before the consent route (0.46.9): not recorded, the safe side.
-            404 | 405 => Err(refused(tauri_plugin_sew_voice::CONSENT_UNSUPPORTED, "this server can't take a recording answer yet")),
-            _ => Err(clean(ProviderError::from_sew_error(status, retry_after.map(|s| s * 1000), &bytes), &token)),
+        consent_from(status, retry_after, &bytes, &token)
+    }
+}
+
+/// What the daemon answered a recording answer with, as the plugin's types.
+pub fn consent_from(status: u16, retry_after_secs: Option<u64>, body: &[u8], token: &str) -> Result<Recording, ProviderError> {
+    let v: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+    let code = v.pointer("/error/code").and_then(Value::as_str);
+    match (status, code) {
+        (200, _) => {
+            // Sew's recording, or K2's `{recording}` around it.
+            let inner = v.get("recording").filter(|r| r.is_object()).map(|r| r.to_string());
+            ConsentAnswer::recording_from_json(inner.as_deref().map(str::as_bytes).unwrap_or(body))
         }
+        // The notice changed after it was shown. K2 keeps Sew's own refusal
+        // in `details.sew`: read as Sew's, the engine shows the new notice.
+        (409, Some("consent_notice_changed")) => {
+            let sew = json!({ "error": v.pointer("/error/details/sew").cloned().unwrap_or(Value::Null) });
+            Err(clean(ProviderError::from_sew_error(409, None, sew.to_string().as_bytes()), token))
+        }
+        // K2's own 404s answer for the recording or the rooms.
+        (404, Some("recording_not_found" | "voice_rooms_off")) => {
+            Err(clean(ProviderError::from_sew_error(status, None, body), token))
+        }
+        // A K2 before the consent route (0.46.9): not recorded, the safe side.
+        (404 | 405, _) => Err(refused(tauri_plugin_sew_voice::CONSENT_UNSUPPORTED, "this server can't take a recording answer yet")),
+        _ => Err(clean(ProviderError::from_sew_error(status, retry_after_secs.map(|s| s * 1000), body), token)),
     }
 }
 
@@ -616,7 +632,11 @@ mod tests {
 
     /// Sew's contract fixture (`recording.held.recording`, 0.8.0).
     fn held() -> RecordingInfo {
-        serde_json::from_value(json!({
+        serde_json::from_value(held_json()).unwrap()
+    }
+
+    fn held_json() -> Value {
+        json!({
             "recording_id": "48831765147549720", "auto": false, "started_by": "1001", "my_consent": "pending",
             "consent_prompt": {
                 "recording_id": "48831765147549720", "notice_version": 3141, "recorder_name": "Sew Notes",
@@ -627,8 +647,39 @@ mod tests {
                 "admin_download": true, "decline_mode": "join_unrecorded", "recorded_now": ["1001"]
             },
             "participants": [], "recorder_present": false
-        }))
-        .unwrap()
+        })
+    }
+
+    /// K2's `POST /cli/voice/recording/consent` answers (K2 main 9543a6d24).
+    #[test]
+    fn consent_answers() {
+        // Sew's `Recording.min` fixture, inside K2's answer.
+        let rec = json!({
+            "audio_keep_days": 0, "auto": true, "channel_id": "48831765147549711", "id": "48831765147550202",
+            "max_duration_ms": 14400000, "message_id": "48831765147549701", "mixed": false, "participants": [],
+            "started_at": "2026-09-27T12:00:00.123Z", "started_by": "48831765147549699", "state": "starting"
+        });
+        let ok = json!({ "ok": true, "recordingId": "48831765147550202", "consent": true, "recording": rec });
+        assert!(consent_from(200, None, ok.to_string().as_bytes(), "tok").is_ok());
+        assert!(consent_from(200, None, rec.to_string().as_bytes(), "tok").is_ok());
+        // A changed notice: Sew's refusal inside K2's, read as Sew's.
+        let sew = json!({ "code": "conflict", "details": {
+            "reason": "recording_consent_required", "consent_prompt": held_json()["consent_prompt"], "auto": false
+        } });
+        let changed = json!({ "ok": false, "error": { "code": "consent_notice_changed", "hint": "",
+            "details": { "consent_prompt": held_json()["consent_prompt"], "recording": null, "sew": sew } } });
+        match consent_from(409, None, changed.to_string().as_bytes(), "tok") {
+            Err(ProviderError::ConsentRequired(c)) => assert_eq!(c.notice_version(), 3141),
+            other => panic!("{other:?}"),
+        }
+        let code = |status, body: Value| match consent_from(status, None, body.to_string().as_bytes(), "tok") {
+            Err(ProviderError::Refused { code, .. }) => code,
+            other => panic!("{other:?}"),
+        };
+        let k2 = |c: &str| json!({ "ok": false, "error": { "code": c, "hint": "" } });
+        assert_eq!(code(404, k2("recording_not_found")), "recording_not_found");
+        assert_eq!(code(422, k2("recording_not_active")), "recording_not_active");
+        assert_eq!(code(404, json!(null)), tauri_plugin_sew_voice::CONSENT_UNSUPPORTED);
     }
 
     #[test]
