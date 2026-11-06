@@ -17,7 +17,7 @@ import {
  *
  * A message taller than FOLD_LINES lines of its own text (by rendered
  * height, against the body's computed line-height, so code blocks, lists
- * and headings count by the room they take) shows its first ~12 lines, a
+ * and headings count by the room they take) shows its first ~14 lines (Rosson: 14, not 12), a
  * fade in the bubble's own colour (`--k2-bubble`) and a "See more" button.
  * Expanded, "See less" folds it again.
  *
@@ -31,7 +31,7 @@ import {
  */
 
 /** Lines a folded message shows. */
-export const FOLD_LINES = 12;
+export const FOLD_LINES = 14;
 /** The clip holds one row more than it shows: the fade and "See more"
  *  sit on it. A message that fits in FOLD_LINES + 1 lines never folds (a
  *  button that hides one line would cost the line it hides). */

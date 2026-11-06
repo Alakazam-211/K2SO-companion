@@ -115,11 +115,11 @@ const toggle = () => screen.queryByTestId("fold-toggle");
 
 describe("the threshold", () => {
   it("folds only past FOLD_LINES + 1 lines by height (the button's row is the one more)", () => {
-    expect(FOLD_LINES).toBe(12);
-    expect(FOLD_CLIP_LINES).toBe(13);
-    expect(foldable(LINE * 12, LINE)).toBe(false);
-    expect(foldable(LINE * 13, LINE)).toBe(false);
-    expect(foldable(LINE * 13 + 1, LINE)).toBe(true);
+    expect(FOLD_LINES).toBe(14);
+    expect(FOLD_CLIP_LINES).toBe(15);
+    expect(foldable(LINE * 14, LINE)).toBe(false);
+    expect(foldable(LINE * 15, LINE)).toBe(false);
+    expect(foldable(LINE * 15 + 1, LINE)).toBe(true);
     expect(foldable(LINE * 500, LINE)).toBe(true);
     // No line-height yet: never folds.
     expect(foldable(10_000, 0)).toBe(false);
