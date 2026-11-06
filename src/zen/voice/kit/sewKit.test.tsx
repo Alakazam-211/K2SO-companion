@@ -62,7 +62,7 @@ import { __resetVoiceNamesForTests, useVoiceNames } from "../voiceNames";
 import { VoiceRoomsOverlay } from "../VoiceRooms";
 import { CallTile } from "../callTile";
 import KitCall, { kitNames } from "./KitCall";
-import { facingOf, LAYER_HANDLE, liveOf, mirrorFor, shownOf, STARTING_MS } from "./layerVideo";
+import { facingOf, LAYER_HANDLE, liveOf, mirrorFor, PHONE_SCREEN_CAPS, screenShareOf, shownOf, STARTING_MS } from "./layerVideo";
 import {
   __resetSewKitForTests,
   k2Bridge,
@@ -589,7 +589,7 @@ describe("Sew's call kit on the phone", () => {
     const cameraButton = () => screen.queryByTestId("voice-camera");
     const selfTile = () => screen.getAllByTestId("voice-tile").find((t) => t.getAttribute("data-local") === "yes");
 
-    it("the camera button shows when the room allows video; the screen button never does", async () => {
+    it("the camera button shows when the room allows video; the screen button waits for the ring", async () => {
       await inCall();
       render(<KitCall />);
       await waitFor(() => expect(cameraButton()).toBeTruthy());
@@ -692,6 +692,111 @@ describe("Sew's call kit on the phone", () => {
       expect(kit.video.live()).toBeNull();
       // No sink for anyone else ever opened through the kit.
       expect(calls("video_sink").every((a) => (a as { track?: string }).track === "local:camera")).toBe(true);
+    });
+
+    describe("your screen (iOS's broadcast extension)", () => {
+      const screenButton = () => screen.queryByTestId("voice-screen");
+      const pickers = () =>
+        plugin.invoke.mock.calls.filter(([c, a]) => c === "plugin:k2-push|call_op" && (a as { op?: string })?.op === "broadcastPicker");
+      const armed = (active = false) => act(() => plugin.emit("k2-voice://screen", { armed: true, active }));
+
+      it("Share screen shows once Rust armed the ring, only while the room allows video", async () => {
+        await inCall();
+        render(<KitCall />);
+        await waitFor(() => expect(cameraButton()).toBeTruthy());
+        // Not armed yet: the plugin's own screen capture is unsupported on iOS.
+        expect(screenButton()).toBeNull();
+        armed();
+        await waitFor(() => expect(screenButton()).toBeTruthy());
+        expect(screenButton()?.getAttribute("data-state")).toBe("off");
+        expect(screenButton()?.hasAttribute("disabled")).toBe(false);
+        expect(screenButton()?.getAttribute("aria-label")).toBe("Share your screen");
+        // The kit's caps on the phone: iOS's picker, no list of screens.
+        expect(sewKit().video.info().caps?.screen).toEqual(PHONE_SCREEN_CAPS);
+        // A room without video: no screen button either.
+        act(() => plugin.emit("sew-voice://policy", { ...POLICY, video_enabled: false }));
+        expect(screenButton()).toBeNull();
+        // Video, but no screens in this room: shown, and can't be pressed.
+        act(() => plugin.emit("sew-voice://policy", { ...POLICY, screen_allowed: false }));
+        await waitFor(() => expect(screenButton()).toBeTruthy());
+        expect(screenButton()?.hasAttribute("disabled")).toBe(true);
+        // The call ended (Rust: the ring is gone): hidden again.
+        act(() => plugin.emit("sew-voice://policy", POLICY));
+        act(() => plugin.emit("k2-voice://screen", { armed: false, active: false }));
+        await waitFor(() => expect(screenButton()).toBeNull());
+      });
+
+      it("a tap opens iOS's broadcast picker; the button follows the share, not the tap; Stop is the plugin's screen off", async () => {
+        plugin.answers["plugin:k2-push|call_op"] = { ok: true };
+        await inCall();
+        render(<KitCall />);
+        armed();
+        await waitFor(() => expect(screenButton()).toBeTruthy());
+        fireEvent.click(screenButton()!);
+        await waitFor(() => expect(pickers()).toHaveLength(1));
+        // The webview never asks the plugin to start one (it can't on iOS).
+        expect(calls("screen")).toEqual([]);
+        // Until the extension's first frame: off again, and no sentence (the
+        // person may still cancel iOS's sheet).
+        await waitFor(() => expect(screenButton()?.getAttribute("data-state")).toBe("off"));
+        expect(screen.queryByTestId("voice-notice")).toBeNull();
+        // The share started (outside the app): on.
+        act(() => {
+          plugin.emit("sew-voice://local_video", { camera: "off", screen: "on" });
+          plugin.emit("k2-voice://screen", { armed: true, active: true });
+        });
+        await waitFor(() => expect(screenButton()?.getAttribute("data-state")).toBe("on"));
+        expect(sewKit().video.screenShare()).toEqual({ armed: true, active: true });
+        expect(screenButton()?.getAttribute("aria-label")).toBe("Stop sharing");
+        // Stop sharing: the plugin's screen off (it asks the extension to finish).
+        fireEvent.click(screenButton()!);
+        await waitFor(() => expect(calls("screen")).toEqual([{ on: false }]));
+        expect(pickers()).toHaveLength(1);
+        act(() => {
+          plugin.emit("sew-voice://local_video", { camera: "off", screen: "off" });
+          plugin.emit("k2-voice://screen", { armed: true, active: false });
+        });
+        await waitFor(() => expect(screenButton()?.getAttribute("data-state")).toBe("off"));
+        // Stopped from iOS's own red pill instead: the button follows too.
+        armed(true);
+        act(() => plugin.emit("sew-voice://local_video", { camera: "off", screen: "on" }));
+        await waitFor(() => expect(screenButton()?.getAttribute("data-state")).toBe("on"));
+        act(() => plugin.emit("sew-voice://local_video", { camera: "off", screen: "off", reason: "user_stopped" }));
+        await waitFor(() => expect(screenButton()?.getAttribute("data-state")).toBe("off"));
+      });
+
+      it("a picker that can't open says so; the button stays off", async () => {
+        plugin.answers["plugin:k2-push|call_op"] = { ok: false };
+        await inCall();
+        render(<KitCall />);
+        armed();
+        await waitFor(() => expect(screenButton()).toBeTruthy());
+        fireEvent.click(screenButton()!);
+        await waitFor(() => expect(pickers()).toHaveLength(1));
+        await waitFor(() => expect(screen.getByTestId("voice-notice").getAttribute("data-reason")).toBe("screen_unsupported"));
+        expect(screenButton()?.getAttribute("data-state")).toBe("off");
+        expect(calls("screen")).toEqual([]);
+      });
+
+      it("a call screen opened mid-share reads the share back (voice_screen)", async () => {
+        plugin.answers["voice_screen"] = { armed: true, active: true };
+        await inCall();
+        render(<KitCall />);
+        await waitFor(() => expect(screenButton()).toBeTruthy());
+        expect(sewKit().video.screenShare()).toEqual({ armed: true, active: true });
+        expect(screenShareOf(null)).toEqual({ armed: false, active: false });
+        expect(screenShareOf({ armed: true })).toEqual({ armed: true, active: false });
+      });
+
+      it("never on the floating tile: Mute, Deafen, Camera and Hang up only", async () => {
+        await inCall();
+        armed(true);
+        render(<CallTile callViewOpen={false} onOpen={() => {}} />);
+        await waitFor(() => expect(screen.queryByTestId("voice-call-tile-camera")).toBeTruthy());
+        expect(screen.getByTestId("voice-call-tile").querySelectorAll("button")).toHaveLength(4);
+        expect(screenButton()).toBeNull();
+        expect(screen.queryByTestId("voice-switch-camera")).toBeNull();
+      });
     });
 
     describe("on the floating tile (the call area closed)", () => {

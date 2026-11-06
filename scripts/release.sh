@@ -63,6 +63,8 @@ INFO_PLIST="$PROJECT_DIR/src-tauri/gen/apple/k2so-companion_iOS/Info.plist"
 # Notification Service Extension (Communication Notifications). Its
 # versions must equal the app's or App Store Connect flags the upload.
 NSE_INFO_PLIST="$PROJECT_DIR/src-tauri/gen/apple/K2NotificationService/Info.plist"
+# Broadcast Upload Extension (the iPhone screen share). Same rule.
+BROADCAST_INFO_PLIST="$PROJECT_DIR/src-tauri/gen/apple/K2Broadcast/Info.plist"
 ARCHIVE_PATH="$PROJECT_DIR/src-tauri/gen/apple/build/k2so-companion_iOS.xcarchive"
 EXPORT_DIR="$PROJECT_DIR/src-tauri/gen/apple/build/appstore"
 EXPORT_PLIST="$PROJECT_DIR/src-tauri/gen/apple/build/AppStoreExport.plist"
@@ -173,22 +175,24 @@ sed -i '' "/<key>CFBundleShortVersionString<\/key>/{ n; s/<string>[^<]*<\/string
 # Info.plist — CFBundleVersion (build number)
 sed -i '' "/<key>CFBundleVersion<\/key>/{ n; s/<string>[^<]*<\/string>/<string>$BUILD_NUMBER<\/string>/; }" "$INFO_PLIST"
 
-# Extension Info.plist — same values as the app (VERSION + BUILD_NUMBER);
+# Extension Info.plists — same values as the app (VERSION + BUILD_NUMBER);
 # App Store Connect rejects an extension whose versions differ.
-if [ -f "$NSE_INFO_PLIST" ]; then
-  sed -i '' "/<key>CFBundleShortVersionString<\/key>/{ n; s/<string>[^<]*<\/string>/<string>$VERSION<\/string>/; }" "$NSE_INFO_PLIST"
-  sed -i '' "/<key>CFBundleVersion<\/key>/{ n; s/<string>[^<]*<\/string>/<string>$BUILD_NUMBER<\/string>/; }" "$NSE_INFO_PLIST"
-fi
+for EXT_INFO_PLIST in "$NSE_INFO_PLIST" "$BROADCAST_INFO_PLIST"; do
+  if [ -f "$EXT_INFO_PLIST" ]; then
+    sed -i '' "/<key>CFBundleShortVersionString<\/key>/{ n; s/<string>[^<]*<\/string>/<string>$VERSION<\/string>/; }" "$EXT_INFO_PLIST"
+    sed -i '' "/<key>CFBundleVersion<\/key>/{ n; s/<string>[^<]*<\/string>/<string>$BUILD_NUMBER<\/string>/; }" "$EXT_INFO_PLIST"
+  fi
+done
 
 # Cargo.toml (package version) and the XcodeGen spec, which regenerates
 # Info.plist during `tauri ios build` and so must agree with it.
 CARGO_TOML="$PROJECT_DIR/src-tauri/Cargo.toml"
 PROJECT_YML="$PROJECT_DIR/src-tauri/gen/apple/project.yml"
 sed -i '' "1,/^version = /s/^version = \"[^\"]*\"/version = \"$VERSION\"/" "$CARGO_TOML"
-# Both targets (app + NSE) in one pass: same VERSION, same BUILD_NUMBER.
+# Every target (app, NSE, Broadcast) in one pass: same VERSION, same BUILD_NUMBER.
 sed -i '' "s/CFBundleShortVersionString: .*/CFBundleShortVersionString: $VERSION/; s/CFBundleVersion: .*/CFBundleVersion: \"$BUILD_NUMBER\"/" "$PROJECT_YML"
 
-echo "  ✓ package.json, tauri.conf.json, Info.plist (app + NSE), Cargo.toml, project.yml updated"
+echo "  ✓ package.json, tauri.conf.json, Info.plist (app, NSE, Broadcast), Cargo.toml, project.yml updated"
 
 # ─── Step 2: Build ───
 
@@ -296,10 +300,13 @@ echo "→ Exporting for App Store..."
 # profile (API key is not an Admin Apple ID). Use the ASC-created
 # "K2 Companion App Store Push" profile + local Apple Distribution cert.
 # The Notification Service Extension uses its own ASC-created profile,
-# "K2 Companion NSE App Store" (App Group capability). The app profile
-# must also carry the App Group + Communication Notifications
-# capabilities. Only the APP entitlements hold aps-environment; the
-# extension's entitlements (App Group only) are not touched here.
+# "K2 Companion NSE App Store" (App Group capability), and the Broadcast
+# Upload Extension (screen share) its own, "K2 Companion Broadcast App
+# Store" (App ID com.alakazamlabs.k2so.companion.Broadcast, App Group).
+# The app profile must also carry the App Group + Communication
+# Notifications capabilities. Only the APP entitlements hold
+# aps-environment; the extensions' entitlements (App Group only) are not
+# touched here.
 ENTITLEMENTS="$PROJECT_DIR/src-tauri/gen/apple/k2so-companion_iOS/k2so-companion_iOS.entitlements"
 if [ -f "$ENTITLEMENTS" ]; then
   sed -i '' '/<key>aps-environment<\/key>/{ n; s/<string>development<\/string>/<string>production<\/string>/; }' "$ENTITLEMENTS"
@@ -324,6 +331,8 @@ cat > "$EXPORT_PLIST" << PLIST
         <string>K2 Companion App Store Push</string>
         <key>com.alakazamlabs.k2so.companion.NotificationService</key>
         <string>K2 Companion NSE App Store</string>
+        <key>com.alakazamlabs.k2so.companion.Broadcast</key>
+        <string>K2 Companion Broadcast App Store</string>
     </dict>
     <key>uploadSymbols</key>
     <true/>
@@ -383,6 +392,8 @@ if [ -n "$SIZE_REPORT" ]; then
         <string>K2 Companion Dev</string>
         <key>com.alakazamlabs.k2so.companion.NotificationService</key>
         <string>K2 Companion NSE Dev</string>
+        <key>com.alakazamlabs.k2so.companion.Broadcast</key>
+        <string>K2 Companion Broadcast Dev</string>
     </dict>
     <key>thinning</key>
     <string>&lt;thin-for-all-variants&gt;</string>
@@ -443,6 +454,7 @@ echo "→ Committing and tagging..."
 cd "$PROJECT_DIR"
 git add package.json src-tauri/tauri.conf.json src-tauri/gen/apple/k2so-companion_iOS/Info.plist \
   src-tauri/gen/apple/K2NotificationService/Info.plist \
+  src-tauri/gen/apple/K2Broadcast/Info.plist \
   src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/gen/apple/project.yml
 git commit -m "v${VERSION} — App Store ${VERSION}, release build ${BUILD_NUMBER}"
 # This worktree may be on an execute-plan branch; land on GitHub main,

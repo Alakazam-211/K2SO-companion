@@ -1,0 +1,36 @@
+# The broadcast upload extension's side of the iPhone screen share
+# (K2Broadcast, src-tauri/gen/apple/K2Broadcast): kessel-frame-ring's C
+# surface as a static library, linked into the extension through its
+# bridging header (K2Broadcast/kessel_frame_ring.h). No encoding and no
+# crypto: the extension only writes raw NV12 frames into the ring the app's
+# voice plugin makes in the App Group container; the app encodes them.
+#
+# Its own package (not the app's): the extension links this alone, never
+# the app's Rust. Built by the extension target's "Build Frame Ring" phase
+# (build-ios.sh), always in release (the ring scales each frame in a box
+# filter, too slow at opt-level 0). The version must equal the plugin's
+# kessel-frame-ring (src-tauri/Cargo.lock): a ring of another format
+# version refuses the extension's attach (-4).
+[package]
+name = "k2-broadcast-ring"
+version = "0.1.0"
+edition = "2021"
+publish = false
+
+[lib]
+name = "k2_broadcast_ring"
+crate-type = ["staticlib"]
+path = "src/lib.rs"
+
+[dependencies]
+kessel-frame-ring = "=0.1.1"
+
+# Unwind (the default), not abort: kessel-frame-ring catches a panic at each
+# C function and returns its error code instead.
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 3
+
+# Not part of the app's package: this directory is a package of its own.
+[workspace]

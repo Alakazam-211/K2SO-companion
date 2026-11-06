@@ -10,6 +10,7 @@
 		0086B77E9B281222B79AC404 /* libapp.a in Frameworks */ = {isa = PBXBuildFile; fileRef = 73CF7E64730212AA5AE3A128 /* libapp.a */; };
 		2369870D36BAC75DB2B6B36D /* CoreGraphics.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 28E557618E691BF6CEB447B7 /* CoreGraphics.framework */; };
 		31D642292119BA1B3EF1142B /* K2PushReplay.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3ED9911D981925C6E9100ABE /* K2PushReplay.swift */; };
+		335B0E6813EBF7960E73D1AD /* ReplayKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 95BFC07FD093BE7B2F37EE74 /* ReplayKit.framework */; };
 		37233E0D1225B040098B1443 /* K2NotificationService.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 9AD9136060A6AEEF2AE58122 /* K2NotificationService.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		43F5B6CAFF4DF2CC5E246501 /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 86B015769A2BEB0B33BEF777 /* LaunchScreen.storyboard */; };
 		4B167C0A2FC4248DC08DB6A2 /* Security.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0560FFD899E7B0CF539E4F29 /* Security.framework */; };
@@ -17,22 +18,34 @@
 		55FA4F780FBA02CE4191FD29 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BEE6F25A741F7415EAEF73CE /* UIKit.framework */; };
 		5B6281272B119094369D5260 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 468BBB4AA6164109A2761F17 /* main.mm */; };
 		66AE529A3FD19B8FA3FE2393 /* K2PushSealed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04BDCE45DB68ED3B2DEF0FC8 /* K2PushSealed.swift */; };
+		68AE19A78FDF1C3D613D20BA /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6967D62C8FA6A6BF4E4867CC /* CoreMedia.framework */; };
+		6FFBBF0572EEA3C884D951BE /* SampleHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D31BD525E8DA20E7ED3AD9 /* SampleHandler.swift */; };
 		7ABB0E332906E75D818941A9 /* Intents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A97E30C38A355B51654D89D9 /* Intents.framework */; };
 		7DC223C2516DE9BA1AEAE8F4 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B4A5403B758E91ACD479B265 /* Metal.framework */; };
 		8388615A6C635BA233E64A06 /* UIKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = BEE6F25A741F7415EAEF73CE /* UIKit.framework */; };
 		87869CD86E45CF3DF8E9BFF7 /* K2BadgeStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = E5D61B127E0B1F7BC66EB0FD /* K2BadgeStore.swift */; };
 		938FA044F25B2BD405A07042 /* K2PushInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E5AB52C2C68B1DDB9154F7F /* K2PushInbox.swift */; };
 		A70F3CA0A84318BC0485C30E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 121CC767EA48E78C62817F5B /* Assets.xcassets */; };
+		A7C7EEF83088ED1B6AFE39AD /* K2BroadcastFrames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47CC572B4A6B4D4B06D8B190 /* K2BroadcastFrames.swift */; };
 		AF0A03078E384F7FA1ADEBDA /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 326A6653853C5BDE1977FDD4 /* assets */; };
 		B77720E43DDCAFF635D539CC /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0C98A0036C619D67A6D5842A /* WebKit.framework */; };
 		BBFD1D01C98651AB5EE41BDE /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 47648054428B8FF68CED3F6F /* QuartzCore.framework */; };
 		D53A6471725A00995F65C638 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6827DEA084F7F9907A8BCDCD /* NotificationService.swift */; };
 		DA4B108E0B708BB898974552 /* UserNotifications.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 9A7659B64BFA232E3FD99383 /* UserNotifications.framework */; };
 		EE470A0522571709F4705614 /* K2PushKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = E2C5B8D9FB8CC4023C4903C9 /* K2PushKeys.swift */; };
+		F44DD204D730382CE654537D /* CoreVideo.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 20E35372FA5F822927CE7532 /* CoreVideo.framework */; };
 		F677109CE59717EE3EBA6F35 /* MetalKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0E44B37797470C60700E7AED /* MetalKit.framework */; };
+		FA474211AA9D1D8E7A0261D5 /* K2Broadcast.appex in Embed Foundation Extensions */ = {isa = PBXBuildFile; fileRef = 907C62C2D2557BCDFE0FF4E5 /* K2Broadcast.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		A426FC22002716819D8C2870 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 2E01D67C34FC282A64E60725 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = ADA1B5EF14D13B207939F870;
+			remoteInfo = K2Broadcast;
+		};
 		C0B06EAB6117B9BF389C12BC /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 2E01D67C34FC282A64E60725 /* Project object */;
@@ -50,6 +63,7 @@
 			dstSubfolderSpec = 13;
 			files = (
 				37233E0D1225B040098B1443 /* K2NotificationService.appex in Embed Foundation Extensions */,
+				FA474211AA9D1D8E7A0261D5 /* K2Broadcast.appex in Embed Foundation Extensions */,
 			);
 			name = "Embed Foundation Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -64,6 +78,8 @@
 		0E44B37797470C60700E7AED /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		0E5AB52C2C68B1DDB9154F7F /* K2PushInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K2PushInbox.swift; sourceTree = "<group>"; };
 		121CC767EA48E78C62817F5B /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		20E35372FA5F822927CE7532 /* CoreVideo.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreVideo.framework; path = System/Library/Frameworks/CoreVideo.framework; sourceTree = SDKROOT; };
+		25D31BD525E8DA20E7ED3AD9 /* SampleHandler.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleHandler.swift; sourceTree = "<group>"; };
 		28E557618E691BF6CEB447B7 /* CoreGraphics.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreGraphics.framework; path = System/Library/Frameworks/CoreGraphics.framework; sourceTree = SDKROOT; };
 		2B8A49C54F29BEC04FCDF5ED /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
 		2E6666D746DD914443D72C13 /* main.rs */ = {isa = PBXFileReference; path = main.rs; sourceTree = "<group>"; };
@@ -73,11 +89,18 @@
 		468BBB4AA6164109A2761F17 /* main.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; path = main.mm; sourceTree = "<group>"; };
 		47648054428B8FF68CED3F6F /* QuartzCore.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = QuartzCore.framework; path = System/Library/Frameworks/QuartzCore.framework; sourceTree = SDKROOT; };
 		4793F9DCBB41419DFCF44AD1 /* bindings.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = bindings.h; sourceTree = "<group>"; };
+		47CC572B4A6B4D4B06D8B190 /* K2BroadcastFrames.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K2BroadcastFrames.swift; sourceTree = "<group>"; };
+		4F107ABBE8BD1F828665BAF1 /* kessel_frame_ring.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = kessel_frame_ring.h; sourceTree = "<group>"; };
+		510D0093119F1BB0648711E5 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		641A2BA5BCF418275BB659CD /* auth.rs */ = {isa = PBXFileReference; path = auth.rs; sourceTree = "<group>"; };
 		6827DEA084F7F9907A8BCDCD /* NotificationService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = NotificationService.swift; sourceTree = "<group>"; };
+		6967D62C8FA6A6BF4E4867CC /* CoreMedia.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = CoreMedia.framework; path = System/Library/Frameworks/CoreMedia.framework; sourceTree = SDKROOT; };
 		6B748E35CAD525F2C8B0B6E0 /* mod.rs */ = {isa = PBXFileReference; path = mod.rs; sourceTree = "<group>"; };
 		73CF7E64730212AA5AE3A128 /* libapp.a */ = {isa = PBXFileReference; lastKnownFileType = archive.ar; path = libapp.a; sourceTree = "<group>"; };
+		7E3798291CA2CCF89A1ED08B /* K2Broadcast-Bridging-Header.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = "K2Broadcast-Bridging-Header.h"; sourceTree = "<group>"; };
 		86B015769A2BEB0B33BEF777 /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+		907C62C2D2557BCDFE0FF4E5 /* K2Broadcast.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = K2Broadcast.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		95BFC07FD093BE7B2F37EE74 /* ReplayKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ReplayKit.framework; path = System/Library/Frameworks/ReplayKit.framework; sourceTree = SDKROOT; };
 		96E24D55CD1516F020380121 /* K2PushCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K2PushCrypto.swift; sourceTree = "<group>"; };
 		9A7659B64BFA232E3FD99383 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
 		9AD9136060A6AEEF2AE58122 /* K2NotificationService.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = K2NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -86,6 +109,7 @@
 		BEE6F25A741F7415EAEF73CE /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
 		BEF86B657167CD42CEF1A352 /* k2so-companion_iOS.debug.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "k2so-companion_iOS.debug.entitlements"; sourceTree = "<group>"; };
 		CAAD5731F3C67C38E8A512EE /* connection.rs */ = {isa = PBXFileReference; path = connection.rs; sourceTree = "<group>"; };
+		CF33F1AA78C71B34A952B909 /* K2Broadcast.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = K2Broadcast.entitlements; sourceTree = "<group>"; };
 		D2722F427E4A272C60FB14F9 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DE0A5CF383FDF335E039BA8A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		DED6CA5E99445A863D95506E /* state.rs */ = {isa = PBXFileReference; path = state.rs; sourceTree = "<group>"; };
@@ -95,6 +119,16 @@
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		3F821B0CE1873C42962C9769 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				335B0E6813EBF7960E73D1AD /* ReplayKit.framework in Frameworks */,
+				68AE19A78FDF1C3D613D20BA /* CoreMedia.framework in Frameworks */,
+				F44DD204D730382CE654537D /* CoreVideo.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		8A163DEC644DFCCBDD70A301 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
@@ -127,11 +161,14 @@
 			isa = PBXGroup;
 			children = (
 				28E557618E691BF6CEB447B7 /* CoreGraphics.framework */,
+				6967D62C8FA6A6BF4E4867CC /* CoreMedia.framework */,
+				20E35372FA5F822927CE7532 /* CoreVideo.framework */,
 				A97E30C38A355B51654D89D9 /* Intents.framework */,
 				73CF7E64730212AA5AE3A128 /* libapp.a */,
 				B4A5403B758E91ACD479B265 /* Metal.framework */,
 				0E44B37797470C60700E7AED /* MetalKit.framework */,
 				47648054428B8FF68CED3F6F /* QuartzCore.framework */,
+				95BFC07FD093BE7B2F37EE74 /* ReplayKit.framework */,
 				0560FFD899E7B0CF539E4F29 /* Security.framework */,
 				BEE6F25A741F7415EAEF73CE /* UIKit.framework */,
 				9A7659B64BFA232E3FD99383 /* UserNotifications.framework */,
@@ -151,10 +188,20 @@
 		65B2F1C79A57DA9A55396E0E /* Products */ = {
 			isa = PBXGroup;
 			children = (
+				907C62C2D2557BCDFE0FF4E5 /* K2Broadcast.appex */,
 				9AD9136060A6AEEF2AE58122 /* K2NotificationService.appex */,
 				3551CE3B6E0438F0F177D00C /* k2so-companion_iOS.app */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		7C1A7118A7CD3693D924B65C /* BroadcastFrames */ = {
+			isa = PBXGroup;
+			children = (
+				47CC572B4A6B4D4B06D8B190 /* K2BroadcastFrames.swift */,
+			);
+			name = BroadcastFrames;
+			path = "../../tauri-plugin-k2-push/ios/BroadcastFrames";
 			sourceTree = "<group>";
 		};
 		9185998F6C7980BC9A3495AC /* Externals */ = {
@@ -209,7 +256,9 @@
 				326A6653853C5BDE1977FDD4 /* assets */,
 				121CC767EA48E78C62817F5B /* Assets.xcassets */,
 				86B015769A2BEB0B33BEF777 /* LaunchScreen.storyboard */,
+				7C1A7118A7CD3693D924B65C /* BroadcastFrames */,
 				9185998F6C7980BC9A3495AC /* Externals */,
+				BC83B3A409F98FD8EAB243A7 /* K2Broadcast */,
 				C0241A6BD2D37C73D58FCF19 /* K2NotificationService */,
 				CC8B9D6A797BEB81F10A070F /* k2so-companion_iOS */,
 				B2AFAA2EA566234C8AD5A853 /* Sources */,
@@ -218,6 +267,18 @@
 				0709BF3F8ED084BB9F5CDAAD /* Frameworks */,
 				65B2F1C79A57DA9A55396E0E /* Products */,
 			);
+			sourceTree = "<group>";
+		};
+		BC83B3A409F98FD8EAB243A7 /* K2Broadcast */ = {
+			isa = PBXGroup;
+			children = (
+				510D0093119F1BB0648711E5 /* Info.plist */,
+				7E3798291CA2CCF89A1ED08B /* K2Broadcast-Bridging-Header.h */,
+				CF33F1AA78C71B34A952B909 /* K2Broadcast.entitlements */,
+				4F107ABBE8BD1F828665BAF1 /* kessel_frame_ring.h */,
+				25D31BD525E8DA20E7ED3AD9 /* SampleHandler.swift */,
+			);
+			path = K2Broadcast;
 			sourceTree = "<group>";
 		};
 		C0241A6BD2D37C73D58FCF19 /* K2NotificationService */ = {
@@ -289,6 +350,7 @@
 			);
 			dependencies = (
 				18EE44908553038E924D0E30 /* PBXTargetDependency */,
+				3F59C913C2F9D57E99C08AEF /* PBXTargetDependency */,
 			);
 			name = "k2so-companion_iOS";
 			packageProductDependencies = (
@@ -296,6 +358,25 @@
 			productName = "k2so-companion_iOS";
 			productReference = 3551CE3B6E0438F0F177D00C /* k2so-companion_iOS.app */;
 			productType = "com.apple.product-type.application";
+		};
+		ADA1B5EF14D13B207939F870 /* K2Broadcast */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 1E0044271FF7BAD04EAFA80D /* Build configuration list for PBXNativeTarget "K2Broadcast" */;
+			buildPhases = (
+				C4771A546E2B1A0FCA79CC3B /* Build Frame Ring */,
+				EF150662934F5DBDC182B959 /* Sources */,
+				3F821B0CE1873C42962C9769 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = K2Broadcast;
+			packageProductDependencies = (
+			);
+			productName = K2Broadcast;
+			productReference = 907C62C2D2557BCDFE0FF4E5 /* K2Broadcast.appex */;
+			productType = "com.apple.product-type.app-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -311,6 +392,10 @@
 						ProvisioningStyle = Manual;
 					};
 					329F3DFDAEDD5C521D90F1A7 = {
+						DevelopmentTeam = 36B8R93HXV;
+						ProvisioningStyle = Manual;
+					};
+					ADA1B5EF14D13B207939F870 = {
 						DevelopmentTeam = 36B8R93HXV;
 						ProvisioningStyle = Manual;
 					};
@@ -330,6 +415,7 @@
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
+				ADA1B5EF14D13B207939F870 /* K2Broadcast */,
 				14173381C994119C9B019A4F /* K2NotificationService */,
 				329F3DFDAEDD5C521D90F1A7 /* k2so-companion_iOS */,
 			);
@@ -371,6 +457,27 @@
 			shellPath = /bin/sh;
 			shellScript = "npm run -- tauri ios xcode-script -v --platform ${PLATFORM_DISPLAY_NAME:?} --sdk-root ${SDKROOT:?} --framework-search-paths \"${FRAMEWORK_SEARCH_PATHS:?}\" --header-search-paths \"${HEADER_SEARCH_PATHS:?}\" --gcc-preprocessor-definitions \"${GCC_PREPROCESSOR_DEFINITIONS:-}\" --configuration ${CONFIGURATION:?} ${FORCE_COLOR} ${ARCHS:?}";
 		};
+		C4771A546E2B1A0FCA79CC3B /* Build Frame Ring */ = {
+			isa = PBXShellScriptBuildPhase;
+			alwaysOutOfDate = 1;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+			);
+			name = "Build Frame Ring";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(PROJECT_DIR)/../../broadcast-ring/target/aarch64-apple-ios/release/libk2_broadcast_ring.a",
+				"$(PROJECT_DIR)/../../broadcast-ring/target/aarch64-apple-ios-sim/release/libk2_broadcast_ring.a",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			shellPath = /bin/sh;
+			shellScript = "\"${PROJECT_DIR}/../../broadcast-ring/build-ios.sh\"";
+		};
 /* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -396,6 +503,15 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		EF150662934F5DBDC182B959 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A7C7EEF83088ED1B6AFE39AD /* K2BroadcastFrames.swift in Sources */,
+				6FFBBF0572EEA3C884D951BE /* SampleHandler.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -403,6 +519,11 @@
 			isa = PBXTargetDependency;
 			target = 14173381C994119C9B019A4F /* K2NotificationService */;
 			targetProxy = C0B06EAB6117B9BF389C12BC /* PBXContainerItemProxy */;
+		};
+		3F59C913C2F9D57E99C08AEF /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = ADA1B5EF14D13B207939F870 /* K2Broadcast */;
+			targetProxy = A426FC22002716819D8C2870 /* PBXContainerItemProxy */;
 		};
 /* End PBXTargetDependency section */
 
@@ -431,6 +552,42 @@
 				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = release;
+		};
+		311FF024ED553AB68C6F1DA2 /* debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = (
+					arm64,
+				);
+				CODE_SIGN_ENTITLEMENTS = K2Broadcast/K2Broadcast.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Development";
+				"CODE_SIGN_IDENTITY[sdk=iphonesimulator*]" = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = 36B8R93HXV;
+				ENABLE_BITCODE = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				EXCLUDED_ARCHS = x86_64;
+				INFOPLIST_FILE = K2Broadcast/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/../../broadcast-ring/target/aarch64-apple-ios/release";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/../../broadcast-ring/target/aarch64-apple-ios-sim/release";
+				OTHER_LDFLAGS = "$(inherited) -lk2_broadcast_ring";
+				PRODUCT_BUNDLE_IDENTIFIER = com.alakazamlabs.k2so.companion.Broadcast;
+				PRODUCT_NAME = K2Broadcast;
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "K2 Companion Broadcast Dev";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphonesimulator*]" = "";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "K2Broadcast/K2Broadcast-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = debug;
 		};
 		40099AD8A6068709BAD243E7 /* release */ = {
 			isa = XCBuildConfiguration;
@@ -644,9 +801,54 @@
 			};
 			name = debug;
 		};
+		E38114AE23E4223AD1ED8328 /* release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ARCHS = (
+					arm64,
+				);
+				CODE_SIGN_ENTITLEMENTS = K2Broadcast/K2Broadcast.entitlements;
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Distribution";
+				"CODE_SIGN_IDENTITY[sdk=iphonesimulator*]" = "-";
+				CODE_SIGN_STYLE = Manual;
+				DEVELOPMENT_TEAM = 36B8R93HXV;
+				ENABLE_BITCODE = NO;
+				ENABLE_USER_SCRIPT_SANDBOXING = NO;
+				EXCLUDED_ARCHS = x86_64;
+				INFOPLIST_FILE = K2Broadcast/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				"LIBRARY_SEARCH_PATHS[sdk=iphoneos*]" = "$(inherited) $(PROJECT_DIR)/../../broadcast-ring/target/aarch64-apple-ios/release";
+				"LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]" = "$(inherited) $(PROJECT_DIR)/../../broadcast-ring/target/aarch64-apple-ios-sim/release";
+				OTHER_LDFLAGS = "$(inherited) -lk2_broadcast_ring";
+				PRODUCT_BUNDLE_IDENTIFIER = com.alakazamlabs.k2so.companion.Broadcast;
+				PRODUCT_NAME = K2Broadcast;
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]" = "K2 Companion Broadcast App Store";
+				"PROVISIONING_PROFILE_SPECIFIER[sdk=iphonesimulator*]" = "";
+				SDKROOT = iphoneos;
+				SKIP_INSTALL = YES;
+				SWIFT_OBJC_BRIDGING_HEADER = "K2Broadcast/K2Broadcast-Bridging-Header.h";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		1E0044271FF7BAD04EAFA80D /* Build configuration list for PBXNativeTarget "K2Broadcast" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				311FF024ED553AB68C6F1DA2 /* debug */,
+				E38114AE23E4223AD1ED8328 /* release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = debug;
+		};
 		2CE602DBD82E3E06F4CE4CAD /* Build configuration list for PBXProject "k2so-companion" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (

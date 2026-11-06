@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/mobile-schema.json",
   "identifier": "voice",
-  "description": "Voice rooms (4.2.0, iOS): Sew's native voice plugin's commands for the app's own window. call_details for Sew's call kit (security code, roster, quality, a ring for a window opened mid-call); not the full sew-voice:call-details set, whose ring and ring_ended would let the webview ring CallKit a second time (rings are native). The camera: its caps, cameras, on/off, front/back switch and permission, and the video sink for your own self-view (local:camera); not the full sew-voice:video set (no screen, screen_sources or preview on the phone yet)",
+  "description": "Voice rooms (4.2.0, iOS): Sew's native voice plugin's commands for the app's own window. call_details for Sew's call kit (security code, roster, quality, a ring for a window opened mid-call); not the full sew-voice:call-details set, whose ring and ring_ended would let the webview ring CallKit a second time (rings are native). The camera: its caps, cameras, on/off, front/back switch and permission, and the video sink for your own self-view (local:camera). The screen share's stop (screen {on: false}; iOS starts a share from its broadcast picker, never from the webview); not the full sew-voice:video set (no screen_sources or preview on the phone)",
   "windows": ["main"],
   "platforms": ["iOS"],
   "permissions": [
@@ -11,6 +11,7 @@
     "sew-voice:allow-video-devices",
     "sew-voice:allow-set-video-device",
     "sew-voice:allow-camera",
+    "sew-voice:allow-screen",
     "sew-voice:allow-camera-permission",
     "sew-voice:allow-request-camera-permission",
     "sew-voice:allow-video-sink",

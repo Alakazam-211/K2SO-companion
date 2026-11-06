@@ -2021,6 +2021,22 @@ fn voice_pip_speaker(_app: tauri::AppHandle) -> serde_json::Value {
     serde_json::Value::Null
 }
 
+/// The iPhone screen share now (`{armed, active}`: the broadcast extension's
+/// ring is ready; the screen is being shared), for a call screen opened
+/// after `k2-voice://screen`; both false off iOS.
+#[tauri::command]
+fn voice_screen(_app: tauri::AppHandle) -> serde_json::Value {
+    #[cfg(target_os = "ios")]
+    {
+        use tauri::Manager;
+        return voice::screen_view(&_app.state::<voice::Native>());
+    }
+    #[allow(unreachable_code)]
+    {
+        serde_json::json!({ "armed": false, "active": false })
+    }
+}
+
 /// "Join with camera": the voice plugin's join with the camera on, as a
 /// video call in CallKit. Rejects as the plugin's `join` does
 /// (`{code, detail}`); `video_unsupported` off iOS.
@@ -2133,7 +2149,8 @@ pub fn run() {
             voice_call_log,
             voice_note,
             voice_join_camera,
-            voice_pip_speaker
+            voice_pip_speaker,
+            voice_screen
         ])
         .build(tauri::generate_context!())
         .expect("error while building K2 Companion");

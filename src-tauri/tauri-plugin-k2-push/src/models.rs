@@ -290,6 +290,9 @@ pub struct ScanQrResponse {
 ///   false` puts it back; `corners: "top"` rounds only the top two (the
 ///   floating card's picture, its controls strip under it); `animate`
 ///   ([`PipAnimate`]) gets it there on its own (the floating tile's snap); `haptic {state?: "prepare"}` a light tap (or warms it up).
+///   Screen share (iPhone): `appGroup` → `{ok, path}` the App Group's
+///   container (the voice plugin's ring goes there); `broadcastPicker` →
+///   `{ok}` opens iOS's broadcast sheet with K2's extension (K2Broadcast).
 ///   Events come back as `call`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
