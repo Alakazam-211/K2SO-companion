@@ -409,7 +409,7 @@ function Card({ onOpen }: { onOpen: () => void }) {
     <div
       ref={ref}
       role="group"
-      className="fixed flex flex-col"
+      className="fixed flex flex-col zen-font"
       style={{
         ...anchorStyle(corner),
         width,
