@@ -3,7 +3,14 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { act, cleanup, createEvent, fireEvent, render, screen } from "@testing-library/react";
 import { useState } from "react";
 import { GlassComposer } from "./GlassComposer";
-import { ATTACH_MENU_ITEMS, ATTACH_MENU_RADIUS_PX, ATTACH_MENU_ROW_PX, type AttachMenuExtra } from "./AttachMenu";
+import {
+  ATTACH_MENU_ITEMS,
+  ATTACH_MENU_RADIUS_PX,
+  ATTACH_MENU_ROW_PX,
+  CAMERA_PHOTO_ONLY_LABEL,
+  type AttachMenuExtra,
+} from "./AttachMenu";
+import { useVoiceCall } from "./voice/voiceCall";
 import { BookmarkPlusIcon } from "./icons";
 import { backHandlerCount, handleAndroidBack } from "../lib/androidBack";
 import menuSrc from "./AttachMenu.tsx?raw";
@@ -206,6 +213,25 @@ describe("AttachMenu: choosing (web inputs)", () => {
     expect(clicked).toEqual(["composer-camera-input"]);
     expect(menu()).toBeNull();
     expect(picker.pick).not.toHaveBeenCalled();
+  });
+
+  it("during a voice call the camera takes photos only (video would take the call's microphone)", () => {
+    useVoiceCall.setState({ phase: "connected" });
+    try {
+      render(<Harness />);
+      const clicked = stubInputs();
+      expect(screen.getByTestId("composer-camera-input").getAttribute("accept")).toBe("image/*");
+      // The library still offers videos: picking one doesn't touch the mic.
+      expect(screen.getByTestId("composer-photo-input").getAttribute("accept")).toBe("image/*,video/*");
+      openMenu();
+      expect(screen.queryByRole("menuitem", { name: "Take Photo or Video" })).toBeNull();
+      fireEvent.click(screen.getByRole("menuitem", { name: CAMERA_PHOTO_ONLY_LABEL }));
+      expect(clicked).toEqual(["composer-camera-input"]);
+    } finally {
+      act(() => useVoiceCall.setState({ phase: "idle" }));
+    }
+    // The call ended: video again.
+    expect(screen.getByTestId("composer-camera-input").getAttribute("accept")).toBe("image/*,video/*");
   });
 
   it("without native pickers: Photo Library → image/video input, Choose Files → any-file input", () => {
