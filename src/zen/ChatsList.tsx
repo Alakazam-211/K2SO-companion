@@ -594,21 +594,10 @@ export function ChatsList() {
     ? projectBadgeCount(unreadServers[zen.id])
     : unreadGroupCount(zen.id || null, groupIds, lastAtByKey);
 
-  // The More menu's rows: the four buttons the header had, same order,
-  // same conditions, same actions. Old test ids stay on the rows.
+  // The More menu's rows: the header's Projects, Tickets and Settings, same
+  // order, conditions and actions (Rooms stays its own button: Rosson).
+  // Old test ids stay on the rows.
   const moreItems: HeaderMoreItem[] = [
-    ...(showVoice
-      ? [
-          {
-            key: "voice",
-            label: inCall ? "Rooms (in a call)" : "Rooms",
-            Icon: HeadsetIcon,
-            color: inCall ? IN_CALL_GREEN : undefined,
-            testId: "chats-header-voice",
-            onSelect: () => setVoiceOpen(true),
-          },
-        ]
-      : []),
     {
       key: "projects",
       label: "Projects",
@@ -1373,12 +1362,25 @@ export function ChatsList() {
           style={{ gap: 8, pointerEvents: "auto" }}
           data-testid="chats-header-right"
         >
+          {showVoice ? (
+            <button
+              type="button"
+              className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
+              style={{ width: 34, height: 34, color: inCall ? IN_CALL_GREEN : "#fff" }}
+              onClick={() => setVoiceOpen(true)}
+              aria-label={inCall ? "Rooms (in a call)" : "Rooms"}
+              title="Rooms"
+              data-testid="chats-header-voice"
+            >
+              <HeadsetIcon size={18} />
+            </button>
+          ) : null}
           <HeaderMoreButton
             open={moreMenu}
             onToggle={() => setMoreMenu((v) => !v)}
-            inCall={inCall}
+            inCall={false}
             badge={moreBadge(projectsUnread, badge)}
-            ariaLabel={moreAriaLabel({ inCall, projectsUnread, tickets: ticketCounts })}
+            ariaLabel={moreAriaLabel({ inCall: false, projectsUnread, tickets: ticketCounts })}
           />
         </span>
       </div>
