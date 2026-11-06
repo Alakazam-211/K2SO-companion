@@ -284,9 +284,11 @@ pub struct ScanQrResponse {
 ///   `autoSpeaker {on}` → `{ok, route}` (video's speaker; off undoes only its own);
 ///   `route` → `{route, active, autoSpeaker}`; `mic` → `{mic: granted|denied}`
 ///   (asks the first time); `pipLayer {on}` → `{ok}` puts PiP's display layer
-///   in the window (on) or takes it down (off) for the frames of [`crate::pip`].
+///   in the window (on) or takes it down (off) for the frames of [`crate::pip`];
+///   `pipFrame {x, y, w, h, visible, radius?}` (webview points) shows that layer
+///   over the call screen's video tile, `visible: false` puts it back.
 ///   Events come back as `call`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallOpRequest {
     pub op: String,
@@ -304,6 +306,18 @@ pub struct CallOpRequest {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub x: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub y: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub w: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub h: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub visible: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub radius: Option<f64>,
 }
 
 /// Login tokens in the Keychain (iOS): `set`, `remove`, or `sync` the set.

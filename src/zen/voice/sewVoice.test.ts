@@ -135,6 +135,17 @@ describe("Sew's native engine, from the webview", () => {
       consent: null,
     });
     expect(parseSnapshot(null, null).state).toBe("idle");
+    // `has_video` rides the state only while true.
+    expect(parseSnapshot({ state: "connected", participants: [], has_video: true }, null).video).toBe(true);
+  });
+
+  it("follows the call's video (k2-voice://video, Sew's video_changed)", async () => {
+    invoke.mockResolvedValue({ call_id: "c1" });
+    const video: boolean[] = [];
+    await sewVoiceEngine().join("s1", "room-1", { onState: () => {}, onVideo: (on) => void video.push(on) });
+    handlers.get("k2-voice://video")?.({ payload: true });
+    handlers.get("k2-voice://video")?.({ payload: false });
+    expect(video).toEqual([true, false]);
   });
 
   it("resync asks for the state and the notice together", async () => {

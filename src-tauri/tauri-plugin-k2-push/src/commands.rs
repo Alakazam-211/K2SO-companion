@@ -135,6 +135,12 @@ pub(crate) async fn call_op<R: Runtime>(
     reason: Option<String>,
     on: Option<bool>,
     title: Option<String>,
+    x: Option<f64>,
+    y: Option<f64>,
+    w: Option<f64>,
+    h: Option<f64>,
+    visible: Option<bool>,
+    radius: Option<f64>,
 ) -> Result<serde_json::Value> {
     app.k2_push().call_op(CallOpRequest {
         op,
@@ -145,6 +151,12 @@ pub(crate) async fn call_op<R: Runtime>(
         on,
         title,
         video: None,
+        x,
+        y,
+        w,
+        h,
+        visible,
+        radius,
     })
 }
 

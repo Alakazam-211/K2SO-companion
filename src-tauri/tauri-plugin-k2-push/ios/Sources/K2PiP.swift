@@ -3,14 +3,25 @@
 // 640×360)`, voice.rs `PipSink`) while the call has video; the debug
 // `pipTest` op feeds it too.
 //
-// Placement: the display layer lives in a small view (64×36 pt) inserted at
-// the BOTTOM of the app's key window, under the root view controller's view.
-// PiP needs the layer in a window and not hidden (isHidden, alpha 0 or no
-// window make `isPictureInPicturePossible` false, and the automatic start
-// needs it "visible"), but the user should never see it inline: the webview
-// covers it. Small keeps the hidden compositing cheap. When the app grows an
-// in-call video view, move this view there instead: PiP's start and restore
-// animations run from the layer's frame.
+// Placement: one layer for the call screen and for PiP, never recreated.
+// - Hidden spot (default): a small view (64×36 pt) at the BOTTOM of the
+//   webview's window, under the root view controller's view. PiP needs the
+//   layer in a window and not hidden (isHidden, alpha 0 or no window make
+//   `isPictureInPicturePossible` false, and the automatic start needs it
+//   "visible"); the webview covers it. Small keeps the compositing cheap.
+// - The call screen's tile: `callOp pipFrame {x, y, w, h, visible, radius?}`
+//   moves the same view ABOVE the webview at the page's placeholder (points,
+//   in the webview's coordinates) with rounded corners; `visible: false`
+//   sends it back to the hidden spot. Only its place among the window's
+//   subviews changes, so it never leaves the window. PiP's start and restore
+//   animations run from wherever it is.
+// - Touches: `isUserInteractionEnabled = false`, so every touch goes through
+//   to the webview under it (the page's tile takes the tap that starts PiP).
+// - Aspect fit (`resizeAspect`), not fill: a shared screen or a portrait
+//   camera keeps its edges, and PiP keeps the gravity it always had. The
+//   view is clear: before the first frame and in the bars the page's tile
+//   shows through (`pip_first_frame` / `pip_cleared` tell it which).
+// - A device without PiP (the simulator) still gets the layer, for the tile.
 //
 // The Rust seam:
 // - Frames don't go through `run_mobile_plugin` (JSON on the main run loop:
@@ -36,7 +47,9 @@
 //   the app leaves the screen) and takes it down when it closes; `callOp
 //   pip {on}` starts or stops PiP itself. Events go to the UI as `pip` and
 //   to Rust: `pip_keyframe` → the sink's keyframe request (after a flush or
-//   a start mid-GOP), `pip_render_size` → its `set_max_size`.
+//   a start mid-GOP), `pip_render_size` → its `set_max_size`. The page's
+//   tile reads `pip_first_frame` (the first frame since a flush),
+//   `pip_cleared` (the image went) and `pip_started`/`pip_stopped`.
 // - Teardown: Rust closes the sink first, then `pipLayer off`, so no frame
 //   races it (a late frame finds no layer and is dropped). `callOp end` and
 //   `report ended` tear down too.
@@ -98,10 +111,19 @@ final class K2PiP: NSObject {
   /// `{"event": "pip_…"}` for the UI. Set once by the plugin.
   var onEvent: (([String: Any]) -> Void)?
 
+  /// The app's webview: tile rects are in its points. Set by the plugin.
+  weak var webView: UIView?
+
   // Main thread.
   private var view: K2PiPView?
   private var controller: AVPictureInPictureController?
   private var possible: NSKeyValueObservation?
+  /// The page's tile (`pipFrame`), nil while it isn't on screen. Kept across
+  /// teardown: the next layer goes straight there.
+  private var tile: (rect: CGRect, radius: CGFloat)?
+  /// The layer shows a frame (`pip_first_frame` since the last clear).
+  private var hasFrame = false
+  private static let hiddenFrame = CGRect(x: 0, y: 0, width: 64, height: 36)
 
   // `queue`: every frame goes through it.
   private let queue = DispatchQueue(label: "k2.pip")
@@ -109,49 +131,84 @@ final class K2PiP: NSObject {
   private let packer = K2H264Packer()
   private let pool = K2NV12Pool()
   private var lastKeyframeAsk: CFAbsoluteTime = 0
+  /// No frame enqueued since the layer came or was last flushed.
+  private var awaitingFrame = true
 
   // ── Window and controller (main) ───────────────────────────────────
 
-  /// The layer in the window and a controller on it. False when the device
-  /// has no PiP or there is no window yet.
+  /// The layer in the window and, where the device has PiP, a controller on
+  /// it (the call screen's tile shows video either way). False when there is
+  /// no window yet.
   @discardableResult
   func prepare() -> Bool {
     dispatchPrecondition(condition: .onQueue(.main))
-    if controller != nil { return true }
-    guard AVPictureInPictureController.isPictureInPictureSupported() else {
-      pipLog("not supported on this device")
-      return false
-    }
+    if view != nil { return true }
     let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
     let windows = scenes.flatMap { $0.windows }
-    guard let window = windows.first(where: { $0.isKeyWindow }) ?? windows.first else {
+    guard let window = webView?.window ?? windows.first(where: { $0.isKeyWindow }) ?? windows.first else {
       pipLog("no window")
       return false
     }
-    let v = K2PiPView(frame: CGRect(x: 0, y: 0, width: 64, height: 36))
+    let v = K2PiPView(frame: Self.hiddenFrame)
     v.isUserInteractionEnabled = false
-    v.backgroundColor = .black
+    v.backgroundColor = .clear
+    v.layer.masksToBounds = true
     v.displayLayer.videoGravity = .resizeAspect
     window.insertSubview(v, at: 0)
-
-    let source = AVPictureInPictureController.ContentSource(
-      sampleBufferDisplayLayer: v.displayLayer, playbackDelegate: self)
-    let c = AVPictureInPictureController(contentSource: source)
-    c.delegate = self
-    c.canStartPictureInPictureAutomaticallyFromInline = true
-    // Live: no skip buttons, no scrubbing.
-    c.requiresLinearPlayback = true
-    possible = c.observe(\.isPictureInPicturePossible, options: [.new]) { [weak self] c, _ in
-      self?.emit(["event": "pip_possible", "possible": c.isPictureInPicturePossible])
-    }
     view = v
-    controller = c
+    place()
+
+    if AVPictureInPictureController.isPictureInPictureSupported() {
+      let source = AVPictureInPictureController.ContentSource(
+        sampleBufferDisplayLayer: v.displayLayer, playbackDelegate: self)
+      let c = AVPictureInPictureController(contentSource: source)
+      c.delegate = self
+      c.canStartPictureInPictureAutomaticallyFromInline = true
+      // Live: no skip buttons, no scrubbing.
+      c.requiresLinearPlayback = true
+      possible = c.observe(\.isPictureInPicturePossible, options: [.new]) { [weak self] c, _ in
+        self?.emit(["event": "pip_possible", "possible": c.isPictureInPicturePossible])
+      }
+      controller = c
+    } else {
+      pipLog("no PiP on this device: the tile only")
+    }
     let layer = v.displayLayer
     queue.async {
       self.layer = layer
       self.packer.reset()
+      self.awaitingFrame = true
     }
     return true
+  }
+
+  /// `pipFrame`: the page's tile at `rect` (webview points), or nil when it
+  /// isn't on screen. Before the layer exists, kept for it.
+  func setTile(_ rect: CGRect?, radius: CGFloat) -> [String: Any] {
+    dispatchPrecondition(condition: .onQueue(.main))
+    let was = tile != nil
+    tile = rect.map { ($0, max(0, radius)) }
+    place()
+    if was != (tile != nil) {
+      pipLog("tile \(tile != nil ? "on" : "off"), possible=\(controller?.isPictureInPicturePossible ?? false)")
+    }
+    return state()
+  }
+
+  /// The view over the webview at the tile, or back in the hidden spot.
+  /// Same superview either way: only the order changes, so PiP never sees
+  /// the layer leave its window.
+  private func place() {
+    guard let v = view, let window = v.superview else { return }
+    if let t = tile, let web = webView, web.window === window, t.rect.width > 0, t.rect.height > 0 {
+      v.frame = web.convert(t.rect, to: window)
+      v.layer.cornerRadius = t.radius
+      window.bringSubviewToFront(v)
+    } else {
+      v.frame = Self.hiddenFrame
+      v.layer.cornerRadius = 0
+      window.sendSubviewToBack(v)
+    }
   }
 
   /// `pip {on?}`: start or stop it now; no `on` just answers the state.
@@ -177,6 +234,8 @@ final class K2PiP: NSObject {
       "prepared": controller != nil,
       "possible": controller?.isPictureInPicturePossible ?? false,
       "active": controller?.isPictureInPictureActive ?? false,
+      "tile": tile != nil,
+      "frame": hasFrame,
     ]
   }
 
@@ -196,7 +255,7 @@ final class K2PiP: NSObject {
     view?.removeFromSuperview()
     view = nil
     queue.async {
-      if let layer = self.layer { Self.flush(layer, removeImage: true) }
+      if let layer = self.layer { self.flush(layer, removeImage: true) }
       self.layer = nil
       self.packer.reset()
     }
@@ -226,7 +285,7 @@ final class K2PiP: NSObject {
   func flush(removeImage: Bool) {
     queue.sync {
       guard let layer = layer else { return }
-      Self.flush(layer, removeImage: removeImage)
+      flush(layer, removeImage: removeImage)
       packer.requireKeyframe()
     }
   }
@@ -240,6 +299,7 @@ final class K2PiP: NSObject {
       switch try packer.pack(annexB: bytes, pts: pts) {
       case .sample(let sample, _):
         Self.enqueue(sample, on: layer)
+        shown()
       case .dropped(.waitingForKeyframe), .dropped(.noParameterSets):
         askKeyframe()
       case .dropped(.empty):
@@ -268,6 +328,7 @@ final class K2PiP: NSObject {
     guard Self.ready(layer) else { return }
     do {
       Self.enqueue(try K2VideoFrames.sampleBuffer(pixelBuffer: pixelBuffer, pts: pts), on: layer)
+      shown()
     } catch {
       pipLog("frame: \(error)")
     }
@@ -279,9 +340,28 @@ final class K2PiP: NSObject {
     let failed = Self.status(layer) == .failed
     guard failed || Self.needsFlush(layer) else { return }
     pipLog(failed ? "layer failed (\(Self.error(layer).map { "\($0)" } ?? "?")): flush" : "flush to resume")
-    Self.flush(layer, removeImage: false)
+    flush(layer, removeImage: false)
     packer.requireKeyframe()
     askKeyframe()
+  }
+
+  /// A flush on the queue. The next frame is a first frame again; without
+  /// its image the layer is clear and the page's tile shows through.
+  private func flush(_ layer: AVSampleBufferDisplayLayer, removeImage: Bool) {
+    Self.flush(layer, removeImage: removeImage)
+    awaitingFrame = true
+    if removeImage {
+      DispatchQueue.main.async { self.hasFrame = false }
+      emit(["event": "pip_cleared"])
+    }
+  }
+
+  /// A frame went to the layer: the first since the last flush tells the page.
+  private func shown() {
+    guard awaitingFrame else { return }
+    awaitingFrame = false
+    DispatchQueue.main.async { self.hasFrame = true }
+    emit(["event": "pip_first_frame"])
   }
 
   /// At most one keyframe request a second.
@@ -470,7 +550,8 @@ extension K2PiP: AVPictureInPictureControllerDelegate {
     emit(["event": "pip_failed", "error": "\(error.localizedDescription)"])
   }
 
-  /// Back to the app: there's no inline view to restore into yet.
+  /// Back to the app: PiP shrinks back into the layer, the call screen's
+  /// tile when it's on screen.
   func pictureInPictureController(
     _ controller: AVPictureInPictureController,
     restoreUserInterfaceForPictureInPictureStopWithCompletionHandler completionHandler: @escaping (Bool) -> Void

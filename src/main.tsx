@@ -10,6 +10,7 @@ import { initLightBlur } from "./lib/lightBlur";
 import { phoneVoiceEngine } from "./zen/voice/sewVoice";
 import { setPhoneVoiceEngine } from "./zen/voice/voiceCall";
 import { resyncVoiceCall } from "./zen/voice/VoiceRooms";
+import { HIDDEN, placeTile } from "./zen/voice/videoTile";
 import { onForegroundLater } from "./lib/foreground";
 
 // Android's WebView reports env(safe-area-inset-bottom) as 0 while the
@@ -58,6 +59,9 @@ if (voiceEngine) {
   // Not staggered: the call bar is what the person looks at first.
   void resyncVoiceCall();
   onForegroundLater("voice-call", () => void resyncVoiceCall(), 0);
+  // After a reload mid-call the video layer may still sit over a tile this
+  // page no longer has: back under the webview until one shows.
+  placeTile(HIDDEN);
 }
 
 createRoot(document.getElementById("root")!).render(

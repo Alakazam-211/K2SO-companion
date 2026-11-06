@@ -99,6 +99,7 @@ class K2PushPlugin: Plugin {
 
   @objc public override func load(webview: WKWebView) {
     tapDelegate.plugin = self
+    if #available(iOS 15.0, *) { K2PiP.shared.webView = webview }
     // The call shim's events: to Rust (`voiceWatch`'s channel), which acts
     // on them through the voice engine, and to the UI as `call`.
     if #available(iOS 14.0, *) {
@@ -415,6 +416,15 @@ class K2PushPlugin: Plugin {
           invoke.resolve(["ok": true])
         }
       }
+    case "pipFrame":
+      // The call screen's video tile: `{x, y, w, h, visible, radius?}` in the
+      // webview's points puts K2PiP's layer over it; `visible: false` puts
+      // it back under the webview (PiP still works from there).
+      guard #available(iOS 15.0, *) else { return invoke.resolve(["ok": false, "error": "ios_too_old"]) }
+      let rect: CGRect? =
+        args.visible == true
+        ? CGRect(x: args.x ?? 0, y: args.y ?? 0, width: args.w ?? 0, height: args.h ?? 0) : nil
+      DispatchQueue.main.async { invoke.resolve(K2PiP.shared.setTile(rect, radius: CGFloat(args.radius ?? 0))) }
     #if DEBUG
     case "pipTest":
       // Debug builds only: `{on, state?: "h264"}` plays K2PiP's test pattern.
@@ -1037,6 +1047,13 @@ private struct CallOpArgs: Decodable {
   let on: Bool?
   let title: String?
   let video: Bool?
+  // `pipFrame`
+  let x: Double?
+  let y: Double?
+  let w: Double?
+  let h: Double?
+  let visible: Bool?
+  let radius: Double?
 }
 
 private struct VoiceWatchArgs: Decodable {

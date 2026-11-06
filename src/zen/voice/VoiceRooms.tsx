@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { scopeFor } from "../../api/scope";
 import { useBackHandler } from "../../lib/androidBack";
 import { isIosWebView } from "../../lib/nativePicker";
@@ -9,6 +9,7 @@ import { subscribeAppEvents } from "../ticketEvents";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "../ZenHeaderBlur";
 import { FEATURE_VOICE_ROOMS, fetchVoiceRooms, isVoiceRoomsChanged, type VoiceRoomsResult } from "./voiceApi";
 import { shareCallLog } from "./sewVoice";
+import { followPip, togglePip, usePipStatus, useVideoTile } from "./videoTile";
 import { useVoiceCall } from "./voiceCall";
 import { hostingStateText, meOffer, roomIsFull, type VoiceRoom, type VoiceRoomsList } from "./voiceWire";
 
@@ -21,6 +22,9 @@ import { hostingStateText, meOffer, roomIsFull, type VoiceRoom, type VoiceRoomsL
 
 const VOICE_HEADER_PX = 64;
 const POLL_MS = 30_000;
+/** The call bar's height without video, and the air above it. */
+const CALL_BAR_PX = 60;
+const CALL_BAR_AIR = 36;
 
 /** Signed-in servers that host rooms, this one first, then A to Z. */
 export function voiceServers(
@@ -209,7 +213,11 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
   const activeId = useServersStore((s) => s.activeServerId);
   const notice = useVoiceCall((s) => s.notice);
   const clearNotice = useVoiceCall((s) => s.clearNotice);
+  const inCall = useVoiceCall((s) => s.phase !== "idle");
   const [headerRef, headerPx] = useMeasuredHeight(VOICE_HEADER_PX);
+  // The rooms scroll clear of the call bar, taller with video.
+  const [barRef, barPx] = useMeasuredHeight(CALL_BAR_PX);
+  const barSpace = (inCall ? Math.max(barPx, CALL_BAR_PX) : CALL_BAR_PX) + CALL_BAR_AIR;
   useBackHandler(true, onClose);
   const list = useMemo(() => voiceServers(servers, tokens, activeId), [servers, tokens, activeId]);
 
@@ -249,7 +257,7 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
           paddingTop: underHeaderPadding(headerPx),
           paddingLeft: 12,
           paddingRight: 12,
-          paddingBottom: "calc(96px + var(--safe-bottom))",
+          paddingBottom: `calc(${barSpace}px + var(--safe-bottom))`,
           WebkitOverflowScrolling: "touch",
         }}
       >
@@ -274,7 +282,7 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
         <SendCallLog />
       </div>
       <ConsentSheet />
-      <CallBar />
+      <CallBar measureRef={barRef} />
     </div>
   );
 }
@@ -366,8 +374,52 @@ export function ConsentSheet() {
   );
 }
 
-/** The current call, docked at the bottom: the room, Mute and Leave. */
-export function CallBar() {
+const TILE_RADIUS = 12;
+const TILE_BORDER = 1;
+
+/** The call's video, over the call bar: a placeholder Swift's video layer
+ *  covers (videoTile.ts). The layer lets touches through: a tap here starts
+ *  Picture in Picture, or brings it back. */
+function VideoTile({ covered }: { covered: boolean }) {
+  const ref = useRef<HTMLButtonElement>(null);
+  const frame = usePipStatus((s) => s.frame);
+  const pip = usePipStatus((s) => s.active);
+  useEffect(() => followPip(), []);
+  useVideoTile(ref, !covered, TILE_RADIUS, TILE_BORDER);
+  const line = pip ? "Playing in Picture in Picture" : frame ? null : "Video starting…";
+  return (
+    <button
+      ref={ref}
+      type="button"
+      className="relative block overflow-hidden"
+      style={{
+        width: "min(100%, calc(40vh * 16 / 9))",
+        aspectRatio: "16 / 9",
+        margin: "0 auto 10px",
+        borderRadius: TILE_RADIUS,
+        border: `${TILE_BORDER}px solid var(--tile-edge)`,
+        background: "#000",
+      }}
+      onClick={togglePip}
+      aria-label={pip ? "Video in Picture in Picture. Tap to bring it back." : "Video. Tap for Picture in Picture."}
+      data-testid="voice-video-tile"
+    >
+      {line ? (
+        <span
+          className="absolute inset-0 flex items-center justify-center text-[13px]"
+          style={{ color: "#8e8e93" }}
+          data-testid="voice-video-line"
+        >
+          {line}
+        </span>
+      ) : null}
+    </button>
+  );
+}
+
+/** The current call, docked at the bottom: its video while it has any, the
+ *  room, Mute and Leave. */
+export function CallBar({ measureRef }: { measureRef?: (el: HTMLElement | null) => void }) {
   const call = useVoiceCall();
   if (call.phase === "idle" || !call.room) return null;
   const status =
@@ -380,44 +432,51 @@ export function CallBar() {
         : "Connected";
   return (
     <div
-      className="absolute left-0 right-0 flex items-center k2-tile"
+      ref={measureRef}
+      className="absolute left-0 right-0 k2-tile"
       style={{
         bottom: "calc(12px + var(--safe-bottom))",
         margin: "0 12px",
         padding: "10px 12px",
-        gap: 10,
         borderRadius: 16,
         zIndex: 4,
       }}
       data-testid="voice-call-bar"
     >
-      <div className="min-w-0 flex-1">
-        <div className="text-[15px] truncate" style={{ color: "#fff" }}>
-          {call.room.roomName}
+      {/* The recording sheet sits over the tile: the layer steps under the page. */}
+      {call.video ? <VideoTile covered={!!call.consent} /> : null}
+      <div className="flex items-center" style={{ gap: 10 }}>
+        <div className="min-w-0 flex-1">
+          <div className="text-[15px] truncate" style={{ color: "#fff" }}>
+            {call.room.roomName}
+          </div>
+          <div
+            className="text-[12px] truncate"
+            style={{ color: call.phase === "reconnecting" ? "#ffd60a" : "#30d158" }}
+          >
+            {status} · {call.room.serverLabel}
+          </div>
         </div>
-        <div className="text-[12px] truncate" style={{ color: call.phase === "reconnecting" ? "#ffd60a" : "#30d158" }}>
-          {status} · {call.room.serverLabel}
-        </div>
+        <button
+          type="button"
+          className="zen-glass zen-glass-pill text-[14px]"
+          style={{ minHeight: 34, padding: "0 14px", color: "#fff" }}
+          aria-pressed={call.muted}
+          onClick={() => call.setMuted(!call.muted)}
+          data-testid="voice-mute"
+        >
+          {call.muted ? "Unmute" : "Mute"}
+        </button>
+        <button
+          type="button"
+          className="text-[14px]"
+          style={{ minHeight: 34, padding: "0 14px", color: "#fff", background: "#ff453a", borderRadius: 17 }}
+          onClick={() => void call.leave()}
+          data-testid="voice-leave"
+        >
+          Leave
+        </button>
       </div>
-      <button
-        type="button"
-        className="zen-glass zen-glass-pill text-[14px]"
-        style={{ minHeight: 34, padding: "0 14px", color: "#fff" }}
-        aria-pressed={call.muted}
-        onClick={() => call.setMuted(!call.muted)}
-        data-testid="voice-mute"
-      >
-        {call.muted ? "Unmute" : "Mute"}
-      </button>
-      <button
-        type="button"
-        className="text-[14px]"
-        style={{ minHeight: 34, padding: "0 14px", color: "#fff", background: "#ff453a", borderRadius: 17 }}
-        onClick={() => void call.leave()}
-        data-testid="voice-leave"
-      >
-        Leave
-      </button>
     </div>
   );
 }

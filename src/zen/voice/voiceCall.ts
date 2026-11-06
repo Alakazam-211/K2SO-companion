@@ -45,6 +45,8 @@ export type EngineEvents = {
   onConsent?(sheet: ConsentSheet | null): void;
   /** Your own mute, from any source (the system's button, a moderator). */
   onSelfMute?(muted: boolean): void;
+  /** The call has video (a camera or a shared screen), or no longer. */
+  onVideo?(on: boolean): void;
 };
 
 export interface PhoneVoiceEngine {
@@ -73,6 +75,8 @@ export type EngineNow = {
   roomId?: string;
   muted: boolean;
   consent: ConsentSheet | null;
+  /** The call has video. */
+  video?: boolean;
 };
 
 /** This build: no call audio yet. Join explains, nothing else happens. */
@@ -96,6 +100,8 @@ type CallState = {
   phase: CallPhase;
   room: CallRoom | null;
   muted: boolean;
+  /** The call has video: the call screen shows its tile. */
+  video: boolean;
   /** The last line worth showing: why a join failed or a call ended. */
   notice: string | null;
   /** A recording notice waiting for this person's answer. */
@@ -137,6 +143,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
       phase: "idle",
       room: null,
       muted: false,
+      video: false,
       consent: null,
       notice: room && reason && reason !== "left" ? callEndedText(reason, room.roomName, room.serverLabel, true) : null,
     });
@@ -180,6 +187,9 @@ export const useVoiceCall = create<CallState>((set, get) => {
       onSelfMute(muted) {
         if (id === attempt && get().phase !== "idle") set({ muted });
       },
+      onVideo(on) {
+        if (id === attempt && get().phase !== "idle") set({ video: on });
+      },
     };
   }
 
@@ -187,13 +197,14 @@ export const useVoiceCall = create<CallState>((set, get) => {
     phase: "idle",
     room: null,
     muted: false,
+    video: false,
     notice: null,
     consent: null,
 
     async join(room) {
       if (get().phase !== "idle") await get().leave();
       const id = ++attempt;
-      set({ phase: "joining", room, muted: false, notice: null });
+      set({ phase: "joining", room, muted: false, video: false, notice: null });
       if (!engine.available) {
         set({
           phase: "idle",
@@ -301,6 +312,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
         room,
         phase: now.state === "connected" ? "connected" : now.state === "reconnecting" ? "reconnecting" : "joining",
         muted: now.muted,
+        video: now.video === true,
         consent: now.consent,
       });
     },
@@ -323,5 +335,5 @@ export function __resetVoiceCallForTests(): void {
   shim = callShim();
   unlisten = null;
   attempt = 0;
-  useVoiceCall.setState({ phase: "idle", room: null, muted: false, notice: null, consent: null });
+  useVoiceCall.setState({ phase: "idle", room: null, muted: false, video: false, notice: null, consent: null });
 }
