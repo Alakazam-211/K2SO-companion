@@ -33,8 +33,10 @@ import { kitChannelId, kitRoomOf, kitSelfId, note, sewKit } from "./sewKit";
 //     shows gets a video tile: `renderTile` draws the phone's LayerSlot in
 //     its rect, `onTileRect` puts the layer there (videoLayer.tsx);
 //   - the kit's CallBar, docked: E2EE status, quality, the security code,
-//     Mute, Deafen, the camera (with its switch while on) and Leave; the
-//     call's time beside the room's name is ours (BarTime);
+//     Mute, Deafen, the camera (with its switch while on), Share screen
+//     (iOS's broadcast picker; layerVideo.ts) and Leave; the call's time
+//     beside the room's name is ours (BarTime). The switch and Share screen
+//     are here only, never on the floating call tile;
 //   - your own tile, while your camera is on: `SelfView` in its rect (the
 //     kit's `local:camera` sink, mirrored for the front camera, "Camera
 //     paused" in the background). Never the native layer, never PiP.
@@ -45,10 +47,10 @@ import { kitChannelId, kitRoomOf, kitSelfId, note, sewKit } from "./sewKit";
 //
 // Hidden until K2 passes Sew's API through and a gateway feeds the store:
 // RecordingBadge/RecordingControls (need the store), VoiceChannelMembers
-// (not placed). The screen button stays hidden: no phone screen share yet
-// (layerVideo.ts). The bar's device check opens the webview's own mic
-// prompt, so its button is hidden and never answers here (sewKit.css,
-// `guard`).
+// (not placed). The screen button shows once the broadcast extension's ring
+// is armed for the call (layerVideo.ts). The bar's device check opens the
+// webview's own mic prompt, so its button is hidden and never answers here
+// (sewKit.css, `guard`).
 
 const FALLBACK_NAME = "Someone";
 

@@ -20,7 +20,20 @@ import { useVoiceCall } from "../voiceCall";
 //     follows `local_video` (on, paused in the background, off after 5 min)
 //     and gives your tile its self-view: a webview sink on `local:camera`.
 //     Only `local:camera` ever opens through it: never a remote track, never
-//     the screen (no phone screen share yet).
+//     `local:screen` (your shared screen isn't drawn back on your tile).
+//   - Your screen: iOS shares it only from a broadcast upload extension
+//     (K2Broadcast), which the person starts in iOS's broadcast picker.
+//     The kit's screen button shows once Rust armed the extension's ring
+//     for this call (`k2-voice://screen` `armed`, read back with
+//     `voice_screen` for a call screen opened late): `setScreen(true)` opens
+//     the picker (`callOp broadcastPicker`) and answers `picker_cancelled`,
+//     so the button stays off without a sentence until the share really
+//     starts. It starts and stops outside the app: the plugin's
+//     `local_video` (sent with `screen_share_changed`, which Rust passes on
+//     as `active`) turns the kit's button on and off. Stop is the button
+//     again: `setScreen(false)`, the plugin's `screen {on: false}`, which
+//     asks the extension to finish. The kit shows it only while the room's
+//     policy allows video (and the screen), enabled only while connected.
 //   - Everyone else: no webview sinks. The phone has one picture of them,
 //     K2PiP's native layer, fed by Rust's active-speaker sink (src-tauri/
 //     src/voice.rs, PipSink), which never shows you. This tells the kit
@@ -49,6 +62,21 @@ export const LAYER_HANDLE: VideoHandle = { key: "k2-layer", attach() {}, detach(
 
 /** How long a person's tile says "Video starting…" before the first frame. */
 export const STARTING_MS = 3000;
+
+/** The iPhone's screen share (Rust's `k2-voice://screen`): the extension's
+ *  ring is ready (`armed`), and the screen is being shared (`active`). */
+export type ScreenShare = { armed: boolean; active: boolean };
+
+const NO_SHARE: ScreenShare = { armed: false, active: false };
+
+/** The kit's screen caps on the phone: no list, only iOS's picker. */
+export const PHONE_SCREEN_CAPS = { supported: true, system_picker: true, list: false, windows: false };
+
+export function screenShareOf(payload: unknown): ScreenShare {
+  if (!payload || typeof payload !== "object") return NO_SHARE;
+  const p = payload as { armed?: unknown; active?: unknown };
+  return { armed: p.armed === true, active: p.active === true };
+}
 
 const NONE = { camera: null, screen: null };
 
@@ -126,6 +154,7 @@ export class LayerVideo implements NativeVideo {
   private waitTimer: ReturnType<typeof setTimeout> | null = null;
   /** The camera last asked for by id (the plugin's list may not say yet). */
   private chosen: string | null = null;
+  private share: ScreenShare = NO_SHARE;
   private readonly listeners = new Set<() => void>();
   private unlisten: (() => void)[] = [];
   private closed = false;
@@ -177,6 +206,10 @@ export class LayerVideo implements NativeVideo {
         this.speaker = speakerOf(p);
         this.changed();
       }),
+      on("k2-voice://screen", (p) => {
+        this.share = screenShareOf(p);
+        this.changed();
+      }),
       this.camera.start(),
     ]);
     if (this.closed) return;
@@ -193,6 +226,13 @@ export class LayerVideo implements NativeVideo {
       if (!this.speaker && this.video) this.speaker = speakerOf(who);
     } catch {
       // an older shell
+    }
+    // The screen share's state, for a call screen opened after the event.
+    try {
+      const now = screenShareOf(await this.bridge.invoke<unknown>("voice_screen"));
+      if (!this.share.armed && !this.share.active) this.share = now;
+    } catch {
+      // an older shell: no screen share
     }
     this.changed();
   }
@@ -267,10 +307,24 @@ export class LayerVideo implements NativeVideo {
     };
   }
 
-  /** The plugin's caps with the screen off: the camera button only. */
+  /** The plugin's caps, with the screen as the phone has it: iOS's picker
+   *  once the extension's ring is armed (the plugin's own screen capture
+   *  says unsupported on iOS: the extension captures, not the engine). */
   info(): NativeVideoInfo {
     const i = this.camera.info();
-    return { ...i, caps: i.caps ? { ...i.caps, screen: NO_VIDEO_CAPS.screen } : null };
+    const armed = this.share.armed;
+    const devices =
+      i.devices && armed ? { ...i.devices, permission: { ...i.devices.permission, screen: "granted" as const } } : i.devices;
+    return {
+      ...i,
+      devices,
+      caps: i.caps ? { ...i.caps, screen: armed ? PHONE_SCREEN_CAPS : NO_VIDEO_CAPS.screen } : null,
+    };
+  }
+
+  /** The screen share as Rust has it (`k2-voice://screen`). */
+  screenShare(): ScreenShare {
+    return this.share;
   }
 
   /** Your camera: on, paused (in the background) or off. */
@@ -294,8 +348,22 @@ export class LayerVideo implements NativeVideo {
     await this.camera.setCamera(on, deviceId);
   }
 
-  setScreen(): Promise<void> {
-    return Promise.reject({ code: "video_unsupported", detail: "no screen sharing from the phone yet" });
+  /** On: iOS's broadcast picker, then `picker_cancelled` (the kit's button
+   *  stays off, without a sentence, until `local_video` says the share
+   *  started: the person may still cancel iOS's sheet). Off: the plugin's
+   *  `screen {on: false}`, which asks the extension to finish. */
+  async setScreen(on: boolean): Promise<void> {
+    if (!on) {
+      await this.camera.setScreen(false);
+      return;
+    }
+    if (!this.share.armed) throw { code: "screen_unsupported", detail: "the screen ring isn't armed" };
+    if (this.share.active) return;
+    const r = await this.bridge
+      .invoke<{ ok?: unknown } | null>("plugin:k2-push|call_op", { op: "broadcastPicker" })
+      .catch(() => null);
+    if (r?.ok !== true) throw { code: "screen_unsupported", detail: "iOS's broadcast picker didn't open" };
+    throw { code: "picker_cancelled", detail: "the share starts in iOS's broadcast sheet" };
   }
 
   async setCameraDevice(id: string | null): Promise<void> {
