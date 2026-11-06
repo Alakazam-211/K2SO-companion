@@ -1,13 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ServerScope } from "../../api/scope";
 import { onForegroundLater } from "../../lib/foreground";
-import { subscribeAppEvents } from "../ticketEvents";
+import { appEventsOpen, subscribeAppEvents } from "../ticketEvents";
 import { buildFrameDoc } from "./frameDoc";
-import { createFrameHost, type FrameHost, type StopReason, type VerbAnswer } from "./frameHost";
+import { createFrameHost, type FrameHost, type StopReason, type VerbAnswer, type VerbError } from "./frameHost";
 import {
   callGardenVerb,
   fetchGardenFrame,
   fetchGardenSourceChanges,
+  isGardenDataChanged,
   isSourcesChanged,
   refusalEndsGardens,
   reportGardenFrame,
@@ -16,6 +17,7 @@ import {
 } from "./gardensApi";
 import { answerHostVerb, themeOf, layoutOf, type HostContext, type SwitchLimit } from "./hostVerbs";
 import { createSourcesFeed, type SourcesFeed } from "./sourcesFeed";
+import { createStoreFeed, gardenDataSpace, type StoreFeed } from "./storeFeed";
 
 const REPORTED_REFUSALS = new Set(["not_bound", "cap_not_granted", "rate_limited"]);
 
@@ -75,6 +77,7 @@ export function GardenFrame({
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
   const hostRef = useRef<FrameHost | null>(null);
   const sourcesRef = useRef<SourcesFeed | null>(null);
+  const storeRef = useRef<StoreFeed | null>(null);
   const contextRef = useRef(context);
   contextRef.current = context;
   const callbacks = useRef({ onSize, onEnded, onStaleWidget });
@@ -113,6 +116,7 @@ export function GardenFrame({
   useEffect(() => {
     hostRef.current?.setVisible(visible);
     sourcesRef.current?.setVisible(visible);
+    storeRef.current?.setVisible(visible);
   }, [visible]);
 
   useEffect(() => {
@@ -137,7 +141,7 @@ export function GardenFrame({
       const port = channel.port1;
       const limit: SwitchLimit = { loadedAt: Date.now(), lastAt: null };
       const identity = { garden: frame.garden, placement: frame.placement, hash: frame.hash };
-      const refused = ({ code, hint, cap, room, feature }: GardenRefusal): VerbAnswer => {
+      const refused = ({ code, hint, cap, room, feature }: GardenRefusal): { ok: false; error: VerbError } => {
         if (refusalEndsGardens(code)) callbacks.current.onEnded(code, hint);
         if (code === "stale_widget") setGeneration((n) => n + 1);
         return { ok: false, error: { code, message: hint, cap, room, feature } };
@@ -163,6 +167,30 @@ export function GardenFrame({
         visible: visibleRef.current,
       });
       sourcesRef.current = sources;
+      const store = createStoreFeed({
+        // The same door call a widget's own `store.changes` makes: same
+        // placement, hash and args, so the same data scope.
+        call: async (verb, args) => {
+          const r = await callGardenVerb(scope, { ...identity, verb, args });
+          if (r.ok) return { ok: true, value: r.data.result };
+          const { reapedRev, retryAfterSecs } = r.refusal;
+          return { ...refused(r.refusal), reapedRev, retryAfterSecs };
+        },
+        space: gardenDataSpace(frame.widget ?? ""),
+        watch: (onData, onAll) => {
+          const events = subscribeAppEvents(scope, isGardenDataChanged, onAll, (f) => {
+            if (isGardenDataChanged(f)) onData(f.space, f.rev);
+          });
+          const off = onForegroundLater(`garden-store-${frame.garden}-${frame.placement}`, onAll);
+          return () => {
+            events.stop();
+            off();
+          };
+        },
+        live: () => appEventsOpen(scope.id),
+        visible: visibleRef.current,
+      });
+      storeRef.current = store;
       const host = createFrameHost({
         post: (message, transfer) => port.postMessage(message, transfer ?? []),
         forward,
@@ -173,6 +201,7 @@ export function GardenFrame({
             if (typeof args[0] !== "string") return { code: "bad_args" };
             return sources.subscribe(args[0], push, fail);
           }
+          if (verb === "store.changes") return store.subscribe(args[0], push, fail);
           // Fixed for the page on screen; live updates come with the next
           // milestone (§6: event + re-read).
           if (verb === "theme.changed") {

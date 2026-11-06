@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { CALL_BURST, createFrameHost, PING_MS, READY_TIMEOUT_MS, type FrameHostOptions } from "./frameHost";
+import { CALL_BURST, createFrameHost, phoneRow, PING_MS, READY_TIMEOUT_MS, type FrameHostOptions } from "./frameHost";
+import table from "./phoneVerbs.json";
 
 function setup(over: Partial<FrameHostOptions> = {}) {
   const posted: Record<string, unknown>[] = [];
@@ -33,6 +34,13 @@ describe("a widget frame's protocol (Gardens contract §4.4, §4.5)", () => {
     expect(posted).toContainEqual({ id: 1, ok: true, value: "door" });
     expect(posted).toContainEqual({ id: 2, ok: true, value: "host" });
     expect(posted).toContainEqual({ id: 3, ok: false, error: { message: "", code: "not_exposed" } });
+  });
+
+  it("the table is K2's catalog 50: store.changes and compute.nodes go through the door", () => {
+    expect(table.catalogVersion).toBe(50);
+    expect(phoneRow("store.changes")).toBe("door");
+    expect(phoneRow("compute.nodes")).toBe("door");
+    expect(phoneRow("boardFile.open")).toBe("host");
   });
 
   it("later and unknown verbs go to the daemon, so a row K2 opens works with no phone release", async () => {

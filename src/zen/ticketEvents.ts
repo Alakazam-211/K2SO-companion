@@ -113,6 +113,11 @@ export function hubSend(serverId: string, frame: unknown): boolean {
   }
 }
 
+/** A server's app socket is open now (a feed without it polls). */
+export function appEventsOpen(serverId: string): boolean {
+  return hubs.get(serverId)?.ws?.readyState === 1;
+}
+
 // A removed or re-keyed server (MS3): close its hub. Its subscribers fall
 // back to their polls; a re-subscribe dials the new address.
 onServerForget((id) => {

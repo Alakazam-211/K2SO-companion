@@ -93,6 +93,14 @@ export function answerHostVerb(
     case "canvas.setHitRegions":
       // The native rows and floating chrome come with the next milestone.
       return ok();
+    case "boardFile.open":
+    case "boardFile.key":
+    case "boardFile.submit":
+    case "boardFile.hold":
+    case "boardFile.flush":
+      // K2's own .k5board tab only: a widget in a Garden gets this on a
+      // desktop too (catalog 50).
+      return { ok: false, error: { code: "verb_unavailable", message: "", feature: "board-file-v1" } };
     default:
       return fail("not_exposed");
   }
