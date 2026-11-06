@@ -15,6 +15,7 @@ import {
   HIDDEN,
   onPipEvent,
   placeTile,
+  sameFrame,
   tileFrame,
   togglePip,
   usePipStatus,
@@ -39,6 +40,14 @@ describe("the tile's frame", () => {
   it("follows the visual viewport (keyboard pan, pinch)", () => {
     const f = tileFrame({ left: 20, top: 400, width: 160, height: 90 }, { ...VIEW, offsetTop: 100, scale: 2 }, 12);
     expect(f).toEqual({ visible: true, x: 40, y: 600, w: 320, h: 180, radius: 24 });
+  });
+
+  it("rounds the top corners only when asked (the floating card's picture), and Swift is told when that changes", () => {
+    const r = { left: 212, top: 110, width: 152, height: 86 };
+    expect(tileFrame(r, VIEW, 16, 1, "top")).toEqual({ visible: true, x: 213, y: 111, w: 150, h: 84, radius: 15, corners: "top" });
+    expect(tileFrame(r, VIEW, 16, 1)).not.toHaveProperty("corners");
+    expect(sameFrame(tileFrame(r, VIEW, 16, 1, "top"), tileFrame(r, VIEW, 16, 1))).toBe(false);
+    expect(sameFrame(tileFrame(r, VIEW, 16, 1, "top"), tileFrame(r, VIEW, 16, 1, "top"))).toBe(true);
   });
 
   it("is hidden with no size or off screen", () => {

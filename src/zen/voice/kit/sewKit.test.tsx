@@ -60,6 +60,7 @@ import { __resetVoiceCallForTests, __setCallShimForTests, setPhoneVoiceEngine, u
 import { __resetPipForTests, __setTileSenderForTests, HIDDEN, onPipEvent, type TileFrame } from "../videoTile";
 import { __resetVoiceNamesForTests, useVoiceNames } from "../voiceNames";
 import { VoiceRoomsOverlay } from "../VoiceRooms";
+import { CallTile } from "../callTile";
 import KitCall, { kitNames } from "./KitCall";
 import { facingOf, LAYER_HANDLE, liveOf, mirrorFor, shownOf, STARTING_MS } from "./layerVideo";
 import {
@@ -659,6 +660,59 @@ describe("Sew's call kit on the phone", () => {
       expect(kit.video.live()).toBeNull();
       // No sink for anyone else ever opened through the kit.
       expect(calls("video_sink").every((a) => (a as { track?: string }).track === "local:camera")).toBe(true);
+    });
+
+    describe("on the floating tile (the call area closed)", () => {
+      const tileCam = () => screen.queryByTestId("voice-call-tile-camera");
+      const notes = () => plugin.invoke.mock.calls.filter(([c]) => c === "voice_note").map(([, a]) => (a as { words: string[] }).words);
+      const press = (el: HTMLElement) => {
+        fireEvent.pointerDown(el, { pointerId: 1, clientX: 10, clientY: 10 });
+        fireEvent.pointerUp(el, { pointerId: 1, clientX: 10, clientY: 10 });
+        fireEvent.click(el);
+      };
+
+      it("the camera button: the kit's path through the permission step, logged as a person's tap", async () => {
+        plugin.answers["plugin:sew-voice|camera_permission"] = "prompt";
+        plugin.answers["plugin:sew-voice|request_camera_permission"] = "granted";
+        await inCall();
+        render(<CallTile callViewOpen={false} onOpen={() => {}} />);
+        await waitFor(() => expect(tileCam()).toBeTruthy());
+        // Camera on and off only: no switch, no screen share here.
+        expect(screen.getByTestId("voice-call-tile").querySelectorAll("button")).toHaveLength(4);
+        expect(tileCam()?.getAttribute("data-state")).toBe("off");
+        press(tileCam()!);
+        await waitFor(() => expect(calls("camera")).toEqual([{ on: true }]));
+        const order = plugin.invoke.mock.calls.map(([c]) => c).filter((c) => /camera/.test(c));
+        expect(order.slice(0, 3)).toEqual(["plugin:sew-voice|camera_permission", "plugin:sew-voice|request_camera_permission", "plugin:sew-voice|camera"]);
+        expect(notes()).toContainEqual(["camera", "tap", "off"]);
+        // On: you in the card's picture, "Camera on" until your first frame;
+        // never on the native layer.
+        act(() => plugin.emit("sew-voice://local_video", { camera: "on", screen: "off" }));
+        await waitFor(() => expect(screen.getByTestId("voice-call-tile").getAttribute("data-picture")).toBe("self"));
+        expect(tileCam()?.getAttribute("data-state")).toBe("on");
+        expect(screen.getByTestId("voice-call-tile-camera-note").textContent).toBe("Camera on");
+        expect(sent.filter((f) => f.visible)).toEqual([]);
+        // Off again: the plain pill.
+        press(tileCam()!);
+        await waitFor(() => expect(calls("camera")).toEqual([{ on: true }, { on: false }]));
+        expect(notes()).toContainEqual(["camera", "tap", "on"]);
+        act(() => plugin.emit("sew-voice://local_video", { camera: "off", screen: "off" }));
+        await waitFor(() => expect(screen.getByTestId("voice-call-tile").getAttribute("data-picture")).toBe("none"));
+        // A room without video: no camera button.
+        act(() => plugin.emit("sew-voice://policy", { ...POLICY, video_enabled: false }));
+        await waitFor(() => expect(tileCam()).toBeNull());
+      });
+
+      it("a denied camera says so on the button, and nothing turns on", async () => {
+        plugin.answers["plugin:sew-voice|camera_permission"] = "denied";
+        await inCall();
+        render(<CallTile callViewOpen={false} onOpen={() => {}} />);
+        await waitFor(() => expect(tileCam()).toBeTruthy());
+        press(tileCam()!);
+        await waitFor(() => expect(tileCam()?.getAttribute("aria-label")).toBe("Camera access is off. Turn it on in Settings › K2 › Camera."));
+        expect(calls("camera")).toEqual([]);
+        expect(tileCam()?.getAttribute("data-state")).toBe("off");
+      });
     });
 
     it("in the background: 'Camera paused' on your tile; after 5 minutes off, and the button says so", async () => {

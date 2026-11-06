@@ -26,8 +26,8 @@ import { kitChannelId, kitRoomOf, kitSelfId, note, sewKit } from "./sewKit";
 //     paused" in the background). Never the native layer, never PiP.
 // The phone's own parts stay around it in VoiceRooms.tsx: the recording
 // notice (ConsentSheet, wired to CallKit and the background notice; the
-// kit's RecordingConsent is never placed), and the mini tile outside the
-// call screen (videoLayer.tsx).
+// kit's RecordingConsent is never placed), and the floating call tile
+// outside the call screen (callTile.tsx).
 //
 // Hidden until K2 passes Sew's API through and a gateway feeds the store:
 // RecordingBadge/RecordingControls (need the store), VoiceChannelMembers

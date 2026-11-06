@@ -275,7 +275,7 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
             style={{ gridTemplateColumns: "1fr auto 1fr", minHeight: 44, padding: "12px 12px 8px", columnGap: 8 }}
           >
             {/* Back, not Done (Rosson): the call area sits over the page it was
-                opened from, mini tile or menu, and closing returns there. */}
+                opened from, floating tile or menu, and closing returns there. */}
             <button
               type="button"
               className="flex items-center justify-center justify-self-start shrink-0 zen-glass zen-glass-pill"

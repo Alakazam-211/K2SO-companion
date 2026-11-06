@@ -285,10 +285,11 @@ pub struct ScanQrResponse {
 ///   `route` → `{route, active, autoSpeaker}`; `mic` → `{mic: granted|denied}`
 ///   (asks the first time); `pipLayer {on}` → `{ok}` puts PiP's display layer
 ///   in the window (on) or takes it down (off) for the frames of [`crate::pip`];
-///   `pipFrame {x, y, w, h, visible, radius?, animate?}` (webview points) shows
-///   that layer over the call screen's video tile, `visible: false` puts it
-///   back; `animate` ([`PipAnimate`]) gets it there on its own (the mini
-///   tile's snap); `haptic {state?: "prepare"}` a light tap (or warms it up).
+///   `pipFrame {x, y, w, h, visible, radius?, corners?, animate?}` (webview
+///   points) shows that layer over the call screen's video tile, `visible:
+///   false` puts it back; `corners: "top"` rounds only the top two (the
+///   floating card's picture, its controls strip under it); `animate`
+///   ([`PipAnimate`]) gets it there on its own (the floating tile's snap); `haptic {state?: "prepare"}` a light tap (or warms it up).
 ///   Events come back as `call`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -320,6 +321,8 @@ pub struct CallOpRequest {
     pub visible: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub radius: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub corners: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub animate: Option<PipAnimate>,
 }

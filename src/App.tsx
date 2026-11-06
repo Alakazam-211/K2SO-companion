@@ -16,7 +16,6 @@ import { startStashSync } from "./zen/stash/stashSync";
 import { installNetStats } from "./lib/netStats";
 import { useCallScreen } from "./zen/voice/callScreen";
 import { CallTile } from "./zen/voice/callTile";
-import { MiniVideoTile } from "./zen/voice/videoLayer";
 
 /** Cold-start home is always the overlay. Zero stored servers still
  *  open `/zen` (overlay Add server). Any unknown path lands here too —
@@ -73,9 +72,10 @@ function PushBridge() {
   return null;
 }
 
-/** A call's small floating tile over every screen but the call's own: the
- *  video while someone's picture plays, else Mute / Deafen / Hang up. Its
- *  tap goes back to the call (the Rooms overlay lives on /zen). */
+/** A call's small floating tile over every screen but the call's own: Mute /
+ *  Deafen / Camera / Hang up, with the picture on top while someone's video
+ *  plays or your camera is on. Its tap goes back to the call (the Rooms
+ *  overlay lives on /zen). */
 function VoiceMiniTile() {
   const open = useCallScreen((s) => s.open);
   const navigate = useNavigate();
@@ -84,12 +84,7 @@ function VoiceMiniTile() {
     useCallScreen.getState().ask();
     if (pathname !== "/zen") navigate("/zen");
   };
-  return (
-    <>
-      <MiniVideoTile callViewOpen={open} onOpen={onOpen} />
-      <CallTile callViewOpen={open} onOpen={onOpen} />
-    </>
-  );
+  return <CallTile callViewOpen={open} onOpen={onOpen} />;
 }
 
 function AppLayout() {
