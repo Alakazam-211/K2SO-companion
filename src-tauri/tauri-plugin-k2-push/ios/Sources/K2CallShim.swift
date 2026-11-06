@@ -36,8 +36,8 @@ public final class K2CallShim: NSObject {
   /// the system shows every call as audio, whatever `report` says.
   static let videoCalls = false
 
-  private let provider: CXProvider
-  private let controller = CXCallController()
+  private var provider: CXProvider
+  private var controller = CXCallController()
   private let queue = DispatchQueue(label: "k2.call-shim")
   /// The one call (rooms: never two at once).
   private var call: UUID?
@@ -55,6 +55,12 @@ public final class K2CallShim: NSObject {
   private var labels: (room: String, server: String)?
 
   override init() {
+    provider = Self.makeProvider()
+    super.init()
+    provider.setDelegate(self, queue: queue)
+  }
+
+  private static func makeProvider() -> CXProvider {
     let config = CXProviderConfiguration()
     config.supportsVideo = Self.videoCalls
     config.maximumCallGroups = 1
@@ -62,9 +68,17 @@ public final class K2CallShim: NSObject {
     config.supportedHandleTypes = [.generic]
     // A room call isn't a phone call: keep it out of the Phone app's Recents.
     config.includesCallsInRecents = false
-    provider = CXProvider(configuration: config)
-    super.init()
+    return CXProvider(configuration: config)
+  }
+
+  /// The system lost track of our provider (`unknownCallProvider`, seen after
+  /// the app sat suspended for an hour): a fresh provider and controller.
+  /// On `queue`, with no call up.
+  private func renewProvider() {
+    provider.invalidate()
+    provider = Self.makeProvider()
     provider.setDelegate(self, queue: queue)
+    controller = CXCallController()
   }
 
   // ── Engine → system ────────────────────────────────────────────────
@@ -78,7 +92,13 @@ public final class K2CallShim: NSObject {
   /// Joining a room: an outgoing call named for the room (the `label`, else
   /// `room` as given). Fails when a call is already up.
   public func start(room: String, server: String, completion: @escaping (String?) -> Void) {
-    queue.async {
+    queue.async { self.start(room: room, server: server, retried: false, completion: completion) }
+  }
+
+  /// On `queue`. A start the system refuses with `unknownCallProvider` is
+  /// tried once more on a fresh provider.
+  private func start(room: String, server: String, retried: Bool, completion: @escaping (String?) -> Void) {
+    do {
       guard self.call == nil else { return completion("call_in_progress") }
       let room = self.labels?.room ?? room
       let server = self.labels?.server ?? server
@@ -101,7 +121,15 @@ public final class K2CallShim: NSObject {
         self.queue.async {
           if let error = error {
             if self.call == id { self.call = nil }
-            let code = "callkit: \((error as NSError).code)"
+            let ns = error as NSError
+            if !retried, ns.domain == CXErrorDomainRequestTransaction,
+              ns.code == CXErrorCodeRequestTransactionError.Code.unknownCallProvider.rawValue
+            {
+              self.emit(["event": "provider_renewed"])
+              self.renewProvider()
+              return self.start(room: room, server: server, retried: true, completion: completion)
+            }
+            let code = "callkit: \(ns.code)"
             self.emit(["event": "start_failed", "error": code])
             completion(code)
           } else {
