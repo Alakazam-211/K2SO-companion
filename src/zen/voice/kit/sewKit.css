@@ -116,6 +116,15 @@
   aspect-ratio: auto;
   border-radius: 14px;
 }
+/* Your own camera: a small preview in your usual place, not the wide
+   first tile (that one is for the picture of someone else). */
+.k2-kit-call .sv-tile.sv-tile-host[data-local="yes"] {
+  grid-column: auto;
+  order: 0;
+}
+.k2-kit-call .sv-tile-host[data-local="yes"] .sv-host-slot {
+  aspect-ratio: 1;
+}
 /* The native layer sits on this rect: rounded like the layer (TILE_RADIUS). */
 .k2-kit-call .sv-host-slot {
   border-radius: 12px;
