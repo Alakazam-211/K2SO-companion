@@ -50,8 +50,8 @@ objc2 = "0.6.4"
 # plugin is registered on iOS alone.
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dependencies]
 base64 = "0.22"
-tauri-plugin-sew-voice = { version = "0.4", default-features = false, features = ["tauri", "audio"] }
-sew-call-client = { version = "0.4", default-features = false, features = ["mobile"] }
+tauri-plugin-sew-voice = { version = "0.4.1", default-features = false, features = ["tauri", "audio"] }
+sew-call-client = { version = "0.4.1", default-features = false, features = ["mobile"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 url = "2"
 
@@ -74,16 +74,18 @@ tauri-plugin-http = { path = "vendor/tauri-plugin-http" }
 # Gardens: widget frames must not reach the Tauri bridge (contract §10). See
 # vendor/README.md. Keep in step with the wry that tauri pins.
 wry = { path = "vendor/wry" }
-# Voice: Sew's crates from its public mirror (README there), the str0m and
-# dimpl forks it needs, and kessel-audio with the phone backends (K2
-# `hold/0469-kessel-phone`). Move all of these together on a Sew release.
-sew-proto = { git = "https://github.com/Alakazam-211/sew-crates", rev = "d3bbdefa3ddfbb4beeca40bef5bd47fd1c10d040" }
-sew-lkproto = { git = "https://github.com/Alakazam-211/sew-crates", rev = "d3bbdefa3ddfbb4beeca40bef5bd47fd1c10d040" }
-sew-mls-crypto = { git = "https://github.com/Alakazam-211/sew-crates", rev = "d3bbdefa3ddfbb4beeca40bef5bd47fd1c10d040" }
-sew-e2ee = { git = "https://github.com/Alakazam-211/sew-crates", rev = "d3bbdefa3ddfbb4beeca40bef5bd47fd1c10d040" }
-sew-lk-compat = { git = "https://github.com/Alakazam-211/sew-crates", rev = "d3bbdefa3ddfbb4beeca40bef5bd47fd1c10d040" }
-sew-call-client = { git = "https://github.com/Alakazam-211/sew-crates", rev = "d3bbdefa3ddfbb4beeca40bef5bd47fd1c10d040" }
-tauri-plugin-sew-voice = { git = "https://github.com/Alakazam-211/sew-crates", rev = "d3bbdefa3ddfbb4beeca40bef5bd47fd1c10d040" }
+# Voice: Sew's crates, the str0m and dimpl forks they need, and kessel-audio
+# with the phone backends (K2 aad16f76b). For now Sew main at its phone audio
+# commit (0.4.1, not yet published); back to the public mirror
+# (github.com/Alakazam-211/sew-crates) once Sew publishes it. Move all of
+# these together.
+sew-proto = { git = "https://github.com/Alakazam-211/sew", rev = "86c9ee94909e9e761cc221cc3db590e1e31adc8f" }
+sew-lkproto = { git = "https://github.com/Alakazam-211/sew", rev = "86c9ee94909e9e761cc221cc3db590e1e31adc8f" }
+sew-mls-crypto = { git = "https://github.com/Alakazam-211/sew", rev = "86c9ee94909e9e761cc221cc3db590e1e31adc8f" }
+sew-e2ee = { git = "https://github.com/Alakazam-211/sew", rev = "86c9ee94909e9e761cc221cc3db590e1e31adc8f" }
+sew-lk-compat = { git = "https://github.com/Alakazam-211/sew", rev = "86c9ee94909e9e761cc221cc3db590e1e31adc8f" }
+sew-call-client = { git = "https://github.com/Alakazam-211/sew", rev = "86c9ee94909e9e761cc221cc3db590e1e31adc8f" }
+tauri-plugin-sew-voice = { git = "https://github.com/Alakazam-211/sew", rev = "86c9ee94909e9e761cc221cc3db590e1e31adc8f" }
 str0m = { git = "https://github.com/Alakazam-211/str0m", rev = "f80c8fa09323778b181923a840a9fd36e1c8d951" }
 str0m-proto = { git = "https://github.com/Alakazam-211/str0m", rev = "f80c8fa09323778b181923a840a9fd36e1c8d951" }
 is = { git = "https://github.com/Alakazam-211/str0m", rev = "f80c8fa09323778b181923a840a9fd36e1c8d951" }
