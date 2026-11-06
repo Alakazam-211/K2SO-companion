@@ -1,5 +1,6 @@
-import { useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
+import { Suspense, useEffect } from "react";
+import { createPortal } from "react-dom";
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams } from "react-router-dom";
 import { useServersStore } from "./stores/servers";
 import { useWorkspacesStore } from "./stores/workspaces";
 import { registerAllSignedIn, attachPushNavigation, watchPushRegistrations } from "./lib/push";
@@ -16,6 +17,7 @@ import { startStashSync } from "./zen/stash/stashSync";
 import { installNetStats } from "./lib/netStats";
 import { useCallScreen } from "./zen/voice/callScreen";
 import { CallTile } from "./zen/voice/callTile";
+import { VoiceRoomsOverlay } from "./zen/voice/VoiceRooms";
 
 /** Cold-start home is always the overlay. Zero stored servers still
  *  open `/zen` (overlay Add server). Any unknown path lands here too —
@@ -78,13 +80,23 @@ function PushBridge() {
  *  overlay lives on /zen). */
 function VoiceMiniTile() {
   const open = useCallScreen((s) => s.open);
-  const navigate = useNavigate();
-  const { pathname } = useLocation();
-  const onOpen = () => {
-    useCallScreen.getState().ask();
-    if (pathname !== "/zen") navigate("/zen");
-  };
-  return <CallTile callViewOpen={open} onOpen={onOpen} />;
+  // The call screen opens over whatever screen this is; back returns here.
+  return <CallTile callViewOpen={open} onOpen={() => useCallScreen.getState().ask()} />;
+}
+
+/** The call screen (Rooms), over every screen: a chat open on the list, the
+ *  terminal or Gardens included. */
+function VoiceCallScreen() {
+  const open = useCallScreen((s) => s.open);
+  if (!open) return null;
+  return createPortal(
+    <div className="fixed inset-0" style={{ zIndex: 50 }} data-testid="voice-call-screen">
+      <Suspense fallback={null}>
+        <VoiceRoomsOverlay onClose={() => useCallScreen.getState().setOpen(false)} />
+      </Suspense>
+    </div>,
+    document.body
+  );
 }
 
 function AppLayout() {
@@ -112,6 +124,7 @@ function AppLayout() {
     <div className="flex flex-col h-full">
       <PushBridge />
       <VoiceMiniTile />
+      <VoiceCallScreen />
       <div className="flex-1 overflow-hidden">
         <Routes>
           {/* No server required so the overlay can offer Add server. */}

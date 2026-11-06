@@ -1,8 +1,9 @@
 import { create } from "zustand";
 
-// Whether the call screen (the Rooms overlay, in ChatsList) is open, and a
-// request to open it from anywhere in the app (the floating call tile, which
-// lives at the app's level so it shows on every screen).
+// Whether the call screen (the Rooms overlay) is open. It lives at the app's
+// level, over every screen (a chat, the terminal, Gardens), so opening it
+// from the floating call tile anywhere shows it on top, and its back arrow
+// returns to that same place.
 
 type CallScreen = {
   open: boolean;
@@ -18,7 +19,7 @@ export const useCallScreen = create<CallScreen>((set, get) => ({
   open: false,
   pending: false,
   setOpen: (open) => set({ open }),
-  ask: () => set({ pending: true }),
+  ask: () => set({ open: true, pending: false }),
   consume: () => {
     if (!get().pending) return false;
     set({ pending: false });

@@ -109,7 +109,7 @@ import { projectBadgeCount, rowRefOf, rowUnreadFor } from "./unread";
 import { unreadSupported, useUnreadStore } from "./unreadStore";
 import { UnreadDot } from "./UnreadMarks";
 import { onForegroundLater } from "../lib/foreground";
-import { useVoiceAvailable, VoiceRoomsOverlay } from "./voice/VoiceRooms";
+import { useVoiceAvailable } from "./voice/VoiceRooms";
 import { useCallScreen } from "./voice/callScreen";
 import { consentKey, useVoiceCall } from "./voice/voiceCall";
 
@@ -458,7 +458,9 @@ export function ChatsList() {
   const showGardens = gardensAvailable(zen);
   const showVoice = useVoiceAvailable();
   const inCall = useVoiceCall((s) => s.phase !== "idle");
-  const [voiceOpen, setVoiceOpen] = useState(false);
+  // The call screen lives at the app's level (App.tsx), over every screen.
+  const voiceOpen = useCallScreen((s) => s.open);
+  const setVoiceOpen = (open: boolean) => useCallScreen.getState().setOpen(open);
   // The header's 3-dot menu: Rooms, Projects, Tickets, Settings.
   const [moreMenu, setMoreMenu] = useState(false);
   // A recording notice needs an answer: show it, wherever the list was.
@@ -468,16 +470,6 @@ export function ChatsList() {
   useEffect(() => {
     if (consentAsked) setVoiceOpen(true);
   }, [consentAsked]);
-  // The call screen as the rest of the app sees it (the floating call tile),
-  // and its tap asking for it from any screen.
-  useEffect(() => {
-    useCallScreen.getState().setOpen(voiceOpen);
-  }, [voiceOpen]);
-  useEffect(() => () => useCallScreen.getState().setOpen(false), []);
-  const callScreenAsked = useCallScreen((s) => s.pending);
-  useEffect(() => {
-    if (callScreenAsked && useCallScreen.getState().consume()) setVoiceOpen(true);
-  }, [callScreenAsked]);
   const onGardens = tab === "gardens" && showGardens;
   const setTab = (next: ListTab) => {
     if (next === tab) return;
@@ -1982,7 +1974,6 @@ export function ChatsList() {
       />
 
       {projectsOpen ? <ProjectsOverlay onClose={() => setProjectsOpen(false)} /> : null}
-      {voiceOpen ? <VoiceRoomsOverlay onClose={() => setVoiceOpen(false)} /> : null}
       {tickets ? (
         <TicketsOverlay
           key={deepTicket ?? "list"}

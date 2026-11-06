@@ -173,10 +173,10 @@ describe("the floating tile's corner", () => {
 });
 
 describe("asking for the call screen from anywhere", () => {
-  it("is answered once", () => {
+  it("opens it at once, over whatever screen this is", () => {
     useCallScreen.setState({ open: false, pending: false });
     useCallScreen.getState().ask();
-    expect(useCallScreen.getState().consume()).toBe(true);
+    expect(useCallScreen.getState().open).toBe(true);
     expect(useCallScreen.getState().consume()).toBe(false);
   });
 });

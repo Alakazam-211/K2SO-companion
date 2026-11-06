@@ -56,6 +56,7 @@ vi.mock("./voice/VoiceRooms", async (orig) => ({
 }));
 
 import { useServersStore } from "../stores/servers";
+import { useCallScreen } from "./voice/callScreen";
 import { ChatsList } from "./ChatsList";
 import { badgeText, moreAriaLabel, moreBadge } from "./HeaderMoreMenu";
 import { STUB_AGENTS } from "./stubData";
@@ -90,6 +91,7 @@ beforeEach(() => {
   });
   useZenStore.setState({ agentSource: "stub", agents: STUB_AGENTS, screen: "list", projectsOpen: false });
   useVoiceCall.setState({ phase: "idle", consent: null });
+  useCallScreen.setState({ open: false, pending: false });
 });
 
 afterEach(() => {
@@ -120,7 +122,8 @@ describe("Rooms and the More menu", () => {
     expect(menuIds()).toEqual(["chats-header-projects", "chats-header-tickets", "chats-header-settings"]);
     fireEvent.click(screen.getByTestId("chats-more-backdrop"));
     fireEvent.click(rooms);
-    expect(screen.getByTestId("overlay-voice")).not.toBeNull();
+    // The call screen opens at the app level (App.tsx), over every screen.
+    expect(useCallScreen.getState().open).toBe(true);
   });
 
   it("the call ending takes Rooms away when no server has voice rooms", () => {
@@ -145,7 +148,8 @@ describe("Rooms and the More menu", () => {
       choices: [{ label: "OK", granted: true }],
     };
     act(() => useVoiceCall.setState({ consent: sheet }));
-    expect(screen.getByTestId("overlay-voice")).not.toBeNull();
+    // The call screen opens at the app level (App.tsx), over every screen.
+    expect(useCallScreen.getState().open).toBe(true);
     expect(screen.queryByTestId("chats-more-menu")).toBeNull();
   });
 });
