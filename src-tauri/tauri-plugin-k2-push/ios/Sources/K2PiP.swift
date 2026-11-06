@@ -15,19 +15,20 @@
 // The Rust seam:
 // - Frames don't go through `run_mobile_plugin` (JSON on the main run loop:
 //   far too slow for video). Swift exports C entry points with `@_cdecl`,
-//   which the k2-push crate declares `extern "C"` (`pip::h264`, `pip::flush`;
-//   the plugin's static library is already linked into the app):
-//     k2_pip_h264(ptr, len, pts_90k)  — one Annex-B access unit
-//     k2_pip_flush(remove_image)      — Sew's reset, switch or discontinuity
-//   Not yet: VP8 comes decoded, and its CVPixelBuffer isn't reachable from
-//   Rust until Sew's kessel-video bump (`apple_pixel_buffer`). Then:
-//     k2_pip_pixel_buffer(cvpixelbuffer_ref, pts) — +1 retained
+//   which the k2-push crate declares `extern "C"` (`pip::h264`,
+//   `pip::pixel_buffer`, `pip::flush`; the plugin's static library is
+//   already linked into the app):
+//     k2_pip_h264(ptr, len, pts_90k)          — one Annex-B access unit
+//     k2_pip_pixel_buffer(cvpixelbuffer, pts) — one decoded VP8 frame
+//                                               (Sew's `apple_pixel_buffer`)
+//     k2_pip_flush(remove_image)              — Sew's reset, switch or discontinuity
 //   (`enqueue(i420:)` is there too, should the planes ever be all we get.)
 // - Called on Sew's sink thread (never main). Pointers are borrowed for the
 //   call only: `enqueue(h264:)` runs `queue.sync`, copies (the AVCC repack)
 //   and returns, so Rust frees or reuses its buffer at once. One memcpy per
 //   frame (tens of KB), and no Rust lifetime tied to Core Media. A
-//   CVPixelBuffer would cross with its retain (`takeRetainedValue`), no copy.
+//   CVPixelBuffer crosses borrowed, no copy: Swift takes its own retain
+//   (`takeUnretainedValue`, held by the queued closure) before returning.
 // - pts: Sew's arrival time as CMTime(value, 90_000). Samples are
 //   DisplayImmediately, so it only orders; it never delays.
 // - Control: `callOp pipLayer {on}` puts the layer in the window when the
@@ -65,6 +66,16 @@ public func k2PiPH264(_ bytes: UnsafePointer<UInt8>?, _ len: Int, _ pts90k: Int6
   guard let bytes = bytes, len > 0 else { return }
   K2PiP.shared.enqueue(
     h264: UnsafeRawBufferPointer(start: bytes, count: len), pts: CMTime(value: pts90k, timescale: 90_000))
+}
+
+/// One decoded (VP8) frame's CVPixelBufferRef, borrowed for the call: the
+/// queued closure holds its own retain.
+@_cdecl("k2_pip_pixel_buffer")
+public func k2PiPPixelBuffer(_ buffer: UnsafeMutableRawPointer?, _ pts90k: Int64) {
+  guard #available(iOS 15.0, *) else { return }
+  guard let buffer = buffer else { return }
+  let pixelBuffer = Unmanaged<CVPixelBuffer>.fromOpaque(buffer).takeUnretainedValue()
+  K2PiP.shared.enqueue(pixelBuffer: pixelBuffer, pts: CMTime(value: pts90k, timescale: 90_000))
 }
 
 /// The stream broke or switched: flush, then wait for a keyframe.

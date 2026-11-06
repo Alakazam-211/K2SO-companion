@@ -992,6 +992,7 @@ impl NativeVideoConsumer for PipFeed {
             match f {
                 Feed::Flush { remove_image } => pip::flush(remove_image),
                 Feed::H264 { access_unit, pts_90k } => pip::h264(access_unit, pts_90k),
+                Feed::PixelBuffer { buffer, pts_90k } => pip::pixel_buffer(buffer, pts_90k),
             }
         }
     }
@@ -1002,34 +1003,43 @@ impl NativeVideoConsumer for PipFeed {
 enum Feed<'a> {
     Flush { remove_image: bool },
     H264 { access_unit: &'a [u8], pts_90k: i64 },
+    /// A decoded frame's CVPixelBufferRef, borrowed while the event lives.
+    PixelBuffer { buffer: *mut std::ffi::c_void, pts_90k: i64 },
 }
 
 fn feed(event: &NativeVideoEvent) -> Vec<Feed<'_>> {
     match event {
         NativeVideoEvent::Frame(f) => match &f.payload {
-            NativePayload::H264 { access_unit, .. } => {
+            payload => {
                 // Arrival time, not the RTP clock: it keeps rising across a
                 // switch to another sender.
-                let unit = Feed::H264 { access_unit, pts_90k: pts_90k(f.timestamp_us) };
+                let pts_90k = pts_90k(f.timestamp_us);
+                let unit = match payload {
+                    NativePayload::H264 { access_unit, .. } => Feed::H264 { access_unit, pts_90k },
+                    // VP8, decoded by kessel-video's Apple backend. Not a
+                    // pixel buffer (CPU planes): nothing to show.
+                    _ => match pixel_buffer(payload) {
+                        Some(buffer) => Feed::PixelBuffer { buffer, pts_90k },
+                        None => return Vec::new(),
+                    },
+                };
                 if f.discontinuity {
                     vec![Feed::Flush { remove_image: false }, unit]
                 } else {
                     vec![unit]
                 }
             }
-            // VP8 comes decoded, and its CVPixelBuffer can't be reached from
-            // here at this kessel-video (5a21dc83): dropped. Sew's next merge
-            // adds `apple_pixel_buffer`; then hand it to K2PiP's
-            // `k2_pip_pixel_buffer` (+1 retained). Without the `video`
-            // feature there's no VP8 decoder anyway, so none comes.
-            NativePayload::Decoded(_) => Vec::new(),
-            _ => Vec::new(),
         },
         NativeVideoEvent::Reset { .. } => vec![Feed::Flush { remove_image: false }],
         // Nobody left to show: clear the picture too.
         NativeVideoEvent::Switched { track, .. } => vec![Feed::Flush { remove_image: track.is_none() }],
         _ => Vec::new(),
     }
+}
+
+/// A decoded frame's CVPixelBufferRef (Sew's `apple_pixel_buffer`).
+fn pixel_buffer(payload: &NativePayload) -> Option<*mut std::ffi::c_void> {
+    payload.apple_pixel_buffer().filter(|p| !p.is_null())
 }
 
 /// µs → the 90 kHz clock K2PiP stamps samples with.
