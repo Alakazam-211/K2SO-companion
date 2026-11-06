@@ -77,6 +77,7 @@ import { composerDraftOf, ticketDraftKey, useComposerDrafts } from "./composerDr
 import { useBackHandler } from "../lib/androidBack";
 import { useSwipeBack } from "../lib/useSwipeBack";
 import { useRenderWindow } from "./useRenderWindow";
+import { createFoldHost, FoldContext, MessageFold, type FoldHost } from "./MessageFold";
 
 // Zen open ticket — Layout A (Rosson, 2026-10-11). Full-screen inside the
 // Chats column, below the notch, the ThreadPane look:
@@ -998,7 +999,33 @@ export const TicketView = memo(function TicketView({
     : ["resolved", "dismissed"];
   const composerLabel = error ?? (receipt?.from === "text" ? receipt.line : null);
 
+  // "See more" on long comments (MessageFold, the Thread's): open ones kept
+  // while this ticket is open; opening one stops the follow.
+  const foldHostRef = useRef<FoldHost | null>(null);
+  if (!foldHostRef.current) {
+    foldHostRef.current = createFoldHost({
+      scroller: () => scrollerRef.current,
+      unfollow: () => {
+        following.current = false;
+      },
+      refollow: () => {
+        const el = scrollerRef.current;
+        if (el && nearNewest(el)) setFollowing(true);
+      },
+      ownScroll: (el) => {
+        lastTop.current = el.scrollTop;
+      },
+    });
+  }
+  const foldHost = foldHostRef.current;
+  const foldTicketRef = useRef(id);
+  if (foldTicketRef.current !== id) {
+    foldTicketRef.current = id;
+    foldHost.open.clear();
+  }
+
   return (
+    <FoldContext.Provider value={foldHost}>
     <div
       ref={swipeRef}
       className="mchat-pane absolute inset-0 flex flex-col min-w-0 overflow-x-hidden"
@@ -1455,6 +1482,7 @@ export const TicketView = memo(function TicketView({
       ) : null}
       {sheet === "agreed" && item ? <AgreedSheet item={item} onClose={() => setSheet(null)} /> : null}
     </div>
+    </FoldContext.Provider>
   );
 });
 
@@ -1538,14 +1566,19 @@ const TicketCommentRow = memo(function TicketCommentRow({
           fontSize: zenTextPx(17),
           borderRadius: 18,
           background: mine ? "#0a84ff" : "#3a3a3c",
+          // The "See more" fade blends into this.
+          ["--k2-bubble" as string]: mine ? "#0a84ff" : "#3a3a3c",
           color: "#fff",
           // Sending: dimmed. Delivered: it only brightens, gradually
           // (useDeliverBrighten).
           opacity: out?.status === "sending" ? SENDING_OPACITY : 1,
         }}
       >
-        {/* The Thread's memoized body and style: parsed once per text. */}
-        <ChatMessageBody text={body} className="!p-0 text-white" style={bubbleBodyStyle()} />
+        {/* The Thread's memoized body and style: parsed once per text;
+            taller than 12 lines, folded behind "See more". */}
+        <MessageFold foldKey={rowKey} fontSize={bubbleBodyStyle().fontSize}>
+          <ChatMessageBody text={body} className="!p-0 text-white" style={bubbleBodyStyle()} />
+        </MessageFold>
       </TicketBubbleBox>
       {mine ? (
         // One box from Send to delivered: "Sending…", then the time (or

@@ -122,6 +122,7 @@ import type { PermissionCardModel } from "./permissionCardModel";
 import { ThreadImagesContext, type ThreadImagesSource } from "./ThreadImages";
 import { FEATURE_THREAD_IMAGES } from "../api/threadAttachmentPure";
 import { AttachmentSheet, type OpenAttachment } from "./AttachmentSheet";
+import { createFoldHost, FoldContext, MessageFold, type FoldHost } from "./MessageFold";
 import { sameMessage } from "./threadCacheMerge";
 import {
   OLDER_COOLDOWN_MS,
@@ -319,6 +320,8 @@ const Bubble = memo(function Bubble({
   holdable,
   outlined,
   onStashOffer,
+  foldKey,
+  reveal,
 }: {
   m: ThreadMessage;
   onFileLink?: (ref: string) => void;
@@ -348,6 +351,10 @@ const Bubble = memo(function Bubble({
   outlined?: boolean;
   /** A `stash.offer` card's Save to stash. */
   onStashOffer?: (m: ThreadMessage) => Promise<StashSaveOutcome>;
+  /** Its row key: a long message's "See more" state (MessageFold). */
+  foldKey: string;
+  /** Landed on (a push tap's highlight): a folded message opens. */
+  reveal?: boolean;
 }) {
   const secret = m.kind === "secret";
   const choice = secret ? null : m.choice;
@@ -446,7 +453,11 @@ const Bubble = memo(function Bubble({
       ) : (
         <>
           {m.text.trim() ? (
-            <ReplyAwareBody m={m} onFileLink={onFileLink} />
+            // Taller than 12 lines: folded behind "See more". Copy, Reply and
+            // Save to stash take m.text, never the folded view.
+            <MessageFold foldKey={foldKey} fontSize={bubbleBodyStyle().fontSize} reveal={reveal}>
+              <ReplyAwareBody m={m} onFileLink={onFileLink} />
+            </MessageFold>
           ) : null}
           {attachments?.length ? (
             <div
@@ -533,6 +544,7 @@ const ThreadRow = memo(function ThreadRow({
   spaced,
   stub,
   highlighted,
+  revealed,
   receipt,
   canAnswer,
   answerHeld,
@@ -562,6 +574,8 @@ const ThreadRow = memo(function ThreadRow({
   spaced: boolean;
   stub: boolean;
   highlighted: boolean;
+  /** Landed on (a push tap's seq): a folded long message opens. */
+  revealed: boolean;
   /** The chat's one "Delivered" / "Read" receipt sits on this row. */
   receipt: string | undefined;
   canAnswer: boolean;
@@ -638,6 +652,8 @@ const ThreadRow = memo(function ThreadRow({
           holdable={messageHoldable(m, out)}
           outlined={highlighted}
           onStashOffer={onStashOffer}
+          foldKey={rowKey}
+          reveal={revealed}
         />
       ) : null}
       {files ? (
@@ -1475,6 +1491,38 @@ export function ThreadPane({
     setFollowing(true);
     stick(el);
   });
+
+  // "See more" (MessageFold): which long messages are open, kept while this
+  // chat is open (a row the render window drops comes back as it was). A
+  // fold opening stops the follow, so the list doesn't stick to the newest
+  // under the reader; folding back at the bottom follows again.
+  const foldHostRef = useRef<FoldHost | null>(null);
+  if (!foldHostRef.current) {
+    foldHostRef.current = createFoldHost({
+      scroller: () => scrollerRef.current,
+      unfollow: () => {
+        following.current = false;
+      },
+      refollow: () => {
+        const el = scrollerRef.current;
+        if (el && !pendingAnchor.current && useZenStore.getState().threadFocusSeq == null && nearNewest(el)) {
+          following.current = true;
+          setNewBelow(false);
+        }
+      },
+      ownScroll: (el) => {
+        ownTop.current = el.scrollTop;
+        lastTop.current = el.scrollTop;
+      },
+    });
+  }
+  const foldHost = foldHostRef.current;
+  const foldChat = `${zenServer}\n${agentId}\n${groupId}`;
+  const foldChatRef = useRef(foldChat);
+  if (foldChatRef.current !== foldChat) {
+    foldChatRef.current = foldChat;
+    foldHost.open.clear();
+  }
 
   // Typing is written to storage after a short quiet; leaving the chat or
   // the app going to the background writes it now.
@@ -2359,6 +2407,7 @@ export function ThreadPane({
 
   return (
     <ThreadImagesContext.Provider value={imagesSource}>
+    <FoldContext.Provider value={foldHost}>
     <div
       ref={rootRef}
       className="zen-thread-pane mchat-pane relative flex flex-col flex-1 min-h-0 min-w-0 overflow-x-hidden"
@@ -2562,6 +2611,7 @@ export function ThreadPane({
                       // the same blue outline as a notification's (Rosson).
                       m.id === selectedMsgId
                     }
+                    revealed={highlightSeq != null && m.seq != null && m.seq === highlightSeq}
                     receipt={i === receiptIdx && receipt ? receipt : undefined}
                     canAnswer={
                       !out &&
@@ -2823,6 +2873,7 @@ export function ThreadPane({
         />
       ) : null}
     </div>
+    </FoldContext.Provider>
     </ThreadImagesContext.Provider>
   );
 }
