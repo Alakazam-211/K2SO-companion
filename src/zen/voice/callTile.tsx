@@ -1,6 +1,7 @@
 import { useLayoutEffect, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { Headphones, HeadphoneOff, Lock, Mic, MicOff, Pause, PhoneOff, Video, VideoOff } from "lucide-react";
+import { useCallDuration } from "./callDuration";
 import { easeOut } from "./miniSnap";
 import { useTileCamera, useTileCameraFeed } from "./tileCamera";
 import {
@@ -38,6 +39,15 @@ import { useVoiceCall } from "./voiceCall";
 //         `local:camera` sink, mirrored for the front camera; "Camera on"
 //         until its first frame). Never the native layer, never PiP;
 //       - else no picture: the card folds down to the plain pill.
+//     Under the picture, a band (DURATION_BAND) with the call's time in its
+//     bottom-left corner (Rosson 2026-11-06: "If the camera is on, show call
+//     duration in the bottom left of the floating tile"). Swift brings the
+//     native layer ABOVE the webview on the picture's rect (K2PiP.swift
+//     `place`), so nothing the page draws can sit on someone's video: the
+//     layer covers the picture only and the time sits in the band below
+//     it. Your self-view is the page's own, so it fills the band too and
+//     the time sits over your picture. Same spot and same card size either
+//     way, so the switch between them stays in place. The pill: no time.
 //     The picture opens and folds smoothly in place: in a bottom corner the
 //     strip stays put and the picture grows above it; in a top corner the
 //     card's top stays under the header and the strip moves down with it.
@@ -64,6 +74,10 @@ export const CARD_EDGE = 1;
 export const CARD_TOP_RADIUS = 16;
 /** The picture opens or folds over this long (ease-out). */
 export const CARD_GROW = 0.24;
+
+/** The band under the picture that carries the call's time, below the
+ *  native layer's rect. */
+export const DURATION_BAND = 22;
 
 /** The picture's height in a card `width` wide: 16:9 inside its edge. */
 export function cardVideoHeight(width: number): number {
@@ -252,28 +266,56 @@ function CameraNote({ paused }: { paused: boolean }) {
   );
 }
 
-/** The picture's content: the native layer sits over it for someone's
- *  video; your self-view is drawn here. */
-function Picture({ picture }: { picture: CardPicture }) {
+/** Someone's video: the native layer sits over the picture; this shows
+ *  only while PiP has it. */
+function Remote() {
   const pip = usePipStatus((s) => s.active);
+  return pip ? (
+    <span
+      className="absolute inset-0 flex items-center justify-center text-center text-[11px]"
+      style={{ color: MUTED_TEXT, padding: 4 }}
+      data-testid="voice-video-line"
+    >
+      Picture in Picture
+    </span>
+  ) : null;
+}
+
+/** Your self-view, drawn by the page over the picture and the band. */
+function Self() {
   const self = useTileCamera((s) => s.self);
   const mirrored = useTileCamera((s) => s.mirrored);
   const paused = useTileCamera((s) => s.state === "paused");
-  if (picture === "remote")
-    return pip ? (
-      <span
-        className="absolute inset-0 flex items-center justify-center text-center text-[11px]"
-        style={{ color: MUTED_TEXT, padding: 4 }}
-        data-testid="voice-video-line"
-      >
-        Picture in Picture
-      </span>
-    ) : null;
-  if (picture === "self") {
-    if (!self) return <CameraNote paused={paused} />;
-    return <SelfView handle={self} mirrored={mirrored} paused={paused} radius={0} untilFrame={<CameraNote paused={false} />} />;
-  }
-  return null;
+  if (!self) return <CameraNote paused={paused} />;
+  return <SelfView handle={self} mirrored={mirrored} paused={paused} radius={0} untilFrame={<CameraNote paused={false} />} />;
+}
+
+/** The call's time in the band's bottom-left corner: small tabular white
+ *  on a dark chip, readable over any picture. Nothing until it connects. */
+function Duration() {
+  const time = useCallDuration();
+  if (!time) return null;
+  return (
+    <span
+      className="absolute text-[11px]"
+      style={{
+        left: PAD,
+        bottom: (DURATION_BAND - 16) / 2,
+        height: 16,
+        lineHeight: "16px",
+        padding: "0 6px",
+        borderRadius: 8,
+        background: "rgba(0, 0, 0, 0.5)",
+        color: "#fff",
+        fontVariantNumeric: "tabular-nums",
+        whiteSpace: "nowrap",
+        pointerEvents: "none",
+      }}
+      data-testid="voice-call-tile-duration"
+    >
+      {time}
+    </span>
+  );
 }
 
 const px = (v: number) => `${Math.round(v * 100) / 100}px`;
@@ -281,6 +323,7 @@ const now = () => performance.now();
 
 function Card({ onOpen }: { onOpen: () => void }) {
   const ref = useRef<HTMLDivElement>(null);
+  const mediaRef = useRef<HTMLDivElement>(null);
   const pictureRef = useRef<HTMLDivElement>(null);
   const roomName = useVoiceCall((s) => s.room?.roomName ?? "");
   useTileCameraFeed();
@@ -317,15 +360,19 @@ function Card({ onOpen }: { onOpen: () => void }) {
   const draw = (k: number) => {
     open.current = k;
     const card = ref.current;
+    const media = mediaRef.current;
     const pic = pictureRef.current;
-    if (!card || !pic) return;
+    if (!card || !media || !pic) return;
     const h = heightRef.current * k;
+    const band = DURATION_BAND * k;
     const r = PILL_RADIUS + (CARD_TOP_RADIUS - PILL_RADIUS) * k;
-    card.style.height = px(CALL_TILE_H + h);
+    card.style.height = px(CALL_TILE_H + h + band);
     card.style.borderRadius = `${px(r)} ${px(r)} ${PILL_RADIUS}px ${PILL_RADIUS}px`;
+    media.style.height = px(h + band);
+    media.style.opacity = k >= 1 ? "" : String(Math.round(k * 1000) / 1000);
     pic.style.height = px(h);
-    pic.style.opacity = k >= 1 ? "" : String(Math.round(k * 1000) / 1000);
     const pr = Math.max(0, r - CARD_EDGE);
+    media.style.borderRadius = `${px(pr)} ${px(pr)} 0px 0px`;
     pic.style.borderRadius = `${px(pr)} ${px(pr)} 0px 0px`;
     card.dataset.open = k >= 1 ? "yes" : k <= 0 ? "no" : "moving";
   };
@@ -385,15 +432,25 @@ function Card({ onOpen }: { onOpen: () => void }) {
       data-picture={picture ?? "none"}
     >
       <div
-        ref={pictureRef}
+        ref={mediaRef}
         className="relative overflow-hidden"
         style={{ flex: "0 0 auto", width: "100%", background: backdrop === "remote" ? "#000" : backdrop ? "#1c1c1e" : "transparent" }}
-        role={picture ? "img" : undefined}
-        aria-label={picture === "remote" ? "The call's video" : picture === "self" ? "Your camera" : undefined}
         aria-hidden={picture ? undefined : true}
-        data-testid="voice-call-tile-picture"
+        data-testid="voice-call-tile-media"
       >
-        <Picture picture={picture} />
+        {picture === "self" ? <Self /> : null}
+        {/* The native layer's rect (someone's video): the band stays below it. */}
+        <div
+          ref={pictureRef}
+          className="relative overflow-hidden"
+          style={{ width: "100%" }}
+          role={picture ? "img" : undefined}
+          aria-label={picture === "remote" ? "The call's video" : picture === "self" ? "Your camera" : undefined}
+          data-testid="voice-call-tile-picture"
+        >
+          {picture === "remote" ? <Remote /> : null}
+        </div>
+        {picture ? <Duration /> : null}
       </div>
       <Controls />
     </div>

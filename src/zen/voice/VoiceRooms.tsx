@@ -9,6 +9,7 @@ import { serverDisplayName } from "../homeView";
 import { subscribeAppEvents } from "../ticketEvents";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "../ZenHeaderBlur";
 import { FEATURE_VOICE_ROOMS, fetchVoiceRooms, isVoiceRoomsChanged, type VoiceRoomsResult } from "./voiceApi";
+import { useCallDuration } from "./callDuration";
 import { shareCallLog } from "./sewVoice";
 import { useLiveVideo, VideoTile } from "./videoLayer";
 import { canJoinWithCamera, useVoiceCall, type CallRoom } from "./voiceCall";
@@ -416,8 +417,9 @@ export function ConsentSheet() {
   );
 }
 
-/** While Sew's kit loads: the room and its state. */
+/** While Sew's kit loads: the room, its state and the call's time. */
 function CallLine({ room, status }: { room: CallRoom; status: string }) {
+  const time = useCallDuration();
   return (
     <div className="min-w-0" data-testid="voice-call-line">
       <div className="text-[15px] truncate" style={{ color: "#fff" }}>
@@ -425,6 +427,7 @@ function CallLine({ room, status }: { room: CallRoom; status: string }) {
       </div>
       <div className="text-[12px] truncate" style={{ color: "#30d158" }}>
         {status} · {room.serverLabel}
+        {time ? <span style={{ fontVariantNumeric: "tabular-nums" }}> · {time}</span> : null}
       </div>
     </div>
   );
