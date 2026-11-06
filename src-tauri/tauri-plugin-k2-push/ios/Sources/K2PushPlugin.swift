@@ -341,7 +341,7 @@ class K2PushPlugin: Plugin {
 
   // ── Voice-room calls: the system call UI (K2CallShim) ────────────────
 
-  /// `{op, room?, server?, state?, reason?, on?, title?}` (models.rs
+  /// `{op, room?, server?, state?, reason?, on?, title?, video?}` (models.rs
   /// CallOpRequest). `start` answers once CallKit took the call.
   @objc public func callOp(_ invoke: Invoke) {
     let args: CallOpArgs
@@ -365,7 +365,7 @@ class K2PushPlugin: Plugin {
         if let error = error { invoke.resolve(["ok": false, "error": error]) } else { invoke.resolve(["ok": true]) }
       }
     case "report":
-      shim.report(state: args.state ?? "", reason: args.reason)
+      shim.report(state: args.state ?? "", reason: args.reason, video: args.video)
       invoke.resolve(["ok": true])
     case "mute":
       shim.setMuted(args.on ?? false)
@@ -378,8 +378,12 @@ class K2PushPlugin: Plugin {
       invoke.resolve(["ok": true])
     case "speaker":
       invoke.resolve(["ok": shim.setSpeaker(args.on ?? false), "route": K2CallShim.currentRoute()])
+    case "autoSpeaker":
+      invoke.resolve(["ok": shim.autoSpeaker(args.on ?? false), "route": K2CallShim.currentRoute()])
     case "route":
-      invoke.resolve(["ok": true, "route": K2CallShim.currentRoute(), "active": shim.active])
+      invoke.resolve([
+        "ok": true, "route": K2CallShim.currentRoute(), "active": shim.active, "autoSpeaker": shim.autoSpeakerActive,
+      ])
     case "mic":
       K2CallShim.microphone { invoke.resolve(["ok": true, "mic": $0]) }
     default:
@@ -962,6 +966,7 @@ private struct CallOpArgs: Decodable {
   let reason: String?
   let on: Bool?
   let title: String?
+  let video: Bool?
 }
 
 private struct VoiceWatchArgs: Decodable {

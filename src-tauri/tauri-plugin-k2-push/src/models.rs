@@ -279,10 +279,11 @@ pub struct ScanQrResponse {
 }
 
 /// `call_op` (iOS): the voice-room call's system UI (CallKit, K2CallShim).
-///   `start {room, server}` → `{ok, error?}`; `report {state, reason?}`;
+///   `start {room, server}` → `{ok, error?}`; `report {state?, reason?, video?}`;
 ///   `mute {on}`; `title {title}`; `end`; `speaker {on}` → `{ok, route}`;
-///   `route` → `{route, active}`; `mic` → `{mic: granted|denied}` (asks the
-///   first time). Events come back as `call`.
+///   `autoSpeaker {on}` → `{ok, route}` (video's speaker; off undoes only its own);
+///   `route` → `{route, active, autoSpeaker}`; `mic` → `{mic: granted|denied}`
+///   (asks the first time). Events come back as `call`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct CallOpRequest {
@@ -299,6 +300,8 @@ pub struct CallOpRequest {
     pub on: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub title: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub video: Option<bool>,
 }
 
 /// Login tokens in the Keychain (iOS): `set`, `remove`, or `sync` the set.
