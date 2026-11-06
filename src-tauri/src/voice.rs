@@ -1057,6 +1057,11 @@ struct PipFeed {
 
 impl NativeVideoConsumer for PipFeed {
     fn on_video(&self, event: NativeVideoEvent) {
+        if let Some(who) = speaker_of(&event) {
+            if let Some(app) = self.native.app() {
+                let _ = app.emit(PIP_SPEAKER_EVENT, who);
+            }
+        }
         let fed = feed(&event);
         self.counts.count(&event, &fed);
         {
@@ -1073,6 +1078,18 @@ impl NativeVideoConsumer for PipFeed {
                 Feed::PixelBuffer { buffer, pts_90k } => pip::pixel_buffer(buffer, pts_90k),
             }
         }
+    }
+}
+
+/// Whom the picture shows now (the active speaker the sink moved to), so
+/// the call screen draws the layer on that person's tile: `{member_id,
+/// track}`, both null when nobody is left to show.
+pub const PIP_SPEAKER_EVENT: &str = "k2-voice://pip_speaker";
+
+fn speaker_of(event: &NativeVideoEvent) -> Option<Value> {
+    match event {
+        NativeVideoEvent::Switched { track, member_id } => Some(json!({ "member_id": member_id, "track": track })),
+        _ => None,
     }
 }
 
@@ -1954,6 +1971,10 @@ mod tests {
         assert_eq!(feed(&to), vec![Feed::Flush { remove_image: false }]);
         let nobody = NativeVideoEvent::Switched { track: None, member_id: None };
         assert_eq!(feed(&nobody), vec![Feed::Flush { remove_image: true }]);
+        // Whom the picture shows, for the call screen's tile.
+        assert_eq!(speaker_of(&to), Some(json!({ "member_id": "1001", "track": "TR_v2" })));
+        assert_eq!(speaker_of(&nobody), Some(json!({ "member_id": null, "track": null })));
+        assert_eq!(speaker_of(&frame), None);
         assert_eq!(pts_90k(1_000_000), 90_000);
 
         // The call log's counts.

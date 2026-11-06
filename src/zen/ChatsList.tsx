@@ -110,6 +110,7 @@ import { unreadSupported, useUnreadStore } from "./unreadStore";
 import { UnreadDot } from "./UnreadMarks";
 import { onForegroundLater } from "../lib/foreground";
 import { useVoiceAvailable, VoiceRoomsOverlay } from "./voice/VoiceRooms";
+import { useCallScreen } from "./voice/callScreen";
 import { consentKey, useVoiceCall } from "./voice/voiceCall";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
@@ -467,6 +468,16 @@ export function ChatsList() {
   useEffect(() => {
     if (consentAsked) setVoiceOpen(true);
   }, [consentAsked]);
+  // The call screen as the rest of the app sees it (the mini video tile),
+  // and its tap asking for it from any screen.
+  useEffect(() => {
+    useCallScreen.getState().setOpen(voiceOpen);
+  }, [voiceOpen]);
+  useEffect(() => () => useCallScreen.getState().setOpen(false), []);
+  const callScreenAsked = useCallScreen((s) => s.pending);
+  useEffect(() => {
+    if (callScreenAsked && useCallScreen.getState().consume()) setVoiceOpen(true);
+  }, [callScreenAsked]);
   const onGardens = tab === "gardens" && showGardens;
   const setTab = (next: ListTab) => {
     if (next === tab) return;

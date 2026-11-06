@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState } from "react";
 import { scopeFor } from "../../api/scope";
 import { useBackHandler } from "../../lib/androidBack";
 import { isIosWebView } from "../../lib/nativePicker";
@@ -9,8 +9,9 @@ import { subscribeAppEvents } from "../ticketEvents";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "../ZenHeaderBlur";
 import { FEATURE_VOICE_ROOMS, fetchVoiceRooms, isVoiceRoomsChanged, type VoiceRoomsResult } from "./voiceApi";
 import { shareCallLog } from "./sewVoice";
-import { followPip, togglePip, usePipStatus, useVideoTile } from "./videoTile";
-import { useVoiceCall } from "./voiceCall";
+import { VideoTile } from "./videoLayer";
+import { useVoiceCall, type CallRoom } from "./voiceCall";
+import { useVoiceNames } from "./voiceNames";
 import { hostingStateText, meOffer, roomIsFull, type VoiceRoom, type VoiceRoomsList } from "./voiceWire";
 
 // Voice rooms on every server this phone is signed in to that hosts them
@@ -25,6 +26,9 @@ const POLL_MS = 30_000;
 /** The call bar's height without video, and the air above it. */
 const CALL_BAR_PX = 60;
 const CALL_BAR_AIR = 36;
+
+/** Sew's call kit, loaded with the first call screen (never at start). */
+const KitCall = lazy(() => import("./kit/KitCall"));
 
 /** Signed-in servers that host rooms, this one first, then A to Z. */
 export function voiceServers(
@@ -170,6 +174,12 @@ function MeOffer({ server, list }: { server: ServerEntry; list: VoiceRoomsList }
 function ServerRooms({ server }: { server: ServerEntry }) {
   const r = useRooms(server);
   const label = serverDisplayName(server);
+  // The call screen names people and rooms from these.
+  const put = useVoiceNames((s) => s.put);
+  const rooms = r?.ok ? r.list.rooms : null;
+  useEffect(() => {
+    if (rooms) put(server.id, rooms);
+  }, [put, rooms, server.id]);
   return (
     <section style={{ marginBottom: 18 }} data-testid={`voice-server-${server.id}`}>
       <h2 className="text-[13px] uppercase" style={{ color: "#8e8e93", padding: "0 14px 6px", letterSpacing: 0.4 }}>
@@ -374,62 +384,27 @@ export function ConsentSheet() {
   );
 }
 
-const TILE_RADIUS = 12;
-const TILE_BORDER = 1;
-
-/** The call's video, over the call bar: a placeholder Swift's video layer
- *  covers (videoTile.ts). The layer lets touches through: a tap here starts
- *  Picture in Picture, or brings it back. */
-function VideoTile({ covered }: { covered: boolean }) {
-  const ref = useRef<HTMLButtonElement>(null);
-  const frame = usePipStatus((s) => s.frame);
-  const pip = usePipStatus((s) => s.active);
-  useEffect(() => followPip(), []);
-  useVideoTile(ref, !covered, TILE_RADIUS, TILE_BORDER);
-  const line = pip ? "Playing in Picture in Picture" : frame ? null : "Video starting…";
+/** While Sew's kit loads: the room and its state. */
+function CallLine({ room, status }: { room: CallRoom; status: string }) {
   return (
-    <button
-      ref={ref}
-      type="button"
-      className="relative block overflow-hidden"
-      style={{
-        width: "min(100%, calc(40vh * 16 / 9))",
-        aspectRatio: "16 / 9",
-        margin: "0 auto 10px",
-        borderRadius: TILE_RADIUS,
-        border: `${TILE_BORDER}px solid var(--tile-edge)`,
-        background: "#000",
-      }}
-      onClick={togglePip}
-      aria-label={pip ? "Video in Picture in Picture. Tap to bring it back." : "Video. Tap for Picture in Picture."}
-      data-testid="voice-video-tile"
-    >
-      {line ? (
-        <span
-          className="absolute inset-0 flex items-center justify-center text-[13px]"
-          style={{ color: "#8e8e93" }}
-          data-testid="voice-video-line"
-        >
-          {line}
-        </span>
-      ) : null}
-    </button>
+    <div className="min-w-0" data-testid="voice-call-line">
+      <div className="text-[15px] truncate" style={{ color: "#fff" }}>
+        {room.roomName}
+      </div>
+      <div className="text-[12px] truncate" style={{ color: "#30d158" }}>
+        {status} · {room.serverLabel}
+      </div>
+    </div>
   );
 }
 
-/** The current call, docked at the bottom: its video while it has any, the
- *  room, Mute and Leave. */
+/** The current call, docked at the bottom: Sew's kit (kit/KitCall.tsx):
+ *  the people, the video on its person's tile (the phone's native layer),
+ *  the E2EE status and quality, Mute, Deafen and Leave. */
 export function CallBar({ measureRef }: { measureRef?: (el: HTMLElement | null) => void }) {
   const call = useVoiceCall();
   if (call.phase === "idle" || !call.room) return null;
-  const status =
-    call.phase === "joining"
-      ? call.consent?.ask === "join"
-        ? "Waiting for your answer…"
-        : "Joining…"
-      : call.phase === "reconnecting"
-        ? "Reconnecting…"
-        : "Connected";
+  const held = call.phase === "joining" && call.consent?.ask === "join";
   return (
     <div
       ref={measureRef}
@@ -443,40 +418,22 @@ export function CallBar({ measureRef }: { measureRef?: (el: HTMLElement | null) 
       }}
       data-testid="voice-call-bar"
     >
-      {/* The recording sheet sits over the tile: the layer steps under the page. */}
-      {call.video ? <VideoTile covered={!!call.consent} /> : null}
-      <div className="flex items-center" style={{ gap: 10 }}>
-        <div className="min-w-0 flex-1">
-          <div className="text-[15px] truncate" style={{ color: "#fff" }}>
-            {call.room.roomName}
-          </div>
-          <div
-            className="text-[12px] truncate"
-            style={{ color: call.phase === "reconnecting" ? "#ffd60a" : "#30d158" }}
-          >
-            {status} · {call.room.serverLabel}
-          </div>
-        </div>
-        <button
-          type="button"
-          className="zen-glass zen-glass-pill text-[14px]"
-          style={{ minHeight: 34, padding: "0 14px", color: "#fff" }}
-          aria-pressed={call.muted}
-          onClick={() => call.setMuted(!call.muted)}
-          data-testid="voice-mute"
-        >
-          {call.muted ? "Unmute" : "Mute"}
-        </button>
-        <button
-          type="button"
-          className="text-[14px]"
-          style={{ minHeight: 34, padding: "0 14px", color: "#fff", background: "#ff453a", borderRadius: 17 }}
-          onClick={() => void call.leave()}
-          data-testid="voice-leave"
-        >
-          Leave
-        </button>
-      </div>
+      {held ? (
+        <p className="text-[12px]" style={{ color: "#ffd60a", margin: "0 0 8px" }} data-testid="voice-call-held">
+          Waiting for your answer…
+        </p>
+      ) : null}
+      <Suspense
+        fallback={
+          <>
+            {/* The recording sheet sits over the tile: the layer steps under the page. */}
+            {call.video ? <VideoTile covered={!!call.consent} /> : null}
+            <CallLine room={call.room} status={call.phase === "joining" ? "Joining…" : call.phase === "reconnecting" ? "Reconnecting…" : "Connected"} />
+          </>
+        }
+      >
+        <KitCall />
+      </Suspense>
     </div>
   );
 }

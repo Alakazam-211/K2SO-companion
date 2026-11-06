@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate, useParams } from "react-router-dom";
 import { useServersStore } from "./stores/servers";
 import { useWorkspacesStore } from "./stores/workspaces";
 import { registerAllSignedIn, attachPushNavigation, watchPushRegistrations } from "./lib/push";
@@ -14,6 +14,8 @@ import { zenProjectPath, zenTerminalPath, zenTicketPath } from "./zen/terminalJu
 import { startHomesSync } from "./zen/homesSync";
 import { startStashSync } from "./zen/stash/stashSync";
 import { installNetStats } from "./lib/netStats";
+import { useCallScreen } from "./zen/voice/callScreen";
+import { MiniVideoTile } from "./zen/voice/videoLayer";
 
 /** Cold-start home is always the overlay. Zero stored servers still
  *  open `/zen` (overlay Add server). Any unknown path lands here too —
@@ -70,6 +72,23 @@ function PushBridge() {
   return null;
 }
 
+/** A video call's small tile over every screen but the call's own; its tap
+ *  goes back to the call (the Rooms overlay lives on /zen). */
+function VoiceMiniTile() {
+  const open = useCallScreen((s) => s.open);
+  const navigate = useNavigate();
+  const { pathname } = useLocation();
+  return (
+    <MiniVideoTile
+      callViewOpen={open}
+      onOpen={() => {
+        useCallScreen.getState().ask();
+        if (pathname !== "/zen") navigate("/zen");
+      }}
+    />
+  );
+}
+
 function AppLayout() {
   const activeServerId = useServersStore((s) => s.activeServerId);
 
@@ -94,6 +113,7 @@ function AppLayout() {
   return (
     <div className="flex flex-col h-full">
       <PushBridge />
+      <VoiceMiniTile />
       <div className="flex-1 overflow-hidden">
         <Routes>
           {/* No server required so the overlay can offer Add server. */}
