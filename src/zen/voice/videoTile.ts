@@ -22,7 +22,10 @@ export type TileFrame =
       w: number;
       h: number;
       radius: number;
-      /** Get there on its own from where it is now (the mini tile's snap). */
+      /** Round the top two corners only (the floating card's picture: its
+       *  controls strip is under it). All four when absent. */
+      corners?: TileCorners;
+      /** Get there on its own from where it is now (the floating tile's snap). */
       animate?: TileAnimation;
     };
 
@@ -43,6 +46,9 @@ export type TileAnimation = { startedAt?: number } & (
   | { duration: number }
 );
 
+/** Which corners `radius` rounds: "top" only, else all four. */
+export type TileCorners = "top";
+
 export const HIDDEN: TileFrame = { visible: false };
 
 type Rect = { left: number; top: number; width: number; height: number };
@@ -61,7 +67,7 @@ const half = (v: number) => Math.round(v * 2) / 2;
 /** The layer's frame for a tile at `rect` (getBoundingClientRect: layout
  *  viewport px), inside its `border`. Hidden when it has no size or is off
  *  screen. */
-export function tileFrame(rect: Rect, view: Viewport, radius: number, border = 0): TileFrame {
+export function tileFrame(rect: Rect, view: Viewport, radius: number, border = 0, corners?: TileCorners): TileFrame {
   const s = view.scale > 0 ? view.scale : 1;
   const x = (rect.left - view.offsetLeft + border) * s;
   const y = (rect.top - view.offsetTop + border) * s;
@@ -76,6 +82,7 @@ export function tileFrame(rect: Rect, view: Viewport, radius: number, border = 0
     w: half(w),
     h: half(h),
     radius: half(Math.max(0, radius - border) * s),
+    ...(corners ? { corners } : {}),
   };
 }
 
@@ -83,7 +90,7 @@ export function tileFrame(rect: Rect, view: Viewport, radius: number, border = 0
 export function sameFrame(a: TileFrame | null, b: TileFrame): boolean {
   if (!a || a.visible !== b.visible) return false;
   if (!a.visible || !b.visible) return true;
-  return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h && a.radius === b.radius;
+  return a.x === b.x && a.y === b.y && a.w === b.w && a.h === b.h && a.radius === b.radius && a.corners === b.corners;
 }
 
 function currentViewport(): Viewport {
@@ -218,7 +225,7 @@ function nativeHaptic(prepare: boolean): void {
 
 let haptic: (prepare: boolean) => void = nativeHaptic;
 
-/** A light tap (UIImpactFeedbackGenerator .light): the mini tile landing in
+/** A light tap (UIImpactFeedbackGenerator .light): the floating tile landing in
  *  its corner. `prepare` warms the engine up just before. */
 export function tileHaptic(prepare = false): void {
   haptic(prepare);
@@ -233,7 +240,7 @@ export function togglePip(): void {
 
 // ── The tile ────────────────────────────────────────────────────────────
 
-/** What a tile that moves itself (the mini tile) does with the layer. */
+/** What a tile that moves itself (the floating card) does with the layer. */
 export type TileHandle = {
   /** Measure on the next frame (a move no resize sees: a drag). */
   schedule(): void;
@@ -261,7 +268,8 @@ export function useVideoTile(
   radius: number,
   border = 0,
   /** Measure again when this changes (a move no resize sees: a drag). */
-  remeasure?: unknown
+  remeasure?: unknown,
+  corners?: TileCorners
 ): TileHandle {
   const scheduleRef = useRef<(() => void) | null>(null);
   const live = useRef<Omit<TileHandle, "schedule"> | null>(null);
@@ -290,7 +298,7 @@ export function useVideoTile(
         return;
       }
       busyUntil = 0;
-      placeLayerFor(id, tileFrame(el.getBoundingClientRect(), currentViewport(), radius, border));
+      placeLayerFor(id, tileFrame(el.getBoundingClientRect(), currentViewport(), radius, border, corners));
     };
     const schedule = () => {
       if (!raf) raf = requestAnimationFrame(() => measure());
@@ -303,7 +311,7 @@ export function useVideoTile(
       },
       animateTo: (rect, animate) => {
         const view = currentViewport();
-        const f = tileFrame(rect, view, radius, border);
+        const f = tileFrame(rect, view, radius, border, corners);
         if (!f.visible) return placeLayerFor(id, f);
         const s = view.scale > 0 ? view.scale : 1;
         busyUntil = now() + animate.duration * 1000 + 50;
@@ -345,7 +353,7 @@ export function useVideoTile(
       vv?.removeEventListener("scroll", schedule);
       releaseLayer(id);
     };
-  }, [ref, show, radius, border]);
+  }, [ref, show, radius, border, corners]);
   useEffect(() => {
     scheduleRef.current?.();
   }, [remeasure]);

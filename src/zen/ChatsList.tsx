@@ -468,7 +468,7 @@ export function ChatsList() {
   useEffect(() => {
     if (consentAsked) setVoiceOpen(true);
   }, [consentAsked]);
-  // The call screen as the rest of the app sees it (the mini video tile),
+  // The call screen as the rest of the app sees it (the floating call tile),
   // and its tap asking for it from any screen.
   useEffect(() => {
     useCallScreen.getState().setOpen(voiceOpen);

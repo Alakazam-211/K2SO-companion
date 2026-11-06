@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 // Whether the call screen (the Rooms overlay, in ChatsList) is open, and a
-// request to open it from anywhere in the app (the mini video tile, which
+// request to open it from anywhere in the app (the floating call tile, which
 // lives at the app's level so it shows on every screen).
 
 type CallScreen = {

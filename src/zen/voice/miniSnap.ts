@@ -1,6 +1,7 @@
 import type { TileAnimation } from "./videoTile";
 
-// The mini video tile's motion, as plain maths (videoLayer's `Mini` runs it):
+// The floating call tile's motion, as plain maths (videoLayer's
+// `useCornerDrag` runs it):
 //   - let go, it goes to the corner its centre would coast to: the release
 //     point projected by the finger's velocity (FaceTime's PiP, after
 //     Apple's "Designing Fluid Interfaces": a fling crosses the screen, a

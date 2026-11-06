@@ -5,12 +5,12 @@ import {
   useRef,
   useState,
   type CSSProperties,
+  type ReactNode,
   type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
   type RefObject,
 } from "react";
 import type { VideoHandle } from "@sew/voice";
-import { createPortal } from "react-dom";
 import {
   CORNERS,
   easeOut,
@@ -46,19 +46,21 @@ import { useVoiceCall } from "./voiceCall";
 //     layer: `useLayerPlacement`);
 //   - in the call screen before the kit knows whose picture it is (or while
 //     the kit loads): `VideoTile`, placing itself;
-//   - anywhere else in the app: `MiniVideoTile`, a small draggable tile in a
-//     corner. iOS starts PiP on its own only from a layer that's on screen,
-//     so during a video call the layer always is.
+//   - anywhere else in the app: the floating call card (callTile.tsx), a
+//     small draggable card in a corner, the picture on top of its Mute /
+//     Deafen / Camera / Hang up strip. iOS starts PiP on its own only from a
+//     layer that's on screen, so during a video call the layer always is.
 // The layer lets touches through: these webview elements take the taps.
 //
 // Only while the picture is really live (the call has video and the layer
 // shows a frame since its last flush, or plays in PiP): before the first
 // frame, after a stall (K2PiP's `pip_stalled`: a muted or paused camera, a
-// lost stream) or once the video ends, no tile and no mini tile; the kit's
-// avatar tile stands for the person instead. Your own camera is never on
+// lost stream) or once the video ends, no video tile and no picture on the
+// floating card; the kit's avatar tile stands for the person instead. Your own camera is never on
 // this layer (the sink never shows you): `SelfView` draws it in the page.
-// With no live picture the call tile (callTile.tsx: Mute, Deafen, Hang up)
-// floats in the mini tile's place, on the same motion (`useCornerDrag`).
+// With no live picture the card shows your camera (`SelfView`) while it's on,
+// else it folds down to the plain controls pill, in the same corner, on the
+// same motion (`useCornerDrag`).
 
 export const TILE_RADIUS = 12;
 const TILE_BORDER = 1;
@@ -182,12 +184,9 @@ export function useLayerPlacement(covered: boolean): (rect: DOMRectReadOnly | nu
   return place;
 }
 
-// ── The mini tile ────────────────────────────────────────────────────
+// ── The floating tile's motion ──────────────────────────────────────
 
 export type { Corner };
-export const MINI_W = 120;
-export const MINI_H = 68;
-const MINI_RADIUS = 10;
 /** Clear of the screen's edge, the header and the composer / search bar. */
 const EDGE = 12;
 const TOP_CLEAR = "calc(env(safe-area-inset-top, 0px) + 64px)";
@@ -202,11 +201,11 @@ export function nearestCorner(cx: number, cy: number, width: number, height: num
   return `${cy < height / 2 ? "top" : "bottom"}-${cx < width / 2 ? "left" : "right"}` as Corner;
 }
 
-/** The last corner set, for when storage is unavailable: the video tile
- *  and the call tile still share it for the session. */
+/** The last corner set, for when storage is unavailable: the floating
+ *  tile keeps it for the session. */
 let sessionCorner: Corner | null = null;
 
-/** The floating tile's corner: the video tile's and the call tile's. */
+/** The floating tile's corner (with or without its picture). */
 export function readCorner(): Corner {
   try {
     const v = localStorage.getItem(MINI_CORNER_KEY);
@@ -229,22 +228,6 @@ function writeCorner(c: Corner): void {
   }
 }
 
-/** The mini tile shows while the call's picture is live and its screen is
- *  closed: never an empty or black tile. */
-export function useMiniTileShown(callViewOpen: boolean): boolean {
-  const live = useLiveVideo();
-  const inCall = useVoiceCall((s) => s.phase !== "idle" && !!s.room);
-  return inCall && live && !callViewOpen;
-}
-
-/** FaceTime's small video, over the app while the call screen is closed:
- *  drag it to any corner, tap it for the call. */
-export function MiniVideoTile({ callViewOpen, onOpen }: { callViewOpen: boolean; onOpen: () => void }) {
-  const shown = useMiniTileShown(callViewOpen);
-  if (!shown || typeof document === "undefined") return null;
-  return createPortal(<Mini onOpen={onOpen} />, document.body);
-}
-
 type Rect = { left: number; top: number; width: number; height: number };
 
 /** Where each corner puts the tile: clear of the edges, header and composer. */
@@ -262,8 +245,13 @@ function applyAnchor(el: HTMLElement, corner: Corner): void {
   el.dataset.corner = corner;
 }
 
-/** Each corner's spot for the tile (unmoved, unscaled), measured. */
-function measureHomes(el: HTMLElement, corner: Corner): Record<Corner, Rect> {
+/** Each corner's spot for the tile (unmoved, unscaled), measured, and for
+ *  `part` (an element inside it: the card's picture) its spot there too. */
+function measureHomes(
+  el: HTMLElement,
+  corner: Corner,
+  part: HTMLElement | null
+): { homes: Record<Corner, Rect>; parts: Record<Corner, Rect> } {
   const transform = el.style.transform;
   el.style.transform = "";
   const homes = {} as Record<Corner, Rect>;
@@ -273,8 +261,17 @@ function measureHomes(el: HTMLElement, corner: Corner): Record<Corner, Rect> {
     homes[c] = { left: r.left, top: r.top, width: r.width, height: r.height };
   }
   applyAnchor(el, corner);
+  let parts = homes;
+  if (part && el.contains(part)) {
+    // Where the part sits in the tile: the same in every corner.
+    const t = homes[corner];
+    const p = part.getBoundingClientRect();
+    parts = {} as Record<Corner, Rect>;
+    for (const c of CORNERS)
+      parts[c] = { left: homes[c].left + p.left - t.left, top: homes[c].top + p.top - t.top, width: p.width, height: p.height };
+  }
   el.style.transform = transform;
-  return homes;
+  return { homes, parts };
 }
 
 const centre = (r: Rect): Vec => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
@@ -287,7 +284,7 @@ function poseTransform(p: Pose): string {
   return `translate(${round(p.x)}px, ${round(p.y)}px)${scale}`;
 }
 
-function reduceMotion(): boolean {
+export function reduceMotion(): boolean {
   try {
     return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
   } catch {
@@ -303,15 +300,19 @@ export const FLOAT_SHADOW = "0 8px 24px rgba(0, 0, 0, 0.45)";
 export const FLOAT_HELD_SHADOW = "0 16px 36px rgba(0, 0, 0, 0.55)";
 
 /** What moves with the floating tile besides the page's element: the native
- *  video layer under the video tile (the call tile has none). */
+ *  video layer over the card's picture (none without a live picture). */
 export type Follower = Pick<TileHandle, "placeNow" | "schedule" | "animateTo">;
 
 type CornerDragOptions = {
   follower?: Follower;
+  /** The element the follower sits on, inside the tile (the card's
+   *  picture): the snap sends the follower that part's spot. The whole
+   *  tile when absent. */
+  followerPart?: RefObject<HTMLElement | null>;
   /** A press that never became a drag, let go on `target`. */
   onTap(target: EventTarget | null): void;
   /** Take the finger only once it drags: a tap on a button inside stays the
-   *  button's (the call tile). The video tile takes it at once. */
+   *  button's (the call card). Else it's taken at once. */
   captureOnDrag?: boolean;
 };
 
@@ -329,10 +330,10 @@ export type CornerDrag = {
   };
 };
 
-/** The floating tile's motion, shared by the video tile and the call tile:
+/** The floating tile's motion (the call card, with or without its picture):
  *  drag past `TAP_SLOP` (lifted), let go to the corner it would coast to on
  *  a spring (Reduce Motion: a short ease, no lift), a light tap as it lands,
- *  caught mid-flight it stops under the finger. One saved corner for both. */
+ *  caught mid-flight it stops under the finger. One saved corner. */
 export function useCornerDrag(ref: RefObject<HTMLElement | null>, opts: CornerDragOptions): CornerDrag {
   const [corner, setCorner] = useState<Corner>(readCorner);
   const [held, setHeld] = useState(false);
@@ -377,7 +378,7 @@ export function useCornerDrag(ref: RefObject<HTMLElement | null>, opts: CornerDr
     if (!el) return;
     stop();
     const follower = o.current.follower;
-    const homes = measureHomes(el, corner);
+    const { homes, parts } = measureHomes(el, corner, o.current.followerPart?.current ?? null);
     const here = centre(homes[corner]);
     const at = { x: here.x + pose.current.x, y: here.y + pose.current.y };
     const next = pickCorner(at, velocity, {
@@ -396,7 +397,7 @@ export function useCornerDrag(ref: RefObject<HTMLElement | null>, opts: CornerDr
     setCorner(next);
     setHeld(false);
     const plan = planSnap(from, velocity, reduceMotion());
-    follower?.animateTo(homes[next], plan.animate);
+    follower?.animateTo(parts[next], plan.animate);
     tileHaptic(true);
     const start = now();
     let landed = false;
@@ -492,7 +493,7 @@ export function useCornerDrag(ref: RefObject<HTMLElement | null>, opts: CornerDr
 }
 
 /** A floating tile comes in with a short fade (none with Reduce Motion):
- *  the call tile and the video tile swap in place without a pop. */
+ *  the call area closing brings it up without a pop. */
 export function useFadeIn(ref: RefObject<HTMLElement | null>): void {
   useLayoutEffect(() => {
     const el = ref.current;
@@ -501,53 +502,32 @@ export function useFadeIn(ref: RefObject<HTMLElement | null>): void {
   }, [ref]);
 }
 
-function Mini({ onOpen }: { onOpen: () => void }) {
-  const ref = useRef<HTMLButtonElement>(null);
-  const pip = usePipStatus((s) => s.active);
-  useEffect(() => followPip(), []);
-  // Resize, scroll, rotation and the return to the app re-place the layer;
-  // the drag and the snap move it too.
-  const tile = useVideoTile(ref, true, MINI_RADIUS, 0);
-  const { corner, held, handlers } = useCornerDrag(ref, { follower: tile, onTap: () => onOpen() });
-  useFadeIn(ref);
-
-  return (
-    <button
-      ref={ref}
-      type="button"
-      className="fixed block overflow-hidden"
-      style={{
-        ...anchorStyle(corner),
-        width: MINI_W,
-        height: MINI_H,
-        borderRadius: MINI_RADIUS,
-        background: "#000",
-        border: "1px solid var(--tile-edge)",
-        boxShadow: held ? FLOAT_HELD_SHADOW : FLOAT_SHADOW,
-        transition: "box-shadow 0.18s ease-out",
-        willChange: "transform",
-        padding: 0,
-        zIndex: 40,
-        touchAction: "none",
-      }}
-      {...handlers}
-      aria-label="The call's video. Tap to open the call."
-      data-testid="voice-mini-tile"
-      data-corner={corner}
-    >
-      {pip ? <Line text="Picture in Picture" small /> : null}
-    </button>
-  );
-}
-
 // ── Your camera ──────────────────────────────────────────────────────
 
 /** Your own tile's video while your camera is on: the kit's `local:camera`
  *  sink drawn in the page (never the native layer, never PiP), mirrored for
  *  the front camera, and "Camera paused" while the app was in the
- *  background (Sew pauses the camera there; it turns off after 5 minutes). */
-export function SelfView({ handle, mirrored, paused }: { handle: VideoHandle; mirrored: boolean; paused: boolean }) {
+ *  background (Sew pauses the camera there; it turns off after 5 minutes).
+ *  `untilFrame`: shown over it until its first frame plays (the floating
+ *  card's "Camera on", never a plain black box). */
+export function SelfView({
+  handle,
+  mirrored,
+  paused,
+  radius = TILE_RADIUS,
+  untilFrame,
+}: {
+  handle: VideoHandle;
+  mirrored: boolean;
+  paused: boolean;
+  radius?: CSSProperties["borderRadius"];
+  untilFrame?: ReactNode;
+}) {
   const ref = useRef<HTMLVideoElement>(null);
+  const [playing, setPlaying] = useState(false);
+  const frame = (e: { currentTarget: HTMLVideoElement }) => {
+    if (e.currentTarget.videoWidth > 0 || e.currentTarget.readyState >= 2) setPlaying(true);
+  };
   // Attach once per track, as the kit's own tile does: a new handle object
   // for the same track must not restart the stream.
   const latest = useRef(handle);
@@ -556,13 +536,14 @@ export function SelfView({ handle, mirrored, paused }: { handle: VideoHandle; mi
     const el = ref.current;
     if (!el) return;
     const h = latest.current;
+    setPlaying(false);
     h.attach(el);
     return () => h.detach(el);
   }, [handle.key]);
   return (
     <div
       className="absolute inset-0 overflow-hidden"
-      style={{ borderRadius: TILE_RADIUS, background: "#000" }}
+      style={{ borderRadius: radius, background: "#000" }}
       data-testid="voice-self-view"
       data-mirrored={mirrored ? "yes" : "no"}
       data-paused={paused ? "yes" : "no"}
@@ -582,8 +563,11 @@ export function SelfView({ handle, mirrored, paused }: { handle: VideoHandle; mi
         muted
         aria-label="Your camera"
         data-testid="voice-self-video"
+        onLoadedData={frame}
+        onPlaying={frame}
+        onResize={frame}
       />
-      {paused ? <Line text="Camera paused" /> : null}
+      {paused ? <Line text="Camera paused" /> : !playing ? untilFrame : null}
     </div>
   );
 }
