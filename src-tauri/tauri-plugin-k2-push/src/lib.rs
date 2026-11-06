@@ -72,6 +72,7 @@ pub mod pip {
     extern "C" {
         fn k2_pip_h264(bytes: *const u8, len: usize, pts_90k: i64);
         fn k2_pip_flush(remove_image: bool);
+        fn k2_pip_pixel_buffer(buffer: *mut std::ffi::c_void, pts_90k: i64);
     }
 
     /// One H.264 access unit, Annex B. `pts_90k` only orders frames.
@@ -83,6 +84,19 @@ pub mod pip {
         }
         #[cfg(not(target_os = "ios"))]
         let _ = (access_unit, pts_90k);
+    }
+
+    /// One decoded frame: a CVPixelBufferRef, borrowed for the call (Swift
+    /// retains it before returning).
+    pub fn pixel_buffer(buffer: *mut std::ffi::c_void, pts_90k: i64) {
+        #[cfg(target_os = "ios")]
+        // SAFETY: the caller's frame keeps `buffer` alive during the call;
+        // Swift takes its own retain.
+        unsafe {
+            k2_pip_pixel_buffer(buffer, pts_90k)
+        }
+        #[cfg(not(target_os = "ios"))]
+        let _ = (buffer, pts_90k);
     }
 
     /// A break in the stream: the layer drops what it holds and waits for a
