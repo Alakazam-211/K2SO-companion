@@ -196,8 +196,9 @@ describe("a widget's subscriptions", () => {
     const { p, got } = await framePort();
     p.postMessage({ sub: 1, verb: "store.changes", args: [{ prefix: "a/" }] });
     await waitFor(() => expect(got.some((m) => m.sub === 1)).toBe(true));
+    // `by` in the person's words (no viewer.get answer here: "You").
     expect(got.filter((m) => m.sub === 1)).toEqual([
-      { sub: 1, value: [{ key: "a/1", rev: 3, value: { t: "hi" }, by: "you via board" }] },
+      { sub: 1, value: [{ key: "a/1", rev: 3, value: { t: "hi" }, by: "You via board" }] },
     ]);
     expect(api.call).toHaveBeenCalledWith(expect.anything(), {
       garden: "g1",
