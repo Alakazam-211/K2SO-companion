@@ -97,7 +97,7 @@ afterEach(() => {
   useVoiceCall.setState({ phase: "idle", consent: null });
 });
 
-describe("More menu: Rooms", () => {
+describe("Rooms and the More menu", () => {
   it("no call and no voice server: no Rooms row, no green dot", () => {
     mount();
     expect(screen.getByTestId("chats-header-more").getAttribute("aria-label")).toBe("More");
@@ -106,37 +106,29 @@ describe("More menu: Rooms", () => {
     expect(menuIds()).toEqual(["chats-header-projects", "chats-header-tickets", "chats-header-settings"]);
   });
 
-  it("in a call: a green dot on the button, Rooms first and green, and it opens Rooms", () => {
+  it("in a call: Rooms stays its own green button outside the menu, and opens Rooms", () => {
     useVoiceCall.setState({ phase: "connected" });
     mount();
-    const more = screen.getByTestId("chats-header-more");
-    expect(more.getAttribute("aria-label")).toBe("More, in a call");
-    const dot = screen.getByTestId("chats-header-more-call");
-    expect(more.contains(dot)).toBe(true);
-    expect(dot.style.background).toMatch(/#30d158|rgb\(48,\s*209,\s*88\)/);
+    const rooms = screen.getByTestId("chats-header-voice");
+    expect(rooms.getAttribute("aria-label")).toBe("Rooms (in a call)");
+    expect(rooms.style.color).toMatch(/#30d158|rgb\(48,\s*209,\s*88\)/);
+    expect(screen.getByTestId("chats-header-more").contains(rooms)).toBe(false);
+    expect(screen.queryByTestId("chats-header-more-call")).toBeNull();
+    expect(screen.getByTestId("chats-header-more").getAttribute("aria-label")).toBe("More");
 
     openMore();
-    expect(menuIds()).toEqual([
-      "chats-header-voice",
-      "chats-header-projects",
-      "chats-header-tickets",
-      "chats-header-settings",
-    ]);
-    const rooms = screen.getByRole("menuitem", { name: "Rooms (in a call)" });
-    expect(rooms.getAttribute("data-testid")).toBe("chats-header-voice");
-    expect(rooms.style.color).toMatch(/#30d158|rgb\(48,\s*209,\s*88\)/);
+    expect(menuIds()).toEqual(["chats-header-projects", "chats-header-tickets", "chats-header-settings"]);
+    fireEvent.click(screen.getByTestId("chats-more-backdrop"));
     fireEvent.click(rooms);
-    expect(screen.queryByTestId("chats-more-menu")).toBeNull();
     expect(screen.getByTestId("overlay-voice")).not.toBeNull();
   });
 
-  it("the call ending takes the dot away", () => {
+  it("the call ending takes Rooms away when no server has voice rooms", () => {
     useVoiceCall.setState({ phase: "joining" });
     mount();
-    expect(screen.getByTestId("chats-header-more-call")).not.toBeNull();
+    expect(screen.getByTestId("chats-header-voice").getAttribute("aria-label")).toBe("Rooms (in a call)");
     act(() => useVoiceCall.setState({ phase: "idle" }));
-    expect(screen.queryByTestId("chats-header-more-call")).toBeNull();
-    expect(screen.getByTestId("chats-header-more").getAttribute("aria-label")).toBe("More");
+    expect(screen.queryByTestId("chats-header-voice")).toBeNull();
   });
 
   it("a recording notice still opens Rooms by itself, and closes an open More menu", () => {
