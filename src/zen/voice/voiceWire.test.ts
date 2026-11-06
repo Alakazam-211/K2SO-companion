@@ -227,6 +227,8 @@ describe("copy", () => {
   it("call endings use Sew's leave reasons", () => {
     expect(callEndedText("media_path_down", "Standup", "skylab")).toContain("network lane is down");
     expect(callEndedText("signed_out", "Standup", "skylab")).toBe("You were signed out of skylab.");
+    expect(callEndedText("room_unavailable", "Standup", "skylab")).toContain("isn't available on skylab");
+    expect(callEndedText("system_call_refused", "Standup", "skylab")).toContain("wouldn't start the call to Standup");
     expect(callEndedText("removed_by_moderator", "Standup", "skylab")).toBe("You were removed from Standup.");
     expect(callEndedText("channel_archived", "Standup", "skylab")).toBe("Standup closed.");
     // K2 left a held re-join nobody answered.

@@ -453,6 +453,10 @@ export function callEndedText(reason: string, roomName: string, serverLabel: str
       return `The call to ${roomName} ended: you were signed out, or joined from another device.`;
     case "mic_denied":
       return `The call to ${roomName} ended: K2 lost your microphone. Turn it on in Settings › K2.`;
+    case "system_call_refused":
+      return `iPhone wouldn't start the call to ${roomName}. Try again, and if it keeps happening, send the call log from Rooms.`;
+    case "room_unavailable":
+      return `${roomName} isn't available on ${serverLabel} right now. Try another room, or ask its owner.`;
     case "recording_consent_timeout":
       // K2 left a held re-join after 30 s (or Sew gave up waiting).
       return `You left ${roomName}: a recording started while you were reconnecting, and its notice wasn't answered. Join again to answer it.`;

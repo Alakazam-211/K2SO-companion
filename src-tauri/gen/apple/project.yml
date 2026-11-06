@@ -77,7 +77,7 @@ targets:
         # Silent `{kind:"badge"}` pushes update the app-icon badge in the
         # background; `audio` keeps a voice-room call going. Durable copy
         # also in src-tauri/Info.ios.plist.
-        UIBackgroundModes: [remote-notification, audio]
+        UIBackgroundModes: [remote-notification, audio, voip]
         # Composer attach menu: camera (capture input) and the sound of a
         # recorded video. Durable copy also in src-tauri/Info.ios.plist.
         NSCameraUsageDescription: K2 uses the camera so you can attach a photo or video to a message, and to scan the pairing QR code from your computer.

@@ -16,12 +16,15 @@
 	<!-- Silent `{kind:"badge"}` pushes (content-available) update the
 	     app-icon badge in the background (k2-push plugin,
 	     K2BadgeStore.swift). `audio`: a voice-room call keeps going with
-	     the app in the background (K2CallShim.swift). Mirrored in
+	     the app in the background (K2CallShim.swift). `voip`: CallKit
+	     refuses to start a call without it (CXErrorCodeRequestTransactionError
+	     .unentitled, "callkit: 1"). Mirrored in
 	     gen/apple/project.yml. -->
 	<key>UIBackgroundModes</key>
 	<array>
 		<string>remote-notification</string>
 		<string>audio</string>
+		<string>voip</string>
 	</array>
 	<!-- Composer attach menu (AttachMenu.tsx): "Take Photo or Video" opens
 	     the camera through a capture file input; recording a video takes
