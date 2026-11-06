@@ -24,7 +24,8 @@ vi.mock("../../api/scope", async (orig) => ({
 
 import { useServersStore, type ServerEntry } from "../../stores/servers";
 import { __resetPipForTests, __setTileSenderForTests, HIDDEN, onPipEvent, type TileFrame } from "./videoTile";
-import { __resetVoiceCallForTests, useVoiceCall } from "./voiceCall";
+import type { CallShim } from "./callShim";
+import { __resetVoiceCallForTests, __setCallShimForTests, setPhoneVoiceEngine, useVoiceCall } from "./voiceCall";
 import { voiceServers, VoiceRoomsOverlay } from "./VoiceRooms";
 
 const server = (id: string, nickname: string) =>
@@ -64,6 +65,7 @@ const LIST = {
 
 beforeEach(() => {
   __resetVoiceCallForTests();
+  __resetPipForTests();
   scopes.hosts = new Set(["s1"]);
   api.rooms.mockReset();
   api.rooms.mockResolvedValue(LIST);
@@ -189,7 +191,7 @@ describe("voice rooms on the phone", () => {
     expect(answer).toHaveBeenCalledWith(false);
   });
 
-  it("in a call with video, shows the tile; video starting until the first frame; the tap starts PiP", async () => {
+  it("in a call with video, shows the tile once a frame plays; the tap starts PiP; a stall takes it away", async () => {
     const { invoke, addPluginListener } = await import("@tauri-apps/api/core");
     vi.mocked(invoke).mockReset().mockResolvedValue({ ok: true });
     vi.mocked(addPluginListener)
@@ -202,17 +204,25 @@ describe("voice rooms on the phone", () => {
     try {
       render(<VoiceRoomsOverlay onClose={() => {}} />);
       expect(screen.queryByTestId("voice-video-tile")).toBeNull();
+      // Video, but no frame yet: no empty tile.
       act(() => useVoiceCall.setState({ video: true }));
-      expect(screen.getByTestId("voice-video-line").textContent).toBe("Video starting…");
+      expect(screen.queryByTestId("voice-video-tile")).toBeNull();
       act(() => onPipEvent({ event: "pip_first_frame" }));
+      expect(screen.getByTestId("voice-video-tile")).toBeTruthy();
       expect(screen.queryByTestId("voice-video-line")).toBeNull();
+      // No new frame for a while (a muted camera, a lost stream): gone.
+      vi.mocked(invoke).mockClear();
+      act(() => onPipEvent({ event: "pip_stalled" }));
+      expect(screen.queryByTestId("voice-video-tile")).toBeNull();
+      // The layer went under the page with it.
+      expect(invoke).toHaveBeenCalledWith("plugin:k2-push|call_op", { op: "pipFrame", visible: false });
+      act(() => onPipEvent({ event: "pip_first_frame" }));
       fireEvent.click(screen.getByTestId("voice-video-tile"));
       expect(invoke).toHaveBeenCalledWith("plugin:k2-push|call_op", { op: "pip", on: true });
       act(() => onPipEvent({ event: "pip_started" }));
       expect(screen.getByTestId("voice-video-line").textContent).toBe("Playing in Picture in Picture");
       act(() => useVoiceCall.setState({ video: false }));
       expect(screen.queryByTestId("voice-video-tile")).toBeNull();
-      expect(invoke).toHaveBeenLastCalledWith("plugin:k2-push|call_op", { op: "pipFrame", visible: false });
     } finally {
       ios.on = false;
     }
@@ -230,6 +240,7 @@ describe("voice rooms on the phone", () => {
       choices: [{ label: "OK", granted: true }],
     };
     useVoiceCall.setState({ phase: "connected", room, video: true });
+    onPipEvent({ event: "pip_first_frame" });
     try {
       render(<VoiceRoomsOverlay onClose={() => {}} />);
       sent.length = 0;
@@ -239,6 +250,33 @@ describe("voice rooms on the phone", () => {
     } finally {
       __setTileSenderForTests(null);
     }
+  });
+
+  it("Join with camera is offered beside Join where the engine can, and joins with the camera", async () => {
+    render(<VoiceRoomsOverlay onClose={() => {}} />);
+    await screen.findAllByTestId("voice-room-join");
+    // A build without camera joins: no button.
+    expect(screen.queryByTestId("voice-room-join-camera")).toBeNull();
+    cleanup();
+    const join = vi.fn(async () => {});
+    setPhoneVoiceEngine({
+      available: true,
+      drivesSystemCall: true,
+      cameraJoin: true,
+      join,
+      cameraPermission: async () => ({ ok: true }),
+      leave: async () => {},
+      setMuted: () => {},
+      system: () => {},
+    });
+    __setCallShimForTests({ label: vi.fn(), microphone: vi.fn(async () => "granted") } as unknown as CallShim);
+    render(<VoiceRoomsOverlay onClose={() => {}} />);
+    const buttons = await screen.findAllByTestId("voice-room-join-camera");
+    // Not on the full room.
+    expect(buttons).toHaveLength(1);
+    expect(buttons[0].getAttribute("aria-label")).toBe("Join Standup with camera");
+    fireEvent.click(buttons[0]);
+    await waitFor(() => expect(join).toHaveBeenCalledWith("s1", "room-1", expect.anything(), { camera: true }));
   });
 
   it("Send call log shows on the phone's engine only, and says when it couldn't", async () => {

@@ -22,7 +22,13 @@ const plugin = vi.hoisted(() => {
     },
   };
 });
-vi.mock("@tauri-apps/api/core", () => ({ invoke: plugin.invoke, addPluginListener: vi.fn() }));
+vi.mock("@tauri-apps/api/core", () => ({
+  invoke: plugin.invoke,
+  addPluginListener: vi.fn(),
+  Channel: class {
+    onmessage: (m: unknown) => void = () => {};
+  },
+}));
 vi.mock("@tauri-apps/api/event", () => ({
   listen: vi.fn(async (name: string, cb: (e: { payload: unknown }) => void) => {
     const set = plugin.listeners.get(name) ?? new Set();
@@ -51,14 +57,15 @@ import { useServersStore, type ServerEntry } from "../../../stores/servers";
 import type { CallShim } from "../callShim";
 import { sewVoiceEngine } from "../sewVoice";
 import { __resetVoiceCallForTests, __setCallShimForTests, setPhoneVoiceEngine, useVoiceCall } from "../voiceCall";
-import { __setTileSenderForTests, HIDDEN, type TileFrame } from "../videoTile";
+import { __resetPipForTests, __setTileSenderForTests, HIDDEN, onPipEvent, type TileFrame } from "../videoTile";
 import { __resetVoiceNamesForTests, useVoiceNames } from "../voiceNames";
 import { VoiceRoomsOverlay } from "../VoiceRooms";
 import KitCall, { kitNames } from "./KitCall";
-import { shownOf } from "./layerVideo";
+import { facingOf, LAYER_HANDLE, liveOf, mirrorFor, shownOf, STARTING_MS } from "./layerVideo";
 import {
   __resetSewKitForTests,
   k2Bridge,
+  phoneSnapshot,
   kitChannelId,
   kitRoomOf,
   NOT_THROUGH_KIT,
@@ -107,6 +114,8 @@ async function storeJoinsAndConnects() {
 }
 
 beforeEach(() => {
+  localStorage.clear();
+  __resetPipForTests();
   plugin.listeners.clear();
   plugin.invoke.mockClear();
   for (const k of Object.keys(plugin.answers)) delete plugin.answers[k];
@@ -139,9 +148,13 @@ describe("Sew's call kit on the phone", () => {
     expect(calls("state").length).toBeGreaterThanOrEqual(1);
     expect(calls("call_details")).toHaveLength(1);
     expect(plugin.listeners.get("sew-voice://state")?.size).toBe(1);
-    // Our video hook, not the kit's PluginVideo: no sinks, no caps asked.
-    expect(calls("video_caps")).toEqual([]);
+    // Our video hook over the kit's PluginVideo: it reads the camera's caps,
+    // and opens no sinks (no remote ones ever; yours only with your camera).
+    await waitFor(() => expect(calls("video_caps")).toHaveLength(1));
     expect(calls("video_sink")).toEqual([]);
+    // It never asks for the camera on its own.
+    expect(calls("request_camera_permission")).toEqual([]);
+    expect(calls("camera")).toEqual([]);
   });
 
   it("adopts the call the store started; the kit never joins", async () => {
@@ -332,6 +345,7 @@ describe("Sew's call kit on the phone", () => {
       act(() => {
         plugin.emit("sew-voice://video", TRACKS);
         plugin.emit("k2-voice://video", true);
+        onPipEvent({ event: "pip_first_frame" });
       });
       return controller;
     }
@@ -357,10 +371,10 @@ describe("Sew's call kit on the phone", () => {
     it("follows Rust's speaker; the recording notice sends the layer under the page", async () => {
       await inVideoCall();
       render(<KitCall />);
-      // Never yourself, whatever is said: the picture alone meanwhile.
+      // Never yourself, whatever is said: no picture at all meanwhile.
       act(() => plugin.emit("k2-voice://pip_speaker", { member_id: "m-me", track: null }));
       expect(hostTile()).toBeUndefined();
-      expect(screen.getByTestId("voice-video-tile")).toBeTruthy();
+      expect(screen.queryByTestId("voice-video-tile")).toBeNull();
       act(() => plugin.emit("k2-voice://pip_speaker", { member_id: "m-baden", track: "TR_cam" }));
       expect(hostTile()?.getAttribute("data-member")).toBe("m-baden");
       act(() => useVoiceCall.setState({ consent: { ask: "in_call", noticeVersion: 1, title: "t", text: "x", choices: [{ label: "OK", granted: true }] } }));
@@ -379,6 +393,9 @@ describe("Sew's call kit on the phone", () => {
       render(<KitCall />);
       expect(screen.queryByTestId("voice-video-tile")).toBeNull();
       act(() => plugin.emit("k2-voice://video", true));
+      // No frame yet: no empty tile.
+      expect(screen.queryByTestId("voice-video-tile")).toBeNull();
+      act(() => onPipEvent({ event: "pip_first_frame" }));
       expect(screen.getByTestId("voice-video-tile")).toBeTruthy();
       expect(hostTile()).toBeUndefined();
       act(() => plugin.emit("k2-voice://video", false));
@@ -394,6 +411,255 @@ describe("Sew's call kit on the phone", () => {
       expect(shownOf([cam], { memberId: null, track: null }, true)).toBeNull();
       expect(shownOf([cam], null, false)).toBeNull();
       expect(shownOf([{ ...TRACKS[0], muted: true } as never], null, true)).toBeNull();
+      // A paused camera (congestion, their app in the background) shows nothing either.
+      expect(shownOf([{ ...TRACKS[0], paused: "background" } as never], null, true)).toBeNull();
+      // Rust's speaker whose rows say muted or paused: nobody.
+      expect(shownOf([{ ...TRACKS[0], muted: true } as never], { memberId: "m-baden", track: "TR_cam" }, true)).toBeNull();
+      expect(shownOf([{ ...TRACKS[0], paused: "congestion" } as never], { memberId: "m-baden", track: "TR_cam" }, true)).toBeNull();
+      // Never yourself, even if said.
+      expect(shownOf(TRACKS as never, { memberId: "m-me", track: "local:camera" }, true)).toBeNull();
+      // Live only with a frame on the layer, or in PiP.
+      const s = shownOf([cam], null, true);
+      expect(liveOf(s, { frame: false, active: false })).toBeNull();
+      expect(liveOf(s, { frame: true, active: false })).toEqual(s);
+      expect(liveOf(s, { frame: false, active: true })).toEqual(s);
+    });
+
+    it("before the first frame: the person's avatar, 'Video starting…' for 3 s, then the plain avatar", async () => {
+      vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] });
+      try {
+        useVoiceNames.getState().put("s1", ROOMS);
+        const { controller } = sewKit();
+        await (controller as NativeVoiceController).started;
+        await storeJoinsAndConnects();
+        render(<KitCall />);
+        act(() => {
+          plugin.emit("sew-voice://video", TRACKS);
+          plugin.emit("k2-voice://video", true);
+        });
+        const baden = () => screen.getAllByTestId("voice-tile").find((t) => t.getAttribute("data-member") === "m-baden");
+        expect(hostTile()).toBeUndefined();
+        expect(baden()?.querySelector(".k2-kit-avatar")).toBeTruthy();
+        expect(baden()?.querySelector('[data-testid="voice-avatar-note"]')?.textContent).toBe("Video starting…");
+        expect(screen.queryByTestId("voice-video-tile")).toBeNull();
+        act(() => void vi.advanceTimersByTime(STARTING_MS + 10));
+        expect(baden()?.querySelector('[data-testid="voice-avatar-note"]')).toBeNull();
+        expect(baden()?.querySelector(".k2-kit-avatar")).toBeTruthy();
+        // The first frame: the picture on their tile.
+        act(() => onPipEvent({ event: "pip_first_frame" }));
+        expect(hostTile()?.getAttribute("data-member")).toBe("m-baden");
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("back to the avatar when the video ends, their camera mutes or pauses, or frames stop", async () => {
+      await inVideoCall();
+      render(<KitCall />);
+      expect(hostTile()?.getAttribute("data-member")).toBe("m-baden");
+      // A stall (no frame for a while).
+      act(() => onPipEvent({ event: "pip_stalled" }));
+      expect(hostTile()).toBeUndefined();
+      act(() => onPipEvent({ event: "pip_first_frame" }));
+      expect(hostTile()).toBeTruthy();
+      // Their camera muted.
+      act(() => plugin.emit("sew-voice://video", [{ ...TRACKS[0], muted: true }, TRACKS[1]]));
+      expect(hostTile()).toBeUndefined();
+      // Paused.
+      act(() => plugin.emit("sew-voice://video", [{ ...TRACKS[0], paused: "background" }, TRACKS[1]]));
+      expect(hostTile()).toBeUndefined();
+      act(() => plugin.emit("sew-voice://video", TRACKS));
+      expect(hostTile()).toBeTruthy();
+      // The layer cleared.
+      act(() => onPipEvent({ event: "pip_cleared" }));
+      expect(hostTile()).toBeUndefined();
+      act(() => onPipEvent({ event: "pip_first_frame" }));
+      // The video ended.
+      act(() => plugin.emit("k2-voice://video", false));
+      expect(hostTile()).toBeUndefined();
+      expect(screen.queryByTestId("voice-video-tile")).toBeNull();
+    });
+  });
+
+  describe("your camera", () => {
+    const CAMERAS = {
+      cameras: [
+        { id: "cam-front", name: "Front Camera", facing: "front", default: true },
+        { id: "cam-back", name: "Back Camera", facing: "back", default: false },
+      ],
+      camera: null,
+      permission: { camera: "prompt", screen: "unsupported" },
+    };
+    const CAPS = {
+      camera: true,
+      screen: { supported: true, system_picker: true, list: false, windows: false },
+      publish_codecs: ["vp8", "h264"],
+      decode_codecs: ["vp8", "h264"],
+      receive: true,
+      backend: "apple",
+    };
+    const POLICY = { video_enabled: true, camera_allowed: true, screen_allowed: true };
+    let rect: () => DOMRect;
+    const sent: TileFrame[] = [];
+
+    beforeEach(() => {
+      plugin.answers["plugin:sew-voice|video_caps"] = CAPS;
+      plugin.answers["plugin:sew-voice|video_devices"] = CAMERAS;
+      plugin.answers["plugin:sew-voice|camera_permission"] = "granted";
+      // A webview with WebCodecs: the self-view's sink can open.
+      vi.stubGlobal("VideoDecoder", class {});
+      vi.stubGlobal("EncodedVideoChunk", class {});
+      sent.length = 0;
+      __setTileSenderForTests((f) => void sent.push(f));
+      rect = HTMLElement.prototype.getBoundingClientRect;
+      HTMLElement.prototype.getBoundingClientRect = () => ({ left: 20, top: 400, width: 320, height: 180, right: 340, bottom: 580, x: 20, y: 400, toJSON() {} }) as DOMRect;
+    });
+    afterEach(() => {
+      vi.unstubAllGlobals();
+      __setTileSenderForTests(null);
+      HTMLElement.prototype.getBoundingClientRect = rect;
+    });
+
+    async function inCall() {
+      useVoiceNames.getState().put("s1", ROOMS);
+      const kit = sewKit();
+      await (kit.controller as unknown as NativeVoiceController).started;
+      await storeJoinsAndConnects();
+      act(() => plugin.emit("sew-voice://policy", POLICY));
+      await waitFor(() => expect(calls("video_caps")).toHaveLength(1));
+      return kit;
+    }
+    const cameraButton = () => screen.queryByTestId("voice-camera");
+    const selfTile = () => screen.getAllByTestId("voice-tile").find((t) => t.getAttribute("data-local") === "yes");
+
+    it("the camera button shows when the room allows video; the screen button never does", async () => {
+      await inCall();
+      render(<KitCall />);
+      await waitFor(() => expect(cameraButton()).toBeTruthy());
+      expect(cameraButton()?.getAttribute("data-state")).toBe("off");
+      expect(screen.queryByTestId("voice-screen")).toBeNull();
+      // No switch while the camera is off.
+      expect(screen.queryByTestId("voice-switch-camera")).toBeNull();
+      // A room without video: no camera button.
+      act(() => plugin.emit("sew-voice://policy", { ...POLICY, video_enabled: false }));
+      expect(cameraButton()).toBeNull();
+    });
+
+    it("first use asks iOS (request_camera_permission), then turns the camera on", async () => {
+      plugin.answers["plugin:sew-voice|camera_permission"] = "prompt";
+      plugin.answers["plugin:sew-voice|request_camera_permission"] = "granted";
+      await inCall();
+      render(<KitCall />);
+      await waitFor(() => expect(cameraButton()).toBeTruthy());
+      fireEvent.click(cameraButton()!);
+      await waitFor(() => expect(calls("camera")).toEqual([{ on: true }]));
+      const order = plugin.invoke.mock.calls.map(([c]) => c).filter((c) => /camera/.test(c));
+      expect(order.slice(0, 3)).toEqual(["plugin:sew-voice|camera_permission", "plugin:sew-voice|request_camera_permission", "plugin:sew-voice|camera"]);
+      await waitFor(() => expect(cameraButton()?.getAttribute("data-state")).toBe("on"));
+      // Off again: no prompt.
+      fireEvent.click(cameraButton()!);
+      await waitFor(() => expect(calls("camera")).toEqual([{ on: true }, { on: false }]));
+      expect(calls("request_camera_permission")).toHaveLength(1);
+    });
+
+    it("a denial says where to turn it on (Settings › K2 › Camera), and the camera stays off", async () => {
+      plugin.answers["plugin:sew-voice|camera_permission"] = "denied";
+      await inCall();
+      render(<KitCall />);
+      await waitFor(() => expect(cameraButton()).toBeTruthy());
+      fireEvent.click(cameraButton()!);
+      await waitFor(() => expect(screen.getByTestId("voice-notice").textContent).toBe("Camera access is off. Turn it on in Settings › K2 › Camera."));
+      expect(calls("camera")).toEqual([]);
+      expect(calls("request_camera_permission")).toEqual([]);
+      expect(cameraButton()?.getAttribute("data-state")).toBe("off");
+      // Never answered (the prompt dismissed): the kit's own sentence.
+      plugin.answers["plugin:sew-voice|camera_permission"] = "prompt";
+      plugin.answers["plugin:sew-voice|request_camera_permission"] = "prompt";
+      fireEvent.click(cameraButton()!);
+      await waitFor(() => expect(screen.getByTestId("voice-notice").textContent).toBe("Allow camera access to turn your camera on."));
+      expect(calls("camera")).toEqual([]);
+    });
+
+    it("the plugin's own refusal of a join's camera gets the same sentence", () => {
+      const snap = { notice: { text: "Camera access is off. Turn it on in System Settings → Privacy & Security → Camera.", reason: "camera_permission_denied" } };
+      expect(phoneSnapshot(snap as never).notice?.text).toBe("Camera access is off. Turn it on in Settings › K2 › Camera.");
+      const other = { notice: { text: "x", reason: "media_busy" } };
+      expect(phoneSnapshot(other as never)).toBe(other);
+    });
+
+    it("your self-view on your own tile, mirrored for the front camera; the flip switches to the back one, unmirrored", async () => {
+      await inCall();
+      render(<KitCall />);
+      await waitFor(() => expect(cameraButton()).toBeTruthy());
+      fireEvent.click(cameraButton()!);
+      await waitFor(() => expect(calls("camera")).toEqual([{ on: true }]));
+      act(() => plugin.emit("sew-voice://local_video", { camera: "on", screen: "off" }));
+      await waitFor(() => expect(selfTile()?.querySelector('[data-testid="voice-self-view"]')).toBeTruthy());
+      const view = () => selfTile()!.querySelector('[data-testid="voice-self-view"]')!;
+      expect(view().getAttribute("data-mirrored")).toBe("yes");
+      expect(selfTile()?.querySelector('[data-testid="voice-host-slot"]')?.getAttribute("data-track")).toBe("local:camera");
+      // The flip: the camera facing the other way, live.
+      fireEvent.click(await screen.findByTestId("voice-switch-camera"));
+      await waitFor(() => expect(calls("set_video_device")).toEqual([{ camera: "cam-back" }]));
+      await waitFor(() => expect(view().getAttribute("data-mirrored")).toBe("no"));
+      fireEvent.click(screen.getByTestId("voice-switch-camera"));
+      await waitFor(() => expect(calls("set_video_device")).toEqual([{ camera: "cam-back" }, { camera: "cam-front" }]));
+      expect(facingOf(CAMERAS as never, null)).toBe("front");
+      expect(facingOf({ ...CAMERAS, camera: "cam-back" } as never, null)).toBe("back");
+      expect(mirrorFor("back")).toBe(false);
+      expect(mirrorFor(null)).toBe(true);
+    });
+
+    it("your camera never goes on the native layer, so never into PiP", async () => {
+      const kit = await inCall();
+      render(<KitCall />);
+      await waitFor(() => expect(cameraButton()).toBeTruthy());
+      fireEvent.click(cameraButton()!);
+      await waitFor(() => expect(calls("camera")).toEqual([{ on: true }]));
+      act(() => {
+        plugin.emit("sew-voice://local_video", { camera: "on", screen: "off" });
+        plugin.emit("sew-voice://video", [{ member_id: "m-me", is_self: true, source: "camera", track: "local:camera", codec: "vp8", width: 1280, height: 720, muted: false, paused: null }]);
+        // Only your camera: the call has video, and the sink has nobody to show.
+        plugin.emit("k2-voice://video", true);
+        plugin.emit("k2-voice://pip_speaker", { member_id: "m-me", track: "local:camera" });
+        onPipEvent({ event: "pip_first_frame" });
+      });
+      await waitFor(() => expect(selfTile()?.querySelector('[data-testid="voice-self-view"]')).toBeTruthy());
+      // Your tile draws you itself, in the page.
+      expect(selfTile()?.querySelector('[data-testid="voice-video-tile"]')).toBeNull();
+      expect(screen.queryByTestId("voice-video-tile")).toBeNull();
+      // The layer was never placed on your tile.
+      expect(sent.filter((f) => f.visible)).toEqual([]);
+      expect(kit.video.handles("me", true, "m-me").camera).not.toBe(LAYER_HANDLE);
+      expect(kit.video.handles("me", false, "m-me")).toEqual({ camera: null, screen: null });
+      expect(kit.video.live()).toBeNull();
+      // No sink for anyone else ever opened through the kit.
+      expect(calls("video_sink").every((a) => (a as { track?: string }).track === "local:camera")).toBe(true);
+    });
+
+    it("in the background: 'Camera paused' on your tile; after 5 minutes off, and the button says so", async () => {
+      await inCall();
+      render(<KitCall />);
+      await waitFor(() => expect(cameraButton()).toBeTruthy());
+      fireEvent.click(cameraButton()!);
+      await waitFor(() => expect(calls("camera")).toEqual([{ on: true }]));
+      act(() => plugin.emit("sew-voice://local_video", { camera: "on", screen: "off" }));
+      act(() => plugin.emit("sew-voice://local_video", { camera: "paused", screen: "off", reason: "background" }));
+      await waitFor(() => expect(selfTile()?.querySelector('[data-testid="voice-self-view"]')?.getAttribute("data-paused")).toBe("yes"));
+      expect(selfTile()?.textContent).toContain("Camera paused");
+      // The kit's bar says it too, and the button stays on (the track and tile stay).
+      expect(screen.getByTestId("voice-video-paused").textContent).toMatch(/paused/i);
+      expect(cameraButton()?.getAttribute("data-state")).toBe("on");
+      // Back in front: on again.
+      act(() => plugin.emit("sew-voice://local_video", { camera: "on", screen: "off" }));
+      await waitFor(() => expect(selfTile()?.querySelector('[data-testid="voice-self-view"]')?.getAttribute("data-paused")).toBe("no"));
+      // Five minutes away: off, and it stays off on return.
+      act(() => plugin.emit("sew-voice://local_video", { camera: "paused", screen: "off", reason: "background" }));
+      act(() => plugin.emit("sew-voice://local_video", { camera: "off", screen: "off", reason: "background" }));
+      await waitFor(() => expect(cameraButton()?.getAttribute("data-state")).toBe("off"));
+      expect(selfTile()?.querySelector('[data-testid="voice-self-view"]')).toBeNull();
+      // Nothing of ours turns it back on.
+      expect(calls("camera")).toEqual([{ on: true }]);
     });
   });
 });

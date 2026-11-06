@@ -10,7 +10,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   }),
 }));
 
-import { parseConsentSheet, parseSnapshot, sewVoiceEngine, shareCallLog } from "./sewVoice";
+import { askCamera, parseConsentSheet, parseSnapshot, sewVoiceEngine, shareCallLog } from "./sewVoice";
 
 beforeEach(() => {
   handlers.clear();
@@ -41,6 +41,35 @@ describe("Sew's native engine, from the webview", () => {
     handlers.get("sew-voice://state")?.({ payload: { state: "ended", reason: "left" } });
     await vi.waitFor(() => expect(states).toEqual(["held", "connected", "ended:left"]));
     expect(muted).toEqual([true]);
+  });
+
+  it("Join with camera goes through K2's voice_join_camera (Sew's join_with, a video call)", async () => {
+    invoke.mockResolvedValue({ call_id: "c1" });
+    const e = sewVoiceEngine();
+    expect(e.cameraJoin).toBe(true);
+    await e.join("s1", "room-1", { onState: () => {} }, { camera: true });
+    expect(invoke).toHaveBeenCalledWith("voice_join_camera", { target: "s1", room: "room-1" });
+    expect(invoke).not.toHaveBeenCalledWith("plugin:sew-voice|join", expect.anything());
+    invoke.mockRejectedValueOnce({ code: "room_full", detail: null });
+    await expect(e.join("s1", "room-1", { onState: () => {} }, { camera: true })).rejects.toMatchObject({ code: "room_full" });
+  });
+
+  it("the camera permission: asks iOS only when never asked", async () => {
+    const answer = (perm: string, after?: string) =>
+      invoke.mockReset().mockImplementation(async (cmd: string) => (cmd.endsWith("|request_camera_permission") ? after : perm));
+    answer("granted");
+    expect(await askCamera()).toEqual({ ok: true });
+    expect(invoke).toHaveBeenCalledTimes(1);
+    answer("prompt", "granted");
+    expect(await askCamera()).toEqual({ ok: true });
+    expect(invoke).toHaveBeenLastCalledWith("plugin:sew-voice|request_camera_permission");
+    answer("prompt", "denied");
+    expect(await askCamera()).toEqual({ ok: false, code: "camera_permission_denied" });
+    answer("prompt", "prompt");
+    expect(await askCamera()).toEqual({ ok: false, code: "camera_permission_not_determined" });
+    answer("denied");
+    expect(await askCamera()).toEqual({ ok: false, code: "camera_permission_denied" });
+    expect(invoke).not.toHaveBeenCalledWith("plugin:sew-voice|request_camera_permission");
   });
 
   it("a leave K2 made itself ends with K2's reason, live and on resync", async () => {

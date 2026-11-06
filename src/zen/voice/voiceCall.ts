@@ -1,6 +1,13 @@
 import { create } from "zustand";
 import { callShim, type CallShim, type ShimEvent } from "./callShim";
-import { callEndedText, joinErrorText, MIC_DENIED_LINE, type VoiceErrorCode } from "./voiceWire";
+import {
+  callEndedText,
+  cameraRefusalText,
+  joinErrorText,
+  MIC_DENIED_LINE,
+  type CameraRefusal,
+  type VoiceErrorCode,
+} from "./voiceWire";
 
 // The phone's one voice-room call (rooms only for now: Rosson 2026-11-04).
 // The engine is the truth (Sew's sew-call-client over K2's kessel-audio, in
@@ -49,13 +56,24 @@ export type EngineEvents = {
   onVideo?(on: boolean): void;
 };
 
+/** How a join starts: `camera`, your camera on once connected and in front. */
+export type JoinOptions = { camera?: boolean };
+
+/** The camera permission, asked if never asked: granted, or the refusal. */
+export type CameraAsk = { ok: true } | { ok: false; code: CameraRefusal };
+
 export interface PhoneVoiceEngine {
   /** False until this build carries call audio. */
   readonly available: boolean;
   /** The engine starts and updates the system call itself (native). */
   readonly drivesSystemCall?: boolean;
+  /** "Join with camera": the engine can join with the camera on. */
+  readonly cameraJoin?: boolean;
   /** Resolves once the join was taken (held or in); rejects with `{code, hint?}`. */
-  join(serverId: string, roomId: string, events: EngineEvents): Promise<void>;
+  join(serverId: string, roomId: string, events: EngineEvents, options?: JoinOptions): Promise<void>;
+  /** The camera permission, showing the system's prompt the first time:
+   *  only from the person's own tap. */
+  cameraPermission?(): Promise<CameraAsk>;
   leave(): Promise<void>;
   setMuted(muted: boolean): void;
   /** The person's answer to the recording notice. */
@@ -106,7 +124,9 @@ type CallState = {
   notice: string | null;
   /** A recording notice waiting for this person's answer. */
   consent: ConsentSheet | null;
-  join(room: CallRoom): Promise<void>;
+  /** `camera`: "Join with camera" (the permission first; refused, the call
+   *  still joins, without it). */
+  join(room: CallRoom, options?: JoinOptions): Promise<void>;
   /** A choice from `consent`: `null` gives up the held join. */
   answerConsent(granted: boolean | null): Promise<void>;
   /** Catch up with the engine (back in the foreground, or after a reload).
@@ -201,7 +221,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
     notice: null,
     consent: null,
 
-    async join(room) {
+    async join(room, options) {
       if (get().phase !== "idle") await get().leave();
       const id = ++attempt;
       set({ phase: "joining", room, muted: false, video: false, notice: null });
@@ -218,13 +238,24 @@ export const useVoiceCall = create<CallState>((set, get) => {
       const mic = await shim.microphone();
       if (id !== attempt) return;
       if (mic === "denied") set({ notice: MIC_DENIED_LINE });
+      // The camera's prompt too, before the system call. Refused: the call
+      // joins without the camera and says why.
+      let camera = options?.camera === true && !!engine.cameraJoin;
+      if (camera && engine.cameraPermission) {
+        const ask = await engine.cameraPermission();
+        if (id !== attempt) return;
+        if (!ask.ok) {
+          camera = false;
+          set({ notice: cameraRefusalText(ask.code) });
+        }
+      }
       const events = follow(id, mic === "denied");
       if (engine.drivesSystemCall) {
         // Rust starts the system call when the engine connects; it knows
         // only ids, so name the call first.
         shim.label(room.roomName, room.serverLabel);
         try {
-          await engine.join(room.serverId, room.roomId, events);
+          await engine.join(room.serverId, room.roomId, events, camera ? { camera: true } : undefined);
         } catch (err) {
           if (id !== attempt) return;
           const { code, hint } = codeOf(err);
@@ -320,6 +351,11 @@ export const useVoiceCall = create<CallState>((set, get) => {
     clearNotice: () => set({ notice: null }),
   };
 });
+
+/** "Join with camera" is offered: this build's engine can. */
+export function canJoinWithCamera(): boolean {
+  return engine.available && !!engine.cameraJoin;
+}
 
 /** The native engine, once a build carries it. */
 export function setPhoneVoiceEngine(next: PhoneVoiceEngine): void {

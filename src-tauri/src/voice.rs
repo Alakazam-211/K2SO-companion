@@ -32,7 +32,8 @@ use tauri_plugin_sew_voice::native::{NativePayload, NativeSink, NativeSinkTarget
 use tauri_plugin_sew_voice::sew_call_client::Recording;
 use tauri_plugin_sew_voice::{
     AppScene, BoxFuture, CallState, ConsentAnswer, DeviceError, DeviceKeyId, HardwareDeviceKey, JoinAnswer,
-    JoinProvider, JoinRequest, ProviderError, RecordingInfo, SelfMute, StateEvent, VoiceControl, VoiceListener,
+    JoinArgs, JoinOptions, JoinProvider, JoinRequest, ProviderError, RecordingInfo, SelfMute, StateEvent, VoiceControl,
+    VoiceListener,
 };
 use tauri_plugin_sew_voice::{ConsentAsk, ConsentPrompt, ErrorInfo};
 
@@ -60,6 +61,8 @@ pub struct Native {
     ended_why: Arc<Mutex<Option<&'static str>>>,
     /// The picture in picture's thread ([`pip_loop`]).
     pip: Arc<OnceLock<mpsc::Sender<ToSink>>>,
+    /// The CallKit thread ([`callkit_loop`]), for a join with the camera.
+    shim: Arc<OnceLock<mpsc::Sender<ToShim>>>,
 }
 
 /// Sew install id → the app's server ids that joined through it. Sew knows
@@ -156,6 +159,7 @@ impl Native {
 /// The voice plugin, set up for this app. Call [`start`] from `setup`.
 pub fn plugin(native: &Native) -> tauri::plugin::TauriPlugin<Wry> {
     let (tx, rx) = mpsc::channel();
+    let _ = native.shim.set(tx.clone());
     let mut shim = native.clone();
     std::thread::Builder::new()
         .name("k2-callkit".into())
@@ -234,6 +238,30 @@ pub fn set_hosts(native: &Native, hosts: HashMap<String, String>) {
         }
         native.save_installs();
     });
+}
+
+/// A join with the camera on ("Join with camera"): the system call starts as
+/// a video call (`CXStartCallAction.isVideo`), and Sew turns the camera on
+/// once the call is connected and the app is in front (never from the lock
+/// screen). The webview asked for the camera permission first; without it
+/// the call still joins, and `local_video` says why the camera stayed off.
+pub async fn join_with_camera(control: &VoiceControl, native: &Native, target: String, room: String) -> Result<Value, ErrorInfo> {
+    let to_shim = |video: bool| {
+        if let Some(tx) = native.shim.get() {
+            let _ = tx.send(ToShim::StartVideo(video));
+        }
+    };
+    // Before the join: the system call starts on its first `connecting`.
+    to_shim(true);
+    native.note("join with camera");
+    let args = JoinArgs { target, room, muted: None, deafened: None };
+    match control.join_with(args, JoinOptions::with_camera()).await {
+        Ok(joined) => Ok(serde_json::to_value(joined).unwrap_or(Value::Null)),
+        Err(e) => {
+            to_shim(false);
+            Err(e)
+        }
+    }
 }
 
 /// The consent sheet the webview should show now (`null`: none), for a
@@ -508,6 +536,9 @@ enum ToShim {
     Muted(bool),
     /// The call has video (a camera or a screen share), or no longer.
     Video(bool),
+    /// The next system call starts as a video call (a join with the camera),
+    /// or not after all (that join failed).
+    StartVideo(bool),
 }
 
 /// Engine → system call. The listener runs under the plugin's lock, so it
@@ -621,6 +652,8 @@ fn callkit_loop(native: &mut impl CallOps, rx: mpsc::Receiver<ToShim>) {
     let mut up = false;
     // Whether the call has video, as the engine last said.
     let mut video = false;
+    // The next start is a video call ([`join_with_camera`]).
+    let mut start_video = false;
     for msg in rx {
         match msg {
             ToShim::State(ev) => match &ev.state {
@@ -629,7 +662,11 @@ fn callkit_loop(native: &mut impl CallOps, rx: mpsc::Receiver<ToShim>) {
                         // The first sign of a call: start the system call, which
                         // activates the audio session (kessel-audio waits for it).
                         let room = ev.room.clone();
-                        let answer = native.call_op("start", |r| r.room = room);
+                        let as_video = std::mem::take(&mut start_video);
+                        let answer = native.call_op("start", |r| {
+                            r.room = room;
+                            r.video = as_video.then_some(true);
+                        });
                         up = answer.as_ref().and_then(|v| v.get("ok")).and_then(Value::as_bool) == Some(true);
                         // Refused (another app's call, CallKit down): the shim
                         // emitted `start_failed`, and the engine leaves.
@@ -680,6 +717,7 @@ fn callkit_loop(native: &mut impl CallOps, rx: mpsc::Receiver<ToShim>) {
                     native.call_op("mute", |r| r.on = Some(muted));
                 }
             }
+            ToShim::StartVideo(on) => start_video = on,
             ToShim::Video(on) => {
                 // Before the call is up, the first `report` carries it.
                 if on != video {
@@ -1818,6 +1856,40 @@ mod tests {
                 json!({ "op": "report", "state": "ended", "reason": "left" }),
             ]
         );
+    }
+
+    #[test]
+    fn a_join_with_the_camera_starts_a_video_call_and_your_camera_takes_the_speaker() {
+        let ops = run(
+            "receiver",
+            vec![
+                ToShim::StartVideo(true),
+                state(CallState::Connecting),
+                state(CallState::Connected),
+                // Your own camera turned on once connected: Sew's `video_changed`.
+                ToShim::Video(true),
+                state(CallState::Ended { reason: "left".into() }),
+                // The next call is a plain one again.
+                state(CallState::Connecting),
+            ],
+        );
+        assert_eq!(
+            ops,
+            vec![
+                json!({ "op": "start", "video": true }),
+                json!({ "op": "report", "state": "connecting", "video": false }),
+                json!({ "op": "report", "state": "connected", "video": false }),
+                json!({ "op": "report", "video": true }),
+                json!({ "op": "route" }),
+                json!({ "op": "autoSpeaker", "on": true }),
+                json!({ "op": "report", "state": "ended", "reason": "left" }),
+                json!({ "op": "start" }),
+                json!({ "op": "report", "state": "connecting", "video": false }),
+            ]
+        );
+        // A camera join that failed before the call started: a plain start next.
+        let ops = run("speaker", vec![ToShim::StartVideo(true), ToShim::StartVideo(false), state(CallState::Connecting)]);
+        assert_eq!(ops[0], json!({ "op": "start" }));
     }
 
     #[test]

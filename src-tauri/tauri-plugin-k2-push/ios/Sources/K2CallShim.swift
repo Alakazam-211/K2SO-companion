@@ -32,9 +32,10 @@ public final class K2CallShim: NSObject {
   /// `{"event": …}` for Rust and the UI. Set once by the plugin.
   public var onEvent: (([String: Any]) -> Void)?
 
-  /// Video calls (Sew's native video): turn on when video ships. Until then
-  /// the system shows every call as audio, whatever `report` says.
-  static let videoCalls = false
+  /// Video calls (Sew's native video: the call's video and your camera).
+  /// The system shows a call as video while either side sends video
+  /// (`report video`), and a join with the camera starts as one (`isVideo`).
+  static let videoCalls = true
 
   private var provider: CXProvider
   private var controller = CXCallController()
@@ -90,14 +91,15 @@ public final class K2CallShim: NSObject {
   }
 
   /// Joining a room: an outgoing call named for the room (the `label`, else
-  /// `room` as given). Fails when a call is already up.
-  public func start(room: String, server: String, completion: @escaping (String?) -> Void) {
-    queue.async { self.start(room: room, server: server, retried: false, completion: completion) }
+  /// `room` as given), a video call when it joins with the camera. Fails
+  /// when a call is already up.
+  public func start(room: String, server: String, video: Bool = false, completion: @escaping (String?) -> Void) {
+    queue.async { self.start(room: room, server: server, video: video, retried: false, completion: completion) }
   }
 
   /// On `queue`. A start the system refuses with `unknownCallProvider` is
   /// tried once more on a fresh provider.
-  private func start(room: String, server: String, retried: Bool, completion: @escaping (String?) -> Void) {
+  private func start(room: String, server: String, video: Bool, retried: Bool, completion: @escaping (String?) -> Void) {
     do {
       guard self.call == nil else { return completion("call_in_progress") }
       let room = self.labels?.room ?? room
@@ -112,11 +114,12 @@ public final class K2CallShim: NSObject {
       self.room = room
       self.shown = room
       self.muted = false
-      self.video = false
+      self.video = Self.videoCalls && video
       self.autoSpeakerOn = false
       let handle = CXHandle(type: .generic, value: server.isEmpty ? room : "\(room) · \(server)")
       let action = CXStartCallAction(call: id, handle: handle)
       action.contactIdentifier = room
+      action.isVideo = Self.videoCalls && video
       self.controller.request(CXTransaction(action: action)) { error in
         self.queue.async {
           if let error = error {
@@ -127,7 +130,7 @@ public final class K2CallShim: NSObject {
             {
               self.emit(["event": "provider_renewed"])
               self.renewProvider()
-              return self.start(room: room, server: server, retried: true, completion: completion)
+              return self.start(room: room, server: server, video: video, retried: true, completion: completion)
             }
             let code = "callkit: \(ns.code)"
             self.emit(["event": "start_failed", "error": code])
