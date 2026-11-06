@@ -411,6 +411,9 @@ describe("Sew's call kit on the phone", () => {
       expect(shownOf([cam], { memberId: null, track: null }, true)).toBeNull();
       expect(shownOf([cam], null, false)).toBeNull();
       expect(shownOf([{ ...TRACKS[0], muted: true } as never], null, true)).toBeNull();
+      // A switch that names only the track: its row says whose.
+      expect(shownOf([cam], { memberId: null, track: "TR_cam" }, true)?.memberId).toBe("m-baden");
+      expect(shownOf(TRACKS as never, { memberId: null, track: "local:camera" }, true)).toBeNull();
       // A paused camera (congestion, their app in the background) shows nothing either.
       expect(shownOf([{ ...TRACKS[0], paused: "background" } as never], null, true)).toBeNull();
       // Rust's speaker whose rows say muted or paused: nobody.
@@ -423,6 +426,27 @@ describe("Sew's call kit on the phone", () => {
       expect(liveOf(s, { frame: false, active: false })).toBeNull();
       expect(liveOf(s, { frame: true, active: false })).toEqual(s);
       expect(liveOf(s, { frame: false, active: true })).toEqual(s);
+    });
+
+    it("a call screen opened after the sink's switch still puts the picture on that person's tile", async () => {
+      plugin.answers["voice_pip_speaker"] = { member_id: "m-baden", track: "TR_cam" };
+      // Video already on, rows already sent, before the kit existed.
+      useVoiceCall.setState({ video: true });
+      plugin.answers["plugin:sew-voice|state"] = { state: "connected", target: "s1", room: "room-1", participants: PEOPLE, call_id: "c1", video: TRACKS };
+      await storeJoinsAndConnects();
+      act(() => {
+        plugin.emit("k2-voice://video", true);
+        onPipEvent({ event: "pip_first_frame" });
+      });
+      useVoiceNames.getState().put("s1", ROOMS);
+      const { controller, video } = sewKit();
+      await (controller as unknown as NativeVoiceController).started;
+      await waitFor(() => expect(video.shown()?.memberId).toBe("m-baden"));
+      render(<KitCall />);
+      await waitFor(() => expect(hostTile()?.getAttribute("data-member")).toBe("m-baden"));
+      // On their tile, not a box of its own.
+      expect(screen.getAllByTestId("voice-video-tile")).toHaveLength(1);
+      expect(hostTile()?.querySelector('[data-testid="voice-video-tile"]')).toBeTruthy();
     });
 
     it("before the first frame: the person's avatar, 'Video starting…' for 3 s, then the plain avatar", async () => {

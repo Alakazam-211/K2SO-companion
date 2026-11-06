@@ -63,6 +63,9 @@ pub struct Native {
     pip: Arc<OnceLock<mpsc::Sender<ToSink>>>,
     /// The CallKit thread ([`callkit_loop`]), for a join with the camera.
     shim: Arc<OnceLock<mpsc::Sender<ToShim>>>,
+    /// Whom the picture shows (the sink's last `Switched`), for a call
+    /// screen opened after the event went by.
+    speaker: Arc<Mutex<Value>>,
 }
 
 /// Sew install id → the app's server ids that joined through it. Sew knows
@@ -1071,6 +1074,7 @@ impl SinkOps for PipSink {
         if let Some(sink) = self.sink.take() {
             sink.close();
         }
+        *self.native.speaker.lock().unwrap_or_else(|e| e.into_inner()) = Value::Null;
         self.native.call_op("pipLayer", |r| r.on = Some(false));
         self.native.note(&self.counts.line());
         self.native.note("pip sink closed");
@@ -1103,6 +1107,8 @@ struct PipFeed {
 impl NativeVideoConsumer for PipFeed {
     fn on_video(&self, event: NativeVideoEvent) {
         if let Some(who) = speaker_of(&event) {
+            self.native.note(&speaker_line(&who));
+            *self.native.speaker.lock().unwrap_or_else(|e| e.into_inner()) = who.clone();
             if let Some(app) = self.native.app() {
                 let _ = app.emit(PIP_SPEAKER_EVENT, who);
             }
@@ -1126,6 +1132,18 @@ impl NativeVideoConsumer for PipFeed {
             }
         }
     }
+}
+
+/// Whom the picture shows now (`{member_id, track}`, or `null`: no sink or
+/// no switch yet), for a call screen that opened after the event.
+pub fn pip_speaker(native: &Native) -> Value {
+    native.speaker.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
+
+/// The call log's line for a switch: which ids came, never the ids.
+fn speaker_line(who: &Value) -> String {
+    let has = |k: &str| if who.get(k).is_some_and(|v| !v.is_null()) { "yes" } else { "no" };
+    format!("pip switched member={} track={}", has("member_id"), has("track"))
 }
 
 /// Whom the picture shows now (the active speaker the sink moved to), so
@@ -1959,6 +1977,13 @@ mod tests {
         // The person took the speaker themselves, or the route moved on.
         assert_eq!(speaker_for("speaker", false, false), Leave);
         assert_eq!(speaker_for("receiver", false, false), Leave);
+    }
+
+    #[test]
+    fn a_switch_is_logged_without_its_ids() {
+        assert_eq!(speaker_line(&json!({ "member_id": "55769769701277696", "track": "TR_x" })), "pip switched member=yes track=yes");
+        assert_eq!(speaker_line(&json!({ "member_id": null, "track": "TR_x" })), "pip switched member=no track=yes");
+        assert_eq!(speaker_line(&json!({ "member_id": null, "track": null })), "pip switched member=no track=no");
     }
 
     #[test]
