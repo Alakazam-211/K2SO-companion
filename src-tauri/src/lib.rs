@@ -2049,6 +2049,17 @@ async fn voice_join_camera(
 /// The last call events as text, for "Send call log" (codes only: no
 /// tokens, addresses or names). Empty off iOS.
 #[tauri::command]
+fn voice_note(_app: tauri::AppHandle, words: Vec<String>) {
+    #[cfg(target_os = "ios")]
+    {
+        use tauri::Manager;
+        voice::note_from_page(&_app.state::<voice::Native>(), &words);
+    }
+    #[cfg(not(target_os = "ios"))]
+    let _ = words;
+}
+
+#[tauri::command]
 fn voice_call_log(_app: tauri::AppHandle) -> String {
     #[cfg(target_os = "ios")]
     {
@@ -2120,6 +2131,7 @@ pub fn run() {
             voice_consent,
             voice_ended_why,
             voice_call_log,
+            voice_note,
             voice_join_camera,
             voice_pip_speaker
         ])

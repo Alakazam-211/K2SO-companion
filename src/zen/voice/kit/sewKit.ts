@@ -95,6 +95,24 @@ export function kitSelfId(): string | null {
   return selfId;
 }
 
+/** The camera's commands, logged by outcome in "Send call log". */
+const CAMERA_CMDS = new Set(["camera_permission", "request_camera_permission", "camera", "set_video_device", "video_devices"]);
+
+/** One call-log line (codes only; Rust keeps nothing else). */
+function note(words: string[]): void {
+  void tauriInvoke("voice_note", { words }).catch(() => {});
+}
+
+function outcomeOf(v: unknown): string {
+  if (typeof v === "string") return v;
+  if (v && typeof v === "object") {
+    const o = v as Record<string, unknown>;
+    if (typeof o.code === "string") return o.code;
+    if (Array.isArray(o.cameras)) return `cameras_${o.cameras.length}`;
+  }
+  return v == null ? "ok" : "answered";
+}
+
 function refuse(cmd: string): Promise<never> {
   return Promise.reject({ code: NOT_THROUGH_KIT, detail: `${cmd} is the phone's own` });
 }
@@ -111,6 +129,13 @@ export function k2Bridge(base: BaseBridge = tauriBridge): NativeBridge {
         if (call.phase !== "idle") return call.leave() as Promise<T>;
       }
       const out = base.invoke(cmd, args);
+      if (name && CAMERA_CMDS.has(name)) {
+        const on = name === "camera" ? [args?.on === true ? "on" : "off"] : [];
+        void out.then(
+          (v) => note(["camera", name, ...on, outcomeOf(v)]),
+          (e) => note(["camera", name, ...on, "refused", outcomeOf(e)])
+        );
+      }
       if (name === "state") {
         void out.then((s) => noteSelf((s as { participants?: unknown } | null)?.participants), () => {});
       }
@@ -119,6 +144,10 @@ export function k2Bridge(base: BaseBridge = tauriBridge): NativeBridge {
     listen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
       return base.listen(event, (payload) => {
         if (event === "sew-voice://participants") noteSelf(payload);
+        if (event === "sew-voice://local_video" && payload && typeof payload === "object") {
+          const v = payload as { camera?: unknown; reason?: unknown };
+          note(["camera", "local_video", String(v.camera ?? "none"), String(v.reason ?? "none")]);
+        }
         handler(payload as T);
       });
     },

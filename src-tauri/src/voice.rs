@@ -1539,6 +1539,15 @@ impl Native {
     }
 }
 
+/// A line from the page (the kit's camera calls and `local_video`): words
+/// as codes only, at most 6, so nothing but codes reaches the log.
+pub fn note_from_page(native: &Native, words: &[String]) {
+    let line: Vec<String> = words.iter().take(6).map(|w| code(w)).collect();
+    if !line.is_empty() {
+        native.note(&line.join(" "));
+    }
+}
+
 /// The call log for "Send call log".
 pub fn call_log_text(native: &Native, version: &str) -> String {
     native.log.lock().unwrap_or_else(|e| e.into_inner()).text(version)
@@ -2142,6 +2151,13 @@ mod tests {
         let counts = PipCounts::default();
         counts.count(&event, &fed);
         assert!(counts.line().contains("nv12=0 i420=1 no_buffer=0"), "{}", counts.line());
+    }
+
+    #[test]
+    fn page_notes_are_codes_only() {
+        let words = |w: &[&str]| w.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        let line: Vec<String> = words(&["camera", "Permission", "granted", "sewcc_abcdefghijklmnopqrstu"]).iter().map(|w| code(w)).collect();
+        assert_eq!(line.join(" "), "camera permission granted redacted");
     }
 
     #[test]
