@@ -282,6 +282,40 @@ describe("the phone's voice-room call", () => {
       expect(s.listening()).toBe(false);
     });
 
+    it("deafen, and a moderator's holds: the call tile's rules", async () => {
+      const e = fakeEngine(true);
+      const deafens: [boolean, boolean | undefined][] = [];
+      e.engine.setDeafened = (d, m) => void deafens.push([d, m]);
+      __setCallShimForTests(fakeShim().shim);
+      setPhoneVoiceEngine(e.engine);
+      void useVoiceCall.getState().join(ROOM);
+      await flush();
+      e.state("connected");
+      const st = () => useVoiceCall.getState();
+      st().setDeafened(true);
+      expect(deafens).toEqual([[true, undefined]]);
+      expect([st().deafened, st().muted]).toEqual([true, true]);
+      // Unmuting while deafened undeafens, in one step.
+      st().setMuted(false);
+      expect(deafens).toEqual([[true, undefined], [false, false]]);
+      expect([st().deafened, st().muted]).toEqual([false, false]);
+      expect(e.engine.muted).toEqual([]);
+      // The engine's row: a moderator's mute; no unmute gets past it.
+      e.events()?.onSelfMute?.(true, { deafened: false, muteLocked: true, deafLocked: false });
+      expect([st().muted, st().muteLocked]).toEqual([true, true]);
+      st().setMuted(false);
+      expect(e.engine.muted).toEqual([]);
+      // A moderator's deafen: no undeafen.
+      e.events()?.onSelfMute?.(true, { deafened: true, muteLocked: true, deafLocked: true });
+      st().setDeafened(false);
+      expect(deafens).toHaveLength(2);
+      // An engine without flags leaves them as they were; the call's end clears them.
+      e.events()?.onSelfMute?.(false);
+      expect([st().muted, st().deafened, st().deafLocked]).toEqual([false, true, true]);
+      e.state("ended", "left");
+      expect([st().deafened, st().muteLocked, st().deafLocked]).toEqual([false, false, false]);
+    });
+
     it("follows a mute from the system's button", async () => {
       const e = fakeEngine(true);
       __setCallShimForTests(fakeShim().shim);

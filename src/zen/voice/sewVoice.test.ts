@@ -156,6 +156,8 @@ describe("Sew's native engine, from the webview", () => {
       roomId: "48831765147549698",
       muted: true,
       consent: null,
+      // No SPEAK: a mute no button of yours undoes.
+      muteLocked: true,
     });
     expect(parseSnapshot({ state: "consent_required", participants: [], call_id: null }, null).state).toBe("held");
     expect(parseSnapshot({ state: "idle", participants: [] }, null)).toEqual({
@@ -166,6 +168,31 @@ describe("Sew's native engine, from the webview", () => {
     expect(parseSnapshot(null, null).state).toBe("idle");
     // `has_video` rides the state only while true.
     expect(parseSnapshot({ state: "connected", participants: [], has_video: true }, null).video).toBe(true);
+  });
+
+  it("your own row's deafen and a moderator's holds; deafen goes as mute {deafened}", async () => {
+    invoke.mockResolvedValue({ call_id: "c1" });
+    const seen: unknown[] = [];
+    const e = sewVoiceEngine();
+    await e.join("s1", "room-1", { onState: () => {}, onSelfMute: (m, f) => void seen.push([m, f]) });
+    handlers.get("sew-voice://participants")?.({
+      payload: [{ is_self: true, muted: false, deafened: false, server_muted: true, server_deafened: false }],
+    });
+    handlers.get("sew-voice://participants")?.({
+      payload: [{ is_self: true, muted: true, deafened: true, server_deafened: true, speak_denied: false }],
+    });
+    expect(seen).toEqual([
+      [false, { deafened: false, muteLocked: true, deafLocked: false }],
+      [true, { deafened: true, muteLocked: false, deafLocked: true }],
+    ]);
+    e.setDeafened?.(true);
+    e.setDeafened?.(false, false);
+    expect(invoke).toHaveBeenCalledWith("plugin:sew-voice|mute", { deafened: true });
+    expect(invoke).toHaveBeenCalledWith("plugin:sew-voice|mute", { muted: false, deafened: false });
+    expect(parseSnapshot({ state: "connected", participants: [{ is_self: true, muted: true, deafened: true }] }, null)).toMatchObject({
+      muted: true,
+      deafened: true,
+    });
   });
 
   it("follows the call's video (k2-voice://video, Sew's video_changed)", async () => {

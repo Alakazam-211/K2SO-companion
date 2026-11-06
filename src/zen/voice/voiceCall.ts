@@ -47,11 +47,24 @@ export function consentKey(sheet: ConsentSheet | null): string | null {
   return sheet ? `${sheet.recordingId ?? ""}:${sheet.ask}:${sheet.noticeVersion}` : null;
 }
 
+/** Your own call state past the mic: deafened, and what a moderator (or a
+ *  lost SPEAK) holds, which no button of yours can undo. */
+export type SelfFlags = {
+  deafened: boolean;
+  /** Muted by a moderator, or no SPEAK here: no unmute. */
+  muteLocked: boolean;
+  /** Deafened by a moderator: no undeafen. */
+  deafLocked: boolean;
+};
+
+const NO_FLAGS: SelfFlags = { deafened: false, muteLocked: false, deafLocked: false };
+
 export type EngineEvents = {
   onState(s: EngineState, reason?: string): void;
   onConsent?(sheet: ConsentSheet | null): void;
-  /** Your own mute, from any source (the system's button, a moderator). */
-  onSelfMute?(muted: boolean): void;
+  /** Your own mute, from any source (the system's button, a moderator);
+   *  `flags` from an engine that knows them. */
+  onSelfMute?(muted: boolean, flags?: SelfFlags): void;
   /** The call has video (a camera or a shared screen), or no longer. */
   onVideo?(on: boolean): void;
 };
@@ -76,6 +89,8 @@ export interface PhoneVoiceEngine {
   cameraPermission?(): Promise<CameraAsk>;
   leave(): Promise<void>;
   setMuted(muted: boolean): void;
+  /** Deafen or undeafen (`muted`: the mic as well, in the same step). */
+  setDeafened?(deafened: boolean, muted?: boolean): void;
   /** The person's answer to the recording notice. */
   consent?(granted: boolean, noticeVersion: number): Promise<void>;
   /** The audio session and interruptions (kessel-audio's phone hooks). */
@@ -95,6 +110,10 @@ export type EngineNow = {
   consent: ConsentSheet | null;
   /** The call has video. */
   video?: boolean;
+  /** Each of `SelfFlags`, only while true. */
+  deafened?: boolean;
+  muteLocked?: boolean;
+  deafLocked?: boolean;
 };
 
 /** This build: no call audio yet. Join explains, nothing else happens. */
@@ -114,9 +133,10 @@ export type CallRoom = {
   limit: number | null;
 };
 
-type CallState = {
+type CallState = SelfFlags & {
   phase: CallPhase;
   room: CallRoom | null;
+  /** The mic is off: your own mute, or deafened (a deafen mutes too). */
   muted: boolean;
   /** The call has video: the call screen shows its tile. */
   video: boolean;
@@ -133,7 +153,10 @@ type CallState = {
    *  `name` gives an adopted call its names. */
   resync(name?: (serverId: string, roomId: string) => Omit<CallRoom, "serverId" | "roomId">): Promise<void>;
   leave(): Promise<void>;
+  /** Unmuting while deafened undeafens too; never past a moderator's mute. */
   setMuted(muted: boolean): void;
+  /** Deafen or undeafen (an undeafen goes back to the mute from before). */
+  setDeafened(deafened: boolean): void;
   clearNotice(): void;
 };
 
@@ -163,6 +186,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
       phase: "idle",
       room: null,
       muted: false,
+      ...NO_FLAGS,
       video: false,
       consent: null,
       notice: room && reason && reason !== "left" ? callEndedText(reason, room.roomName, room.serverLabel, true) : null,
@@ -204,8 +228,8 @@ export const useVoiceCall = create<CallState>((set, get) => {
       onConsent(sheet) {
         if (id === attempt) set({ consent: sheet });
       },
-      onSelfMute(muted) {
-        if (id === attempt && get().phase !== "idle") set({ muted });
+      onSelfMute(muted, flags) {
+        if (id === attempt && get().phase !== "idle") set(flags ? { muted, ...flags } : { muted });
       },
       onVideo(on) {
         if (id === attempt && get().phase !== "idle") set({ video: on });
@@ -217,6 +241,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
     phase: "idle",
     room: null,
     muted: false,
+    ...NO_FLAGS,
     video: false,
     notice: null,
     consent: null,
@@ -224,7 +249,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
     async join(room, options) {
       if (get().phase !== "idle") await get().leave();
       const id = ++attempt;
-      set({ phase: "joining", room, muted: false, video: false, notice: null });
+      set({ phase: "joining", room, muted: false, ...NO_FLAGS, video: false, notice: null });
       if (!engine.available) {
         set({
           phase: "idle",
@@ -300,10 +325,28 @@ export const useVoiceCall = create<CallState>((set, get) => {
     },
 
     setMuted(muted) {
-      if (get().phase === "idle" || get().muted === muted) return;
+      const s = get();
+      if (s.phase === "idle" || s.muted === muted) return;
+      if (!muted && s.muteLocked) return;
+      if (!muted && s.deafened && engine.setDeafened) {
+        // The kit's rule: the mic back on brings the sound back too.
+        engine.setDeafened(false, false);
+        if (!engine.drivesSystemCall) shim.setMuted(false);
+        set({ muted: false, deafened: false });
+        return;
+      }
       engine.setMuted(muted);
       if (!engine.drivesSystemCall) shim.setMuted(muted);
       set({ muted });
+    },
+
+    setDeafened(deafened) {
+      const s = get();
+      if (s.phase === "idle" || s.deafened === deafened || s.deafLocked || !engine.setDeafened) return;
+      engine.setDeafened(deafened);
+      // A deafen mutes; an undeafen's mute is the engine's to say (the one
+      // from before the deafen), on its next participants event.
+      set(deafened ? { deafened, muted: true } : { deafened });
     },
 
     async answerConsent(granted) {
@@ -343,6 +386,9 @@ export const useVoiceCall = create<CallState>((set, get) => {
         room,
         phase: now.state === "connected" ? "connected" : now.state === "reconnecting" ? "reconnecting" : "joining",
         muted: now.muted,
+        deafened: now.deafened === true,
+        muteLocked: now.muteLocked === true,
+        deafLocked: now.deafLocked === true,
         video: now.video === true,
         consent: now.consent,
       });
@@ -371,5 +417,5 @@ export function __resetVoiceCallForTests(): void {
   shim = callShim();
   unlisten = null;
   attempt = 0;
-  useVoiceCall.setState({ phase: "idle", room: null, muted: false, video: false, notice: null, consent: null });
+  useVoiceCall.setState({ phase: "idle", room: null, muted: false, ...NO_FLAGS, video: false, notice: null, consent: null });
 }

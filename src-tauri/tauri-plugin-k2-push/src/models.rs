@@ -285,8 +285,10 @@ pub struct ScanQrResponse {
 ///   `route` → `{route, active, autoSpeaker}`; `mic` → `{mic: granted|denied}`
 ///   (asks the first time); `pipLayer {on}` → `{ok}` puts PiP's display layer
 ///   in the window (on) or takes it down (off) for the frames of [`crate::pip`];
-///   `pipFrame {x, y, w, h, visible, radius?}` (webview points) shows that layer
-///   over the call screen's video tile, `visible: false` puts it back.
+///   `pipFrame {x, y, w, h, visible, radius?, animate?}` (webview points) shows
+///   that layer over the call screen's video tile, `visible: false` puts it
+///   back; `animate` ([`PipAnimate`]) gets it there on its own (the mini
+///   tile's snap); `haptic {state?: "prepare"}` a light tap (or warms it up).
 ///   Events come back as `call`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -318,6 +320,31 @@ pub struct CallOpRequest {
     pub visible: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub radius: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub animate: Option<PipAnimate>,
+}
+
+/// `pipFrame`'s `animate`: how the layer moves from where it is to the new
+/// frame. With `stiffness`, a Core Animation spring (`mass`, `stiffness`,
+/// `damping`) carrying `velocityX`/`velocityY` (points/s) in; without, an
+/// ease-out. `duration` in seconds either way (the page's JS runs the same);
+/// `startedAt` (wall clock, ms): when the page started it.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PipAnimate {
+    pub duration: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mass: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stiffness: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub damping: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub velocity_x: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub velocity_y: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub started_at: Option<f64>,
 }
 
 /// Login tokens in the Keychain (iOS): `set`, `remove`, or `sync` the set.
