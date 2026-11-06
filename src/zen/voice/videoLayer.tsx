@@ -1,6 +1,37 @@
-import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useCallback,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { createPortal } from "react-dom";
-import { claimLayer, followPip, frameAt, placeLayerFor, releaseLayer, togglePip, usePipStatus, useVideoTile } from "./videoTile";
+import {
+  CORNERS,
+  easeOut,
+  LIFT_DURATION,
+  LIFT_SCALE,
+  pickCorner,
+  planSnap,
+  releaseVelocity,
+  REST,
+  type Corner,
+  type Pose,
+  type Sample,
+  type Vec,
+} from "./miniSnap";
+import {
+  claimLayer,
+  followPip,
+  frameAt,
+  placeLayerFor,
+  releaseLayer,
+  tileHaptic,
+  togglePip,
+  usePipStatus,
+  useVideoTile,
+} from "./videoTile";
 import { useVoiceCall } from "./voiceCall";
 
 // Where the call's one native video layer (K2PiP's AVSampleBufferDisplayLayer,
@@ -131,8 +162,7 @@ export function useLayerPlacement(covered: boolean): (rect: DOMRectReadOnly | nu
 
 // ── The mini tile ────────────────────────────────────────────────────
 
-export type Corner = "top-left" | "top-right" | "bottom-left" | "bottom-right";
-const CORNERS: Corner[] = ["top-left", "top-right", "bottom-left", "bottom-right"];
+export type { Corner };
 export const MINI_W = 120;
 export const MINI_H = 68;
 const MINI_RADIUS = 10;
@@ -144,7 +174,8 @@ const BOTTOM_CLEAR = "calc(var(--safe-bottom, 0px) + 84px)";
 const TAP_SLOP = 8;
 export const MINI_CORNER_KEY = "k2.voice.miniCorner.v1";
 
-/** The corner nearest to where the tile was let go (its centre). */
+/** The corner nearest to where the tile was let go (its centre), with no
+ *  velocity. The tile itself uses `pickCorner`. */
 export function nearestCorner(cx: number, cy: number, width: number, height: number): Corner {
   return `${cy < height / 2 ? "top" : "bottom"}-${cx < width / 2 ? "left" : "right"}` as Corner;
 }
@@ -179,19 +210,163 @@ export function MiniVideoTile({ callViewOpen, onOpen }: { callViewOpen: boolean;
   return createPortal(<Mini onOpen={onOpen} />, document.body);
 }
 
+type Rect = { left: number; top: number; width: number; height: number };
+
+/** Where each corner puts the tile: clear of the edges, header and composer. */
+function anchorStyle(corner: Corner): CSSProperties {
+  const [v, h] = corner.split("-") as ["top" | "bottom", "left" | "right"];
+  return {
+    [v]: v === "top" ? TOP_CLEAR : BOTTOM_CLEAR,
+    [h]: `calc(env(safe-area-inset-${h}, 0px) + ${EDGE}px)`,
+  };
+}
+
+function applyAnchor(el: HTMLElement, corner: Corner): void {
+  const a = anchorStyle(corner) as Record<string, string | undefined>;
+  for (const side of ["top", "bottom", "left", "right"] as const) el.style[side] = a[side] ?? "";
+  el.dataset.corner = corner;
+}
+
+/** Each corner's spot for the tile (unmoved, unscaled), measured. */
+function measureHomes(el: HTMLElement, corner: Corner): Record<Corner, Rect> {
+  const transform = el.style.transform;
+  el.style.transform = "";
+  const homes = {} as Record<Corner, Rect>;
+  for (const c of CORNERS) {
+    applyAnchor(el, c);
+    const r = el.getBoundingClientRect();
+    homes[c] = { left: r.left, top: r.top, width: r.width, height: r.height };
+  }
+  applyAnchor(el, corner);
+  el.style.transform = transform;
+  return homes;
+}
+
+const centre = (r: Rect): Vec => ({ x: r.left + r.width / 2, y: r.top + r.height / 2 });
+const round = (v: number) => Math.round(v * 100) / 100;
+const atRest = (p: Pose) => p.x === 0 && p.y === 0 && p.s === 1;
+
+function poseTransform(p: Pose): string {
+  if (atRest(p)) return "";
+  const scale = p.s === 1 ? "" : ` scale(${Math.round(p.s * 10000) / 10000})`;
+  return `translate(${round(p.x)}px, ${round(p.y)}px)${scale}`;
+}
+
+function reduceMotion(): boolean {
+  try {
+    return typeof window.matchMedia === "function" && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  } catch {
+    return false;
+  }
+}
+
+const now = () => performance.now();
+
+type Press = { id: number; x: number; y: number; from: Pose; moved: boolean; samples: Sample[] };
+
+const SHADOW = "0 8px 24px rgba(0, 0, 0, 0.45)";
+const HELD_SHADOW = "0 16px 36px rgba(0, 0, 0, 0.55)";
+
 function Mini({ onOpen }: { onOpen: () => void }) {
   const ref = useRef<HTMLButtonElement>(null);
   const [corner, setCorner] = useState<Corner>(readCorner);
-  const [drag, setDrag] = useState<{ dx: number; dy: number } | null>(null);
-  const press = useRef<{ id: number; x: number; y: number; moved: boolean } | null>(null);
+  const [held, setHeld] = useState(false);
+  /** Where it's drawn now (the page moves it itself, never through React). */
+  const pose = useRef<Pose>(REST);
+  const raf = useRef(0);
+  const press = useRef<Press | null>(null);
   const pip = usePipStatus((s) => s.active);
   useEffect(() => followPip(), []);
-  // Resize, scroll, rotation and the return to the app re-place it; so does
-  // every move of a drag and the snap.
-  useVideoTile(ref, true, MINI_RADIUS, 0, `${corner}:${drag?.dx ?? ""}:${drag?.dy ?? ""}`);
+  // Resize, scroll, rotation and the return to the app re-place the layer;
+  // the drag and the snap below move it too.
+  const tile = useVideoTile(ref, true, MINI_RADIUS, 0);
+
+  const stop = () => {
+    if (raf.current) cancelAnimationFrame(raf.current);
+    raf.current = 0;
+  };
+  useEffect(() => stop, []);
+
+  const draw = (p: Pose) => {
+    pose.current = p;
+    if (ref.current) ref.current.style.transform = poseTransform(p);
+  };
+
+  /** Picked up: a little bigger (not with Reduce Motion), the layer too. */
+  const lift = () => {
+    if (reduceMotion()) return;
+    const start = now();
+    const s0 = pose.current.s;
+    const tick = () => {
+      const u = Math.min(1, (now() - start) / (LIFT_DURATION * 1000));
+      draw({ ...pose.current, s: s0 + (LIFT_SCALE - s0) * easeOut(u) });
+      tile.placeNow();
+      raf.current = u < 1 ? requestAnimationFrame(tick) : 0;
+    };
+    raf.current = requestAnimationFrame(tick);
+  };
+
+  /** Let go at `velocity`: to the corner it would coast to, on a spring
+   *  (Swift runs the same one on the layer), a light tap as it lands. */
+  const snap = (velocity: Vec) => {
+    const el = ref.current;
+    if (!el) return;
+    stop();
+    const homes = measureHomes(el, corner);
+    const here = centre(homes[corner]);
+    const at = { x: here.x + pose.current.x, y: here.y + pose.current.y };
+    const next = pickCorner(at, velocity, {
+      "top-left": centre(homes["top-left"]),
+      "top-right": centre(homes["top-right"]),
+      "bottom-left": centre(homes["bottom-left"]),
+      "bottom-right": centre(homes["bottom-right"]),
+    });
+    const there = centre(homes[next]);
+    // Same place on screen, now measured from the new corner.
+    const from = { x: at.x - there.x, y: at.y - there.y, s: pose.current.s };
+    applyAnchor(el, next);
+    draw(from);
+    tile.placeNow();
+    writeCorner(next);
+    setCorner(next);
+    setHeld(false);
+    const plan = planSnap(from, velocity, reduceMotion());
+    tile.animateTo(homes[next], plan.animate);
+    tileHaptic(true);
+    const start = now();
+    let landed = false;
+    const tick = () => {
+      const t = (now() - start) / 1000;
+      if (!landed && t >= plan.landAt) {
+        landed = true;
+        tileHaptic();
+      }
+      draw(plan.at(t));
+      if (t < plan.duration) {
+        raf.current = requestAnimationFrame(tick);
+      } else {
+        raf.current = 0;
+        tile.placeNow();
+      }
+    };
+    raf.current = requestAnimationFrame(tick);
+  };
 
   const down = (e: ReactPointerEvent) => {
-    press.current = { id: e.pointerId, x: e.clientX, y: e.clientY, moved: false };
+    if (press.current) return;
+    if (raf.current) {
+      // Caught on its way: it stops under the finger, the layer with it.
+      stop();
+      tile.placeNow();
+    }
+    press.current = {
+      id: e.pointerId,
+      x: e.clientX,
+      y: e.clientY,
+      from: pose.current,
+      moved: false,
+      samples: [{ t: now(), x: e.clientX, y: e.clientY }],
+    };
     try {
       (e.currentTarget as Element).setPointerCapture?.(e.pointerId);
     } catch {
@@ -204,50 +379,53 @@ function Mini({ onOpen }: { onOpen: () => void }) {
     const dx = e.clientX - p.x;
     const dy = e.clientY - p.y;
     if (!p.moved && Math.hypot(dx, dy) < TAP_SLOP) return;
-    p.moved = true;
-    setDrag({ dx, dy });
+    if (!p.moved) {
+      p.moved = true;
+      setHeld(true);
+      lift();
+    }
+    p.samples.push({ t: now(), x: e.clientX, y: e.clientY });
+    if (p.samples.length > 16) p.samples.shift();
+    draw({ x: p.from.x + dx, y: p.from.y + dy, s: pose.current.s });
+    tile.schedule();
   };
   const up = (e: ReactPointerEvent) => {
     const p = press.current;
-    press.current = null;
     if (!p || p.id !== e.pointerId) return;
+    press.current = null;
     if (!p.moved) {
-      setDrag(null);
+      if (!atRest(pose.current)) snap({ x: 0, y: 0 });
       onOpen();
       return;
     }
-    const r = ref.current?.getBoundingClientRect();
-    const next = r
-      ? nearestCorner(r.left + r.width / 2, r.top + r.height / 2, window.innerWidth, window.innerHeight)
-      : corner;
-    writeCorner(next);
-    setCorner(next);
-    setDrag(null);
+    p.samples.push({ t: now(), x: e.clientX, y: e.clientY });
+    snap(releaseVelocity(p.samples));
   };
-  const cancel = () => {
+  const cancel = (e: ReactPointerEvent) => {
+    const p = press.current;
+    if (!p || p.id !== e.pointerId) return;
     press.current = null;
-    setDrag(null);
+    if (p.moved || !atRest(pose.current)) snap({ x: 0, y: 0 });
   };
 
-  const [v, h] = corner.split("-") as ["top" | "bottom", "left" | "right"];
   return (
     <button
       ref={ref}
       type="button"
       className="fixed block overflow-hidden"
       style={{
-        [v]: v === "top" ? TOP_CLEAR : BOTTOM_CLEAR,
-        [h]: `calc(env(safe-area-inset-${h}, 0px) + ${EDGE}px)`,
+        ...anchorStyle(corner),
         width: MINI_W,
         height: MINI_H,
         borderRadius: MINI_RADIUS,
         background: "#000",
         border: "1px solid var(--tile-edge)",
-        boxShadow: "0 8px 24px rgba(0, 0, 0, 0.45)",
+        boxShadow: held ? HELD_SHADOW : SHADOW,
+        transition: "box-shadow 0.18s ease-out",
+        willChange: "transform",
         padding: 0,
         zIndex: 40,
         touchAction: "none",
-        transform: drag ? `translate(${drag.dx}px, ${drag.dy}px)` : undefined,
       }}
       onPointerDown={down}
       onPointerMove={move}

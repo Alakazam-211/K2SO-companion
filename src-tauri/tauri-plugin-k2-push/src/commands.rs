@@ -141,6 +141,7 @@ pub(crate) async fn call_op<R: Runtime>(
     h: Option<f64>,
     visible: Option<bool>,
     radius: Option<f64>,
+    animate: Option<PipAnimate>,
 ) -> Result<serde_json::Value> {
     app.k2_push().call_op(CallOpRequest {
         op,
@@ -157,6 +158,7 @@ pub(crate) async fn call_op<R: Runtime>(
         h,
         visible,
         radius,
+        animate,
     })
 }
 
