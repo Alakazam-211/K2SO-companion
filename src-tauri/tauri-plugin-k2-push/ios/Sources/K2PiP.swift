@@ -14,7 +14,8 @@
 //   in the webview's coordinates) with rounded corners; `visible: false`
 //   sends it back to the hidden spot. Only its place among the window's
 //   subviews changes, so it never leaves the window. PiP's start and restore
-//   animations run from wherever it is.
+//   animations run from wherever it is. `corners: "top"` rounds only the
+//   top two corners (the floating card's picture, its controls under it).
 // - The mini tile's snap: `pipFrame`'s `animate` moves the view from where it
 //   is now to the new frame on its own, on the render server: a
 //   CASpringAnimation per axis with the page's mass, stiffness, damping and
@@ -165,7 +166,15 @@ final class K2PiP: NSObject {
   private var possible: NSKeyValueObservation?
   /// The page's tile (`pipFrame`), nil while it isn't on screen. Kept across
   /// teardown: the next layer goes straight there.
-  private var tile: (rect: CGRect, radius: CGFloat)?
+  private var tile: (rect: CGRect, radius: CGFloat, corners: CACornerMask)?
+  private static let allCorners: CACornerMask = [
+    .layerMinXMinYCorner, .layerMaxXMinYCorner, .layerMinXMaxYCorner, .layerMaxXMaxYCorner,
+  ]
+
+  /// `pipFrame`'s `corners`: "top" rounds the top two only; anything else all four.
+  static func cornerMask(_ corners: String?) -> CACornerMask {
+    corners == "top" ? [.layerMinXMinYCorner, .layerMaxXMinYCorner] : allCorners
+  }
   /// The layer shows a frame (`pip_first_frame` since the last clear).
   private var hasFrame = false
   private static let hiddenFrame = CGRect(x: 0, y: 0, width: 64, height: 36)
@@ -241,10 +250,12 @@ final class K2PiP: NSObject {
   /// `pipFrame`: the page's tile at `rect` (webview points), or nil when it
   /// isn't on screen. Before the layer exists, kept for it. `motion`: get
   /// there from where it is on that curve (only from one tile to another).
-  func setTile(_ rect: CGRect?, radius: CGFloat, motion: K2TileMotion? = nil) -> [String: Any] {
+  func setTile(
+    _ rect: CGRect?, radius: CGFloat, corners: CACornerMask? = nil, motion: K2TileMotion? = nil
+  ) -> [String: Any] {
     dispatchPrecondition(condition: .onQueue(.main))
     let was = tile != nil
-    tile = rect.map { ($0, max(0, radius)) }
+    tile = rect.map { ($0, max(0, radius), corners ?? Self.allCorners) }
     place(motion: was ? motion : nil)
     if was != (tile != nil) {
       pipLog("tile \(tile != nil ? "on" : "off"), possible=\(controller?.isPictureInPicturePossible ?? false)")
@@ -266,11 +277,13 @@ final class K2PiP: NSObject {
         v.frame = frame
       }
       v.layer.cornerRadius = t.radius
+      v.layer.maskedCorners = t.corners
       window.bringSubviewToFront(v)
     } else {
       stopMotion(v)
       v.frame = Self.hiddenFrame
       v.layer.cornerRadius = 0
+      v.layer.maskedCorners = Self.allCorners
       window.sendSubviewToBack(v)
     }
   }
