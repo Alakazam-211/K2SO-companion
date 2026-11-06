@@ -14,7 +14,8 @@
 //! The webview drives joins through the plugin's own commands
 //! (`plugin:sew-voice|join` …) and follows its `sew-voice://` events.
 
-use std::collections::HashMap;
+use std::collections::{BTreeMap, BTreeSet, HashMap};
+use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{mpsc, Arc, OnceLock, RwLock};
 use std::time::Duration;
@@ -46,6 +47,39 @@ pub struct Native {
     app: Arc<OnceLock<AppHandle<Wry>>>,
     /// Server id → base URL (`https://host`), from the webview's servers.
     hosts: Arc<RwLock<HashMap<String, String>>>,
+    /// Which saved servers each Sew install's device keys were made for.
+    installs: Arc<Mutex<Option<Installs>>>,
+    /// The server of the join in progress (the keys used next are its).
+    joining: Arc<Mutex<Option<String>>>,
+}
+
+/// Sew install id → the app's server ids that joined through it. Sew knows
+/// installs, the app knows servers: this ties them, so removing a server can
+/// forget its install's keys (`forget_server`). Kept in the app's data dir.
+#[derive(Debug, Default, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct Installs(BTreeMap<String, BTreeSet<String>>);
+
+impl Installs {
+    /// True when this is news (worth saving).
+    pub fn saw(&mut self, install: u64, server: &str) -> bool {
+        self.0.entry(install.to_string()).or_default().insert(server.to_owned())
+    }
+
+    /// Drop servers the app no longer has; answer the installs no saved
+    /// server uses any more (theirs to forget).
+    pub fn prune(&mut self, kept: &dyn Fn(&str) -> bool) -> Vec<u64> {
+        let mut orphans = Vec::new();
+        self.0.retain(|install, servers| {
+            servers.retain(|s| kept(s));
+            if servers.is_empty() {
+                orphans.extend(install.parse::<u64>().ok());
+                false
+            } else {
+                true
+            }
+        });
+        orphans
+    }
 }
 
 impl Native {
@@ -56,6 +90,40 @@ impl Native {
     fn host(&self, server: &str) -> Option<String> {
         let hosts = self.hosts.read().unwrap_or_else(|e| e.into_inner());
         hosts.get(server).map(|u| u.trim_end_matches('/').to_owned())
+    }
+
+    fn installs_path(&self) -> Option<std::path::PathBuf> {
+        Some(self.app()?.path().app_data_dir().ok()?.join("voice-installs.json"))
+    }
+
+    /// The install map, read from disk the first time.
+    fn with_installs<T>(&self, f: impl FnOnce(&mut Installs) -> T) -> T {
+        let mut slot = self.installs.lock().unwrap_or_else(|e| e.into_inner());
+        let installs = slot.get_or_insert_with(|| {
+            self.installs_path()
+                .and_then(|p| std::fs::read(p).ok())
+                .and_then(|b| serde_json::from_slice(&b).ok())
+                .unwrap_or_default()
+        });
+        f(installs)
+    }
+
+    fn save_installs(&self) {
+        let Some(path) = self.installs_path() else { return };
+        let bytes = self.with_installs(|i| serde_json::to_vec(i).unwrap_or_default());
+        if let Some(dir) = path.parent() {
+            let _ = std::fs::create_dir_all(dir);
+        }
+        let _ = std::fs::write(path, bytes);
+    }
+
+    /// A device key of `install` was used: it belongs to the joining server.
+    fn key_used(&self, install: u64) {
+        let joining = self.joining.lock().unwrap_or_else(|e| e.into_inner()).clone();
+        let Some(server) = joining else { return };
+        if self.with_installs(|i| i.saw(install, &server)) {
+            self.save_installs();
+        }
     }
 
     /// The Keychain's token for `server`, off the async runtime's workers.
@@ -103,9 +171,35 @@ pub fn start(app: &AppHandle<Wry>, native: &Native) {
     });
 }
 
-/// The webview's servers (id → base URL), whenever they change.
+/// The webview's servers (id → base URL), whenever they change. A removed
+/// server's call keys go with it, once no other saved server uses its Sew
+/// install (and not mid-call: Sew refuses then, and the next change retries).
 pub fn set_hosts(native: &Native, hosts: HashMap<String, String>) {
+    let orphans = if hosts.is_empty() {
+        // The webview before it loaded its servers, or every server removed:
+        // only the second is a removal, and the app can't tell here.
+        Vec::new()
+    } else {
+        native.with_installs(|i| i.prune(&|s| hosts.contains_key(s)))
+    };
     *native.hosts.write().unwrap_or_else(|e| e.into_inner()) = hosts;
+    if orphans.is_empty() {
+        return;
+    }
+    let Some(app) = native.app() else { return };
+    let control = app.state::<VoiceControl>().inner().clone();
+    let native = native.clone();
+    tauri::async_runtime::spawn(async move {
+        for install in orphans {
+            if control.forget_server(install).await.is_err() {
+                // Keep it listed so a later change tries again.
+                native.with_installs(|i| {
+                    i.0.entry(install.to_string()).or_default().insert(String::new());
+                });
+            }
+        }
+        native.save_installs();
+    });
 }
 
 /// The consent sheet the webview should show now (`null`: none), for a
@@ -155,6 +249,7 @@ impl K2Provider {
 
     async fn join_inner(&self, req: JoinRequest) -> Result<JoinAnswer, ProviderError> {
         let (base, token) = self.login(&req.target).await?;
+        *self.native.joining.lock().unwrap_or_else(|e| e.into_inner()) = Some(req.target.clone());
         let (status, retry_after, body) = self.post(&format!("{base}/cli/voice/join"), &token, &join_body(&req)).await?;
         answer_from(status, retry_after, &body, &base, &token)
     }
@@ -290,6 +385,9 @@ pub struct EnclaveKey {
 impl EnclaveKey {
     async fn call(&self, op: &'static str, id: &DeviceKeyId, message: Option<&[u8]>) -> Result<Value, DeviceError> {
         let app = self.native.app().ok_or_else(|| DeviceError::Unavailable("the app hasn't started".into()))?;
+        if op != "delete" {
+            self.native.key_used(id.install_id);
+        }
         let req = VoiceKeyRequest { op, id: id.account(), message: message.map(|m| B64.encode(m)) };
         tauri::async_runtime::spawn_blocking(move || app.k2_push().voice_key(req))
             .await
@@ -548,6 +646,20 @@ mod tests {
         let mut granted = held();
         granted.my_consent = "granted".into();
         assert!(consent_sheet(&granted, ConsentAsk::InCall).is_none());
+    }
+
+    #[test]
+    fn a_removed_servers_install_is_forgotten_once_no_server_uses_it() {
+        let mut i = Installs::default();
+        assert!(i.saw(7, "a"));
+        assert!(!i.saw(7, "a"));
+        i.saw(7, "b"); // two logins on one box
+        i.saw(9, "c");
+        assert_eq!(i.prune(&|s| s != "a"), Vec::<u64>::new());
+        assert_eq!(i.prune(&|s| s == "c"), vec![7]);
+        assert_eq!(i.0.keys().cloned().collect::<Vec<_>>(), vec!["9".to_owned()]);
+        let json = serde_json::to_string(&i).unwrap();
+        assert_eq!(serde_json::from_str::<Installs>(&json).unwrap(), i);
     }
 
     #[test]
