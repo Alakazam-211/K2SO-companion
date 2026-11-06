@@ -90,7 +90,9 @@ function VoiceCallScreen() {
   const open = useCallScreen((s) => s.open);
   if (!open) return null;
   return createPortal(
-    <div className="fixed inset-0" style={{ zIndex: 50 }} data-testid="voice-call-screen">
+    // zen-font: the app's chosen font (Settings), as on /zen; a portal is
+    // outside that tree.
+    <div className="fixed inset-0 zen-font" style={{ zIndex: 50 }} data-testid="voice-call-screen">
       <Suspense fallback={null}>
         <VoiceRoomsOverlay onClose={() => useCallScreen.getState().setOpen(false)} />
       </Suspense>
