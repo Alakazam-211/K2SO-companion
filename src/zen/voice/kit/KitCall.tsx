@@ -11,7 +11,7 @@ import { useVoiceCall, type CallRoom } from "../voiceCall";
 import { occupantByMember, roomByKey, useVoiceNames } from "../voiceNames";
 import type { VoiceRoom } from "../voiceWire";
 import type { LayerVideo } from "./layerVideo";
-import { kitChannelId, kitRoomOf, kitSelfId, sewKit } from "./sewKit";
+import { kitChannelId, kitRoomOf, kitSelfId, note, sewKit } from "./sewKit";
 
 // The call screen's kit parts (Sew's @sew/voice), loaded with the call
 // screen so the kit never weighs on the app's start:
@@ -43,6 +43,10 @@ const DEVICE_CHECK = '[data-testid="voice-devices"]';
 
 /** No device check on the phone: a tap on its button never reaches it. */
 function guard(e: MouseEvent): void {
+  // A person's tap on the camera button, so the call log can tell taps from
+  // anything else turning the camera on or off.
+  const cam = (e.target as Element | null)?.closest?.('[data-testid="voice-camera"]');
+  if (cam) note(["camera", "tap", cam.getAttribute("data-state") ?? "none"]);
   if ((e.target as Element | null)?.closest?.(DEVICE_CHECK)) {
     e.preventDefault();
     e.stopPropagation();
