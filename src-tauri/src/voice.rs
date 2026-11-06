@@ -108,6 +108,14 @@ pub fn set_hosts(native: &Native, hosts: HashMap<String, String>) {
     *native.hosts.write().unwrap_or_else(|e| e.into_inner()) = hosts;
 }
 
+/// The consent sheet the webview should show now (`null`: none), for a
+/// webview that slept through the `k2-voice://consent` event.
+pub fn consent_now(control: &VoiceControl) -> Value {
+    let snap = control.snapshot();
+    let ask = if matches!(snap.state, CallState::ConsentRequired { .. }) { ConsentAsk::Join } else { ConsentAsk::InCall };
+    snap.recording.as_ref().and_then(|r| consent_sheet(r, ask)).unwrap_or(Value::Null)
+}
+
 // ── The join ─────────────────────────────────────────────────────────
 
 pub struct K2Provider {

@@ -10,7 +10,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   }),
 }));
 
-import { parseConsentSheet, sewVoiceEngine } from "./sewVoice";
+import { parseConsentSheet, parseSnapshot, sewVoiceEngine } from "./sewVoice";
 
 beforeEach(() => {
   handlers.clear();
@@ -76,5 +76,39 @@ describe("Sew's native engine, from the webview", () => {
     expect(parseConsentSheet(null)).toBeNull();
     expect(parseConsentSheet({ ...sheet, choices: [] })).toBeNull();
     expect(parseConsentSheet({ ...sheet, noticeVersion: "3" })).toBeNull();
+  });
+
+  it("reads the plugin's state snapshot (Sew's contract fixtures)", () => {
+    const speakDenied = {
+      state: "connected",
+      participants: [{ member_id: "9", is_self: true, muted: true, deafened: false, speak_denied: true }],
+      call_id: "r_x",
+      target: "k2:acme",
+      room: "48831765147549698",
+    };
+    expect(parseSnapshot(speakDenied, null)).toEqual({
+      state: "connected",
+      serverId: "k2:acme",
+      roomId: "48831765147549698",
+      muted: true,
+      consent: null,
+    });
+    expect(parseSnapshot({ state: "consent_required", participants: [], call_id: null }, null).state).toBe("held");
+    expect(parseSnapshot({ state: "idle", participants: [] }, null)).toEqual({
+      state: "idle",
+      muted: false,
+      consent: null,
+    });
+    expect(parseSnapshot(null, null).state).toBe("idle");
+  });
+
+  it("resync asks for the state and the notice together", async () => {
+    invoke.mockImplementation(async (cmd: string) =>
+      cmd === "voice_consent" ? null : { state: "connected", participants: [] }
+    );
+    const now = await sewVoiceEngine().resync?.({ onState: () => {} });
+    expect(now?.state).toBe("connected");
+    expect(invoke).toHaveBeenCalledWith("plugin:sew-voice|state");
+    expect(invoke).toHaveBeenCalledWith("voice_consent");
   });
 });

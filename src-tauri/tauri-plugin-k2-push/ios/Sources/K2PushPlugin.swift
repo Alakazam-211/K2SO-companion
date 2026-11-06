@@ -111,6 +111,8 @@ class K2PushPlugin: Plugin {
     }
     // Push keys left by an earlier install (keychain items outlive it).
     K2PushPlugin.badgeQueue.async { K2PushKeys.wipeIfFreshInstall() }
+    // The voice call's device keys, the same way (before any join can sign).
+    K2PushPlugin.keyQueue.async { K2DeviceKey.wipeIfFreshInstall() }
     DispatchQueue.main.async {
       // Best-effort early install; ensureDelegateHooks re-verifies (and
       // re-installs against the live delegate class) before every probe.

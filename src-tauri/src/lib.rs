@@ -1980,6 +1980,20 @@ fn voice_hosts(_app: tauri::AppHandle, _hosts: std::collections::HashMap<String,
     }
 }
 
+/// The voice call's recording notice as of now (`null`: none), for a
+/// webview waking after the event went by. Null off iOS.
+#[tauri::command]
+fn voice_consent(_app: tauri::AppHandle) -> serde_json::Value {
+    #[cfg(target_os = "ios")]
+    {
+        use tauri::Manager;
+        if let Some(control) = _app.try_state::<tauri_plugin_sew_voice::VoiceControl>() {
+            return voice::consent_now(&control);
+        }
+    }
+    serde_json::Value::Null
+}
+
 /// Pair links that opened the app and the page has not taken yet (oldest
 /// first; each is handed over once). Empty off iOS.
 #[tauri::command]
@@ -2036,7 +2050,8 @@ pub fn run() {
             open_external_url,
             aps_environment,
             take_open_urls,
-            voice_hosts
+            voice_hosts,
+            voice_consent
         ])
         .build(tauri::generate_context!())
         .expect("error while building K2 Companion");
