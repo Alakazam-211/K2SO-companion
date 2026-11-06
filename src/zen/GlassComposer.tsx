@@ -19,6 +19,7 @@ import { ZEN_TEXT_SCALE_VAR, zenTextPx } from "./zenFont";
 import { PlusGlyph } from "./PlusGlyph";
 import { sidecarSuffix } from "./sidecarRows";
 import { AttachMenu, type AttachChoice, type AttachMenuExtra } from "./AttachMenu";
+import { useVoiceCall } from "./voice/voiceCall";
 import { alongCurve, curveEasing, flyMotion, prefersReducedMotion } from "./sendFly";
 import { usePressSpring } from "../lib/usePressSpring";
 import {
@@ -292,6 +293,9 @@ export function GlassComposer({
   const photoRef = useRef<HTMLInputElement>(null);
   const cameraRef = useRef<HTMLInputElement>(null);
   const plusRef = useRef<HTMLButtonElement>(null);
+  // A voice call holds the microphone: recording a video would take it,
+  // so the camera takes photos only until the call ends.
+  const inCall = useVoiceCall((s) => s.phase !== "idle");
   const id = (s: string) => `${testIdPrefix}-${s}`;
   const showAttach = canSend && attach;
 
@@ -530,7 +534,7 @@ export function GlassComposer({
         <input
           ref={cameraRef}
           type="file"
-          accept="image/*,video/*"
+          accept={inCall ? "image/*" : "image/*,video/*"}
           capture="environment"
           className="hidden"
           data-testid={id("camera-input")}
@@ -566,6 +570,7 @@ export function GlassComposer({
               anchorRef={plusRef}
               testIdPrefix={testIdPrefix}
               files={!attachDisabled}
+              photoOnly={inCall}
               extras={menuExtras?.map((x) => ({
                 ...x,
                 onSelect: () => {

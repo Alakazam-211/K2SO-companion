@@ -26,6 +26,10 @@ export type AttachMenuExtra = {
   disabled?: boolean;
 };
 
+/** The camera row while a voice call is up: video would take the call's
+ *  microphone, so the camera takes photos only. */
+export const CAMERA_PHOTO_ONLY_LABEL = "Take Photo";
+
 export const ATTACH_MENU_RADIUS_PX = 22;
 export const ATTACH_MENU_ROW_PX = 44;
 
@@ -39,6 +43,7 @@ const keepFocus = (e: SyntheticEvent) => e.preventDefault();
  * the keyboard stays up while it is open. Tap outside, Escape or Android
  * Back closes it. `extras` follow the attach choices under a hairline;
  * `files: false` leaves the attach choices out (attaching is off here).
+ * `photoOnly`: the camera row offers photos only (a voice call is up).
  */
 export function AttachMenu({
   onChoose,
@@ -47,6 +52,7 @@ export function AttachMenu({
   testIdPrefix = "composer",
   extras = [],
   files = true,
+  photoOnly = false,
 }: {
   onChoose: (choice: AttachChoice) => void;
   onClose: () => void;
@@ -55,6 +61,7 @@ export function AttachMenu({
   testIdPrefix?: string;
   extras?: AttachMenuExtra[];
   files?: boolean;
+  photoOnly?: boolean;
 }) {
   const menuRef = useRef<HTMLDivElement>(null);
   const close = useRef(onClose);
@@ -110,7 +117,7 @@ export function AttachMenu({
         <MenuRow
           key={choice}
           testId={`${testIdPrefix}-attach-${choice}`}
-          label={label}
+          label={choice === "camera" && photoOnly ? CAMERA_PHOTO_ONLY_LABEL : label}
           Icon={Icon}
           onClick={() => onChoose(choice)}
         />
