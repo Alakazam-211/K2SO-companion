@@ -263,7 +263,11 @@ export const useVoiceCall = create<CallState>((set, get) => {
       if (granted === null || !engine.consent) return get().leave();
       try {
         await engine.consent(granted, sheet.noticeVersion);
-      } catch {
+      } catch (err) {
+        // A changed notice comes back as the new sheet; a stopped recording
+        // has nothing left to answer.
+        const code: string = codeOf(err).code;
+        if (code === "recording_consent_required" || code === "recording_not_active") return;
         set({ notice: "Couldn't send your answer. Try again, or leave the room." });
       }
     },

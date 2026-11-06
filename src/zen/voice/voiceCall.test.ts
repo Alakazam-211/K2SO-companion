@@ -268,6 +268,26 @@ describe("the phone's voice-room call", () => {
       expect(useVoiceCall.getState().consent).toBeNull();
     });
 
+    it("a changed notice shows the new one, not a failure", async () => {
+      const e = fakeEngine(true);
+      __setCallShimForTests(fakeShim().shim);
+      setPhoneVoiceEngine(e.engine);
+      void useVoiceCall.getState().join(ROOM);
+      await flush();
+      e.events()?.onConsent?.(SHEET);
+      const next = { ...SHEET, noticeVersion: 3142 };
+      vi.mocked(e.engine.consent!).mockImplementationOnce(async () => {
+        e.events()?.onConsent?.(next);
+        throw { code: "recording_consent_required" };
+      });
+      await useVoiceCall.getState().answerConsent(true);
+      expect(useVoiceCall.getState().consent).toEqual(next);
+      expect(useVoiceCall.getState().notice).toBeNull();
+      vi.mocked(e.engine.consent!).mockRejectedValueOnce({ code: "unavailable" });
+      await useVoiceCall.getState().answerConsent(true);
+      expect(useVoiceCall.getState().notice).toMatch(/Couldn't send your answer/);
+    });
+
     it("Cancel on a held join leaves", async () => {
       const e = fakeEngine(true);
       __setCallShimForTests(fakeShim().shim);
