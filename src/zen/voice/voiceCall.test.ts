@@ -254,6 +254,41 @@ describe("the phone's voice-room call", () => {
       expect(e.engine.muted).toEqual([]);
     });
 
+    it("follows the call's video, and drops it when the call ends", async () => {
+      const e = fakeEngine(true);
+      __setCallShimForTests(fakeShim().shim);
+      setPhoneVoiceEngine(e.engine);
+      void useVoiceCall.getState().join(ROOM);
+      await flush();
+      e.state("connected");
+      expect(useVoiceCall.getState().video).toBe(false);
+      e.events()?.onVideo?.(true);
+      expect(useVoiceCall.getState().video).toBe(true);
+      e.state("ended", "left");
+      expect(useVoiceCall.getState().video).toBe(false);
+      // A late event from the old call changes nothing.
+      e.events()?.onVideo?.(true);
+      expect(useVoiceCall.getState().video).toBe(false);
+    });
+
+    it("back in the foreground: video that came while asleep shows", async () => {
+      const e = fakeEngine(true, {
+        state: "connected",
+        serverId: "s1",
+        roomId: "room-1",
+        muted: false,
+        consent: null,
+        video: true,
+      });
+      __setCallShimForTests(fakeShim().shim);
+      setPhoneVoiceEngine(e.engine);
+      void useVoiceCall.getState().join(ROOM);
+      await flush();
+      e.state("connected");
+      await useVoiceCall.getState().resync();
+      expect(useVoiceCall.getState().video).toBe(true);
+    });
+
     it("a held join shows the notice; an answer goes to the engine with its version", async () => {
       const e = fakeEngine(true);
       __setCallShimForTests(fakeShim().shim);

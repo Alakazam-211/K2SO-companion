@@ -526,6 +526,9 @@ struct CallKitBridge {
 /// (`null` once nothing waits for an answer).
 pub const CONSENT_EVENT: &str = "k2-voice://consent";
 
+/// The call has video or no longer (`video_changed`): the call screen's tile.
+pub const VIDEO_EVENT: &str = "k2-voice://video";
+
 impl VoiceListener for CallKitBridge {
     fn on_state(&self, state: &StateEvent) {
         self.held.store(matches!(state.state, CallState::ConsentRequired { .. }), Ordering::Relaxed);
@@ -559,6 +562,9 @@ impl VoiceListener for CallKitBridge {
 
     fn video_changed(&self, has_video: bool) {
         self.send_video(has_video);
+        if let Some(app) = self.native.app() {
+            let _ = app.emit(VIDEO_EVENT, has_video);
+        }
         self.native.note(if has_video { "video on" } else { "video off" });
     }
 }
@@ -593,8 +599,7 @@ fn consent_sheet(r: &RecordingInfo, ask: ConsentAsk) -> Option<Value> {
 }
 
 fn call_req(op: &str, f: impl FnOnce(&mut CallOpRequest)) -> CallOpRequest {
-    let mut req =
-        CallOpRequest { op: op.into(), room: None, server: None, state: None, reason: None, on: None, title: None, video: None };
+    let mut req = CallOpRequest { op: op.into(), ..Default::default() };
     f(&mut req);
     req
 }

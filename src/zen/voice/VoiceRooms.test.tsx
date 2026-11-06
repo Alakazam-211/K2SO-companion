@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn(), addPluginListener: vi.fn() }));
@@ -23,6 +23,7 @@ vi.mock("../../api/scope", async (orig) => ({
 }));
 
 import { useServersStore, type ServerEntry } from "../../stores/servers";
+import { __resetPipForTests, __setTileSenderForTests, HIDDEN, onPipEvent, type TileFrame } from "./videoTile";
 import { __resetVoiceCallForTests, useVoiceCall } from "./voiceCall";
 import { voiceServers, VoiceRoomsOverlay } from "./VoiceRooms";
 
@@ -186,6 +187,58 @@ describe("voice rooms on the phone", () => {
     expect(choices).toEqual(["Join and allow recording", "Join without being recorded", "Cancel"]);
     fireEvent.click(screen.getAllByTestId("voice-consent-choice")[1]);
     expect(answer).toHaveBeenCalledWith(false);
+  });
+
+  it("in a call with video, shows the tile; video starting until the first frame; the tap starts PiP", async () => {
+    const { invoke, addPluginListener } = await import("@tauri-apps/api/core");
+    vi.mocked(invoke).mockReset().mockResolvedValue({ ok: true });
+    vi.mocked(addPluginListener)
+      .mockReset()
+      .mockResolvedValue({ unregister: vi.fn() } as never);
+    __resetPipForTests();
+    const room = { serverId: "s1", serverLabel: "sewlab", roomId: "room-1", roomName: "Standup", limit: 25 };
+    useVoiceCall.setState({ phase: "connected", room });
+    ios.on = true;
+    try {
+      render(<VoiceRoomsOverlay onClose={() => {}} />);
+      expect(screen.queryByTestId("voice-video-tile")).toBeNull();
+      act(() => useVoiceCall.setState({ video: true }));
+      expect(screen.getByTestId("voice-video-line").textContent).toBe("Video starting…");
+      act(() => onPipEvent({ event: "pip_first_frame" }));
+      expect(screen.queryByTestId("voice-video-line")).toBeNull();
+      fireEvent.click(screen.getByTestId("voice-video-tile"));
+      expect(invoke).toHaveBeenCalledWith("plugin:k2-push|call_op", { op: "pip", on: true });
+      act(() => onPipEvent({ event: "pip_started" }));
+      expect(screen.getByTestId("voice-video-line").textContent).toBe("Playing in Picture in Picture");
+      act(() => useVoiceCall.setState({ video: false }));
+      expect(screen.queryByTestId("voice-video-tile")).toBeNull();
+      expect(invoke).toHaveBeenLastCalledWith("plugin:k2-push|call_op", { op: "pipFrame", visible: false });
+    } finally {
+      ios.on = false;
+    }
+  });
+
+  it("the recording sheet over the tile sends the layer under the page", async () => {
+    const sent: TileFrame[] = [];
+    __setTileSenderForTests((f) => void sent.push(f));
+    const room = { serverId: "s1", serverLabel: "sewlab", roomId: "room-1", roomName: "Standup", limit: 25 };
+    const sheet = {
+      ask: "in_call" as const,
+      noticeVersion: 1,
+      title: "t",
+      text: "x",
+      choices: [{ label: "OK", granted: true }],
+    };
+    useVoiceCall.setState({ phase: "connected", room, video: true });
+    try {
+      render(<VoiceRoomsOverlay onClose={() => {}} />);
+      sent.length = 0;
+      act(() => useVoiceCall.setState({ consent: sheet }));
+      expect(screen.getByTestId("voice-video-tile")).toBeTruthy();
+      expect(sent).toEqual([HIDDEN]);
+    } finally {
+      __setTileSenderForTests(null);
+    }
   });
 
   it("Send call log shows on the phone's engine only, and says when it couldn't", async () => {

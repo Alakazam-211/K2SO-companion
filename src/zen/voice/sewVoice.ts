@@ -10,8 +10,9 @@ import { nativeJoinErrorCode } from "./voiceWire";
 // with the Keychain's token; the webview only asks and follows:
 //   - commands `plugin:sew-voice|join` / `leave` / `mute` / `consent`;
 //   - events `sew-voice://state` (the call), `sew-voice://participants`
-//     (your own mute, which the system's button can change) and
-//     `k2-voice://consent` (the recording notice, already in the kit's words).
+//     (your own mute, which the system's button can change),
+//     `k2-voice://consent` (the recording notice, already in the kit's words)
+//     and `k2-voice://video` (the call has video: Sew's `video_changed`).
 
 const CMD = "plugin:sew-voice|";
 
@@ -54,6 +55,7 @@ type Snapshot = {
   target?: string;
   room?: string;
   participants?: { is_self?: boolean; muted?: boolean; deafened?: boolean }[];
+  has_video?: boolean;
 };
 
 /** The plugin's `state` answer as the store reads it. */
@@ -73,6 +75,7 @@ export function parseSnapshot(snap: unknown, consent: unknown): EngineNow {
     ...(typeof s.room === "string" ? { roomId: s.room } : {}),
     muted: me?.muted === true || me?.deafened === true,
     consent: parseConsentSheet(consent),
+    ...(s.has_video === true ? { video: true } : {}),
   };
 }
 
@@ -117,6 +120,7 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
         }
       }),
       listen<unknown>("k2-voice://consent", ({ payload }) => events?.onConsent?.(parseConsentSheet(payload))),
+      listen<unknown>("k2-voice://video", ({ payload }) => events?.onVideo?.(payload === true)),
       listen<{ is_self?: boolean; muted?: boolean; deafened?: boolean }[]>(
         "sew-voice://participants",
         ({ payload }) => {
