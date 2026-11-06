@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { scopeFor } from "../../api/scope";
 import { useBackHandler } from "../../lib/androidBack";
+import { isIosWebView } from "../../lib/nativePicker";
 import { onForegroundLater } from "../../lib/foreground";
 import { useServersStore, type ServerEntry } from "../../stores/servers";
 import { serverDisplayName } from "../homeView";
 import { subscribeAppEvents } from "../ticketEvents";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "../ZenHeaderBlur";
 import { FEATURE_VOICE_ROOMS, fetchVoiceRooms, isVoiceRoomsChanged, type VoiceRoomsResult } from "./voiceApi";
+import { shareCallLog } from "./sewVoice";
 import { useVoiceCall } from "./voiceCall";
 import { hostingStateText, meOffer, roomIsFull, type VoiceRoom, type VoiceRoomsList } from "./voiceWire";
 
@@ -269,9 +271,43 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
         ) : (
           list.map((s) => <ServerRooms key={s.id} server={s} />)
         )}
+        <SendCallLog />
       </div>
       <ConsentSheet />
       <CallBar />
+    </div>
+  );
+}
+
+/** "Send call log", under the rooms: where the person is when a call
+ *  misbehaves, and still there after it ended. The phone's call engine
+ *  only (iOS). */
+function SendCallLog() {
+  const [failed, setFailed] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!isIosWebView()) return null;
+  const send = async () => {
+    setBusy(true);
+    setFailed((await shareCallLog()) === "failed");
+    setBusy(false);
+  };
+  return (
+    <div style={{ padding: "4px 14px 14px" }} data-testid="voice-call-log">
+      <button
+        type="button"
+        className="zen-glass zen-glass-pill text-[14px]"
+        style={{ minHeight: 34, padding: "0 14px", color: "#fff", opacity: busy ? 0.5 : 1 }}
+        disabled={busy}
+        onClick={() => void send()}
+        data-testid="voice-send-log"
+      >
+        Send call log
+      </button>
+      <p className="text-[12px]" style={{ color: "#8e8e93", marginTop: 6 }}>
+        {failed
+          ? "Couldn't get the call log. Try again."
+          : "For when a call misbehaves: call events and error codes with times. No names, addresses or audio."}
+      </p>
     </div>
   );
 }

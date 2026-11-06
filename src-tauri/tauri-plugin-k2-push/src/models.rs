@@ -349,6 +349,19 @@ pub struct VoiceKeyRequest {
     pub message: Option<String>,
 }
 
+/// `voice_notice` (iOS, Rust only): the local notification for a recording
+/// notice that waits for an answer while the app is in the background.
+/// `post {title, body}` (nothing while the app is active, or without
+/// notification permission: it never asks); `clear` takes it away.
+#[derive(Debug, Serialize)]
+pub struct VoiceNoticeRequest {
+    pub op: &'static str,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub title: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+}
+
 /// `voice_watch` (iOS, Rust only): the call shim's events (`end_requested`,
 /// `mute_requested`, `session_activated`, `network_changed`, …) on `channel`.
 #[derive(Serialize)]

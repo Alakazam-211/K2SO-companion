@@ -1994,6 +1994,33 @@ fn voice_consent(_app: tauri::AppHandle) -> serde_json::Value {
     serde_json::Value::Null
 }
 
+/// Why the last call ended when K2 left it itself (a held re-join nobody
+/// answered: `recording_consent_timeout`); `null` otherwise, and off iOS.
+#[tauri::command]
+fn voice_ended_why(_app: tauri::AppHandle) -> Option<String> {
+    #[cfg(target_os = "ios")]
+    {
+        use tauri::Manager;
+        return voice::ended_why(&_app.state::<voice::Native>()).map(str::to_owned);
+    }
+    #[allow(unreachable_code)]
+    None
+}
+
+/// The last call events as text, for "Send call log" (codes only: no
+/// tokens, addresses or names). Empty off iOS.
+#[tauri::command]
+fn voice_call_log(_app: tauri::AppHandle) -> String {
+    #[cfg(target_os = "ios")]
+    {
+        use tauri::Manager;
+        let version = _app.package_info().version.to_string();
+        return voice::call_log_text(&_app.state::<voice::Native>(), &version);
+    }
+    #[allow(unreachable_code)]
+    String::new()
+}
+
 /// Pair links that opened the app and the page has not taken yet (oldest
 /// first; each is handed over once). Empty off iOS.
 #[tauri::command]
@@ -2051,7 +2078,9 @@ pub fn run() {
             aps_environment,
             take_open_urls,
             voice_hosts,
-            voice_consent
+            voice_consent,
+            voice_ended_why,
+            voice_call_log
         ])
         .build(tauri::generate_context!())
         .expect("error while building K2 Companion");

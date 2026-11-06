@@ -7,6 +7,15 @@ const api = vi.hoisted(() => ({ rooms: vi.fn() }));
 vi.mock("./voiceApi", async (orig) => ({ ...(await orig<typeof import("./voiceApi")>()), fetchVoiceRooms: api.rooms }));
 const hub = vi.hoisted(() => ({ subscribe: vi.fn(() => ({ stop() {} })) }));
 vi.mock("../ticketEvents", () => ({ subscribeAppEvents: hub.subscribe }));
+const ios = vi.hoisted(() => ({ on: false, share: vi.fn() }));
+vi.mock("../../lib/nativePicker", async (orig) => ({
+  ...(await orig<typeof import("../../lib/nativePicker")>()),
+  isIosWebView: () => ios.on,
+}));
+vi.mock("./sewVoice", async (orig) => ({
+  ...(await orig<typeof import("./sewVoice")>()),
+  shareCallLog: ios.share,
+}));
 const scopes = vi.hoisted(() => ({ hosts: new Set<string>() }));
 vi.mock("../../api/scope", async (orig) => ({
   ...(await orig<typeof import("../../api/scope")>()),
@@ -177,5 +186,24 @@ describe("voice rooms on the phone", () => {
     expect(choices).toEqual(["Join and allow recording", "Join without being recorded", "Cancel"]);
     fireEvent.click(screen.getAllByTestId("voice-consent-choice")[1]);
     expect(answer).toHaveBeenCalledWith(false);
+  });
+
+  it("Send call log shows on the phone's engine only, and says when it couldn't", async () => {
+    ios.on = false;
+    const { unmount } = render(<VoiceRoomsOverlay onClose={() => {}} />);
+    expect(screen.queryByTestId("voice-send-log")).toBeNull();
+    unmount();
+    ios.on = true;
+    ios.share.mockReset().mockResolvedValueOnce("shared").mockResolvedValueOnce("failed");
+    try {
+      render(<VoiceRoomsOverlay onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId("voice-send-log"));
+      await waitFor(() => expect(ios.share).toHaveBeenCalledTimes(1));
+      expect(screen.getByTestId("voice-call-log").textContent).not.toMatch(/Couldn't/);
+      fireEvent.click(screen.getByTestId("voice-send-log"));
+      await waitFor(() => expect(screen.getByTestId("voice-call-log").textContent).toMatch(/Couldn't get the call log/));
+    } finally {
+      ios.on = false;
+    }
   });
 });
