@@ -162,6 +162,15 @@ final class K2PiP: NSObject {
   private var lastKeyframeAsk: CFAbsoluteTime = 0
   /// No frame enqueued since the layer came or was last flushed.
   private var awaitingFrame = true
+  /// When the last frame went to the layer, and whether the page was told
+  /// the stream stalled (`pip_stalled`; the next frame is `pip_first_frame`
+  /// again). A muted or paused camera, a lost stream: the page's tile goes
+  /// back to the person's avatar instead of a frozen or empty picture.
+  private var lastFrameAt: CFAbsoluteTime = 0
+  private var stalled = false
+  private var watchdog: DispatchSourceTimer?
+  /// No frame for this long is a stall.
+  static let stallAfter: CFTimeInterval = 3
 
   // ── Window and controller (main) ───────────────────────────────────
 
@@ -207,6 +216,8 @@ final class K2PiP: NSObject {
       self.layer = layer
       self.packer.reset()
       self.awaitingFrame = true
+      self.stalled = false
+      self.startWatchdog()
     }
     return true
   }
@@ -284,6 +295,8 @@ final class K2PiP: NSObject {
     view?.removeFromSuperview()
     view = nil
     queue.async {
+      self.watchdog?.cancel()
+      self.watchdog = nil
       if let layer = self.layer { self.flush(layer, removeImage: true) }
       self.layer = nil
       self.packer.reset()
@@ -400,12 +413,32 @@ final class K2PiP: NSObject {
     }
   }
 
-  /// A frame went to the layer: the first since the last flush tells the page.
+  /// A frame went to the layer: the first since the last flush (or since a
+  /// stall) tells the page.
   private func shown() {
-    guard awaitingFrame else { return }
+    lastFrameAt = CFAbsoluteTimeGetCurrent()
+    guard awaitingFrame || stalled else { return }
     awaitingFrame = false
+    stalled = false
     DispatchQueue.main.async { self.hasFrame = true }
     emit(["event": "pip_first_frame"])
+  }
+
+  /// Once a second while the layer exists: a picture with no new frame for
+  /// `stallAfter` is a stall. The image stays (PiP keeps its last frame).
+  private func startWatchdog() {
+    watchdog?.cancel()
+    let t = DispatchSource.makeTimerSource(queue: queue)
+    t.schedule(deadline: .now() + 1, repeating: 1, leeway: .milliseconds(200))
+    t.setEventHandler { [weak self] in
+      guard let self = self, self.layer != nil, !self.awaitingFrame, !self.stalled else { return }
+      guard CFAbsoluteTimeGetCurrent() - self.lastFrameAt >= Self.stallAfter else { return }
+      self.stalled = true
+      DispatchQueue.main.async { self.hasFrame = false }
+      self.emit(["event": "pip_stalled"])
+    }
+    watchdog = t
+    t.resume()
   }
 
   /// At most one keyframe request a second.

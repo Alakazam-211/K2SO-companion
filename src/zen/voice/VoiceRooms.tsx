@@ -9,8 +9,8 @@ import { subscribeAppEvents } from "../ticketEvents";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "../ZenHeaderBlur";
 import { FEATURE_VOICE_ROOMS, fetchVoiceRooms, isVoiceRoomsChanged, type VoiceRoomsResult } from "./voiceApi";
 import { shareCallLog } from "./sewVoice";
-import { VideoTile } from "./videoLayer";
-import { useVoiceCall, type CallRoom } from "./voiceCall";
+import { useLiveVideo, VideoTile } from "./videoLayer";
+import { canJoinWithCamera, useVoiceCall, type CallRoom } from "./voiceCall";
 import { useVoiceNames } from "./voiceNames";
 import { hostingStateText, meOffer, roomIsFull, type VoiceRoom, type VoiceRoomsList } from "./voiceWire";
 
@@ -82,12 +82,27 @@ function Occupants({ room }: { room: VoiceRoom }) {
   return <span>{names.length > 3 ? `${shown} and ${names.length - 3} more` : shown}</span>;
 }
 
+/** A video camera, for "Join with camera". */
+function CameraIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M16 13l5.2 3.5a.5.5 0 0 0 .8-.4V7.9a.5.5 0 0 0-.8-.4L16 11" />
+      <rect x="2" y="6" width="14" height="12" rx="2" />
+    </svg>
+  );
+}
+
 function RoomRow({ server, room }: { server: ServerEntry; room: VoiceRoom }) {
   const call = useVoiceCall();
   const here = call.room?.serverId === server.id && call.room.roomId === room.id;
   const full = roomIsFull(room);
   const closed = room.closing || (!!room.unavailable && room.unavailable !== "room_full");
   const label = serverDisplayName(server);
+  const join = (camera: boolean) =>
+    void call.join(
+      { serverId: server.id, serverLabel: label, roomId: room.id, roomName: room.name, limit: room.limit },
+      camera ? { camera: true } : undefined
+    );
   return (
     <div
       className="flex items-center"
@@ -113,24 +128,30 @@ function RoomRow({ server, room }: { server: ServerEntry; room: VoiceRoom }) {
           {call.phase === "joining" ? "Joining…" : "In call"}
         </span>
       ) : (
-        <button
-          type="button"
-          className="zen-glass zen-glass-pill text-[15px]"
-          style={{ minHeight: 34, padding: "0 16px", color: "#fff", opacity: full || closed ? 0.4 : 1 }}
-          disabled={full || closed}
-          onClick={() =>
-            void call.join({
-              serverId: server.id,
-              serverLabel: label,
-              roomId: room.id,
-              roomName: room.name,
-              limit: room.limit,
-            })
-          }
-          data-testid="voice-room-join"
-        >
-          {full ? "Full" : room.closing ? "Closing" : "Join"}
-        </button>
+        <>
+          {canJoinWithCamera() && !full && !closed ? (
+            <button
+              type="button"
+              className="zen-glass zen-glass-pill flex items-center justify-center"
+              style={{ minHeight: 34, width: 40, padding: 0, color: "#fff" }}
+              onClick={() => join(true)}
+              aria-label={`Join ${room.name} with camera`}
+              data-testid="voice-room-join-camera"
+            >
+              <CameraIcon />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="zen-glass zen-glass-pill text-[15px]"
+            style={{ minHeight: 34, padding: "0 16px", color: "#fff", opacity: full || closed ? 0.4 : 1 }}
+            disabled={full || closed}
+            onClick={() => join(false)}
+            data-testid="voice-room-join"
+          >
+            {full ? "Full" : room.closing ? "Closing" : "Join"}
+          </button>
+        </>
       )}
     </div>
   );
@@ -403,6 +424,7 @@ function CallLine({ room, status }: { room: CallRoom; status: string }) {
  *  the E2EE status and quality, Mute, Deafen and Leave. */
 export function CallBar({ measureRef }: { measureRef?: (el: HTMLElement | null) => void }) {
   const call = useVoiceCall();
+  const live = useLiveVideo();
   if (call.phase === "idle" || !call.room) return null;
   const held = call.phase === "joining" && call.consent?.ask === "join";
   return (
@@ -427,7 +449,7 @@ export function CallBar({ measureRef }: { measureRef?: (el: HTMLElement | null) 
         fallback={
           <>
             {/* The recording sheet sits over the tile: the layer steps under the page. */}
-            {call.video ? <VideoTile covered={!!call.consent} /> : null}
+            {live ? <VideoTile covered={!!call.consent} /> : null}
             <CallLine room={call.room} status={call.phase === "joining" ? "Joining…" : call.phase === "reconnecting" ? "Reconnecting…" : "Connected"} />
           </>
         }
