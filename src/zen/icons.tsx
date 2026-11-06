@@ -27,7 +27,11 @@ export type IconName =
   | "folder"
   | "bookmark"
   | "bookmark-plus"
-  | "reply";
+  | "reply"
+  | "more"
+  | "headset"
+  | "projects"
+  | "ticket";
 
 function Icon({
   name,
@@ -210,6 +214,51 @@ export function BookmarkPlusIcon(props: IconProps) {
       <path d="m19 21-7-4-7 4V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2v16z" />
       <line x1="12" x2="12" y1="7" y2="13" />
       <line x1="15" x2="9" y1="10" y2="10" />
+    </Icon>
+  );
+}
+
+/** Three dots (lucide "ellipsis"): the Agents header's More menu. A dot
+ *  is a r=1 circle the stroke fills in. */
+export function MoreIcon(props: IconProps) {
+  return (
+    <Icon name="more" {...props}>
+      <circle cx="5" cy="12" r="1" />
+      <circle cx="12" cy="12" r="1" />
+      <circle cx="19" cy="12" r="1" />
+    </Icon>
+  );
+}
+
+/** A headset: the desktop top bar's voice rooms button (More → Rooms). */
+export function HeadsetIcon(props: IconProps) {
+  return (
+    <Icon name="headset" {...props}>
+      <path d="M4 14v-2a8 8 0 0 1 16 0v2" />
+      <rect x="3" y="14" width="4" height="6" rx="1.5" />
+      <rect x="17" y="14" width="4" height="6" rx="1.5" />
+    </Icon>
+  );
+}
+
+/** Desktop Zen nav rail Projects (DashboardIcon, ZenNavRailWidget.tsx). */
+export function ProjectsIcon(props: IconProps) {
+  return (
+    <Icon name="projects" {...props}>
+      <rect x="3" y="3" width="7" height="9" rx="1" />
+      <rect x="14" y="3" width="7" height="5" rx="1" />
+      <rect x="14" y="12" width="7" height="9" rx="1" />
+      <rect x="3" y="16" width="7" height="5" rx="1" />
+    </Icon>
+  );
+}
+
+/** Desktop Zen nav rail TicketIcon (ZenNavRailWidget.tsx). */
+export function TicketIcon(props: IconProps) {
+  return (
+    <Icon name="ticket" {...props}>
+      <path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4Z" />
+      <path d="M14 6v2M14 11v2M14 16v2" />
     </Icon>
   );
 }

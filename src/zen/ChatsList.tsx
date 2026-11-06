@@ -90,7 +90,17 @@ import {
 } from "./multi/MergedRows";
 import type { MergedRow } from "./multi/merge";
 import type { RowActivity } from "./agentActivity";
-import { CheckIcon, CogIcon } from "./icons";
+import { CheckIcon, CogIcon, HeadsetIcon, ProjectsIcon, TicketIcon } from "./icons";
+import {
+  HeaderMoreButton,
+  HeaderMoreMenu,
+  IN_CALL_GREEN,
+  moreAriaLabel,
+  moreBadge,
+  PROJECTS_BLUE,
+  TICKETS_AMBER,
+  type HeaderMoreItem,
+} from "./HeaderMoreMenu";
 import { useBackHandler } from "../lib/androidBack";
 import { refreshAllServers } from "./multi/recovery";
 import { entryDown, useHealth } from "./multi/serverHealth";
@@ -131,12 +141,12 @@ export const GROUP_TOAST_MS = 4000;
 /** How long a just-created workspace row stays highlighted. */
 export const NEW_ROW_HIGHLIGHT_MS = 4000;
 /** Title cap: at 375pt the side columns keep ~100px for the pills. */
-/** The right column holds three 34px buttons (Projects, Tickets, cog)
- *  with 8px gaps = 118px; the equal 1fr columns must keep that, so the
- *  title gets what is left of the 24px padding and 16px gaps: 99px at
- *  375pt, the old 140px cap on wider phones. */
-const HEADER_RIGHT_PX = 3 * 34 + 2 * 8;
-const TITLE_MAX_W = `min(calc(100vw - ${24 + 16 + 2 * HEADER_RIGHT_PX}px), 140px)`;
+/** The side columns keep 118px: the server pill's room (the right one
+ *  now holds only the 34px More button). The equal 1fr columns must keep
+ *  that, so the title gets what is left of the 24px padding and 16px
+ *  gaps: 99px at 375pt, the old 140px cap on wider phones. */
+const HEADER_SIDE_PX = 118;
+const TITLE_MAX_W = `min(calc(100vw - ${24 + 16 + 2 * HEADER_SIDE_PX}px), 140px)`;
 /** Resting header content height below the safe area: 44 row + 12/8 pad. */
 export const CHATS_HEADER_PX = 64;
 /**
@@ -448,6 +458,8 @@ export function ChatsList() {
   const showVoice = useVoiceAvailable();
   const inCall = useVoiceCall((s) => s.phase !== "idle");
   const [voiceOpen, setVoiceOpen] = useState(false);
+  // The header's 3-dot menu: Rooms, Projects, Tickets, Settings.
+  const [moreMenu, setMoreMenu] = useState(false);
   // A recording notice needs an answer: show it, wherever the list was.
   // Each new notice opens it again (a background one's notification brings
   // the person here), not each resync of the same one.
@@ -462,6 +474,7 @@ export function ChatsList() {
     setTabState(next);
     setGroupMenu(false);
     setHomeMenu(false);
+    setMoreMenu(false);
     setRearrangeTab(null);
     rowHold.close();
     closeMenu();
@@ -580,6 +593,52 @@ export function ChatsList() {
   const projectsUnread = unreadOn
     ? projectBadgeCount(unreadServers[zen.id])
     : unreadGroupCount(zen.id || null, groupIds, lastAtByKey);
+
+  // The More menu's rows: the four buttons the header had, same order,
+  // same conditions, same actions. Old test ids stay on the rows.
+  const moreItems: HeaderMoreItem[] = [
+    ...(showVoice
+      ? [
+          {
+            key: "voice",
+            label: inCall ? "Rooms (in a call)" : "Rooms",
+            Icon: HeadsetIcon,
+            color: inCall ? IN_CALL_GREEN : undefined,
+            testId: "chats-header-voice",
+            onSelect: () => setVoiceOpen(true),
+          },
+        ]
+      : []),
+    {
+      key: "projects",
+      label: "Projects",
+      Icon: ProjectsIcon,
+      iconTestId: "projects-icon",
+      badge: { count: projectsUnread, background: PROJECTS_BLUE, color: "#fff", testId: "projects-badge" },
+      testId: "chats-header-projects",
+      onSelect: () => setProjectsOpen(true),
+    },
+    {
+      key: "tickets",
+      label: "Tickets",
+      ariaLabel: ticketsAriaLabel(ticketCounts),
+      Icon: TicketIcon,
+      iconTestId: "tickets-icon",
+      badge: badge
+        ? { count: badge.count, background: TICKETS_AMBER, color: "#000", testId: "tickets-badge", tone: badge.tone }
+        : null,
+      testId: "chats-header-tickets",
+      onSelect: () => setTickets(true),
+    },
+    {
+      key: "settings",
+      label: "Settings",
+      Icon: CogIcon,
+      iconTestId: "settings-icon",
+      testId: "chats-header-settings",
+      onSelect: () => setSettings(true),
+    },
+  ];
 
   /** Line two of a row (Agents and Home share it): the main Thread's
    *  newest message, inline Markdown on one line. */
@@ -850,6 +909,13 @@ export function ChatsList() {
   // their own components).
   useBackHandler(rearranging, () => setRearrangeTab(null));
   useBackHandler(Boolean(!onHome && group && groupMenu), () => setGroupMenu(false));
+  // The More menu goes when something covers the list: a recording notice
+  // opening Rooms, a ticket push tap, a chat.
+  const covered =
+    voiceOpen || tickets || settings || projectsOpen || serversSheet || zenScreen === "thread";
+  useEffect(() => {
+    if (covered) setMoreMenu(false);
+  }, [covered]);
 
   // The header floats over the list; the list's top padding tracks its
   // real height (a pin error line grows it). Hidden under an open Thread
@@ -1307,156 +1373,13 @@ export function ChatsList() {
           style={{ gap: 8, pointerEvents: "auto" }}
           data-testid="chats-header-right"
         >
-          {showVoice ? (
-            <button
-              type="button"
-              className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
-              style={{ width: 34, height: 34, color: inCall ? "#30d158" : "#fff" }}
-              onClick={() => setVoiceOpen(true)}
-              aria-label={inCall ? "Rooms (in a call)" : "Rooms"}
-              title="Rooms"
-              data-testid="chats-header-voice"
-            >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="1.8"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                aria-hidden
-              >
-                {/* A headset: the desktop top bar's voice rooms button. */}
-                <path d="M4 14v-2a8 8 0 0 1 16 0v2" />
-                <rect x="3" y="14" width="4" height="6" rx="1.5" />
-                <rect x="17" y="14" width="4" height="6" rx="1.5" />
-              </svg>
-            </button>
-          ) : null}
-          <button
-            type="button"
-            className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
-            style={{
-              width: 34,
-              height: 34,
-              color: "#fff",
-            }}
-            onClick={() => setProjectsOpen(true)}
-            aria-label="Projects"
-            title="Projects"
-            data-testid="chats-header-projects"
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-              data-testid="projects-icon"
-            >
-              {/* Desktop Zen nav rail Projects (DashboardIcon, ZenNavRailWidget.tsx). */}
-              <rect x="3" y="3" width="7" height="9" rx="1" />
-              <rect x="14" y="3" width="7" height="5" rx="1" />
-              <rect x="14" y="12" width="7" height="9" rx="1" />
-              <rect x="3" y="16" width="7" height="5" rx="1" />
-            </svg>
-            {projectsUnread > 0 ? (
-              <span
-                className="absolute"
-                data-testid="projects-badge"
-                aria-hidden
-                style={{
-                  top: -2,
-                  right: -2,
-                  minWidth: 15,
-                  height: 15,
-                  padding: "0 4px",
-                  borderRadius: 8,
-                  // iMessage unread blue; Tickets keeps amber.
-                  background: "#0a84ff",
-                  color: "#fff",
-                  fontSize: 9,
-                  fontWeight: 700,
-                  lineHeight: "15px",
-                  textAlign: "center",
-                }}
-              >
-                {projectsUnread > 99 ? "99+" : projectsUnread}
-              </span>
-            ) : null}
-          </button>
-          <button
-            type="button"
-            className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
-            style={{
-              width: 34,
-              height: 34,
-              color: "#fff",
-            }}
-            onClick={() => setTickets(true)}
-            aria-label={ticketsAriaLabel(ticketCounts)}
-          >
-            <svg
-              width="18"
-              height="18"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.7"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              aria-hidden
-              data-testid="tickets-icon"
-            >
-              {/* Desktop Zen nav rail TicketIcon (ZenNavRailWidget.tsx). */}
-              <path d="M3 8a2 2 0 0 0 2-2h14a2 2 0 0 0 2 2v2a2 2 0 0 0 0 4v2a2 2 0 0 0-2 2H5a2 2 0 0 0-2-2v-2a2 2 0 0 0 0-4Z" />
-              <path d="M14 6v2M14 11v2M14 16v2" />
-            </svg>
-            {badge ? (
-              <span
-                className="absolute"
-                data-testid="tickets-badge"
-                data-tone={badge.tone}
-                style={{
-                  top: -2,
-                  right: -2,
-                  minWidth: 15,
-                  height: 15,
-                  padding: "0 4px",
-                  borderRadius: 8,
-                  // Always amber, whichever count it shows (data-tone says which).
-                  background: "#f59e0b",
-                  color: "#000",
-                  fontSize: 9,
-                  fontWeight: 700,
-                  lineHeight: "15px",
-                  textAlign: "center",
-                }}
-              >
-                {badge.count > 99 ? "99+" : badge.count}
-              </span>
-            ) : null}
-          </button>
-          <button
-            type="button"
-            className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
-            style={{
-              width: 34,
-              height: 34,
-              color: "#fff",
-            }}
-            onClick={() => setSettings(true)}
-            aria-label="Settings"
-            title="Settings"
-          >
-            <CogIcon size={18} strokeWidth={1.7} testId="settings-icon" />
-          </button>
+          <HeaderMoreButton
+            open={moreMenu}
+            onToggle={() => setMoreMenu((v) => !v)}
+            inCall={inCall}
+            badge={moreBadge(projectsUnread, badge)}
+            ariaLabel={moreAriaLabel({ inCall, projectsUnread, tickets: ticketCounts })}
+          />
         </span>
       </div>
       {pinError ? (
@@ -1471,6 +1394,8 @@ export function ChatsList() {
       ) : null}
       </div>
       </header>
+
+      {moreMenu ? <HeaderMoreMenu items={moreItems} onClose={() => setMoreMenu(false)} /> : null}
 
       {onHome && homeMenu ? (
         <HomeMenu
