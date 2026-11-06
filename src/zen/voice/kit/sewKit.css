@@ -168,3 +168,15 @@
   font-weight: 600;
   line-height: 1;
 }
+
+/* A call tile's avatar with its note under it ("Video starting…"). */
+.k2-kit-avatar-stack {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+.k2-kit-avatar-note {
+  line-height: 1.2;
+  white-space: nowrap;
+}

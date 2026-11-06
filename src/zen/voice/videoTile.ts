@@ -135,7 +135,8 @@ export function frameAt(rect: Rect, radius: number, border = 0): TileFrame {
 // ── PiP's status (K2PiP's `pip` events) ─────────────────────────────────
 
 type PipStatus = {
-  /** The layer shows a frame (`pip_first_frame`, until `pip_cleared`). */
+  /** The layer shows a frame (`pip_first_frame`, until `pip_cleared` or
+   *  `pip_stalled`). */
   frame: boolean;
   /** Picture in Picture is up: the inline layer is empty meanwhile. */
   active: boolean;
@@ -152,6 +153,9 @@ export function onPipEvent(e: { event?: unknown }): void {
       usePipStatus.setState({ frame: true });
       return;
     case "pip_cleared":
+    case "pip_stalled":
+      // The image went, or no new frame for a while (a muted or paused
+      // camera, a lost stream): the tile goes back to the person.
       usePipStatus.setState({ frame: false });
       return;
     case "pip_started":

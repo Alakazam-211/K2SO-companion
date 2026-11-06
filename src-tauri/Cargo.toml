@@ -80,17 +80,17 @@ tauri-plugin-http = { path = "vendor/tauri-plugin-http" }
 wry = { path = "vendor/wry" }
 # Voice: Sew's crates, the str0m and dimpl forks they need, and kessel-audio
 # with the phone backends (K2 aad16f76b); kessel-video 0.1.1 is from
-# crates.io. For this branch (phone video), Sew main cf218f91 (private:
-# .cargo/config.toml), back
+# crates.io. For this branch (phone camera publish), Sew branch vid-mpub
+# b817fda8 (on main cf218f91; private: .cargo/config.toml), back
 # to the public mirror (github.com/Alakazam-211/sew-crates) once Sew publishes
 # it. Move all of these together.
-sew-proto = { git = "https://github.com/Alakazam-211/sew", rev = "cf218f911721728a856d5f7ad34612e706c1adab" }
-sew-lkproto = { git = "https://github.com/Alakazam-211/sew", rev = "cf218f911721728a856d5f7ad34612e706c1adab" }
-sew-mls-crypto = { git = "https://github.com/Alakazam-211/sew", rev = "cf218f911721728a856d5f7ad34612e706c1adab" }
-sew-e2ee = { git = "https://github.com/Alakazam-211/sew", rev = "cf218f911721728a856d5f7ad34612e706c1adab" }
-sew-lk-compat = { git = "https://github.com/Alakazam-211/sew", rev = "cf218f911721728a856d5f7ad34612e706c1adab" }
-sew-call-client = { git = "https://github.com/Alakazam-211/sew", rev = "cf218f911721728a856d5f7ad34612e706c1adab" }
-tauri-plugin-sew-voice = { git = "https://github.com/Alakazam-211/sew", rev = "cf218f911721728a856d5f7ad34612e706c1adab" }
+sew-proto = { git = "https://github.com/Alakazam-211/sew", rev = "b817fda8b2cfc57c0539ae33f086f1b678a49927" }
+sew-lkproto = { git = "https://github.com/Alakazam-211/sew", rev = "b817fda8b2cfc57c0539ae33f086f1b678a49927" }
+sew-mls-crypto = { git = "https://github.com/Alakazam-211/sew", rev = "b817fda8b2cfc57c0539ae33f086f1b678a49927" }
+sew-e2ee = { git = "https://github.com/Alakazam-211/sew", rev = "b817fda8b2cfc57c0539ae33f086f1b678a49927" }
+sew-lk-compat = { git = "https://github.com/Alakazam-211/sew", rev = "b817fda8b2cfc57c0539ae33f086f1b678a49927" }
+sew-call-client = { git = "https://github.com/Alakazam-211/sew", rev = "b817fda8b2cfc57c0539ae33f086f1b678a49927" }
+tauri-plugin-sew-voice = { git = "https://github.com/Alakazam-211/sew", rev = "b817fda8b2cfc57c0539ae33f086f1b678a49927" }
 str0m = { git = "https://github.com/Alakazam-211/str0m", rev = "f80c8fa09323778b181923a840a9fd36e1c8d951" }
 str0m-proto = { git = "https://github.com/Alakazam-211/str0m", rev = "f80c8fa09323778b181923a840a9fd36e1c8d951" }
 is = { git = "https://github.com/Alakazam-211/str0m", rev = "f80c8fa09323778b181923a840a9fd36e1c8d951" }

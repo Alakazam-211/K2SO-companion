@@ -2007,6 +2007,31 @@ fn voice_ended_why(_app: tauri::AppHandle) -> Option<String> {
     None
 }
 
+/// "Join with camera": the voice plugin's join with the camera on, as a
+/// video call in CallKit. Rejects as the plugin's `join` does
+/// (`{code, detail}`); `video_unsupported` off iOS.
+#[tauri::command]
+async fn voice_join_camera(
+    _app: tauri::AppHandle,
+    target: String,
+    room: String,
+) -> Result<serde_json::Value, serde_json::Value> {
+    #[cfg(target_os = "ios")]
+    {
+        use tauri::Manager;
+        let control = _app.state::<tauri_plugin_sew_voice::VoiceControl>().inner().clone();
+        let native = _app.state::<voice::Native>().inner().clone();
+        return voice::join_with_camera(&control, &native, target, room)
+            .await
+            .map_err(|e| serde_json::to_value(e).unwrap_or(serde_json::Value::Null));
+    }
+    #[allow(unreachable_code)]
+    {
+        let _ = (target, room);
+        Err(serde_json::json!({ "code": "video_unsupported", "detail": null }))
+    }
+}
+
 /// The last call events as text, for "Send call log" (codes only: no
 /// tokens, addresses or names). Empty off iOS.
 #[tauri::command]
@@ -2080,7 +2105,8 @@ pub fn run() {
             voice_hosts,
             voice_consent,
             voice_ended_why,
-            voice_call_log
+            voice_call_log,
+            voice_join_camera
         ])
         .build(tauri::generate_context!())
         .expect("error while building K2 Companion");
