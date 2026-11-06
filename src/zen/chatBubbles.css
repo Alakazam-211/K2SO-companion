@@ -190,6 +190,8 @@
   position: absolute;
   left: 0;
   bottom: calc(var(--zen-fold-line, 1.5em) * 0.04 - 5px);
+  /* Rosson: See more 3px taller again, to match how See less reads. */
+  height: calc(var(--zen-fold-line, 1.5em) * 0.92 + 6px);
 }
 .zen-fold[data-fold="open"] .zen-fold-toggle {
   margin-top: 0.25em;
