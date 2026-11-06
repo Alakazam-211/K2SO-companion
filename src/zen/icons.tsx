@@ -230,7 +230,7 @@ export function MoreIcon(props: IconProps) {
   );
 }
 
-/** A headset: the desktop top bar's voice rooms button (More → Rooms). */
+/** A headset: the desktop top bar's voice rooms button (the Chats header's Rooms). */
 export function HeadsetIcon(props: IconProps) {
   return (
     <Icon name="headset" {...props}>
