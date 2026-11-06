@@ -1,0 +1,170 @@
+/* Sew's call kit (@sew/voice) in the phone's call bar, on the Zen look.
+   The kit's theme.css puts its tokens on :where(:root) at zero
+   specificity, so the app's own :root tokens win everywhere; several share
+   a name with different meanings (--radius-pill is 4px here, --shadow a
+   colour, --accent cyan, --surface #111). This block sets every token the
+   kit reads, on the call area only (class="sew-kit"): the rest of the app
+   never sees them. Values are the overlay's own (VoiceRooms.tsx) and
+   .zen-glass / .k2-tile's. */
+.sew-kit.k2-kit-call {
+  --font: var(--zen-font);
+  --fs-base: 15px;
+  --bg: #000;
+  --rail: #000;
+  --text: #e4e4e7;
+  --text-soft: #c7c7cc;
+  --text-strong: #fff;
+  --muted: #8e8e93;
+  --surface: #1c1c1e;
+  --surface-2: #2c2c2e;
+  --border: rgba(255, 255, 255, 0.12);
+  --field-edge: #6e6e73;
+  --accent: #0a84ff;
+  --accent-2: #30d158; /* the speaking ring: the overlay's "In call" green */
+  --accent-text: #fff;
+  --focus: #64d2ff;
+  --link: #64d2ff;
+  --error: #ff453a; /* Leave: the overlay's red */
+  --presence-online: #30d158;
+  --presence-idle: #ffd60a; /* the overlay's reconnecting yellow */
+  --recording: #ff453a;
+  --recording-text: #000;
+  --button: #fff;
+  --button-text: #000;
+  --button-hover: #e4e4e7;
+  --overlay: rgba(0, 0, 0, 0.6);
+  --shadow: 0 10px 30px rgba(0, 0, 0, 0.35);
+  /* .zen-glass */
+  --glass-bg: rgba(255, 255, 255, 0.1);
+  --glass-edge: rgba(255, 255, 255, 0.22);
+  --glass-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  --glass-blur: blur(28px) saturate(180%);
+  --glass-menu-bg: rgba(36, 36, 40, 0.62);
+  --radius: 12px;
+  --radius-pill: 999px;
+  --radius-round: 16px;
+  --radius-tile: 14px;
+  --radius-field: 22px;
+  /* --tile, --tile-edge, --tile-sheen, --tile-shadow, --wash-08/15: the
+     app's own (.k2-tile), inherited. */
+  display: block;
+  min-width: 0;
+}
+
+/* The docked bar sits inside the phone's call bar tile: no tile in a tile. */
+.k2-kit-call .sv-bar.sv-docked {
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  gap: 8px;
+}
+.k2-kit-call .sv-bar-info {
+  flex-basis: 0;
+  min-width: 0;
+}
+.k2-kit-call .sv-bar-channel {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+/* No device check on the phone: it opens the webview's own mic prompt for
+   its meter (Sew, 2026-11-06). The route is the system's (CallKit). */
+.k2-kit-call [data-testid="voice-devices"] {
+  display: none;
+}
+
+/* Thumb-sized buttons, spread across the bar. */
+.k2-kit-call .sv-bar-buttons .sv-btn {
+  min-width: 44px;
+  min-height: 44px;
+}
+.k2-kit-call .sv-bar-buttons .sv-leave {
+  min-width: 64px;
+}
+
+/* The people (the kit's CallView): small square tiles, wrapping; the tile
+   with the call's video spans the bar first, 16:9, its name below. The
+   page never scrolls sideways. Grid / Focus is for a desktop's big view. */
+.k2-kit-call .sv-view {
+  padding: 0;
+  margin: 0 0 10px;
+  border: 0;
+  background: transparent;
+}
+.k2-kit-call .sv-view-head {
+  display: none;
+}
+.k2-kit-call .sv-tiles {
+  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  gap: 8px;
+}
+.k2-kit-call .sv-tile {
+  aspect-ratio: 1;
+  border-radius: 14px;
+  border-width: 2px;
+  min-width: 0;
+}
+.k2-kit-call .sv-tile.sv-speaking {
+  border-width: 3px;
+}
+.k2-kit-call .sv-tile.sv-tile-host {
+  grid-column: 1 / -1;
+  order: -1;
+  aspect-ratio: auto;
+  border-radius: 14px;
+}
+/* The native layer sits on this rect: rounded like the layer (TILE_RADIUS). */
+.k2-kit-call .sv-host-slot {
+  border-radius: 12px;
+  overflow: hidden;
+}
+.k2-kit-call .sv-tile-below {
+  padding: 4px 4px 0;
+  font-size: 12px;
+  min-width: 0;
+}
+.k2-kit-call .sv-tile-below-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.k2-kit-call .sv-tile-avatar {
+  margin-bottom: 18px;
+}
+.k2-kit-call .sv-tile-name {
+  left: 4px;
+  right: 4px;
+  bottom: 4px;
+  display: block;
+  padding: 2px 6px;
+  font-size: 11px;
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.k2-kit-call .sv-tile-name svg {
+  display: inline;
+  width: 11px;
+  height: 11px;
+  vertical-align: -1px;
+}
+.k2-kit-call .sv-tile-consent {
+  left: 4px;
+  top: 4px;
+  font-size: 10px;
+  padding: 2px 6px;
+}
+
+.k2-kit-avatar {
+  display: inline-grid;
+  place-items: center;
+  border-radius: 50%;
+  color: #fff;
+  font-weight: 600;
+  line-height: 1;
+}
