@@ -421,8 +421,10 @@ class K2PushPlugin: Plugin {
     case "pipFrame":
       // The call screen's video tile: `{x, y, w, h, visible, radius?}` in the
       // webview's points puts K2PiP's layer over it; `visible: false` puts
-      // it back under the webview (PiP still works from there). `animate`
-      // (the mini tile's snap) gets it there on its own, on the page's curve.
+      // it back under the webview (PiP still works from there). `corners:
+      // "top"` rounds the top two only (the floating card: its controls strip
+      // is under the picture). `animate` (the floating tile's snap) gets it
+      // there on its own, on the page's curve.
       guard #available(iOS 15.0, *) else { return invoke.resolve(["ok": false, "error": "ios_too_old"]) }
       let rect: CGRect? =
         args.visible == true
@@ -435,7 +437,9 @@ class K2PushPlugin: Plugin {
           startedAt: a.startedAt.map { $0 / 1000 })
       }
       DispatchQueue.main.async {
-        invoke.resolve(K2PiP.shared.setTile(rect, radius: CGFloat(args.radius ?? 0), motion: motion))
+        invoke.resolve(
+          K2PiP.shared.setTile(
+            rect, radius: CGFloat(args.radius ?? 0), corners: K2PiP.cornerMask(args.corners), motion: motion))
       }
     case "haptic":
       // The mini video tile landing in its corner: a light tap. `state:
@@ -1077,6 +1081,7 @@ private struct CallOpArgs: Decodable {
   let h: Double?
   let visible: Bool?
   let radius: Double?
+  let corners: String?
   let animate: PipAnimateArgs?
 }
 
