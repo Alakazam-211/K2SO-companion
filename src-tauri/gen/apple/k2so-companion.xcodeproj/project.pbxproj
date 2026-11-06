@@ -24,6 +24,7 @@
 		938FA044F25B2BD405A07042 /* K2PushInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E5AB52C2C68B1DDB9154F7F /* K2PushInbox.swift */; };
 		A70F3CA0A84318BC0485C30E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 121CC767EA48E78C62817F5B /* Assets.xcassets */; };
 		AF0A03078E384F7FA1ADEBDA /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 326A6653853C5BDE1977FDD4 /* assets */; };
+		D42EF5C0934CB96E9B19B689 /* VideoToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 305EA17F42DCC7C1956CDA01 /* VideoToolbox.framework */; };
 		B77720E43DDCAFF635D539CC /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0C98A0036C619D67A6D5842A /* WebKit.framework */; };
 		BBFD1D01C98651AB5EE41BDE /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 47648054428B8FF68CED3F6F /* QuartzCore.framework */; };
 		D53A6471725A00995F65C638 /* NotificationService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6827DEA084F7F9907A8BCDCD /* NotificationService.swift */; };
@@ -60,6 +61,7 @@
 		01C71400100AA00C2195F59E /* k2so-companion_iOS.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = "k2so-companion_iOS.entitlements"; sourceTree = "<group>"; };
 		04BDCE45DB68ED3B2DEF0FC8 /* K2PushSealed.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K2PushSealed.swift; sourceTree = "<group>"; };
 		0560FFD899E7B0CF539E4F29 /* Security.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Security.framework; path = System/Library/Frameworks/Security.framework; sourceTree = SDKROOT; };
+		305EA17F42DCC7C1956CDA01 /* VideoToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = VideoToolbox.framework; path = System/Library/Frameworks/VideoToolbox.framework; sourceTree = SDKROOT; };
 		0C98A0036C619D67A6D5842A /* WebKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = WebKit.framework; path = System/Library/Frameworks/WebKit.framework; sourceTree = SDKROOT; };
 		0E44B37797470C60700E7AED /* MetalKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MetalKit.framework; path = System/Library/Frameworks/MetalKit.framework; sourceTree = SDKROOT; };
 		0E5AB52C2C68B1DDB9154F7F /* K2PushInbox.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K2PushInbox.swift; sourceTree = "<group>"; };
@@ -116,6 +118,7 @@
 				BBFD1D01C98651AB5EE41BDE /* QuartzCore.framework in Frameworks */,
 				4B167C0A2FC4248DC08DB6A2 /* Security.framework in Frameworks */,
 				8388615A6C635BA233E64A06 /* UIKit.framework in Frameworks */,
+				D42EF5C0934CB96E9B19B689 /* VideoToolbox.framework in Frameworks */,
 				B77720E43DDCAFF635D539CC /* WebKit.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -135,6 +138,7 @@
 				0560FFD899E7B0CF539E4F29 /* Security.framework */,
 				BEE6F25A741F7415EAEF73CE /* UIKit.framework */,
 				9A7659B64BFA232E3FD99383 /* UserNotifications.framework */,
+				305EA17F42DCC7C1956CDA01 /* VideoToolbox.framework */,
 				0C98A0036C619D67A6D5842A /* WebKit.framework */,
 			);
 			name = Frameworks;
