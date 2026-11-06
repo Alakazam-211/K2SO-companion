@@ -30,7 +30,10 @@ import { useVoiceCall } from "../voiceCall";
 //     a second set of remote sinks.
 //
 // Whose picture, and only while it is really live:
-//   - whose: Rust's `k2-voice://pip_speaker` (the sink's `Switched`), else
+//   - whose: Rust's `k2-voice://pip_speaker` (the sink's `Switched`, also
+//     read back with `voice_pip_speaker` when the call screen opens late;
+//     a switch naming only the track gets its person from that track's
+//     row), else
 //     the first remote screen share, else the first remote camera, from the
 //     plugin's `sew-voice://video` rows; only while the call has video (the
 //     store's flag: the sink is open), never a muted or paused track, never
@@ -77,15 +80,18 @@ export function shownOf(tracks: PluginVideoTrack[], speaker: Speaker | null, vid
   const remote = tracks.filter((t) => !t.is_self);
   const live = remote.filter(flowing);
   if (speaker) {
-    // Rust said: exactly this one, or nobody.
-    if (!speaker.memberId) return null;
+    // Rust said: exactly this one, or nobody. A switch that names only the
+    // track gets its person from the track's row.
+    const byTrack = speaker.track ? tracks.find((t) => t.track === speaker.track) : undefined;
+    const memberId = speaker.memberId ?? byTrack?.member_id ?? null;
+    if (!memberId) return null;
     // Never yourself.
-    if (tracks.some((t) => t.is_self && t.member_id === speaker.memberId)) return null;
+    if (byTrack?.is_self || tracks.some((t) => t.is_self && t.member_id === memberId)) return null;
     // Their rows say muted or paused: nothing is coming.
-    const theirs = remote.filter((x) => x.track === speaker.track || x.member_id === speaker.memberId);
+    const theirs = remote.filter((x) => x.track === speaker.track || x.member_id === memberId);
     if (theirs.length > 0 && !theirs.some(flowing)) return null;
-    const t = live.find((x) => x.track === speaker.track) ?? live.find((x) => x.member_id === speaker.memberId);
-    return { memberId: speaker.memberId, source: t?.source ?? "camera", track: t?.track ?? speaker.track };
+    const t = live.find((x) => x.track === speaker.track) ?? live.find((x) => x.member_id === memberId);
+    return { memberId, source: t?.source ?? "camera", track: t?.track ?? speaker.track };
   }
   const t = live.find((x) => x.source === "screen") ?? live.find((x) => x.source === "camera");
   return t ? { memberId: t.member_id, source: t.source, track: t.track } : null;
@@ -179,6 +185,14 @@ export class LayerVideo implements NativeVideo {
       if (!this.tracks.length) this.tracks = tracksOf(snap?.video);
     } catch {
       // no plugin
+    }
+    // The sink's last switch, for a call screen opened after it went by
+    // (else the picture would wait for the next switch, off its tile).
+    try {
+      const who = await this.bridge.invoke<unknown>("voice_pip_speaker");
+      if (!this.speaker && this.video) this.speaker = speakerOf(who);
+    } catch {
+      // an older shell
     }
     this.changed();
   }
