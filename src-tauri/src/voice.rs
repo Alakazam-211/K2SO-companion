@@ -18,7 +18,7 @@
 
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::Mutex;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, OnceLock, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -164,7 +164,7 @@ pub fn plugin(native: &Native) -> tauri::plugin::TauriPlugin<Wry> {
     let watch = watch_thread(native);
     let (pip_tx, pip_rx) = mpsc::channel();
     let _ = native.pip.set(pip_tx);
-    let mut pip_sink = PipSink { native: native.clone(), sink: None };
+    let mut pip_sink = PipSink { native: native.clone(), sink: None, counts: Arc::new(PipCounts::default()) };
     std::thread::Builder::new()
         .name("k2-pip".into())
         .spawn(move || pip_loop(&mut pip_sink, pip_rx))
@@ -934,6 +934,60 @@ fn pip_loop(ops: &mut impl SinkOps, rx: mpsc::Receiver<ToSink>) {
 struct PipSink {
     native: Native,
     sink: Option<NativeSink>,
+    counts: Arc<PipCounts>,
+}
+
+/// What the sink handed K2PiP, for the call log (counts only).
+#[derive(Debug, Default)]
+struct PipCounts {
+    h264: AtomicU64,
+    keyframes: AtomicU64,
+    pixel_buffers: AtomicU64,
+    /// Decoded frames with no CVPixelBuffer (CPU planes): not shown.
+    no_buffer: AtomicU64,
+    discontinuities: AtomicU64,
+    resets: AtomicU64,
+    switches: AtomicU64,
+}
+
+impl PipCounts {
+    fn count(&self, event: &NativeVideoEvent, feed: &[Feed<'_>]) {
+        let add = |n: &AtomicU64| {
+            n.fetch_add(1, Ordering::Relaxed);
+        };
+        match event {
+            NativeVideoEvent::Frame(f) => {
+                if f.keyframe {
+                    add(&self.keyframes);
+                }
+                if f.discontinuity {
+                    add(&self.discontinuities);
+                }
+                match feed.last() {
+                    Some(Feed::H264 { .. }) => add(&self.h264),
+                    Some(Feed::PixelBuffer { .. }) => add(&self.pixel_buffers),
+                    _ => add(&self.no_buffer),
+                }
+            }
+            NativeVideoEvent::Reset { .. } => add(&self.resets),
+            NativeVideoEvent::Switched { .. } => add(&self.switches),
+            _ => {}
+        }
+    }
+
+    fn line(&self) -> String {
+        let n = |a: &AtomicU64| a.load(Ordering::Relaxed);
+        format!(
+            "pip frames h264={} keyframes={} pixel_buffers={} no_buffer={} discontinuities={} resets={} switches={}",
+            n(&self.h264),
+            n(&self.keyframes),
+            n(&self.pixel_buffers),
+            n(&self.no_buffer),
+            n(&self.discontinuities),
+            n(&self.resets),
+            n(&self.switches)
+        )
+    }
 }
 
 impl SinkOps for PipSink {
@@ -946,7 +1000,9 @@ impl SinkOps for PipSink {
             return false;
         }
         let control = app.state::<VoiceControl>().inner().clone();
-        match control.open_native_sink(NativeSinkTarget::ActiveSpeaker, PIP_OPEN_SIZE, Arc::new(PipFeed)) {
+        self.counts = Arc::new(PipCounts::default());
+        let feed = PipFeed { counts: self.counts.clone(), native: self.native.clone(), noted: Mutex::new(Instant::now()) };
+        match control.open_native_sink(NativeSinkTarget::ActiveSpeaker, PIP_OPEN_SIZE, Arc::new(feed)) {
             Ok(sink) => {
                 self.native.note("pip sink open");
                 self.sink = Some(sink);
@@ -966,6 +1022,7 @@ impl SinkOps for PipSink {
             sink.close();
         }
         self.native.call_op("pipLayer", |r| r.on = Some(false));
+        self.native.note(&self.counts.line());
         self.native.note("pip sink closed");
     }
 
@@ -982,13 +1039,29 @@ impl SinkOps for PipSink {
     }
 }
 
+/// How often an open sink notes its counts in the call log.
+const PIP_NOTE_EVERY: Duration = Duration::from_secs(30);
+
 /// The sink's frames to K2PiP, on the sink's own thread. Swift copies each
 /// one before returning.
-struct PipFeed;
+struct PipFeed {
+    counts: Arc<PipCounts>,
+    native: Native,
+    noted: Mutex<Instant>,
+}
 
 impl NativeVideoConsumer for PipFeed {
     fn on_video(&self, event: NativeVideoEvent) {
-        for f in feed(&event) {
+        let fed = feed(&event);
+        self.counts.count(&event, &fed);
+        {
+            let mut noted = self.noted.lock().unwrap_or_else(|e| e.into_inner());
+            if noted.elapsed() >= PIP_NOTE_EVERY {
+                *noted = Instant::now();
+                self.native.note(&self.counts.line());
+            }
+        }
+        for f in fed {
             match f {
                 Feed::Flush { remove_image } => pip::flush(remove_image),
                 Feed::H264 { access_unit, pts_90k } => pip::h264(access_unit, pts_90k),
@@ -1877,6 +1950,18 @@ mod tests {
         let nobody = NativeVideoEvent::Switched { track: None, member_id: None };
         assert_eq!(feed(&nobody), vec![Feed::Flush { remove_image: true }]);
         assert_eq!(pts_90k(1_000_000), 90_000);
+
+        // The call log's counts.
+        let counts = PipCounts::default();
+        for e in [&first, &frame, &to, &nobody] {
+            counts.count(e, &feed(e));
+        }
+        let reset = NativeVideoEvent::Reset { track: "TR_v1".into() };
+        counts.count(&reset, &feed(&reset));
+        assert_eq!(
+            counts.line(),
+            "pip frames h264=2 keyframes=1 pixel_buffers=0 no_buffer=0 discontinuities=1 resets=1 switches=2"
+        );
     }
 
     #[test]
