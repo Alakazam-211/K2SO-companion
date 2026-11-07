@@ -293,8 +293,9 @@ pub struct ScanQrResponse {
 ///   Screen share (iPhone): `appGroup` → `{ok, path}` the App Group's
 ///   container (the voice plugin's ring goes there); `broadcastPicker` →
 ///   `{ok}` opens iOS's broadcast sheet with K2's extension (K2Broadcast);
-///   `broadcastPickerClose` → `{ok}` closes that sheet (the share started
-///   or stopped; it has no close button).
+///   `broadcastPickerStop` → `{ok}` opens it to stop sharing (no iOS alert)
+///   and answers once it's gone; `broadcastPickerClose` → `{ok}` closes
+///   that sheet (the share started or stopped; it has no close button).
 ///   Events come back as `call`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
