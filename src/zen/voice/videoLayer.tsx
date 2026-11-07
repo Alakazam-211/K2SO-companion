@@ -505,20 +505,18 @@ export function useFadeIn(ref: RefObject<HTMLElement | null>): void {
 // ── Your camera ──────────────────────────────────────────────────────
 
 /** Your own tile's video while your camera is on: the kit's `local:camera`
- *  sink drawn in the page (never the native layer, never PiP), mirrored for
- *  the front camera, and "Camera paused" while the app was in the
+ *  sink drawn in the page (never the native layer, never PiP), and "Camera
+ *  paused" while the app was in the
  *  background (Sew pauses the camera there; it turns off after 5 minutes).
  *  `untilFrame`: shown over it until its first frame plays (the floating
  *  card's "Camera on", never a plain black box). */
 export function SelfView({
   handle,
-  mirrored,
   paused,
   radius = TILE_RADIUS,
   untilFrame,
 }: {
   handle: VideoHandle;
-  mirrored: boolean;
   paused: boolean;
   radius?: CSSProperties["borderRadius"];
   untilFrame?: ReactNode;
@@ -545,7 +543,6 @@ export function SelfView({
       className="absolute inset-0 overflow-hidden"
       style={{ borderRadius: radius, background: "#000" }}
       data-testid="voice-self-view"
-      data-mirrored={mirrored ? "yes" : "no"}
       data-paused={paused ? "yes" : "no"}
     >
       <video
@@ -555,7 +552,9 @@ export function SelfView({
           width: "100%",
           height: "100%",
           objectFit: "cover",
-          transform: mirrored ? "scaleX(-1)" : undefined,
+          // No mirror here: the kit's handle mirrors the front camera on
+          // the element itself, frame by frame (Sew 0.8.2, mirrorSelfView
+          // 'auto'), so a flip never shows a frame the wrong way round.
           opacity: paused ? 0.35 : 1,
         }}
         autoPlay

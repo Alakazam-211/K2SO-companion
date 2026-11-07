@@ -284,10 +284,9 @@ function Remote() {
 /** Your self-view, drawn by the page over the picture and the band. */
 function Self() {
   const self = useTileCamera((s) => s.self);
-  const mirrored = useTileCamera((s) => s.mirrored);
   const paused = useTileCamera((s) => s.state === "paused");
   if (!self) return <CameraNote paused={paused} />;
-  return <SelfView handle={self} mirrored={mirrored} paused={paused} radius={0} untilFrame={<CameraNote paused={false} />} />;
+  return <SelfView handle={self} paused={paused} radius={0} untilFrame={<CameraNote paused={false} />} />;
 }
 
 /** The call's time in the band's bottom-left corner: small tabular white

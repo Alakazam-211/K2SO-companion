@@ -644,7 +644,7 @@ describe("Sew's call kit on the phone", () => {
       expect(phoneSnapshot(other as never)).toBe(other);
     });
 
-    it("your self-view on your own tile, mirrored for the front camera; the flip switches to the back one, unmirrored", async () => {
+    it("your self-view on your own tile (the kit mirrors it per frame); the flip switches to the back one", async () => {
       await inCall();
       render(<KitCall />);
       await waitFor(() => expect(cameraButton()).toBeTruthy());
@@ -653,12 +653,13 @@ describe("Sew's call kit on the phone", () => {
       act(() => plugin.emit("sew-voice://local_video", { camera: "on", screen: "off" }));
       await waitFor(() => expect(selfTile()?.querySelector('[data-testid="voice-self-view"]')).toBeTruthy());
       const view = () => selfTile()!.querySelector('[data-testid="voice-self-view"]')!;
-      expect(view().getAttribute("data-mirrored")).toBe("yes");
+      // The kit's handle mirrors per frame (0.8.2); our wrapper adds none.
+      expect(view().getAttribute("data-mirrored")).toBeNull();
       expect(selfTile()?.querySelector('[data-testid="voice-host-slot"]')?.getAttribute("data-track")).toBe("local:camera");
       // The flip: the camera facing the other way, live.
       fireEvent.click(await screen.findByTestId("voice-switch-camera"));
       await waitFor(() => expect(calls("set_video_device")).toEqual([{ camera: "cam-back" }]));
-      await waitFor(() => expect(view().getAttribute("data-mirrored")).toBe("no"));
+      await waitFor(() => expect(view().getAttribute("data-mirrored")).toBeNull());
       fireEvent.click(screen.getByTestId("voice-switch-camera"));
       await waitFor(() => expect(calls("set_video_device")).toEqual([{ camera: "cam-back" }, { camera: "cam-front" }]));
       expect(facingOf(CAMERAS as never, null)).toBe("front");

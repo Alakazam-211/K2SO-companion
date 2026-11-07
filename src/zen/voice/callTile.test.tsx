@@ -635,7 +635,8 @@ describe("the call tile's camera", () => {
     expect(card()?.getAttribute("data-picture")).toBe("self");
     expect(card()?.style.height).toBe(`${cardVideoHeight(CALL_TILE_W_CAMERA) + DURATION_BAND + CALL_TILE_H}px`);
     const view = screen.getByTestId("voice-self-view");
-    expect(view.getAttribute("data-mirrored")).toBe("yes");
+    // Mirroring is the kit handle's own (per frame), not ours.
+    expect(view.getAttribute("data-mirrored")).toBeNull();
     expect(handle.attach).toHaveBeenCalledTimes(1);
     // No frame yet (Sew's next merge brings them): "Camera on", never a black box.
     expect(screen.getByTestId("voice-call-tile-camera-note").textContent).toBe("Camera on");
@@ -645,7 +646,7 @@ describe("the call tile's camera", () => {
     expect(screen.queryByTestId("voice-call-tile-camera-note")).toBeNull();
     // The back camera: not mirrored.
     camera({ state: "on", selfOn: true, self: handle, mirrored: false });
-    expect(screen.getByTestId("voice-self-view").getAttribute("data-mirrored")).toBe("no");
+    expect(screen.getByTestId("voice-self-view").getAttribute("data-mirrored")).toBeNull();
     // Never the layer (so never PiP).
     expect(visibleFrames()).toEqual([]);
   });
