@@ -466,6 +466,12 @@ class K2PushPlugin: Plugin {
       DispatchQueue.main.async {
         invoke.resolve(["ok": K2ScreenShare.showPicker()])
       }
+    case "broadcastPickerStop":
+      // Stop sharing in the call bar: the same sheet (Stop Broadcast there
+      // ends it without iOS's alert). Answers once the sheet is gone.
+      DispatchQueue.main.async {
+        K2ScreenShare.showPickerUntilClosed { ok in invoke.resolve(["ok": ok]) }
+      }
     case "broadcastPickerClose":
       // The share started or stopped: iOS's sheet has no close button, so
       // it goes away by itself.

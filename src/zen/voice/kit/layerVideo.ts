@@ -31,8 +31,9 @@ import { useVoiceCall } from "../voiceCall";
 //     starts. It starts and stops outside the app: the plugin's
 //     `local_video` (sent with `screen_share_changed`, which Rust passes on
 //     as `active`) turns the kit's button on and off. Stop is the button
-//     again: `setScreen(false)`, the plugin's `screen {on: false}`, which
-//     asks the extension to finish. The kit shows it only while the room's
+//     again: `setScreen(false)` opens the same sheet (Stop Broadcast there
+//     ends it without iOS's alert); closed without stopping, the bridge
+//     replays the last `local_video` so the button is on again. The kit shows it only while the room's
 //     policy allows video (and the screen), enabled only while connected.
 //   - Everyone else: no webview sinks. The phone has one picture of them,
 //     K2PiP's native layer, fed by Rust's active-speaker sink (src-tauri/
@@ -62,6 +63,10 @@ export const LAYER_HANDLE: VideoHandle = { key: "k2-layer", attach() {}, detach(
 
 /** How long a person's tile says "Video starting…" before the first frame. */
 export const STARTING_MS = 3000;
+
+/** After iOS's sheet closes on Stop, how long the share's own "stopped"
+ *  gets before a still-live share puts the button back on. */
+export const STOP_SETTLE_MS = 1000;
 
 /** The iPhone's screen share (Rust's `k2-voice://screen`): the extension's
  *  ring is ready (`armed`), and the screen is being shared (`active`). */
@@ -162,7 +167,7 @@ export class LayerVideo implements NativeVideo {
   readonly camera: PluginVideo;
 
   constructor(
-    private readonly bridge: NativeBridge,
+    private readonly bridge: NativeBridge & { replayLocalVideo?(): void },
     camera?: PluginVideo,
     private readonly now: () => number = () => Date.now()
   ) {
@@ -356,11 +361,27 @@ export class LayerVideo implements NativeVideo {
 
   /** On: iOS's broadcast picker, then `picker_cancelled` (the kit's button
    *  stays off, without a sentence, until `local_video` says the share
-   *  started: the person may still cancel iOS's sheet). Off: the plugin's
-   *  `screen {on: false}`, which asks the extension to finish. */
+   *  started: the person may still cancel iOS's sheet). Off: the same
+   *  sheet, where Stop Broadcast ends it without iOS's "stopped due to"
+   *  alert (Rosson: B). Closed without stopping, the button goes back on.
+   *  No sheet: the plugin's `screen {on: false}` (the extension finishes,
+   *  with the alert). */
   async setScreen(on: boolean): Promise<void> {
     if (!on) {
-      await this.camera.setScreen(false);
+      if (!this.share.active) {
+        await this.camera.setScreen(false);
+        return;
+      }
+      const r = await this.bridge
+        .invoke<{ ok?: unknown } | null>("plugin:k2-push|call_op", { op: "broadcastPickerStop" })
+        .catch(() => null);
+      if (r?.ok !== true) {
+        await this.camera.setScreen(false);
+        return;
+      }
+      // The sheet is gone. A stop's own events can trail it a little.
+      await new Promise((done) => setTimeout(done, STOP_SETTLE_MS));
+      if (this.share.active && !this.closed) this.bridge.replayLocalVideo?.();
       return;
     }
     if (!this.share.armed) throw { code: "screen_unsupported", detail: "the screen ring isn't armed" };

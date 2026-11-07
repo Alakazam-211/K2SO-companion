@@ -56,6 +56,41 @@ enum K2ScreenShare {
     /// ReplayKit's picker (its class name says so); anything else stays.
     /// Main thread. True when it closed one.
     static func closePicker() -> Bool {
+      guard let sheet = presentedPicker() else { return false }
+      sheet.dismiss(animated: true)
+      return true
+    }
+
+    /// Stop sharing without iOS's "stopped due to" alert: the same sheet,
+    /// where the person taps Stop Broadcast (an app that ends the broadcast
+    /// itself always gets the alert). `done(true)` once the sheet is gone,
+    /// whether they stopped or closed it; `done(false)`: it didn't open.
+    /// Main thread.
+    static func showPickerUntilClosed(_ done: @escaping (Bool) -> Void) {
+      guard showPicker() else { return done(false) }
+      var seen = false
+      var waited = 0.0
+      func check() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + pollSeconds) {
+          waited += pollSeconds
+          if presentedPicker() != nil {
+            seen = true
+          } else if seen || waited >= appearSeconds {
+            return done(true)
+          }
+          if waited >= giveUpSeconds { return done(true) }
+          check()
+        }
+      }
+      check()
+    }
+
+    private static let pollSeconds = 0.25
+    /// A sheet that never showed (its class not recognised): stop waiting.
+    private static let appearSeconds = 1.5
+    private static let giveUpSeconds = 600.0
+
+    private static func presentedPicker() -> UIViewController? {
       let roots = UIApplication.shared.connectedScenes
         .compactMap({ $0 as? UIWindowScene })
         .flatMap({ $0.windows })
@@ -63,14 +98,11 @@ enum K2ScreenShare {
       for root in roots {
         var top = root
         while let next = top.presentedViewController {
-          if isPicker(next) {
-            next.dismiss(animated: true)
-            return true
-          }
+          if isPicker(next) { return next }
           top = next
         }
       }
-      return false
+      return nil
     }
 
     private static func isPicker(_ vc: UIViewController) -> Bool {

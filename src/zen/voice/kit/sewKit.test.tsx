@@ -62,7 +62,7 @@ import { __resetVoiceNamesForTests, useVoiceNames } from "../voiceNames";
 import { VoiceRoomsOverlay } from "../VoiceRooms";
 import { CallTile } from "../callTile";
 import KitCall, { kitNames } from "./KitCall";
-import { facingOf, LAYER_HANDLE, liveOf, mirrorFor, PHONE_SCREEN_CAPS, screenShareOf, shownOf, STARTING_MS } from "./layerVideo";
+import { facingOf, LAYER_HANDLE, liveOf, mirrorFor, PHONE_SCREEN_CAPS, screenShareOf, shownOf, STARTING_MS, STOP_SETTLE_MS } from "./layerVideo";
 import {
   __resetSewKitForTests,
   k2Bridge,
@@ -700,6 +700,15 @@ describe("Sew's call kit on the phone", () => {
       const pickers = () =>
         plugin.invoke.mock.calls.filter(([c, a]) => c === "plugin:k2-push|call_op" && (a as { op?: string })?.op === "broadcastPicker");
       const armed = (active = false) => act(() => plugin.emit("k2-voice://screen", { armed: true, active }));
+      const stops = () =>
+        plugin.invoke.mock.calls.filter(([c, a]) => c === "plugin:k2-push|call_op" && (a as { op?: string })?.op === "broadcastPickerStop");
+      const sharing = async () => {
+        act(() => {
+          plugin.emit("sew-voice://local_video", { camera: "off", screen: "on" });
+          plugin.emit("k2-voice://screen", { armed: true, active: true });
+        });
+        await waitFor(() => expect(screenButton()?.getAttribute("data-state")).toBe("on"));
+      };
 
       it("Share screen shows once Rust armed the ring, only while the room allows video", async () => {
         await inCall();
@@ -727,7 +736,7 @@ describe("Sew's call kit on the phone", () => {
         await waitFor(() => expect(screenButton()).toBeNull());
       });
 
-      it("a tap opens iOS's broadcast picker; the button follows the share, not the tap; Stop is the plugin's screen off", async () => {
+      it("a tap opens iOS's broadcast picker; the button follows the share, not the tap; Stop opens the same sheet", async () => {
         plugin.answers["plugin:k2-push|call_op"] = { ok: true };
         await inCall();
         render(<KitCall />);
@@ -749,9 +758,11 @@ describe("Sew's call kit on the phone", () => {
         await waitFor(() => expect(screenButton()?.getAttribute("data-state")).toBe("on"));
         expect(sewKit().video.screenShare()).toEqual({ armed: true, active: true });
         expect(screenButton()?.getAttribute("aria-label")).toBe("Stop sharing");
-        // Stop sharing: the plugin's screen off (it asks the extension to finish).
+        // Stop sharing: the same sheet (Stop Broadcast there ends it without
+        // iOS's "stopped due to" alert), not the plugin's screen off.
         fireEvent.click(screenButton()!);
-        await waitFor(() => expect(calls("screen")).toEqual([{ on: false }]));
+        await waitFor(() => expect(stops()).toHaveLength(1));
+        expect(calls("screen")).toEqual([]);
         expect(pickers()).toHaveLength(1);
         act(() => {
           plugin.emit("sew-voice://local_video", { camera: "off", screen: "off" });
@@ -783,6 +794,32 @@ describe("Sew's call kit on the phone", () => {
         expect(closes()).toHaveLength(1);
         armed(false);
         await waitFor(() => expect(closes()).toHaveLength(2));
+      });
+
+      it("Stop's sheet closed without stopping: the button goes back on", async () => {
+        plugin.answers["plugin:k2-push|call_op"] = { ok: true };
+        await inCall();
+        render(<KitCall />);
+        armed();
+        await waitFor(() => expect(screenButton()).toBeTruthy());
+        await sharing();
+        fireEvent.click(screenButton()!);
+        await waitFor(() => expect(stops()).toHaveLength(1));
+        // The kit turns it off on the tap; the share is still live after the
+        // sheet closed, so the last local_video puts it back.
+        await waitFor(() => expect(screenButton()?.getAttribute("data-state")).toBe("on"), { timeout: STOP_SETTLE_MS + 1500 });
+        expect(calls("screen")).toEqual([]);
+      });
+
+      it("Stop with no sheet falls back to the plugin's screen off", async () => {
+        await inCall();
+        render(<KitCall />);
+        armed();
+        await waitFor(() => expect(screenButton()).toBeTruthy());
+        await sharing();
+        plugin.answers["plugin:k2-push|call_op"] = { ok: false };
+        fireEvent.click(screenButton()!);
+        await waitFor(() => expect(calls("screen")).toEqual([{ on: false }]));
       });
 
       it("a picker that can't open says so; the button stays off", async () => {

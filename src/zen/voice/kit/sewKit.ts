@@ -130,10 +130,24 @@ function refuse(cmd: string): Promise<never> {
   return Promise.reject({ code: NOT_THROUGH_KIT, detail: `${cmd} is the phone's own` });
 }
 
+/** The kit's bridge, plus a replay of the last `local_video`. */
+export type K2Bridge = NativeBridge & {
+  /** Hands the last `local_video` to its listeners again: the screen
+   *  button's Stop opened iOS's sheet and the person closed it without
+   *  stopping, so the kit's button (off on the tap) goes back on. */
+  replayLocalVideo(): void;
+};
+
 /** The kit's bridge: the plugin's own commands and events, with the
  *  phone's joins, rings and leave kept on the phone's paths. */
-export function k2Bridge(base: BaseBridge = tauriBridge): NativeBridge {
+export function k2Bridge(base: BaseBridge = tauriBridge): K2Bridge {
+  let lastLocal: unknown = null;
+  const localHandlers = new Set<(payload: unknown) => void>();
   return {
+    replayLocalVideo() {
+      if (lastLocal == null) return;
+      for (const h of [...localHandlers]) h(lastLocal);
+    },
     invoke<T>(cmd: string, args?: Record<string, unknown>): Promise<T> {
       const name = cmd.startsWith(CMD) ? cmd.slice(CMD.length) : null;
       if (name === "join" || name === "ring" || name === "ring_ended") return refuse(name);
@@ -158,14 +172,28 @@ export function k2Bridge(base: BaseBridge = tauriBridge): NativeBridge {
       return out as Promise<T>;
     },
     listen<T>(event: string, handler: (payload: T) => void): Promise<() => void> {
-      return base.listen(event, (payload) => {
+      const local = event === "sew-voice://local_video";
+      const h = handler as (payload: unknown) => void;
+      if (local) localHandlers.add(h);
+      const off = base.listen(event, (payload) => {
         if (event === "sew-voice://participants") noteSelf(payload);
-        if (event === "sew-voice://local_video" && payload && typeof payload === "object") {
+        if (local && payload && typeof payload === "object") {
+          lastLocal = payload;
           const v = payload as { camera?: unknown; reason?: unknown };
           note(["camera", "local_video", String(v.camera ?? "none"), String(v.reason ?? "none")]);
         }
         handler(payload as T);
       });
+      return off.then(
+        (unlisten) => () => {
+          localHandlers.delete(h);
+          unlisten();
+        },
+        (e) => {
+          localHandlers.delete(h);
+          throw e;
+        }
+      );
     },
     ...(base.channel ? { channel: base.channel.bind(base) } : {}),
   };

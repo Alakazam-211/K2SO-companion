@@ -166,7 +166,8 @@ public enum K2BroadcastFrames {
     case attach(Int32)
     /// The App Group's container isn't there (a signing problem).
     case noGroup
-    /// The app asked it to stop: Stop sharing in K2, or the call ended.
+    /// The app asked it to stop: the call ended (Stop sharing in K2 goes
+    /// through iOS's sheet, which stops it without this alert).
     case stopped
     /// The ring broke mid-share.
     case broken
@@ -183,7 +184,7 @@ public enum K2BroadcastFrames {
       case .attach(-3): return "Your screen is already being shared."
       case .attach(-4): return "Update K2 to share your screen."
       case .attach, .noGroup: return "K2 couldn't share your screen. Try again from the call."
-      case .stopped: return "You stopped sharing your screen in K2, or the call ended."
+      case .stopped: return "K2 stopped sharing your screen."
       case .broken: return "Screen sharing stopped. Share again from the call."
       }
     }
