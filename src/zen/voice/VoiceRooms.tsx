@@ -48,13 +48,16 @@ export function voiceServers(
 /** Show the headset at all: a signed-in server hosts rooms (it says
  *  `voice-rooms-v1` in `/boot-status`), or a call is up. Hidden on phones
  *  with no such server (Rosson, 4.2.0), and it appears the moment one
- *  reports it: boot info isn't in a store, so its updates re-render here. */
+ *  reports it: boot info isn't in a store, so its updates re-render here.
+ *  Never on a build with no call engine (Android until Jeremie's, the
+ *  browser): a reviewer there would find rooms it can't join. */
 export function useVoiceAvailable(): boolean {
   const servers = useServersStore((s) => s.servers);
   const tokens = useServersStore((s) => s.tokens);
   const inCall = useVoiceCall((s) => s.phase !== "idle");
   const [, setBoot] = useState(0);
   useEffect(() => onBootInfo(() => setBoot((n) => n + 1)), []);
+  if (!isIosWebView()) return false;
   return inCall || voiceServers(servers, tokens, null).length > 0;
 }
 
