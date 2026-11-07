@@ -50,5 +50,32 @@ enum K2ScreenShare {
       button.sendActions(for: .touchUpInside)
       return true
     }
+
+    /// Closes iOS's broadcast sheet once the share started or stopped: it
+    /// has no close button of its own. Only a presented controller that is
+    /// ReplayKit's picker (its class name says so); anything else stays.
+    /// Main thread. True when it closed one.
+    static func closePicker() -> Bool {
+      let roots = UIApplication.shared.connectedScenes
+        .compactMap({ $0 as? UIWindowScene })
+        .flatMap({ $0.windows })
+        .compactMap({ $0.rootViewController })
+      for root in roots {
+        var top = root
+        while let next = top.presentedViewController {
+          if isPicker(next) {
+            next.dismiss(animated: true)
+            return true
+          }
+          top = next
+        }
+      }
+      return false
+    }
+
+    private static func isPicker(_ vc: UIViewController) -> Bool {
+      let name = NSStringFromClass(type(of: vc))
+      return name.hasPrefix("RP") && name.contains("Broadcast")
+    }
   #endif
 }

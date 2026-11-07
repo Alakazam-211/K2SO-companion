@@ -292,7 +292,9 @@ pub struct ScanQrResponse {
 ///   ([`PipAnimate`]) gets it there on its own (the floating tile's snap); `haptic {state?: "prepare"}` a light tap (or warms it up).
 ///   Screen share (iPhone): `appGroup` → `{ok, path}` the App Group's
 ///   container (the voice plugin's ring goes there); `broadcastPicker` →
-///   `{ok}` opens iOS's broadcast sheet with K2's extension (K2Broadcast).
+///   `{ok}` opens iOS's broadcast sheet with K2's extension (K2Broadcast);
+///   `broadcastPickerClose` → `{ok}` closes that sheet (the share started
+///   or stopped; it has no close button).
 ///   Events come back as `call`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]

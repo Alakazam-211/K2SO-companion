@@ -466,6 +466,12 @@ class K2PushPlugin: Plugin {
       DispatchQueue.main.async {
         invoke.resolve(["ok": K2ScreenShare.showPicker()])
       }
+    case "broadcastPickerClose":
+      // The share started or stopped: iOS's sheet has no close button, so
+      // it goes away by itself.
+      DispatchQueue.main.async {
+        invoke.resolve(["ok": K2ScreenShare.closePicker()])
+      }
     #if DEBUG
     case "pipTest":
       // Debug builds only: `{on, state?: "h264"}` plays K2PiP's test pattern.

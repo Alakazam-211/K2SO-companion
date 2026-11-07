@@ -207,7 +207,13 @@ export class LayerVideo implements NativeVideo {
         this.changed();
       }),
       on("k2-voice://screen", (p) => {
+        const was = this.share.active;
         this.share = screenShareOf(p);
+        // iOS's broadcast sheet has no close button: once the share starts
+        // or stops, it goes away by itself.
+        if (this.share.active !== was) {
+          void this.bridge.invoke("plugin:k2-push|call_op", { op: "broadcastPickerClose" }).catch(() => undefined);
+        }
         this.changed();
       }),
       this.camera.start(),
