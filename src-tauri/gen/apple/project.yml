@@ -131,6 +131,8 @@ targets:
     dependencies:
       - target: K2NotificationService
         embed: true
+      - target: K2Broadcast
+        embed: true
       - framework: libapp.a
         embed: false
       - sdk: CoreGraphics.framework
@@ -202,3 +204,78 @@ targets:
       - sdk: Intents.framework
       - sdk: UserNotifications.framework
       - sdk: UIKit.framework
+  # Broadcast Upload Extension (the iPhone screen share in a voice-room
+  # call; iOS captures the screen only in one): ReplayKit's screen frames go
+  # raw into Sew's ring (kessel-frame-ring) in the App Group's container,
+  # which the app's voice plugin arms once a call is connected; the app
+  # encodes and encrypts. Started from iOS's broadcast picker (the call
+  # bar's Share screen), never from the webview. Links kessel-frame-ring's
+  # C surface as a static library, built by the "Build Frame Ring" phase
+  # (src-tauri/broadcast-ring/build-ios.sh) for the SDK being built.
+  # Manual signing like the NSE: "K2 Companion Broadcast Dev" (debug, device
+  # builds), "K2 Companion Broadcast App Store" (release archive + release.sh
+  # export), both for App ID com.alakazamlabs.k2so.companion.Broadcast with
+  # the App Group. Simulator builds sign locally, with no profile.
+  K2Broadcast:
+    type: app-extension
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: K2Broadcast
+      # The extension's frame rules, ONE source with the macOS check
+      # (tauri-plugin-k2-push/ios: `swift run BroadcastCheck`).
+      - path: ../../tauri-plugin-k2-push/ios/BroadcastFrames/K2BroadcastFrames.swift
+    info:
+      path: K2Broadcast/Info.plist
+      properties:
+        CFBundleDisplayName: K2
+        CFBundleShortVersionString: 4.2.0
+        CFBundleVersion: "202611061219"
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.broadcast-services-upload
+          NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler
+          RPBroadcastProcessMode: RPBroadcastProcessModeSampleBuffer
+    entitlements:
+      path: K2Broadcast/K2Broadcast.entitlements
+      properties:
+        com.apple.security.application-groups:
+          - group.com.alakazamlabs.k2so.companion
+    settings:
+      base:
+        PRODUCT_NAME: K2Broadcast
+        PRODUCT_BUNDLE_IDENTIFIER: com.alakazamlabs.k2so.companion.Broadcast
+        DEVELOPMENT_TEAM: 36B8R93HXV
+        CODE_SIGN_STYLE: Manual
+        TARGETED_DEVICE_FAMILY: "1,2"
+        SWIFT_VERSION: "5.0"
+        SKIP_INSTALL: true
+        ENABLE_BITCODE: false
+        ARCHS: [arm64]
+        EXCLUDED_ARCHS: x86_64
+        SWIFT_OBJC_BRIDGING_HEADER: K2Broadcast/K2Broadcast-Bridging-Header.h
+        LIBRARY_SEARCH_PATHS[sdk=iphoneos*]: $(inherited) $(PROJECT_DIR)/../../broadcast-ring/target/aarch64-apple-ios/release
+        LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]: $(inherited) $(PROJECT_DIR)/../../broadcast-ring/target/aarch64-apple-ios-sim/release
+        OTHER_LDFLAGS: $(inherited) -lk2_broadcast_ring
+        # The phase runs cargo outside Xcode's sandbox (rustup, the registry).
+        ENABLE_USER_SCRIPT_SANDBOXING: false
+        # Simulator: signed to run locally, no profile needed.
+        CODE_SIGN_IDENTITY[sdk=iphonesimulator*]: "-"
+        PROVISIONING_PROFILE_SPECIFIER[sdk=iphonesimulator*]: ""
+      configs:
+        debug:
+          CODE_SIGN_IDENTITY[sdk=iphoneos*]: Apple Development
+          PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]: K2 Companion Broadcast Dev
+        release:
+          CODE_SIGN_IDENTITY[sdk=iphoneos*]: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER[sdk=iphoneos*]: K2 Companion Broadcast App Store
+    preBuildScripts:
+      - script: '"${PROJECT_DIR}/../../broadcast-ring/build-ios.sh"'
+        name: Build Frame Ring
+        basedOnDependencyAnalysis: false
+        outputFiles:
+          - $(PROJECT_DIR)/../../broadcast-ring/target/aarch64-apple-ios/release/libk2_broadcast_ring.a
+          - $(PROJECT_DIR)/../../broadcast-ring/target/aarch64-apple-ios-sim/release/libk2_broadcast_ring.a
+    dependencies:
+      - sdk: ReplayKit.framework
+      - sdk: CoreMedia.framework
+      - sdk: CoreVideo.framework

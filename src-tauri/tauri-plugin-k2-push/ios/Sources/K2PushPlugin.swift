@@ -452,6 +452,20 @@ class K2PushPlugin: Plugin {
         }
         invoke.resolve(["ok": true])
       }
+    case "appGroup":
+      // The screen share's ring lives in the App Group's container (Rust
+      // arms it there once a call is connected; K2ScreenShare.swift).
+      if let path = K2ScreenShare.containerPath() {
+        invoke.resolve(["ok": true, "path": path])
+      } else {
+        invoke.resolve(["ok": false, "error": "no_app_group"])
+      }
+    case "broadcastPicker":
+      // Share screen in the call bar: iOS's broadcast sheet, K2's extension
+      // chosen. The share itself starts with the extension's first frame.
+      DispatchQueue.main.async {
+        invoke.resolve(["ok": K2ScreenShare.showPicker()])
+      }
     #if DEBUG
     case "pipTest":
       // Debug builds only: `{on, state?: "h264"}` plays K2PiP's test pattern.
