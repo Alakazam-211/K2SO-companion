@@ -43,5 +43,14 @@ let package = Package(
       name: "PiPCheck",
       dependencies: ["K2VideoFrames"],
       path: "PiPCheck"),
+    // The broadcast extension's frame rules (K2Broadcast compiles the same
+    // file itself, from project.yml): `swift run BroadcastCheck`.
+    .target(
+      name: "K2BroadcastFrames",
+      path: "BroadcastFrames"),
+    .executableTarget(
+      name: "BroadcastCheck",
+      dependencies: ["K2BroadcastFrames"],
+      path: "BroadcastCheck"),
   ])
 )

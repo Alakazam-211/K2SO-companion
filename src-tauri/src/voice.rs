@@ -12,6 +12,9 @@
 //!   calls. Native both ways, so a call keeps working with the webview asleep.
 //! - [`PipSink`]: while the call has video, Sew's native sink on the active
 //!   speaker feeds the picture in picture (K2PiP.swift).
+//! - [`ScreenRing`]: the iPhone screen share. Once a call is connected the
+//!   broadcast extension's ring (K2Broadcast) is armed in the App Group's
+//!   container, and the share's state goes to the call screen.
 //!
 //! The webview drives joins through the plugin's own commands
 //! (`plugin:sew-voice|join` …) and follows its `sew-voice://` events.
@@ -19,6 +22,7 @@
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use std::sync::Mutex;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::path::PathBuf;
 use std::sync::{mpsc, Arc, OnceLock, RwLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -66,6 +70,10 @@ pub struct Native {
     /// Whom the picture shows (the sink's last `Switched`), for a call
     /// screen opened after the event went by.
     speaker: Arc<Mutex<Value>>,
+    /// The screen share's ring and state ([`ScreenRing`]).
+    screen: Arc<Mutex<ScreenRing>>,
+    /// The App Group's container (Swift's, asked once: `callOp appGroup`).
+    app_group: Arc<OnceLock<PathBuf>>,
 }
 
 /// Sew install id → the app's server ids that joined through it. Sew knows
@@ -572,6 +580,8 @@ impl VoiceListener for CallKitBridge {
         let _ = self.tx.send(ToShim::State(state.clone()));
         self.native.note(&state_line(&state.state));
         let _ = self.watch.send(Watched::State(state.state.clone()));
+        // After the note: the ring's own line follows the state's.
+        self.native.screen_state(&state.state);
     }
 
     fn on_recording(&self, recording: Option<&RecordingInfo>) {
@@ -600,6 +610,10 @@ impl VoiceListener for CallKitBridge {
             let _ = app.emit(VIDEO_EVENT, has_video);
         }
         self.native.note(if has_video { "video on" } else { "video off" });
+    }
+
+    fn screen_share_changed(&self, active: bool) {
+        self.native.screen_share(active);
     }
 }
 
@@ -831,6 +845,170 @@ fn sew_scene(scene: Scene) -> AppScene {
         Scene::Background => AppScene::Background,
         Scene::Foreground => AppScene::Foreground,
     }
+}
+
+// ── Screen share (iPhone) ────────────────────────────────────────────
+//
+// iOS captures the screen only in a broadcast upload extension (K2Broadcast,
+// gen/apple/K2Broadcast), started by the person from iOS's broadcast picker
+// (the call bar's Share screen: `callOp broadcastPicker`). The extension
+// writes raw NV12 frames into Sew's ring (kessel-frame-ring) in the App
+// Group's container; the voice plugin reads, encodes, encrypts and
+// publishes them as the call's screen. This side arms that ring once a call
+// is connected (`VoiceControl::screen_share_ring`) and tells the call screen
+// when the button can work (`armed`) and when the share runs (`active`, from
+// `screen_share_changed`: it starts and stops outside the app). Stop is the
+// webview's `screen {on: false}`; a call's end stops it in the plugin.
+
+/// The screen share as the call screen shows it ([`ScreenView`]).
+pub const SCREEN_EVENT: &str = "k2-voice://screen";
+
+/// `armed`: the extension's ring is ready, so Share screen can open the
+/// picker. `active`: this phone's screen is being shared.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+pub struct ScreenView {
+    pub armed: bool,
+    pub active: bool,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+enum Ring {
+    #[default]
+    None,
+    /// Arming (attempt n): the App Group's path and the plugin on their way.
+    Arming(u64),
+    Armed,
+}
+
+/// When to arm the ring: once per call, at its first `connected` (a
+/// reconnect keeps it; the plugin removes it as the call ends). A failed arm
+/// is tried again at the next `connected`. A re-join held for a recording
+/// answer counts as a new call: its ring is armed again once it connects.
+#[derive(Debug, Default)]
+pub struct ScreenRing {
+    ring: Ring,
+    active: bool,
+    attempts: u64,
+}
+
+impl ScreenRing {
+    /// The call's state. `Some(attempt)`: arm the ring now.
+    fn state(&mut self, s: &CallState) -> Option<u64> {
+        match s {
+            CallState::Connected if self.ring == Ring::None => {
+                self.attempts += 1;
+                self.ring = Ring::Arming(self.attempts);
+                Some(self.attempts)
+            }
+            CallState::Ended { .. } | CallState::Idle | CallState::ConsentRequired { .. } => {
+                self.ring = Ring::None;
+                self.active = false;
+                None
+            }
+            _ => None,
+        }
+    }
+
+    /// Attempt `n`'s answer. Too late (the call ended, or a newer attempt
+    /// runs): ignored.
+    fn armed(&mut self, n: u64, ok: bool) {
+        if self.ring == Ring::Arming(n) {
+            self.ring = if ok { Ring::Armed } else { Ring::None };
+        }
+    }
+
+    fn share(&mut self, active: bool) {
+        self.active = active;
+    }
+
+    fn view(&self) -> ScreenView {
+        ScreenView { armed: self.ring == Ring::Armed, active: self.active }
+    }
+}
+
+/// The container path in Swift's `callOp appGroup` answer (`{ok, path}`).
+fn app_group_of(answer: &Value) -> Option<PathBuf> {
+    let path = answer.get("path").and_then(Value::as_str).filter(|p| !p.is_empty())?;
+    Some(PathBuf::from(path))
+}
+
+impl Native {
+    fn with_screen<T>(&self, f: impl FnOnce(&mut ScreenRing) -> T) -> (T, bool) {
+        let mut ring = self.screen.lock().unwrap_or_else(|e| e.into_inner());
+        let before = ring.view();
+        let out = f(&mut ring);
+        let changed = ring.view() != before;
+        (out, changed)
+    }
+
+    fn emit_screen(&self) {
+        let view = self.screen.lock().unwrap_or_else(|e| e.into_inner()).view();
+        if let Some(app) = self.app() {
+            let _ = app.emit(SCREEN_EVENT, view);
+        }
+    }
+
+    /// The call's state: arm the ring at its first `connected`; the call
+    /// screen hears when the button's state changes. Only queues: safe in a
+    /// listener.
+    fn screen_state(&self, s: &CallState) {
+        let (arm, changed) = self.with_screen(|r| r.state(s));
+        if changed {
+            self.emit_screen();
+        }
+        if let Some(attempt) = arm {
+            self.arm_screen_ring(attempt);
+        }
+    }
+
+    /// The plugin's `screen_share_changed`.
+    fn screen_share(&self, active: bool) {
+        let ((), changed) = self.with_screen(|r| r.share(active));
+        if changed {
+            self.emit_screen();
+        }
+        self.note(if active { "screen share on" } else { "screen share off" });
+    }
+
+    /// The App Group's container, asked of Swift once. Blocks on Swift:
+    /// never on the main thread or in a listener.
+    fn app_group(&mut self) -> Option<PathBuf> {
+        if let Some(p) = self.app_group.get() {
+            return Some(p.clone());
+        }
+        let path = app_group_of(&self.call_op("appGroup", |_| {})?)?;
+        let _ = self.app_group.set(path.clone());
+        Some(path)
+    }
+
+    /// `screen_share_ring(<container>)`, on the async runtime (the listener
+    /// that asked has returned by the time the plugin is called).
+    fn arm_screen_ring(&self, attempt: u64) {
+        let Some(app) = self.app() else { return };
+        let native = self.clone();
+        tauri::async_runtime::spawn(async move {
+            let control = app.state::<VoiceControl>().inner().clone();
+            let mut swift = native.clone();
+            let dir = tauri::async_runtime::spawn_blocking(move || swift.app_group()).await.ok().flatten();
+            let result = match dir {
+                Some(dir) => control.screen_share_ring(dir).await.map_err(|e| e.code),
+                None => Err("no_app_group".to_owned()),
+            };
+            native.note(&match &result {
+                Ok(()) => "screen ring armed".to_owned(),
+                Err(c) => format!("screen ring refused {}", code(c)),
+            });
+            let ((), changed) = native.with_screen(|r| r.armed(attempt, result.is_ok()));
+            if changed {
+                native.emit_screen();
+            }
+        });
+    }
+}
+
+/// The screen share now, for a call screen opened after the event.
+pub fn screen_view(native: &Native) -> Value {
+    json!(native.screen.lock().unwrap_or_else(|e| e.into_inner()).view())
 }
 
 // ── Picture in picture ───────────────────────────────────────────────
@@ -2246,5 +2424,67 @@ mod tests {
             Err(ProviderError::Refused { detail, .. }) => assert_eq!(detail, json!({ "hint": null, "details": null })),
             other => panic!("{other:?}"),
         }
+    }
+
+    #[test]
+    fn the_screen_ring_is_armed_once_per_call_at_its_first_connected() {
+        let mut r = ScreenRing::default();
+        let ended = CallState::Ended { reason: "left".into() };
+        assert_eq!(r.view(), ScreenView { armed: false, active: false });
+        // Connecting: nothing to arm yet (the plugin refuses before the call is up).
+        assert_eq!(r.state(&CallState::Connecting), None);
+        assert_eq!(r.state(&CallState::Connected), Some(1));
+        // Arming: a second `connected` doesn't arm twice.
+        assert_eq!(r.state(&CallState::Connected), None);
+        assert!(!r.view().armed);
+        r.armed(1, true);
+        assert_eq!(r.view(), ScreenView { armed: true, active: false });
+        // A reconnect keeps the ring (arming again would end a running share).
+        assert_eq!(r.state(&CallState::Reconnecting { attempt: 1 }), None);
+        assert_eq!(r.state(&CallState::Connected), None);
+        assert!(r.view().armed);
+        // The extension's first frame: the share runs; the call ends: all off.
+        r.share(true);
+        assert_eq!(r.view(), ScreenView { armed: true, active: true });
+        assert_eq!(r.state(&ended), None);
+        assert_eq!(r.view(), ScreenView { armed: false, active: false });
+        // The next call arms afresh.
+        assert_eq!(r.state(&CallState::Connected), Some(2));
+    }
+
+    #[test]
+    fn a_late_or_failed_arm_never_marks_the_ring_ready() {
+        let mut r = ScreenRing::default();
+        assert_eq!(r.state(&CallState::Connected), Some(1));
+        // Refused (no App Group, `screen_unsupported`): the next `connected` tries again.
+        r.armed(1, false);
+        assert!(!r.view().armed);
+        assert_eq!(r.state(&CallState::Reconnecting { attempt: 1 }), None);
+        assert_eq!(r.state(&CallState::Connected), Some(2));
+        // The call ended while attempt 2 was on its way: its answer is too late.
+        assert_eq!(r.state(&CallState::Idle), None);
+        r.armed(2, true);
+        assert!(!r.view().armed);
+        // A newer attempt's call ignores an older answer.
+        assert_eq!(r.state(&CallState::Connected), Some(3));
+        r.armed(2, true);
+        assert!(!r.view().armed);
+        r.armed(3, true);
+        assert!(r.view().armed);
+        // A re-join held for a recording answer is a new call: armed again once it connects.
+        assert_eq!(r.state(&held_at(1)), None);
+        assert!(!r.view().armed);
+        assert_eq!(r.state(&CallState::Connected), Some(4));
+    }
+
+    #[test]
+    fn the_screen_view_as_the_call_screen_reads_it() {
+        assert_eq!(json!(ScreenView { armed: true, active: false }), json!({ "armed": true, "active": false }));
+        assert_eq!(
+            app_group_of(&json!({ "ok": true, "path": "/private/var/mobile/Containers/Shared/AppGroup/X" })),
+            Some(PathBuf::from("/private/var/mobile/Containers/Shared/AppGroup/X"))
+        );
+        assert_eq!(app_group_of(&json!({ "ok": false, "error": "no_app_group" })), None);
+        assert_eq!(app_group_of(&json!({ "ok": true, "path": "" })), None);
     }
 }
