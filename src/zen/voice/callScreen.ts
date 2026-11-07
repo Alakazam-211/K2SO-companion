@@ -19,7 +19,13 @@ export const useCallScreen = create<CallScreen>((set, get) => ({
   open: false,
   pending: false,
   setOpen: (open) => set({ open }),
-  ask: () => set({ open: true, pending: false }),
+  ask: () => {
+    // The call screen covers the chat, so its composer's keyboard has to go
+    // (the draft is kept per chat).
+    const el = typeof document === "undefined" ? null : document.activeElement;
+    if (el instanceof HTMLElement) el.blur();
+    set({ open: true, pending: false });
+  },
   consume: () => {
     if (!get().pending) return false;
     set({ pending: false });
