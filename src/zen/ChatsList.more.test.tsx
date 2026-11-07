@@ -6,6 +6,13 @@ import { useMultiServerPrefs } from "./multi/prefs";
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 
+// The iPhone build unless a test says otherwise (voice runs on iOS only).
+const ios = vi.hoisted(() => ({ on: true }));
+vi.mock("../lib/nativePicker", async (orig) => ({
+  ...(await orig<typeof import("../lib/nativePicker")>()),
+  isIosWebView: () => ios.on,
+}));
+
 vi.mock("../api/client", () => ({
   inspectProjectsSummary: vi.fn(),
   getAgentList: vi.fn(),
@@ -97,6 +104,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   useVoiceCall.setState({ phase: "idle", consent: null });
+  ios.on = true;
 });
 
 describe("Rooms and the More menu", () => {
@@ -131,6 +139,13 @@ describe("Rooms and the More menu", () => {
     mount();
     expect(screen.getByTestId("chats-header-voice").getAttribute("aria-label")).toBe("Rooms (in a call)");
     act(() => useVoiceCall.setState({ phase: "idle" }));
+    expect(screen.queryByTestId("chats-header-voice")).toBeNull();
+  });
+
+  it("Android (no call engine): no Rooms button", () => {
+    ios.on = false;
+    useVoiceCall.setState({ phase: "connected" });
+    mount();
     expect(screen.queryByTestId("chats-header-voice")).toBeNull();
   });
 
