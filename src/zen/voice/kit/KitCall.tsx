@@ -111,9 +111,8 @@ export function AvatarNote({ memberId, video }: { memberId: string; video: Layer
 
 /** Your own tile's video rect while your camera is on. */
 function Self({ handle, video }: { handle: HostTileInfo["handle"]; video: LayerVideo }) {
-  const mirrored = useLayerVideo(video, (v) => v.selfMirrored());
   const paused = useLayerVideo(video, (v) => v.selfState() === "paused");
-  return <SelfView handle={handle} mirrored={mirrored} paused={paused} />;
+  return <SelfView handle={handle} paused={paused} />;
 }
 
 /** Names for the kit, from what the phone knows: the rooms lists (each
