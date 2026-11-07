@@ -766,6 +766,25 @@ describe("Sew's call kit on the phone", () => {
         await waitFor(() => expect(screenButton()?.getAttribute("data-state")).toBe("off"));
       });
 
+      it("iOS's sheet closes by itself when the share starts and when it stops, not on a repeat", async () => {
+        plugin.answers["plugin:k2-push|call_op"] = { ok: true };
+        const closes = () =>
+          plugin.invoke.mock.calls.filter(
+            ([c, a]) => c === "plugin:k2-push|call_op" && (a as { op?: string })?.op === "broadcastPickerClose",
+          );
+        await inCall();
+        render(<KitCall />);
+        armed();
+        await waitFor(() => expect(screenButton()).toBeTruthy());
+        expect(closes()).toHaveLength(0);
+        armed(true);
+        await waitFor(() => expect(closes()).toHaveLength(1));
+        armed(true);
+        expect(closes()).toHaveLength(1);
+        armed(false);
+        await waitFor(() => expect(closes()).toHaveLength(2));
+      });
+
       it("a picker that can't open says so; the button stays off", async () => {
         plugin.answers["plugin:k2-push|call_op"] = { ok: false };
         await inCall();
