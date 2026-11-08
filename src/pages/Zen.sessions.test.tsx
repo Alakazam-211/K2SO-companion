@@ -16,6 +16,7 @@ vi.mock("../api/client", () => ({
   inspectProjectsSummary: vi.fn(),
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),
+  ensureCanonicalSession: vi.fn(),
   spawnTabSession: vi.fn(),
   spawnResumeTab: vi.fn(),
   getActivePresets: vi.fn(async () => ({ ok: true, data: [] })),
@@ -38,6 +39,7 @@ vi.mock("../api/projectGroups", () => ({
 }));
 
 import {
+  ensureCanonicalSession,
   getActivePresets,
   getAllSessions,
   getChatCustomNames,
@@ -626,6 +628,63 @@ describe("Zen Sessions drawer", () => {
     await waitFor(() =>
       expect(screen.getByTestId("term-loc").textContent).toBe("/zen/terminal/t-rev")
     );
+  });
+
+  it("the terminal button starts a main agent that isn't running, then opens its terminal", async () => {
+    await openMain([]);
+    let finish: () => void = () => {};
+    vi.mocked(ensureCanonicalSession).mockReset();
+    vi.mocked(ensureCanonicalSession).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = () => {
+            vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: SESSIONS } as never);
+            resolve({ ok: true, data: { session_id: "t-main", reused: false } } as never);
+          };
+        })
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    await waitFor(() => expect(screen.getByTestId("terminal-waking")).not.toBeNull());
+    expect(ensureCanonicalSession).toHaveBeenCalledWith(expect.anything(), "/ws");
+    // A second tap while it starts does nothing.
+    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    expect(ensureCanonicalSession).toHaveBeenCalledTimes(1);
+    await act(async () => finish());
+    await waitFor(() =>
+      expect(screen.getByTestId("term-loc").textContent).toBe("/zen/terminal/t-main")
+    );
+    expect(screen.queryByTestId("sessions-drawer")).toBeNull();
+  });
+
+  it("when K2 won't start the agent, Terminal opens Sessions with the reason", async () => {
+    await openMain([]);
+    vi.mocked(ensureCanonicalSession).mockReset();
+    vi.mocked(ensureCanonicalSession).mockResolvedValue({
+      ok: false,
+      error: "folder trust is held",
+      status: 409,
+    } as never);
+    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    const drawer = await screen.findByTestId("sessions-drawer");
+    expect(within(drawer).getByTestId("sessions-start-error").textContent).toBe(
+      "Couldn't start the agent: folder trust is held"
+    );
+    expect(screen.queryByTestId("terminal-waking")).toBeNull();
+    // Hiding the drawer clears the reason.
+    fireEvent.click(within(drawer).getByTestId("sessions-close"));
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    const again = await screen.findByTestId("sessions-drawer");
+    expect(within(again).queryByTestId("sessions-start-error")).toBeNull();
+  });
+
+  it("the terminal button doesn't start anything when the main agent is running", async () => {
+    await openMain();
+    vi.mocked(ensureCanonicalSession).mockReset();
+    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("term-loc").textContent).toBe("/zen/terminal/t-main")
+    );
+    expect(ensureCanonicalSession).not.toHaveBeenCalled();
   });
 
   it("a plain terminal row opens its Thread (ws/N) in Done mode, not the terminal", async () => {

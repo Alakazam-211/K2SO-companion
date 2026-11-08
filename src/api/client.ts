@@ -366,6 +366,16 @@ export const readTerminal = (scope: ServerScope, project: string, id: string, li
     project,
     method: "GET",
   }, 15000, { id, lines: String(lines), scrollback: "true" });
+// Start the workspace's main agent if it isn't running: the route K2's
+// own wake path uses when a message arrives. Idempotent (`reused: true`
+// when it was already up); folder trust held/denied is a 409.
+export const ensureCanonicalSession = (scope: ServerScope, project: string) =>
+  request<{ session_id?: string; reused?: boolean }>(
+    scope,
+    "/cli/workspace/ensure-canonical-session",
+    { project },
+    { method: "POST" }
+  );
 export const spawnTerminal = (scope: ServerScope, project: string, command: string, title?: string) =>
   request(scope, "/cli/terminal/spawn", { project, command, title }, { method: "POST" });
 export const spawnBackgroundTerminal = (scope: ServerScope, project: string, command: string, cwd?: string) =>

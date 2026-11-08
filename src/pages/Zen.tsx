@@ -138,6 +138,10 @@ export function Zen() {
   /** Opened from the Sessions drawer: Done (not Back) returns to the origin. */
   const drawerPicked = Boolean(drawerOrigin) && drawerOrigin !== agentId;
   const [sessionsOpen, setSessionsOpen] = useState(false);
+  /** Terminal is starting the main agent (spinner; taps ignored). */
+  const [terminalWaking, setTerminalWaking] = useState(false);
+  /** Why the agent couldn't be started, shown atop the Sessions drawer. */
+  const [startError, setStartError] = useState<string | null>(null);
   const extraChat = isOverlayExtraAddr(agent?.addr);
   const headerTitle = threadHeaderTitle(agent);
   const sidecarTitle = threadSidecarTitle(agent);
@@ -769,9 +773,12 @@ export function Zen() {
                 data-glass-shape="button"
                 className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
                 style={HEADER_BTN}
+                aria-busy={terminalWaking || undefined}
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (terminalWaking) return;
                   rememberZenThread(agentId, roomServerId());
+                  setStartError(null);
                   const go = async () => {
                     let tid: string | null = null;
                     if (agent) {
@@ -791,6 +798,15 @@ export function Zen() {
                       sessions = useWorkspacesStore.getState().allSessions;
                     }
                     if (!tid) tid = terminalIdForAgent(agent, sessions);
+                    if (!tid && agent) {
+                      // The main agent isn't running: start it, as a
+                      // message would, then open its terminal.
+                      setTerminalWaking(true);
+                      const woke = await useZenStore.getState().ensureMainHost(agent);
+                      setTerminalWaking(false);
+                      if (woke.ok) tid = woke.terminalId ?? null;
+                      else setStartError(woke.error || "Could not start the agent");
+                    }
                     if (!tid) {
                       // No live terminal: the Sessions drawer lists this
                       // agent's sessions (and New session).
@@ -803,7 +819,15 @@ export function Zen() {
                   void go();
                 }}
               >
-                <TerminalIcon size={18} strokeWidth={2} />
+                {terminalWaking ? (
+                  <span
+                    data-testid="terminal-waking"
+                    className="block w-4 h-4 rounded-full border-2 border-current border-t-transparent opacity-70 animate-spin motion-reduce:animate-none"
+                    aria-hidden
+                  />
+                ) : (
+                  <TerminalIcon size={18} strokeWidth={2} />
+                )}
               </button>
               <button
                 type="button"
@@ -900,7 +924,11 @@ export function Zen() {
               <PaneErrorBoundary name="sessions">
                 <SessionsPane
                   agent={agent}
-                  onClose={() => setSessionsOpen(false)}
+                  onClose={() => {
+                    setSessionsOpen(false);
+                    setStartError(null);
+                  }}
+                  notice={startError}
                   onOpenTerminal={(tid, title) => {
                     rememberZenThread(agentId, roomServerId());
                     openTerminal(tid, title);
