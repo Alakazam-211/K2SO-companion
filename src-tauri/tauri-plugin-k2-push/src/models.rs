@@ -296,6 +296,8 @@ pub struct ScanQrResponse {
 ///   `broadcastPickerStop` → `{ok}` opens it to stop sharing (no iOS alert)
 ///   and answers once it's gone; `broadcastPickerClose` → `{ok}` closes
 ///   that sheet (the share started or stopped; it has no close button).
+///   `copyText {text}` → `{ok}` puts `text` on the pasteboard as plain text
+///   only (WebKit's writeText also stores URL-like text as a URL).
 ///   Events come back as `call`.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -315,6 +317,8 @@ pub struct CallOpRequest {
     pub title: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub video: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub x: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

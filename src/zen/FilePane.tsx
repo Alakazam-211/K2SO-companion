@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { asErrorText } from "../lib/apiError";
-import { writeClipboard } from "../lib/oscClipboard";
+import { copyPlainText } from "../lib/clipboard";
 import { createFsFolder, getFsReadDir, renameFsEntry, type ServerScope } from "../api/client";
 import { loadGroupPoc } from "./groupPoc";
 import { StubMark } from "./StubMark";
@@ -68,7 +68,7 @@ function useFilesRoot(scope: ServerScope): { root: string | null; note: string |
 }
 
 async function copyText(text: string): Promise<boolean> {
-  if ((await writeClipboard(text)) === "written") return true;
+  if ((await copyPlainText(text)) === "written") return true;
   // WKWebView without the async API: the old selection copy.
   try {
     const ta = document.createElement("textarea");

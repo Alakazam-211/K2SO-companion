@@ -472,6 +472,13 @@ class K2PushPlugin: Plugin {
       DispatchQueue.main.async {
         K2ScreenShare.showPickerUntilClosed { ok in invoke.resolve(["ok": ok]) }
       }
+    case "copyText":
+      // Plain text only. WebKit's writeText also stores text that parses as
+      // a URL ("Reminder: …") as an NSURL, which pastes as `reminder:%20…`.
+      DispatchQueue.main.async {
+        UIPasteboard.general.string = args.text ?? ""
+        invoke.resolve(["ok": true])
+      }
     case "broadcastPickerClose":
       // The share started or stopped: iOS's sheet has no close button, so
       // it goes away by itself.
@@ -1100,6 +1107,8 @@ private struct CallOpArgs: Decodable {
   let on: Bool?
   let title: String?
   let video: Bool?
+  // `copyText`
+  let text: String?
   // `pipFrame`
   let x: Double?
   let y: Double?
