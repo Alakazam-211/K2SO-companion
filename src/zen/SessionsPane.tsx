@@ -210,10 +210,13 @@ export function SessionsPane({
   agent,
   onClose,
   onOpenTerminal,
+  notice,
 }: {
   agent: StubAgent | undefined;
   onClose: () => void;
   onOpenTerminal: (terminalId: string, title: string) => void;
+  /** Why Terminal couldn't start the agent (shown above the list). */
+  notice?: string | null;
 }) {
   /** The room's server: the drawer lists, spawns and wakes on it (MA18). */
   const scope = useZenScope();
@@ -570,6 +573,16 @@ export function SessionsPane({
           loadMoreIfNear();
         }}
       >
+        {notice ? (
+          <p
+            className="mx-3 mt-2 text-[11px]"
+            style={{ color: "#ef4444" }}
+            role="alert"
+            data-testid="sessions-start-error"
+          >
+            Couldn't start the agent: {notice}
+          </p>
+        ) : null}
         <div className={HEADING} data-testid="sessions-active">
           {ACTIVE_HEADING}
         </div>

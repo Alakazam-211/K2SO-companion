@@ -24,6 +24,7 @@ import {
   setSessionLabel,
   setTabTitle,
   spawnSidecarSession,
+  ensureCanonicalSession,
   spawnTabSession,
   getWorkspaceResources,
   type GlobalSession,
@@ -106,6 +107,7 @@ import {
   writeRememberedSidecars,
   type OverlaySidecar,
 } from "./sidecarRows";
+import { isConversationAddr } from "./sessionHistory";
 import { groupMessagesToThread, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import { mergeThreadMessages } from "./threadLive";
 import { mergeGroupDelta, mergeServerPage, sameMessage } from "./threadCacheMerge";
@@ -369,6 +371,12 @@ type ZenState = {
   /** Spawn the sidecar PTY if the Mac tab is gone. Overlay chat stays. */
   ensureSidecarHost: (
     row: Pick<StubAgent, "path" | "addr" | "chatTitle" | "terminalId" | "launch">
+  ) => Promise<{ ok: boolean; terminalId?: string | null; error?: string }>;
+  /** Terminal on a main chat whose agent isn't running: start it the way
+   *  an incoming message does. Sidecars, History conversations and
+   *  read-only rows are left alone (`terminalId: null`). */
+  ensureMainHost: (
+    row: Pick<StubAgent, "path" | "addr" | "kind" | "hostLive">
   ) => Promise<{ ok: boolean; terminalId?: string | null; error?: string }>;
   openSidecar: (
     baseId: string,
@@ -2664,6 +2672,25 @@ export const useZenStore = create<ZenState>((set, get) => ({
     return {
       ok: true,
       terminalId,
+    };
+  },
+  ensureMainHost: async (row) => {
+    const addr = (row.addr || "").trim();
+    const path = (row.path || "").trim();
+    if (!path || !addr || row.kind === "group" || row.hostLive === false) {
+      return { ok: true, terminalId: null };
+    }
+    if (sidecarSuffix(addr) || isConversationAddr(addr)) return { ok: true, terminalId: null };
+    const scope = zenScope();
+    const woke = await ensureCanonicalSession(scope, path);
+    if (!woke.ok) {
+      return { ok: false, terminalId: null, error: woke.error || "Could not start the agent" };
+    }
+    const listed = await getAllSessions(scope);
+    const sessions = listed.ok && Array.isArray(listed.data) ? listed.data : [];
+    return {
+      ok: true,
+      terminalId: terminalIdForAgent({ path, addr }, sessions) ?? woke.data?.session_id ?? null,
     };
   },
   openSidecar: async (baseId, opts) => {

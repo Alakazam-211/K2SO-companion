@@ -13,6 +13,7 @@ vi.mock("../api/client", () => ({
   answerThread: vi.fn(),
   getAllSessions: vi.fn(async () => ({ ok: true, data: [] })),
   spawnSidecarSession: vi.fn(),
+  ensureCanonicalSession: vi.fn(),
   uploadFsBinary: vi.fn(),
   setTabTitle: vi.fn(async () => ({ ok: true, data: { success: true } })),
   setSessionLabel: vi.fn(async () => ({ ok: true, data: { success: true } })),
@@ -37,6 +38,7 @@ import {
   getThread,
   postThread,
   answerThread,
+  ensureCanonicalSession,
   setSessionLabel,
   setTabTitle,
   spawnSidecarSession,
@@ -1642,6 +1644,80 @@ describe("sidecar rows come from the session list, not invented / 1", () => {
     });
     expect(spawnSidecarSession).not.toHaveBeenCalled();
     expect(result).toEqual({ ok: true, terminalId: "term-1" });
+  });
+
+  it("ensureMainHost starts a main agent that isn't running and finds its terminal", async () => {
+    vi.mocked(ensureCanonicalSession).mockReset();
+    vi.mocked(ensureCanonicalSession).mockResolvedValue({
+      ok: true,
+      data: { session_id: "sid-main", reused: false },
+    });
+    vi.mocked(getAllSessions).mockResolvedValue({
+      ok: true,
+      data: [
+        {
+          cwd: "/Users/Baden/Appa",
+          workspaceName: "Appa",
+          workspaceId: "appa",
+          workspaceColor: "#000",
+          agentName: "appa",
+          terminalId: "main-tid",
+          label: "main chat",
+          isMainChat: true,
+        },
+      ],
+    });
+    const result = await useZenStore.getState().ensureMainHost({
+      path: "/Users/Baden/Appa",
+      addr: "appa",
+      kind: "agent",
+    });
+    expect(ensureCanonicalSession).toHaveBeenCalledWith(expect.anything(), "/Users/Baden/Appa");
+    expect(result).toEqual({ ok: true, terminalId: "main-tid" });
+  });
+
+  it("ensureMainHost falls back to the started session id", async () => {
+    vi.mocked(ensureCanonicalSession).mockReset();
+    vi.mocked(ensureCanonicalSession).mockResolvedValue({
+      ok: true,
+      data: { session_id: "sid-main", reused: false },
+    });
+    vi.mocked(getAllSessions).mockResolvedValue({ ok: true, data: [] });
+    const result = await useZenStore.getState().ensureMainHost({
+      path: "/Users/Baden/Appa",
+      addr: "appa",
+    });
+    expect(result).toEqual({ ok: true, terminalId: "sid-main" });
+  });
+
+  it("ensureMainHost passes K2's refusal through", async () => {
+    vi.mocked(ensureCanonicalSession).mockReset();
+    vi.mocked(ensureCanonicalSession).mockResolvedValue({
+      ok: false,
+      error: "folder trust is held",
+      status: 409,
+    });
+    const result = await useZenStore.getState().ensureMainHost({
+      path: "/Users/Baden/Appa",
+      addr: "appa",
+    });
+    expect(result).toEqual({ ok: false, terminalId: null, error: "folder trust is held" });
+  });
+
+  it("ensureMainHost leaves sidecars, conversations, groups and read-only rows alone", async () => {
+    vi.mocked(ensureCanonicalSession).mockReset();
+    const store = useZenStore.getState();
+    const rows = [
+      { path: "/Users/Baden/Appa", addr: "appa/1" },
+      { path: "/Users/Baden/Appa", addr: "6fe8c8c6-a207-4612-930c-efa5c8051931" },
+      { path: "/Users/Baden/Appa", addr: "appa", kind: "group" as const },
+      { path: "/Users/Baden/Appa", addr: "appa", hostLive: false },
+      { path: "", addr: "appa" },
+    ];
+    for (const row of rows) {
+      expect(await store.ensureMainHost(row)).toEqual({ ok: true, terminalId: null });
+    }
+    expect(ensureCanonicalSession).not.toHaveBeenCalled();
   });
 });
 
