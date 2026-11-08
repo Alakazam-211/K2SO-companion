@@ -5,12 +5,15 @@
 import { memo, useMemo, type CSSProperties, type ReactNode } from "react";
 import remarkGfm from "remark-gfm";
 import Markdown from "./Markdown";
+import { BalancedTable } from "./BalancedTable";
 import { authorTint } from "../lib/authorTint";
 import { linkifyFileMentions } from "../zen/chatLinks";
 
 /** One plugin list for every body: a new array each render would rebuild
  *  ReactMarkdown's processor for nothing. */
 const REMARK_PLUGINS = [remarkGfm];
+/** Tables get column widths that make them as short as possible. */
+const COMPONENTS = { table: BalancedTable };
 
 /** A message body. Memoized: the markdown is parsed again only when its
  *  text (or link handler) changes, not on every re-render of the list
@@ -29,7 +32,7 @@ export const ChatMessageBody = memo(function ChatMessageBody({
 }) {
   const body = useMemo(
     () => (
-      <Markdown remarkPlugins={REMARK_PLUGINS} onFileLink={onFileLink}>
+      <Markdown remarkPlugins={REMARK_PLUGINS} components={COMPONENTS} onFileLink={onFileLink}>
         {linkifyFileMentions(text)}
       </Markdown>
     ),
