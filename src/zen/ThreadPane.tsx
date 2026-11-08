@@ -16,6 +16,7 @@ import { chatRuns, receiptFor, receiptRow } from "./chatReceipt";
 import { getThreadActivity, uploadFsBinary } from "../api/client";
 import { ChatMessageBody } from "../components/ChatMessage";
 import { asErrorText } from "../lib/apiError";
+import { copyPlainText } from "../lib/clipboard";
 import {
   MAX_UPLOAD_BYTES,
   attachmentSendBody,
@@ -1064,7 +1065,7 @@ export function ThreadPane({
   };
   const onCopySelection = () => {
     const sel = msgSel.sel;
-    if (sel) void navigator.clipboard?.writeText(sel.text).catch(() => {});
+    if (sel) void copyPlainText(sel.text);
     msgSel.clear();
   };
   const onStashSelection = () => {
@@ -1171,7 +1172,7 @@ export function ThreadPane({
           label: "Copy",
           onSelect: () => {
             msgHold.close();
-            void navigator.clipboard?.writeText(heldMessage.text).catch(() => {});
+            void copyPlainText(heldMessage.text);
           },
         },
       ]

@@ -75,8 +75,8 @@ import {
 import {
   shouldApplyOsc52,
   clipboardTextFromPayload,
-  writeClipboard,
 } from "../lib/oscClipboard";
+import { copyPlainText } from "../lib/clipboard";
 import {
   normalizeSelection,
   selectionRowSegments,
@@ -413,7 +413,7 @@ export function TerminalView({
    *  tap is a fresh user gesture, so the retry usually succeeds). */
   const applyClipboardText = useCallback(
     (text: string) => {
-      void writeClipboard(text).then((r) => {
+      void copyPlainText(text).then((r) => {
         if (r === "written") showToast("Copied");
         else setClipFallback(text);
       });
@@ -1780,7 +1780,7 @@ export function TerminalView({
           onCopy={() => {
             const t = clipFallback;
             setClipFallback(null);
-            void writeClipboard(t).then((r) => {
+            void copyPlainText(t).then((r) => {
               if (r === "written") showToast("Copied");
               else setClipFallback(t);
             });
