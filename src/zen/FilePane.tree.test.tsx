@@ -9,6 +9,8 @@ vi.mock("../api/client", () => ({
   renameFsEntry: vi.fn(),
   getFsReadFile: vi.fn(async () => ({ ok: true, data: { content: "hi" } })),
   getWorkspaceResources: vi.fn(async () => ({ ok: true, data: { docs: [] } })),
+  addWorkspaceResource: vi.fn(),
+  removeWorkspaceResource: vi.fn(),
 }));
 
 vi.mock("../api/projectGroups", () => ({
@@ -16,7 +18,15 @@ vi.mock("../api/projectGroups", () => ({
   fetchProjectGroupResources: vi.fn(async () => ({ ok: true, data: { docs: [] } })),
 }));
 
-import { createFsFolder, getFsReadDir, renameFsEntry, type FsDirEntry } from "../api/client";
+import {
+  addWorkspaceResource,
+  createFsFolder,
+  getFsReadDir,
+  getWorkspaceResources,
+  removeWorkspaceResource,
+  renameFsEntry,
+  type FsDirEntry,
+} from "../api/client";
 import { fetchProjectGroupShow } from "../api/projectGroups";
 import { FilePane } from "./FilePane";
 import { GlassComposer } from "./GlassComposer";
@@ -281,7 +291,7 @@ async function holdStill(el: HTMLElement) {
 }
 
 describe("press-and-hold menu", () => {
-  it("holding still opens exactly Copy Path and Rename (no Insert in message)", async () => {
+  it("holding a file still opens Copy Path, Rename, Add to Workspace Resources (no Insert in message)", async () => {
     live();
     render(<FilePane />);
     await screen.findByText("Alpha.ts");
@@ -289,7 +299,7 @@ describe("press-and-hold menu", () => {
     const row = screen.getByLabelText("Alpha.ts");
     await holdStill(row);
     const items = screen.getAllByRole("menuitem").map((b) => b.textContent);
-    expect(items).toEqual(["Copy Path", "Rename"]);
+    expect(items).toEqual(["Copy Path", "Rename", "Add to Workspace Resources"]);
     expect(screen.queryByText(/Insert in message/)).toBeNull();
     // The release after the menu does not open the file.
     fireEvent.pointerUp(row, { clientX: 100, clientY: 100, pointerId: 1 });
@@ -297,7 +307,7 @@ describe("press-and-hold menu", () => {
     expect(useZenStore.getState().openFileIds).toEqual([]);
   });
 
-  it("folders get the same menu", async () => {
+  it("folders get Copy Path and Rename only (resources are files)", async () => {
     live();
     render(<FilePane />);
     await screen.findByText("Alpha.ts");
@@ -371,7 +381,65 @@ describe("press-and-hold menu", () => {
     await screen.findByText("Alpha.ts");
     vi.useFakeTimers();
     await holdStill(screen.getByTestId("resource-row"));
-    expect(screen.getAllByRole("menuitem").map((b) => b.textContent)).toEqual(["Copy Path", "Rename"]);
+    expect(screen.getAllByRole("menuitem").map((b) => b.textContent)).toEqual([
+      "Copy Path",
+      "Rename",
+      "Remove from Workspace Resources",
+    ]);
+  });
+});
+
+describe("Workspace Resources from the hold menu", () => {
+  beforeEach(() => {
+    vi.mocked(addWorkspaceResource).mockReset();
+    vi.mocked(removeWorkspaceResource).mockReset();
+    vi.mocked(getWorkspaceResources).mockClear();
+  });
+
+  it("Add pins the file in its workspace, says so and re-reads the list", async () => {
+    live();
+    vi.mocked(addWorkspaceResource).mockResolvedValue({ ok: true, data: { ok: true, filePath: `${WS}/Alpha.ts` } });
+    render(<FilePane />);
+    await screen.findByText("Alpha.ts");
+    vi.useFakeTimers();
+    await holdStill(screen.getByLabelText("Alpha.ts"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("file-menu-resource-add"));
+    });
+    expect(addWorkspaceResource).toHaveBeenCalledWith(expect.anything(), WS, `${WS}/Alpha.ts`);
+    expect(screen.getByTestId("files-toast").textContent).toBe("Added to Workspace Resources");
+    expect(screen.queryByTestId("file-menu")).toBeNull();
+    expect(getWorkspaceResources).toHaveBeenCalledWith(expect.anything(), WS);
+  });
+
+  it("a tree file that is already a resource offers Remove, which unpins it", async () => {
+    live({ files: [{ id: `${WS}/Alpha.ts`, name: "Alpha.ts", body: "", hint: "" }] });
+    vi.mocked(removeWorkspaceResource).mockResolvedValue({ ok: true, data: { ok: true } });
+    render(<FilePane />);
+    await screen.findByTestId("file-tree");
+    await waitFor(() => expect(screen.getAllByLabelText("Alpha.ts").length).toBe(2));
+    vi.useFakeTimers();
+    const treeRow = screen.getAllByLabelText("Alpha.ts").find((el) => el.getAttribute("data-file-section") !== "resources")!;
+    await holdStill(treeRow);
+    expect(screen.queryByTestId("file-menu-resource-add")).toBeNull();
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("file-menu-resource-remove"));
+    });
+    expect(removeWorkspaceResource).toHaveBeenCalledWith(expect.anything(), WS, `${WS}/Alpha.ts`);
+    expect(screen.getByTestId("files-toast").textContent).toBe("Removed from Workspace Resources");
+  });
+
+  it("K2's refusal shows as the toast", async () => {
+    live();
+    vi.mocked(addWorkspaceResource).mockResolvedValue({ ok: false, error: "path is outside the workspace" });
+    render(<FilePane />);
+    await screen.findByText("Alpha.ts");
+    vi.useFakeTimers();
+    await holdStill(screen.getByLabelText("Alpha.ts"));
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("file-menu-resource-add"));
+    });
+    expect(screen.getByTestId("files-toast").textContent).toBe("path is outside the workspace");
   });
 });
 
