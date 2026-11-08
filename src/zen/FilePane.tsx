@@ -2,7 +2,14 @@ import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { createPortal } from "react-dom";
 import { asErrorText } from "../lib/apiError";
 import { copyPlainText } from "../lib/clipboard";
-import { createFsFolder, getFsReadDir, renameFsEntry, type ServerScope } from "../api/client";
+import {
+  addWorkspaceResource,
+  createFsFolder,
+  getFsReadDir,
+  removeWorkspaceResource,
+  renameFsEntry,
+  type ServerScope,
+} from "../api/client";
 import { loadGroupPoc } from "./groupPoc";
 import { StubMark } from "./StubMark";
 import { RESOURCES_EMPTY_LINE, RESOURCES_EMPTY_TITLE } from "./workspaceResources";
@@ -116,7 +123,8 @@ export function FilePane() {
 
 /** Files drawer: header (title, hidden-files eye, new folder, close), Workspace
  *  Resources, then the workspace folder tree. Hold a row still for its
- *  menu (Copy Path, Rename); hold and move to drag a file into the chat. */
+ *  menu (Copy Path, Rename, Add to / Remove from Workspace Resources);
+ *  hold and move to drag a file into the chat. */
 function FilePaneOpen() {
   const openFileIds = useZenStore((s) => s.openFileIds);
   const openFile = useZenStore((s) => s.openFile);
@@ -183,6 +191,29 @@ function FilePaneOpen() {
   const onCopyPath = async (m: FileMenu) => {
     closeMenu();
     say((await copyText(m.path)) ? "Copied" : "Could not copy");
+  };
+
+  // Workspace Resources pins: an agent's own workspace only (a project
+  // chat's resources are the project's), live files inside its folder.
+  const pinnedPaths = new Set(source === "live" ? files.map((f) => f.id) : []);
+  const pinState = (m: FileMenu): "add" | "remove" | null => {
+    if (source !== "live" || isGroup || !root || m.isDirectory) return null;
+    if (m.section === "resources" || pinnedPaths.has(m.path)) return "remove";
+    return !m.missing && inTree(m.path, root) && m.path !== root ? "add" : null;
+  };
+  const onPin = async (m: FileMenu, op: "add" | "remove") => {
+    closeMenu();
+    if (!root) return;
+    const r =
+      op === "add"
+        ? await addWorkspaceResource(scope, root, m.path)
+        : await removeWorkspaceResource(scope, root, m.path);
+    if (!r.ok) {
+      say(r.error || (op === "add" ? "Could not add" : "Could not remove"));
+      return;
+    }
+    say(op === "add" ? "Added to Workspace Resources" : "Removed from Workspace Resources");
+    refreshResources();
   };
 
   const toggleResources = () => {
@@ -396,6 +427,8 @@ function FilePaneOpen() {
               canRename={!renameGap && !menu.missing && inTree(menu.path, root) && menu.path !== root}
               onClose={closeMenu}
               onCopy={() => void onCopyPath(menu)}
+              pin={pinState(menu)}
+              onPin={(op) => void onPin(menu, op)}
               onRename={() => {
                 closeMenu();
                 setSheet({
@@ -513,22 +546,28 @@ function FilePaneOpen() {
   );
 }
 
-/** The press-and-hold menu: exactly Copy Path and Rename. */
+/** The press-and-hold menu: Copy Path, Rename, and a file's Workspace
+ *  Resources pin. */
 function FileRowMenu({
   menu,
   canRename,
+  pin,
   onClose,
   onCopy,
   onRename,
+  onPin,
 }: {
   menu: FileMenu;
   canRename: boolean;
+  /** "add" / "remove" offers the Workspace Resources item; null hides it. */
+  pin: "add" | "remove" | null;
   onClose: () => void;
   onCopy: () => void;
   onRename: () => void;
+  onPin: (op: "add" | "remove") => void;
 }) {
   const vh = typeof window !== "undefined" ? window.innerHeight : 800;
-  const below = !menu.rect || menu.rect.bottom + 110 < vh;
+  const below = !menu.rect || menu.rect.bottom + (pin ? 155 : 110) < vh;
   const top = menu.rect ? (below ? menu.rect.bottom + 4 : menu.rect.top - 4) : vh / 2;
   const right = menu.rect && typeof window !== "undefined" ? Math.max(8, window.innerWidth - menu.rect.right + 8) : 8;
   const item = "w-full text-left px-4 py-2.5 text-[15px] text-white bg-transparent border-0";
@@ -575,6 +614,17 @@ function FileRowMenu({
             data-testid="file-menu-rename"
           >
             Rename
+          </button>
+        ) : null}
+        {pin ? (
+          <button
+            type="button"
+            role="menuitem"
+            className={`${item} border-t border-[rgba(255,255,255,0.12)]`}
+            onClick={() => onPin(pin)}
+            data-testid={pin === "add" ? "file-menu-resource-add" : "file-menu-resource-remove"}
+          >
+            {pin === "add" ? "Add to Workspace Resources" : "Remove from Workspace Resources"}
           </button>
         ) : null}
       </div>

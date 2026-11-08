@@ -581,6 +581,20 @@ export const getWorkspaceResources = (scope: ServerScope, workspace: string) =>
     { workspace }
   );
 
+/** Pin or unpin one file in Workspace Resources. Files only, inside the
+ *  workspace (400 `not_a_file` / `path_escape`); K2 tells the desktop
+ *  with `workspace_resources_changed`. */
+export const addWorkspaceResource = (scope: ServerScope, workspace: string, path: string) =>
+  request<{ ok?: boolean; filePath?: string }>(scope, "/cli/workspace/resources/add",
+    { workspace, path },
+    { method: "POST" }
+  );
+export const removeWorkspaceResource = (scope: ServerScope, workspace: string, path: string) =>
+  request<{ ok?: boolean }>(scope, "/cli/workspace/resources/remove",
+    { workspace, path },
+    { method: "POST" }
+  );
+
 /** `GET /cli/fs/read-dir?path=&show_hidden=` → one level, folders first.
  *  Owner token: `path` is absolute. Callers keep it under the agent's
  *  own workspace (the daemon does not jail an owner token). */
