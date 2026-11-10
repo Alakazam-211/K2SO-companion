@@ -12,7 +12,9 @@ import {
   type RefObject,
 } from "react";
 import { SENDING_OPACITY, useDeliverBrighten } from "./useDeliverBrighten";
+import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { chatRuns, receiptFor, receiptRow } from "./chatReceipt";
+import { otherSenderCount, senderPicture, THREAD_PICTURE_GAP, THREAD_PICTURE_PX, useThreadPicturesOn, type SenderPicture } from "./threadPictures";
 import { getThreadActivity, uploadFsBinary } from "../api/client";
 import { ChatMessageBody } from "../components/ChatMessage";
 import { asErrorText } from "../lib/apiError";
@@ -560,6 +562,7 @@ const ThreadRow = memo(function ThreadRow({
   onRestore,
   onOpenFile,
   onStashOffer,
+  picture,
 }: {
   rowKey: string;
   /** A thread message (in the render window), not an outgoing send. */
@@ -593,6 +596,9 @@ const ThreadRow = memo(function ThreadRow({
   onRestore: (o: OutgoingMessage) => void;
   onOpenFile: (m: ThreadMessage, a: ThreadAttachment) => void;
   onStashOffer: (m: ThreadMessage) => Promise<StashSaveOutcome>;
+  /** Pictures are on in this Thread and this is someone else's row: its
+   *  gutter, and on a run's first row the sender's picture (threadPictures). */
+  picture?: SenderPicture | "gutter" | null;
 }) {
   const wordless = !m.text.trim() && !m.choice;
   const bubble = !(files && wordless);
@@ -606,14 +612,27 @@ const ThreadRow = memo(function ThreadRow({
       data-highlight={highlighted ? "true" : undefined}
       data-run={runFirst && runLast ? "solo" : runFirst ? "first" : runLast ? "last" : "middle"}
       className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}${spaced ? " mt-1.5" : ""}`}
-      style={
+      style={{
         // A bubble wears its own ring (tail included, `outlined`); a row of
         // files only gets this rounded one.
-        highlighted && !bubble
+        ...(highlighted && !bubble
           ? { borderRadius: 20, boxShadow: "0 0 0 2px rgba(10,132,255,.85)", transition: "box-shadow .4s" }
-          : undefined
-      }
+          : null),
+        ...(picture ? { position: "relative", paddingLeft: THREAD_PICTURE_PX + THREAD_PICTURE_GAP } : null),
+      }}
     >
+      {picture && picture !== "gutter" ? (
+        <span className="absolute left-0 top-0" data-testid="thread-msg-picture">
+          <WorkspaceAvatar
+            initial={picture.initial}
+            color={picture.color}
+            iconUrl={picture.iconUrl}
+            size={THREAD_PICTURE_PX}
+            fontSize={12}
+            fallback="#2c2c2e"
+          />
+        </span>
+      ) : null}
       {/* Theirs: name and time on one line above the first
           bubble of a run. Mine: no name; the time (or
           Sending… / Not sent, or the receipt) below the last
@@ -2353,6 +2372,19 @@ export function ThreadPane({
   // one "Delivered" / "Read" receipt (chatReceipt.ts). A send still flying
   // in (or fading in) is not confirmed yet: the label moves once it lands.
   const runs = chatRuns(rows.map(({ m }) => ({ mine: m.mine, from: m.from, at: m.at })));
+  const picturesOn = useThreadPicturesOn(
+    `${zenServer}\n${groupId || agentId || ""}`,
+    otherSenderCount(rows.map(({ m }) => m))
+  );
+  const pictures = new Map<string, SenderPicture>();
+  const pictureFor = (from: string): SenderPicture => {
+    let p = pictures.get(from);
+    if (!p) {
+      p = senderPicture(from, agents);
+      pictures.set(from, p);
+    }
+    return p;
+  };
   const receiptRows = rows.map(({ key, m, out }) => ({
     mine: m.mine,
     confirmed: !out && !m.pending && !m.failed && key !== fly?.localId,
@@ -2610,6 +2642,7 @@ export function ThreadPane({
                     out={out}
                     files={files}
                     imagesOn={imagesOn}
+                    picture={picturesOn && !m.mine ? (run.first ? pictureFor(m.from) : "gutter") : null}
                     runFirst={run.first}
                     runLast={run.last}
                     spaced={run.first && i > 0}
