@@ -292,4 +292,19 @@ describe("ZenSettings — Android Back", () => {
     cleanup();
     expect(handleAndroidBack()).toBe(false);
   });
+
+  it("About opens the Acknowledgements, and Back returns", async () => {
+    const fetchMock = vi.fn(async () => ({ ok: true, text: async () => "Meslo notice" }));
+    vi.stubGlobal("fetch", fetchMock);
+    try {
+      render(<ZenSettings onClose={() => {}} />);
+      fireEvent.click(screen.getByTestId("settings-acknowledgements"));
+      await waitFor(() => expect(screen.getByTestId("acknowledgements-text").textContent).toBe("Meslo notice"));
+      expect(fetchMock).toHaveBeenCalledWith("/acknowledgements.txt");
+      fireEvent.click(within(screen.getByTestId("acknowledgements-page")).getByRole("button", { name: "Back" }));
+      expect(screen.queryByTestId("acknowledgements-page")).toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
 });

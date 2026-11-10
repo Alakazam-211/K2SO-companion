@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Alakazam Labs
+
 // The system side of a voice-room call (gap list §6, Rosson 2026-11-03):
 // CallKit shows the call (status-bar pill, Dynamic Island, Lock Screen) and
 // owns the audio session; its buttons come back here as actions.
