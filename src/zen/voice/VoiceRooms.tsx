@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type ReactNode } from "react";
 import { onBootInfo, scopeFor } from "../../api/scope";
 import { useBackHandler } from "../../lib/androidBack";
 import { useSwipeBack } from "../../lib/useSwipeBack";
@@ -25,10 +25,6 @@ import { hostingStateText, meOffer, roomIsFull, type VoiceRoom, type VoiceRoomsL
 
 const VOICE_HEADER_PX = 64;
 const POLL_MS = 30_000;
-/** The call bar's height without video, and the air above it. */
-const CALL_BAR_PX = 60;
-const CALL_BAR_AIR = 36;
-
 /** Sew's call kit, loaded with the first call screen (never at start). */
 const KitCall = lazy(() => import("./kit/KitCall"));
 
@@ -104,7 +100,6 @@ function CameraIcon() {
 
 function RoomRow({ server, room }: { server: ServerEntry; room: VoiceRoom }) {
   const call = useVoiceCall();
-  const here = call.room?.serverId === server.id && call.room.roomId === room.id;
   const full = roomIsFull(room);
   const closed = room.closing || (!!room.unavailable && room.unavailable !== "room_full");
   const label = serverDisplayName(server);
@@ -133,36 +128,30 @@ function RoomRow({ server, room }: { server: ServerEntry; room: VoiceRoom }) {
           <Occupants room={room} />
         </div>
       </div>
-      {here ? (
-        <span className="text-[14px]" style={{ color: "#30d158" }} data-testid="voice-room-here">
-          {call.phase === "joining" ? "Joining…" : "In call"}
-        </span>
-      ) : (
-        <>
-          {canJoinWithCamera() && !full && !closed ? (
-            <button
-              type="button"
-              className="zen-glass zen-glass-pill flex items-center justify-center"
-              style={{ minHeight: 34, width: 40, padding: 0, color: "#fff" }}
-              onClick={() => join(true)}
-              aria-label={`Join ${room.name} with camera`}
-              data-testid="voice-room-join-camera"
-            >
-              <CameraIcon />
-            </button>
-          ) : null}
+      <>
+        {canJoinWithCamera() && !full && !closed ? (
           <button
             type="button"
-            className="zen-glass zen-glass-pill text-[15px]"
-            style={{ minHeight: 34, padding: "0 16px", color: "#fff", opacity: full || closed ? 0.4 : 1 }}
-            disabled={full || closed}
-            onClick={() => join(false)}
-            data-testid="voice-room-join"
+            className="zen-glass zen-glass-pill flex items-center justify-center"
+            style={{ minHeight: 34, width: 40, padding: 0, color: "#fff" }}
+            onClick={() => join(true)}
+            aria-label={`Join ${room.name} with camera`}
+            data-testid="voice-room-join-camera"
           >
-            {full ? "Full" : room.closing ? "Closing" : "Join"}
+            <CameraIcon />
           </button>
-        </>
-      )}
+        ) : null}
+        <button
+          type="button"
+          className="zen-glass zen-glass-pill text-[15px]"
+          style={{ minHeight: 34, padding: "0 16px", color: "#fff", opacity: full || closed ? 0.4 : 1 }}
+          disabled={full || closed}
+          onClick={() => join(false)}
+          data-testid="voice-room-join"
+        >
+          {full ? "Full" : room.closing ? "Closing" : "Join"}
+        </button>
+      </>
     </div>
   );
 }
@@ -254,17 +243,27 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
   const activeId = useServersStore((s) => s.activeServerId);
   const notice = useVoiceCall((s) => s.notice);
   const clearNotice = useVoiceCall((s) => s.clearNotice);
-  const inCall = useVoiceCall((s) => s.phase !== "idle");
+  // In a call the page is the call, at full height; to join another, leave
+  // this one (Rosson 2026-11-09).
+  const inCall = useVoiceCall((s) => s.phase !== "idle" && !!s.room);
   const [headerRef, headerPx] = useMeasuredHeight(VOICE_HEADER_PX);
   // The left-edge swipe goes back too, as on every other screen. Not while
   // a recording notice waits: that sheet is the person's to answer.
   const consentUp = useVoiceCall((s) => s.consent !== null);
   const swipeRef = useSwipeBack(onClose, { enabled: !consentUp });
-  // The rooms scroll clear of the call bar, taller with video.
-  const [barRef, barPx] = useMeasuredHeight(CALL_BAR_PX);
-  const barSpace = (inCall ? Math.max(barPx, CALL_BAR_PX) : CALL_BAR_PX) + CALL_BAR_AIR;
   useBackHandler(true, onClose);
   const list = useMemo(() => voiceServers(servers, tokens, activeId), [servers, tokens, activeId]);
+  const noticeLine = notice ? (
+      <button
+        type="button"
+        className="w-full text-left text-[14px] k2-tile"
+        style={{ padding: 12, marginBottom: 14, borderRadius: 12, color: "#ffd60a" }}
+        onClick={clearNotice}
+        data-testid="voice-notice"
+      >
+        {notice}
+      </button>
+  ) : null;
 
   return (
     <div
@@ -302,38 +301,31 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       </header>
-      <div
-        className="flex-1 min-h-0 overflow-y-auto"
-        style={{
-          paddingTop: underHeaderPadding(headerPx),
-          paddingLeft: 12,
-          paddingRight: 12,
-          paddingBottom: `calc(${barSpace}px + var(--safe-bottom))`,
-          WebkitOverflowScrolling: "touch",
-        }}
-      >
-        {notice ? (
-          <button
-            type="button"
-            className="w-full text-left text-[14px] k2-tile"
-            style={{ padding: 12, marginBottom: 14, borderRadius: 12, color: "#ffd60a" }}
-            onClick={clearNotice}
-            data-testid="voice-notice"
-          >
-            {notice}
-          </button>
-        ) : null}
-        {list.length === 0 ? (
-          <p className="text-[14px]" style={{ padding: 14, color: "#8e8e93" }} data-testid="voice-empty">
-            No voice rooms yet. Rooms show here from Linux servers with Pro that you're signed in to.
-          </p>
-        ) : (
-          list.map((s) => <ServerRooms key={s.id} server={s} />)
-        )}
-        <SendCallLog />
-      </div>
+      {inCall ? (
+        <CallBar top={underHeaderPadding(headerPx)} notice={noticeLine} />
+      ) : (
+        <div
+          className="flex-1 min-h-0 overflow-y-auto"
+          style={{
+            paddingTop: underHeaderPadding(headerPx),
+            paddingLeft: 12,
+            paddingRight: 12,
+            paddingBottom: `calc(24px + var(--safe-bottom))`,
+            WebkitOverflowScrolling: "touch",
+          }}
+        >
+          {noticeLine}
+          {list.length === 0 ? (
+            <p className="text-[14px]" style={{ padding: 14, color: "#8e8e93" }} data-testid="voice-empty">
+              No voice rooms yet. Rooms show here from Linux servers with Pro that you're signed in to.
+            </p>
+          ) : (
+            list.map((s) => <ServerRooms key={s.id} server={s} />)
+          )}
+          <SendCallLog />
+        </div>
+      )}
       <ConsentSheet />
-      <CallBar measureRef={barRef} />
     </div>
   );
 }
@@ -441,27 +433,22 @@ function CallLine({ room, status }: { room: CallRoom; status: string }) {
   );
 }
 
-/** The current call, docked at the bottom: Sew's kit (kit/KitCall.tsx):
- *  the people, the video on its person's tile (the phone's native layer),
- *  the E2EE status and quality, Mute, Deafen and Leave. */
-export function CallBar({ measureRef }: { measureRef?: (el: HTMLElement | null) => void }) {
+/** The current call, the page's full height under the header: Sew's kit
+ *  (kit/KitCall.tsx): the people, the video on its person's tile (the
+ *  phone's native layer), then the E2EE status and quality, Mute, Deafen
+ *  and Leave at the bottom. */
+export function CallBar({ top, notice }: { top: string | number; notice?: ReactNode }) {
   const call = useVoiceCall();
   const live = useLiveVideo();
   if (call.phase === "idle" || !call.room) return null;
   const held = call.phase === "joining" && call.consent?.ask === "join";
   return (
     <div
-      ref={measureRef}
-      className="absolute left-0 right-0 k2-tile"
-      style={{
-        bottom: "calc(12px + var(--safe-bottom))",
-        margin: "0 12px",
-        padding: "10px 12px",
-        borderRadius: 16,
-        zIndex: 4,
-      }}
+      className="absolute left-0 right-0 flex flex-col"
+      style={{ top, bottom: 0, padding: "0 12px calc(12px + var(--safe-bottom))", zIndex: 2 }}
       data-testid="voice-call-bar"
     >
+      {notice}
       {held ? (
         <p className="text-[12px]" style={{ color: "#ffd60a", margin: "0 0 8px" }} data-testid="voice-call-held">
           Waiting for your answer…
@@ -472,7 +459,10 @@ export function CallBar({ measureRef }: { measureRef?: (el: HTMLElement | null) 
           <>
             {/* The recording sheet sits over the tile: the layer steps under the page. */}
             {live ? <VideoTile covered={!!call.consent} /> : null}
-            <CallLine room={call.room} status={call.phase === "joining" ? "Joining…" : call.phase === "reconnecting" ? "Reconnecting…" : "Connected"} />
+            <div className="flex-1" />
+            <div className="k2-tile shrink-0" style={{ padding: "10px 12px", borderRadius: 16 }}>
+              <CallLine room={call.room} status={call.phase === "joining" ? "Joining…" : call.phase === "reconnecting" ? "Reconnecting…" : "Connected"} />
+            </div>
           </>
         }
       >

@@ -164,6 +164,19 @@ describe("voice rooms on the phone", () => {
     expect((await screen.findByTestId("voice-server-problem")).textContent).toMatch(/Pair it again/);
   });
 
+  it("in a call, the page is the call: no rooms list, the normal Back, the list again once it ends", async () => {
+    useServersStore.setState({ servers: [{ id: "s1", nickname: "sewlab", url: "https://sew.example", username: "r", rememberPassword: false }], tokens: { s1: "t" }, activeServerId: "s1" } as never);
+    const room = { serverId: "s1", serverLabel: "sewlab", roomId: "room-1", roomName: "Standup", limit: 25 };
+    act(() => useVoiceCall.setState({ phase: "connected", room, consent: null }));
+    render(<VoiceRoomsOverlay onClose={() => {}} />);
+    expect(screen.getByTestId("voice-call-bar")).toBeTruthy();
+    expect(screen.queryByTestId("voice-server-s1")).toBeNull();
+    expect(screen.queryByTestId("voice-send-log")).toBeNull();
+    expect(screen.getByTestId("voice-done").getAttribute("aria-label")).toBe("Back");
+    act(() => useVoiceCall.setState({ phase: "idle", room: null }));
+    expect(screen.queryByTestId("voice-call-bar")).toBeNull();
+  });
+
   it("shows a recording notice with the kit's answers, and sends the one picked", async () => {
     const answer = vi.fn(async () => {});
     useVoiceCall.setState({

@@ -47,8 +47,27 @@
   --radius-field: 22px;
   /* --tile, --tile-edge, --tile-sheen, --tile-shadow, --wash-08/15: the
      app's own (.k2-tile), inherited. */
-  display: block;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
   min-width: 0;
+}
+
+/* The call fills the page: the people take what the bar leaves, centred,
+   and scroll when there are many. */
+.k2-kit-people {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.k2-kit-bar {
+  flex-shrink: 0;
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 16px;
 }
 
 /* The docked bar sits inside the phone's call bar tile: no tile in a tile. */
@@ -90,7 +109,8 @@
    page never scrolls sideways. Grid / Focus is for a desktop's big view. */
 .k2-kit-call .sv-view {
   padding: 0;
-  margin: 0 0 10px;
+  margin: auto 0;
+  width: 100%;
   border: 0;
   background: transparent;
 }
@@ -98,7 +118,7 @@
   display: none;
 }
 .k2-kit-call .sv-tiles {
-  grid-template-columns: repeat(auto-fill, minmax(84px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(110px, 1fr));
   gap: 8px;
 }
 .k2-kit-call .sv-tile {

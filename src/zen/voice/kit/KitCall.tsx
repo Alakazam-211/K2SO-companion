@@ -302,8 +302,12 @@ export default function KitCall() {
   return (
     <div ref={rootRef} className="sew-kit k2-kit-call" onClickCapture={guard} data-testid="voice-kit">
       <VoiceProvider value={ui}>
-        <People covered={covered} video={kit.video} />
-        <Bar room={room} scope={rootRef} />
+        <div className="k2-kit-people">
+          <People covered={covered} video={kit.video} />
+        </div>
+        <div className="k2-tile k2-kit-bar">
+          <Bar room={room} scope={rootRef} />
+        </div>
       </VoiceProvider>
     </div>
   );

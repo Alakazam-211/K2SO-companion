@@ -1158,7 +1158,7 @@ export function ChatsList() {
             ) : null}
           </span>
         </div>
-        <div className="text-[12px] truncate mx-auto" style={{ color: "#d1d1d6", maxWidth: 110 }}>
+        <div className="text-[12px] truncate mx-auto" style={{ color: "#fff", maxWidth: 110 }}>
           {r.agent.name}
         </div>
         {failure ? (
@@ -1378,13 +1378,13 @@ export function ChatsList() {
             <button
               type="button"
               className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
-              style={{ width: 34, height: 34, color: inCall ? IN_CALL_GREEN : "#fff" }}
+              style={{ width: 40, height: 40, color: inCall ? IN_CALL_GREEN : "#fff" }}
               onClick={() => setVoiceOpen(true)}
               aria-label={inCall ? "Rooms (in a call)" : "Rooms"}
               title="Rooms"
               data-testid="chats-header-voice"
             >
-              <HeadsetIcon size={18} />
+              <HeadsetIcon size={20} />
             </button>
           ) : null}
           <HeaderMoreButton
@@ -1710,7 +1710,7 @@ export function ChatsList() {
               </div>
               <div
                 className="text-[12px] truncate mx-auto"
-                style={{ color: "#d1d1d6", maxWidth: 110 }}
+                style={{ color: "#fff", maxWidth: 110 }}
               >
                 {a.name}
               </div>
