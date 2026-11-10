@@ -94,7 +94,7 @@ function rustPackages() {
   const byId = new Map();
   for (const target of TARGETS) {
     const meta = JSON.parse(
-      execFileSync("cargo", ["metadata", "--format-version", "1", "--filter-platform", target, "--locked", "--offline"], {
+      execFileSync("cargo", ["metadata", "--format-version", "1", "--filter-platform", target, "--offline"], {
         cwd: join(ROOT, "src-tauri"),
         maxBuffer: 1 << 28,
         stdio: ["ignore", "pipe", "ignore"],
