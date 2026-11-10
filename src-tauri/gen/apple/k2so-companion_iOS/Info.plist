@@ -15,9 +15,9 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>4.2.1</string>
+	<string>4.2.2</string>
 	<key>CFBundleVersion</key>
-	<string>202611080752</string>
+	<string>202611091937</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
 	<key>NSUserActivityTypes</key>
