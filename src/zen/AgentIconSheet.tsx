@@ -6,6 +6,9 @@ import { iconFromFile, workspaceLookOf, type IconTarget, type WorkspaceLook } fr
 import { saveWorkspaceLook } from "./workspaceLookSave";
 import { useZenStore } from "./zenStore";
 import { useBackHandler } from "../lib/androidBack";
+import { AgentSettingsPage } from "./AgentSettingsPage";
+import { RowChevron } from "./RowChevron";
+import { useZenScope } from "./zenScope";
 
 const PREVIEW_PX = 96;
 
@@ -15,6 +18,7 @@ const PREVIEW_PX = 96;
  * Settings → Workspaces does: photo (centre-cropped square, resized here),
  * Remove (back to the coloured initial), colour swatches. Save writes
  * `POST /cli/projects/update` and patches every avatar optimistically.
+ * Also the door to the agent's settings and permissions (AgentSettingsPage).
  */
 export function AgentIconSheet({
   agent,
@@ -32,12 +36,14 @@ export function AgentIconSheet({
   const [reading, setReading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [details, setDetails] = useState(false);
+  const scope = useZenScope();
   const fileRef = useRef<HTMLInputElement>(null);
   const busy = reading || saving;
   const dirty = draft.iconUrl !== before.iconUrl || draft.color !== before.color;
   const initial = (target.name || agent.name || "?").slice(0, 1).toUpperCase();
   // Android Back = Cancel (held while a save is in flight).
-  useBackHandler(true, () => {
+  useBackHandler(!details, () => {
     if (!saving) onClose();
   });
 
@@ -177,6 +183,17 @@ export function AgentIconSheet({
 
         <button
           type="button"
+          className="w-full flex items-center justify-between text-[15px] k2-tile k2-tile-raised shrink-0"
+          style={{ minHeight: 44, padding: "0 12px 0 14px", borderRadius: 12, color: "#fff" }}
+          onClick={() => setDetails(true)}
+          data-testid="agent-icon-settings"
+        >
+          <span>Settings and Permissions</span>
+          <RowChevron />
+        </button>
+
+        <button
+          type="button"
           className="w-full font-semibold text-[17px] shrink-0"
           style={{
             minHeight: 44,
@@ -202,6 +219,9 @@ export function AgentIconSheet({
           Cancel
         </button>
       </div>
+      {details ? (
+        <AgentSettingsPage scope={scope} projectId={target.projectId} name={target.name} onBack={() => setDetails(false)} />
+      ) : null}
     </div>
   );
 }
