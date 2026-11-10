@@ -1177,6 +1177,48 @@ export function ChatsList() {
 
   if (servers.length === 0) return <OverlayAddServer />;
 
+  // Which servers the list shows; bottom left, beside Search (Rosson
+  // 2026-11-09).
+  const serverPill = (
+    <button
+      type="button"
+      className="flex items-center min-w-0 shrink-0 zen-glass zen-glass-pill"
+      style={{
+        height: SEARCH_BAR_HEIGHT,
+        maxWidth: 124,
+        padding: "0 13px",
+        gap: 6,
+        color: "#fff",
+      }}
+      onClick={() => setServersSheet(true)}
+      aria-label={
+        multi.on ? (onHome ? "Servers: All" : `Server ${pillLabel}`) : `Server ${serverLabel}`
+      }
+      title={multi.on ? pillLabel : serverLabel}
+      data-testid="chats-header-server"
+    >
+      <span
+        className="shrink-0"
+        aria-hidden
+        data-testid="server-status-dot"
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: "50%",
+          background: multi.on ? pillDot : activeServer ? RECOVERY_DOT[recoveryState] : "#8e8e93",
+        }}
+      />
+      {/* Nickname, never the icon. 124px cap keeps Search usable at 375pt. */}
+      <span
+        className="min-w-0 truncate text-[15px] font-medium"
+        data-testid="server-name"
+        style={{ letterSpacing: "-0.2px" }}
+      >
+        {multi.on ? pillLabel : serverLabel}
+      </span>
+    </button>
+  );
+
   // Same structure as Login / ChatSession / FeedbackThread: a `fixed`
   // backdrop so an iOS keyboard pan of #root cannot drag the header off
   // screen, plus an inner column sized to visualViewport.height so Search
@@ -1254,44 +1296,9 @@ export function ChatsList() {
           columnGap: 8,
         }}
       >
-        <button
-          type="button"
-          className="flex items-center min-w-0 justify-self-start zen-glass zen-glass-pill"
-          style={{
-            height: 34,
-            maxWidth: 124,
-            padding: "0 13px",
-            gap: 6,
-            color: "#fff",
-            pointerEvents: "auto",
-          }}
-          onClick={() => setServersSheet(true)}
-          aria-label={
-            multi.on ? (onHome ? "Servers: All" : `Server ${pillLabel}`) : `Server ${serverLabel}`
-          }
-          title={multi.on ? pillLabel : serverLabel}
-          data-testid="chats-header-server"
-        >
-          <span
-            className="shrink-0"
-            aria-hidden
-            data-testid="server-status-dot"
-            style={{
-              width: 8,
-              height: 8,
-              borderRadius: "50%",
-              background: multi.on ? pillDot : activeServer ? RECOVERY_DOT[recoveryState] : "#8e8e93",
-            }}
-          />
-          {/* Nickname, never the icon. 124px cap: at 375pt each 1fr column is ~145px. */}
-          <span
-            className="min-w-0 truncate text-[15px] font-medium"
-            data-testid="server-name"
-            style={{ letterSpacing: "-0.2px" }}
-          >
-            {multi.on ? pillLabel : serverLabel}
-          </span>
-        </button>
+        <div className="justify-self-start" style={{ pointerEvents: "auto" }}>
+          <HomeTabToggle tab={onGardens ? "gardens" : onHome ? "home" : "agents"} onTab={setTab} showGardens={showGardens} compact />
+        </div>
         {/* Groups on: the current focus group's name, a tap opens this
             device's switcher. Capped so it never meets the pills at 375pt. */}
         <h1
@@ -1967,7 +1974,7 @@ export function ChatsList() {
         query={q}
         onQuery={setQ}
         placeholder="Search"
-        leading={<HomeTabToggle tab={onGardens ? "gardens" : onHome ? "home" : "agents"} onTab={setTab} showGardens={showGardens} />}
+        leading={serverPill}
         // Gardens are built by agents: nothing to add from here.
         onPlus={onGardens ? undefined : () => (onHome ? setAddAgent(true) : setNewWorkspace(true))}
         plusLabel={onGardens ? undefined : onHome ? "Add agent" : "New workspace"}

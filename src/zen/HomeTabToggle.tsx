@@ -11,10 +11,12 @@ const ICON = { size: 18, strokeWidth: 1.7 };
 export const TAB_SEG_H = SEARCH_BAR_HEIGHT;
 export const TAB_SEG_PAD = 3;
 export const TAB_SEG_BTN_W = 40;
-const THUMB_R = TAB_SEG_H / 2 - TAB_SEG_PAD;
+/** In the header row, beside its 34px pills. */
+const COMPACT_SEG_H = 34;
+const COMPACT_BTN_W = 38;
 
 /**
- * Home | Agents (| Gardens), left of the Agents search field (HM1). Same inset-thumb
+ * Home | Agents (| Gardens), top left of the list (Rosson 2026-11-09). Same inset-thumb
  * segmented style as the terminal Viewer/Claimer control (a6acec2): the
  * selected highlight sits inside the glass pill, clipped by it, in blue
  * glass (Rosson 2026-10-18).
@@ -23,12 +25,17 @@ export function HomeTabToggle({
   tab,
   onTab,
   showGardens = false,
+  compact = false,
 }: {
   tab: ListTab;
   onTab: (tab: ListTab) => void;
   /** This server has Gardens (K2 `gardens-remote-v1`, iOS): a third tab. */
   showGardens?: boolean;
+  /** The header row's height, not the search bar's. */
+  compact?: boolean;
 }) {
+  const segH = compact ? COMPACT_SEG_H : TAB_SEG_H;
+  const btnW = compact ? COMPACT_BTN_W : TAB_SEG_BTN_W;
   const home = tab === "home";
   const gardens = showGardens && tab === "gardens";
   const agents = !home && !gardens;
@@ -43,9 +50,9 @@ export function HomeTabToggle({
       data-tab={tab}
       style={{
         position: "relative",
-        height: TAB_SEG_H,
+        height: segH,
         padding: TAB_SEG_PAD,
-        borderRadius: TAB_SEG_H / 2,
+        borderRadius: segH / 2,
         overflow: "hidden",
       }}
     >
@@ -58,8 +65,8 @@ export function HomeTabToggle({
           top: TAB_SEG_PAD,
           bottom: TAB_SEG_PAD,
           left: TAB_SEG_PAD,
-          width: showGardens ? TAB_SEG_BTN_W : `calc(50% - ${TAB_SEG_PAD}px)`,
-          borderRadius: THUMB_R,
+          width: showGardens ? btnW : `calc(50% - ${TAB_SEG_PAD}px)`,
+          borderRadius: segH / 2 - TAB_SEG_PAD,
           transform: home ? "translateX(0%)" : gardens ? "translateX(200%)" : "translateX(100%)",
         }}
       />
@@ -71,7 +78,7 @@ export function HomeTabToggle({
         aria-pressed={home}
         data-selected={home || undefined}
         data-testid="list-tab-home"
-        style={{ width: TAB_SEG_BTN_W, height: "100%", position: "relative" }}
+        style={{ width: btnW, height: "100%", position: "relative" }}
         onClick={() => onTab("home")}
       >
         <HomeIcon {...ICON} testId="home-icon" />
@@ -108,7 +115,7 @@ export function HomeTabToggle({
         aria-pressed={agents}
         data-selected={agents || undefined}
         data-testid="list-tab-agents"
-        style={{ width: TAB_SEG_BTN_W, height: "100%" }}
+        style={{ width: btnW, height: "100%" }}
         onClick={() => onTab("agents")}
       >
         <AgentIcon {...ICON} testId="agent-icon" />
@@ -122,7 +129,7 @@ export function HomeTabToggle({
           aria-pressed={gardens}
           data-selected={gardens || undefined}
           data-testid="list-tab-gardens"
-          style={{ width: TAB_SEG_BTN_W, height: "100%" }}
+          style={{ width: btnW, height: "100%" }}
           onClick={() => onTab("gardens")}
         >
           <EnsoIcon on={gardens} size={ICON.size} testId="garden-icon" />

@@ -120,15 +120,11 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe("Home | Agents toggle (HM1)", () => {
-  it("sits left of the search field, Agents selected by default", () => {
+  it("sits top left of the header, Agents selected by default", () => {
     mount();
     const toggle = screen.getByTestId("list-tab-toggle");
-    const input = screen.getByRole("searchbox", { name: "Search" });
-    const bar = toggle.parentElement as HTMLElement;
-    expect(bar.contains(input)).toBe(true);
-    // Toggle is before the search field in the bar.
-    expect(toggle.compareDocumentPosition(input) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(bar.firstElementChild).toBe(toggle);
+    const row = screen.getByTestId("chats-header-row");
+    expect(row.firstElementChild?.contains(toggle)).toBe(true);
     expect(toggle.getAttribute("data-tab")).toBe("agents");
     expect(screen.getByTestId("list-tab-agents").getAttribute("aria-pressed")).toBe("true");
     expect(screen.getByTestId("list-tab-home").getAttribute("aria-pressed")).toBe("false");
@@ -631,6 +627,16 @@ describe("the Gardens tab (Rosson 2026-11-03)", () => {
     await screen.findAllByTestId("gardens-row");
     expect((gardens.feed.mock.calls[0][0] as { id: string }).id).toBe("home");
     forgetGardenFeed("home");
+  });
+
+  it("the Home | Agents | Gardens switch is top left, the server pill beside Search", () => {
+    on();
+    mount();
+    const row = screen.getByTestId("chats-header-row");
+    expect(within(row).getByTestId("list-tab-toggle")).toBeTruthy();
+    expect(within(row).queryByTestId("chats-header-server")).toBeNull();
+    expect(screen.getByTestId("chats-header-server").closest('[data-no-pin="1"]')).toBeTruthy();
+    expect(screen.getByTestId("list-tab-toggle").style.height).toBe("34px");
   });
 
   it("remembers the tab; on a server without Gardens it falls to Agents", () => {
