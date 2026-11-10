@@ -1291,7 +1291,7 @@ export function ChatsList() {
         style={{
           gridTemplateColumns: "minmax(0, 1fr) auto minmax(0, 1fr)",
           minHeight: 44,
-          padding: "12px 12px 8px",
+          padding: "12px 12px 10px",
           columnGap: 8,
         }}
       >

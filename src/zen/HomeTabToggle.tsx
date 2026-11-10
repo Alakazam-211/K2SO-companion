@@ -11,9 +11,10 @@ const ICON = { size: 18, strokeWidth: 1.7 };
 export const TAB_SEG_H = SEARCH_BAR_HEIGHT;
 export const TAB_SEG_PAD = 3;
 export const TAB_SEG_BTN_W = 40;
-/** In the header row, beside its 34px pills. */
-const COMPACT_SEG_H = 34;
-const COMPACT_BTN_W = 38;
+/** In the header row: a segment as wide as the inset height, so the
+ *  selection is a circle (Rosson 2026-11-09). */
+const COMPACT_SEG_H = 40;
+const COMPACT_BTN_W = COMPACT_SEG_H - 2 * TAB_SEG_PAD;
 
 /**
  * Home | Agents (| Gardens), top left of the list (Rosson 2026-11-09). Same inset-thumb

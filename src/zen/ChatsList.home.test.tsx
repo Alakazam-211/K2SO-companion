@@ -654,7 +654,11 @@ describe("the Gardens tab (Rosson 2026-11-03)", () => {
     expect(within(row).getByTestId("list-tab-toggle")).toBeTruthy();
     expect(within(row).queryByTestId("chats-header-server")).toBeNull();
     expect(screen.getByTestId("chats-header-server").closest('[data-no-pin="1"]')).toBeTruthy();
-    expect(screen.getByTestId("list-tab-toggle").style.height).toBe("34px");
+    expect(screen.getByTestId("list-tab-toggle").style.height).toBe("40px");
+    // A round selection: as wide as it is tall, fully rounded.
+    const thumb = screen.getByTestId("list-tab-thumb");
+    expect(thumb.style.width).toBe("34px");
+    expect(thumb.style.borderRadius).toBe("17px");
   });
 
   it("remembers the tab; on a server without Gardens it falls to Agents", () => {
