@@ -1,11 +1,11 @@
-import { useEffect, useRef, useState, type ChangeEvent } from "react";
-import { getFsReadDir, uploadFsBinary, type FsDirEntry } from "../api/client";
+import { useRef, useState, type ChangeEvent } from "react";
+import { uploadFsBinary } from "../api/client";
 import type { ServerScope } from "../api/scope";
 import { useBackHandler } from "../lib/androidBack";
 import { isUnsupportedPick, nativePick, nativePickerAvailable, skippedMessage, type PickKind } from "../lib/nativePicker";
 import { fileToBase64, uploadFilename } from "./composerAttach";
-import { EntryIcon } from "./fileIcons/EntryIcon";
-import { displayPathUnder, parentDir, treeEntries } from "./fileTreeModel";
+import { displayPathUnder } from "./fileTreeModel";
+import { FolderPicker } from "./FolderPicker";
 import { MiddleEllipsis } from "./MiddleEllipsis";
 
 /** "+ New File" in the Files drawer (Rosson 2026-11-09): choose a folder in
@@ -31,31 +31,11 @@ export function NewFileSheet({
   onAdded: (dir: string, names: string[], problem: string | null) => void;
 }) {
   const [dir, setDir] = useState(startDir);
-  const [folders, setFolders] = useState<FsDirEntry[] | null>(null);
-  const [loadFailed, setLoadFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const photoRef = useRef<HTMLInputElement>(null);
   useBackHandler(!busy, onClose);
-
-  useEffect(() => {
-    let live = true;
-    setFolders(null);
-    setLoadFailed(false);
-    void getFsReadDir(scope, dir, showHidden)
-      .then((r) => {
-        if (!live) return;
-        if (r.ok && Array.isArray(r.data)) setFolders(treeEntries(r.data, showHidden).filter((e) => e.isDirectory));
-        else setLoadFailed(true);
-      })
-      .catch(() => {
-        if (live) setLoadFailed(true);
-      });
-    return () => {
-      live = false;
-    };
-  }, [scope, dir, showHidden]);
 
   const upload = async (files: File[], skipped: string | null) => {
     if (!files.length) {
@@ -108,8 +88,6 @@ export function NewFileSheet({
     void upload(picked, null);
   };
 
-  const atRoot = dir === root;
-  const rowClass = "w-full flex items-center gap-2 text-left px-3 text-[15px] bg-transparent border-0 text-[var(--text)]";
   const pickClass = "flex-1 text-[15px] k2-tile k2-tile-raised text-[var(--text)] disabled:opacity-50";
 
   return (
@@ -130,45 +108,7 @@ export function NewFileSheet({
           <span className="shrink-0">Save in</span>
           <MiddleEllipsis text={displayPathUnder(dir, root)} title={dir} testId="files-new-target" />
         </div>
-        <div className="k2-tile overflow-y-auto" style={{ borderRadius: 12, maxHeight: "38vh", minHeight: 88 }} data-testid="files-new-folders">
-          {!atRoot ? (
-            <button
-              type="button"
-              className={rowClass}
-              style={{ minHeight: 44 }}
-              disabled={busy}
-              data-testid="files-new-up"
-              onClick={() => setDir(parentDir(dir))}
-            >
-              <span aria-hidden="true">‹</span>
-              <span>Back</span>
-            </button>
-          ) : null}
-          {folders?.map((f) => (
-            <button
-              key={f.path}
-              type="button"
-              className={rowClass}
-              style={{ minHeight: 44 }}
-              disabled={busy}
-              data-testid="files-new-folder"
-              onClick={() => setDir(f.path)}
-            >
-              <EntryIcon name={f.name} isDirectory />
-              <span className="min-w-0 truncate">{f.name}</span>
-            </button>
-          ))}
-          {folders && !folders.length ? (
-            <p className="px-3 py-3 text-[13px] text-[var(--text-muted)]" data-testid="files-new-empty">
-              No folders inside this one.
-            </p>
-          ) : null}
-          {loadFailed ? (
-            <p className="px-3 py-3 text-[13px] text-[var(--text-muted)]" data-testid="files-new-load-failed">
-              Couldn't read this folder.
-            </p>
-          ) : null}
-        </div>
+        <FolderPicker scope={scope} root={root} dir={dir} onDir={setDir} showHidden={showHidden} disabled={busy} maxHeight="38vh" />
         {error ? (
           <p className="mt-2 text-[12px]" style={{ color: "#ff453a" }} data-testid="files-new-error">
             {error}

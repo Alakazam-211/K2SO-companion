@@ -525,7 +525,7 @@ describe("+ New File", () => {
     render(<FilePane />);
     fireEvent.click(await screen.findByTestId("files-new-toggle"));
     await screen.findByTestId("files-new-sheet");
-    await screen.findAllByTestId("files-new-folder");
+    await screen.findAllByTestId("folder-picker-row");
   };
   const pickFile = (name: string) =>
     fireEvent.change(screen.getByTestId("files-new-file-input"), {
@@ -535,23 +535,23 @@ describe("+ New File", () => {
   it("lists only folders, opens one, and goes back no higher than the workspace", async () => {
     live();
     await openSheet();
-    const names = screen.getAllByTestId("files-new-folder").map((b) => b.textContent);
+    const names = screen.getAllByTestId("folder-picker-row").map((b) => b.textContent);
     expect(names).toContain("src");
     expect(names).not.toContain("zeta.md");
-    expect(screen.queryByTestId("files-new-up")).toBeNull();
-    fireEvent.click(screen.getAllByTestId("files-new-folder").find((b) => b.textContent === "src")!);
-    await screen.findByTestId("files-new-up");
-    await screen.findByTestId("files-new-empty");
-    fireEvent.click(screen.getByTestId("files-new-up"));
-    await waitFor(() => expect(screen.queryByTestId("files-new-up")).toBeNull());
+    expect(screen.queryByTestId("folder-picker-up")).toBeNull();
+    fireEvent.click(screen.getAllByTestId("folder-picker-row").find((b) => b.textContent === "src")!);
+    await screen.findByTestId("folder-picker-up");
+    await screen.findByTestId("folder-picker-empty");
+    fireEvent.click(screen.getByTestId("folder-picker-up"));
+    await waitFor(() => expect(screen.queryByTestId("folder-picker-up")).toBeNull());
   });
 
   it("uploads into the chosen folder, closes, and refreshes that folder", async () => {
     live();
     vi.mocked(uploadFsBinary).mockReset().mockResolvedValue({ ok: true, status: 200, data: { path: `${WS}/src/note.txt` } } as never);
     await openSheet();
-    fireEvent.click(screen.getAllByTestId("files-new-folder").find((b) => b.textContent === "src")!);
-    await screen.findByTestId("files-new-up");
+    fireEvent.click(screen.getAllByTestId("folder-picker-row").find((b) => b.textContent === "src")!);
+    await screen.findByTestId("folder-picker-up");
     vi.mocked(getFsReadDir).mockClear();
     pickFile("note.txt");
     await waitFor(() => expect(screen.queryByTestId("files-new-sheet")).toBeNull());
@@ -573,3 +573,30 @@ describe("+ New File", () => {
   });
 });
 
+describe("New folder", () => {
+  it("chooses where: tapping into a folder moves the target, and it's created there", async () => {
+    live();
+    vi.mocked(createFsFolder).mockReset().mockResolvedValue({ ok: true, data: { success: true } } as never);
+    render(<FilePane />);
+    await screen.findByText("Alpha.ts");
+    fireEvent.click(screen.getByTestId("files-new-folder"));
+    const rows = await screen.findAllByTestId("folder-picker-row");
+    fireEvent.click(rows.find((b) => b.textContent === "src")!);
+    await waitFor(() => expect(screen.getByTestId("files-sheet-target").getAttribute("data-full")).toBe("Appa/src"));
+    fireEvent.change(screen.getByTestId("files-name-input"), { target: { value: "notes" } });
+    await act(async () => {
+      fireEvent.click(screen.getByTestId("files-name-save"));
+    });
+    expect(createFsFolder).toHaveBeenCalledWith(expect.anything(), `${WS}/src/notes`);
+  });
+
+  it("the sheet is as tall as what's visible, so the keyboard can't cover the name field", async () => {
+    live();
+    render(<FilePane />);
+    await screen.findByText("Alpha.ts");
+    fireEvent.click(screen.getByTestId("files-new-folder"));
+    const sheet = await screen.findByTestId("files-name-sheet");
+    expect(sheet.style.height).toMatch(/px$/);
+    expect(sheet.className).not.toContain("inset-0");
+  });
+});
