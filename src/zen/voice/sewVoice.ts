@@ -153,6 +153,14 @@ export async function shareCallLog(): Promise<ShareOutcome> {
     return "failed";
   }
   if (!text) return "failed";
+  // TEST BRANCH kessel-hw-test ONLY (Sew's iPhone H.264 test): what the
+  // engine says it publishes in now (codec_preference.effective).
+  try {
+    const caps = await invoke<unknown>("plugin:sew-voice|video_caps");
+    text += `video_caps ${JSON.stringify(caps)}\n`;
+  } catch (e) {
+    text += `video_caps failed ${String(e).slice(0, 120)}\n`;
+  }
   return shareOrSaveBytes(new TextEncoder().encode(text), "K2 call log.txt", "text/plain");
 }
 

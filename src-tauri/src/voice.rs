@@ -194,6 +194,7 @@ pub fn plugin(native: &Native) -> tauri::plugin::TauriPlugin<Wry> {
 /// into the engine.
 pub fn start(app: &AppHandle<Wry>, native: &Native) {
     let _ = native.app.set(app.clone());
+    trace_log::install(native);
     let control = app.state::<VoiceControl>().inner().clone();
     let log = native.clone();
     let channel = Channel::new(move |body: InvokeResponseBody| {
@@ -1723,6 +1724,64 @@ pub fn note_from_page(native: &Native, words: &[String]) {
     let line: Vec<String> = words.iter().take(6).map(|w| code(w)).collect();
     if !line.is_empty() {
         native.note(&line.join(" "));
+    }
+}
+
+// TEST BRANCH kessel-hw-test ONLY (Sew's iPhone H.264 test, 2026-11-10):
+// the codec lines Sew and kessel-video trace, into the call log. Only lines
+// about codecs and hardware get in (never a token or URL: those are not on
+// these lines), from sew_call_client, tauri_plugin_sew_voice and
+// kessel_video at debug and above.
+mod trace_log {
+    use super::{now_ms, Native};
+    use std::fmt::Write as _;
+    use tracing::field::{Field, Visit};
+    use tracing::{Event, Level, Subscriber};
+    use tracing_subscriber::layer::{Context, Layer, SubscriberExt};
+    use tracing_subscriber::util::SubscriberInitExt;
+
+    const TARGETS: [&str; 3] = ["sew_call_client", "tauri_plugin_sew_voice", "kessel_video"];
+    const WORDS: [&str; 8] = ["h264", "h.264", "vp8", "hardware", "codec", "encoder", "implementation", "software"];
+
+    struct Fields(String);
+    impl Visit for Fields {
+        fn record_debug(&mut self, field: &Field, value: &dyn std::fmt::Debug) {
+            if field.name() == "message" {
+                let _ = write!(self.0, " {value:?}");
+            } else {
+                let _ = write!(self.0, " {}={value:?}", field.name());
+            }
+        }
+        fn record_str(&mut self, field: &Field, value: &str) {
+            if field.name() == "message" {
+                let _ = write!(self.0, " {value}");
+            } else {
+                let _ = write!(self.0, " {}={value}", field.name());
+            }
+        }
+    }
+
+    struct ToCallLog(Native);
+    impl<S: Subscriber> Layer<S> for ToCallLog {
+        fn on_event(&self, event: &Event<'_>, _ctx: Context<'_, S>) {
+            let m = event.metadata();
+            if *m.level() > Level::DEBUG || !TARGETS.iter().any(|t| m.target().starts_with(t)) {
+                return;
+            }
+            let mut f = Fields(String::new());
+            event.record(&mut f);
+            let lower = f.0.to_lowercase();
+            if !WORDS.iter().any(|w| lower.contains(w)) {
+                return;
+            }
+            let line = format!("trace {} {}:{}", m.level(), m.target(), f.0);
+            let line: String = line.chars().take(600).collect();
+            self.0.log.lock().unwrap_or_else(|e| e.into_inner()).push(now_ms(), &line);
+        }
+    }
+
+    pub fn install(native: &Native) {
+        let _ = tracing_subscriber::registry().with(ToCallLog(native.clone())).try_init();
     }
 }
 
