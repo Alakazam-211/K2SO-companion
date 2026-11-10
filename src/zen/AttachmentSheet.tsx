@@ -12,7 +12,7 @@
 //   Above 25 MB a download asks first (no network-type signal here).
 //
 // Several pictures on one message open as a gallery: a native scroll-snap
-// pager, each page loading its own picture, with "2 of 5" over them.
+// pager, each page loading its own picture, with "2 / 5" in a tag in the header.
 
 import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
@@ -459,6 +459,22 @@ export function AttachmentSheet({
             ) : null}
           </span>
         </div>
+        {pages.length > 1 ? (
+          <span
+            className="shrink-0 text-[12px] font-medium"
+            style={{
+              padding: "2px 7px",
+              borderRadius: 6,
+              background: "var(--wash-15)",
+              color: "#fff",
+              fontVariantNumeric: "tabular-nums",
+            }}
+            aria-label={`Image ${index + 1} of ${pages.length}`}
+            data-testid="attachment-count"
+          >
+            {index + 1} / {pages.length}
+          </span>
+        ) : null}
         {bytes ? (
           <button
             type="button"
@@ -491,39 +507,24 @@ export function AttachmentSheet({
       </header>
       <div className="relative flex-1 min-h-0">
         {pages.length > 1 ? (
-          <>
-            <div
-              ref={pagerRef}
-              className="flex h-full w-full overflow-x-auto overflow-y-hidden"
-              style={{ scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
-              onScroll={onPagerScroll}
-              data-testid="attachment-gallery"
-            >
-              {pages.map((f, i) => (
-                <div
-                  key={f.n}
-                  className="relative h-full w-full shrink-0"
-                  style={{ scrollSnapAlign: "start", scrollSnapStop: "always" }}
-                  data-testid="attachment-gallery-page"
-                >
-                  {reached.has(i) ? pageFor(f) : null}
-                </div>
-              ))}
-            </div>
-            <div
-              className="absolute left-1/2 zen-glass zen-glass-pill text-[13px] pointer-events-none"
-              style={{
-                bottom: "calc(env(safe-area-inset-bottom) + 12px)",
-                transform: "translateX(-50%)",
-                padding: "5px 12px",
-                color: "#fff",
-              }}
-              aria-live="polite"
-              data-testid="attachment-count"
-            >
-              {index + 1} of {pages.length}
-            </div>
-          </>
+          <div
+            ref={pagerRef}
+            className="flex h-full w-full overflow-x-auto overflow-y-hidden"
+            style={{ scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
+            onScroll={onPagerScroll}
+            data-testid="attachment-gallery"
+          >
+            {pages.map((f, i) => (
+              <div
+                key={f.n}
+                className="relative h-full w-full shrink-0"
+                style={{ scrollSnapAlign: "start", scrollSnapStop: "always" }}
+                data-testid="attachment-gallery-page"
+              >
+                {reached.has(i) ? pageFor(f) : null}
+              </div>
+            ))}
+          </div>
         ) : (
           pageFor(file)
         )}
