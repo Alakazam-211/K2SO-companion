@@ -10,8 +10,11 @@
 //         can paint the type (DOCX, media, ZIP, 3D, big image / PDF), else
 //         a file card with the size and Download (Share sheet / save).
 //   Above 25 MB a download asks first (no network-type signal here).
+//
+// Several pictures on one message open as a gallery: a native scroll-snap
+// pager, each page loading its own picture, with "2 of 5" over them.
 
-import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, lazy, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { ServerScope } from "../api/scope";
 import { downloadAttachment, getAttachmentMeta, getAttachmentPreview } from "../api/threadAttachment";
@@ -43,6 +46,8 @@ export type OpenAttachment = {
   scope: ServerScope;
   ref: AttachmentRef;
   file: ThreadAttachment;
+  /** The message's pictures, `file` among them, when it has several. */
+  gallery?: readonly ThreadAttachment[];
 };
 
 type Then = "view" | "save";
@@ -79,20 +84,21 @@ function folderOf(path: string): string | null {
   return i > 0 ? path.slice(0, i) : null;
 }
 
-export function AttachmentSheet({
+/** One file's load and viewer: a page of the sheet. */
+function AttachmentPage({
   open,
-  onClose,
   onState,
+  onBytes,
 }: {
   open: OpenAttachment;
-  onClose: () => void;
   /** The server's fresh state for this chip (meta / preview). */
   onState: (state: ThreadAttachmentState) => void;
+  /** The bytes a viewer is showing, which the header's Share sends. */
+  onBytes: (bytes: Uint8Array | null) => void;
 }) {
   const { scope, ref, file } = open;
   const n = file.n;
   const [phase, setPhase] = useState<Phase>({ k: "checking" });
-  const [state, setState] = useState<ThreadAttachmentState>(file.state);
   const [sizeNow, setSizeNow] = useState<number | null>(file.size);
   const [shareNote, setShareNote] = useState<string | null>(null);
   const alive = useRef(true);
@@ -101,8 +107,6 @@ export function AttachmentSheet({
   const run = useRef(0);
   const onStateRef = useRef(onState);
   onStateRef.current = onState;
-  const swipeRef = useSwipeBack(onClose);
-  useBackHandler(true, onClose);
 
   useEffect(() => {
     alive.current = true;
@@ -113,7 +117,6 @@ export function AttachmentSheet({
 
   const noteState = useCallback((s: ThreadAttachmentState) => {
     if (!alive.current) return;
-    setState(s);
     onStateRef.current(s);
   }, []);
 
@@ -236,7 +239,13 @@ export function AttachmentSheet({
     if (alive.current && out === "failed") setShareNote("Could not save the file.");
   }
 
-  const folder = folderOf(file.path);
+  const shown = phase.k === "bytes" ? phase.bytes : null;
+  const onBytesRef = useRef(onBytes);
+  onBytesRef.current = onBytes;
+  useEffect(() => {
+    onBytesRef.current(shown);
+  }, [shown]);
+
   const body = (() => {
     switch (phase.k) {
       case "checking":
@@ -347,6 +356,77 @@ export function AttachmentSheet({
     }
   })();
 
+  return (
+    <PaneErrorBoundary key={phase.k} name="file">
+      <Suspense fallback={<ViewerNote title="Loading…" />}>{body}</Suspense>
+    </PaneErrorBoundary>
+  );
+}
+
+export function AttachmentSheet({
+  open,
+  onClose,
+  onState,
+}: {
+  open: OpenAttachment;
+  onClose: () => void;
+  /** The server's fresh state for file `n`. */
+  onState: (n: number, state: ThreadAttachmentState) => void;
+}) {
+  const { scope } = open;
+  const pages = open.gallery && open.gallery.length > 1 ? open.gallery : [open.file];
+  const start = Math.max(0, pages.findIndex((f) => f.n === open.file.n));
+  const [index, setIndex] = useState(start);
+  const indexRef = useRef(start);
+  // Pages stay once loaded; the ones beside the current page load early.
+  const [reached, setReached] = useState<ReadonlySet<number>>(() => new Set([start - 1, start, start + 1]));
+  const [states, setStates] = useState<ReadonlyMap<number, ThreadAttachmentState>>(() => new Map());
+  const [shown, setShown] = useState<ReadonlyMap<number, Uint8Array | null>>(() => new Map());
+  const [shareFailed, setShareFailed] = useState(false);
+  // The edge swipe closes only from the first picture; past it the pager
+  // has the previous one to go to.
+  const swipeRef = useSwipeBack(onClose, { enabled: () => indexRef.current === 0 });
+  useBackHandler(true, onClose);
+
+  const pagerRef = useRef<HTMLDivElement>(null);
+  useLayoutEffect(() => {
+    const el = pagerRef.current;
+    if (el) el.scrollLeft = start * el.clientWidth;
+  }, [start]);
+
+  const onPagerScroll = () => {
+    const el = pagerRef.current;
+    if (!el || !el.clientWidth) return;
+    const i = Math.max(0, Math.min(pages.length - 1, Math.round(el.scrollLeft / el.clientWidth)));
+    if (i === indexRef.current) return;
+    indexRef.current = i;
+    setIndex(i);
+    setShareFailed(false);
+    setReached((prev) => new Set(prev).add(i - 1).add(i).add(i + 1));
+  };
+
+  const file = pages[index];
+  const state = states.get(file.n) ?? file.state;
+  const bytes = shown.get(file.n) ?? null;
+  const folder = folderOf(file.path);
+
+  async function onShare() {
+    if (!bytes) return;
+    setShareFailed(false);
+    if ((await shareOrSaveBytes(bytes, file.name, file.mime)) === "failed") setShareFailed(true);
+  }
+
+  const pageFor = (f: ThreadAttachment) => (
+    <AttachmentPage
+      open={{ scope, ref: open.ref, file: f }}
+      onState={(s) => {
+        setStates((prev) => new Map(prev).set(f.n, s));
+        onState(f.n, s);
+      }}
+      onBytes={(b) => setShown((prev) => new Map(prev).set(f.n, b))}
+    />
+  );
+
   const sheet = (
     <div
       ref={swipeRef}
@@ -379,15 +459,20 @@ export function AttachmentSheet({
             ) : null}
           </span>
         </div>
-        {bytes && phase.k === "bytes" ? (
+        {bytes ? (
           <button
             type="button"
-            className="shrink-0 px-3 text-[13px] zen-glass zen-glass-pill"
-            style={{ height: 34, color: "#fff" }}
+            className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
+            style={{ width: 34, height: 34, color: "#fff" }}
             onClick={() => void onShare()}
+            aria-label="Share"
             data-testid="attachment-share"
           >
-            Share
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 15V3" />
+              <polyline points="7.5 7.5 12 3 16.5 7.5" />
+              <path d="M8 11H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-6a2 2 0 0 0-2-2h-2" />
+            </svg>
           </button>
         ) : null}
         <button
@@ -405,9 +490,51 @@ export function AttachmentSheet({
         </button>
       </header>
       <div className="relative flex-1 min-h-0">
-        <PaneErrorBoundary key={phase.k} name="file">
-          <Suspense fallback={<ViewerNote title="Loading…" />}>{body}</Suspense>
-        </PaneErrorBoundary>
+        {pages.length > 1 ? (
+          <>
+            <div
+              ref={pagerRef}
+              className="flex h-full w-full overflow-x-auto overflow-y-hidden"
+              style={{ scrollSnapType: "x mandatory", WebkitOverflowScrolling: "touch", scrollbarWidth: "none" }}
+              onScroll={onPagerScroll}
+              data-testid="attachment-gallery"
+            >
+              {pages.map((f, i) => (
+                <div
+                  key={f.n}
+                  className="relative h-full w-full shrink-0"
+                  style={{ scrollSnapAlign: "start", scrollSnapStop: "always" }}
+                  data-testid="attachment-gallery-page"
+                >
+                  {reached.has(i) ? pageFor(f) : null}
+                </div>
+              ))}
+            </div>
+            <div
+              className="absolute left-1/2 zen-glass zen-glass-pill text-[13px] pointer-events-none"
+              style={{
+                bottom: "calc(env(safe-area-inset-bottom) + 12px)",
+                transform: "translateX(-50%)",
+                padding: "5px 12px",
+                color: "#fff",
+              }}
+              aria-live="polite"
+              data-testid="attachment-count"
+            >
+              {index + 1} of {pages.length}
+            </div>
+          </>
+        ) : (
+          pageFor(file)
+        )}
+        {shareFailed ? (
+          <div
+            className="absolute left-0 right-0 top-1 text-center text-[12px] text-[var(--warning)] pointer-events-none"
+            data-testid="attachment-share-failed"
+          >
+            Could not save the file.
+          </div>
+        ) : null}
       </div>
     </div>
   );
