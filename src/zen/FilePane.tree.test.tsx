@@ -7,6 +7,7 @@ vi.mock("../api/client", () => ({
   getFsReadDir: vi.fn(),
   createFsFolder: vi.fn(),
   renameFsEntry: vi.fn(),
+  uploadFsBinary: vi.fn(),
   getFsReadFile: vi.fn(async () => ({ ok: true, data: { content: "hi" } })),
   getWorkspaceResources: vi.fn(async () => ({ ok: true, data: { docs: [] } })),
   addWorkspaceResource: vi.fn(),
@@ -25,6 +26,7 @@ import {
   getWorkspaceResources,
   removeWorkspaceResource,
   renameFsEntry,
+  uploadFsBinary,
   type FsDirEntry,
 } from "../api/client";
 import { fetchProjectGroupShow } from "../api/projectGroups";
@@ -517,3 +519,57 @@ describe("drag a file into the chat", () => {
     expect(screen.getByTestId("draft").textContent).toBe("look at `docs/plan.md` ");
   });
 });
+
+describe("+ New File", () => {
+  const openSheet = async () => {
+    render(<FilePane />);
+    fireEvent.click(await screen.findByTestId("files-new-toggle"));
+    await screen.findByTestId("files-new-sheet");
+    await screen.findAllByTestId("files-new-folder");
+  };
+  const pickFile = (name: string) =>
+    fireEvent.change(screen.getByTestId("files-new-file-input"), {
+      target: { files: [new File(["hello"], name, { type: "text/plain" })] },
+    });
+
+  it("lists only folders, opens one, and goes back no higher than the workspace", async () => {
+    live();
+    await openSheet();
+    const names = screen.getAllByTestId("files-new-folder").map((b) => b.textContent);
+    expect(names).toContain("src");
+    expect(names).not.toContain("zeta.md");
+    expect(screen.queryByTestId("files-new-up")).toBeNull();
+    fireEvent.click(screen.getAllByTestId("files-new-folder").find((b) => b.textContent === "src")!);
+    await screen.findByTestId("files-new-up");
+    await screen.findByTestId("files-new-empty");
+    fireEvent.click(screen.getByTestId("files-new-up"));
+    await waitFor(() => expect(screen.queryByTestId("files-new-up")).toBeNull());
+  });
+
+  it("uploads into the chosen folder, closes, and refreshes that folder", async () => {
+    live();
+    vi.mocked(uploadFsBinary).mockReset().mockResolvedValue({ ok: true, status: 200, data: { path: `${WS}/src/note.txt` } } as never);
+    await openSheet();
+    fireEvent.click(screen.getAllByTestId("files-new-folder").find((b) => b.textContent === "src")!);
+    await screen.findByTestId("files-new-up");
+    vi.mocked(getFsReadDir).mockClear();
+    pickFile("note.txt");
+    await waitFor(() => expect(screen.queryByTestId("files-new-sheet")).toBeNull());
+    const call = vi.mocked(uploadFsBinary).mock.calls[0];
+    expect(call[1]).toBe("appa");
+    expect(call[2]).toBe(`${WS}/src`);
+    expect(call[3]).toBe("note.txt");
+    expect(vi.mocked(getFsReadDir).mock.calls.some((c) => c[1] === `${WS}/src`)).toBe(true);
+    expect(await screen.findByText("Added note.txt")).toBeTruthy();
+  });
+
+  it("keeps the sheet open and says why when the upload fails", async () => {
+    live();
+    vi.mocked(uploadFsBinary).mockReset().mockResolvedValue({ ok: false, status: 403, error: "No write access" } as never);
+    await openSheet();
+    pickFile("note.txt");
+    expect((await screen.findByTestId("files-new-error")).textContent).toBe("No write access");
+    expect(screen.getByTestId("files-new-sheet")).toBeTruthy();
+  });
+});
+
