@@ -35,6 +35,9 @@ import {
 import { useFileDrag } from "./fileDrag";
 import { useFileHold, type FileMenu } from "./useFileHold";
 import { GlassCloseButton } from "./GlassCloseButton";
+import { NewFileSheet } from "./NewFileSheet";
+import { PlusGlyph } from "./PlusGlyph";
+import { workspaceHandleOf } from "./composerAttach";
 import { useBackHandler } from "../lib/androidBack";
 
 /** Drawer width. The tree needs more room than the old resource list. */
@@ -149,6 +152,7 @@ function FilePaneOpen() {
   const [toast, setToast] = useState<string | null>(null);
   const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [sheet, setSheet] = useState<NameSheet | null>(null);
+  const [newFile, setNewFile] = useState<{ scope: ServerScope; startDir: string } | null>(null);
   const drag = useFileDrag((s) => s.drag);
   // Android Back closes the drawer, like its glass X.
   useBackHandler(true, toggleFiles);
@@ -176,6 +180,11 @@ function FilePaneOpen() {
   };
 
   const mkdirTarget = tree.selected && inTree(tree.selected, root) ? tree.selected : root;
+
+  const uploadWorkspace = useZenStore((s) => {
+    const row = s.agents.find((a) => a.id === s.agentId);
+    return workspaceHandleOf(row?.addr) || (root ? baseName(root) : "");
+  });
 
   const refreshResources = () => {
     const s = useZenStore.getState();
@@ -438,6 +447,43 @@ function FilePaneOpen() {
                   section: menu.section,
                   scope,
                 });
+              }}
+            />,
+            document.body
+          )
+        : null}
+
+      {root ? (
+        <div className="p-2 shrink-0" style={{ paddingBottom: "calc(8px + var(--safe-bottom))" }} data-testid="files-new">
+          <button
+            type="button"
+            className="w-full flex items-center gap-2 text-left zen-glass zen-glass-round"
+            style={{ minHeight: 40, padding: "0 12px", color: "var(--text)" }}
+            data-testid="files-new-toggle"
+            onClick={() => mkdirTarget && setNewFile({ scope, startDir: mkdirTarget })}
+          >
+            <PlusGlyph />
+            <span className="text-[13px]">New File</span>
+          </button>
+        </div>
+      ) : null}
+
+      {newFile && root
+        ? createPortal(
+            <NewFileSheet
+              scope={newFile.scope}
+              root={root}
+              workspace={uploadWorkspace}
+              startDir={newFile.startDir}
+              showHidden={showHidden}
+              onClose={() => setNewFile(null)}
+              onAdded={(dir, names, problem) => {
+                setNewFile(null);
+                say(problem ?? (names.length === 1 ? `Added ${names[0]}` : `Added ${names.length} files`));
+                // The room moved while the sheet was up: B's tree is gone.
+                if (zenScope().id !== newFile.scope.id) return;
+                if (dir !== root) tree.expand(dir);
+                void tree.load(dir);
               }}
             />,
             document.body
