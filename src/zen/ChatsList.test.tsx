@@ -260,7 +260,7 @@ describe("ChatsList", () => {
     expect(screen.queryByTestId("tickets-badge")).toBeNull();
   });
 
-  it("header: server button on the left, one 34px 3-dot More button on the right", () => {
+  it("header: tab switch on the left, the server button beside Search, one 34px 3-dot More button on the right", () => {
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
@@ -270,8 +270,11 @@ describe("ChatsList", () => {
     const header = screen.getByRole("heading", { name: "Agents" }).closest("header")!;
     const row = screen.getByTestId("chats-header-row");
     expect(header.contains(row)).toBe(true);
+    expect(row.firstElementChild?.contains(screen.getByTestId("list-tab-toggle"))).toBe(true);
     const serverBtn = screen.getByRole("button", { name: /Server / });
-    expect(row.firstElementChild).toBe(serverBtn);
+    expect(row.contains(serverBtn)).toBe(false);
+    const searchInput = screen.getByRole("searchbox", { name: "Search" });
+    expect(serverBtn.compareDocumentPosition(searchInput) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(serverBtn.querySelector("[data-testid=server-icon]")).toBeNull();
     expect(serverBtn.querySelector("[data-testid=server-status-dot]")).not.toBeNull();
 
@@ -292,7 +295,7 @@ describe("ChatsList", () => {
       expect(screen.queryByTestId(id)).toBeNull();
     }
     expect(screen.queryByTestId("chats-header-more-call")).toBeNull();
-    expect(serverBtn.style.height).toBe("34px");
+    expect(serverBtn.style.height).toBe("44px");
     expect(serverBtn.className).toMatch(/zen-glass-pill/);
   });
 
@@ -393,7 +396,7 @@ describe("ChatsList", () => {
     expect(blur.querySelector(".zen-header-tint")).not.toBeNull();
 
     // Only the controls take touches.
-    expect(screen.getByTestId("chats-header-server").style.pointerEvents).toBe("auto");
+    expect(screen.getByTestId("list-tab-toggle").parentElement?.style.pointerEvents).toBe("auto");
     expect(screen.getByTestId("chats-header-right").style.pointerEvents).toBe("auto");
 
     // The list (pins grid included) starts under the header: safe area plus
