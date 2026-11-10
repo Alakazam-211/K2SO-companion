@@ -619,6 +619,20 @@ describe("the Gardens tab (Rosson 2026-11-03)", () => {
     expect(screen.queryByLabelText("Add agent")).toBeNull();
   });
 
+  it("shows the paired home server's Gardens, not the active server's", async () => {
+    on();
+    act(() => {
+      useServersStore.setState((st) => ({
+        servers: [...st.servers, { ...st.servers[0], id: "home", url: "https://home.k2.dev", auth: "paired" as const }],
+      }));
+    });
+    mount();
+    fireEvent.click(screen.getByTestId("list-tab-gardens"));
+    await screen.findAllByTestId("gardens-row");
+    expect((gardens.feed.mock.calls[0][0] as { id: string }).id).toBe("home");
+    forgetGardenFeed("home");
+  });
+
   it("remembers the tab; on a server without Gardens it falls to Agents", () => {
     on();
     mount();

@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { scopeFor } from "../api/scope";
-import { zenScope } from "../zen/zenScope";
 import { ZEN_SERVER_PARAM, resolveServerRef } from "../zen/room/serverRef";
 import { GardenView } from "../zen/gardens/GardenView";
+import { gardensScope } from "../zen/gardens/gardensScope";
 import { fetchGardenFeed, refusalEndsGardens, type GardenFeed, type GardenRefusal } from "../zen/gardens/gardensApi";
 import { forgetGardenLibs } from "../zen/gardens/frameDoc";
 import { forgetGardenFeed } from "../zen/gardens/GardensList";
@@ -24,7 +24,7 @@ export function ZenGardens() {
   const [scope] = useState(() => {
     const ref = (params.get(ZEN_SERVER_PARAM) || "").trim();
     const id = ref ? resolveServerRef(ref) : null;
-    return id ? scopeFor(id) : zenScope();
+    return id ? scopeFor(id) : gardensScope();
   });
   const [feed, setFeed] = useState<GardenFeed | null>(null);
   const [problem, setProblem] = useState<string | null>(null);
