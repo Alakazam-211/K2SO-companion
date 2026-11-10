@@ -109,7 +109,7 @@ import {
 } from "./multi/MergedRows";
 import type { MergedRow } from "./multi/merge";
 import type { RowActivity } from "./agentActivity";
-import { CheckIcon, CogIcon, HeadsetIcon, ProjectsIcon, TicketIcon } from "./icons";
+import { CheckIcon, CogIcon, PhoneIcon, ProjectsIcon, TicketIcon } from "./icons";
 import {
   HeaderMoreButton,
   HeaderMoreMenu,
@@ -1384,7 +1384,7 @@ export function ChatsList() {
               title="Rooms"
               data-testid="chats-header-voice"
             >
-              <HeadsetIcon size={20} />
+              <PhoneIcon size={20} />
             </button>
           ) : null}
           <HeaderMoreButton

@@ -9,7 +9,7 @@ import {
   FileIcon,
   FolderIcon,
   GaugeIcon,
-  HeadsetIcon,
+  PhoneIcon,
   HomeIcon,
   MoreIcon,
   PencilIcon,
@@ -49,7 +49,7 @@ const ALL = {
   camera: CameraIcon,
   folder: FolderIcon,
   more: MoreIcon,
-  headset: HeadsetIcon,
+  phone: PhoneIcon,
   projects: ProjectsIcon,
   ticket: TicketIcon,
 };

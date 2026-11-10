@@ -42,7 +42,7 @@ export function voiceServers(
     );
 }
 
-/** Show the headset at all: a signed-in server hosts rooms (it says
+/** Show the Rooms (phone) button at all: a signed-in server hosts rooms (it says
  *  `voice-rooms-v1` in `/boot-status`), or a call is up. Hidden on phones
  *  with no such server (Rosson, 4.2.0), and it appears the moment one
  *  reports it: boot info isn't in a store, so its updates re-render here.

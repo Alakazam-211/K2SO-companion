@@ -29,7 +29,7 @@ export type IconName =
   | "bookmark-plus"
   | "reply"
   | "more"
-  | "headset"
+  | "phone"
   | "projects"
   | "ticket";
 
@@ -230,13 +230,13 @@ export function MoreIcon(props: IconProps) {
   );
 }
 
-/** A headset: the desktop top bar's voice rooms button (the Chats header's Rooms). */
-export function HeadsetIcon(props: IconProps) {
+/** A phone (Lucide "phone"): opening or joining a call, the Chats
+ *  header's Rooms. Headphones mean Deafen only (K2 Design 2026-11-10, both
+ *  apps), so the two no longer look alike. */
+export function PhoneIcon(props: IconProps) {
   return (
-    <Icon name="headset" {...props}>
-      <path d="M4 14v-2a8 8 0 0 1 16 0v2" />
-      <rect x="3" y="14" width="4" height="6" rx="1.5" />
-      <rect x="17" y="14" width="4" height="6" rx="1.5" />
+    <Icon name="phone" {...props}>
+      <path d="M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384" />
     </Icon>
   );
 }
