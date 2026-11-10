@@ -364,7 +364,7 @@ export function HomeList({
             openRow(v, failure, action);
           }}
         >
-          <div className="mb-2 flex justify-center" data-testid="pin-avatar">
+          <div className="flex justify-center" style={{ marginBottom: chip ? 13 : 8 }} data-testid="pin-avatar">
             <span className="relative inline-flex">
               <UnreadDot unread={unread} side={14} />
               <WorkspaceAvatar
@@ -381,8 +381,8 @@ export function HomeList({
                   data-testid="pin-activity-dot"
                   className={`absolute rounded-full ${shownBusy.display === "working" ? "k2-pulse" : ""}`}
                   style={{
-                    right: 1,
-                    bottom: 1,
+                    right: chip ? -2 : 1,
+                    bottom: chip ? 12 : 1,
                     width: 20,
                     height: 20,
                     background: color,
@@ -393,12 +393,12 @@ export function HomeList({
                 />
               ) : null}
               {chip ? (
-                // Over the picture's top edge: the activity dot has the
-                // bottom, and the unread dot the left.
+                // Across the picture's bottom edge (Rosson 2026-11-09); the
+                // activity dot moves up the circle to clear it.
                 <span
                   className="absolute zen-glass zen-glass-pill truncate"
                   style={{
-                    top: -7,
+                    bottom: -9,
                     left: "50%",
                     transform: "translateX(-50%)",
                     maxWidth: 84,

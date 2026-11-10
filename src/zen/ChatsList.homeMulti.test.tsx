@@ -354,6 +354,7 @@ describe("Home list across servers (HM3, flag on)", () => {
     expect(within(row).getByTestId("row-server-chip").textContent).toBe("Bravo");
     // In the grid the chip overlaps the picture.
     expect(within(row).getByTestId("pin-avatar").contains(within(row).getByTestId("row-server-chip"))).toBe(true);
+    expect(within(row).getByTestId("row-server-chip").style.bottom).toBe("-9px");
     expect(row.getAttribute("data-greyed")).toBeNull();
     // The active server's row carries its own chip with several servers.
     expect(within(homeRow("alpha::alpha.k2.dev")).getByTestId("row-server-chip").textContent).toBe("Alpha");
