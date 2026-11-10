@@ -7,6 +7,8 @@ edition = "2021"
 # `links` is required for Tauri mobile plugins: it's how the app build
 # locates this plugin's android/ + ios/ native projects.
 links = "tauri-plugin-k2-push"
+license = "MIT"
+publish = false
 
 [build-dependencies]
 tauri-plugin = { version = "2", features = ["build"] }
