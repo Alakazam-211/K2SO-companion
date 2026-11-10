@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 const scoped = vi.fn();
 vi.mock("./scopedFetch", () => ({ scopedFetch: (...a: unknown[]) => scoped(...a) }));
 
-import { parseAccountUsage, readAccountUsage, refreshAccountUsage } from "./llmAccountFor";
+import { isUsageChangedFor, parseAccountUsage, readAccountUsage, refreshAccountUsage, usageAgeMinutes, usageAgeText } from "./llmAccountFor";
 
 const scope = { id: "s1" } as never;
 const body = { tool: "claude", accountId: "a1", label: "Max", source: "pinned", windows: [], maxPercent: 42.4, updatedAt: 1761300000 };
@@ -68,5 +68,33 @@ describe("usage colour", () => {
     expect(usageColor(75)).toBe("#ffd60a");
     expect(usageColor(89)).toBe("#ffd60a");
     expect(usageColor(90)).toBe("#ff6961");
+  });
+  it("reads updatedAt as the reading's age, shown from 20 minutes", () => {
+    const at = parseAccountUsage({ ...body, updatedAt: "2026-11-09T12:00:00Z" })?.updatedAt ?? null;
+    expect(at).toBe(Date.parse("2026-11-09T12:00:00Z") / 1000);
+    const after = (min: number) => usageAgeMinutes(at, Date.parse("2026-11-09T12:00:00Z") + min * 60_000);
+    expect(after(19)).toBeNull();
+    expect(after(20)).toBe(20);
+    expect(after(21)).toBe(21);
+    expect(usageAgeMinutes(null, Date.now())).toBeNull();
+  });
+
+  it("words the age short and spoken", () => {
+    expect(usageAgeText(21)).toEqual({ short: "21m", spoken: "21 minutes ago" });
+    expect(usageAgeText(60)).toEqual({ short: "1h", spoken: "1 hour ago" });
+    expect(usageAgeText(150)).toEqual({ short: "2h", spoken: "2 hours ago" });
+    expect(usageAgeText(2880)).toEqual({ short: "2d", spoken: "2 days ago" });
+  });
+
+  it("matches the token's own event, or one naming no token for its tool", () => {
+    const u = { tool: "claude", accountId: "a1" };
+    const f = (x: object) => ({ kind: "subscription_usage_changed", ...x });
+    expect(isUsageChangedFor(f({ tool: "claude", account_id: "a1" }), u)).toBe(true);
+    expect(isUsageChangedFor(f({ tool: "claude", account_id: "b2" }), u)).toBe(false);
+    expect(isUsageChangedFor(f({ tool: "claude", account_id: null }), u)).toBe(true);
+    expect(isUsageChangedFor(f({ tool: "codex", account_id: null }), u)).toBe(false);
+    expect(isUsageChangedFor(f({ tool: null, account_id: null }), u)).toBe(true);
+    expect(isUsageChangedFor(f({ tool: "claude", account_id: "a1" }), null)).toBe(false);
+    expect(isUsageChangedFor({ kind: "other" }, u)).toBe(false);
   });
 });

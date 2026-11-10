@@ -43,7 +43,7 @@ vi.mock("../lib/useSessionIdentity", () => ({
   useSessionIdentity: () => who.identity,
 }));
 
-const usage = vi.hoisted(() => ({ value: null as null | { tool: string; label: string; maxPercent: number } }));
+const usage = vi.hoisted(() => ({ value: null as null | { tool: string; label: string; maxPercent: number; updatedAt?: number | null } }));
 vi.mock("../zen/useAgentUsage", async (orig) => ({
   ...(await orig<typeof import("../zen/useAgentUsage")>()),
   useAgentUsage: () => usage.value,
@@ -292,6 +292,29 @@ describe("Zen header LLM icon", () => {
     expect(useServersStore.getState().activeServerId).toBe("s1");
     fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.queryByTestId("usage-page")).toBeNull();
+  });
+
+  it.each([
+    [21, "42% · 21m", ", as of 21 minutes ago"],
+    [19, "42%", null],
+  ])("a reading %i minutes old in the usage bubble", async (min, text, spoken) => {
+    usage.value = { tool: "claude", label: "Claude Max", maxPercent: 42, updatedAt: Math.floor(Date.now() / 1000) - min * 60 - 5 };
+    await openChat(main.id);
+    act(() => {
+      useZenStore.setState({
+        activity: {
+          byPath: {},
+          bySession: {
+            t1: { display: "idle", counts: { subagents: 0, tools: 0, commands: 0 }, path: "/w/alpha", harness: "claude" },
+          },
+        },
+      });
+    });
+    const bubble = screen.getByTestId("chat-header-usage");
+    expect(bubble.textContent).toBe(`Claude${text}`); // the LLM mark's title, then the words
+    const label = bubble.getAttribute("aria-label") ?? "";
+    if (spoken) expect(label).toContain(spoken);
+    else expect(label).not.toContain("as of");
   });
 
   it("a chat open on another server (a room) opens that server's Usage, the active server unchanged", async () => {

@@ -62,7 +62,8 @@ import { useForegroundCatchup, useUnreadPrefetch } from "../zen/chatPrefetch";
 import { installPushInboxDrain } from "../lib/pushInbox";
 import { HeaderGlass } from "../zen/HeaderGlass";
 import { usePressSpring } from "../lib/usePressSpring";
-import { useAgentUsage, usageColor } from "../zen/useAgentUsage";
+import { useAgentUsage, usageColor, useUsageAgeMinutes } from "../zen/useAgentUsage";
+import { usageAgeText } from "../api/llmAccountFor";
 
 const HEADER_BTN: CSSProperties = {
   width: 36,
@@ -195,6 +196,9 @@ export function Zen() {
   // The highest usage percent of the LLM account this chat's session uses
   // (K2 0.46.4), shown beside the LLM icon like the desktop's top-bar chip.
   const agentUsage = useAgentUsage(zen, groupChat ? null : openAddr);
+  const usageAgeMin = useUsageAgeMinutes(agentUsage?.updatedAt ?? null);
+  const usageAge = usageAgeMin == null ? null : usageAgeText(usageAgeMin);
+  const usageAgeSuffix = usageAge ? `, as of ${usageAge.spoken}` : "";
   const openGroup = useZenStore((s) => (s.threadGroupId || "").trim());
   // Back's count: the list it returns to, the open chat left out. The
   // Agents / Home pick cannot change while a chat is open.
@@ -589,8 +593,8 @@ export function Zen() {
                   data-glass-shape="button"
                   data-llm={headerHarness}
                   className="absolute flex items-center zen-glass zen-glass-pill font-semibold"
-                  title={`${agentUsage.label || agentUsage.tool}: ${agentUsage.maxPercent}% used`}
-                  aria-label={`${agentUsage.label || agentUsage.tool}: ${agentUsage.maxPercent}% used. Open usage for ${zen.label}`}
+                  title={`${agentUsage.label || agentUsage.tool}: ${agentUsage.maxPercent}% used${usageAgeSuffix}`}
+                  aria-label={`${agentUsage.label || agentUsage.tool}: ${agentUsage.maxPercent}% used${usageAgeSuffix}. Open usage for ${zen.label}`}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (filesPaneOpen) dismissFiles();
@@ -616,7 +620,9 @@ export function Zen() {
                   <span className="flex" style={{ filter: LLM_LIFT }}>
                     <LlmIcon harness={headerHarness} size={18} />
                   </span>
-                  <span>{agentUsage.maxPercent}%</span>
+                  <span>
+                    {agentUsage.maxPercent}%{usageAge ? ` · ${usageAge.short}` : ""}
+                  </span>
                 </button>
               ) : headerHarness ? (
                 <span
