@@ -24,7 +24,7 @@ export function gardensScope(): ServerScope {
   return id ? scopeFor(id) : zenScope();
 }
 
-/** The Gardens server, re-rendering once its `/boot-status` has answered:
+/** The Gardens server, re-rendering whenever its `/boot-status` answers:
  *  it may not be the server the rest of the app has been reading. */
 export function useGardensScope(): ServerScope {
   const zen = useZenScope();
@@ -35,11 +35,10 @@ export function useGardensScope(): ServerScope {
   const [, bump] = useState(0);
   const elsewhere = scope.id !== zen.id;
   useEffect(() => {
-    if (!elsewhere) return;
     const off = onBootInfo((changed) => {
       if (changed === scope.id) bump((n) => n + 1);
     });
-    void ensureBootStatus(scope);
+    if (elsewhere) void ensureBootStatus(scope);
     return off;
   }, [scope, elsewhere]);
   return scope;

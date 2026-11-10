@@ -1,4 +1,4 @@
-import type { ServerScope } from "../../api/scope";
+import { bootInfoFor, type ServerScope } from "../../api/scope";
 import { scopedFetch } from "../../api/scopedFetch";
 import { isIosWebView } from "../../lib/nativePicker";
 import type { SourcesChanges } from "./sourcesFeed";
@@ -9,10 +9,13 @@ import type { SourcesChanges } from "./sourcesFeed";
 
 export const FEATURE_GARDENS_REMOTE = "gardens-remote-v1";
 
-/** Gardens show on this phone for this server. Android can't host widget
- *  frames safely yet (contract §10): it needs its own frame host. */
-export function gardensAvailable(scope: Pick<ServerScope, "supports">): boolean {
-  return isIosWebView() && scope.supports(FEATURE_GARDENS_REMOTE);
+/** Gardens show on this phone for this server: assumed yes until its
+ *  `/boot-status` says otherwise (Rosson 2026-11-09), so the tab doesn't
+ *  appear late. Android can't host widget frames safely yet (contract
+ *  §10): it needs its own frame host. */
+export function gardensAvailable(scope: Pick<ServerScope, "id" | "supports">): boolean {
+  if (!isIosWebView() || !scope.id) return false;
+  return !bootInfoFor(scope.id) || scope.supports(FEATURE_GARDENS_REMOTE);
 }
 
 /** A refusal from any remote route, or `unreachable` when none came back. */
