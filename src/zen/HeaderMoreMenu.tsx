@@ -100,7 +100,7 @@ export function HeaderMoreButton({
       ref={buttonRef}
       type="button"
       className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
-      style={{ width: 34, height: 34, color: "#fff" }}
+      style={{ width: 40, height: 40, color: "#fff" }}
       onClick={onToggle}
       aria-haspopup="menu"
       aria-expanded={open}
@@ -108,7 +108,7 @@ export function HeaderMoreButton({
       title="More"
       data-testid="chats-header-more"
     >
-      <MoreIcon size={18} strokeWidth={2.4} testId="more-icon" />
+      <MoreIcon size={20} strokeWidth={2.4} testId="more-icon" />
       {badge ? (
         <span
           className="absolute"
@@ -205,9 +205,8 @@ export function HeaderMoreMenu({
         data-testid="chats-more-menu"
         style={{
           zIndex: 30,
-          // Under the 34px button: same top as the focus-group menu, same
-          // 12px right edge as the header row.
-          top: "calc(env(safe-area-inset-top) + 52px)",
+          // Under the 40px button, with the header row's 12px right edge.
+          top: "calc(env(safe-area-inset-top) + 58px)",
           right: 12,
           width: "min(240px, calc(100vw - 24px))",
           maxHeight: "calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 72px)",

@@ -260,7 +260,7 @@ describe("ChatsList", () => {
     expect(screen.queryByTestId("tickets-badge")).toBeNull();
   });
 
-  it("header: tab switch on the left, the server button beside Search, one 34px 3-dot More button on the right", () => {
+  it("header: tab switch on the left, the server button beside Search, one 40px 3-dot More button on the right", () => {
     useZenStore.setState({
       agentSource: "stub",
       agents: STUB_AGENTS,
@@ -285,8 +285,8 @@ describe("ChatsList", () => {
     expect(more.textContent).toBe("");
     expect(more.querySelector("[data-testid=more-icon]")?.getAttribute("data-k2-icon")).toBe("more");
     expect(more.querySelector("[data-testid=more-icon]")?.querySelectorAll("circle")).toHaveLength(3);
-    expect(more.style.width).toBe("34px");
-    expect(more.style.height).toBe("34px");
+    expect(more.style.width).toBe("40px");
+    expect(more.style.height).toBe("40px");
     expect(more.className).toMatch(/zen-glass-pill/);
     expect(more.getAttribute("aria-haspopup")).toBe("menu");
     expect(more.getAttribute("aria-expanded")).toBe("false");
