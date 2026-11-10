@@ -10,7 +10,7 @@ theme family).
 | **What** | `seti.woff` here + the generated name/extension map `src/zen/fileIcons/setiData.ts` (dark colours only) |
 | **Upstream** | [Seti UI](https://github.com/jesseweed/seti-ui) (Jesse Weed), packaged via VS Code `extensions/theme-seti` |
 | **License** | **MIT** (Copyright 2014 Jesse Weed). Full text: `THIRD_PARTY_NOTICES.txt` in this folder |
-| **K2 code** | Stays FSL-1.1-Apache-2.0. The MIT assets do not relicense the app. |
+| **K2 code** | Is MIT. The MIT assets do not relicense the app. |
 | **Not** | Not affiliated with Microsoft or Visual Studio Code. |
 
 Folder icons are K2's own gold open/closed SVGs (desktop `FileTree.tsx`

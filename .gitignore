@@ -24,6 +24,3 @@ src-tauri/gen/apple/build/
 # debug
 npm-debug.*
 
-# mockup
-mockup/node_modules/
-mockup/.next/
