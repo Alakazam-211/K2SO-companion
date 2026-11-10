@@ -281,6 +281,71 @@ describe("open", () => {
     expect(tauriFetch.mock.calls.some(([u]) => /\/cli\/fs\//.test(String(u)))).toBe(false);
   });
 
+  describe("several pictures on one message", () => {
+    const pics = () =>
+      ["a.png", "b.png", "c.png", "d.png"].map((name, i) => ({ ...file({ name, path: name, mime: "image/png" }), n: i }));
+    const imageDaemon = () =>
+      daemon((q) =>
+        q.mode === "meta"
+          ? meta({ mime: "image/png" })
+          : res(200, { ok: true, kind: "image", mime: "image/png", name: "x.png", size: 8, state: "ok", base64: b64(PNG) })
+      );
+    const asked = () =>
+      tauriFetch.mock.calls
+        .map(([u]) => new URL(String(u)).searchParams)
+        .filter((q) => q.get("mode") === "preview")
+        .map((q) => q.get("n"));
+
+    it("opens as a gallery on the tapped picture, with the count, loading only its neighbours", async () => {
+      imageDaemon();
+      room([message("m1", 1, "", pics())]);
+      render(<ThreadPane />);
+      fireEvent.click(screen.getAllByTestId("thread-file")[1]);
+      expect((await screen.findByTestId("attachment-count")).textContent).toBe("2 of 4");
+      expect(screen.getByTestId("attachment-name").textContent).toContain("b.png");
+      await waitFor(() => expect(asked().sort()).toEqual(["0", "1", "2"]));
+      expect(asked()).not.toContain("3");
+    });
+
+    it("swiping moves the count and the name, and loads the next one", async () => {
+      imageDaemon();
+      room([message("m1", 1, "", pics())]);
+      render(<ThreadPane />);
+      fireEvent.click(screen.getAllByTestId("thread-file")[1]);
+      const pager = await screen.findByTestId("attachment-gallery");
+      Object.defineProperty(pager, "clientWidth", { value: 300, configurable: true });
+      Object.defineProperty(pager, "scrollLeft", { value: 600, configurable: true, writable: true });
+      fireEvent.scroll(pager);
+      expect(screen.getByTestId("attachment-count").textContent).toBe("3 of 4");
+      expect(screen.getByTestId("attachment-name").textContent).toContain("c.png");
+      await waitFor(() => expect(asked()).toContain("3"));
+    });
+
+    it("a file that isn't a picture opens alone", async () => {
+      daemon((q) => (q.mode === "meta" ? meta() : res(200, { ok: true, kind: "text", mime: "text/plain", name: "n", size: 2, state: "ok", text: "hi", truncated: false })));
+      room([message("m1", 1, "", [...pics(), { ...file({ name: "n.txt", path: "n.txt", mime: "text/plain" }), n: 4 }])]);
+      render(<ThreadPane />);
+      fireEvent.click(screen.getAllByTestId("thread-file")[4]);
+      await screen.findByTestId("attachment-sheet");
+      expect(screen.queryByTestId("attachment-gallery")).toBeNull();
+      expect(screen.queryByTestId("attachment-count")).toBeNull();
+    });
+  });
+
+  it("Share is an icon button", async () => {
+    daemon((q) =>
+      q.mode === "meta"
+        ? meta({ mime: "image/png" })
+        : res(200, { ok: true, kind: "image", mime: "image/png", name: "shot.png", size: 8, state: "ok", base64: b64(PNG) })
+    );
+    room([message("m1", 1, "", [file({ name: "shot.png", path: "out/shot.png", mime: "image/png" })])]);
+    render(<ThreadPane />);
+    fireEvent.click(screen.getByTestId("thread-file"));
+    const share = await screen.findByTestId("attachment-share");
+    expect(share.textContent).toBe("");
+    expect(share.getAttribute("aria-label")).toBe("Share");
+  });
+
   it("pdf: preview bytes go to PdfView", async () => {
     const pdfBytes = "%PDF-1.4 fake";
     daemon((q) =>

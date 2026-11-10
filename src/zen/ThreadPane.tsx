@@ -121,7 +121,7 @@ import { MessageFiles, patchThreadFileState, useThreadFilesOn } from "./ThreadFi
 import { PermissionCard } from "./PermissionCard";
 import type { PermissionCardModel } from "./permissionCardModel";
 import { ThreadImagesContext, type ThreadImagesSource } from "./ThreadImages";
-import { FEATURE_THREAD_IMAGES } from "../api/threadAttachmentPure";
+import { FEATURE_THREAD_IMAGES, attachmentOpenable, isImageAttachment } from "../api/threadAttachmentPure";
 import { AttachmentSheet, type OpenAttachment } from "./AttachmentSheet";
 import { createFoldHost, FoldContext, MessageFold, type FoldHost } from "./MessageFold";
 import { sameMessage } from "./threadCacheMerge";
@@ -1264,7 +1264,15 @@ export function ThreadPane({
   function openAttachment(m: ThreadMessage, a: ThreadAttachment) {
     if (!m.id || groupId) return;
     const scope = zenScope();
-    setOpenFile({ scope, ref: { addr: threadAddr, conversationId, id: m.id }, file: a });
+    const pictures = isImageAttachment(a)
+      ? (m.files ?? []).filter((f) => attachmentOpenable(f) && isImageAttachment(f))
+      : [];
+    setOpenFile({
+      scope,
+      ref: { addr: threadAddr, conversationId, id: m.id },
+      file: a,
+      gallery: pictures.length > 1 ? pictures : undefined,
+    });
   }
 
   function setFollowing(on: boolean) {
@@ -2868,9 +2876,7 @@ export function ThreadPane({
           key={`${openFile.scope.id}|${openFile.ref.id}|${openFile.file.n}`}
           open={openFile}
           onClose={() => setOpenFile(null)}
-          onState={(state) =>
-            patchThreadFileState(openFile.scope.id, openFile.ref.id, openFile.file.n, state)
-          }
+          onState={(n, state) => patchThreadFileState(openFile.scope.id, openFile.ref.id, n, state)}
         />
       ) : null}
     </div>
