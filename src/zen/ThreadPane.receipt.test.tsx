@@ -33,7 +33,7 @@ import { getThread, postThread } from "../api/client";
 import { connectOverlayEvents } from "./overlayEvents";
 import { ThreadPane } from "./ThreadPane";
 import { useZenStore } from "./zenStore";
-import type { ThreadMessage } from "./threadModel";
+import { normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import { fakeScope } from "../test/fakeScope";
 import { setZenScope } from "../test/zenScopeMock";
 
@@ -275,5 +275,28 @@ describe("runs and tails", () => {
       // @ts-expect-error test cleanup
       delete Element.prototype.animate;
     }
+  });
+});
+
+describe("Sender label", () => {
+  it("shows the agent's display name for a reply with no author from its handle (K2 2026-11-10)", () => {
+    const reply = normaliseThreadItem(
+      // `author` is not on ThreadDoc: the phone never reads it.
+      { id: "r1", seq: 1, doc: { id: "r1", author: "", from: "review-demo-7", body: "hello reviewer", created_at: T0 } } as Parameters<
+        typeof normaliseThreadItem
+      >[0],
+      "baden"
+    )!;
+    expect(reply.from).toBe("review-demo-7");
+    openRoom({
+      threadAddr: "review-demo-7",
+      agentId: "demo",
+      agents: [{ id: "demo", name: "demo-agent", initial: "D", path: "/review/demo", addr: "review-demo-7" }],
+      thread: [reply],
+    });
+    render(<ThreadPane />);
+    const meta = rowOf("hello reviewer").querySelector('[data-testid="thread-msg-meta"]')!;
+    expect(meta.textContent).toContain("demo-agent");
+    expect(meta.textContent).not.toContain("review-demo-7");
   });
 });

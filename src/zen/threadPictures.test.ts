@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { renderHook } from "@testing-library/react";
 import { describe, expect, it } from "vitest";
-import { otherSenderCount, senderPicture, useThreadPicturesOn } from "./threadPictures";
+import { otherSenderCount, senderLabel, senderPicture, useThreadPicturesOn } from "./threadPictures";
 
 describe("Thread pictures", () => {
   it("counts senders other than me, by name, any case", () => {
@@ -27,5 +27,22 @@ describe("Thread pictures", () => {
     expect(other.iconUrl).toBeNull();
     expect(other.color).toMatch(/^hsl\(/);
     expect(senderPicture("baden", agents)).toEqual(other);
+  });
+});
+
+describe("Sender label", () => {
+  const agents = [
+    { id: "demo", name: "demo-agent", initial: "D", addr: "review-demo-7" },
+    { id: "grp", name: "Team", initial: "T", addr: "team", kind: "group" as const, groupId: "g1" },
+  ];
+  it("shows an agent's display name, matched on its handle in any case", () => {
+    expect(senderLabel("review-demo-7", agents)).toBe("demo-agent");
+    expect(senderLabel(" Review-Demo-7 ", agents)).toBe("demo-agent");
+  });
+  it("keeps from when no agent has that handle (a person, a bot, a project chat)", () => {
+    expect(senderLabel("review-demo-8", agents)).toBe("review-demo-8");
+    expect(senderLabel("team", agents)).toBe("team");
+    expect(senderLabel("demo-agent", agents)).toBe("demo-agent");
+    expect(senderLabel("", agents)).toBe("");
   });
 });
