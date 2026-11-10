@@ -171,11 +171,17 @@ describe("profile pictures (two or more other senders)", () => {
   it("are off with one other sender; on with two, beside each run's first bubble only", () => {
     room([message("m1", 1, "hi", [], "sales"), message("m2", 2, "again", [], "sales")]);
     const { unmount } = render(<ThreadPane />);
-    expect(screen.queryAllByTestId("thread-msg-picture")).toHaveLength(0);
+    // Off: the picture waits faded in a closed column, so it can animate in.
+    const off = screen.getAllByTestId("thread-msg-picture");
+    expect(off).toHaveLength(1);
+    expect(off[0].getAttribute("aria-hidden")).toBe("true");
+    expect(off[0].closest("[data-sender-column]")?.getAttribute("data-sender-column")).toBe("off");
     unmount();
     room([message("m1", 1, "hi", [], "sales"), message("m2", 2, "again", [], "sales"), message("m3", 3, "me too", [], "ops")]);
     render(<ThreadPane />);
-    expect(screen.getAllByTestId("thread-msg-picture")).toHaveLength(2);
+    const pics = screen.getAllByTestId("thread-msg-picture");
+    expect(pics).toHaveLength(2);
+    expect(pics.every((p) => p.closest("[data-sender-column]")?.getAttribute("data-sender-column") === "on")).toBe(true);
   });
 });
 

@@ -205,3 +205,32 @@
   outline: 2px solid rgba(255, 255, 255, 0.85);
   outline-offset: 2px;
 }
+
+/* Sender pictures (threadPictures.ts), K2's motion (threadSenders.tsx):
+   the column eases in as the row's left margin (0 to the column), and the
+   picture fades and grows in; the reverse on the way out. 200 ms ease-out,
+   none with reduced motion. The margin keeps the bubble's width, so
+   nothing re-wraps. */
+[data-sender-column] {
+  transition: margin-left 200ms ease-out;
+}
+[data-sender-column] [data-thread-picture] {
+  transition:
+    opacity 200ms ease-out,
+    transform 200ms ease-out;
+}
+[data-sender-column="off"] [data-thread-picture] {
+  opacity: 0;
+  transform: scale(0.6);
+  pointer-events: none;
+}
+[data-sender-column="on"] [data-thread-picture] {
+  opacity: 1;
+  transform: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  [data-sender-column],
+  [data-sender-column] [data-thread-picture] {
+    transition: none !important;
+  }
+}

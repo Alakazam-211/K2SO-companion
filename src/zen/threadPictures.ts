@@ -9,7 +9,8 @@ import type { StubAgent } from "./stubData";
 // other than me (`mine`, so my other devices are me; system and bot lines
 // count). Once on they stay on while that Thread is open, and reset on a
 // switch. The picture sits beside the first bubble of each run (runs break
-// after 120 s, chatReceipt.ts).
+// after 120 s, chatReceipt.ts). The column eases in and out as K2's does
+// (chatBubbles.css, K2 threadSenders.tsx).
 
 export const THREAD_PICTURE_PX = 28;
 export const THREAD_PICTURE_GAP = 8;
