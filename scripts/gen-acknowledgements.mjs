@@ -18,9 +18,32 @@ const OUT = join(ROOT, "public/acknowledgements.txt");
 const LICENSE_FILE = /^(un)?licen[cs]e|^copying|^notice|^copyright/i;
 const TARGETS = ["aarch64-apple-ios", "aarch64-linux-android"];
 const OWN_CRATES = new Set(["k2so-companion", "tauri-plugin-k2-push", "k2-broadcast-ring"]);
+const read = (p) => readFileSync(p, "utf8");
+
+// Licence files for packages that ship none, fetched once from upstream at
+// the version's commit or tag: third-party-licenses/<name>-<version>/, with
+// sources.tsv saying where each came from (and which upstream has none).
+const UPSTREAM = join(ROOT, "third-party-licenses");
+const upstreamRows = new Map(
+  read(join(UPSTREAM, "sources.tsv"))
+    .trim()
+    .split("\n")
+    .slice(1)
+    .map((l) => l.split("\t"))
+    .map(([name, version, , status, source]) => [`${name}@${version}`, { status, source }])
+);
+function upstreamFiles(name, version) {
+  return licenseFiles(join(UPSTREAM, `${name.replace(/\//g, "__")}-${version}`));
+}
+
+/** The option taken from a dual licence: Apache-2.0, else Zlib. */
+function optionTaken(license) {
+  if (!/\bOR\b|\//.test(license)) return "";
+  return /Apache-2\.0/.test(license) ? " (taken under Apache-2.0)" : /Zlib/.test(license) ? " (taken under Zlib)" : "";
+}
+
 const FORBIDDEN_LICENSE = /\b(FSL|BUSL|SSPL)\b|Functional Source/i;
 
-const read = (p) => readFileSync(p, "utf8");
 const tidy = (s) => s.replace(/\r\n?/g, "\n").replace(/[ \t]+$/gm, "").trim();
 const rule = (c = "=") => c.repeat(72);
 
@@ -97,9 +120,9 @@ function rustPackages() {
   return out;
 }
 
-const pkgs = [...npmPackages(), ...rustPackages()].sort(
-  (a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version) || a.kind.localeCompare(b.kind)
-);
+const pkgs = [...npmPackages(), ...rustPackages()]
+  .map((p) => (p.files.length ? p : { ...p, files: upstreamFiles(p.name, p.version) }))
+  .sort((a, b) => a.name.localeCompare(b.name) || a.version.localeCompare(b.version) || a.kind.localeCompare(b.kind));
 
 const texts = new Map();
 const unlisted = [];
@@ -141,7 +164,17 @@ if (unlisted.length) {
       "Packages whose licence is declared but ship no licence file",
       "The full text of each licence named here appears elsewhere on this page.\n\n" +
         unlisted
-          .map((p) => `${p.name} ${p.version}: ${p.license}${p.authors?.length ? `, ${p.authors.join(", ")}` : ""}${p.repository ? `, ${p.repository}` : ""}`)
+          .map((p) => {
+            const checked = upstreamRows.get(`${p.name}@${p.version}`);
+            return [
+              `${p.name} ${p.version}: ${p.license}${optionTaken(p.license)}`,
+              p.authors?.length ? p.authors.join(", ") : "",
+              p.repository ? `source: ${p.repository}` : "",
+              checked?.status === "none" ? `no licence file upstream either (checked ${checked.source})` : "",
+            ]
+              .filter(Boolean)
+              .join(", ");
+          })
           .join("\n")
     )
   );

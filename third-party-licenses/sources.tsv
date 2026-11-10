@@ -1,0 +1,30 @@
+package	version	license	status	source	files
+@bufbuild/protobuf	1.10.1	(Apache-2.0 AND BSD-3-Clause)	ok	bufbuild/protobuf-es@v1.10.1	LICENSE
+@napi-rs/canvas-android-arm64	0.1.100	MIT	ok	Brooooooklyn/canvas@v0.1.100	LICENSE
+@napi-rs/canvas-darwin-arm64	0.1.100	MIT	ok	Brooooooklyn/canvas@v0.1.100	LICENSE
+@napi-rs/canvas-darwin-x64	0.1.100	MIT	ok	Brooooooklyn/canvas@v0.1.100	LICENSE
+@napi-rs/canvas-linux-arm-gnueabihf	0.1.100	MIT	ok	Brooooooklyn/canvas@v0.1.100	LICENSE
+@napi-rs/canvas-linux-arm64-gnu	0.1.100	MIT	ok	Brooooooklyn/canvas@v0.1.100	LICENSE
+@napi-rs/canvas-linux-arm64-musl	0.1.100	MIT	ok	Brooooooklyn/canvas@v0.1.100	LICENSE
+@napi-rs/canvas-linux-riscv64-gnu	0.1.100	MIT	ok	Brooooooklyn/canvas@v0.1.100	LICENSE
+@napi-rs/canvas-linux-x64-gnu	0.1.100	MIT	ok	Brooooooklyn/canvas@v0.1.100	LICENSE
+@napi-rs/canvas-linux-x64-musl	0.1.100	MIT	ok	Brooooooklyn/canvas@v0.1.100	LICENSE
+@napi-rs/canvas-win32-arm64-msvc	0.1.100	MIT	ok	Brooooooklyn/canvas@v0.1.100	LICENSE
+@napi-rs/canvas-win32-x64-msvc	0.1.100	MIT	ok	Brooooooklyn/canvas@v0.1.100	LICENSE
+alloc-stdlib	0.2.2	BSD-3-Clause	ok	dropbox/rust-alloc-no-stdlib@6032b6a9b20e03737135c55a0270ccffcc1438ef	LICENSE
+block2	0.6.2	MIT	ok	madsmtm/objc2@b4167b582b2f75f9a1be75495c41b765344fd03c	LICENSE.md
+fastdom	1.0.12	MIT	none	wilsonpage/fastdom@master default branch (no tag or commit for this version)	
+isarray	1.0.0	MIT	none	juliangruber/isarray@v1.0.0	
+objc2	0.6.4	MIT	ok	madsmtm/objc2@8852b424193ca41602281b3d7540d7c8ed51e49a	LICENSE.md
+objc2-encode	4.1.0	MIT	ok	madsmtm/objc2@8d214f5477365ffcbcbb7de058c86ed9a518efb7	LICENSE.md
+objc2-foundation	0.3.2	MIT	ok	madsmtm/objc2@7b1abfd750a2cacaea71d6a56ecfb83cb7de560b	LICENSE.md
+openmls	0.9.0	MIT	ok	openmls/openmls@3a3e35de3feeca8f6605143c464d5452ae584d43	LICENSE
+openmls_basic_credential	0.6.0	MIT	ok	openmls/openmls@3a3e35de3feeca8f6605143c464d5452ae584d43	LICENSE
+openmls_memory_storage	0.6.0	MIT	ok	openmls/openmls@3a3e35de3feeca8f6605143c464d5452ae584d43	LICENSE
+openmls_serialization_helpers	0.1.0	MIT	ok	openmls/openmls@3a3e35de3feeca8f6605143c464d5452ae584d43	LICENSE
+openmls_traits	0.6.0	MIT	ok	openmls/openmls@3a3e35de3feeca8f6605143c464d5452ae584d43	LICENSE
+pbjson	0.9.0	MIT	ok	influxdata/pbjson@48ee5989564e0ace82ad71b87736d3d1b2e0e1cd	LICENSE
+pbjson-build	0.9.0	MIT	ok	influxdata/pbjson@48ee5989564e0ace82ad71b87736d3d1b2e0e1cd	LICENSE
+pbjson-types	0.9.0	MIT	ok	influxdata/pbjson@48ee5989564e0ace82ad71b87736d3d1b2e0e1cd	LICENSE
+sonora-aec3	0.2.0	BSD-3-Clause	ok	dignifiedquire/sonora@a024d6ef8351add55be5e8b1d6cc35f555787660	LICENSE
+strictdom	1.0.1	MIT	none	wilsonpage/strictdom@v1.0.1	
