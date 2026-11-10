@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: MIT
+// Copyright (c) 2026 Alakazam Labs
+
 import { addPluginListener, invoke } from "@tauri-apps/api/core";
 import { isIosWebView } from "../../lib/nativePicker";
 
