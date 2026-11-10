@@ -301,7 +301,7 @@ describe("open", () => {
       room([message("m1", 1, "", pics())]);
       render(<ThreadPane />);
       fireEvent.click(screen.getAllByTestId("thread-file")[1]);
-      expect((await screen.findByTestId("attachment-count")).textContent).toBe("2 of 4");
+      expect((await screen.findByTestId("attachment-count")).textContent).toBe("2 / 4");
       expect(screen.getByTestId("attachment-name").textContent).toContain("b.png");
       await waitFor(() => expect(asked().sort()).toEqual(["0", "1", "2"]));
       expect(asked()).not.toContain("3");
@@ -316,7 +316,7 @@ describe("open", () => {
       Object.defineProperty(pager, "clientWidth", { value: 300, configurable: true });
       Object.defineProperty(pager, "scrollLeft", { value: 600, configurable: true, writable: true });
       fireEvent.scroll(pager);
-      expect(screen.getByTestId("attachment-count").textContent).toBe("3 of 4");
+      expect(screen.getByTestId("attachment-count").textContent).toBe("3 / 4");
       expect(screen.getByTestId("attachment-name").textContent).toContain("c.png");
       await waitFor(() => expect(asked()).toContain("3"));
     });
