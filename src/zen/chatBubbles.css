@@ -234,3 +234,17 @@
     transition: none !important;
   }
 }
+
+/* Thread search (threadSearch.ts): every match, and the current one. */
+:root {
+  --thread-search-hit: rgba(255, 214, 10, 0.4);
+  --thread-search-hit-current: #ffd60a;
+  --thread-search-hit-text: #000;
+}
+::highlight(k2-thread-search) {
+  background-color: var(--thread-search-hit);
+}
+::highlight(k2-thread-search-current) {
+  background-color: var(--thread-search-hit-current);
+  color: var(--thread-search-hit-text);
+}

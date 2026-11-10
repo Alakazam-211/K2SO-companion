@@ -44,6 +44,7 @@ import { __resetScopesForTests, noteBootStatus } from "../api/scope";
 import { useServersStore } from "../stores/servers";
 import { shareOrSaveBytes } from "./files/shareFile";
 import { ThreadPane } from "./ThreadPane";
+import { useThreadSearch } from "./threadSearchStore";
 import { GONE_TEXT, HIDDEN_TEXT } from "./ThreadFiles";
 import { normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import { useRoomServer } from "./zenScope";
@@ -182,6 +183,26 @@ describe("profile pictures (two or more other senders)", () => {
     const pics = screen.getAllByTestId("thread-msg-picture");
     expect(pics).toHaveLength(2);
     expect(pics.every((p) => p.closest("[data-sender-column]")?.getAttribute("data-sender-column") === "on")).toBe(true);
+  });
+});
+
+describe("search", () => {
+  it("finds matches in every loaded message, newest first, and jumps to the newest", () => {
+    room([message("m1", 1, "deploy the app", []), message("m2", 2, "nothing here", []), message("m3", 3, "Deploy done", [])]);
+    render(<ThreadPane />);
+    act(() => {
+      useThreadSearch.getState().setOpen(true);
+      useThreadSearch.getState().setQuery("deploy");
+    });
+    const { matches } = useThreadSearch.getState();
+    expect(matches.map((x) => x.seq)).toEqual([3, 1]);
+    // Landed on, as a notification's message is (the focus clears once there).
+    const lit = () => document.querySelector('[data-highlight="true"]')?.getAttribute("data-seq");
+    expect(lit()).toBe("3");
+    act(() => useThreadSearch.getState().setCurrent(matches[1].key));
+    expect(lit()).toBe("1");
+    act(() => useThreadSearch.getState().setOpen(false));
+    expect(useThreadSearch.getState().matches).toEqual([]);
   });
 });
 

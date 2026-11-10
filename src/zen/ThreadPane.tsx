@@ -14,6 +14,17 @@ import {
 import { SENDING_OPACITY, useDeliverBrighten } from "./useDeliverBrighten";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { chatRuns, receiptFor, receiptRow } from "./chatReceipt";
+import {
+  clearThreadSearchPaint,
+  currentMatchIndex,
+  findThreadMatches,
+  markdownSearchText,
+  messageBodies,
+  paintThreadSearch,
+  searchableQuery,
+  searchRanges,
+} from "./threadSearch";
+import { useThreadSearch, type ThreadSearchMatch } from "./threadSearchStore";
 import { otherSenderCount, senderPicture, THREAD_PICTURE_GAP, THREAD_PICTURE_PX, useThreadPicturesOn, type SenderPicture } from "./threadPictures";
 import { getThreadActivity, uploadFsBinary } from "../api/client";
 import { ChatMessageBody } from "../components/ChatMessage";
@@ -902,6 +913,9 @@ export function ThreadPane({
   const returnToDrawerOrigin = useZenStore((s) => s.returnToDrawerOrigin);
   const doneMode = Boolean(drawerOrigin) && drawerOrigin !== agentId;
   const hasMore = useZenStore((s) => s.threadHasMore);
+  const searchOpen = useThreadSearch((s) => s.open);
+  const searchQuery = useThreadSearch((s) => s.query);
+  const searchCurrent = useThreadSearch((s) => s.current);
   const loadingEarlier = useZenStore((s) => s.threadLoadingEarlier);
   const answerChoice = useZenStore((s) => s.answerChoice);
   const answeringId = useZenStore((s) => s.answeringId);
@@ -2401,6 +2415,57 @@ export function ThreadPane({
     }
     return p;
   };
+  // Search (threadSearch.ts): every message held, newest match first.
+  const searchMatches = useMemo<ThreadSearchMatch[]>(() => {
+    if (!searchOpen || !searchableQuery(searchQuery)) return [];
+    const seqByKey = new Map<string, number | null>();
+    const texts = thread.map((m, i) => {
+      const key = rowKeys.get(m.id) ?? (m.id || `seq-${m.seq ?? i}`);
+      seqByKey.set(key, m.seq);
+      return { id: key, text: markdownSearchText(m.text) };
+    });
+    return findThreadMatches(texts, searchQuery).map((x) => ({ ...x, seq: seqByKey.get(x.id) ?? null }));
+  }, [searchOpen, searchQuery, thread, rowKeys]);
+  const searchMoreToLoad = searchOpen && searchableQuery(searchQuery) && hasMore;
+  useEffect(() => {
+    useThreadSearch.getState().publish(searchMatches, searchMoreToLoad);
+  }, [searchMatches, searchMoreToLoad]);
+  // A different Thread: the search closes.
+  useEffect(() => () => useThreadSearch.getState().setOpen(false), [agentId, zenServer]);
+  // Older messages count too: load the rest of the history while searching.
+  useEffect(() => {
+    if (searchMoreToLoad && !loadingEarlier && !olderFailed) void fetchOlder();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchMoreToLoad, loadingEarlier, olderFailed, thread.length]);
+  // The current match: brought into view (and out of a fold) the way a
+  // notification's message is.
+  const searchIndex = currentMatchIndex(searchMatches, searchCurrent);
+  const searchTarget = searchIndex >= 0 ? searchMatches[searchIndex] : null;
+  useEffect(() => {
+    if (searchTarget?.seq != null) useZenStore.setState({ threadFocusSeq: searchTarget.seq });
+  }, [searchTarget?.key, searchTarget?.seq]);
+  // Paint every drawn match, and the current one, over the drawn text.
+  const searchPaintOwner = useRef({});
+  useLayoutEffect(() => {
+    const owner = searchPaintOwner.current;
+    const el = scrollerRef.current;
+    if (!el || !searchMatches.length) {
+      clearThreadSearchPaint(owner);
+      return;
+    }
+    const all: Range[] = [];
+    let current: Range | null = null;
+    const ids = new Set(searchMatches.map((x) => x.id));
+    for (const row of el.querySelectorAll<HTMLElement>("[data-row-key]")) {
+      const key = row.getAttribute("data-row-key") ?? "";
+      if (!ids.has(key)) continue;
+      const ranges = searchRanges(messageBodies(row), searchQuery);
+      all.push(...ranges);
+      if (searchTarget && searchTarget.id === key) current = ranges[searchTarget.n] ?? null;
+    }
+    paintThreadSearch(owner, all, current);
+  });
+  useEffect(() => () => clearThreadSearchPaint(searchPaintOwner.current), []);
   const receiptRows = rows.map(({ key, m, out }) => ({
     mine: m.mine,
     confirmed: !out && !m.pending && !m.failed && key !== fly?.localId,

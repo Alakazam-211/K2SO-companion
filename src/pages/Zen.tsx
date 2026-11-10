@@ -38,6 +38,8 @@ import {
 import { groupRowId, useZenStore } from "../zen/zenStore";
 import { AgentIconSheet } from "../zen/AgentIconSheet";
 import { BackChevron } from "../zen/BackArrowButton";
+import { ThreadSearchField } from "../zen/ThreadSearchField";
+import { useThreadSearch } from "../zen/threadSearchStore";
 import { canChangeIcon, iconTargetFor } from "../zen/workspaceIcon";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { roomServerId, useZenScope } from "../zen/zenScope";
@@ -50,7 +52,7 @@ import { OverlayAddServer } from "../zen/OverlayAddServer";
 import { PairLinkHost } from "../zen/PairLinkHost";
 import { UsagePage } from "../zen/UsagePage";
 import { pool } from "../zen/multi/pool";
-import { FileIcon, TerminalIcon } from "../zen/icons";
+import { FileIcon, SearchIcon, TerminalIcon } from "../zen/icons";
 import { LlmIcon } from "../zen/LlmIcon";
 import { harnessKey, recallHarness, rememberHarness } from "../zen/harnessMemory";
 import { useThreadHarness } from "../zen/threadHarness";
@@ -196,6 +198,7 @@ export function Zen() {
     threadHarness ?? liveHarness ?? (harnessAt ? recallHarness(harnessAt) : null);
   // The highest usage percent of the LLM account this chat's session uses
   // (K2 0.46.4), shown beside the LLM icon like the desktop's top-bar chip.
+  const searchOpen = useThreadSearch((s) => s.open);
   const agentUsage = useAgentUsage(zen, groupChat ? null : openAddr);
   const usageAgeMin = useUsageAgeMinutes(agentUsage?.updatedAt ?? null);
   const usageAge = usageAgeMin == null ? null : usageAgeText(usageAgeMin);
@@ -527,6 +530,9 @@ export function Zen() {
               }}
             >
             <HeaderGlass />
+            {/* Left: Back, then Search (Rosson 2026-11-10: "top left, right
+                of the back button"). The open field slides over the title. */}
+            <div className="flex items-start justify-self-start" style={{ gap: 8, gridColumn: 1 }}>
             {drawerPicked ? (
             <button
               type="button"
@@ -576,6 +582,31 @@ export function Zen() {
               <BackUnreadPill count={backUnread} />
             </button>
             )}
+            <button
+              type="button"
+              aria-label="Search this chat"
+              aria-expanded={searchOpen}
+              data-glass-shape="button"
+              data-testid="chat-search"
+              className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
+              style={{ ...HEADER_BTN, position: "relative", zIndex: 1, marginTop: HEADER_BTN_TOP, pointerEvents: "auto" }}
+              onClick={(e) => {
+                e.stopPropagation();
+                useThreadSearch.getState().setOpen(true);
+              }}
+            >
+              <SearchIcon size={18} />
+            </button>
+            </div>
+            {searchOpen ? (
+              <div
+                className="absolute"
+                style={{ left: 12 + 36 + 8, right: 12, top: 6 + HEADER_BTN_TOP, zIndex: 4 }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <ThreadSearchField onClose={() => useThreadSearch.getState().setOpen(false)} />
+              </div>
+            ) : null}
             <div className="relative min-w-0 flex flex-col items-center justify-center zen-header-text" style={{ zIndex: 1 }}>
               {/* The avatar overlaps the name bubble's top edge; the shadow
                   lifts it off the glass. */}
