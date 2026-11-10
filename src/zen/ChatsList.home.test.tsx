@@ -538,17 +538,22 @@ describe("Row dividers (Rosson 2026-10-18)", () => {
     expect(d.style.transform).toBe("scaleY(.5)");
   };
 
-  it("Home: a hairline under every row but the last, inset to the text column", () => {
+  it("Home: the first nine are a grid with no dividers; rows after them get a hairline but the last", () => {
     const h = useHomesStore.getState();
+    for (let i = 0; i < 9; i++) h.addRow(h.selectedId, { address: homeAddress(`g${i}`, HOST), workspaceId: `pg${i}`, label: `g${i}` });
     h.addRow(h.selectedId, { address: homeAddress("alpha", HOST), workspaceId: "pa", label: "alpha" });
     h.addRow(h.selectedId, { address: homeAddress("bravo", HOST), workspaceId: "pb", label: "bravo" });
     h.addRow(h.selectedId, { address: homeAddress("alpha/2", HOST), workspaceId: "pa", label: "alpha 2" });
     mount();
     goHome();
     const rows = Array.from(screen.getByTestId("home-list").querySelectorAll<HTMLElement>("[data-home-row]"));
-    expect(rows).toHaveLength(3);
-    expect(rows.map((r) => within(r).queryAllByTestId("row-divider").length)).toEqual([1, 1, 0]);
-    expectInset(within(rows[0]).getByTestId("row-divider"), ZEN_LIST_CONTENT_INSET);
+    expect(rows).toHaveLength(12);
+    const grid = screen.getByTestId("home-grid");
+    expect(grid.querySelectorAll("[data-home-row]")).toHaveLength(9);
+    expect(within(grid).queryAllByTestId("row-divider")).toHaveLength(0);
+    const after = rows.slice(9);
+    expect(after.map((r) => within(r).queryAllByTestId("row-divider").length)).toEqual([1, 1, 0]);
+    expectInset(within(after[0]).getByTestId("row-divider"), ZEN_LIST_CONTENT_INSET);
   });
 
   it("Home: in Rearrange the divider starts after the grip room too", () => {
@@ -573,6 +578,19 @@ describe("Row dividers (Rosson 2026-10-18)", () => {
     ]);
     expectInset(within(rows[0]).getByTestId("row-divider"), ZEN_LIST_CONTENT_INSET);
     expect(within(screen.getByTestId("chats-pins")).queryAllByTestId("row-divider")).toHaveLength(0);
+  });
+});
+
+describe("Home's first nine (Rosson 2026-11-09)", () => {
+  it("are rows, not a grid, while searching", () => {
+    const h = useHomesStore.getState();
+    h.addRow(h.selectedId, { address: homeAddress("alpha", HOST), workspaceId: "pa", label: "alpha" });
+    mount();
+    goHome();
+    expect(screen.getByTestId("home-grid")).toBeTruthy();
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search" }), { target: { value: "alpha" } });
+    expect(screen.queryByTestId("home-grid")).toBeNull();
+    expect(screen.getByTestId("home-row-alpha")).toBeTruthy();
   });
 });
 

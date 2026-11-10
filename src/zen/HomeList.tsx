@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
 import { connectServer } from "../lib/revive";
 import { useServersStore } from "../stores/servers";
-import { activityForRow } from "./agentActivity";
+import { activityColor, activityForRow, activityPinText } from "./agentActivity";
 import { AgentRowContent } from "./AgentRowContent";
 import { RowDivider, ZEN_ROW_RIGHT_INSET } from "./RowDivider";
 import { skinInitials } from "./agentRow";
@@ -22,6 +22,21 @@ import { AgentMenu, OpenGlyph, RearrangeGlyph, RemoveGlyph, type AgentMenuEntry 
 import { GripHandle, rearrangePadLeft } from "./RearrangeBits";
 import { useHoldMenu } from "./useHoldMenu";
 import { useRearrange } from "./useRearrange";
+import {
+  ZEN_LIST_EDGE_INSET,
+  ZEN_LIST_EDGE_PAD,
+  ZEN_PIN_AVATAR_PX,
+  ZEN_PIN_COL_GAP,
+  ZEN_PIN_GRID_BOTTOM_PX,
+  ZEN_PIN_ROW_GAP,
+  zenPinGridColumns,
+} from "./pinGrid";
+import { UnreadDot } from "./UnreadMarks";
+import { WorkspaceAvatar } from "./WorkspaceAvatar";
+
+/** The first agents of a Home sit in the Agents page's grid (Rosson
+ *  2026-11-09); the rest are rows. */
+export const HOME_GRID_MAX = 9;
 
 /** A Home row's server and Thread (unread marks, Mute). */
 export function homeRowTarget(
@@ -110,7 +125,8 @@ export interface RemoteRowLook {
 
 /**
  * The Home tab's list (HM3/HM6/HM7): the current Home's rows with the
- * Agents row look. No pin grid. Press and hold a row for its menu (Open,
+ * Agents row look, its first nine in the pin grid's layout (rows while
+ * searching or rearranging). Press and hold one for its menu (Open,
  * Mute, Rearrange, Remove from Home); rows carry no `data-pin-id`, so the
  * pin grid's gestures never see them. Rearrange mode puts a grip left of
  * each avatar; a drag reorders the Home (`onReorder`, synced by Homes
@@ -256,6 +272,165 @@ export function HomeList({
     ];
   };
 
+  /** What a row or tile shows. */
+  const modelOf = (v: HomeRowView) => {
+    const address = v.row.address;
+    const handle = parseHomeAddress(address)?.handle ?? "";
+    const here = v.kind === "here" ? v.agent : null;
+    const { look, failure, action } = rowState(v);
+    // Not listed yet (the list is loading): assumed fine, shown as
+    // normal with what this phone remembers of it.
+    const pending = v.kind === "missing" && !!v.pending;
+    const pendingKey = pending ? lastAtKeyFor(zenId, { addr: handle }) : null;
+    const there = v.kind === "remote" ? v.resolved?.agent ?? null : null;
+    const busy = look
+      ? look.busy
+      : here && source === "live"
+        ? activityForRow(here, activity, false, chatSessions)
+        : null;
+    const lastKey = here && source === "live" ? lastAtKeyFor(zenId, here) ?? undefined : undefined;
+    const whenKey = lastKey ?? pendingKey ?? undefined;
+    const when = look
+      ? look.when
+      : whenKey && lastAtByKey[whenKey] != null
+        ? mountainListWhen(lastAtByKey[whenKey] as number)
+        : "";
+    const name = here?.name ?? there?.name ?? v.row.label ?? handle;
+    const preview = failure ? (
+      <span data-testid="row-failure" data-state={failure.state} title={failure.detail ?? undefined}>
+        <FailureText failure={failure} nextAt={look?.nextAt ?? null} />
+      </span>
+    ) : look ? (
+      look.preview
+    ) : activeDown && v.kind !== "remote" ? (
+      <span className="inline-flex items-center" style={{ gap: 6 }} data-testid="row-reconnecting">
+        <span aria-hidden className="k2-reconnect-dot" />
+        Reconnecting…
+      </span>
+    ) : v.kind === "here" ? (
+      previewFor(v.agent)
+    ) : pending ? (
+      previewFor({ id: handle, addr: handle, name, kind: "agent" } as StubAgent)
+    ) : v.kind === "remote" ? (
+      `On ${v.serverLabel}`
+    ) : (
+      "Not on this server's list right now"
+    );
+    const dim = look ? !!failure || look.dim : v.kind !== "here" && !pending;
+    const target = source === "live" || v.kind === "remote" ? homeRowTarget(v, zenId) : null;
+    const unread =
+      target && !failure
+        ? rowUnreadFor(unreadServers, unreadAddrs, target.serverId, { addr: target.addr })
+        : null;
+    const opacity = look ? (dim ? 0.6 : 1) : dim ? 0.55 : 1;
+    const elsewhere = otherHomeOf?.(address) ?? null;
+    const remoteView = v.kind === "remote" ? v : null;
+    return { address, handle, here, look, failure, action, there, busy, when, name, preview, unread, opacity, elsewhere, dim, remoteView };
+  };
+
+  const gridded = rearranging || searching ? [] : views.slice(0, HOME_GRID_MAX);
+  const listed = views.slice(gridded.length);
+
+  const tile = (v: HomeRowView) => {
+    const { address, handle, here, look, failure, action, there, busy, name, unread, opacity, elsewhere, dim } = modelOf(v);
+    const shownBusy = failure ? null : busy;
+    const color = shownBusy ? activityColor(shownBusy) : "";
+    const chip = v.kind === "remote" ? v.serverLabel : hereChip;
+    return (
+      <div key={address} className="relative" data-home-row={address} data-home-kind={v.kind} data-server-id={v.kind === "remote" ? v.server?.id : undefined} data-greyed={look && dim ? "1" : undefined}>
+        <button
+          type="button"
+          className="w-full text-center bg-transparent border-0 p-0"
+          style={{
+            color: "#fff",
+            opacity,
+            touchAction: "pan-y",
+            userSelect: "none",
+            WebkitUserSelect: "none",
+            WebkitTouchCallout: "none",
+          }}
+          data-no-pin="1"
+          data-testid={`home-row-${handle}`}
+          aria-describedby="home-row-hint"
+          aria-haspopup="menu"
+          aria-expanded={menu?.id === address}
+          aria-label={
+            (v.kind === "remote" ? `${name}, on ${v.serverLabel}` + (failure ? `, ${failure.copy}` : "") : name) +
+            (elsewhere ? `, on ${elsewhere}` : "")
+          }
+          {...hold.bind(address, true)}
+          onClick={() => {
+            if (hold.consumeSkipClick()) return;
+            openRow(v, failure, action);
+          }}
+        >
+          <div className="mb-2 flex justify-center" data-testid="pin-avatar">
+            <span className="relative inline-flex">
+              <UnreadDot unread={unread} side={14} />
+              <WorkspaceAvatar
+                initial={here?.initial ?? there?.initial ?? skinInitials(name || "?")}
+                color={here?.color ?? there?.color}
+                iconUrl={look ? look.iconUrl : here?.iconUrl}
+                size={ZEN_PIN_AVATAR_PX}
+                fontSize={26}
+                fallback="#2c2c2e"
+              />
+              {shownBusy ? (
+                <span
+                  aria-hidden
+                  data-testid="pin-activity-dot"
+                  className={`absolute rounded-full ${shownBusy.display === "working" ? "k2-pulse" : ""}`}
+                  style={{
+                    right: 1,
+                    bottom: 1,
+                    width: 20,
+                    height: 20,
+                    background: color,
+                    color,
+                    border: "2.5px solid var(--root)",
+                    ["--k2-pulse-edge" as string]: "2.5px",
+                  }}
+                />
+              ) : null}
+              {chip ? (
+                // Over the picture's top edge: the activity dot has the
+                // bottom, and the unread dot the left.
+                <span
+                  className="absolute zen-glass zen-glass-pill truncate"
+                  style={{
+                    top: -7,
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    maxWidth: 84,
+                    padding: "1px 7px",
+                    fontSize: 11,
+                    lineHeight: "15px",
+                    color: "#d1d1d6",
+                  }}
+                  data-testid="row-server-chip"
+                >
+                  {chip}
+                </span>
+              ) : null}
+            </span>
+          </div>
+          <div className="text-[12px] truncate mx-auto" style={{ color: "#d1d1d6", maxWidth: 110 }} data-testid="row-name">
+            {name}
+          </div>
+          {failure ? (
+            <div className="text-[11px] truncate mx-auto" style={{ color: "#8e8e93", maxWidth: 110, lineHeight: 1.3 }} data-testid="row-failure" data-state={failure.state}>
+              <FailureText failure={failure} nextAt={look?.nextAt ?? null} />
+            </div>
+          ) : shownBusy ? (
+            <div className="text-[11px] truncate mx-auto" style={{ color, maxWidth: 110, lineHeight: 1.3 }} data-testid="pin-activity">
+              {activityPinText(shownBusy)}
+            </div>
+          ) : null}
+        </button>
+      </div>
+    );
+  };
+
   return (
     <div data-testid="home-list" data-rearranging={rearranging ? "1" : undefined}>
       <span id="home-row-hint" className="sr-only">
@@ -263,58 +438,23 @@ export function HomeList({
           ? "Drag a handle to reorder. Tap Done when finished."
           : `Press and hold for options, like Remove from ${homeName}.`}
       </span>
-      {views.map((v, i) => {
-        const address = v.row.address;
-        const handle = parseHomeAddress(address)?.handle ?? "";
-        const here = v.kind === "here" ? v.agent : null;
-        const { look, failure, action } = rowState(v);
-        // Not listed yet (the list is loading): assumed fine, shown as
-        // normal with what this phone remembers of it.
-        const pending = v.kind === "missing" && !!v.pending;
-        const pendingKey = pending ? lastAtKeyFor(zenId, { addr: handle }) : null;
-        const there = v.kind === "remote" ? v.resolved?.agent ?? null : null;
-        const busy = look
-          ? look.busy
-          : here && source === "live"
-            ? activityForRow(here, activity, false, chatSessions)
-            : null;
-        const lastKey = here && source === "live" ? lastAtKeyFor(zenId, here) ?? undefined : undefined;
-        const whenKey = lastKey ?? pendingKey ?? undefined;
-        const when = look
-          ? look.when
-          : whenKey && lastAtByKey[whenKey] != null
-            ? mountainListWhen(lastAtByKey[whenKey] as number)
-            : "";
-        const name = here?.name ?? there?.name ?? v.row.label ?? handle;
-        const preview = failure ? (
-          <span data-testid="row-failure" data-state={failure.state} title={failure.detail ?? undefined}>
-            <FailureText failure={failure} nextAt={look?.nextAt ?? null} />
-          </span>
-        ) : look ? (
-          look.preview
-        ) : activeDown && v.kind !== "remote" ? (
-          <span className="inline-flex items-center" style={{ gap: 6 }} data-testid="row-reconnecting">
-            <span aria-hidden className="k2-reconnect-dot" />
-            Reconnecting…
-          </span>
-        ) : v.kind === "here" ? (
-          previewFor(v.agent)
-        ) : pending ? (
-          previewFor({ id: handle, addr: handle, name, kind: "agent" } as StubAgent)
-        ) : v.kind === "remote" ? (
-          `On ${v.serverLabel}`
-        ) : (
-          "Not on this server's list right now"
-        );
-        const dim = look ? !!failure || look.dim : v.kind !== "here" && !pending;
-        const target = source === "live" || v.kind === "remote" ? homeRowTarget(v, zenId) : null;
-        const unread =
-          target && !failure
-            ? rowUnreadFor(unreadServers, unreadAddrs, target.serverId, { addr: target.addr })
-            : null;
-        const opacity = look ? (dim ? 0.6 : 1) : dim ? 0.55 : 1;
-        const elsewhere = otherHomeOf?.(address) ?? null;
-        const remoteView = v.kind === "remote" ? v : null;
+      {gridded.length ? (
+        <div
+          className="grid"
+          style={{
+            gridTemplateColumns: zenPinGridColumns(gridded.length),
+            justifyContent: gridded.length < 3 ? "center" : undefined,
+            padding: `4px ${ZEN_LIST_EDGE_PAD}px ${ZEN_PIN_GRID_BOTTOM_PX}px`,
+            gap: `${ZEN_PIN_ROW_GAP}px ${ZEN_PIN_COL_GAP}px`,
+            margin: `10px ${ZEN_LIST_EDGE_INSET}px 0`,
+          }}
+          data-testid="home-grid"
+        >
+          {gridded.map(tile)}
+        </div>
+      ) : null}
+      {listed.map((v, i) => {
+        const { address, handle, here, look, failure, action, there, busy, when, name, preview, unread, opacity, elsewhere, dim, remoteView } = modelOf(v);
         const shift = rearrange.offsetFor(address);
         return (
           <div
@@ -397,7 +537,7 @@ export function HomeList({
               </span>
             ) : null}
             {/* A hairline between rows: none under the last one. */}
-            {i < views.length - 1 && !shift.dragging ? (
+            {i < listed.length - 1 && !shift.dragging ? (
               <RowDivider
                 padLeft={rearrangePadLeft(inset, rearranging)}
                 padRight={ZEN_ROW_RIGHT_INSET}
