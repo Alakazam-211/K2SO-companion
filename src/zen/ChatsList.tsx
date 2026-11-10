@@ -76,6 +76,7 @@ import { homeViewRecent, orderRecentFirst, recentSentKey, useRecentFirstStore } 
 import { useListField, useZenStore } from "./zenStore";
 import { gardensAvailable } from "./gardens/gardensApi";
 import { GardensList } from "./gardens/GardensList";
+import { useGardensScope } from "./gardens/gardensScope";
 import { withServerParam } from "./room/serverRef";
 import { FOCUS_OFF } from "./serverPins";
 import { labelOf, snapshotCapable, useMultiServerList, type ActiveSlice } from "./multi/useMultiServerList";
@@ -454,8 +455,10 @@ export function ChatsList() {
   // pick is this device's (localStorage). Home is one server for now.
   const [tab, setTabState] = useState<ListTab>(readListTab);
   const onHome = tab === "home";
-  // A third tab on servers with Gardens; elsewhere the pick falls to Agents.
-  const showGardens = gardensAvailable(zen);
+  // A third tab when the phone's paired home server has Gardens; otherwise
+  // the pick falls to Agents.
+  const gardensHome = useGardensScope();
+  const showGardens = gardensAvailable(gardensHome);
   const showVoice = useVoiceAvailable();
   const inCall = useVoiceCall((s) => s.phase !== "idle");
   // The call screen lives at the app's level (App.tsx), over every screen.
@@ -1542,9 +1545,9 @@ export function ChatsList() {
       >
       {onGardens ? (
         <GardensList
-          scope={zen}
+          scope={gardensHome}
           query={q}
-          onOpen={(id) => navigate(`${withServerParam("/zen/gardens", zen.id)}${zen.id ? "&" : "?"}garden=${encodeURIComponent(id)}`)}
+          onOpen={(id) => navigate(`${withServerParam("/zen/gardens", gardensHome.id)}${gardensHome.id ? "&" : "?"}garden=${encodeURIComponent(id)}`)}
         />
       ) : onHome ? (
         <HomeList
