@@ -18,7 +18,7 @@
 /** `/boot-status` `features` key a daemon reports while it hosts rooms
  *  (`voice::occupancy::hosts_rooms`: preview on, Linux, the K5 Space
  *  ready, Pro, at least one room). A daemon with the preview off never lists
- *  it, so the headset shows nothing at all. */
+ *  it, so the Rooms button shows nothing at all. */
 export const VOICE_ROOMS_FEATURE = "voice-rooms-v1";
 
 /** The daemon's §4.5 state (`voice::Hosting`). The daemon owns the set and
