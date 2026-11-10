@@ -1,4 +1,5 @@
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { BackArrowButton } from "./BackArrowButton";
 import {
   assigneeInitials,
   collapseWs,
@@ -191,14 +192,7 @@ export const TicketsOverlay = memo(function TicketsOverlay({
           columnGap: 8,
         }}
       >
-        <button
-          type="button"
-          className="text-[17px] justify-self-start zen-glass zen-glass-pill"
-          style={{ minHeight: 34, padding: "0 14px", color: "#fff", pointerEvents: "auto" }}
-          onClick={onClose}
-        >
-          Done
-        </button>
+        <BackArrowButton onClick={onClose} style={{ pointerEvents: "auto" }} />
         <h1 className="text-[17px] font-semibold pointer-events-none zen-header-text">Tickets</h1>
         <span />
       </div>

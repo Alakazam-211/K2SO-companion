@@ -288,7 +288,7 @@ describe("Floating blur headers", () => {
     const tabs = screen.getByTestId("ticket-scopes");
     expect(header.contains(tabs)).toBe(true);
     expect(tabs.style.pointerEvents).toBe("auto");
-    const done = within(header).getByRole("button", { name: "Done" });
+    const done = within(header).getByRole("button", { name: "Back" });
     expect(done.style.pointerEvents).toBe("auto");
 
     // Cards start under the header: safe area plus the measured height

@@ -37,6 +37,7 @@ import {
 } from "../zen/overlayExtras";
 import { groupRowId, useZenStore } from "../zen/zenStore";
 import { AgentIconSheet } from "../zen/AgentIconSheet";
+import { BackChevron } from "../zen/BackArrowButton";
 import { canChangeIcon, iconTargetFor } from "../zen/workspaceIcon";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { roomServerId, useZenScope } from "../zen/zenScope";
@@ -536,18 +537,17 @@ export function Zen() {
               ref={pressBack}
               data-testid="chat-done"
               data-glass-shape="button"
-              className="text-[17px] shrink-0 justify-self-start zen-glass zen-glass-pill"
+              className="flex items-center justify-center shrink-0 justify-self-start zen-glass zen-glass-pill"
+              aria-label="Back"
               style={{
                 position: "relative",
                 zIndex: 1,
-                minHeight: 36,
-                padding: "0 14px",
-                color: "#fff",
+                ...HEADER_BTN,
                 marginTop: HEADER_BTN_TOP,
                 pointerEvents: "auto",
               }}
             >
-              Done
+              <BackChevron size={18} />
             </button>
             ) : (
             <button

@@ -9,6 +9,7 @@ import { serverDisplayName } from "../homeView";
 import { subscribeAppEvents } from "../ticketEvents";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "../ZenHeaderBlur";
 import { FEATURE_VOICE_ROOMS, fetchVoiceRooms, isVoiceRoomsChanged, type VoiceRoomsResult } from "./voiceApi";
+import { BackArrowButton } from "../BackArrowButton";
 import { useCallDuration } from "./callDuration";
 import { shareCallLog } from "./sewVoice";
 import { useLiveVideo, VideoTile } from "./videoLayer";
@@ -284,18 +285,7 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
           >
             {/* Back, not Done (Rosson): the call area sits over the page it was
                 opened from, floating tile or menu, and closing returns there. */}
-            <button
-              type="button"
-              className="flex items-center justify-center justify-self-start shrink-0 zen-glass zen-glass-pill"
-              style={{ width: 34, height: 34, color: "#fff", pointerEvents: "auto" }}
-              onClick={onClose}
-              aria-label="Back"
-              data-testid="voice-done"
-            >
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
-                <polyline points="15 18 9 12 15 6" />
-              </svg>
-            </button>
+            <BackArrowButton onClick={onClose} testId="voice-done" style={{ pointerEvents: "auto" }} />
             <h1 className="text-[17px] font-semibold pointer-events-none zen-header-text">Rooms</h1>
             <span />
           </div>

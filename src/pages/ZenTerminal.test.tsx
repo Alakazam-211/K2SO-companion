@@ -204,7 +204,7 @@ afterEach(() => {
 });
 
 describe("ZenTerminal", () => {
-  it("renders the glass header: Done, avatar, name, Terminal subtitle, Viewer/Claimer, reload", () => {
+  it("renders the glass header: back arrow, avatar, name, Terminal subtitle, Viewer/Claimer, reload", () => {
     renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
     const header = screen.getByTestId("zen-terminal-header");
     const blur = screen.getByTestId("zen-terminal-header-blur");
@@ -219,10 +219,9 @@ describe("ZenTerminal", () => {
     ).toBe(AGENT.iconUrl);
 
     const done = screen.getByTestId("zen-terminal-done");
-    expect(done.textContent).toBe("Done");
+    expect(done.getAttribute("aria-label")).toBe("Back");
     expect(done.className).toMatch(/zen-glass/);
     expect(done.className).toMatch(/zen-glass-pill/);
-    expect(done.className).toMatch(/text-\[17px\]/);
     expect(done.style.height).toBe("34px");
     expect(screen.queryByRole("button", { name: "Back to chat" })).toBeNull();
 

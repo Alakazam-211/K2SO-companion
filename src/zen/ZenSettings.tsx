@@ -9,6 +9,7 @@ import { useStashStore } from "./stash/stashStore";
 import { useBackHandler } from "../lib/androidBack";
 import { AcknowledgementsPage } from "./AcknowledgementsPage";
 import { RowChevron } from "./RowChevron";
+import { BackArrowButton } from "./BackArrowButton";
 
 const MUTED = "#8e8e93";
 const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
@@ -40,14 +41,7 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
           columnGap: 8,
         }}
       >
-        <button
-          type="button"
-          className="text-[17px] justify-self-start zen-glass zen-glass-pill"
-          style={{ minHeight: 34, padding: "0 14px", color: "#fff" }}
-          onClick={onClose}
-        >
-          Done
-        </button>
+        <BackArrowButton onClick={onClose} />
         <h1 className="text-[17px] font-semibold pointer-events-none">Settings</h1>
         <span />
       </div>

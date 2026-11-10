@@ -12,6 +12,7 @@ import {
   sortGroupsByRecency,
 } from "./projectChats";
 import { subscribeAppEvents } from "./ticketEvents";
+import { BackArrowButton } from "./BackArrowButton";
 import { mountainListWhen } from "./threadModel";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 import { useZenStore } from "./zenStore";
@@ -158,15 +159,7 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
               columnGap: 8,
             }}
           >
-            <button
-              type="button"
-              className="text-[17px] justify-self-start zen-glass zen-glass-pill"
-              style={{ minHeight: 34, padding: "0 14px", color: "#fff", pointerEvents: "auto" }}
-              onClick={onClose}
-              data-testid="projects-done"
-            >
-              Done
-            </button>
+            <BackArrowButton onClick={onClose} testId="projects-done" style={{ pointerEvents: "auto" }} />
             <h1 className="text-[17px] font-semibold pointer-events-none zen-header-text">
               Projects
             </h1>

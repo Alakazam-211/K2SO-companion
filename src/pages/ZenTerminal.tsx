@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useSyncExternalStore, type CSSProperties } from "react";
+import { BackChevron } from "../zen/BackArrowButton";
 import { flushSync } from "react-dom";
 import { useParams, useNavigate, useLocation, useSearchParams } from "react-router-dom";
 import { fullViewportHeight, useViewport } from "../lib/useViewportHeight";
@@ -419,10 +420,11 @@ export function ZenTerminal() {
               type="button"
               onClick={backToThread}
               data-testid="zen-terminal-done"
-              className="text-[17px] shrink-0 zen-glass zen-glass-pill"
-              style={{ height: PILL_PX, padding: "0 14px", color: "#fff" }}
+              className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
+              style={{ width: PILL_PX, height: PILL_PX, color: "#fff" }}
+              aria-label="Back"
             >
-              Done
+              <BackChevron />
             </button>
             <span data-testid="zen-terminal-avatar" className="flex shrink-0">
               <WorkspaceAvatar
