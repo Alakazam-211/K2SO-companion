@@ -35,7 +35,9 @@ import {
 import { useFileDrag } from "./fileDrag";
 import { useFileHold, type FileMenu } from "./useFileHold";
 import { GlassCloseButton } from "./GlassCloseButton";
+import { FolderPicker } from "./FolderPicker";
 import { NewFileSheet } from "./NewFileSheet";
+import { useViewportHeight } from "../lib/useViewportHeight";
 import { PlusGlyph } from "./PlusGlyph";
 import { workspaceHandleOf } from "./composerAttach";
 import { useBackHandler } from "../lib/androidBack";
@@ -495,6 +497,7 @@ function FilePaneOpen() {
             <NameSheetView
               sheet={sheet}
               root={root}
+              showHidden={showHidden}
               onClose={() => setSheet(null)}
               onMkdir={async (dir, name) => {
                 const path = joinPath(dir, name);
@@ -682,18 +685,25 @@ function FileRowMenu({
 function NameSheetView({
   sheet,
   root,
+  showHidden,
   onClose,
   onMkdir,
   onRename,
 }: {
   sheet: NameSheet;
   root: string;
+  showHidden: boolean;
   onClose: () => void;
   onMkdir: (dir: string, name: string) => Promise<string | null>;
   onRename: (path: string, name: string, section: FileMenu["section"]) => Promise<string | null>;
 }) {
   const current = sheet.kind === "rename" ? baseName(sheet.path) : "";
-  const dir = sheet.kind === "rename" ? parentDir(sheet.path) : sheet.dir;
+  // New folder: the person can choose where. Rename stays where it is.
+  const [pickedDir, setPickedDir] = useState(sheet.kind === "mkdir" ? sheet.dir : "");
+  const dir = sheet.kind === "rename" ? parentDir(sheet.path) : pickedDir;
+  // WebKit doesn't shrink a fixed sheet for the keyboard: this one sizes
+  // itself to what's visible, so the name field sits above the keyboard.
+  const viewportHeight = useViewportHeight();
   const [value, setValue] = useState(current);
   const [siblings, setSiblings] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
@@ -744,15 +754,15 @@ function NameSheetView({
     setServerError(null);
     const name = value.trim();
     const err =
-      sheet.kind === "mkdir" ? await onMkdir(sheet.dir, name) : await onRename(sheet.path, name, sheet.section);
+      sheet.kind === "mkdir" ? await onMkdir(dir, name) : await onRename(sheet.path, name, sheet.section);
     setBusy(false);
     if (err) setServerError(err);
   };
 
   return (
     <div
-      className="fixed inset-0 z-[75] flex items-end justify-center"
-      style={{ background: "rgba(0,0,0,.5)" }}
+      className="fixed top-0 left-0 right-0 z-[75] flex items-end justify-center"
+      style={{ background: "rgba(0,0,0,.5)", height: viewportHeight }}
       data-testid="files-name-sheet"
       onClick={(e) => {
         if (e.target === e.currentTarget && !busy) onClose();
@@ -774,6 +784,19 @@ function NameSheetView({
           <span className="shrink-0">in</span>
           <MiddleEllipsis text={displayPathUnder(dir, root)} title={dir} testId="files-sheet-target" />
         </div>
+        {sheet.kind === "mkdir" ? (
+          <div className="mb-3">
+            <FolderPicker
+              scope={sheet.scope}
+              root={root}
+              dir={dir}
+              onDir={setPickedDir}
+              showHidden={showHidden}
+              disabled={busy}
+              maxHeight="min(24vh, 180px)"
+            />
+          </div>
+        ) : null}
         <input
           ref={inputRef}
           data-testid="files-name-input"
