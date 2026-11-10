@@ -41,3 +41,14 @@ export function senderPicture(from: string, agents: readonly StubAgent[]): Sende
   if (agent) return { initial: agent.initial, color: agent.color ?? null, iconUrl: agent.iconUrl ?? null };
   return { initial: skinInitials(from || "?"), color: `hsl(${authorHue(key || "?")}, 38%, 42%)`, iconUrl: null };
 }
+
+/** The name above someone else's bubble: the agent whose handle (`addr`)
+ *  is `from`, by that row's display name, since a handle can change while
+ *  the name stays (K2 2026-11-10: the review box's re-hired demo agent).
+ *  No match (a person, a bot, an agent not on this server): `from` as is. */
+export function senderLabel(from: string, agents: readonly StubAgent[]): string {
+  const key = from.trim().toLowerCase();
+  if (!key) return from;
+  const agent = agents.find((a) => a.kind !== "group" && (a.addr || "").trim().toLowerCase() === key);
+  return agent?.name.trim() || from;
+}

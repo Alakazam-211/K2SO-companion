@@ -25,7 +25,7 @@ import {
   searchRanges,
 } from "./threadSearch";
 import { useThreadSearch, type ThreadSearchMatch } from "./threadSearchStore";
-import { otherSenderCount, senderPicture, THREAD_PICTURE_GAP, THREAD_PICTURE_PX, useThreadPicturesOn, type SenderPicture } from "./threadPictures";
+import { otherSenderCount, senderLabel, senderPicture, THREAD_PICTURE_GAP, THREAD_PICTURE_PX, useThreadPicturesOn, type SenderPicture } from "./threadPictures";
 import { getThreadActivity, uploadFsBinary } from "../api/client";
 import { ChatMessageBody } from "../components/ChatMessage";
 import { asErrorText } from "../lib/apiError";
@@ -575,6 +575,7 @@ const ThreadRow = memo(function ThreadRow({
   onStashOffer,
   pictureOn,
   picture,
+  fromLabel,
 }: {
   rowKey: string;
   /** A thread message (in the render window), not an outgoing send. */
@@ -614,6 +615,9 @@ const ThreadRow = memo(function ThreadRow({
   /** The first of a run from someone else: the sender's picture, drawn
    *  in the column and faded out while it's off, so both ways animate. */
   picture?: SenderPicture | null;
+  /** The sender's name above the run (senderLabel): an agent's display
+   *  name, not its handle. Falls back to `m.from`. */
+  fromLabel?: string;
 }) {
   const wordless = !m.text.trim() && !m.choice;
   const bubble = !(files && wordless);
@@ -651,7 +655,7 @@ const ThreadRow = memo(function ThreadRow({
         >
           <span className="truncate min-w-0">
             {stub ? <StubMark /> : null}
-            {m.from}
+            {fromLabel ?? m.from}
           </span>
           <span className="shrink-0" aria-hidden>
             •
@@ -2725,6 +2729,7 @@ export function ThreadPane({
                     imagesOn={imagesOn}
                     pictureOn={m.mine ? undefined : picturesOn}
                     picture={!m.mine && run.first ? pictureFor(m.from) : null}
+                    fromLabel={!m.mine && run.first ? senderLabel(m.from, agents) : undefined}
                     runFirst={run.first}
                     runLast={run.last}
                     spaced={run.first && i > 0}
@@ -2978,7 +2983,7 @@ export function ThreadPane({
       {stash.dialog}
       {msgHold.menu && heldMessage ? (
         <AgentMenu
-          label={`Message from ${heldMessage.from || "agent"}`}
+          label={`Message from ${senderLabel(heldMessage.from, agents) || "agent"}`}
           menu={msgHold.menu}
           entries={holdEntries}
           onClose={msgHold.close}
