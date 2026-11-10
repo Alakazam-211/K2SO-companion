@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { ABOUT } from "../lib/about";
 import { usePushToggle } from "../lib/usePushToggle";
 import { ZEN_FONTS, ZEN_TEXT_SIZES, useZenFontStore } from "./zenFont";
@@ -7,6 +7,8 @@ import { useRecentFirstStore } from "./recentFirst";
 import { useJumpOnSendStore } from "./jumpOnSend";
 import { useStashStore } from "./stash/stashStore";
 import { useBackHandler } from "../lib/androidBack";
+import { AcknowledgementsPage } from "./AcknowledgementsPage";
+import { RowChevron } from "./RowChevron";
 
 const MUTED = "#8e8e93";
 const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
@@ -22,6 +24,7 @@ const SWITCH_ON = "#30d158";
 export function ZenSettings({ onClose }: { onClose: () => void }) {
   // Android Back = Done.
   useBackHandler(true, onClose);
+  const [notices, setNotices] = useState(false);
   return (
     <div
       className="absolute inset-0 flex flex-col"
@@ -96,8 +99,19 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
           <ValueRow label="Version" value={ABOUT.version} divider />
           <ValueRow label="Engine" value={ABOUT.engine} divider />
           <ValueRow label="Terminal" value={ABOUT.terminal} divider />
+          <button
+            type="button"
+            className="w-full flex items-center justify-between text-[17px] text-left"
+            style={{ minHeight: 44, padding: "11px 16px", borderTop: HAIRLINE }}
+            data-testid="settings-acknowledgements"
+            onClick={() => setNotices(true)}
+          >
+            <span>Acknowledgements</span>
+            <RowChevron />
+          </button>
         </Group>
       </div>
+      {notices ? <AcknowledgementsPage onBack={() => setNotices(false)} /> : null}
     </div>
   );
 }

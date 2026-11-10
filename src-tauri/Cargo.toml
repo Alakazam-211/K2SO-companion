@@ -4,6 +4,8 @@ version = "4.2.1"
 description = "Mobile companion for K2 agent orchestrator"
 authors = ["Alakazam Labs"]
 edition = "2021"
+license = "MIT"
+publish = false
 
 [lib]
 name = "k2so_companion_lib"

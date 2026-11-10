@@ -16,6 +16,7 @@ name = "k2-broadcast-ring"
 version = "0.1.0"
 edition = "2021"
 publish = false
+license = "MIT"
 
 [lib]
 name = "k2_broadcast_ring"

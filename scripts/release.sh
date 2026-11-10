@@ -198,6 +198,7 @@ echo "  ✓ package.json, tauri.conf.json, Info.plist (app, NSE, Broadcast), Car
 
 echo "→ Building frontend..."
 cd "$PROJECT_DIR"
+node scripts/gen-acknowledgements.mjs
 npm run build --silent
 
 echo "→ Building iOS archive..."
@@ -452,7 +453,7 @@ echo "  ✓ Uploaded to App Store Connect"
 
 echo "→ Committing and tagging..."
 cd "$PROJECT_DIR"
-git add package.json src-tauri/tauri.conf.json src-tauri/gen/apple/k2so-companion_iOS/Info.plist \
+git add public/acknowledgements.txt package.json src-tauri/tauri.conf.json src-tauri/gen/apple/k2so-companion_iOS/Info.plist \
   src-tauri/gen/apple/K2NotificationService/Info.plist \
   src-tauri/gen/apple/K2Broadcast/Info.plist \
   src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/gen/apple/project.yml
