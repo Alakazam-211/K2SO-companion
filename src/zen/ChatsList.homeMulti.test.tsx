@@ -350,15 +350,10 @@ describe("Home list across servers (HM3, flag on)", () => {
     mount();
     goHome();
     const row = homeRow("docs::bravo.k2.dev");
-    await waitFor(() => expect(within(row).getByTestId("row-activity").textContent).toBe("Working"));
+    await waitFor(() => expect(within(row).getByTestId("pin-activity").textContent).toMatch(/^Working/));
     expect(within(row).getByTestId("row-server-chip").textContent).toBe("Bravo");
-    // Owner 2026-10: the chip sits right after the name, in the name group,
-    // never beside the time.
-    const chip = within(row).getByTestId("row-server-chip");
-    const name = within(row).getByTestId("row-name");
-    expect(name.nextElementSibling).toBe(chip);
-    expect(chip.parentElement).toBe(within(row).getByTestId("row-name-group"));
-    expect(within(row).getByTestId("row-when").contains(chip)).toBe(false);
+    // In the grid the chip overlaps the picture.
+    expect(within(row).getByTestId("pin-avatar").contains(within(row).getByTestId("row-server-chip"))).toBe(true);
     expect(row.getAttribute("data-greyed")).toBeNull();
     // The active server's row carries its own chip with several servers.
     expect(within(homeRow("alpha::alpha.k2.dev")).getByTestId("row-server-chip").textContent).toBe("Alpha");
@@ -447,7 +442,21 @@ describe("Home list across servers (HM3, flag on)", () => {
     expect(net.calls.filter((c) => c.path === "/boot-status")).toEqual([]);
   });
 
-  it("failure rows: the §6.8 copy and one action, scoped to the row's server", async () => {
+  it("a failure in the grid: its copy under the name, and a tap runs its one fix", async () => {
+    addHomeRow("cc", "charlie.k2.dev");
+    seed();
+    setFlag(true);
+    mount();
+    goHome();
+    await waitFor(() => expect(homeRow("cc::charlie.k2.dev").querySelector("[data-testid=row-failure]")?.getAttribute("data-state")).toBe("signin-required"));
+    expect(screen.getByTestId("home-grid").contains(homeRow("cc::charlie.k2.dev"))).toBe(true);
+    fireEvent.click(screen.getByTestId("home-row-cc"));
+    expect(within(screen.getByTestId("row-sign-in")).getByDisplayValue("charlie.k2.dev")).not.toBeNull();
+    expect(useServersStore.getState().activeServerId).toBe("a");
+  });
+
+  it("failure rows past the grid: the §6.8 copy and one action, scoped to the row's server", async () => {
+    for (let n = 0; n < 9; n++) addHomeRow(`g${n}`, "alpha.k2.dev");
     addHomeRow("cc", "charlie.k2.dev");
     addHomeRow("dd", "delta.k2.dev");
     addHomeRow("ee", "echo.k2.dev");
