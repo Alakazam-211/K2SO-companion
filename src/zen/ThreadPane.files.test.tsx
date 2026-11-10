@@ -167,6 +167,18 @@ describe("gate", () => {
   });
 });
 
+describe("profile pictures (two or more other senders)", () => {
+  it("are off with one other sender; on with two, beside each run's first bubble only", () => {
+    room([message("m1", 1, "hi", [], "sales"), message("m2", 2, "again", [], "sales")]);
+    const { unmount } = render(<ThreadPane />);
+    expect(screen.queryAllByTestId("thread-msg-picture")).toHaveLength(0);
+    unmount();
+    room([message("m1", 1, "hi", [], "sales"), message("m2", 2, "again", [], "sales"), message("m3", 3, "me too", [], "ops")]);
+    render(<ThreadPane />);
+    expect(screen.getAllByTestId("thread-msg-picture")).toHaveLength(2);
+  });
+});
+
 describe("chips", () => {
   it("each state: ok, changed, gone, hidden", () => {
     room([
