@@ -142,7 +142,7 @@ describe("OverlayServers", () => {
   it("the + button opens the overlay add form; no header Add button", () => {
     render(<OverlayServers onClose={() => {}} />);
     expect(screen.queryByRole("button", { name: "Add" })).toBeNull();
-    expect(screen.getByRole("button", { name: "Done" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Back" })).not.toBeNull();
     const plus = screen.getByRole("button", { name: "Add server" });
     expect(plus.className).toMatch(/zen-glass-round/);
     fireEvent.click(plus);
@@ -305,7 +305,7 @@ describe("OverlayServers", () => {
     expect(header.contains(pinned)).toBe(true);
     const card = within(pinned).getByRole("button", { name: "Home" }).parentElement!;
     expect(card.style.pointerEvents).toBe("auto");
-    const done = within(header).getByRole("button", { name: "Done" });
+    const done = within(header).getByRole("button", { name: "Back" });
     expect(done.style.pointerEvents).toBe("auto");
     fireEvent.click(done);
     expect(onClose).toHaveBeenCalledTimes(1);

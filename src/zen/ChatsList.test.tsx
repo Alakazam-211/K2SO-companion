@@ -337,7 +337,7 @@ describe("ChatsList", () => {
     fireEvent.click(screen.getByTestId("chats-header-settings"));
     expect(screen.queryByTestId("chats-more-menu")).toBeNull();
     expect(screen.getByTestId("overlay-settings")).not.toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
 
     openMore();
     fireEvent.click(screen.getByRole("menuitem", { name: "Tickets" }));
@@ -582,7 +582,7 @@ describe("ChatsList", () => {
     expect(screen.queryByRole("button", { name: "Leave Zen Mode" })).toBeNull();
     expect(screen.queryByRole("button", { name: /Terminal view/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /Current app/ })).toBeNull();
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(screen.queryByTestId("overlay-settings")).toBeNull();
   });
 

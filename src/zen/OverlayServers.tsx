@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { BackArrowButton } from "./BackArrowButton";
 import { ServerUnreadPill } from "./UnreadMarks";
 import { connectServer } from "../lib/revive";
 import { hostLabel, isPairedServer, useServersStore, type RecoveryState, type ServerEntry } from "../stores/servers";
@@ -370,19 +371,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
           padding: "12px 16px 8px",
         }}
       >
-        <button
-          type="button"
-          className="text-[17px] k2-tile"
-          style={{
-            minHeight: 34,
-            padding: "0 14px",
-            borderRadius: 17,
-            pointerEvents: "auto",
-          }}
-          onClick={onClose}
-        >
-          Done
-        </button>
+        <BackArrowButton onClick={onClose} style={{ pointerEvents: "auto" }} />
         <h1 className="absolute left-1/2 -translate-x-1/2 text-[17px] font-semibold pointer-events-none zen-header-text">
           Servers
         </h1>

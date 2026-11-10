@@ -446,7 +446,7 @@ describe("Zen Sessions drawer", () => {
     expect(vi.mocked(getAllSessions).mock.calls.length).toBeGreaterThan(calls);
     expect(useZenStore.getState().drawerOrigin).toBe(MAIN.id);
     expect(screen.queryByTestId("sessions-drawer")).toBeNull();
-    expect(screen.getByTestId("chat-done").textContent).toBe("Done");
+    expect(screen.getByTestId("chat-done").getAttribute("aria-label")).toBe("Back");
     expect(screen.queryByTestId("term-loc")).toBeNull();
     const added = useZenStore.getState().agents.find((a) => a.addr === PLANNING);
     expect(added?.hostLive).toBe(true);
@@ -515,7 +515,7 @@ describe("Zen Sessions drawer", () => {
     expect(screen.getByTestId("sessions-drawer")).not.toBeNull();
     fireEvent.click(within(drawer).getByTestId("session-open-without-waking"));
     expect(useZenStore.getState().threadAddr).toBe(PLANNING);
-    expect(screen.getByTestId("chat-done").textContent).toBe("Done");
+    expect(screen.getByTestId("chat-done").getAttribute("aria-label")).toBe("Back");
     expect(spawnResumeTab).toHaveBeenCalledTimes(1);
     // Read-only: a hostless History row stays out of the Chats list.
     expect(useZenStore.getState().agents.find((a) => a.addr === PLANNING)?.hostLive).toBe(false);
@@ -539,7 +539,7 @@ describe("Zen Sessions drawer", () => {
     expect(within(planning).queryByTestId("session-read-only")).toBeNull();
     fireEvent.click(row);
     expect(useZenStore.getState().threadAddr).toBe("c-bulk-aider");
-    expect(screen.getByTestId("chat-done").textContent).toBe("Done");
+    expect(screen.getByTestId("chat-done").getAttribute("aria-label")).toBe("Back");
     expect(spawnResumeTab).not.toHaveBeenCalled();
     expect(spawnSidecarSession).not.toHaveBeenCalled();
   });
@@ -579,7 +579,7 @@ describe("Zen Sessions drawer", () => {
       })
     );
     await waitFor(() => expect(useZenStore.getState().threadAddr).toBe("k2/old"));
-    expect(screen.getByTestId("chat-done").textContent).toBe("Done");
+    expect(screen.getByTestId("chat-done").getAttribute("aria-label")).toBe("Back");
     expect(spawnSidecarSession).toHaveBeenCalledTimes(1);
     expect(spawnResumeTab).not.toHaveBeenCalled();
     expect(screen.queryByTestId("term-loc")).toBeNull();
@@ -604,7 +604,7 @@ describe("Zen Sessions drawer", () => {
     expect(useZenStore.getState().drawerOrigin).toBe(MAIN.id);
     expect(sessionStorage.getItem(DRAWER_ORIGIN_KEY)).toBe(MAIN.id);
     expect(screen.queryByTestId("sessions-drawer")).toBeNull();
-    expect(screen.getByTestId("chat-done").textContent).toBe("Done");
+    expect(screen.getByTestId("chat-done").getAttribute("aria-label")).toBe("Back");
     expect(screen.queryByTestId("chat-back")).toBeNull();
     // Done mode: the centre title is <Agent>/<sidecar>, pencil beside it.
     expect(screen.getByTestId("chat-header-title").textContent).toBe("K2/reviewer");
@@ -692,7 +692,7 @@ describe("Zen Sessions drawer", () => {
     await pick("Scratch");
     expect(useZenStore.getState().threadAddr).toBe("k2/3");
     expect(useZenStore.getState().drawerOrigin).toBe(MAIN.id);
-    expect(screen.getByTestId("chat-done").textContent).toBe("Done");
+    expect(screen.getByTestId("chat-done").getAttribute("aria-label")).toBe("Back");
     expect(screen.queryByTestId("term-loc")).toBeNull();
     // Its own live PTY hosts it: no second host is spawned.
     await waitFor(() => expect(getAllSessions).toHaveBeenCalled());
@@ -862,7 +862,7 @@ describe("Zen Sessions drawer", () => {
     expect(useZenStore.getState().drawerOrigin).toBe(MAIN.id);
     expect(sessionStorage.getItem(DRAWER_ORIGIN_KEY)).toBe(MAIN.id);
     expect(screen.queryByTestId("sessions-drawer")).toBeNull();
-    expect(screen.getByTestId("chat-done").textContent).toBe("Done");
+    expect(screen.getByTestId("chat-done").getAttribute("aria-label")).toBe("Back");
     expect(screen.getByTestId("chat-header-title").textContent).toBe("K2/2");
     fireEvent.click(screen.getByTestId("chat-done"));
     expect(useZenStore.getState().threadAddr).toBe("k2");

@@ -4,6 +4,7 @@ import type { ServerScope } from "../api/scope";
 import { scopedFetch } from "../api/scopedFetch";
 import { useBackHandler } from "../lib/androidBack";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
+import { BackArrowButton } from "./BackArrowButton";
 import { agentPermissionRows, agentSettingRows, projectRowOf, type AgentInfoRow } from "./agentSettings";
 
 const MUTED = "#8e8e93";
@@ -87,15 +88,7 @@ export function AgentSettingsPage({
         className="grid items-center shrink-0"
         style={{ gridTemplateColumns: "1fr minmax(0, auto) 1fr", minHeight: 44, padding: "12px 12px 8px", columnGap: 8 }}
       >
-        <button
-          type="button"
-          className="text-[17px] justify-self-start zen-glass zen-glass-pill"
-          style={{ minHeight: 34, padding: "0 14px", color: "#fff" }}
-          onClick={onBack}
-          data-testid="agent-settings-back"
-        >
-          Back
-        </button>
+        <BackArrowButton onClick={onBack} testId="agent-settings-back" />
         <h1 className="text-[17px] font-semibold truncate pointer-events-none" data-testid="agent-settings-title">
           {name}
         </h1>

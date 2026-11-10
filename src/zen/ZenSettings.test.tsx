@@ -130,7 +130,7 @@ describe("ZenSettings", () => {
     }
     expect(within(screen.getByTestId("settings-notifications")).getByText("Notifications")).not.toBeNull();
     expect(screen.getByTestId("settings-scroll").className).toMatch(/overflow-y-auto/);
-    expect(screen.getByRole("button", { name: "Done" }).className).toMatch(/zen-glass-pill/);
+    expect(screen.getByRole("button", { name: "Back" }).className).toMatch(/zen-glass-pill/);
     // The pre-Zen UI is gone (4.1.0): nothing to leave to.
     expect(screen.queryByRole("button", { name: "Leave Zen Mode" })).toBeNull();
     expect(screen.queryByText(/Terminal view/)).toBeNull();
@@ -216,7 +216,7 @@ describe("ZenSettings", () => {
 
   it("Done closes the sheet without navigating", () => {
     const onClose = mount();
-    fireEvent.click(screen.getByRole("button", { name: "Done" }));
+    fireEvent.click(screen.getByRole("button", { name: "Back" }));
     expect(onClose).toHaveBeenCalledTimes(1);
     expect(screen.queryByTestId("where")).toBeNull();
   });

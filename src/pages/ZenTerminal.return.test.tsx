@@ -147,7 +147,7 @@ async function expectSessionThread(addr: string, header?: string) {
   expect(s.drawerOrigin).toBe("/ws");
   expect(sessionStorage.getItem(DRAWER_ORIGIN_KEY)).toBe("/ws");
   expect(screen.queryByTestId("zen-terminal")).toBeNull();
-  expect(screen.getByTestId("chat-done").textContent).toBe("Done");
+  expect(screen.getByTestId("chat-done").getAttribute("aria-label")).toBe("Back");
   // The same header the drawer pick showed.
   if (header !== undefined) {
     expect(screen.getByTestId("chat-header-title").textContent).toBe(header);
