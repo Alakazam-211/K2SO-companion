@@ -562,6 +562,7 @@ const ThreadRow = memo(function ThreadRow({
   onRestore,
   onOpenFile,
   onStashOffer,
+  pictureOn,
   picture,
 }: {
   rowKey: string;
@@ -596,9 +597,12 @@ const ThreadRow = memo(function ThreadRow({
   onRestore: (o: OutgoingMessage) => void;
   onOpenFile: (m: ThreadMessage, a: ThreadAttachment) => void;
   onStashOffer: (m: ThreadMessage) => Promise<StashSaveOutcome>;
-  /** Pictures are on in this Thread and this is someone else's row: its
-   *  gutter, and on a run's first row the sender's picture (threadPictures). */
-  picture?: SenderPicture | "gutter" | null;
+  /** Someone else's row: the sender column is shown (threadPictures).
+   *  Undefined on your own rows, which never move. */
+  pictureOn?: boolean;
+  /** The first of a run from someone else: the sender's picture, drawn
+   *  in the column and faded out while it's off, so both ways animate. */
+  picture?: SenderPicture | null;
 }) {
   const wordless = !m.text.trim() && !m.choice;
   const bubble = !(files && wordless);
@@ -618,21 +622,12 @@ const ThreadRow = memo(function ThreadRow({
         ...(highlighted && !bubble
           ? { borderRadius: 20, boxShadow: "0 0 0 2px rgba(10,132,255,.85)", transition: "box-shadow .4s" }
           : null),
-        ...(picture ? { position: "relative", paddingLeft: THREAD_PICTURE_PX + THREAD_PICTURE_GAP } : null),
+        ...(pictureOn !== undefined
+          ? { position: "relative", marginLeft: pictureOn ? THREAD_PICTURE_PX + THREAD_PICTURE_GAP : 0 }
+          : null),
       }}
+      data-sender-column={pictureOn === undefined ? undefined : pictureOn ? "on" : "off"}
     >
-      {picture && picture !== "gutter" ? (
-        <span className="absolute left-0 top-0" data-testid="thread-msg-picture">
-          <WorkspaceAvatar
-            initial={picture.initial}
-            color={picture.color}
-            iconUrl={picture.iconUrl}
-            size={THREAD_PICTURE_PX}
-            fontSize={12}
-            fallback="#2c2c2e"
-          />
-        </span>
-      ) : null}
       {/* Theirs: name and time on one line above the first
           bubble of a run. Mine: no name; the time (or
           Sending… / Not sent, or the receipt) below the last
@@ -653,6 +648,24 @@ const ThreadRow = memo(function ThreadRow({
           <span className="shrink-0" data-testid="thread-msg-time">
             {m.failed ? "Not sent" : m.pending ? "Sending…" : mountainTime(m.at)}
           </span>
+        </span>
+      ) : null}
+      {picture && pictureOn !== undefined ? (
+        <span
+          className="absolute top-0"
+          style={{ left: -(THREAD_PICTURE_PX + THREAD_PICTURE_GAP) }}
+          aria-hidden={!pictureOn}
+          data-thread-picture=""
+          data-testid="thread-msg-picture"
+        >
+          <WorkspaceAvatar
+            initial={picture.initial}
+            color={picture.color}
+            iconUrl={picture.iconUrl}
+            size={THREAD_PICTURE_PX}
+            fontSize={12}
+            fallback="#2c2c2e"
+          />
         </span>
       ) : null}
       {bubble ? (
@@ -2372,16 +2385,19 @@ export function ThreadPane({
   // one "Delivered" / "Read" receipt (chatReceipt.ts). A send still flying
   // in (or fading in) is not confirmed yet: the label moves once it lands.
   const runs = chatRuns(rows.map(({ m }) => ({ mine: m.mine, from: m.from, at: m.at })));
+  const pictureCache = useRef(new Map<string, SenderPicture>());
   const picturesOn = useThreadPicturesOn(
     `${zenServer}\n${groupId || agentId || ""}`,
     otherSenderCount(rows.map(({ m }) => m))
   );
-  const pictures = new Map<string, SenderPicture>();
+  // One object per sender and look, so memoized rows don't re-render.
   const pictureFor = (from: string): SenderPicture => {
-    let p = pictures.get(from);
+    const fresh = senderPicture(from, agents);
+    const key = `${from}\n${fresh.initial}\n${fresh.color ?? ""}\n${fresh.iconUrl ?? ""}`;
+    let p = pictureCache.current.get(key);
     if (!p) {
-      p = senderPicture(from, agents);
-      pictures.set(from, p);
+      p = fresh;
+      pictureCache.current.set(key, p);
     }
     return p;
   };
@@ -2642,7 +2658,8 @@ export function ThreadPane({
                     out={out}
                     files={files}
                     imagesOn={imagesOn}
-                    picture={picturesOn && !m.mine ? (run.first ? pictureFor(m.from) : "gutter") : null}
+                    pictureOn={m.mine ? undefined : picturesOn}
+                    picture={!m.mine && run.first ? pictureFor(m.from) : null}
                     runFirst={run.first}
                     runLast={run.last}
                     spaced={run.first && i > 0}
