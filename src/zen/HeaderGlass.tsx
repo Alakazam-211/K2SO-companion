@@ -8,6 +8,9 @@ export const GLASS_SHAPE_ATTR = "data-glass-shape";
  *  own glass (CSS `[data-glass-merged] [data-glass-shape]`). Until then,
  *  or without a canvas, each keeps its `.zen-glass`. */
 export const GLASS_MERGED_ATTR = "data-glass-merged";
+/** On a header part that is hidden for now (search open): its pieces are
+ *  left out of the merged outline until it comes back. */
+export const GLASS_HIDDEN_ATTR = "data-glass-hidden";
 
 /**
  * The chat header's merged glass (glassMerge.ts): a frosted fill and a rim
@@ -37,6 +40,7 @@ export function HeaderGlass() {
       const buttons: GlassShape[] = [];
       let pill: GlassShape | null = null;
       for (const el of host.querySelectorAll<HTMLElement>(`[${GLASS_SHAPE_ATTR}]`)) {
+        if (el.closest(`[${GLASS_HIDDEN_ATTR}]`)) continue;
         const r = el.getBoundingClientRect();
         if (r.width <= 0 || r.height <= 0) continue;
         const s = shapeFromRect(r, base);
@@ -66,12 +70,13 @@ export function HeaderGlass() {
       for (const el of host.querySelectorAll(`[${GLASS_SHAPE_ATTR}]`)) ro.observe(el);
     };
     watch();
-    // Pieces come and go (Done vs back, a group chat's single button).
+    // Pieces come and go (Done vs back, a group chat's single button, the
+    // parts search hides).
     const mo = new MutationObserver(() => {
       watch();
       schedule();
     });
-    mo.observe(host, { childList: true, subtree: true });
+    mo.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: [GLASS_HIDDEN_ATTR] });
     schedule();
     return () => {
       if (frame) cancelAnimationFrame(frame);

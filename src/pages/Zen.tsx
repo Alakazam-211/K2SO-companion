@@ -63,7 +63,7 @@ import { BackUnreadPill, useBackUnreadCount } from "../zen/UnreadMarks";
 import { useUnreadSync } from "../zen/unreadSync";
 import { useForegroundCatchup, useUnreadPrefetch } from "../zen/chatPrefetch";
 import { installPushInboxDrain } from "../lib/pushInbox";
-import { HeaderGlass } from "../zen/HeaderGlass";
+import { GLASS_HIDDEN_ATTR, HeaderGlass } from "../zen/HeaderGlass";
 import { usePressSpring } from "../lib/usePressSpring";
 import { useAgentUsage, usageColor, useUsageAgeMinutes } from "../zen/useAgentUsage";
 import { usageAgeText } from "../api/llmAccountFor";
@@ -199,6 +199,16 @@ export function Zen() {
   // The highest usage percent of the LLM account this chat's session uses
   // (K2 0.46.4), shown beside the LLM icon like the desktop's top-bar chip.
   const searchOpen = useThreadSearch((s) => s.open);
+  /** Searching (Rosson 2026-11-10): the picture, name, usage and the
+   *  right-hand buttons step aside while the field is open, and come back
+   *  when it closes. Hidden, not removed, so the header keeps its height;
+   *  the merged glass leaves them out (GLASS_HIDDEN_ATTR). */
+  const searchHides = searchOpen
+    ? {
+        style: { visibility: "hidden", pointerEvents: "none" } as const,
+        attrs: { "aria-hidden": true, [GLASS_HIDDEN_ATTR]: "" },
+      }
+    : { style: null, attrs: null };
   const agentUsage = useAgentUsage(zen, groupChat ? null : openAddr);
   const usageAgeMin = useUsageAgeMinutes(agentUsage?.updatedAt ?? null);
   const usageAge = usageAgeMin == null ? null : usageAgeText(usageAgeMin);
@@ -607,7 +617,11 @@ export function Zen() {
                 <ThreadSearchField onClose={() => useThreadSearch.getState().setOpen(false)} />
               </div>
             ) : null}
-            <div className="relative min-w-0 flex flex-col items-center justify-center zen-header-text" style={{ zIndex: 1 }}>
+            <div
+              className="relative min-w-0 flex flex-col items-center justify-center zen-header-text"
+              style={{ zIndex: 1, ...searchHides.style }}
+              {...searchHides.attrs}
+            >
               {/* The avatar overlaps the name bubble's top edge; the shadow
                   lifts it off the glass. */}
               <span className="relative flex" style={{ zIndex: 2 }}>
@@ -793,7 +807,8 @@ export function Zen() {
             <div
               data-testid="chat-header-right"
               className="relative flex flex-col items-end zen-header-text"
-              style={{ marginTop: HEADER_BTN_TOP, rowGap: 6, zIndex: 1, gridColumn: 3 }}
+              style={{ marginTop: HEADER_BTN_TOP, rowGap: 6, zIndex: 1, gridColumn: 3, ...searchHides.style }}
+              {...searchHides.attrs}
             >
             <span
               data-testid="chat-header-buttons"

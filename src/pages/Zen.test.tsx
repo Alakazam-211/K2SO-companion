@@ -34,6 +34,7 @@ import { getAgentList, getAllSessions, getCliProjectsList, setSessionLabel, setT
 import { backHandlerCount, pushBackHandler } from "../lib/androidBack";
 import { useServersStore } from "../stores/servers";
 import { STUB_AGENTS, STUB_FILES } from "../zen/stubData";
+import { useThreadSearch } from "../zen/threadSearchStore";
 import { useZenStore } from "../zen/zenStore";
 import { Zen } from "./Zen";
 
@@ -198,6 +199,37 @@ describe("Zen keeps the chats list mounted", () => {
     expect(screen.queryByTestId("file-pane")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Files" }));
     expect(screen.getByTestId("file-pane")).not.toBeNull();
+  });
+
+  it("hides the picture, name, usage and right-hand buttons while searching, and brings them back (Rosson 2026-11-10)", async () => {
+    setSessionToken("");
+    useZenStore.setState({ agentSource: "stub", agents: STUB_AGENTS, screen: "list", filesOpen: false, agentError: null });
+    render(
+      <MemoryRouter>
+        <Zen />
+      </MemoryRouter>
+    );
+    await waitFor(() => expect(useZenStore.getState().agentSource).toBe("stub"));
+    act(() => {
+      useZenStore.getState().setAgent(STUB_AGENTS[0].id);
+    });
+    const centre = () => screen.getByTestId("chat-header-name-pill").parentElement as HTMLElement;
+    const right = () => screen.getByTestId("chat-header-right");
+    expect(right().style.visibility).toBe("");
+    fireEvent.click(screen.getByTestId("chat-search"));
+    for (const part of [centre(), right()]) {
+      expect(part.style.visibility).toBe("hidden");
+      expect(part.getAttribute("aria-hidden")).toBe("true");
+      expect(part.hasAttribute("data-glass-hidden")).toBe(true);
+    }
+    expect(screen.getByTestId("chat-back")).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Close search" }));
+    expect(useThreadSearch.getState().open).toBe(false);
+    for (const part of [centre(), right()]) {
+      expect(part.style.visibility).toBe("");
+      expect(part.hasAttribute("aria-hidden")).toBe(false);
+      expect(part.hasAttribute("data-glass-hidden")).toBe(false);
+    }
   });
 
   it("?thread= opens that overlay chat after hydrate", async () => {
