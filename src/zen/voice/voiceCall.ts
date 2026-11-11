@@ -6,6 +6,7 @@ import {
   joinErrorText,
   MIC_DENIED_LINE,
   type CameraRefusal,
+  type RecordingNoticeFacts,
   type VoiceErrorCode,
 } from "./voiceWire";
 
@@ -28,18 +29,15 @@ export type CallPhase = "idle" | "joining" | "connected" | "reconnecting";
 /** `held`: a recorded room waits for the person's answer (no mic yet). */
 export type EngineState = "connecting" | "connected" | "reconnecting" | "held" | "ended";
 
-/** A recording notice waiting for an answer, in Sew's kit's words. */
+/** A recording notice waiting for an answer: K2's own for its rooms (K2
+ *  0.46.11), OK or leave, worded by `recordingNoticeText` on the page. */
 export type ConsentSheet = {
   /** `join`: the join is held; `in_call`: a recording started mid-call. */
   ask: "join" | "in_call";
   /** Sew's recording id (with the version: which notice this is). */
   recordingId?: string;
   noticeVersion: number;
-  title: string;
-  text: string;
-  /** In order; `granted: null` gives up the held join. */
-  choices: { label: string; granted: boolean | null }[];
-};
+} & Omit<RecordingNoticeFacts, "ask">;
 
 /** Which notice a sheet is (`null`: none): a new recording or version is
  *  a new key, the same notice read again is not. */

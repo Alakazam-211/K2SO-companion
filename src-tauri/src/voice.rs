@@ -1613,11 +1613,12 @@ fn recording_notice(r: &RecordingInfo, waiting: Waiting) -> Option<Notice> {
     let (title, body) = match waiting {
         Waiting::InCall => (
             "Recording started",
-            format!("{what} is recording {call}. Open K2 to choose whether you're recorded. You aren't until you say yes."),
+            // K2's rooms: OK or leave (K2 0.46.11), never "don't record me".
+            format!("{what} is recording {call}. Open K2 to say OK or leave the call. You aren't recorded until you say OK."),
         ),
         Waiting::Join => (
             "This room is recorded",
-            format!("{what} is recording {call}. Open K2 to choose how to join."),
+            format!("{what} is recording {call}. Open K2 to say OK and join, or not join."),
         ),
         Waiting::Rejoin => (
             "Recording started",

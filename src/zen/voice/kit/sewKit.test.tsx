@@ -44,8 +44,12 @@ vi.mock("livekit-client", () => {
 vi.mock("@sew/e2ee", () => {
   throw new Error("@sew/e2ee loaded on the native path");
 });
-const api = vi.hoisted(() => ({ rooms: vi.fn() }));
-vi.mock("../voiceApi", async (orig) => ({ ...(await orig<typeof import("../voiceApi")>()), fetchVoiceRooms: api.rooms }));
+const api = vi.hoisted(() => ({ rooms: vi.fn(), controls: vi.fn() }));
+vi.mock("../voiceApi", async (orig) => ({
+  ...(await orig<typeof import("../voiceApi")>()),
+  fetchVoiceRooms: api.rooms,
+  fetchRecordingControls: api.controls,
+}));
 vi.mock("../../ticketEvents", () => ({ subscribeAppEvents: () => ({ stop() {} }) }));
 vi.mock("../../../api/scope", async (orig) => ({
   ...(await orig<typeof import("../../../api/scope")>()),
@@ -130,6 +134,7 @@ beforeEach(() => {
     tokens: { s1: "t1" },
     activeServerId: "s1",
   });
+  api.controls.mockReset().mockResolvedValue({ ok: false, code: "unsupported" });
   api.rooms.mockReset().mockResolvedValue({
     ok: true,
     list: { hosting: { state: "ok", line: null, detail: null }, rev: 1, canManage: false, feedLive: true, me: null, rooms: ROOMS },
@@ -244,20 +249,14 @@ describe("Sew's call kit on the phone", () => {
         ask: "join",
         recordingId: "r1",
         noticeVersion: 3,
-        title: "This room is recorded",
-        text: "Sew Notes records the call in Standup.",
-        choices: [
-          { label: "Join and allow recording", granted: true },
-          { label: "Join without being recorded", granted: false },
-          { label: "Cancel", granted: null },
-        ],
+        startedByName: null, required: false, audioKeepDays: 0, appReaders: [], agentReaders: false,
       });
     });
     // The kit would ask: its controller has the held join's notice.
     expect(controller.snapshot().consent?.mode).toBe("join");
     render(<VoiceRoomsOverlay onClose={() => {}} />);
     expect(await screen.findByTestId("voice-kit")).toBeTruthy();
-    expect(screen.getByTestId("voice-consent").textContent).toContain("This room is recorded");
+    expect(screen.getByTestId("voice-consent").textContent).toContain("Standup is being recorded");
     expect(screen.queryByTestId("recording-consent")).toBeNull();
     expect(document.querySelectorAll("dialog")).toHaveLength(0);
   });
@@ -272,6 +271,54 @@ describe("Sew's call kit on the phone", () => {
     fireEvent.click(screen.getByTestId("voice-devices"));
     expect(screen.queryByTestId("device-settings")).toBeNull();
     expect(gum).not.toHaveBeenCalled();
+  });
+
+  it("Record and Stop: K2's rights go to the plugin, its word shows the buttons, and taps reach it (K2 0.46.11)", async () => {
+    const rights = { room: "room-1", my_perms: "8192", dm: false, recording_enabled: true, record_capped: false, agent: false };
+    api.controls.mockResolvedValue({ ok: true, answer: { rights, voiceChatOnly: false, agentReaders: false } });
+    const { controller } = sewKit();
+    await (controller as NativeVoiceController).started;
+    await storeJoinsAndConnects();
+    render(<KitCall />);
+    // Connected: the rights are read and handed over unchanged.
+    await waitFor(() => expect(calls("set_recording_rights")).toEqual([rights]));
+    expect(api.controls).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }), "room-1");
+    // No word from the plugin yet: no buttons.
+    expect(screen.queryByTestId("voice-record")).toBeNull();
+    act(() => plugin.emit("sew-voice://recording_controls", { can_record: true, can_stop: false }));
+    fireEvent.click(screen.getByTestId("voice-record"));
+    await waitFor(() => expect(calls("start_recording")).toHaveLength(1));
+    // A recording starts: the badge, Stop, and the rights read again.
+    act(() => {
+      plugin.emit("sew-voice://recording", {
+        recording_id: "r1",
+        auto: false,
+        my_consent: "granted",
+        participants: [],
+        recorder_present: true,
+      });
+      plugin.emit("sew-voice://recording_controls", { can_record: false, can_stop: true });
+    });
+    expect(screen.getByTestId("voice-recording-badge").textContent).toContain("Recording");
+    expect(screen.queryByTestId("voice-record")).toBeNull();
+    await waitFor(() => expect(calls("set_recording_rights")).toHaveLength(2));
+    // Sew refuses the Stop: K2's words.
+    plugin.invoke.mockImplementationOnce(async () => {
+      throw { code: "recording_required" };
+    });
+    fireEvent.click(screen.getByTestId("voice-record-stop"));
+    expect((await screen.findByTestId("voice-recording-error")).textContent).toMatch(/records every call with more than one person/);
+  });
+
+  it("no Record button on a K2 before 0.46.11 (the controls route answers 404)", async () => {
+    const { controller } = sewKit();
+    await (controller as NativeVoiceController).started;
+    await storeJoinsAndConnects();
+    render(<KitCall />);
+    await waitFor(() => expect(api.controls).toHaveBeenCalled());
+    act(() => plugin.emit("sew-voice://recording_controls", { can_record: true, can_stop: false }));
+    expect(screen.queryByTestId("voice-record")).toBeNull();
+    expect(calls("set_recording_rights")).toEqual([]);
   });
 
   it("hides what needs Sew's API or a gateway: camera, screen, recording", async () => {
@@ -410,7 +457,7 @@ describe("Sew's call kit on the phone", () => {
       expect(screen.queryByTestId("voice-video-tile")).toBeNull();
       act(() => plugin.emit("k2-voice://pip_speaker", { member_id: "m-baden", track: "TR_cam" }));
       expect(hostTile()?.getAttribute("data-member")).toBe("m-baden");
-      act(() => useVoiceCall.setState({ consent: { ask: "in_call", noticeVersion: 1, title: "t", text: "x", choices: [{ label: "OK", granted: true }] } }));
+      act(() => useVoiceCall.setState({ consent: { ask: "in_call", noticeVersion: 1, startedByName: null, required: false, audioKeepDays: 0, appReaders: [], agentReaders: false } }));
       expect(sent[sent.length - 1]).toEqual(HIDDEN);
       act(() => useVoiceCall.setState({ consent: null }));
       expect(sent[sent.length - 1]?.visible).toBe(true);

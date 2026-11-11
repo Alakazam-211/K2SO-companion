@@ -11,12 +11,20 @@ import type { VoiceOccupant, VoiceRoom } from "./voiceWire";
 type VoiceNames = {
   /** Server id → its rooms as last read. */
   rooms: Record<string, VoiceRoom[]>;
-  put(serverId: string, rooms: VoiceRoom[]): void;
+  /** Server id → an agent there may read its rooms' transcripts. */
+  agentReaders: Record<string, boolean>;
+  put(serverId: string, rooms: VoiceRoom[], agentReaders?: boolean): void;
 };
 
 export const useVoiceNames = create<VoiceNames>((set) => ({
   rooms: {},
-  put: (serverId, rooms) => set((s) => (s.rooms[serverId] === rooms ? s : { rooms: { ...s.rooms, [serverId]: rooms } })),
+  agentReaders: {},
+  put: (serverId, rooms, agentReaders = false) =>
+    set((s) =>
+      s.rooms[serverId] === rooms && s.agentReaders[serverId] === agentReaders
+        ? s
+        : { rooms: { ...s.rooms, [serverId]: rooms }, agentReaders: { ...s.agentReaders, [serverId]: agentReaders } }
+    ),
 }));
 
 /** A room by its slug, or by Sew's channel id (what the engine reports
@@ -42,5 +50,5 @@ export function occupantByMember(
 }
 
 export function __resetVoiceNamesForTests(): void {
-  useVoiceNames.setState({ rooms: {} });
+  useVoiceNames.setState({ rooms: {}, agentReaders: {} });
 }

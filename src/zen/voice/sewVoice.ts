@@ -3,6 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { isIosWebView } from "../../lib/nativePicker";
 import { shareOrSaveBytes, type ShareOutcome } from "../files/shareFile";
 import type { CameraAsk, ConsentSheet, EngineEvents, EngineNow, PhoneVoiceEngine, SelfFlags } from "./voiceCall";
+import { onRecordingControls, onRecordingEvent } from "./callRecording";
 import { nativeJoinErrorCode } from "./voiceWire";
 
 // The call engine in this build (iOS): Sew's native voice plugin, in Rust
@@ -34,22 +35,16 @@ function joinError(err: unknown): { code: string; hint?: string } {
 export function parseConsentSheet(body: unknown): ConsentSheet | null {
   if (!body || typeof body !== "object") return null;
   const b = body as Record<string, unknown>;
-  if (typeof b.title !== "string" || typeof b.text !== "string" || typeof b.noticeVersion !== "number") return null;
-  const choices = Array.isArray(b.choices)
-    ? b.choices.flatMap((c) => {
-        const x = c && typeof c === "object" ? (c as Record<string, unknown>) : {};
-        if (typeof x.label !== "string") return [];
-        return [{ label: x.label, granted: typeof x.granted === "boolean" ? x.granted : null }];
-      })
-    : [];
-  if (choices.length === 0) return null;
+  if (typeof b.noticeVersion !== "number") return null;
   return {
     ask: b.ask === "join" ? "join" : "in_call",
     ...(typeof b.recordingId === "string" ? { recordingId: b.recordingId } : {}),
     noticeVersion: b.noticeVersion,
-    title: b.title,
-    text: b.text,
-    choices,
+    startedByName: typeof b.startedByName === "string" && b.startedByName ? b.startedByName : null,
+    required: b.required === true,
+    audioKeepDays: typeof b.audioKeepDays === "number" && b.audioKeepDays >= 0 ? b.audioKeepDays : 0,
+    appReaders: Array.isArray(b.appReaders) ? b.appReaders.filter((x): x is string => typeof x === "string") : [],
+    agentReaders: b.agentReaders === true,
   };
 }
 
@@ -173,6 +168,9 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
       }),
       listen<unknown>("k2-voice://consent", ({ payload }) => events?.onConsent?.(parseConsentSheet(payload))),
       listen<unknown>("k2-voice://video", ({ payload }) => events?.onVideo?.(payload === true)),
+      // Record and Stop (Sew 0.9.2): callRecording.ts follows these.
+      listen<unknown>("sew-voice://recording", ({ payload }) => onRecordingEvent(payload)),
+      listen<unknown>("sew-voice://recording_controls", ({ payload }) => onRecordingControls(payload)),
       listen<Row[]>("sew-voice://participants", ({ payload }) => {
         const me = Array.isArray(payload) ? payload.find((p) => p?.is_self) : undefined;
         if (me) events?.onSelfMute?.(me.muted === true || me.deafened === true, selfFlags(me));

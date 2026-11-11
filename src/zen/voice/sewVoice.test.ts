@@ -124,21 +124,28 @@ describe("Sew's native engine, from the webview", () => {
     expect(invoke).toHaveBeenCalledWith("plugin:sew-voice|consent", { granted: true, notice_version: 3141 });
   });
 
-  it("reads Rust's consent sheet, and nothing else", () => {
+  it("reads Rust's notice facts (K2's own notice), and nothing else", () => {
     const sheet = {
       ask: "join",
       noticeVersion: 3141,
-      title: "This call is being recorded",
-      text: "a\nb",
-      choices: [
-        { label: "Join and allow recording", granted: true },
-        { label: "Cancel", granted: null },
-      ],
+      startedByName: "Alice",
+      required: true,
+      audioKeepDays: 7,
+      appReaders: ["Notes", 4],
+      agentReaders: true,
     };
-    expect(parseConsentSheet(sheet)).toEqual(sheet);
-    expect(parseConsentSheet({ ...sheet, recordingId: "77" })).toEqual({ ...sheet, recordingId: "77" });
+    expect(parseConsentSheet(sheet)).toEqual({ ...sheet, appReaders: ["Notes"] });
+    expect(parseConsentSheet({ ...sheet, recordingId: "77" })).toMatchObject({ recordingId: "77" });
+    expect(parseConsentSheet({ ask: "in_call", noticeVersion: 1 })).toEqual({
+      ask: "in_call",
+      noticeVersion: 1,
+      startedByName: null,
+      required: false,
+      audioKeepDays: 0,
+      appReaders: [],
+      agentReaders: false,
+    });
     expect(parseConsentSheet(null)).toBeNull();
-    expect(parseConsentSheet({ ...sheet, choices: [] })).toBeNull();
     expect(parseConsentSheet({ ...sheet, noticeVersion: "3" })).toBeNull();
   });
 

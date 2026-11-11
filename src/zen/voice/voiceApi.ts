@@ -1,6 +1,6 @@
 import type { ServerScope } from "../../api/scope";
 import { scopedFetch } from "../../api/scopedFetch";
-import { parseVoiceRooms, type VoiceRoomsList } from "./voiceWire";
+import { parseRecordingControlsAnswer, parseVoiceRooms, type RecordingControlsAnswer, type VoiceRoomsList } from "./voiceWire";
 
 // The rooms list, read from each hosting server with its own login (as Home
 // gathers agents). Joining, renewal and leaving don't come through here: the
@@ -36,4 +36,28 @@ export async function fetchVoiceRooms(scope: ServerScope): Promise<VoiceRoomsRes
 /** `voice_rooms_changed {rev}`: re-read the list. */
 export function isVoiceRoomsChanged(frame: unknown): boolean {
   return !!frame && typeof frame === "object" && (frame as { kind?: unknown }).kind === "voice_rooms_changed";
+}
+
+export type RecordingControlsResult =
+  | { ok: true; answer: RecordingControlsAnswer }
+  /** `unsupported`: a K2 before 0.46.11 (no route): no Record button. */
+  | { ok: false; code: "unsupported" | "failed" };
+
+/** `POST /cli/voice/recording/controls {room}` (K2 0.46.11): the person's
+ *  own rights in the room, for the plugin's Record and Stop. No boot flag:
+ *  an older server answers 404. */
+export async function fetchRecordingControls(scope: ServerScope, roomId: string): Promise<RecordingControlsResult> {
+  try {
+    const out = await scopedFetch(scope, "/cli/voice/recording/controls", {
+      method: "POST",
+      body: JSON.stringify({ room: roomId }),
+      headers: { "Content-Type": "application/json" },
+      priority: "user",
+    });
+    if (out.status === 404 || out.status === 405) return { ok: false, code: "unsupported" };
+    if (!out.ok) return { ok: false, code: "failed" };
+    return { ok: true, answer: parseRecordingControlsAnswer(JSON.parse(out.text), roomId) };
+  } catch {
+    return { ok: false, code: "failed" };
+  }
 }

@@ -20,6 +20,14 @@ import { useServersStore } from "../../../stores/servers";
 import { useCallDuration } from "../callDuration";
 import { serverDisplayName } from "../../homeView";
 import { LayerSlot, SelfView, useLayerPlacement, useLiveVideo, VideoTile } from "../videoLayer";
+import { Circle, CircleStop } from "lucide-react";
+import {
+  readRecordingRights,
+  recordingButtons,
+  recordingCommand,
+  resetCallRecording,
+  useCallRecording,
+} from "../callRecording";
 import { useVoiceCall, type CallRoom } from "../voiceCall";
 import { occupantByMember, roomByKey, useVoiceNames } from "../voiceNames";
 import type { VoiceRoom } from "../voiceWire";
@@ -254,6 +262,63 @@ function BarTime({ scope }: { scope: RefObject<HTMLElement | null> }) {
   return time ? createPortal(`\u00a0· ${time}`, slot) : null;
 }
 
+/** The call's recording under the bar (K2 0.46.11, as desktop): the badge
+ *  while a recording is on, Record and Stop as Sew's plugin allows them
+ *  (callRecording.ts), and a refusal in K2's words. Rights are read on
+ *  connecting, after a room change and whenever the recording changes. */
+function RecordingRow({ room }: { room: CallRoom }) {
+  const connected = useVoiceCall((s) => s.phase === "connected");
+  const rec = useCallRecording();
+  const { canRecord, canStop } = recordingButtons(rec);
+  const recordingId = rec.recording?.recordingId ?? null;
+  useEffect(() => {
+    if (connected) void readRecordingRights(room.serverId, room.roomId);
+  }, [connected, room.serverId, room.roomId, recordingId]);
+  const on = rec.recording !== null;
+  if (!on && !canRecord && !canStop && !rec.error) return null;
+  return (
+    <div className="k2-kit-recording" data-testid="voice-recording">
+      {on ? (
+        <p className="sv-rec-badge" role="status" data-testid="voice-recording-badge">
+          <span className="sv-rec-badge-dot" aria-hidden="true" />
+          <span className="sv-rec-badge-word">{rec.recording?.live ? "Recording" : "Starting recording…"}</span>
+        </p>
+      ) : null}
+      {canRecord || canStop ? (
+        <div className="sv-rec-controls" role="group" aria-label="Recording">
+          {canRecord ? (
+            <button
+              type="button"
+              className="sv-btn sv-btn-text sv-rec-start"
+              disabled={rec.busy}
+              onClick={() => void recordingCommand("start")}
+              data-testid="voice-record"
+            >
+              <Circle size={14} fill="currentColor" aria-hidden="true" /> Record
+            </button>
+          ) : null}
+          {canStop ? (
+            <button
+              type="button"
+              className="sv-btn sv-btn-text"
+              disabled={rec.busy}
+              onClick={() => void recordingCommand("stop")}
+              data-testid="voice-record-stop"
+            >
+              <CircleStop size={14} aria-hidden="true" /> Stop recording
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      {rec.error ? (
+        <p className="text-[13px]" style={{ color: "#ff9f0a", margin: 0 }} role="alert" data-testid="voice-recording-error">
+          {rec.error}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 function Bar({ room, scope }: { room: CallRoom; scope: RefObject<HTMLElement | null> }) {
   const v = useVoice();
   if (v.phase === "idle") return <Joining room={room} />;
@@ -261,6 +326,7 @@ function Bar({ room, scope }: { room: CallRoom; scope: RefObject<HTMLElement | n
     <>
       <CallBar docked />
       <BarTime scope={scope} />
+      <RecordingRow room={room} />
     </>
   );
 }
@@ -278,6 +344,8 @@ export default function KitCall() {
   useEffect(() => {
     if (key) kit.controller.dismissNotice();
   }, [key, kit]);
+  // The call's recording state ends with the call.
+  useEffect(() => () => resetCallRecording(), [key]);
   const ui = useMemo<VoiceUi>(() => {
     const username = (id: string) => {
       const s = servers.find((x) => x.id === id);

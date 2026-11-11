@@ -158,9 +158,7 @@ describe("Rooms and the More menu", () => {
       ask: "in_call",
       recordingId: "r1",
       noticeVersion: 1,
-      title: "Recording",
-      text: "This call is being recorded.",
-      choices: [{ label: "OK", granted: true }],
+      startedByName: null, required: false, audioKeepDays: 0, appReaders: [], agentReaders: false,
     };
     act(() => useVoiceCall.setState({ consent: sheet }));
     // The call screen opens at the app level (App.tsx), over every screen.

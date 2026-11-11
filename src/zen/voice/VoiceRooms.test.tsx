@@ -26,6 +26,7 @@ import { useServersStore, type ServerEntry } from "../../stores/servers";
 import { __resetPipForTests, __setTileSenderForTests, HIDDEN, onPipEvent, type TileFrame } from "./videoTile";
 import type { CallShim } from "./callShim";
 import { __resetVoiceCallForTests, __setCallShimForTests, setPhoneVoiceEngine, useVoiceCall } from "./voiceCall";
+import { useVoiceNames } from "./voiceNames";
 import { voiceServers, VoiceRoomsOverlay } from "./VoiceRooms";
 
 const server = (id: string, nickname: string) =>
@@ -185,23 +186,30 @@ describe("voice rooms on the phone", () => {
       consent: {
         ask: "join",
         noticeVersion: 3141,
-        title: "This call is being recorded",
-        text: "Sew Notes records this call.",
-        choices: [
-          { label: "Join and allow recording", granted: true },
-          { label: "Join without being recorded", granted: false },
-          { label: "Cancel", granted: null },
-        ],
+        startedByName: "Alice",
+        required: false,
+        audioKeepDays: 0,
+        appReaders: [],
+        agentReaders: false,
       },
       answerConsent: answer,
     });
+    useVoiceNames.setState({ agentReaders: { s1: true } });
     render(<VoiceRoomsOverlay onClose={() => {}} />);
-    expect(screen.getByTestId("voice-consent").textContent).toContain("This call is being recorded");
+    // K2's own notice for its rooms (K2 0.46.11): OK, or don't join.
+    const notice = screen.getByTestId("voice-consent").textContent ?? "";
+    expect(notice).toContain("Standup is being recorded");
+    expect(notice).toContain("Alice started recording this call.");
+    expect(notice).toContain("The audio is deleted once the transcript is final.");
+    expect(notice).toContain("Agents on this server may read the transcript.");
+    expect(notice).toContain("Joining means being recorded.");
     expect(screen.getByTestId("voice-call-bar").textContent).toContain("Waiting for your answer…");
-    const choices = screen.getAllByTestId("voice-consent-choice").map((b) => b.textContent);
-    expect(choices).toEqual(["Join and allow recording", "Join without being recorded", "Cancel"]);
-    fireEvent.click(screen.getAllByTestId("voice-consent-choice")[1]);
-    expect(answer).toHaveBeenCalledWith(false);
+    expect(screen.getByTestId("voice-consent-ok").textContent).toBe("OK");
+    expect(screen.getByTestId("voice-consent-leave").textContent).toBe("Don't join");
+    fireEvent.click(screen.getByTestId("voice-consent-leave"));
+    expect(answer).toHaveBeenCalledWith(null);
+    fireEvent.click(screen.getByTestId("voice-consent-ok"));
+    expect(answer).toHaveBeenCalledWith(true);
   });
 
   it("in a call with video, shows the tile once a frame plays; the tap starts PiP; a stall takes it away", async () => {
@@ -248,9 +256,7 @@ describe("voice rooms on the phone", () => {
     const sheet = {
       ask: "in_call" as const,
       noticeVersion: 1,
-      title: "t",
-      text: "x",
-      choices: [{ label: "OK", granted: true }],
+      startedByName: null, required: false, audioKeepDays: 0, appReaders: [], agentReaders: false,
     };
     useVoiceCall.setState({ phase: "connected", room, video: true });
     onPipEvent({ event: "pip_first_frame" });

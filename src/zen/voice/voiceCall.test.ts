@@ -213,13 +213,7 @@ describe("the phone's voice-room call", () => {
     const SHEET: ConsentSheet = {
       ask: "join",
       noticeVersion: 3141,
-      title: "This call is being recorded",
-      text: "Sew Notes records…",
-      choices: [
-        { label: "Join and allow recording", granted: true },
-        { label: "Join without being recorded", granted: false },
-        { label: "Cancel", granted: null },
-      ],
+      startedByName: null, required: false, audioKeepDays: 0, appReaders: [], agentReaders: false,
     };
 
     it("Join with camera: the mic, then the camera's permission, then a join with the camera", async () => {
@@ -441,9 +435,7 @@ describe("the phone's voice-room call", () => {
       const sheet = {
         ask: "in_call" as const,
         noticeVersion: 4,
-        title: "t",
-        text: "x",
-        choices: [{ label: "Allow", granted: true }],
+        startedByName: null, required: false, audioKeepDays: 0, appReaders: [], agentReaders: false,
       };
       const e = fakeEngine(true, { state: "connected", serverId: "s1", roomId: "room-1", muted: true, consent: sheet });
       __setCallShimForTests(fakeShim().shim);
@@ -502,12 +494,10 @@ describe("which recording notice is up", () => {
       ask: "in_call" as const,
       recordingId: "77",
       noticeVersion: 3,
-      title: "t",
-      text: "x",
-      choices: [{ label: "Allow", granted: true }],
+      startedByName: null, required: false, audioKeepDays: 0, appReaders: [], agentReaders: false,
     };
     expect(consentKey(null)).toBeNull();
-    expect(consentKey(sheet)).toBe(consentKey({ ...sheet, text: "x" }));
+    expect(consentKey(sheet)).toBe(consentKey({ ...sheet, audioKeepDays: 7 }));
     expect(consentKey(sheet)).not.toBe(consentKey({ ...sheet, noticeVersion: 4 }));
     expect(consentKey(sheet)).not.toBe(consentKey({ ...sheet, recordingId: "78" }));
   });

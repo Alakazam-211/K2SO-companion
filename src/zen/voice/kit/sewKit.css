@@ -233,3 +233,16 @@
 .k2-kit-call-time:empty {
   display: none;
 }
+
+/* Record and Stop under the call bar (KitCall RecordingRow, K2 0.46.11). */
+.k2-kit-call .k2-kit-recording {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px 2px;
+}
+.k2-kit-call .k2-kit-recording .sv-rec-badge,
+.k2-kit-call .k2-kit-recording .sv-rec-controls {
+  flex-basis: auto;
+}
