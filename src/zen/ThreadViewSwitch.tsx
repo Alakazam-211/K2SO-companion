@@ -62,7 +62,9 @@ export function ThreadViewSwitch({
           aria-checked={v === view}
           aria-label={THREAD_VIEW_LABEL[v]}
           className="zen-seg-btn flex items-center justify-center"
-          style={{ width: BTN_W, height: "100%", position: "relative" }}
+          // Full white like the header's buttons beside it (Rosson
+          // 2026-11-11), not the shared segment's 55% for the unselected.
+          style={{ width: BTN_W, height: "100%", position: "relative", color: "#fff" }}
           onClick={(e) => {
             e.stopPropagation();
             if (v !== view || v === "terminal") onView(v);

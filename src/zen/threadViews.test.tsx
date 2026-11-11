@@ -58,6 +58,8 @@ describe("Chatter and Heartbeats (K2 Projects' tile views, ported)", () => {
       "Chatter",
       "Heartbeats",
     ]);
+    // Every segment white, as the header buttons are (not dimmed when unselected).
+    for (const r of screen.getAllByRole("radio")) expect(r.style.color).toBe("rgb(255, 255, 255)");
     fireEvent.click(screen.getByRole("radio", { name: "Thread" }));
     expect(onView).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("radio", { name: "Chatter" }));
