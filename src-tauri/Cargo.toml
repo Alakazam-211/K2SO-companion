@@ -56,8 +56,8 @@ base64 = "0.22"
 # default-features = false; without it TLS refuses with no_crypto_provider).
 # `video-core`: remote video for the picture in picture (native sinks);
 # `video`: kessel-video's backends, so VP8 arrives decoded (a CVPixelBuffer).
-tauri-plugin-sew-voice = { version = "0.5", default-features = false, features = ["tauri", "audio", "mobile", "builtin-ring-provider", "video-core", "video"] }
-sew-call-client = { version = "0.5", default-features = false, features = ["mobile"] }
+tauri-plugin-sew-voice = { version = "0.6", default-features = false, features = ["tauri", "audio", "mobile", "builtin-ring-provider", "video-core", "video"] }
+sew-call-client = { version = "0.6", default-features = false, features = ["mobile"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 url = "2"
 
@@ -95,19 +95,19 @@ tauri-plugin-http = { path = "vendor/tauri-plugin-http" }
 # vendor/README.md. Keep in step with the wry that tauri pins.
 wry = { path = "vendor/wry" }
 # Voice: Sew's crates, the str0m and dimpl forks they need, and kessel-audio
-# with the phone backends (K2 aad16f76b); kessel-video 0.1.1 is from
-# crates.io. Sew 0.8.2 from the public mirror (github.com/Alakazam-211/sew-crates
-# 29beb541) with its str0m rev 7faf99d1. Move all of these together.
-sew-proto = { git = "https://github.com/Alakazam-211/sew-crates", rev = "29beb54159512588b00b1ce074c40da486f095c7" }
-sew-lkproto = { git = "https://github.com/Alakazam-211/sew-crates", rev = "29beb54159512588b00b1ce074c40da486f095c7" }
-sew-mls-crypto = { git = "https://github.com/Alakazam-211/sew-crates", rev = "29beb54159512588b00b1ce074c40da486f095c7" }
-sew-e2ee = { git = "https://github.com/Alakazam-211/sew-crates", rev = "29beb54159512588b00b1ce074c40da486f095c7" }
-sew-lk-compat = { git = "https://github.com/Alakazam-211/sew-crates", rev = "29beb54159512588b00b1ce074c40da486f095c7" }
-sew-call-client = { git = "https://github.com/Alakazam-211/sew-crates", rev = "29beb54159512588b00b1ce074c40da486f095c7" }
-tauri-plugin-sew-voice = { git = "https://github.com/Alakazam-211/sew-crates", rev = "29beb54159512588b00b1ce074c40da486f095c7" }
-str0m = { git = "https://github.com/Alakazam-211/str0m", rev = "7faf99d17f34292b5c9f72e67f3d0332cd67c122" }
-str0m-proto = { git = "https://github.com/Alakazam-211/str0m", rev = "7faf99d17f34292b5c9f72e67f3d0332cd67c122" }
-is = { git = "https://github.com/Alakazam-211/str0m", rev = "7faf99d17f34292b5c9f72e67f3d0332cd67c122" }
-str0m-aws-lc-rs = { git = "https://github.com/Alakazam-211/str0m", rev = "7faf99d17f34292b5c9f72e67f3d0332cd67c122" }
-dimpl = { git = "https://github.com/Alakazam-211/dimpl", rev = "a3481943e8e3fa270990e7c05a27d015cfbe4d77" }
+# with the phone backends (K2 aad16f76b); kessel-video is from crates.io.
+# Sew 0.9.2 from the public mirror (github.com/Alakazam-211/sew-crates
+# 85f5c87f; plugin 0.6.1: Record, Stop and set_recording_rights) with its
+# str0m rev 907e050b; dimpl from crates.io. Move all of these together.
+sew-proto = { git = "https://github.com/Alakazam-211/sew-crates", rev = "85f5c87f93b301823629d920da5bc31015bd64b0" }
+sew-lkproto = { git = "https://github.com/Alakazam-211/sew-crates", rev = "85f5c87f93b301823629d920da5bc31015bd64b0" }
+sew-mls-crypto = { git = "https://github.com/Alakazam-211/sew-crates", rev = "85f5c87f93b301823629d920da5bc31015bd64b0" }
+sew-e2ee = { git = "https://github.com/Alakazam-211/sew-crates", rev = "85f5c87f93b301823629d920da5bc31015bd64b0" }
+sew-lk-compat = { git = "https://github.com/Alakazam-211/sew-crates", rev = "85f5c87f93b301823629d920da5bc31015bd64b0" }
+sew-call-client = { git = "https://github.com/Alakazam-211/sew-crates", rev = "85f5c87f93b301823629d920da5bc31015bd64b0" }
+tauri-plugin-sew-voice = { git = "https://github.com/Alakazam-211/sew-crates", rev = "85f5c87f93b301823629d920da5bc31015bd64b0" }
+str0m = { git = "https://github.com/Alakazam-211/str0m", rev = "907e050bfa212a23394f4482110acef04cba8fc6" }
+str0m-proto = { git = "https://github.com/Alakazam-211/str0m", rev = "907e050bfa212a23394f4482110acef04cba8fc6" }
+is = { git = "https://github.com/Alakazam-211/str0m", rev = "907e050bfa212a23394f4482110acef04cba8fc6" }
+str0m-aws-lc-rs = { git = "https://github.com/Alakazam-211/str0m", rev = "907e050bfa212a23394f4482110acef04cba8fc6" }
 kessel-audio = { git = "https://github.com/Alakazam-211/K2", rev = "aad16f76b8768ae090d3060033d473e87c736be4" }

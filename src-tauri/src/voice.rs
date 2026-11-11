@@ -36,7 +36,8 @@ use tauri_plugin_sew_voice::native::{NativePayload, NativeSink, NativeSinkTarget
 use tauri_plugin_sew_voice::sew_call_client::Recording;
 use tauri_plugin_sew_voice::{
     AppScene, BoxFuture, CallState, ConsentAnswer, DeviceError, DeviceKeyId, HardwareDeviceKey, JoinAnswer,
-    JoinArgs, JoinOptions, JoinProvider, JoinRequest, ProviderError, RecordingInfo, SelfMute, StateEvent, VoiceControl,
+    JoinArgs, JoinOptions, JoinProvider, JoinRequest, ProviderError, RecordingControl, RecordingInfo, RecordingRequest,
+    SelfMute, StateEvent, VoiceControl, RECORDING_UNSUPPORTED,
     VoiceListener,
 };
 use tauri_plugin_sew_voice::{ConsentAsk, ConsentPrompt, ErrorInfo};
@@ -338,10 +339,44 @@ impl K2Provider {
             self.post(&format!("{base}/cli/voice/recording/consent"), &token, &body).await?;
         consent_from(status, retry_after, &bytes, &token)
     }
+
+    /// Record → `recording/start {room}`, Stop → `recording/stop
+    /// {recordingId}` (K2 0.46.11, Sew 0.9.2; as K2 desktop's provider). The
+    /// daemon maps the room (a slug, or Sew's channel id after a move).
+    async fn recording_inner(&self, req: RecordingRequest) -> Result<Recording, ProviderError> {
+        let (route, body) = recording_body(&req)?;
+        let (base, token) = self.login(&req.target).await?;
+        let (status, retry_after, bytes) = self.post(&format!("{base}/cli/voice/{route}"), &token, &body).await?;
+        recording_answer_from(status, retry_after, &bytes, &token, RECORDING_UNSUPPORTED)
+    }
+}
+
+/// Record and Stop's route and body.
+pub fn recording_body(req: &RecordingRequest) -> Result<(&'static str, Value), ProviderError> {
+    match (req.action, req.recording_id) {
+        (RecordingControl::Start, _) => Ok(("recording/start", json!({ "room": req.room }))),
+        (RecordingControl::Stop, Some(id)) => Ok(("recording/stop", json!({ "recordingId": id.to_string() }))),
+        (RecordingControl::Stop, None) => Err(refused("no_recording", "there is no recording to stop")),
+        #[allow(unreachable_patterns)]
+        _ => Err(refused(RECORDING_UNSUPPORTED, "this K2 doesn't know that recording action")),
+    }
 }
 
 /// What the daemon answered a recording answer with, as the plugin's types.
 pub fn consent_from(status: u16, retry_after_secs: Option<u64>, body: &[u8], token: &str) -> Result<Recording, ProviderError> {
+    recording_answer_from(status, retry_after_secs, body, token, tauri_plugin_sew_voice::CONSENT_UNSUPPORTED)
+}
+
+/// The daemon's answer to a consent, Record or Stop: `{recording}` (or Sew's
+/// own) → the recording; a refusal as Sew's; a K2 without the route →
+/// `unsupported` (not recorded, the safe side).
+pub fn recording_answer_from(
+    status: u16,
+    retry_after_secs: Option<u64>,
+    body: &[u8],
+    token: &str,
+    unsupported: &str,
+) -> Result<Recording, ProviderError> {
     let v: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
     let code = v.pointer("/error/code").and_then(Value::as_str);
     match (status, code) {
@@ -361,7 +396,7 @@ pub fn consent_from(status: u16, retry_after_secs: Option<u64>, body: &[u8], tok
             Err(clean(ProviderError::from_sew_error(status, None, body), token))
         }
         // A K2 before the consent route (0.46.9): not recorded, the safe side.
-        (404 | 405, _) => Err(refused(tauri_plugin_sew_voice::CONSENT_UNSUPPORTED, "this server can't take a recording answer yet")),
+        (404 | 405, _) => Err(refused(unsupported, "this server can't do that with a recording yet")),
         _ => Err(clean(ProviderError::from_sew_error(status, retry_after_secs.map(|s| s * 1000), body), token)),
     }
 }
@@ -379,6 +414,15 @@ impl JoinProvider for K2Provider {
         Box::pin(async move {
             let answer = self.consent_inner(answer).await;
             self.native.note(&format!("consent answer {}", outcome(answer.as_ref().err())));
+            answer
+        })
+    }
+
+    fn recording(&self, req: RecordingRequest) -> BoxFuture<'_, Result<Recording, ProviderError>> {
+        Box::pin(async move {
+            let what = if req.action == RecordingControl::Stop { "stop" } else { "record" };
+            let answer = self.recording_inner(req).await;
+            self.native.note(&format!("recording {what} {}", outcome(answer.as_ref().err())));
             answer
         })
     }
@@ -628,21 +672,21 @@ impl CallKitBridge {
 
 /// What the sheet shows, while this person still owes an answer.
 fn consent_sheet(r: &RecordingInfo, ask: ConsentAsk) -> Option<Value> {
+    // K2's own notice for its rooms (K2 0.46.11, as desktop's
+    // recording-controls.ts): every room the phone joins is a K2 room, so
+    // it's OK or leave, never Sew's per-person choices. The page words it
+    // (voiceWire.ts recordingNoticeText) from these facts.
     let prompt: &ConsentPrompt = r.consent_prompt.as_ref().filter(|_| r.my_consent == "pending")?;
-    let starter = prompt.started_by.clone();
-    let name = move |id| match &starter {
-        Some(m) if m.member_id == id => m.display_name.clone(),
-        _ => "someone".to_owned(),
-    };
-    let choices: Vec<Value> =
-        prompt.choices_en(ask).iter().map(|c| json!({ "label": c.label, "granted": c.granted })).collect();
+    let started_by = prompt.started_by.as_ref().map(|m| m.display_name.clone()).filter(|n| !n.is_empty());
     Some(json!({
         "ask": if ask == ConsentAsk::Join { "join" } else { "in_call" },
         "recordingId": r.recording_id,
         "noticeVersion": prompt.notice_version,
-        "title": prompt.title_en(ask),
-        "text": prompt.text_en(ask, &name),
-        "choices": choices,
+        "startedByName": started_by,
+        "required": prompt.required,
+        "audioKeepDays": prompt.audio_keep_days,
+        "appReaders": prompt.app_readers,
+        "agentReaders": prompt.agent_readers,
     }))
 }
 
@@ -1886,20 +1930,45 @@ mod tests {
     }
 
     #[test]
-    fn consent_sheet_in_the_kits_words() {
+    fn consent_sheet_carries_k2s_notice_facts() {
         let sheet = consent_sheet(&held(), ConsentAsk::Join).unwrap();
         assert_eq!(sheet["ask"], "join");
         assert_eq!(sheet["noticeVersion"], 3141);
-        assert!(sheet["text"].as_str().unwrap().contains("Alice"), "{sheet}");
-        let labels: Vec<_> = sheet["choices"].as_array().unwrap().iter().map(|c| c["label"].clone()).collect();
-        assert_eq!(labels, vec![json!("Join and allow recording"), json!("Join without being recorded"), json!("Cancel")]);
-        assert_eq!(sheet["choices"][2]["granted"], Value::Null);
+        assert_eq!(sheet["startedByName"], "Alice", "{sheet}");
+        assert!(sheet["audioKeepDays"].is_number() && sheet["appReaders"].is_array(), "{sheet}");
+        assert!(sheet["required"].is_boolean() && sheet["agentReaders"].is_boolean(), "{sheet}");
+        assert!(sheet.get("choices").is_none(), "K2's notice is OK or leave, worded by the page");
         let in_call = consent_sheet(&held(), ConsentAsk::InCall).unwrap();
-        assert_eq!(in_call["choices"][1]["label"], "Don't record me");
+        assert_eq!(in_call["ask"], "in_call");
         // Answered: nothing to show.
         let mut granted = held();
         granted.my_consent = "granted".into();
         assert!(consent_sheet(&granted, ConsentAsk::InCall).is_none());
+    }
+
+    fn rec_req(v: Value) -> RecordingRequest {
+        serde_json::from_value(v).expect("a RecordingRequest")
+    }
+
+    #[test]
+    fn record_and_stop_go_to_k2s_routes() {
+        let start = rec_req(json!({ "target": "s1", "room": "standup", "action": "start" }));
+        let (route, body) = recording_body(&start).unwrap();
+        assert_eq!((route, body), ("recording/start", json!({ "room": "standup" })));
+        let stop = rec_req(json!({ "target": "s1", "room": "standup", "action": "stop", "recording_id": "48831765147549720" }));
+        let (route, body) = recording_body(&stop).unwrap();
+        assert_eq!((route, body), ("recording/stop", json!({ "recordingId": "48831765147549720" })));
+        let nothing = rec_req(json!({ "target": "s1", "room": "standup", "action": "stop" }));
+        assert!(matches!(recording_body(&nothing), Err(ProviderError::Refused { code, .. }) if code == "no_recording"));
+    }
+
+    #[test]
+    fn a_k2_without_the_record_route_is_unsupported_and_a_refusal_keeps_sews_reason() {
+        let r = recording_answer_from(404, None, b"", "tok", RECORDING_UNSUPPORTED);
+        assert!(matches!(r, Err(ProviderError::Refused { ref code, .. }) if code == RECORDING_UNSUPPORTED), "{r:?}");
+        let body = json!({ "error": { "code": "recording_active", "message": "already" } }).to_string();
+        let r = recording_answer_from(409, None, body.as_bytes(), "tok", RECORDING_UNSUPPORTED);
+        assert!(matches!(r, Err(ProviderError::Refused { ref code, .. }) if code == "recording_active"), "{r:?}");
     }
 
     fn held_at(version: u32) -> CallState {
