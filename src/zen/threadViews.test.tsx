@@ -6,9 +6,9 @@ const fetchMock = vi.hoisted(() => vi.fn());
 vi.mock("../api/scopedFetch", () => ({ scopedFetch: fetchMock }));
 
 import type { ServerScope } from "../api/scope";
-import { ChatterPane, HeartbeatsPane } from "./ThreadViewPanes";
+import { ChatterPane } from "./ThreadViewPanes";
 import { ThreadViewSwitch } from "./ThreadViewSwitch";
-import { chatterFromSnapshot, chatterLine, heartbeatRows } from "./threadViews";
+import { blendChatter, chatterFromSnapshot, chatterLine, heartbeatRows } from "./threadViews";
 
 const scope = { id: "s1" } as unknown as ServerScope;
 const ok = (body: unknown) => ({ ok: true, status: 200, text: JSON.stringify(body) });
@@ -49,15 +49,29 @@ describe("Chatter and Heartbeats (K2 Projects' tile views, ported)", () => {
     ]);
   });
 
-  it("the switch: four views, Thread checked, Terminal always acts", () => {
+  it("blends heartbeats into Chatter by time, Chatter's own order kept", () => {
+    const T = 1_800_000_000; // seconds
+    const iso = (sec: number) => new Date(sec * 1000).toISOString();
+    const chatter = chatterFromSnapshot({
+      items: [
+        { id: "a", seq: 1, doc: { from: "sew", body: "one", created_at: T + 100 } },
+        { id: "b", seq: 2, doc: { from: "k2", body: "two (no time)" } },
+        { id: "c", seq: 3, doc: { from: "sew", body: "three", created_at: (T + 300) * 1000 } }, // ms
+      ],
+    }).items;
+    const beats = heartbeatRows([
+      { id: 9, scheduleName: "late", firedAt: iso(T + 600), decision: "fired" },
+      { id: 8, scheduleName: "early", firedAt: iso(T + 50), decision: "fired" },
+      { id: 7, scheduleName: "mid", firedAt: iso(T + 180), decision: "fired" },
+    ]);
+    expect(blendChatter(chatter, beats).map((r) => r.key)).toEqual(["h:8", "c:a", "c:b", "h:7", "c:c", "h:9"]);
+    expect(blendChatter([], [])).toEqual([]);
+  });
+
+  it("the switch: Terminal, Thread, Chatter (Heartbeats lives in Chatter), Thread checked, Terminal always acts", () => {
     const onView = vi.fn();
     render(<ThreadViewSwitch view="thread" onView={onView} />);
-    expect(screen.getAllByRole("radio").map((r) => r.getAttribute("aria-label"))).toEqual([
-      "Terminal",
-      "Thread",
-      "Chatter",
-      "Heartbeats",
-    ]);
+    expect(screen.getAllByRole("radio").map((r) => r.getAttribute("aria-label"))).toEqual(["Terminal", "Thread", "Chatter"]);
     // Every segment white, as the header buttons are (not dimmed when unselected).
     for (const r of screen.getAllByRole("radio")) expect(r.style.color).toBe("rgb(255, 255, 255)");
     fireEvent.click(screen.getByRole("radio", { name: "Thread" }));
@@ -67,17 +81,18 @@ describe("Chatter and Heartbeats (K2 Projects' tile views, ported)", () => {
     expect(onView.mock.calls).toEqual([["chatter"], ["terminal"]]);
   });
 
-  it("Chatter reads the agent's handle; Heartbeats its workspace", async () => {
-    fetchMock.mockResolvedValue(
-      ok({ items: [{ id: "a", seq: 1, collection: "chatter", doc: { from: "sew", to: "k2", body: "hello k2" } }] })
+  it("Chatter reads the agent's handle and its workspace's heartbeats, in one list", async () => {
+    fetchMock.mockImplementation(async (_scope: unknown, path: string) =>
+      path === "/cli/chatter"
+        ? ok({ items: [{ id: "a", seq: 1, collection: "chatter", doc: { from: "sew", to: "k2", body: "hello k2", created_at: 2_000_000_000 } }] })
+        : ok([{ id: 1, agentName: "k2", scheduleName: "hourly", firedAt: "2026-01-01 00:00:00", decision: "fired" }])
     );
-    render(<ChatterPane scope={scope} addr="k2-companion" topInset={0} />);
-    expect((await screen.findAllByTestId("chatter-row"))[0].textContent).toContain("hello k2");
+    render(<ChatterPane scope={scope} addr="k2-companion" project="/Users/z/k2" topInset={0} />);
+    await waitFor(() => expect(screen.getAllByTestId(/^(chatter|heartbeat)-row$/)).toHaveLength(2));
+    const order = screen.getAllByTestId(/^(chatter|heartbeat)-row$/).map((r) => r.dataset.testid);
+    expect(order).toEqual(["heartbeat-row", "chatter-row"]);
+    expect(screen.getByTestId("heartbeat-row").textContent).toContain("Heartbeat · k2 / hourly");
     expect(fetchMock).toHaveBeenCalledWith(scope, "/cli/chatter", expect.objectContaining({ query: { addr: "k2-companion", limit: "50" } }));
-    cleanup();
-    fetchMock.mockReset().mockResolvedValue(ok([]));
-    render(<HeartbeatsPane scope={scope} project="/Users/z/k2" topInset={0} />);
-    expect(await screen.findByTestId("heartbeats-pane-empty")).toBeTruthy();
     expect(fetchMock).toHaveBeenCalledWith(
       scope,
       "/cli/heartbeat/fires-list",
@@ -85,9 +100,17 @@ describe("Chatter and Heartbeats (K2 Projects' tile views, ported)", () => {
     );
   });
 
-  it("says so when the server can't answer", async () => {
-    fetchMock.mockResolvedValue({ ok: false, status: 403, text: "" });
-    render(<HeartbeatsPane scope={scope} project="/w" topInset={0} />);
-    await waitFor(() => expect(screen.getByTestId("heartbeats-pane-error").textContent).toMatch(/Couldn't load it \(403\)/));
+  it("heartbeats still show when Chatter can't load, and says so when neither can", async () => {
+    fetchMock.mockImplementation(async (_scope: unknown, path: string) =>
+      path === "/cli/chatter"
+        ? { ok: false, status: 403, text: "" }
+        : ok([{ id: 1, scheduleName: "hourly", firedAt: "2026-01-01 00:00:00", decision: "no_work" }])
+    );
+    render(<ChatterPane scope={scope} addr="k2" project="/w" topInset={0} />);
+    expect((await screen.findByTestId("heartbeat-row")).textContent).toContain("Nothing to do");
+    cleanup();
+    fetchMock.mockReset().mockResolvedValue({ ok: false, status: 403, text: "" });
+    render(<ChatterPane scope={scope} addr="k2" project="/w" topInset={0} />);
+    await waitFor(() => expect(screen.getByTestId("chatter-pane-error").textContent).toMatch(/Couldn't load it \(403\)/));
   });
 });

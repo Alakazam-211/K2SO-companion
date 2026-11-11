@@ -1,8 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { HeartPulse } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ServerScope } from "../api/scope";
 import { scopedFetch } from "../api/scopedFetch";
 import { mountainTime } from "./threadModel";
 import {
+  blendChatter,
+  CHATTER_HINT,
   CHATTER_PAGE,
   CHATTER_REFRESH_MS,
   chatterFromSnapshot,
@@ -10,16 +13,16 @@ import {
   HEARTBEAT_FIRES_LIMIT,
   HEARTBEAT_FIRES_REFRESH_MS,
   heartbeatRows,
-  THREAD_PANEL_HINT,
   type ChatterItem,
   type HeartbeatRow,
   type HeartbeatTone,
 } from "./threadViews";
 import { zenTextPx } from "./zenFont";
 
-// Chatter and Heartbeats in place of the Thread (threadViews.ts): read-only
-// lists under the chat header, newest at the bottom, each re-read while
-// open (no push for either on the phone).
+// Chatter in place of the Thread (threadViews.ts): read-only, under the
+// chat header, newest at the bottom. Agent messages and the workspace's
+// heartbeat wakes in one timeline (Rosson 2026-11-11), each re-read on its
+// own clock while open (no push for either on the phone).
 
 type Load<T> = { rows: T[]; error: string | null; loading: boolean };
 
@@ -167,33 +170,6 @@ function ChatterRow({ item }: { item: ChatterItem }) {
   );
 }
 
-/** Messages between this agent and other agents (`/cli/chatter`). */
-export function ChatterPane({ scope, addr, topInset }: { scope: ServerScope; addr: string | null; topInset: number }) {
-  const load = usePolled(
-    scope,
-    "/cli/chatter",
-    addr ? { addr, limit: String(CHATTER_PAGE) } : null,
-    CHATTER_REFRESH_MS,
-    (b) => chatterFromSnapshot(b).items
-  );
-  const scroll = useStickToBottom(load.rows.length);
-  return (
-    <PaneShell
-      testid="chatter-pane"
-      topInset={topInset}
-      title="Chatter"
-      hint={THREAD_PANEL_HINT.chatter}
-      load={addr ? load : { rows: [], loading: false, error: "This agent has no address to read Chatter from." }}
-      empty="No messages between this agent and other agents yet."
-      scroll={scroll}
-    >
-      {load.rows.map((item) => (
-        <ChatterRow key={item.id} item={item} />
-      ))}
-    </PaneShell>
-  );
-}
-
 const TONE_COLOR: Record<HeartbeatTone, string> = {
   ok: "#30d158",
   warn: "#ff9f0a",
@@ -203,10 +179,15 @@ const TONE_COLOR: Record<HeartbeatTone, string> = {
 
 function HeartbeatRowView({ row }: { row: HeartbeatRow }) {
   return (
-    <div className="k2-tile" style={{ borderRadius: 14, padding: "9px 12px", color: "#fff" }} data-testid="heartbeat-row">
+    <div
+      className="k2-tile"
+      style={{ borderRadius: 14, padding: "9px 12px", color: "#fff", background: "rgba(255, 55, 95, 0.08)" }}
+      data-testid="heartbeat-row"
+    >
       <div className="flex items-baseline justify-between" style={{ gap: 8 }}>
-        <span className="truncate font-semibold" style={{ fontSize: zenTextPx(13) }}>
-          {row.source}
+        <span className="flex items-center min-w-0 font-semibold" style={{ gap: 5, fontSize: zenTextPx(13) }}>
+          <HeartPulse size={14} aria-hidden="true" style={{ flex: "none", color: "#ff375f" }} />
+          <span className="truncate">Heartbeat · {row.source}</span>
         </span>
         <span className="shrink-0" style={{ color: "#8e8e93", fontSize: zenTextPx(11) }}>
           {mountainTime(row.at)}
@@ -223,29 +204,52 @@ function HeartbeatRowView({ row }: { row: HeartbeatRow }) {
   );
 }
 
-/** Heartbeat fires that woke this workspace (`/cli/heartbeat/fires-list`). */
-export function HeartbeatsPane({ scope, project, topInset }: { scope: ServerScope; project: string | null; topInset: number }) {
-  const load = usePolled(
+/** Chatter: this agent's messages with other agents (`/cli/chatter`) and
+ *  the heartbeats that woke its workspace (`/cli/heartbeat/fires-list`),
+ *  in one timeline. Either alone still shows if the other can't load. */
+export function ChatterPane({
+  scope,
+  addr,
+  project,
+  topInset,
+}: {
+  scope: ServerScope;
+  addr: string | null;
+  project: string | null;
+  topInset: number;
+}) {
+  const chatter = usePolled(
+    scope,
+    "/cli/chatter",
+    addr ? { addr, limit: String(CHATTER_PAGE) } : null,
+    CHATTER_REFRESH_MS,
+    (b) => chatterFromSnapshot(b).items
+  );
+  const beats = usePolled(
     scope,
     "/cli/heartbeat/fires-list",
     project ? { project, limit: String(HEARTBEAT_FIRES_LIMIT) } : null,
     HEARTBEAT_FIRES_REFRESH_MS,
     heartbeatRows
   );
-  const scroll = useStickToBottom(load.rows.length);
+  const rows = useMemo(() => blendChatter(chatter.rows, beats.rows), [chatter.rows, beats.rows]);
+  const load = {
+    rows,
+    loading: (!!addr && chatter.loading) || (!!project && beats.loading),
+    error: rows.length === 0 ? (addr ? chatter.error : "This agent has no address to read Chatter from.") : null,
+  };
+  const scroll = useStickToBottom(rows.length);
   return (
     <PaneShell
-      testid="heartbeats-pane"
+      testid="chatter-pane"
       topInset={topInset}
-      title="Heartbeats"
-      hint={THREAD_PANEL_HINT.heartbeats}
-      load={project ? load : { rows: [], loading: false, error: "This agent has no workspace to read heartbeats from." }}
-      empty="No heartbeats have woken this workspace yet."
+      title="Chatter"
+      hint={CHATTER_HINT}
+      load={load}
+      empty="No messages with other agents and no heartbeats yet."
       scroll={scroll}
     >
-      {load.rows.map((row) => (
-        <HeartbeatRowView key={row.id} row={row} />
-      ))}
+      {rows.map((r) => (r.kind === "chatter" ? <ChatterRow key={r.key} item={r.item} /> : <HeartbeatRowView key={r.key} row={r.row} />))}
     </PaneShell>
   );
 }

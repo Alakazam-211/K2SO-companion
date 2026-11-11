@@ -1,23 +1,22 @@
-import { HeartPulse, MessageCircle, MessagesSquare } from "lucide-react";
+import { MessageCircle, MessagesSquare } from "lucide-react";
 import { TerminalIcon } from "./icons";
 import { THREAD_VIEW_LABEL, type ThreadView } from "./threadViews";
 
-// Terminal | Thread | Chatter | Heartbeats on the chat header (Rosson
-// 2026-11-11, a test; K2 Projects' agent-tile switch). The Home tab
+// Terminal | Thread | Chatter on the chat header (Rosson 2026-11-11, a
+// test; K2 Projects' agent-tile switch, Heartbeats blended into Chatter). The Home tab
 // switch's inset-thumb capsule (HomeTabToggle), at the header buttons'
 // 36px. One is always selected; pressing it again does nothing.
 
 export const VIEW_SEG_H = 36;
 const PAD = 3;
 const BTN_W = VIEW_SEG_H - 2 * PAD;
-const ORDER: ThreadView[] = ["terminal", "thread", "chatter", "heartbeats"];
+const ORDER: ThreadView[] = ["terminal", "thread", "chatter"];
 const ICON = { size: 17, strokeWidth: 2 };
 
 function Glyph({ view }: { view: ThreadView }) {
   if (view === "terminal") return <TerminalIcon {...ICON} />;
   if (view === "thread") return <MessageCircle {...ICON} aria-hidden="true" />;
-  if (view === "chatter") return <MessagesSquare {...ICON} aria-hidden="true" />;
-  return <HeartPulse {...ICON} aria-hidden="true" />;
+  return <MessagesSquare {...ICON} aria-hidden="true" />;
 }
 
 export function ThreadViewSwitch({

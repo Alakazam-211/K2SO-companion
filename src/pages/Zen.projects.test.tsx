@@ -314,7 +314,7 @@ describe("Zen Projects", () => {
     const buttons = await screen.findByTestId("chat-header-buttons");
     expect(Array.from(buttons.children).map((b) => b.getAttribute("aria-label"))).toEqual(["Sessions", "Files"]);
     const views = screen.getAllByRole("radio").map((b) => b.getAttribute("aria-label"));
-    expect(views).toEqual(["Terminal", "Thread", "Chatter", "Heartbeats"]);
+    expect(views).toEqual(["Terminal", "Thread", "Chatter"]);
     expect(screen.getByRole("radio", { name: "Thread" }).getAttribute("aria-checked")).toBe("true");
     // The shared icons (`zen/icons`): the drawer's commands and files-read counters reuse them.
     const icon = (role: "radio" | "button", name: string) =>

@@ -12,20 +12,18 @@
 //   - Heartbeats: `GET /cli/heartbeat/fires-list?project=&limit=50`, no live
 //     stream: re-read every 15 s while open (as K2 does).
 
-export type ThreadView = "terminal" | "thread" | "chatter" | "heartbeats";
+// On the phone Heartbeats is not a view of its own (Rosson 2026-11-11: "a
+// blended approach"): its fires sit in Chatter's timeline.
+export type ThreadView = "terminal" | "thread" | "chatter";
 
 export const THREAD_VIEW_LABEL: Record<ThreadView, string> = {
   terminal: "Terminal",
   thread: "Thread",
   chatter: "Chatter",
-  heartbeats: "Heartbeats",
 };
 
-/** One line under the panel's title: what it holds (K2's words). */
-export const THREAD_PANEL_HINT: Record<"chatter" | "heartbeats", string> = {
-  chatter: "Messages between this agent and other agents",
-  heartbeats: "Heartbeats and other outside input that woke this workspace",
-};
+/** One line under Chatter's title: what it holds. */
+export const CHATTER_HINT = "Messages between this agent and other agents, and the heartbeats that woke its workspace";
 
 // ── Chatter ─────────────────────────────────────────────────────────────
 
@@ -177,4 +175,33 @@ export function heartbeatRows(raw: unknown): HeartbeatRow[] {
   }
   rows.sort((a, b) => a.at - b.at);
   return rows;
+}
+
+// ── Chatter and heartbeats, blended ─────────────────────────────────────
+
+export type BlendRow = { kind: "chatter"; key: string; item: ChatterItem } | { kind: "heartbeat"; key: string; row: HeartbeatRow };
+
+/** Seconds, whether the daemon wrote seconds or milliseconds. */
+function seconds(at: number): number {
+  return at > 1e12 ? at / 1000 : at;
+}
+
+/** One timeline, oldest first: Chatter's messages in their own order, each
+ *  heartbeat placed by its time among them. A message with no time keeps
+ *  the time of the one before it, so Chatter's order never changes. */
+export function blendChatter(chatter: readonly ChatterItem[], beats: readonly HeartbeatRow[]): BlendRow[] {
+  let last = -Infinity;
+  const timed = chatter.map((item) => {
+    if (item.at !== null) last = Math.max(last, seconds(item.at));
+    return { t: last, row: { kind: "chatter" as const, key: `c:${item.id}`, item } };
+  });
+  const out: BlendRow[] = [];
+  let i = 0;
+  const beatsInOrder = [...beats].sort((a, b) => a.at - b.at);
+  for (const b of beatsInOrder) {
+    while (i < timed.length && timed[i].t <= b.at) out.push(timed[i++].row);
+    out.push({ kind: "heartbeat", key: `h:${b.id}`, row: b });
+  }
+  while (i < timed.length) out.push(timed[i++].row);
+  return out;
 }

@@ -54,7 +54,7 @@ import { UsagePage } from "../zen/UsagePage";
 import { pool } from "../zen/multi/pool";
 import { FileIcon, SearchIcon } from "../zen/icons";
 import { ThreadViewSwitch } from "../zen/ThreadViewSwitch";
-import { ChatterPane, HeartbeatsPane } from "../zen/ThreadViewPanes";
+import { ChatterPane } from "../zen/ThreadViewPanes";
 import type { ThreadView } from "../zen/threadViews";
 import { LlmIcon } from "../zen/LlmIcon";
 import { harnessKey, recallHarness, rememberHarness } from "../zen/harnessMemory";
@@ -862,7 +862,7 @@ export function Zen() {
               style={{ marginTop: HEADER_BTN_TOP, rowGap: 6, zIndex: 1, gridColumn: 3, ...searchHides.style }}
               {...searchHides.attrs}
             >
-            {/* Terminal | Thread | Chatter | Heartbeats (Rosson 2026-11-11, a
+            {/* Terminal | Thread | Chatter (Rosson 2026-11-11, a
                 test; K2 Projects' tile switch): top right, Sessions and Files
                 on the row below. */}
             {groupChat ? null : (
@@ -951,16 +951,12 @@ export function Zen() {
               onComposerInput={noteRoomInput}
             />
           </PaneErrorBoundary>
-          {/* Chatter or Heartbeats in the Thread's place (threadViews.ts):
-              over it, under the header, the Thread kept as it was. */}
-          {!groupChat && (threadView === "chatter" || threadView === "heartbeats") ? (
+          {/* Chatter (with the workspace's heartbeats) in the Thread's place
+              (threadViews.ts): over it, under the header, the Thread kept. */}
+          {!groupChat && threadView === "chatter" ? (
             <div className="absolute inset-0" style={{ zIndex: 5, background: "var(--root, #000)" }} data-testid="thread-view-pane">
-              <PaneErrorBoundary name={threadView}>
-                {threadView === "chatter" ? (
-                  <ChatterPane scope={zen} addr={agent?.addr ?? null} topInset={headerPx} />
-                ) : (
-                  <HeartbeatsPane scope={zen} project={agent?.path ?? null} topInset={headerPx} />
-                )}
+              <PaneErrorBoundary name="chatter">
+                <ChatterPane scope={zen} addr={agent?.addr ?? null} project={agent?.path ?? null} topInset={headerPx} />
               </PaneErrorBoundary>
             </div>
           ) : null}
