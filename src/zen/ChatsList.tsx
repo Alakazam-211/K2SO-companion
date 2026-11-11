@@ -1158,7 +1158,7 @@ export function ChatsList() {
             ) : null}
           </span>
         </div>
-        <div className="text-[12px] truncate mx-auto" style={{ color: "#fff", maxWidth: 110 }}>
+        <div className="text-[12px] font-semibold truncate mx-auto" style={{ color: "#fff", maxWidth: 110 }}>
           {r.agent.name}
         </div>
         {failure ? (
@@ -1709,7 +1709,7 @@ export function ChatsList() {
                 </span>
               </div>
               <div
-                className="text-[12px] truncate mx-auto"
+                className="text-[12px] font-semibold truncate mx-auto"
                 style={{ color: "#fff", maxWidth: 110 }}
               >
                 {a.name}

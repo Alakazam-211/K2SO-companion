@@ -414,7 +414,7 @@ export function HomeList({
               ) : null}
             </span>
           </div>
-          <div className="text-[12px] truncate mx-auto" style={{ color: "#fff", maxWidth: 110 }} data-testid="row-name">
+          <div className="text-[12px] font-semibold truncate mx-auto" style={{ color: "#fff", maxWidth: 110 }} data-testid="row-name">
             {name}
           </div>
           {failure ? (
