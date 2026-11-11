@@ -284,7 +284,7 @@ describe("Zen Projects", () => {
     expect(Array.from(buttons.children).map((b) => b.getAttribute("aria-label"))).toEqual([
       "Files",
     ]);
-    expect(screen.queryByRole("button", { name: "Terminal" })).toBeNull();
+    expect(screen.queryByRole("radio", { name: "Terminal" })).toBeNull();
     expect(screen.queryByRole("button", { name: "Sessions" })).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Back to projects" }));
@@ -306,22 +306,21 @@ describe("Zen Projects", () => {
     expect(screen.queryByTestId("overlay-projects")).toBeNull();
   });
 
-  it("an agent chat keeps Terminal · Sessions · Files", async () => {
+  it("an agent chat has the view switch on top, then Sessions · Files", async () => {
     await openAgents();
     const row = useZenStore.getState().agents.find((a) => a.kind !== "group");
     expect(row).toBeDefined();
     act(() => useZenStore.getState().setAgent(row!.id));
     const buttons = await screen.findByTestId("chat-header-buttons");
-    expect(Array.from(buttons.children).map((b) => b.getAttribute("aria-label"))).toEqual([
-      "Terminal",
-      "Sessions",
-      "Files",
-    ]);
+    expect(Array.from(buttons.children).map((b) => b.getAttribute("aria-label"))).toEqual(["Sessions", "Files"]);
+    const views = screen.getAllByRole("radio").map((b) => b.getAttribute("aria-label"));
+    expect(views).toEqual(["Terminal", "Thread", "Chatter", "Heartbeats"]);
+    expect(screen.getByRole("radio", { name: "Thread" }).getAttribute("aria-checked")).toBe("true");
     // The shared icons (`zen/icons`): the drawer's commands and files-read counters reuse them.
-    const icon = (name: string) =>
-      screen.getByRole("button", { name }).querySelector("svg")?.getAttribute("data-k2-icon");
-    expect(icon("Terminal")).toBe("terminal");
-    expect(icon("Files")).toBe("file");
+    const icon = (role: "radio" | "button", name: string) =>
+      screen.getByRole(role, { name }).querySelector("svg")?.getAttribute("data-k2-icon");
+    expect(icon("radio", "Terminal")).toBe("terminal");
+    expect(icon("button", "Files")).toBe("file");
   });
 
   it("the project chat header shows the project's image, as its sheet row does", async () => {

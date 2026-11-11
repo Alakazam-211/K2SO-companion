@@ -193,7 +193,7 @@ describe("Zen keeps the chats list mounted", () => {
       useZenStore.getState().setAgent(STUB_AGENTS[0].id);
     });
     expect(screen.getByRole("button", { name: "Files" })).not.toBeNull();
-    expect(screen.getByRole("button", { name: "Terminal" })).not.toBeNull();
+    expect(screen.getByRole("radio", { name: "Terminal" })).not.toBeNull();
     expect(screen.queryByText("⌁")).toBeNull();
     expect(screen.queryByLabelText(/View Files/i)).toBeNull();
     expect(screen.queryByTestId("file-pane")).toBeNull();
@@ -253,7 +253,7 @@ describe("Zen keeps the chats list mounted", () => {
       expect(useZenStore.getState().screen).toBe("thread")
     );
     expect(useZenStore.getState().agentId).toBe(STUB_AGENTS[0].id);
-    expect(screen.getByRole("button", { name: "Terminal" })).not.toBeNull();
+    expect(screen.getByRole("radio", { name: "Terminal" })).not.toBeNull();
   });
 
   it("Back from a ?thread= entry shows the chats list, not an empty thread", async () => {
@@ -275,15 +275,18 @@ describe("Zen keeps the chats list mounted", () => {
     expect(screen.getByTestId("thread-column")).not.toBeNull();
     const back = screen.getByTestId("chat-back");
     const files = screen.getByRole("button", { name: "Files" });
-    const terminal = screen.getByRole("button", { name: "Terminal" });
+    const terminal = screen.getByRole("radio", { name: "Terminal" });
     expect(back.style.width).toBe("36px");
     expect(back.style.height).toBe("36px");
     expect(back.className).toMatch(/zen-glass/);
     expect(files.style.width).toBe(back.style.width);
     expect(files.style.height).toBe(back.style.height);
     expect(files.className).toMatch(/zen-glass/);
-    expect(terminal.style.width).toBe(back.style.width);
-    expect(terminal.className).toMatch(/zen-glass/);
+    // Terminal is a segment of the view switch, which is as tall as the buttons.
+    const views = screen.getByTestId("thread-view-switch");
+    expect(views.style.height).toBe(back.style.height);
+    expect(views.className).toMatch(/zen-glass/);
+    expect(views.contains(terminal)).toBe(true);
     const headerContent = screen.getByTestId("chat-header-content");
     expect(headerContent.style.paddingTop).toBe("6px");
     expect(headerContent.style.paddingBottom).toBe("12px");
@@ -597,8 +600,9 @@ describe("Zen keeps the chats list mounted", () => {
     expect(screen.getByTestId("chat-rename-open").className).toContain("shrink-0");
     // No session line under the right-hand buttons any more.
     const right = screen.getByTestId("chat-header-right");
-    expect(right.children.length).toBe(1);
-    expect(right.firstElementChild).toBe(screen.getByTestId("chat-header-buttons"));
+    // The view switch, then the buttons: no session line.
+    expect(right.children.length).toBe(2);
+    expect(right.lastElementChild).toBe(screen.getByTestId("chat-header-buttons"));
     expect(screen.queryByTestId("chat-session-line")).toBeNull();
     expect(screen.queryByTestId("chat-sidecar-title")).toBeNull();
     expect(screen.getByTestId("chat-rename-open").style.color).toBe("rgb(255, 255, 255)");
@@ -769,7 +773,7 @@ describe("Zen thread terminal button", () => {
     act(() => {
       useZenStore.setState({ agents: [appa], agentId: appa.id });
     });
-    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Terminal" }));
     await waitFor(() => expect(screen.getByTestId("term-loc")).not.toBeNull());
     expect(screen.getByTestId("term-loc").textContent).toBe(
       `/zen/terminal/t-main|${appa.id}|${appa.name}|#123456`

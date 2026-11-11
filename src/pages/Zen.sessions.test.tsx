@@ -611,9 +611,9 @@ describe("Zen Sessions drawer", () => {
     const row = screen.getByTestId("chat-header-title-row");
     expect(row.contains(screen.getByTestId("chat-rename-open"))).toBe(true);
     expect(screen.queryByTestId("chat-hide")).toBeNull();
-    // Nothing under the right-hand buttons.
+    // The view switch and the buttons under it, nothing more.
     const right = screen.getByTestId("chat-header-right");
-    expect(right.children.length).toBe(1);
+    expect(right.children.length).toBe(2);
     expect(screen.queryByTestId("chat-session-line")).toBeNull();
     expect(screen.queryByTestId("chat-sidecar-title")).toBeNull();
     // The pencil still opens the rename sheet.
@@ -624,7 +624,7 @@ describe("Zen Sessions drawer", () => {
   it("the terminal button then opens the sidecar's own terminal", async () => {
     await openMain();
     await pick("k2/reviewer");
-    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Terminal" }));
     await waitFor(() =>
       expect(screen.getByTestId("term-loc").textContent).toBe("/zen/terminal/t-rev")
     );
@@ -643,11 +643,11 @@ describe("Zen Sessions drawer", () => {
           };
         })
     );
-    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Terminal" }));
     await waitFor(() => expect(screen.getByTestId("terminal-waking")).not.toBeNull());
     expect(ensureCanonicalSession).toHaveBeenCalledWith(expect.anything(), "/ws");
     // A second tap while it starts does nothing.
-    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Terminal" }));
     expect(ensureCanonicalSession).toHaveBeenCalledTimes(1);
     await act(async () => finish());
     await waitFor(() =>
@@ -664,7 +664,7 @@ describe("Zen Sessions drawer", () => {
       error: "folder trust is held",
       status: 409,
     } as never);
-    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Terminal" }));
     const drawer = await screen.findByTestId("sessions-drawer");
     expect(within(drawer).getByTestId("sessions-start-error").textContent).toBe(
       "Couldn't start the agent: folder trust is held"
@@ -680,7 +680,7 @@ describe("Zen Sessions drawer", () => {
   it("the terminal button doesn't start anything when the main agent is running", async () => {
     await openMain();
     vi.mocked(ensureCanonicalSession).mockReset();
-    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Terminal" }));
     await waitFor(() =>
       expect(screen.getByTestId("term-loc").textContent).toBe("/zen/terminal/t-main")
     );
@@ -698,7 +698,7 @@ describe("Zen Sessions drawer", () => {
     await waitFor(() => expect(getAllSessions).toHaveBeenCalled());
     expect(spawnSidecarSession).not.toHaveBeenCalled();
     // The header's Terminal button still reaches that PTY.
-    fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+    fireEvent.click(screen.getByRole("radio", { name: "Terminal" }));
     await waitFor(() =>
       expect(screen.getByTestId("term-loc").textContent).toBe("/zen/terminal/t-77")
     );

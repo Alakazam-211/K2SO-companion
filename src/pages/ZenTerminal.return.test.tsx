@@ -131,7 +131,7 @@ async function pick(label: string) {
 }
 
 async function toTerminal(terminalId: string) {
-  fireEvent.click(screen.getByRole("button", { name: "Terminal" }));
+  fireEvent.click(screen.getByRole("radio", { name: "Terminal" }));
   await waitFor(() =>
     expect(screen.getByTestId("terminal-view").getAttribute("data-terminal")).toBe(terminalId)
   );

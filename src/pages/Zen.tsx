@@ -52,7 +52,10 @@ import { OverlayAddServer } from "../zen/OverlayAddServer";
 import { PairLinkHost } from "../zen/PairLinkHost";
 import { UsagePage } from "../zen/UsagePage";
 import { pool } from "../zen/multi/pool";
-import { FileIcon, SearchIcon, TerminalIcon } from "../zen/icons";
+import { FileIcon, SearchIcon } from "../zen/icons";
+import { ThreadViewSwitch } from "../zen/ThreadViewSwitch";
+import { ChatterPane, HeartbeatsPane } from "../zen/ThreadViewPanes";
+import type { ThreadView } from "../zen/threadViews";
 import { LlmIcon } from "../zen/LlmIcon";
 import { harnessKey, recallHarness, rememberHarness } from "../zen/harnessMemory";
 import { useThreadHarness } from "../zen/threadHarness";
@@ -164,7 +167,6 @@ export function Zen() {
   const headerRef = useRef<HTMLDivElement>(null);
   // Header buttons grow while pressed (usePressSpring; Rosson 2026-10-23).
   const pressBack = usePressSpring<HTMLButtonElement>();
-  const pressTerminal = usePressSpring<HTMLButtonElement>();
   const pressSessions = usePressSpring<HTMLButtonElement>();
   const pressFiles = usePressSpring<HTMLButtonElement>();
   const [headerPx, setHeaderPx] = useState(CHAT_HEADER_PX);
@@ -199,6 +201,10 @@ export function Zen() {
   // The highest usage percent of the LLM account this chat's session uses
   // (K2 0.46.4), shown beside the LLM icon like the desktop's top-bar chip.
   const searchOpen = useThreadSearch((s) => s.open);
+  /** The chat's view (threadViews.ts): Thread by default, back to Thread
+   *  on another chat. Terminal opens the terminal page and stays out. */
+  const [threadView, setThreadView] = useState<ThreadView>("thread");
+  useEffect(() => setThreadView("thread"), [agentId]);
   /** Searching (Rosson 2026-11-10): the picture, name, usage and the
    *  right-hand buttons step aside while the field is open, and come back
    *  when it closes. Hidden, not removed, so the header keeps its height;
@@ -209,6 +215,52 @@ export function Zen() {
         attrs: { "aria-hidden": true, [GLASS_HIDDEN_ATTR]: "" },
       }
     : { style: null, attrs: null };
+
+  /** Open this agent's terminal (the Terminal view): its live session, or
+   *  start the main agent first; with no session, the Sessions drawer. */
+  const openAgentTerminal = () => {
+    if (terminalWaking) return;
+    rememberZenThread(agentId, roomServerId());
+    setStartError(null);
+    const go = async () => {
+      let tid: string | null = null;
+      if (agent) {
+        const host = await useZenStore
+          .getState()
+          .ensureSidecarHost(agent);
+        tid = host.terminalId ?? null;
+      }
+      // The room's own server's sessions (MS23): a room on
+      // another server never looks in the active one's list.
+      let sessions: GlobalSession[];
+      if (roomServerId()) {
+        const r = await getAllSessions(zen);
+        sessions = r.ok && Array.isArray(r.data) ? r.data : [];
+      } else {
+        await useWorkspacesStore.getState().fetchAllSessions();
+        sessions = useWorkspacesStore.getState().allSessions;
+      }
+      if (!tid) tid = terminalIdForAgent(agent, sessions);
+      if (!tid && agent) {
+        // The main agent isn't running: start it, as a
+        // message would, then open its terminal.
+        setTerminalWaking(true);
+        const woke = await useZenStore.getState().ensureMainHost(agent);
+        setTerminalWaking(false);
+        if (woke.ok) tid = woke.terminalId ?? null;
+        else setStartError(woke.error || "Could not start the agent");
+      }
+      if (!tid) {
+        // No live terminal: the Sessions drawer lists this
+        // agent's sessions (and New session).
+        dismissFiles();
+        setSessionsOpen(true);
+        return;
+      }
+      openTerminal(tid, sidecarTitle);
+    };
+    void go();
+  };
   const agentUsage = useAgentUsage(zen, groupChat ? null : openAddr);
   const usageAgeMin = useUsageAgeMinutes(agentUsage?.updatedAt ?? null);
   const usageAge = usageAgeMin == null ? null : usageAgeText(usageAgeMin);
@@ -810,77 +862,29 @@ export function Zen() {
               style={{ marginTop: HEADER_BTN_TOP, rowGap: 6, zIndex: 1, gridColumn: 3, ...searchHides.style }}
               {...searchHides.attrs}
             >
+            {/* Terminal | Thread | Chatter | Heartbeats (Rosson 2026-11-11, a
+                test; K2 Projects' tile switch): top right, Sessions and Files
+                on the row below. */}
+            {groupChat ? null : (
+              <span style={{ pointerEvents: "auto" }}>
+                <ThreadViewSwitch
+                  view={threadView}
+                  busy={terminalWaking}
+                  onView={(v) => {
+                    if (v === "terminal") openAgentTerminal();
+                    else setThreadView(v);
+                  }}
+                />
+              </span>
+            )}
             <span
               data-testid="chat-header-buttons"
               className="flex items-center"
               style={{ gap: 8, pointerEvents: "auto" }}
             >
-              {/* A project chat has only Files: no Terminal, no Sessions. */}
+              {/* A project chat has only Files: no views, no Sessions. */}
               {groupChat ? null : (
               <>
-              <button
-                type="button"
-                ref={pressTerminal}
-                aria-label="Terminal"
-                data-glass-shape="button"
-                className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
-                style={HEADER_BTN}
-                aria-busy={terminalWaking || undefined}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  if (terminalWaking) return;
-                  rememberZenThread(agentId, roomServerId());
-                  setStartError(null);
-                  const go = async () => {
-                    let tid: string | null = null;
-                    if (agent) {
-                      const host = await useZenStore
-                        .getState()
-                        .ensureSidecarHost(agent);
-                      tid = host.terminalId ?? null;
-                    }
-                    // The room's own server's sessions (MS23): a room on
-                    // another server never looks in the active one's list.
-                    let sessions: GlobalSession[];
-                    if (roomServerId()) {
-                      const r = await getAllSessions(zen);
-                      sessions = r.ok && Array.isArray(r.data) ? r.data : [];
-                    } else {
-                      await useWorkspacesStore.getState().fetchAllSessions();
-                      sessions = useWorkspacesStore.getState().allSessions;
-                    }
-                    if (!tid) tid = terminalIdForAgent(agent, sessions);
-                    if (!tid && agent) {
-                      // The main agent isn't running: start it, as a
-                      // message would, then open its terminal.
-                      setTerminalWaking(true);
-                      const woke = await useZenStore.getState().ensureMainHost(agent);
-                      setTerminalWaking(false);
-                      if (woke.ok) tid = woke.terminalId ?? null;
-                      else setStartError(woke.error || "Could not start the agent");
-                    }
-                    if (!tid) {
-                      // No live terminal: the Sessions drawer lists this
-                      // agent's sessions (and New session).
-                      dismissFiles();
-                      setSessionsOpen(true);
-                      return;
-                    }
-                    openTerminal(tid, sidecarTitle);
-                  };
-                  void go();
-                }}
-              >
-                {terminalWaking ? (
-                  <span
-                    data-testid="terminal-waking"
-                    className="block w-4 h-4 rounded-full border-2 border-current border-t-transparent opacity-70 animate-spin motion-reduce:animate-none"
-                    aria-hidden
-                  />
-                ) : (
-                  <TerminalIcon size={18} strokeWidth={2} />
-                )}
-              </button>
               <button
                 type="button"
                 aria-label="Sessions"
@@ -947,6 +951,19 @@ export function Zen() {
               onComposerInput={noteRoomInput}
             />
           </PaneErrorBoundary>
+          {/* Chatter or Heartbeats in the Thread's place (threadViews.ts):
+              over it, under the header, the Thread kept as it was. */}
+          {!groupChat && (threadView === "chatter" || threadView === "heartbeats") ? (
+            <div className="absolute inset-0" style={{ zIndex: 5, background: "var(--root, #000)" }} data-testid="thread-view-pane">
+              <PaneErrorBoundary name={threadView}>
+                {threadView === "chatter" ? (
+                  <ChatterPane scope={zen} addr={agent?.addr ?? null} topInset={headerPx} />
+                ) : (
+                  <HeartbeatsPane scope={zen} project={agent?.path ?? null} topInset={headerPx} />
+                )}
+              </PaneErrorBoundary>
+            </div>
+          ) : null}
           {filesOpen && !viewingFile ? (
             <div
               className="absolute bottom-0 right-0 border-l border-[var(--border)] bg-[var(--background)] flex flex-col"
