@@ -204,3 +204,16 @@ pub(crate) async fn e2e_op<R: Runtime>(
         on,
     })
 }
+
+/// SPIKE (signed approvals S0): never merge.
+#[command]
+pub(crate) async fn approval_spike<R: Runtime>(
+    app: AppHandle<R>,
+    op: String,
+    which: Option<String>,
+    fresh: Option<bool>,
+) -> Result<serde_json::Value> {
+    app.k2_push()
+        .approval_spike(serde_json::json!({ "op": op, "which": which, "fresh": fresh }))
+        .await
+}

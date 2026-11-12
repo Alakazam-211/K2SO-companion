@@ -174,6 +174,14 @@ impl<R: Runtime> K2Push<R> {
     }
 
     /// Async for the same reason: the camera stays up until a code is read.
+    /// SPIKE (signed approvals S0): never merge.
+    pub async fn approval_spike(&self, req: serde_json::Value) -> crate::Result<serde_json::Value> {
+        self.0
+            .run_mobile_plugin_async::<serde_json::Value>("approvalSpike", req)
+            .await
+            .map_err(Into::into)
+    }
+
     pub async fn scan_qr(&self) -> crate::Result<ScanQrResponse> {
         self.0
             .run_mobile_plugin_async::<ScanQrResponse>("scanQr", ())

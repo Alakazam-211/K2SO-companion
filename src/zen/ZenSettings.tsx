@@ -10,6 +10,7 @@ import { useBackHandler } from "../lib/androidBack";
 import { AcknowledgementsPage } from "./AcknowledgementsPage";
 import { RowChevron } from "./RowChevron";
 import { BackArrowButton } from "./BackArrowButton";
+import { ApprovalSpikeGroup } from "./ApprovalSpikeGroup";
 
 const MUTED = "#8e8e93";
 const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
@@ -87,6 +88,8 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
         >
           <MultiServerRow />
         </Group>
+
+        <ApprovalSpikeGroup />
 
         <Group label="About" testId="settings-about">
           <ValueRow label="App" value={ABOUT.app} />

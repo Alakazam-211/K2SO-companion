@@ -27,6 +27,7 @@ permissions = [
   "allow-pick-media",
   "allow-pick-documents",
   "allow-scan-qr",
+  "allow-approval-spike",
   "allow-register-listener",
   "allow-remove-listener",
 ]

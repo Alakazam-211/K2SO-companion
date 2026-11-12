@@ -229,6 +229,29 @@ class K2PushPlugin: Plugin {
     K2Pickers.pick(invoke, media: false, root: manager.viewController)
   }
 
+  // ── SPIKE: signed approvals S0 (K2ApprovalSpike.swift; never merge) ──
+
+  /// `{op: "sign"|"attest", which?, fresh?}` → the spike's result object.
+  @objc public func approvalSpike(_ invoke: Invoke) {
+    let args: ApprovalSpikeArgs
+    do {
+      args = try invoke.parseArgs(ApprovalSpikeArgs.self)
+    } catch {
+      invoke.reject("approvalSpike: invalid args (\(error.localizedDescription))")
+      return
+    }
+    let done: ([String: Any]) -> Void = { out in invoke.resolve(out) }
+    switch args.op {
+    case "sign":
+      K2ApprovalSpike.sign(
+        which: args.which ?? "biometric", fresh: args.fresh ?? false, root: manager.viewController, done: done)
+    case "attest":
+      K2ApprovalSpike.attest(done: done)
+    default:
+      invoke.reject("approvalSpike: unknown op \(args.op)")
+    }
+  }
+
   // ── QR scanner (K2QrScanner.swift): "Pair with a code" ──────────────
 
   /// A full-screen camera that reads one QR → `{text, cancelled, denied}`.
@@ -1146,6 +1169,12 @@ private struct VoiceKeyArgs: Decodable {
   let op: String
   let id: String
   let message: String?
+}
+
+private struct ApprovalSpikeArgs: Decodable {
+  let op: String
+  let which: String?
+  let fresh: Bool?
 }
 
 private struct TokenOpArgs: Decodable {
