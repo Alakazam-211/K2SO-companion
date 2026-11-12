@@ -7,6 +7,7 @@ import { bootInfoFor, scopeFor, versionAtLeast, type ServerScope } from "../api/
 import { useMultiServerPrefs } from "../zen/multi/prefs";
 import { PHONE_FLOOR } from "../zen/multi/rowStatus";
 import { withServerParam } from "../zen/room/serverRef";
+import { openApproval } from "../zen/approvals";
 import { scopedFetch } from "../api/scopedFetch";
 import {
   onServerLeave,
@@ -110,6 +111,12 @@ export interface TapPayload {
    *  and the agent's colour (hex) for the initials fallback. */
   avatarRev?: string;
   agentColor?: string;
+  /** Signed approvals (K2 S1): `"1"` on an approval request's push, with
+   *  `requestId` (`ap_` + 16 hex). The tap opens the Thread, then the
+   *  phone's native approval screen for that request. The push's own text
+   *  is generic; nothing is approved from the notification. */
+  approval?: string;
+  requestId?: string;
 }
 
 // ─── Availability (session-cached probe; see ./pushAvailability) ───
@@ -809,6 +816,29 @@ function belowFloor(serverId: string): boolean {
   return !!v && !versionAtLeast(v, PHONE_FLOOR);
 }
 
+/** The approval request a tap should open natively, or null. */
+export function approvalTapRequest(tap: TapPayload): string | null {
+  const id = str(tap.requestId);
+  return str(tap.approval) === "1" && /^ap_[0-9a-f]{16}$/.test(id) ? id : null;
+}
+
+/** After the Thread opens: the native approval screen for the push's
+ *  request, on the push's server; the Thread re-reads when it closes. */
+function openApprovalAfterTap(tap: TapPayload, serverId: string): void {
+  const id = approvalTapRequest(tap);
+  if (!id) return;
+  let url = "";
+  try {
+    url = scopeFor(serverId).httpBase();
+  } catch {
+    return;
+  }
+  if (!url) return;
+  void openApproval(serverId, url, id).then(() =>
+    import("../zen/zenStore").then((m) => m.useZenStore.getState().refreshOpenThread()).catch(() => {})
+  );
+}
+
 /** Route one tap.
  *
  *  Thread taps resolve their server first and are dropped when no saved
@@ -866,10 +896,12 @@ export async function routeTap(
       agentInSelectedHome(server, str(tap.addr))
     ) {
       navigate(withServerParam(path, server.id));
+      openApprovalAfterTap(tap, server.id);
       return;
     }
     if (!(await switchToServer(server.id))) return;
     navigate(path);
+    openApprovalAfterTap(tap, server.id);
   } catch (e) {
     console.warn("[push] thread tap dropped:", e);
   }

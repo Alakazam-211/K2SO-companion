@@ -226,19 +226,19 @@ final class K2ApprovalViewController: UIViewController {
     let check = bio != nil ? K2ApproverKeys.biometryName() : cred != nil ? "your passcode" : nil
     if let check {
       stack.addArrangedSubview(
-        label("Signs on this iPhone with \(check).", size: 15, color: UIColor(white: 1, alpha: 0.7)))
+        label("Your approval is signed on this iPhone, with \(check).", size: 15, color: UIColor(white: 1, alpha: 0.7)))
     }
     if let agent = got.requestedBy, !agent.isEmpty {
       stack.addArrangedSubview(
         label(
-          "Asked by \(agent), as K2 reports it. That isn't part of what you approve.", size: 15,
+          "K2 says \(agent) asked for this. That name isn't part of what you sign.", size: 15,
           color: UIColor(white: 1, alpha: 0.5)))
     }
 
     if mine.isEmpty {
-      stack.addArrangedSubview(label("This request is for another device.", weight: .semibold))
+      stack.addArrangedSubview(label("This request can only be approved on another device.", weight: .semibold))
     } else if expired {
-      stack.addArrangedSubview(label("The time to answer has passed.", weight: .semibold))
+      stack.addArrangedSubview(label("This request has expired, so it can't be approved now. Ask for a new one from the agent.", weight: .semibold))
     } else {
       if bio != nil {
         buttons.addArrangedSubview(
@@ -252,7 +252,7 @@ final class K2ApprovalViewController: UIViewController {
       }
     }
     buttons.addArrangedSubview(button("Decline", style: 2) { [weak self] in self?.answer(nil) })
-    buttons.addArrangedSubview(button("Not now", style: 1) { [weak self] in self?.done(.closed) })
+    buttons.addArrangedSubview(button("Decide later", style: 1) { [weak self] in self?.done(.closed) })
   }
 
   // MARK: answer
