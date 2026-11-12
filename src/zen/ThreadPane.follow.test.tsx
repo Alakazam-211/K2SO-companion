@@ -301,6 +301,25 @@ describe("Thread follows the newest", () => {
     expect(scroller().scrollTop).toBe(bottom());
   });
 
+  it("Jump to bottom shows whenever scrolled up, and becomes New message when one arrives (Rosson 2026-11-11)", async () => {
+    render(<ThreadPane />);
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+    expect(screen.queryByTestId("thread-new-message")).toBeNull();
+    userScrollTo(300);
+    const pill = screen.getByTestId("thread-new-message");
+    expect(pill.textContent).toMatch(/Jump to bottom/);
+    expect(pill.getAttribute("data-words")).toBe("jump");
+    // A message below: the same pill, new words.
+    height = 1960;
+    act(() => socket().onItem(threadFrame("r9", 40, "On it.") as never));
+    fireResize();
+    expect(screen.getByTestId("thread-new-message")).toBe(pill);
+    expect(pill.textContent).toMatch(/New message/);
+    // Back at the bottom: gone.
+    userScrollTo(bottom());
+    expect(screen.queryByTestId("thread-new-message")).toBeNull();
+  });
+
   it("Jump to newest when I send (default on): a send from up in history jumps down and follows", async () => {
     useJumpOnSendStore.setState({ on: true });
     render(<ThreadPane />);

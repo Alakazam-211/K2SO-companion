@@ -131,6 +131,7 @@ import { newestSeenSeq, type RowRef } from "./unread";
 import { useUnreadStore } from "./unreadStore";
 import { useMarkReadWhileViewing } from "./unreadRead";
 import { MessageFiles, patchThreadFileState, useThreadFilesOn } from "./ThreadFiles";
+import { JumpPill, type JumpPillWords } from "./JumpPill";
 import { PermissionCard } from "./PermissionCard";
 import type { PermissionCardModel } from "./permissionCardModel";
 import { ThreadImagesContext, type ThreadImagesSource } from "./ThreadImages";
@@ -1033,12 +1034,17 @@ export function ThreadPane({
   const [newBelow, setNewBelow] = useState<false | "message" | "sent">(false);
   // Tapped: fading out, gone after PILL_LEAVE_MS.
   const [pillLeaving, setPillLeaving] = useState(false);
-  useEffect(() => {
-    if (!newBelow) setPillLeaving(false);
-  }, [newBelow]);
   // The reader sits at (or near) the newest message: what read marking
   // (K2 0.46.1) counts as "seen". Scrolled up into history = not.
   const [atNewest, setAtNewest] = useState(true);
+  // The pill's words (JumpPill): "Jump to bottom" whenever scrolled up
+  // (Rosson 2026-11-11, as desktop), else what arrived below. The leave
+  // ends once it has nothing left to say.
+  const pillWords: JumpPillWords | null =
+    newBelow === "sent" ? "sent" : newBelow ? "message" : !atNewest ? "jump" : null;
+  useEffect(() => {
+    if (!pillWords) setPillLeaving(false);
+  }, [pillWords]);
   // Our own scrolls: their scroll events must not read as the reader's.
   const ownTop = useRef<number | null>(null);
   const lastTop = useRef(0);
@@ -1333,6 +1339,9 @@ export function ThreadPane({
   /** Jump to the newest now (a scroll the reader did not make). */
   function stick(el: HTMLElement) {
     stickToNewest(el);
+    // At the newest now, whether or not a scroll event follows (the
+    // "Jump to bottom" pill reads this).
+    setAtNewest(true);
     ownTop.current = el.scrollTop;
     lastTop.current = el.scrollTop;
   }
@@ -2074,7 +2083,11 @@ export function ThreadPane({
     following.current = true;
     setPillLeaving(true);
     window.setTimeout(() => {
-      if (following.current) setNewBelow(false);
+      if (!following.current) return;
+      setNewBelow(false);
+      // Arrived: "Jump to bottom" has nothing left to say, scroll event or not.
+      const cur = scrollerRef.current;
+      if (cur && nearNewest(cur)) setAtNewest(true);
     }, PILL_LEAVE_MS);
     if (!el) return;
     // The newest are not drawn (the reader went far up): the window moves
@@ -2813,28 +2826,7 @@ export function ThreadPane({
             className="absolute left-0 right-0 flex justify-center pointer-events-none"
             style={{ bottom: 8 + drawerCover }}
           >
-            {newBelow ? (
-              <button
-                type="button"
-                data-testid="thread-new-message"
-                className="pointer-events-auto zen-glass zen-glass-pill zen-pill-in text-[13px]"
-                style={{
-                  minHeight: 32,
-                  padding: "0 14px",
-                  color: "#fff",
-                  ...(pillLeaving ? { opacity: 0, pointerEvents: "none", transition: "opacity 140ms ease-out" } : null),
-                }}
-                data-leaving={pillLeaving ? "true" : undefined}
-                // Keep focus in the textarea so the iOS keyboard stays up:
-                // a blur drops the keyboard, the pill moves with the
-                // composer, and the tap misses it (send button pattern).
-                onPointerDown={(e) => e.preventDefault()}
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={onNewBelow}
-              >
-                {newBelow === "sent" ? "Sent" : "New message"} <span aria-hidden="true">↓</span>
-              </button>
-            ) : null}
+            {pillWords ? <JumpPill words={pillWords} leaving={pillLeaving} onJump={onNewBelow} /> : null}
           </div>
         </div>
         {/* Above the blur (positioned, z 0): its own stacking layer. */}
