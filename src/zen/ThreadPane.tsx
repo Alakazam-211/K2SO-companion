@@ -1032,6 +1032,11 @@ export function ThreadPane({
   // Below the view: an agent message ("New message ↓"), or the reader's own
   // send when "Jump to newest when I send" is off ("Sent ↓").
   const [newBelow, setNewBelow] = useState<false | "message" | "sent">(false);
+  /** How many messages arrived below while the reader was up. */
+  const [newCount, setNewCount] = useState(0);
+  useEffect(() => {
+    if (!newBelow) setNewCount(0);
+  }, [newBelow]);
   // Tapped: fading out, gone after PILL_LEAVE_MS.
   const [pillLeaving, setPillLeaving] = useState(false);
   // The reader sits at (or near) the newest message: what read marking
@@ -1443,6 +1448,11 @@ export function ThreadPane({
     ) {
       // Reading history: never yank. Offer the jump instead. (A push tap
       // still looking for its message: that arrival is where it lands.)
+      // Count what arrived (several can land in one update): "N new
+      // messages" from two (K2 desktop, 2026-11-11).
+      const prevIdx = thread.findIndex((m) => keyOf(m) === prevLast.current);
+      const arrived = prevIdx >= 0 ? thread.slice(prevIdx + 1).filter((m) => !m.mine && !m.pending).length : 1;
+      setNewCount((c) => c + Math.max(1, arrived));
       setNewBelow("message");
     }
     prevAgent.current = agentId;
@@ -2826,7 +2836,7 @@ export function ThreadPane({
             className="absolute left-0 right-0 flex justify-center pointer-events-none"
             style={{ bottom: 8 + drawerCover }}
           >
-            {pillWords ? <JumpPill words={pillWords} leaving={pillLeaving} onJump={onNewBelow} /> : null}
+            {pillWords ? <JumpPill words={pillWords} count={newCount} leaving={pillLeaving} onJump={onNewBelow} /> : null}
           </div>
         </div>
         {/* Above the blur (positioned, z 0): its own stacking layer. */}

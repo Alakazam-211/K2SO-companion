@@ -4,7 +4,8 @@ import { prefersReducedMotion } from "./sendFly";
 // The Thread's pill over the composer (Rosson 2026-11-11, with K2 desktop):
 // "Jump to bottom" whenever the reader has scrolled up; when a message
 // arrives below, or their own send lands while they're up, the words become
-// "New message" or "Sent", and the pill's width glides to fit them.
+// "New message" ("N new messages" from two, as K2 desktop) or "Sent", and
+// the pill's width glides to fit them.
 
 export type JumpPillWords = "jump" | "message" | "sent";
 
@@ -17,19 +18,27 @@ export const JUMP_PILL_TEXT: Record<JumpPillWords, string> = {
 const PAD_X = 14;
 const WIDTH_MS = 220;
 
+/** The pill's words: "N new messages" once two or more arrived. */
+export function jumpPillText(words: JumpPillWords, count = 0): string {
+  return words === "message" && count >= 2 ? `${count} new messages` : JUMP_PILL_TEXT[words];
+}
+
 export function JumpPill({
   words,
+  count = 0,
   leaving,
   onJump,
 }: {
   words: JumpPillWords;
+  /** Messages that arrived below while scrolled up. */
+  count?: number;
   /** Tapped: fading out. */
   leaving: boolean;
   onJump: () => void;
 }) {
   const labelRef = useRef<HTMLSpanElement>(null);
   const [width, setWidth] = useState<number | null>(null);
-  const text = JUMP_PILL_TEXT[words];
+  const text = jumpPillText(words, count);
   // The label's own width sets the pill's, so a change of words animates
   // the pill (CSS can't transition to `auto`).
   useLayoutEffect(() => {
