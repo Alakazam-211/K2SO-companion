@@ -692,11 +692,16 @@ public struct K2ApprovalPayload {
 
   /// A short line for the system check's prompt (Touch ID and passcode
   /// prompts show it; Face ID shows none). Built from the bytes only.
+  /// Wording: K2 Design 11-11. Known kinds by plain name; any other kind
+  /// keeps its id, as a request. `rp` stays exact: it is what the person
+  /// checks.
   public var promptReason: String {
     if kind == "k2.release", case let .str(v) = bodyField("version") {
       return "Approve K2 release \(v) for \(rp)"
     }
-    return "Approve \(kind) for \(rp)"
+    let names = ["k2.delete": "a delete", "k2.send": "a send", "k2.device.add": "a new device", "k2.confirm": "this"]
+    if let name = names[kind] { return "Approve \(name) for \(rp)" }
+    return "Approve a \(kind) request for \(rp)"
   }
 }
 

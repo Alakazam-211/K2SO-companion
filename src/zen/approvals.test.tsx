@@ -89,7 +89,7 @@ describe("the Thread card", () => {
   it("Review opens the native screen, then the Thread re-reads", async () => {
     const onClosed = vi.fn();
     render(<ApprovalCard card={card} server="srv1" url="https://z3thon.k2.dev" onClosed={onClosed} />);
-    expect(screen.getByTestId("approval-requested-by").textContent).toBe("Asked by k2, as K2 reports it.");
+    expect(screen.getByTestId("approval-requested-by").textContent).toBe("K2 says k2 asked for this.");
     fireEvent.click(screen.getByTestId("approval-review"));
     await waitFor(() => expect(onClosed).toHaveBeenCalled());
     expect(core.invoke).toHaveBeenCalledWith("plugin:k2-push|approval_open", expect.objectContaining({ requestId: ID }));

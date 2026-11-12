@@ -34,7 +34,7 @@ export function ApprovalCard({
       <p className="text-[15px] font-semibold">Approval requested</p>
       {card.requestedBy ? (
         <p className="text-[13px]" style={{ opacity: 0.7 }} data-testid="approval-requested-by">
-          Asked by {card.requestedBy}, as K2 reports it.
+          K2 says {card.requestedBy} asked for this.
         </p>
       ) : null}
       <p className="text-[13px]" style={{ opacity: 0.85 }} data-testid="approval-status">

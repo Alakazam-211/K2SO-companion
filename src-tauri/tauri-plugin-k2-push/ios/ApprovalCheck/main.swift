@@ -105,5 +105,19 @@ for bad in ["2026-02-29T00:00:00Z", "2026-11-11T14:00:00.5Z", "2026-11-11T24:00:
   check(K2ApprovalTime.parseUTC(bad) == nil, "time: \(bad) refused")
 }
 
+// The Touch ID / passcode prompt line (K2 Design 11-11).
+func reason(_ kind: String, _ body: String = "{\"x\":\"y\"}") -> String {
+  let json = "{\"kind\":\"\(kind)\",\"kind_v\":1,\"rp\":\"k2sign@z3mbpZ\",\"approver\":\"r\",\"approver_keys\":[\"\(String(repeating: "a", count: 64))\"],\"nonce\":\"\(String(repeating: "0", count: 32))\",\"issued\":\"2026-11-11T14:00:00Z\",\"answer_by\":\"2026-11-11T14:15:00Z\",\"body\":\(body)}"
+  return (try? K2ApprovalPayload.parse(K2ApprovalPayload.prefix + Array(json.utf8)).promptReason) ?? "refused"
+}
+check(reason("k2.delete") == "Approve a delete for k2sign@z3mbpZ", "reason k2.delete: \(reason("k2.delete"))")
+check(reason("k2.send") == "Approve a send for k2sign@z3mbpZ", "reason k2.send")
+check(reason("k2.device.add") == "Approve a new device for k2sign@z3mbpZ", "reason k2.device.add")
+check(reason("k2.confirm") == "Approve this for k2sign@z3mbpZ", "reason k2.confirm")
+check(reason("com.example.refund") == "Approve a com.example.refund request for k2sign@z3mbpZ", "reason unknown kind")
+if let r = try? K2ApprovalPayload.parse(file("payloads/valid/release.bin")) {
+  check(r.promptReason == "Approve K2 release 0.46.13 for k2sign@build-mac", "reason release: \(r.promptReason)")
+}
+
 print("ApprovalCheck: \(passed) passed, \(failed) failed")
 exit(failed == 0 ? 0 : 1)
