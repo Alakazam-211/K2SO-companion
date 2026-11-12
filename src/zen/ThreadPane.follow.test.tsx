@@ -314,7 +314,12 @@ describe("Thread follows the newest", () => {
     act(() => socket().onItem(threadFrame("r9", 40, "On it.") as never));
     fireResize();
     expect(screen.getByTestId("thread-new-message")).toBe(pill);
-    expect(pill.textContent).toMatch(/New message/);
+    expect(pill.textContent).toBe("New message ↓");
+    // A second: counted, as desktop does.
+    height = 2040;
+    act(() => socket().onItem(threadFrame("r10", 41, "Done.") as never));
+    fireResize();
+    expect(pill.textContent).toBe("2 new messages ↓");
     // Back at the bottom: gone.
     userScrollTo(bottom());
     expect(screen.queryByTestId("thread-new-message")).toBeNull();

@@ -1,11 +1,18 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { JumpPill } from "./JumpPill";
+import { JumpPill, jumpPillText } from "./JumpPill";
 
 afterEach(cleanup);
 
 describe("JumpPill", () => {
+  it("counts from two: N new messages", () => {
+    expect(jumpPillText("jump")).toBe("Jump to bottom");
+    expect(jumpPillText("message", 1)).toBe("New message");
+    expect(jumpPillText("message", 2)).toBe("2 new messages");
+    expect(jumpPillText("sent", 5)).toBe("Sent");
+  });
+
   it("says Jump to bottom, swaps its words, and sizes its width to them with a transition", () => {
     const widths: Record<string, number> = { "Jump to bottom ↓": 104, "New message ↓": 92 };
     const spy = vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function (this: HTMLElement) {
