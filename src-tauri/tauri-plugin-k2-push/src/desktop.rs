@@ -52,6 +52,14 @@ impl<R: Runtime> K2Push<R> {
         Ok(serde_json::json!({ "ok": false, "error": "calls are iOS only" }))
     }
 
+    pub async fn native_async(
+        &self,
+        _method: &str,
+        _req: serde_json::Value,
+    ) -> crate::Result<serde_json::Value> {
+        Ok(serde_json::json!({ "outcome": "failed", "detail": "iOS only", "keys": [] }))
+    }
+
     pub fn token_op(&self, _req: TokenOpRequest) -> crate::Result<serde_json::Value> {
         Ok(serde_json::json!({ "ok": false }))
     }

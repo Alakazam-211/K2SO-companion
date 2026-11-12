@@ -229,6 +229,51 @@ class K2PushPlugin: Plugin {
     K2Pickers.pick(invoke, media: false, root: manager.viewController)
   }
 
+  // ── Signed approvals (K2Approvals.swift, K2ApprovalScreen.swift) ─────
+
+  /// `{server, url, requestId}` → the native approval screen for that
+  /// request; resolves `{outcome: "approved"|"declined"|"closed"|"failed",
+  /// detail?}` when it closes. Native code fetches, shows, signs and
+  /// answers; nothing to sign comes from, or goes back to, the web view.
+  @objc public func approvalOpen(_ invoke: Invoke) {
+    let args: ApprovalOpenArgs
+    do {
+      args = try invoke.parseArgs(ApprovalOpenArgs.self)
+    } catch {
+      invoke.reject("approvalOpen: invalid args (\(error.localizedDescription))")
+      return
+    }
+    guard #available(iOS 15.0, *) else {
+      invoke.resolve(["outcome": "failed", "detail": "needs iOS 15"])
+      return
+    }
+    K2Approvals.open(server: args.server, url: args.url, requestId: args.requestId, root: manager.viewController) {
+      outcome, detail in
+      var out: [String: Any] = ["outcome": outcome]
+      if let detail { out["detail"] = detail }
+      invoke.resolve(out)
+    }
+  }
+
+  /// `{op: "status"}` → `{keys: [{check, keyId}]}` (no words: the native
+  /// screen shows those); `{op: "open"}` → the native Approver keys
+  /// screen, resolving when it closes.
+  @objc public func approverKeys(_ invoke: Invoke) {
+    let args = (try? invoke.parseArgs(ApproverKeysArgs.self)) ?? ApproverKeysArgs(op: "status")
+    guard #available(iOS 15.0, *) else {
+      invoke.resolve(["keys": [] as [Any]])
+      return
+    }
+    switch args.op {
+    case "open":
+      K2Approvals.openKeys(root: manager.viewController) {
+        invoke.resolve(["keys": K2ApproverKeys.current().map { ["check": $0.check.rawValue, "keyId": $0.keyId] }])
+      }
+    default:
+      invoke.resolve(["keys": K2ApproverKeys.current().map { ["check": $0.check.rawValue, "keyId": $0.keyId] }])
+    }
+  }
+
   // ── QR scanner (K2QrScanner.swift): "Pair with a code" ──────────────
 
   /// A full-screen camera that reads one QR → `{text, cancelled, denied}`.
@@ -1146,6 +1191,16 @@ private struct VoiceKeyArgs: Decodable {
   let op: String
   let id: String
   let message: String?
+}
+
+private struct ApprovalOpenArgs: Decodable {
+  let server: String
+  let url: String
+  let requestId: String
+}
+
+private struct ApproverKeysArgs: Decodable {
+  let op: String
 }
 
 private struct TokenOpArgs: Decodable {

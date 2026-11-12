@@ -18,6 +18,8 @@ const COMMANDS: &[&str] = &[
     "pick_media",
     "pick_documents",
     "scan_qr",
+    "approval_open",
+    "approver_keys",
     "register_listener",
     "remove_listener",
 ];
