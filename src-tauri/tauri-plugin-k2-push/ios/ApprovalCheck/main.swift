@@ -119,5 +119,14 @@ if let r = try? K2ApprovalPayload.parse(file("payloads/valid/release.bin")) {
   check(r.promptReason == "Approve K2 release 0.46.13 for k2sign@build-mac", "reason release: \(r.promptReason)")
 }
 
+// Enrolment challenge and client data.
+let ch = K2ApprovalEnrol.challenge(hex: String(repeating: "0a", count: 32))
+check(ch == [UInt8](repeating: 10, count: 32), "enrol: 64 hex")
+check(K2ApprovalEnrol.challenge(hex: "0A0A 0a0a" + String(repeating: "0a", count: 28) + "\n") == ch, "enrol: case and spaces forgiven")
+check(K2ApprovalEnrol.challenge(hex: String(repeating: "0a", count: 31)) == nil, "enrol: short refused")
+check(K2ApprovalEnrol.challenge(hex: String(repeating: "zz", count: 32)) == nil, "enrol: not hex refused")
+let cd = K2ApprovalEnrol.clientData(challenge: ch!, biometric: Data([1]), credential: Data([2]))
+check(cd == Data(Array("K2-APPROVER-ENROL-1".utf8) + [0] + ch! + [1, 2]), "enrol: client data layout")
+
 print("ApprovalCheck: \(passed) passed, \(failed) failed")
 exit(failed == 0 ? 0 : 1)

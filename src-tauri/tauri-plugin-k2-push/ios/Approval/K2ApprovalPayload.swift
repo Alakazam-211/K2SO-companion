@@ -752,3 +752,31 @@ public enum K2ApprovalKeyId {
     return "-----BEGIN PUBLIC KEY-----\n\(b64)\n-----END PUBLIC KEY-----\n"
   }
 }
+
+// ── Enrolment (wire contract dated notes: S0, note 3) ────────────────
+
+public enum K2ApprovalEnrol {
+  public static let prefix: [UInt8] = Array("K2-APPROVER-ENROL-1".utf8) + [0]
+
+  /// k2sign-admin enrol-challenge's 64 hex as 32 bytes (spaces and case
+  /// forgiven), or nil.
+  public static func challenge(hex text: String) -> [UInt8]? {
+    let hex = Array(text.lowercased().utf8.filter { $0 != 0x20 && $0 != 0x0A && $0 != 0x0D && $0 != 0x09 })
+    guard hex.count == 64 else { return nil }
+    var out: [UInt8] = []
+    for k in stride(from: 0, to: 64, by: 2) {
+      guard let v = UInt8(String(decoding: hex[k..<(k + 2)], as: UTF8.self), radix: 16) else { return nil }
+      out.append(v)
+    }
+    return out
+  }
+
+  /// The App Attest client data: prefix ‖ challenge ‖ SPKI(biometric) ‖
+  /// SPKI(credential), each key only if present.
+  public static func clientData(challenge: [UInt8], biometric: Data?, credential: Data?) -> Data {
+    var d = Data(prefix + challenge)
+    if let biometric { d += biometric }
+    if let credential { d += credential }
+    return d
+  }
+}
