@@ -159,14 +159,41 @@ enum K2Approvals {
 
   // MARK: enrolment export (wire contract dated note, S0)
 
-  static let enrolPrefix = Array("K2-APPROVER-ENROL-1".utf8) + [0]
-
   /// enrol.json for the relying party: the public keys with their check,
   /// view, key id and words, plus App Attest over
   /// "K2-APPROVER-ENROL-1" 0x00 ‖ challenge ‖ SPKI(biometric) ‖ SPKI(credential)
   /// (keys present, in that order). S1 has no challenge route, so the phone
   /// makes the challenge (challenge_from: "device"; K2 11-11).
-  static func enrolment(_ keys: [K2ApproverKeys.Key], done: @escaping ([String: Any]) -> Void) {
+  /// enrol.json for the relying party: the public keys with their check,
+  /// view, key id and words, plus App Attest over
+  /// "K2-APPROVER-ENROL-1" 0x00 ‖ challenge ‖ SPKI(biometric) ‖ SPKI(credential)
+  /// (keys present, in that order). S1 has no challenge route, so the phone
+  /// makes the challenge (challenge_from: "device"; K2 11-11).
+  /// The relying party's enrolment challenge: 64 hex (k2sign-admin
+  /// enrol-challenge), spaces and case forgiven; nil when it isn't one.
+  static func challengeBytes(_ text: String) -> [UInt8]? {
+    let hex = text.lowercased().filter { !$0.isWhitespace }
+    guard hex.count == 64, hex.allSatisfy({ $0.isHexDigit }) else { return nil }
+    var out: [UInt8] = []
+    var i = hex.startIndex
+    while i < hex.endIndex {
+      let j = hex.index(i, offsetBy: 2)
+      guard let v = UInt8(hex[i..<j], radix: 16) else { return nil }
+      out.append(v)
+      i = j
+    }
+    return out
+  }
+
+  /// enrol.json for the relying party (wire contract, dated notes 3 and
+  /// S0): the public keys with check, view, key id and words, plus App
+  /// Attest over "K2-APPROVER-ENROL-1" 0x00 ‖ challenge ‖ SPKI(biometric) ‖
+  /// SPKI(credential) (keys present, in that order). k2sign reads the
+  /// top-level `attest_key_id`, `client_data_b64` and `attestation_b64`.
+  /// `challenge` is k2sign's (enrol-challenge); without one the phone
+  /// makes its own (challenge_from "device"), which k2sign won't take for
+  /// --attest.
+  static func enrolment(_ keys: [K2ApproverKeys.Key], challenge given: [UInt8]?, done: @escaping ([String: Any]) -> Void) {
     var out: [String: Any] = [
       "v": 1, "kind": "k2-approver-enrol", "platform": "ios", "device": deviceName(),
       "os": "iOS \(UIDevice.current.systemVersion)", "app": "K2 \(appVersion())",
@@ -178,35 +205,32 @@ enum K2Approvals {
         ]
       },
     ]
-    var challenge = [UInt8](repeating: 0, count: 32)
-    _ = SecRandomCopyBytes(kSecRandomDefault, 32, &challenge)
-    var clientData = Data(enrolPrefix + challenge)
-    for k in keys.sorted(by: { $0.check == .biometric && $1.check != .biometric }) { clientData += k.spki }
-    var attest: [String: Any] = [
-      "challenge_from": "device", "challenge_b64": Data(challenge).base64EncodedString(),
-      "client_data_b64": clientData.base64EncodedString(),
-      "client_data": "K2-APPROVER-ENROL-1 0x00 || challenge || SPKI(biometric) || SPKI(credential)",
-    ]
+    var challenge = given ?? [UInt8](repeating: 0, count: 32)
+    if given == nil { _ = SecRandomCopyBytes(kSecRandomDefault, 32, &challenge) }
+    let clientData = K2ApprovalEnrol.clientData(
+      challenge: challenge, biometric: keys.first { $0.check == .biometric }?.spki,
+      credential: keys.first { $0.check == .credential }?.spki)
+    out["challenge_from"] = given == nil ? "device" : "relying_party"
+    out["challenge_hex"] = challenge.map { String(format: "%02x", $0) }.joined()
+    out["client_data_b64"] = clientData.base64EncodedString()
+    out["client_data"] = "K2-APPROVER-ENROL-1 0x00 || challenge || SPKI(biometric) || SPKI(credential)"
     let svc = DCAppAttestService.shared
     guard svc.isSupported else {
-      attest["error"] = "App Attest isn't supported on this device"
-      out["attest"] = attest
+      out["attest_error"] = "App Attest isn't supported on this device"
       return done(out)
     }
     svc.generateKey { keyId, err in
       guard let keyId else {
-        attest["error"] = "generateKey: \(err?.localizedDescription ?? "?")"
-        out["attest"] = attest
+        out["attest_error"] = "generateKey: \(err?.localizedDescription ?? "?")"
         return done(out)
       }
-      attest["key_id"] = keyId
+      out["attest_key_id"] = keyId
       svc.attestKey(keyId, clientDataHash: Data(K2SHA256.hash(clientData))) { att, err in
         if let att {
-          attest["attestation_b64"] = att.base64EncodedString()
+          out["attestation_b64"] = att.base64EncodedString()
         } else {
-          attest["error"] = "attestKey: \(err?.localizedDescription ?? "?")"
+          out["attest_error"] = "attestKey: \(err?.localizedDescription ?? "?")"
         }
-        out["attest"] = attest
         done(out)
       }
     }
@@ -215,8 +239,8 @@ enum K2Approvals {
   static func pemName(_ c: K2ApproverKeys.Check) -> String { "k2-approver-\(c.rawValue).pem" }
 
   /// The files for the Share sheet, in a fresh temporary folder.
-  static func shareFiles(_ keys: [K2ApproverKeys.Key], done: @escaping ([URL]) -> Void) {
-    enrolment(keys) { enrol in
+  static func shareFiles(_ keys: [K2ApproverKeys.Key], challenge: [UInt8]?, done: @escaping ([URL]) -> Void) {
+    enrolment(keys, challenge: challenge) { enrol in
       let dir = FileManager.default.temporaryDirectory.appendingPathComponent("approver-\(UUID().uuidString)")
       try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
       var urls: [URL] = []
@@ -371,10 +395,38 @@ final class K2ApproverKeysViewController: UIViewController {
     if let note { stack.addArrangedSubview(label(note, size: 15, color: .systemRed)) }
   }
 
+  /// Share asks for k2sign's enrolment challenge first (paste the 64 hex
+  /// from `k2sign-admin enrol-challenge`); empty lets the phone make one.
   private func share(_ keys: [K2ApproverKeys.Key]) {
+    let a = UIAlertController(
+      title: "Enrolment challenge",
+      message: "Paste the 64 characters from k2sign-admin enrol-challenge. Leave it empty to share without one.",
+      preferredStyle: .alert)
+    a.addTextField { f in
+      f.placeholder = "64 characters"
+      f.autocapitalizationType = .none
+      f.autocorrectionType = .no
+      f.font = .monospacedSystemFont(ofSize: 13, weight: .regular)
+    }
+    a.addAction(UIAlertAction(title: "Cancel", style: .cancel))
+    a.addAction(
+      UIAlertAction(title: "Share", style: .default) { [weak self, weak a] _ in
+        let text = a?.textFields?.first?.text ?? ""
+        if text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+          self?.shareNow(keys, challenge: nil)
+        } else if let c = K2ApprovalEnrol.challenge(hex: text) {
+          self?.shareNow(keys, challenge: c)
+        } else {
+          self?.render(note: "That isn't a challenge: it should be 64 characters, 0-9 and a-f.")
+        }
+      })
+    present(a, animated: true)
+  }
+
+  private func shareNow(_ keys: [K2ApproverKeys.Key], challenge: [UInt8]?) {
     spinner.startAnimating()
     view.isUserInteractionEnabled = false
-    K2Approvals.shareFiles(keys) { urls in
+    K2Approvals.shareFiles(keys, challenge: challenge) { urls in
       DispatchQueue.main.async {
         self.spinner.stopAnimating()
         self.view.isUserInteractionEnabled = true
@@ -384,4 +436,5 @@ final class K2ApproverKeysViewController: UIViewController {
       }
     }
   }
+
 }
