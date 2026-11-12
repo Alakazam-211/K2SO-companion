@@ -2,6 +2,7 @@ import type { ThreadDoc, ThreadItem } from "../api/client";
 import type { ProjectGroupMessage } from "../api/projectGroups";
 import { parseThreadAttachments, type ThreadAttachment } from "../api/threadAttachmentPure";
 import { parsePermissionCard, type PermissionCardModel } from "./permissionCardModel";
+import { approvalCardOf, type ApprovalCardModel } from "./approvals";
 
 export type ThreadChoice = {
   prompt: string;
@@ -35,6 +36,10 @@ export type ThreadMessage = {
    *  person's stash (`doc.stash`). Saved on this device only; nothing is
    *  answered back. `text` keeps `doc.body`'s readable fallback. */
   stashOffer?: StashOffer;
+  /** Signed approvals (K2 S1): `doc.kind === "approval"`. The card says
+   *  only that an approval is asked for and its status; the native screen
+   *  reads, shows and signs the request itself. */
+  approval?: ApprovalCardModel;
   /** From a sealed push (lib/pushInbox), not yet confirmed by a server
    *  read: shown, but never a delta cursor (a gap before it would be
    *  skipped), and replaced by the server's copy. */
@@ -231,7 +236,7 @@ export function normaliseThreadItem(
   // Files may ride a message with an empty body (chips, no bubble).
   const files = parseThreadAttachments(doc.attachments);
   if (!text && !files.length && kind === "text") return null;
-  if (!text && !choice && !files.length) return null;
+  if (!text && !choice && !files.length && doc.kind !== "approval") return null;
   const from = String(doc.from || "");
   const atRaw = doc.created_at;
   const at = typeof atRaw === "number" && Number.isFinite(atRaw) ? atRaw : null;
@@ -239,6 +244,8 @@ export function normaliseThreadItem(
   if (files.length) m.files = files;
   const offer = stashOfferOf(doc as Parameters<typeof stashOfferOf>[0]);
   if (offer) m.stashOffer = offer;
+  const approval = approvalCardOf(doc as Parameters<typeof approvalCardOf>[0]);
+  if (approval) m.approval = approval;
   return m;
 }
 

@@ -1,0 +1,1 @@
+Copied from K2 crates/k2-approve/fixtures/sa1 at 6d56666c1 (branch k2/signed-approvals-s1). Private keys are not copied. Refresh: copy payloads/, payloads.json, keys.json, wordlist.txt, keys/*.pem, keys/approvers.tsv, records/ok-*.json.

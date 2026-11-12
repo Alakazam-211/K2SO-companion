@@ -295,6 +295,30 @@
       "type": "string",
       "oneOf": [
         {
+          "description": "Enables the approval_open command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-approval-open",
+          "markdownDescription": "Enables the approval_open command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the approval_open command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-approval-open",
+          "markdownDescription": "Denies the approval_open command without any pre-configured scope."
+        },
+        {
+          "description": "Enables the approver_keys command without any pre-configured scope.",
+          "type": "string",
+          "const": "allow-approver-keys",
+          "markdownDescription": "Enables the approver_keys command without any pre-configured scope."
+        },
+        {
+          "description": "Denies the approver_keys command without any pre-configured scope.",
+          "type": "string",
+          "const": "deny-approver-keys",
+          "markdownDescription": "Denies the approver_keys command without any pre-configured scope."
+        },
+        {
           "description": "Enables the cache_avatars command without any pre-configured scope.",
           "type": "string",
           "const": "allow-cache-avatars",
@@ -511,10 +535,10 @@
           "markdownDescription": "Denies the token_op command without any pre-configured scope."
         },
         {
-          "description": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), the app-icon badge\ntotals and their delivery diagnostics, clearing read notifications, the composer's attach\npickers (photo library, document picker), the pairing QR scanner, the voice call's system UI, the Keychain copy of login tokens, and the event listener\nplumbing for `tap`/`tokenRefresh`/`badgeTotals`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-set-server-totals`\n- `allow-clear-server-totals`\n- `allow-clear-delivered`\n- `allow-get-badge-totals`\n- `allow-get-badge-diagnostics`\n- `allow-e2e-op`\n- `allow-call-op`\n- `allow-token-op`\n- `allow-pick-media`\n- `allow-pick-documents`\n- `allow-scan-qr`\n- `allow-register-listener`\n- `allow-remove-listener`",
+          "description": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), the app-icon badge\ntotals and their delivery diagnostics, clearing read notifications, the composer's attach\npickers (photo library, document picker), the pairing QR scanner, the native signed-approval screens (open a request by id; the Approver keys screen; neither takes bytes to sign nor returns a signature), the voice call's system UI, the Keychain copy of login tokens, and the event listener\nplumbing for `tap`/`tokenRefresh`/`badgeTotals`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-set-server-totals`\n- `allow-clear-server-totals`\n- `allow-clear-delivered`\n- `allow-get-badge-totals`\n- `allow-get-badge-diagnostics`\n- `allow-e2e-op`\n- `allow-call-op`\n- `allow-token-op`\n- `allow-pick-media`\n- `allow-pick-documents`\n- `allow-scan-qr`\n- `allow-approval-open`\n- `allow-approver-keys`\n- `allow-register-listener`\n- `allow-remove-listener`",
           "type": "string",
           "const": "default",
-          "markdownDescription": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), the app-icon badge\ntotals and their delivery diagnostics, clearing read notifications, the composer's attach\npickers (photo library, document picker), the pairing QR scanner, the voice call's system UI, the Keychain copy of login tokens, and the event listener\nplumbing for `tap`/`tokenRefresh`/`badgeTotals`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-set-server-totals`\n- `allow-clear-server-totals`\n- `allow-clear-delivered`\n- `allow-get-badge-totals`\n- `allow-get-badge-diagnostics`\n- `allow-e2e-op`\n- `allow-call-op`\n- `allow-token-op`\n- `allow-pick-media`\n- `allow-pick-documents`\n- `allow-scan-qr`\n- `allow-register-listener`\n- `allow-remove-listener`"
+          "markdownDescription": "Default permissions for the k2-push plugin: availability probe,\npermission request, token fetch, launch-tap read, the notification\navatar cache (Communication Notifications), the app-icon badge\ntotals and their delivery diagnostics, clearing read notifications, the composer's attach\npickers (photo library, document picker), the pairing QR scanner, the native signed-approval screens (open a request by id; the Approver keys screen; neither takes bytes to sign nor returns a signature), the voice call's system UI, the Keychain copy of login tokens, and the event listener\nplumbing for `tap`/`tokenRefresh`/`badgeTotals`.\n\n#### This default permission set includes:\n\n- `allow-is-available`\n- `allow-request-permission`\n- `allow-get-token`\n- `allow-get-launch-tap`\n- `allow-cache-avatars`\n- `allow-set-server-totals`\n- `allow-clear-server-totals`\n- `allow-clear-delivered`\n- `allow-get-badge-totals`\n- `allow-get-badge-diagnostics`\n- `allow-e2e-op`\n- `allow-call-op`\n- `allow-token-op`\n- `allow-pick-media`\n- `allow-pick-documents`\n- `allow-scan-qr`\n- `allow-approval-open`\n- `allow-approver-keys`\n- `allow-register-listener`\n- `allow-remove-listener`"
         }
       ]
     }

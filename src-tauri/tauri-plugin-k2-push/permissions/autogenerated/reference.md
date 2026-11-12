@@ -4,7 +4,7 @@ Default permissions for the k2-push plugin: availability probe,
 permission request, token fetch, launch-tap read, the notification
 avatar cache (Communication Notifications), the app-icon badge
 totals and their delivery diagnostics, clearing read notifications, the composer's attach
-pickers (photo library, document picker), the pairing QR scanner, the voice call's system UI, the Keychain copy of login tokens, and the event listener
+pickers (photo library, document picker), the pairing QR scanner, the native signed-approval screens (open a request by id; the Approver keys screen; neither takes bytes to sign nor returns a signature), the voice call's system UI, the Keychain copy of login tokens, and the event listener
 plumbing for `tap`/`tokenRefresh`/`badgeTotals`.
 
 #### This default permission set includes the following:
@@ -25,6 +25,8 @@ plumbing for `tap`/`tokenRefresh`/`badgeTotals`.
 - `allow-pick-media`
 - `allow-pick-documents`
 - `allow-scan-qr`
+- `allow-approval-open`
+- `allow-approver-keys`
 - `allow-register-listener`
 - `allow-remove-listener`
 
@@ -36,6 +38,58 @@ plumbing for `tap`/`tokenRefresh`/`badgeTotals`.
 <th>Description</th>
 </tr>
 
+
+<tr>
+<td>
+
+`k2-push:allow-approval-open`
+
+</td>
+<td>
+
+Enables the approval_open command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:deny-approval-open`
+
+</td>
+<td>
+
+Denies the approval_open command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:allow-approver-keys`
+
+</td>
+<td>
+
+Enables the approver_keys command without any pre-configured scope.
+
+</td>
+</tr>
+
+<tr>
+<td>
+
+`k2-push:deny-approver-keys`
+
+</td>
+<td>
+
+Denies the approver_keys command without any pre-configured scope.
+
+</td>
+</tr>
 
 <tr>
 <td>
