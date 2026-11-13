@@ -11,7 +11,7 @@ import { fetchProjectGroupMessages } from "../api/projectGroups";
 import { scopeFor, serverMemory, type ServerScope } from "../api/scope";
 import { attachmentCountLabel } from "../api/threadAttachmentPure";
 import type { RowLast } from "./rowPreview";
-import { isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
+import { DELETED_TEXT, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
 import { noteThreadAddr } from "./unreadStore";
 
 // Multi-server (MA6): every key is `<serverId>|t:<addr>` or
@@ -182,6 +182,7 @@ export function rowLastFromMessage(
 ): RowLast {
   const kind = m.kind || "text";
   let text = kind === "secret" ? "" : kind === "choice" ? m.choice?.prompt || m.text : m.text;
+  if (m.deleted) text = DELETED_TEXT;
   // A files-only message (K2 0.46.1): `[file]` / `[N files]`, never names.
   if (kind !== "secret" && !text.trim() && m.files?.length) text = attachmentCountLabel(m.files.length);
   return {

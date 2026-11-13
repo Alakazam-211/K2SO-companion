@@ -47,6 +47,7 @@ export function sameMessage(a: ThreadMessage, b: ThreadMessage): boolean {
     !!a.failed === !!b.failed &&
     !!a.provisional === !!b.provisional &&
     !!a.partial === !!b.partial &&
+    !!a.deleted === !!b.deleted &&
     (a.readSeq ?? null) === (b.readSeq ?? null) &&
     sameChoice(a.choice, b.choice) &&
     attachmentsKey(a.files) === attachmentsKey(b.files)

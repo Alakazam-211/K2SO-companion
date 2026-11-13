@@ -2461,7 +2461,10 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const at = msg.id ? cur.findIndex((m) => m.id === msg.id) : -1;
     let thread: ThreadMessage[];
     if (at >= 0) {
-      const next = { ...msg, files: cur[at].files, pending: cur[at].pending, failed: cur[at].failed };
+      // A tombstone takes nothing from the message it replaces.
+      const next = msg.deleted
+        ? { ...msg }
+        : { ...msg, files: cur[at].files, pending: cur[at].pending, failed: cur[at].failed };
       if (!next.files) delete next.files;
       if (!next.pending) delete next.pending;
       if (!next.failed) delete next.failed;
