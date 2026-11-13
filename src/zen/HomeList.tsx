@@ -150,9 +150,13 @@ export function HomeList({
   activeDown = false,
   inset = "16px",
   otherHomeOf,
+  gridMax = HOME_GRID_MAX,
 }: {
   views: HomeRowView[];
   homeName: string;
+  /** How many of the Home's first rows sit in the grid (this Home's "Top
+   *  grid" choice: 0, 3, 6 or 9). */
+  gridMax?: number;
   searching: boolean;
   /** Menu Rearrange shown (off while "Recent agents first" orders the
    *  list, and while searching). */
@@ -328,7 +332,7 @@ export function HomeList({
     return { address, handle, here, look, failure, action, there, busy, when, name, preview, unread, opacity, elsewhere, dim, remoteView };
   };
 
-  const gridded = rearranging || searching ? [] : views.slice(0, HOME_GRID_MAX);
+  const gridded = rearranging || searching ? [] : views.slice(0, gridMax);
   const listed = views.slice(gridded.length);
 
   const tile = (v: HomeRowView) => {

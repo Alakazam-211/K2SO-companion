@@ -60,6 +60,7 @@ import {
 import { FocusGroupPicker } from "./FocusGroupPicker";
 import { AddAgentSheet } from "./AddAgentSheet";
 import { HomeList, homeRowTarget, openHomeRowOnServer, type RemoteRowLook } from "./HomeList";
+import { homeGridSize, useHomeGridStore } from "./homeGrid";
 import { prefetchTargets, useChatPrefetch, type PrefetchTarget } from "./chatPrefetch";
 import { HomeMenu } from "./HomeMenu";
 import { HomeTabToggle } from "./HomeTabToggle";
@@ -736,6 +737,7 @@ export function ChatsList() {
     !recentOn && !searching && (reorderItems.length > 1 || pinned.length > 1);
   const agentsRearranging = !onHome && rearrangeTab === "agents";
   const homeRearranging = onHome && rearrangeTab === "home";
+  const homeGridMax = useHomeGridStore((st) => homeGridSize(st.sizes, home.id));
   const rearranging = agentsRearranging || homeRearranging;
   const rearrange = useRearrange({
     keys: reorderItems.map((it) => it.key),
@@ -1422,6 +1424,8 @@ export function ChatsList() {
           onCreate={(name) => useHomesStore.getState().createHome(name)}
           onRename={(name) => useHomesStore.getState().renameHome(home.id, name)}
           onDelete={() => useHomesStore.getState().deleteHome(home.id)}
+          gridSize={homeGridMax}
+          onGridSize={(n) => useHomeGridStore.getState().setSize(home.id, n)}
           onClose={() => setHomeMenu(false)}
         />
       ) : null}
@@ -1559,6 +1563,7 @@ export function ChatsList() {
         <HomeList
           views={homeShown.filter((v) => homeRowMatches(v, q))}
           homeName={home.name}
+          gridMax={homeGridMax}
           searching={searching}
           // Recent agents first sorts the Home itself: no Rearrange.
           canRearrange={!recentOn}
