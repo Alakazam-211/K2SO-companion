@@ -708,6 +708,11 @@ export type ThreadDoc = {
   /** K2 0.46.1 `thread-attachments-v1`: files riding the message (parsed
    *  defensively by `parseThreadAttachments`). */
   attachments?: unknown;
+  /** K2 0.46.13: a deleted message is a tombstone the daemon always
+   *  serves (live frame and every read): no body, no files. */
+  deleted?: boolean;
+  deletedAt?: number;
+  deletedBy?: string;
 };
 
 export type ThreadItem = ThreadDoc & {

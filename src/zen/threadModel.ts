@@ -41,7 +41,14 @@ export type ThreadMessage = {
   provisional?: boolean;
   /** Cut short to fit the push: the rest arrives with the server's copy. */
   partial?: boolean;
+  /** K2 0.46.13 tombstone (`deleted: true`): one muted "Message deleted"
+   *  line on the sender's side. No bubble, name, status, receipt, files or
+   *  menu; the receipt moves to the message before it. */
+  deleted?: true;
 };
+
+/** What a deleted message shows, in the chat and as a list preview. */
+export const DELETED_TEXT = "Message deleted";
 
 export type StashOffer = { text: string; title: string | null };
 
@@ -224,6 +231,14 @@ export function normaliseThreadItem(
   const seqRaw = raw.seq ?? doc.seq;
   const seq = typeof seqRaw === "number" && Number.isFinite(seqRaw) ? seqRaw : null;
   const kind = String(doc.kind || "text");
+  if (doc.deleted === true) {
+    // A tombstone: kept (it replaces the message on screen and in the
+    // cache), never dropped as empty, and nothing of the old one rides it.
+    const from = String(doc.from || "");
+    const atRaw = doc.created_at;
+    const at = typeof atRaw === "number" && Number.isFinite(atRaw) ? atRaw : null;
+    return { id, seq, text: "", from, at, mine: isMine(from, username), kind, choice: null, deleted: true };
+  }
   const choice = choiceOf(doc);
   // Skin: item.doc.body ?? item.doc.text. Never item.text when doc exists.
   const textRaw = doc.body ?? doc.text ?? "";

@@ -58,7 +58,7 @@ import { useKeyboardDrag } from "../kit/mobileChat/useKeyboardDrag";
 import { useTapToDismiss } from "../kit/mobileChat/useTapToDismiss";
 import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
 import { StubMark } from "./StubMark";
-import { mountainTime, type StashOffer, type ThreadMessage } from "./threadModel";
+import { DELETED_TEXT, mountainTime, type StashOffer, type ThreadMessage } from "./threadModel";
 import { BookmarkPlusIcon, ReplyIcon } from "./icons";
 import { formatThreadReply, parseThreadReply, threadReplyFirstLine, type ThreadReplyTarget } from "./threadReply";
 import { MESSAGE_HOLD_ATTR, useMessageHold, useMessageSelection } from "./stash/useMessageHold";
@@ -620,6 +620,28 @@ const ThreadRow = memo(function ThreadRow({
    *  name, not its handle. Falls back to `m.from`. */
   fromLabel?: string;
 }) {
+  if (m.deleted) {
+    // K2 0.46.13 tombstone: one muted line on the sender's side. No
+    // bubble (so no hold menu), name, time, receipt or files.
+    return (
+      <div
+        data-thread-msg=""
+        data-thread-deleted=""
+        data-row-key={rowKey}
+        data-win-row={windowed ? "" : undefined}
+        data-seq={m.seq ?? undefined}
+        data-testid="thread-msg-deleted"
+        className={`flex flex-col max-w-[78%] min-w-0 ${m.mine ? "self-end items-end" : "self-start items-start"}${spaced ? " mt-1.5" : ""}`}
+        style={
+          pictureOn !== undefined
+            ? { position: "relative", marginLeft: pictureOn ? THREAD_PICTURE_PX + THREAD_PICTURE_GAP : 0 }
+            : undefined
+        }
+      >
+        <span className="px-3 py-0.5 text-[13px] italic text-[var(--text-muted)] select-none">{DELETED_TEXT}</span>
+      </div>
+    );
+  }
   const wordless = !m.text.trim() && !m.choice;
   const bubble = !(files && wordless);
   return (
@@ -2425,7 +2447,7 @@ export function ThreadPane({
   // iMessage runs (tails, tighter spacing, one meta line per run) and the
   // one "Delivered" / "Read" receipt (chatReceipt.ts). A send still flying
   // in (or fading in) is not confirmed yet: the label moves once it lands.
-  const runs = chatRuns(rows.map(({ m }) => ({ mine: m.mine, from: m.from, at: m.at })));
+  const runs = chatRuns(rows.map(({ m }) => ({ mine: m.mine, from: m.from, at: m.at, deleted: !!m.deleted })));
   const pictureCache = useRef(new Map<string, SenderPicture>());
   const picturesOn = useThreadPicturesOn(
     `${zenServer}\n${groupId || agentId || ""}`,
@@ -2493,9 +2515,10 @@ export function ThreadPane({
     paintThreadSearch(owner, all, current);
   });
   useEffect(() => () => clearThreadSearchPaint(searchPaintOwner.current), []);
+  // A deleted message never carries the receipt: it moves to the one before.
   const receiptRows = rows.map(({ key, m, out }) => ({
     mine: m.mine,
-    confirmed: !out && !m.pending && !m.failed && key !== fly?.localId,
+    confirmed: !out && !m.pending && !m.failed && !m.deleted && key !== fly?.localId,
     at: m.at,
   }));
   const receiptIdx = receiptRow(receiptRows);

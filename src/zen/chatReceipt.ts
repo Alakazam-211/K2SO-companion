@@ -29,7 +29,8 @@ export const RUN_GAP_S = 120;
  *  counts as picking it up (clock rounding between the copies). */
 export const READ_SLACK_MS = 2000;
 
-export type RunInput = { mine: boolean; from: string; at: number | null };
+/** `deleted`: a "Message deleted" line (K2 0.46.13), never part of a run. */
+export type RunInput = { mine: boolean; from: string; at: number | null; deleted?: boolean };
 export type RunPos = { first: boolean; last: boolean };
 
 /** Seconds, from Unix seconds or ms; null when unknown. */
@@ -39,6 +40,7 @@ function secondsOf(at: number | null | undefined): number | null {
 }
 
 function sameRun(a: RunInput, b: RunInput, gapS: number): boolean {
+  if (a.deleted || b.deleted) return false;
   if (a.mine !== b.mine) return false;
   if (!a.mine && a.from !== b.from) return false;
   const sa = secondsOf(a.at);
