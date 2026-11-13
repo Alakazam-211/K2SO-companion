@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { HOME_GRID_KEY, useHomeGridStore } from "./homeGrid";
 import { useMultiServerPrefs } from "./multi/prefs";
 import { act, cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
@@ -582,6 +583,45 @@ describe("Row dividers (Rosson 2026-10-18)", () => {
 });
 
 describe("Home's first nine (Rosson 2026-11-09)", () => {
+  const four = () => {
+    const h = useHomesStore.getState();
+    for (const n of ["alpha", "beta", "gamma", "delta"]) {
+      h.addRow(h.selectedId, { address: homeAddress(n, HOST), workspaceId: `p-${n}`, label: n });
+    }
+  };
+  const tiles = () => screen.getByTestId("home-grid").querySelectorAll("[data-home-row]").length;
+  beforeEach(() => useHomeGridStore.setState({ sizes: {} }));
+
+  it("Top grid in the Home menu sets how many sit in the grid, for this Home, on this phone", () => {
+    four();
+    mount();
+    goHome();
+    expect(tiles()).toBe(4);
+    fireEvent.click(screen.getByTestId("chats-title-home"));
+    const grid = screen.getByTestId("home-menu-grid");
+    expect(within(grid).getByTestId("home-grid-9").getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(within(grid).getByTestId("home-grid-3"));
+    expect(within(grid).getByTestId("home-grid-3").getAttribute("aria-checked")).toBe("true");
+    expect(tiles()).toBe(3);
+    // The fourth is a row below, still on the Home.
+    expect(useHomesStore.getState().homes[0].rows).toHaveLength(4);
+    const id = useHomesStore.getState().selectedId;
+    expect(JSON.parse(localStorage.getItem(HOME_GRID_KEY) ?? "{}")).toEqual({ [id]: 3 });
+  });
+
+  it("Off shows the whole Home as rows; 9 is the default and isn't stored", () => {
+    four();
+    mount();
+    goHome();
+    fireEvent.click(screen.getByTestId("chats-title-home"));
+    fireEvent.click(screen.getByTestId("home-grid-0"));
+    expect(screen.queryByTestId("home-grid")).toBeNull();
+    fireEvent.click(screen.getByTestId("home-grid-9"));
+    expect(tiles()).toBe(4);
+    expect(JSON.parse(localStorage.getItem(HOME_GRID_KEY) ?? "{}")).toEqual({});
+  });
+
+
   it("are rows, not a grid, while searching", () => {
     const h = useHomesStore.getState();
     h.addRow(h.selectedId, { address: homeAddress("alpha", HOST), workspaceId: "pa", label: "alpha" });

@@ -2,6 +2,7 @@ import { useState } from "react";
 import { HOME_NAME_MAX, type Home } from "./homes";
 import { CheckIcon } from "./icons";
 import { useBackHandler } from "../lib/androidBack";
+import { HOME_GRID_CHOICES, HOME_GRID_DEFAULT, homeGridLabel, type HomeGridSize } from "./homeGrid";
 
 const ITEM = {
   gap: 10,
@@ -29,6 +30,8 @@ export function HomeMenu({
   onRename,
   onDelete,
   onClose,
+  gridSize = HOME_GRID_DEFAULT,
+  onGridSize,
 }: {
   homes: Home[];
   currentId: string;
@@ -42,6 +45,9 @@ export function HomeMenu({
   onRename: (name: string) => void;
   onDelete: () => void;
   onClose: () => void;
+  /** The current Home's top grid size (this phone). */
+  gridSize?: number;
+  onGridSize?: (size: HomeGridSize) => void;
 }) {
   const current = homes.find((h) => h.id === currentId) ?? homes[0];
   const [mode, setMode] = useState<Mode>({ kind: "list" });
@@ -221,6 +227,41 @@ export function HomeMenu({
             >
               Rename…
             </button>
+            {onGridSize ? (
+              <div className="flex items-center" style={{ ...ITEM, gap: 8 }} data-testid="home-menu-grid">
+                <span className="flex-1 min-w-0 truncate text-[16px]">Top grid</span>
+                <span
+                  role="radiogroup"
+                  aria-label="Top grid size"
+                  className="shrink-0 flex rounded-full"
+                  style={{ background: "rgba(255,255,255,.12)", padding: 2 }}
+                >
+                  {HOME_GRID_CHOICES.map((n) => {
+                    const on = n === gridSize;
+                    return (
+                      <button
+                        key={n}
+                        type="button"
+                        role="radio"
+                        aria-checked={on}
+                        className="border-0 rounded-full text-[14px]"
+                        style={{
+                          minWidth: 34,
+                          height: 28,
+                          padding: "0 8px",
+                          background: on ? "#0a84ff" : "transparent",
+                          color: "#fff",
+                        }}
+                        onClick={() => onGridSize(n)}
+                        data-testid={`home-grid-${n}`}
+                      >
+                        {homeGridLabel(n)}
+                      </button>
+                    );
+                  })}
+                </span>
+              </div>
+            ) : null}
             {mode.kind === "delete" ? (
               <button
                 type="button"
