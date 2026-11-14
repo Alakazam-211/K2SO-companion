@@ -1,4 +1,3 @@
-import { HeartPulse } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ServerScope } from "../api/scope";
 import { scopedFetch } from "../api/scopedFetch";
@@ -177,6 +176,28 @@ const TONE_COLOR: Record<HeartbeatTone, string> = {
   muted: "#8e8e93",
 };
 
+/** K2's heartbeat symbol (ThreadDrawerSelector `HeartbeatIcon`): the EKG
+ *  line alone, no heart around it (Riley 2026-11-14). */
+export function HeartbeatIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      data-testid="heartbeat-icon"
+      style={{ flex: "none", color: "#ff375f" }}
+    >
+      <path d="M2 12h5l2-5 4 10 2-5h7" />
+    </svg>
+  );
+}
+
 function HeartbeatRowView({ row }: { row: HeartbeatRow }) {
   return (
     <div
@@ -186,7 +207,7 @@ function HeartbeatRowView({ row }: { row: HeartbeatRow }) {
     >
       <div className="flex items-baseline justify-between" style={{ gap: 8 }}>
         <span className="flex items-center min-w-0 font-semibold" style={{ gap: 5, fontSize: zenTextPx(13) }}>
-          <HeartPulse size={14} aria-hidden="true" style={{ flex: "none", color: "#ff375f" }} />
+          <HeartbeatIcon />
           <span className="truncate">Heartbeat · {row.source}</span>
         </span>
         <span className="shrink-0" style={{ color: "#8e8e93", fontSize: zenTextPx(11) }}>

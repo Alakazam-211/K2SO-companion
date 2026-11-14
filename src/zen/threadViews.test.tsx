@@ -100,3 +100,13 @@ describe("Chatter and Heartbeats (K2 Projects' tile views, ported; a swipe page 
     await waitFor(() => expect(screen.getByTestId("chatter-pane-error").textContent).toMatch(/Couldn't load it \(403\)/));
   });
 });
+
+describe("the heartbeat symbol", () => {
+  it("is K2's EKG line alone, not a heart", async () => {
+    const { HeartbeatIcon } = await import("./ThreadViewPanes");
+    const { container } = render(<HeartbeatIcon />);
+    const paths = container.querySelectorAll("svg path");
+    expect(paths).toHaveLength(1);
+    expect(paths[0].getAttribute("d")).toBe("M2 12h5l2-5 4 10 2-5h7");
+  });
+});
