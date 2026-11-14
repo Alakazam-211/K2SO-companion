@@ -19,6 +19,7 @@ import {
   getThread,
   postThread,
   answerThread,
+  voidThreadCard,
   reorderProjects,
   setProjectPinned,
   setSessionLabel,
@@ -108,7 +109,14 @@ import {
   type OverlaySidecar,
 } from "./sidecarRows";
 import { isConversationAddr } from "./sessionHistory";
-import { groupMessagesToThread, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
+import {
+  CARD_DISMISS_REASON_MAX,
+  cardOpen,
+  groupMessagesToThread,
+  isOwnerAuthored,
+  normaliseThreadItem,
+  type ThreadMessage,
+} from "./threadModel";
 import { mergeThreadMessages } from "./threadLive";
 import { mergeGroupDelta, mergeServerPage, sameMessage } from "./threadCacheMerge";
 import { chatCache } from "./chatCache";
@@ -296,6 +304,9 @@ type ZenState = {
   patchOutgoing: (localId: string, patch: Partial<OutgoingMessage>) => void;
   dropOutgoing: (localId: string) => void;
   answerChoice: (messageId: string, option: string) => Promise<void>;
+  /** Dismiss a waiting card (K2 0.46.11 `POST /cli/thread/void` + reason).
+   *  Resolves null when done, else the error to show on the card. */
+  dismissCard: (messageId: string, reason?: string) => Promise<string | null>;
   ingestThreadRaw: (raw: ThreadItem) => void;
   refreshOpenThread: () => Promise<void>;
   /** Last-message unix seconds, keyed `t:<addr>` / `g:<groupId>`. Null = fetched empty. */
@@ -2443,6 +2454,49 @@ export const useZenStore = create<ZenState>((set, get) => ({
         answerError: e instanceof Error ? e.message : String(e),
         answerErrorId: id,
       });
+    }
+  },
+
+  dismissCard: async (messageId, reason) => {
+    const id = messageId.trim();
+    if (!id) return null;
+    if (get().agentSource === "stub" || get().threadSource === "stub") {
+      return "STUB — Cannot dismiss — POST /cli/thread/void not proven";
+    }
+    if ((get().threadGroupId || "").trim()) return null;
+    const addr = get().threadAddr;
+    if (!isSendableAddr(addr)) return null;
+    const msg = get().thread.find((m) => m.id === id);
+    if (!msg?.choice || !cardOpen(msg.choice)) return null;
+    const why = (reason ?? "").replace(/[\r\n]+/g, " ").trim().slice(0, CARD_DISMISS_REASON_MAX);
+    const gen = get().threadGen;
+    const failed = "K2 couldn't dismiss this card.";
+    try {
+      const posted = await voidThreadCard(zenScope(), addr, id, why || undefined);
+      if (get().threadGen !== gen) return null;
+      if (!posted.ok) return typeof posted.error === "string" && posted.error ? posted.error : failed;
+      // Closed here at once; the live frame (or the next read) brings the
+      // daemon's own copy (who, the stored reason).
+      const username = zenScope().username();
+      const thread = get().thread.map((m) =>
+        m.id === id && m.choice
+          ? {
+              ...m,
+              choice: {
+                ...m.choice,
+                status: "voided",
+                closedAs: "dismissed" as const,
+                ...(why ? { closeReason: why } : {}),
+                closedBy: { kind: "user", login: username || "you" },
+              },
+            }
+          : m
+      );
+      set({ thread });
+      return null;
+    } catch (e) {
+      if (get().threadGen !== gen) return null;
+      return e instanceof Error && e.message ? e.message : failed;
     }
   },
 

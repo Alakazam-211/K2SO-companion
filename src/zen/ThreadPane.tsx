@@ -58,7 +58,17 @@ import { useKeyboardDrag } from "../kit/mobileChat/useKeyboardDrag";
 import { useTapToDismiss } from "../kit/mobileChat/useTapToDismiss";
 import { FOOTER_BLUR_FADE_PX, ZenFooterBlur } from "./ZenHeaderBlur";
 import { StubMark } from "./StubMark";
-import { DELETED_TEXT, mountainTime, type StashOffer, type ThreadMessage } from "./threadModel";
+import {
+  DELETED_TEXT,
+  cardAuthorLabel,
+  cardOpen,
+  closedCardLine,
+  daemonClosedCard,
+  mountainTime,
+  type StashOffer,
+  type ThreadMessage,
+} from "./threadModel";
+import { CardDismiss } from "./CardDismiss";
 import { BookmarkPlusIcon, ReplyIcon } from "./icons";
 import { formatThreadReply, parseThreadReply, threadReplyFirstLine, type ThreadReplyTarget } from "./threadReply";
 import { MESSAGE_HOLD_ATTR, useMessageHold, useMessageSelection } from "./stash/useMessageHold";
@@ -375,6 +385,12 @@ const Bubble = memo(function Bubble({
   const choice = secret ? null : m.choice;
   const answered =
     choice != null && choice.answer != null && String(choice.answer) !== "";
+  // K2 0.46.11: a card a person dismissed or its agent withdrew (or one
+  // that expired) reads closed: dimmed, with who and why under a hairline.
+  const waiting = cardOpen(choice);
+  const closedAs = choice && choice.status === "voided" ? choice.closedAs ?? null : null;
+  const expired = !!choice && !answered && choice.status === "expired";
+  const username = useZenScope().username();
   const bubbleRef = useRef<HTMLDivElement>(null);
   const breathing = Boolean(breathe && m.pending && !flying && !fadeIn);
   useDeliverBrighten(bubbleRef, Boolean(m.pending), breathing, Boolean(flying));
@@ -416,18 +432,20 @@ const Bubble = memo(function Bubble({
       ) : choice ? (
         <div>
           {choice.prompt ? (
-            <ChatMessageBody
-              text={choice.prompt}
-              className="!p-0 text-white"
-              style={bubbleBodyStyle()}
-              onFileLink={onFileLink}
-            />
+            <div style={closedAs ? { opacity: 0.55 } : undefined} data-card-closed={closedAs ?? undefined}>
+              <ChatMessageBody
+                text={choice.prompt}
+                className="!p-0 text-white"
+                style={bubbleBodyStyle()}
+                onFileLink={onFileLink}
+              />
+            </div>
           ) : null}
           {choice.options.length ? (
             <div className="mt-2 flex flex-wrap gap-1.5">
               {choice.options.map((o) => {
                 const picked = answered && choice.answer === o;
-                const open = canAnswer && !answered && !answering && Boolean(m.id);
+                const open = canAnswer && waiting && !answering && Boolean(m.id);
                 const tappable = open && !answerHeld;
                 return (
                   <button
@@ -455,6 +473,18 @@ const Bubble = memo(function Bubble({
             <p className="mt-1 text-[12px] opacity-80" data-testid="choice-result">
               {choice.resultMessage || "Answered."}
             </p>
+          ) : closedAs ? (
+            <p
+              className="mt-2 pt-1.5 text-[12px] leading-snug"
+              style={{ color: "rgba(255,255,255,0.65)", borderTop: "0.5px solid rgba(255,255,255,0.25)" }}
+              data-testid="choice-closed"
+            >
+              {closedCardLine(closedAs, cardAuthorLabel(choice.closedBy, username), m.from, choice.closeReason)}
+            </p>
+          ) : expired ? (
+            <p className="mt-1 text-[12px] opacity-80" data-testid="choice-expired">
+              Expired.
+            </p>
           ) : answerError ? (
             <p className="mt-1 text-[12px] opacity-80" role="alert">
               {answerError}
@@ -462,6 +492,7 @@ const Bubble = memo(function Bubble({
           ) : answering ? (
             <p className="mt-1 text-[12px] opacity-80">Sending…</p>
           ) : null}
+          {waiting && canAnswer && !answerHeld && !answering && m.id ? <CardDismiss id={m.id} /> : null}
         </div>
       ) : m.stashOffer && !m.mine ? (
         <StashOfferCard m={m} offer={m.stashOffer} onSave={onStashOffer} />
@@ -2763,6 +2794,8 @@ export function ThreadPane({
                 const wordless = !m.text.trim() && !m.choice;
                 // Files-only, on a server without the feature: nothing to draw.
                 if (wordless && !files && !out && m.files?.length) return null;
+                // A card the daemon closed by itself: not drawn (K2 isVoidedHitl).
+                if (!out && daemonClosedCard(m.choice)) return null;
                 const flying = fly?.localId === key;
                 return (
                   <ThreadRow

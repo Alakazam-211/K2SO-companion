@@ -703,7 +703,17 @@ export type ThreadDoc = {
   conversation_id?: string;
   /** K2 0.46.3 action cards: `status` and `action:{id, params, dedupe?,
    *  result?:{message}}` (the daemon writes `result.message` on answer). */
-  choice?: { prompt?: string; options?: unknown; answer?: unknown; status?: unknown; action?: unknown };
+  choice?: {
+    prompt?: string;
+    options?: unknown;
+    answer?: unknown;
+    status?: unknown;
+    action?: unknown;
+    /** K2 0.46.11: a `voided` card a person dismissed or its agent withdrew. */
+    closedAs?: unknown;
+    closeReason?: unknown;
+    answeredBy?: unknown;
+  };
   secret?: { prompt?: string };
   /** K2 0.46.1 `thread-attachments-v1`: files riding the message (parsed
    *  defensively by `parseThreadAttachments`). */
@@ -870,6 +880,18 @@ export const answerThread = (
       ...(opts.reason ? { reason: opts.reason } : {}),
       ...(opts.confirmToken ? { confirmToken: opts.confirmToken } : {}),
     },
+    { method: "POST" }
+  );
+
+/** Dismiss a waiting card (K2 0.46.11, prd-popup-close-and-card-dismiss-v1
+ *  B3): `POST /cli/thread/void`. The daemon closes it as `dismissed` for a
+ *  person (from the credential, never the body), tells the agent, and keeps
+ *  it in the history. `reason`: one line, at most 200 characters. */
+export const voidThreadCard = (scope: ServerScope, addr: string, id: string, reason?: string) =>
+  request(
+    scope,
+    "/cli/thread/void",
+    { addr, id, ...(reason ? { reason } : {}) },
     { method: "POST" }
   );
 

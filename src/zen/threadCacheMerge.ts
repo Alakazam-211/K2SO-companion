@@ -27,6 +27,10 @@ function sameChoice(a: ThreadMessage["choice"], b: ThreadMessage["choice"]): boo
     a.prompt === b.prompt &&
     a.answer === b.answer &&
     (a.resultMessage ?? null) === (b.resultMessage ?? null) &&
+    (a.status ?? null) === (b.status ?? null) &&
+    (a.closedAs ?? null) === (b.closedAs ?? null) &&
+    (a.closeReason ?? null) === (b.closeReason ?? null) &&
+    JSON.stringify(a.closedBy ?? null) === JSON.stringify(b.closedBy ?? null) &&
     JSON.stringify(a.permission ?? null) === JSON.stringify(b.permission ?? null) &&
     a.options.length === b.options.length &&
     a.options.every((o, i) => o === b.options[i])

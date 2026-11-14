@@ -12,7 +12,73 @@ export type ThreadChoice = {
   resultMessage?: string | null;
   /** K2 0.46.3 permission card (`cards=2`): the rich, per-viewer view. */
   permission?: PermissionCardModel | null;
+  /** The card's wire status: `pending` | `answered` | `voided` | `expired`.
+   *  Absent from older servers (then an answer is the only close). */
+  status?: string;
+  /** K2 0.46.11 (prd-popup-close-and-card-dismiss-v1 B1): how a `voided`
+   *  card closed, when a person dismissed it or its agent withdrew it.
+   *  A `voided` card without it is a daemon close (hidden, as on desktop). */
+  closedAs?: CardClosedAs;
+  /** The one-line reason given with a dismiss or withdraw. */
+  closeReason?: string;
+  /** Who answered or dismissed it (`choice.answeredBy`). */
+  closedBy?: CardAuthor;
 };
+
+export type CardClosedAs = "dismissed" | "withdrawn";
+/** `answeredBy` on a card: `{kind: "owner" | "user" | "imported" | …, login, name?}`. */
+export type CardAuthor = { kind: string; login: string; name?: string };
+
+/** The daemon's limit on a dismiss reason (`CLOSE_REASON_MAX_CHARS`). */
+export const CARD_DISMISS_REASON_MAX = 200;
+
+export function parseCardAuthor(raw: unknown): CardAuthor | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const r = raw as Record<string, unknown>;
+  const kind = typeof r.kind === "string" ? r.kind.trim() : "";
+  const login = typeof r.login === "string" ? r.login.trim() : "";
+  if (!kind || !login) return null;
+  const name = typeof r.name === "string" ? r.name.trim() : "";
+  return name ? { kind, login, name } : { kind, login };
+}
+
+/** Who closed a card, as the desktop says it (K2 `cardAnswererLabel`):
+ *  "You" for the signed-in person, the owner's name, else the login. */
+export function cardAuthorLabel(a: CardAuthor | null | undefined, username: string): string | null {
+  if (!a) return null;
+  const me = username.trim().toLowerCase();
+  if (me && a.kind === "user" && a.login.toLowerCase() === me) return "You";
+  if (a.kind === "owner") {
+    // The phone can't tell whether its person is the owner (only a login
+    // of "owner" says so): the owner's name, never a guessed "You".
+    if (me === "owner") return "You";
+    return a.name && a.name.toLowerCase() !== "owner" ? a.name : "the owner";
+  }
+  if (a.kind === "imported") return a.name || a.login;
+  return a.login;
+}
+
+/** "Dismissed by Bob: Shipped yesterday" / "Withdrawn by sales" (K2
+ *  `closedCardLine`). */
+export function closedCardLine(closedAs: CardClosedAs, who: string | null, agent: string, reason?: string | null): string {
+  const head = closedAs === "dismissed" ? `Dismissed${who ? ` by ${who}` : ""}` : `Withdrawn${agent ? ` by ${agent}` : ""}`;
+  const why = reason?.trim();
+  return why ? `${head}: ${why}` : head;
+}
+
+/** A card the daemon closed by itself (a newer card replaced it, a switch
+ *  went off): `voided` with no `closedAs`. Kept in memory, not drawn (K2
+ *  `isVoidedHitl`). */
+export function daemonClosedCard(c: ThreadChoice | null | undefined): boolean {
+  return !!c && c.status === "voided" && !c.closedAs;
+}
+
+/** Still waiting for an answer (no answer, not voided or expired). */
+export function cardOpen(c: ThreadChoice | null | undefined): boolean {
+  if (!c) return false;
+  if (c.answer != null && String(c.answer) !== "") return false;
+  return !c.status || c.status === "pending";
+}
 
 export type ThreadMessage = {
   id: string;
@@ -203,6 +269,14 @@ function choiceOf(doc: ThreadDoc): ThreadChoice | null {
   };
   const message = actionResultMessage(c);
   if (message) out.resultMessage = message;
+  const status = typeof c.status === "string" ? c.status.trim() : "";
+  if (status) out.status = status;
+  const closedAs = (c as { closedAs?: unknown }).closedAs;
+  if (closedAs === "dismissed" || closedAs === "withdrawn") out.closedAs = closedAs;
+  const reason = (c as { closeReason?: unknown }).closeReason;
+  if (typeof reason === "string" && reason.trim()) out.closeReason = reason.trim();
+  const by = parseCardAuthor((c as { answeredBy?: unknown }).answeredBy);
+  if (by) out.closedBy = by;
   const permission = parsePermissionCard(c);
   if (permission) out.permission = permission;
   return out;
