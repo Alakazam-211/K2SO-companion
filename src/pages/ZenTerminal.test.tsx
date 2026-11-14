@@ -16,6 +16,8 @@ const termProps: Array<{
   drive?: boolean;
   hasTapWhileViewing: boolean;
 }> = [];
+/** The left-edge strip the terminal leaves to the page's swipe-back. */
+const leaveEdge: { px: number | undefined } = { px: undefined };
 vi.mock("../components/TerminalView", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../components/TerminalView")>();
   const { movedBeyond, classifyRelease, LONG_PRESS_MS } = await import("../lib/sgrMouse");
@@ -28,7 +30,9 @@ vi.mock("../components/TerminalView", async (importOriginal) => {
       drive?: boolean;
       onReloadRef?: MutableRefObject<(() => void) | null>;
       onTapWhileViewing?: () => void;
+      leaveLeftEdge?: number;
     }) => {
+      leaveEdge.px = p.leaveLeftEdge;
       termProps.push({
         terminalId: p.terminalId,
         projectPath: p.projectPath,
@@ -450,6 +454,26 @@ describe("ZenTerminal", () => {
     expect(useZenStore.getState().agentId).toBe(AGENT.agentId);
     expect(screen.getByTestId("thread-column")).not.toBeNull();
     expect(screen.queryByTestId("zen-terminal")).toBeNull();
+  });
+
+  it("a swipe from the left edge is Back too: the page follows the finger and lands on the chat", async () => {
+    rememberZenThread("/ws/remembered");
+    renderAt(zenTerminalPath("t1"));
+    const page = screen.getByTestId("zen-terminal");
+    const at = (x: number) => ({ touches: [{ clientX: x, clientY: 300 }], changedTouches: [{ clientX: x, clientY: 300 }] });
+    fireEvent.touchStart(page, at(5));
+    fireEvent.touchMove(page, at(60));
+    fireEvent.touchMove(page, at(700));
+    expect(page.style.transform).toBe("translateX(695px)");
+    act(() => {
+      fireEvent.touchEnd(page, { touches: [], changedTouches: [{ clientX: 700, clientY: 300 }] });
+    });
+    await waitFor(() => expect(screen.getByTestId("loc").textContent).toBe("/zen?thread=%2Fws%2Fremembered"));
+  });
+
+  it("the terminal leaves the left edge strip to that swipe", () => {
+    renderAt({ pathname: zenTerminalPath("t1"), state: { agent: AGENT } });
+    expect(leaveEdge.px).toBe(24);
   });
 
   it("without router state, back uses the remembered thread", () => {

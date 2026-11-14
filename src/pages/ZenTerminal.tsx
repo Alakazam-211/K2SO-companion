@@ -53,6 +53,8 @@ import { ServerChip } from "../zen/room/ServerChip";
 import { ZEN_SERVER_PARAM, resolveServerRef, withServerParam } from "../zen/room/serverRef";
 import { PencilIcon } from "../zen/icons";
 import { useBackHandler } from "../lib/androidBack";
+import { useSwipeBack } from "../lib/useSwipeBack";
+import { EDGE_ARM_PX } from "../lib/swipeBack";
 
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
@@ -375,7 +377,11 @@ export function ZenTerminal() {
   };
 
   // Android Back = Done: back to this session's Thread.
-  useBackHandler(Boolean(terminalId), backToThread);
+  const terminalOnTop = useBackHandler(Boolean(terminalId), backToThread);
+  // The left-edge swipe is that Back too (Riley 2026-11-14): the screen
+  // follows the finger and goes back to the chat, while nothing (a sheet,
+  // a menu) is on top. The terminal leaves the edge strip to it.
+  const swipeRef = useSwipeBack(backToThread, { enabled: () => terminalOnTop() });
 
   if (!terminalId) return null;
 
@@ -386,6 +392,7 @@ export function ZenTerminal() {
     // thread keyboard idiom): the composer sits on the keyboard and an
     // iOS focus-pan can't drag the header under the notch.
     <div
+      ref={swipeRef}
       className="fixed inset-0 z-40 zen-font"
       data-testid="zen-terminal"
       style={{ background: "#000" }}
@@ -570,6 +577,7 @@ export function ZenTerminal() {
             terminalId={terminalId}
             projectPath={projectPath}
             onInputRef={sendInputRef}
+            leaveLeftEdge={EDGE_ARM_PX}
             onReloadRef={reloadRef}
             drive={drive}
             onTapWhileViewing={claimOnTerminalTap}

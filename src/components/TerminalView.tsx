@@ -199,6 +199,10 @@ function syncLinesFromSnap(snap: LiveGrid, dest: Map<number, CompactLine>): void
 // ─── Component ───
 
 interface Props {
+  /** A touch starting this close (px) to the screen's left edge is not the
+   *  terminal's (no scroll, tap or selection): the page's swipe-back gets
+   *  it (Riley 2026-11-14). 0 / absent = the terminal takes every touch. */
+  leaveLeftEdge?: number;
   /** The server this terminal lives on (MS6/MA5). The grid socket, the
    *  capabilities probe, the HTTP fallback and the pin release all use it,
    *  never the active server. */
@@ -241,7 +245,10 @@ export function TerminalView({
   onReloadRef,
   drive = false,
   onTapWhileViewing,
+  leaveLeftEdge = 0,
 }: Props) {
+  const leaveLeftEdgeRef = useRef(leaveLeftEdge);
+  leaveLeftEdgeRef.current = leaveLeftEdge;
   const onTapWhileViewingRef = useRef(onTapWhileViewing);
   onTapWhileViewingRef.current = onTapWhileViewing;
   const linesRef = useRef<Map<number, CompactLine>>(new Map());
@@ -1195,6 +1202,12 @@ export function TerminalView({
         return;
       }
       const t0 = e.touches[0];
+      // The left edge belongs to the page's swipe-back.
+      if (leaveLeftEdgeRef.current > 0 && t0.clientX <= leaveLeftEdgeRef.current) {
+        lastTouchRef.current = null;
+        gestureRef.current = null;
+        return;
+      }
       wheelPumpRef.current = initialWheelPump();
       lastTouchRef.current = { y: t0.clientY, t: e.timeStamp };
       gestureRef.current = {
