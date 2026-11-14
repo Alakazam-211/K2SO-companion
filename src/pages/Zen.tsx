@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type FormEvent, type ReactNode } from "react";
 import { flushSync } from "react-dom";
 import { useLocation, useNavigate, useSearchParams } from "react-router-dom";
 import { fullViewportHeight, useViewport, useViewportTrackRef } from "../lib/useViewportHeight";
@@ -54,6 +54,9 @@ import { UsagePage } from "../zen/UsagePage";
 import { pool } from "../zen/multi/pool";
 import { FileIcon, SearchIcon, TerminalIcon } from "../zen/icons";
 import { LlmIcon } from "../zen/LlmIcon";
+import { ChatterPane } from "../zen/ThreadViewPanes";
+import { useChatterSwipe } from "../zen/useChatterSwipe";
+import { CHATTER_CLOSED_TRANSFORM, CHATTER_OPEN_TRANSFORM, CHATTER_TRANSITION } from "../zen/chatterSwipe";
 import { harnessKey, recallHarness, rememberHarness } from "../zen/harnessMemory";
 import { useThreadHarness } from "../zen/threadHarness";
 import { harnessForRow } from "../zen/agentActivity";
@@ -392,6 +395,26 @@ export function Zen() {
   // The edge swipe asks the same stack: it arms only while the chat is
   // the topmost layer (rename, icon sheet, sign-in, drawers all register).
   const threadOnTop = useBackHandler(wantThread, drawerPicked ? returnToDrawerOrigin : backToChats);
+  // Chatter (Riley 2026-11-14): a page right of the Thread, swiped in
+  // from the right (chatterSwipe.ts) instead of a header switch. While it
+  // is open its Back handler is on top: Back and a rightward swipe close
+  // it, and the left-edge swipe to the chats list is off.
+  const chatterRootRef = useRef<HTMLElement | null>(null);
+  const columnRef = useCallback(
+    (el: HTMLElement | null) => {
+      threadColumnRef(el);
+      chatterRootRef.current = el;
+    },
+    [threadColumnRef]
+  );
+  const chatterOnTopRef = useRef<() => boolean>(() => false);
+  const chatter = useChatterSwipe(chatterRootRef, {
+    active: wantThread,
+    resetKey: agentId ?? "",
+    canOpen: () => !groupChat && !filesPaneOpen && !sessionsOpen && !searchOpen && threadOnTop(),
+    canClose: () => chatterOnTopRef.current(),
+  });
+  chatterOnTopRef.current = useBackHandler(wantThread && chatter.open, chatter.close);
   /** The chats list peeks from under a back-chevron swipe (it is where
    *  Back lands); Done returns to another chat, so that drag shows black. */
   const chatsLayerRef = useRef<HTMLDivElement>(null);
@@ -478,7 +501,7 @@ export function Zen() {
         <div
           className="relative flex flex-col min-h-0 overflow-x-hidden"
           data-testid="thread-column"
-          ref={threadColumnRef}
+          ref={columnRef}
           // Keyboard motion plays on the compositor (ThreadPane's FLIP): no
           // height transition. While the keyboard rises the column stays
           // at its old height (nothing clipped) and takes the new one as
@@ -548,7 +571,8 @@ export function Zen() {
               type="button"
               onClick={(e) => {
                 e.stopPropagation();
-                returnToDrawerOrigin();
+                if (chatter.open) chatter.close();
+                else returnToDrawerOrigin();
               }}
               ref={pressBack}
               data-testid="chat-done"
@@ -568,7 +592,7 @@ export function Zen() {
             ) : (
             <button
               type="button"
-              onClick={backToChats}
+              onClick={chatter.open ? chatter.close : backToChats}
               ref={pressBack}
               data-testid="chat-back"
               data-glass-shape="button"
@@ -582,7 +606,7 @@ export function Zen() {
                 pointerEvents: "auto",
               }}
               aria-label={
-                (fromProjects ? "Back to projects" : "Back to chats") +
+                (chatter.open ? "Back to thread" : fromProjects ? "Back to projects" : "Back to chats") +
                 (backUnread > 0 ? `, ${backUnread > 99 ? "99+" : backUnread} unread` : "")
               }
             >
@@ -947,6 +971,29 @@ export function Zen() {
               onComposerInput={noteRoomInput}
             />
           </PaneErrorBoundary>
+          {/* Chatter (with the workspace's heartbeats), the page right of
+              the Thread: over it, under the header; mounted only while
+              open or moving (it polls). */}
+          {!groupChat && chatter.mounted ? (
+            <div
+              ref={chatter.panelRef}
+              className="absolute inset-0"
+              style={{
+                zIndex: 5,
+                background: "var(--root, #000)",
+                transform: chatter.open ? CHATTER_OPEN_TRANSFORM : CHATTER_CLOSED_TRANSFORM,
+                transition: CHATTER_TRANSITION,
+                willChange: "transform",
+              }}
+              data-testid="chatter-page"
+              data-open={chatter.open ? "1" : undefined}
+              aria-hidden={!chatter.open || undefined}
+            >
+              <PaneErrorBoundary name="chatter">
+                <ChatterPane scope={zen} addr={agent?.addr ?? null} project={agent?.path ?? null} topInset={headerPx} />
+              </PaneErrorBoundary>
+            </div>
+          ) : null}
           {filesOpen && !viewingFile ? (
             <div
               className="absolute bottom-0 right-0 border-l border-[var(--border)] bg-[var(--background)] flex flex-col"
