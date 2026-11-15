@@ -4,9 +4,9 @@
 // settling. The constants are LiquidGlassJS's (physics/controller.ts:
 // press 550/30, release 300 with damping 8 + (1 − wobble 0.6) × 20 = 16).
 // A transform only: no layout, so HeaderGlass's merged outline is not
-// redrawn per frame; a merged header button shows its own glass while it
-// moves (`PRESSING_CLASS`, index.css) and hands back to the merged layer
-// once it rests. Reduced motion: nothing.
+// redrawn per frame; a merged header button shows its own edge (not a
+// second fill) while it moves (`PRESSING_CLASS`, index.css). Reduced
+// motion: nothing.
 
 import { useCallback, useEffect, useRef } from "react";
 
