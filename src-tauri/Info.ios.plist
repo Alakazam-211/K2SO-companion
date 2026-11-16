@@ -2,10 +2,12 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
-	<!-- App is all dark: force dark appearance (keyboard included) even
-	     when the system is in Light mode. Mirrored in gen/apple/project.yml. -->
-	<key>UIUserInterfaceStyle</key>
-	<string>Dark</string>
+	<!-- No UIUserInterfaceStyle: Settings → Themes picks Light, Dark or
+	     Auto, applied natively as a window override (src/appearance.rs),
+	     and Auto needs the iPhone's real appearance, which a plist lock
+	     would hide. Dark stays the default (nothing saved = Dark), and
+	     LaunchScreen.storyboard is plain black. Mirrored in
+	     gen/apple/project.yml. -->
 	<!-- Communication Notifications: the app declares the intent its
 	     Notification Service Extension (gen/apple/K2NotificationService)
 	     donates. Mirrored in gen/apple/project.yml. -->

@@ -1,3 +1,7 @@
+/// Light, Dark or Auto on the native side (Settings → Themes).
+#[cfg_attr(not(target_os = "ios"), allow(dead_code))]
+mod appearance;
+
 /// The interactive-dismiss sampler's decisions, platform-free (tested on
 /// the host). Fed one reading per display frame while a pan that began
 /// with the keyboard up is in progress: it says when to post a sample and
@@ -210,63 +214,6 @@ mod ios_keyboard {
                     continue;
                 }
                 AnyObject::set_class(&*sv, subclass);
-            }
-        }
-    }
-
-    /// UIUserInterfaceStyleDark. The app is all dark, so the keyboard should be too.
-    const UI_USER_INTERFACE_STYLE_DARK: i64 = 2;
-
-    /// Forces dark appearance on the WKWebView, its window, and every window of
-    /// every connected scene. Keyboards for web inputs follow the trait
-    /// collection, so this keeps them dark when the system is in Light mode.
-    /// Belt-and-braces with `UIUserInterfaceStyle = Dark` in Info.ios.plist.
-    /// Idempotent; must run on the main thread.
-    pub fn force_dark(webview_ptr: *mut std::ffi::c_void) {
-        unsafe {
-            let wk: *mut AnyObject = webview_ptr.cast();
-            if !wk.is_null() {
-                let _: () = msg_send![wk, setOverrideUserInterfaceStyle: UI_USER_INTERFACE_STYLE_DARK];
-                let window: *mut AnyObject = msg_send![wk, window];
-                if !window.is_null() {
-                    let _: () = msg_send![window, setOverrideUserInterfaceStyle: UI_USER_INTERFACE_STYLE_DARK];
-                }
-            }
-            // UIScene app: walk connectedScenes -> windows.
-            let app: *mut AnyObject = msg_send![class!(UIApplication), sharedApplication];
-            if app.is_null() {
-                return;
-            }
-            let scenes: *mut AnyObject = msg_send![app, connectedScenes];
-            if scenes.is_null() {
-                return;
-            }
-            let scenes: *mut AnyObject = msg_send![scenes, allObjects];
-            if scenes.is_null() {
-                return;
-            }
-            let window_scene = class!(UIWindowScene);
-            let n: usize = msg_send![scenes, count];
-            for i in 0..n {
-                let scene: *mut AnyObject = msg_send![scenes, objectAtIndex: i];
-                if scene.is_null() {
-                    continue;
-                }
-                let is_window_scene: bool = msg_send![scene, isKindOfClass: window_scene];
-                if !is_window_scene {
-                    continue;
-                }
-                let windows: *mut AnyObject = msg_send![scene, windows];
-                if windows.is_null() {
-                    continue;
-                }
-                let wn: usize = msg_send![windows, count];
-                for j in 0..wn {
-                    let w: *mut AnyObject = msg_send![windows, objectAtIndex: j];
-                    if !w.is_null() {
-                        let _: () = msg_send![w, setOverrideUserInterfaceStyle: UI_USER_INTERFACE_STYLE_DARK];
-                    }
-                }
             }
         }
     }
@@ -1529,8 +1476,10 @@ mod ios_keyboard {
         unsafe {
             let wk: *mut AnyObject = webview_ptr.cast();
 
-            // Dark keyboard / controls regardless of system appearance.
-            force_dark(webview_ptr);
+            // Settings → Themes' mode (saved by `set_appearance`; Dark on
+            // black until the page first sends one): keyboard, status bar
+            // and the colour behind the page (src/appearance.rs).
+            crate::appearance::ios::apply(webview_ptr, None);
 
             let scroll_view: *mut AnyObject = msg_send![wk, scrollView];
             let _: () = msg_send![scroll_view, setScrollEnabled: false];
@@ -1811,15 +1760,54 @@ async fn ios_keyboard_diag(
     }
 }
 
+/// Settings → Themes: the mode (`light` | `dark` | `auto`), the page
+/// colour shown now (`bg`) and each side's page colour (`darkBg`,
+/// `lightBg`, for the next launch under Auto). Applied to the windows and
+/// the web view, and saved natively so the next launch starts in it
+/// (src/appearance.rs). src/theme/nativeAppearance.ts calls it on iOS
+/// only; false elsewhere (Android's look is another owner's).
+#[tauri::command]
+fn set_appearance(
+    mode: String,
+    bg: Option<String>,
+    dark_bg: Option<String>,
+    light_bg: Option<String>,
+    webview: tauri::WebviewWindow,
+) -> bool {
+    #[cfg(target_os = "ios")]
+    {
+        let Some(m) = appearance::Mode::parse(&mode) else {
+            return false;
+        };
+        let a = appearance::Appearance::from_strs(
+            appearance::ios::current(),
+            Some(m.as_str()),
+            dark_bg.as_deref(),
+            light_bg.as_deref(),
+        );
+        appearance::ios::set(a);
+        let now = bg.as_deref().and_then(appearance::parse_hex);
+        let _ = webview.with_webview(move |wv| {
+            appearance::ios::apply(wv.inner(), now);
+        });
+        true
+    }
+    #[cfg(not(target_os = "ios"))]
+    {
+        let _ = (mode, bg, dark_bg, light_bg, webview);
+        false
+    }
+}
+
 #[tauri::command]
 fn ios_strip_accessory_bar(webview: tauri::WebviewWindow) {
     #[cfg(target_os = "ios")]
     {
         let _ = webview.with_webview(|wv| {
             ios_keyboard::strip_accessory_bar(wv.inner());
-            // Re-assert dark style: a window/scene created after startup
-            // (e.g. iPad second scene) gets it on first input focus.
-            ios_keyboard::force_dark(wv.inner());
+            // Re-assert the chosen mode: a window/scene created after
+            // startup (e.g. iPad second scene) gets it on first input focus.
+            appearance::ios::apply(wv.inner(), None);
         });
     }
     #[cfg(not(target_os = "ios"))]
@@ -2103,6 +2091,10 @@ fn take_open_urls() -> Vec<String> {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Before any window exists: each window takes the saved light/dark as
+    // it becomes visible (no light frame for a dark user at launch).
+    #[cfg(target_os = "ios")]
+    appearance::ios::install_early();
     let builder = tauri::Builder::default()
         .plugin(tauri_plugin_http::init())
         .plugin(tauri_plugin_store::Builder::default().build())
@@ -2135,6 +2127,7 @@ pub fn run() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            set_appearance,
             ios_strip_accessory_bar,
             ios_keyboard_dismiss_padding,
             ios_keyboard_recorder,

@@ -56,8 +56,10 @@ targets:
               - UISceneConfigurationName: Default Configuration
                 UISceneDelegateClassName: TaoSceneDelegate
         UILaunchStoryboardName: LaunchScreen
-        # App is all dark: force dark appearance (keyboard included).
-        UIUserInterfaceStyle: Dark
+        # No UIUserInterfaceStyle: Settings → Themes (Light, Dark or Auto)
+        # is a native window override (src/appearance.rs); Auto needs the
+        # iPhone's real appearance. Dark is the default; LaunchScreen is
+        # plain black. Durable copy: src-tauri/Info.ios.plist.
         UIRequiredDeviceCapabilities: [arm64, metal]
         UISupportedInterfaceOrientations:
           - UIInterfaceOrientationPortrait
