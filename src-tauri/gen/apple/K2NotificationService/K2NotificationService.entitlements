@@ -6,5 +6,7 @@
 	<array>
 		<string>group.com.alakazamlabs.k2so.companion</string>
 	</array>
+	<key>com.apple.developer.usernotifications.time-sensitive</key>
+	<true/>
 </dict>
 </plist>

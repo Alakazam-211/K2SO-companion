@@ -398,8 +398,9 @@ echo "→ Exporting for App Store..."
 # Store" (App ID com.alakazamlabs.k2so.companion.Broadcast, App Group).
 # The app profile must also carry the App Group + Communication
 # Notifications capabilities. Only the APP entitlements hold
-# aps-environment; the extensions' entitlements (App Group only) are not
-# touched here.
+# aps-environment; the extensions' entitlements (App Group; the NSE also
+# time-sensitive notifications, so its profiles need that capability) are
+# not touched here.
 ENTITLEMENTS="$PROJECT_DIR/src-tauri/gen/apple/k2so-companion_iOS/k2so-companion_iOS.entitlements"
 if [ -f "$ENTITLEMENTS" ]; then
   sed -i '' '/<key>aps-environment<\/key>/{ n; s/<string>development<\/string>/<string>production<\/string>/; }' "$ENTITLEMENTS"

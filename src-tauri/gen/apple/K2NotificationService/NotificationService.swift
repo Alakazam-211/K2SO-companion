@@ -48,13 +48,25 @@
 // ringing|missed|ended|answered}`. The ring (title the caller, body
 // "Incoming call") gets category K2_CALL (Accept / Decline: the app
 // registers them, K2CallPush.swift), the default sound and a time-sensitive
-// interruption level; the one push that replaces it (same apns collapse id
-// `call:<Sew id>`: Answered on another device / Missed call / Call ended)
-// gets K2_CALL_DONE. The relay may send these in clear aps too (`call-aps`);
-// set here they also hold on a relay that doesn't. Before a done push is
-// shown, any other notification of the same call still delivered goes (one
-// ring, then exactly one replacement, even if a relay dropped the collapse
-// id). KEEP THE CATEGORY IDS IN SYNC with K2CallPush.swift.
+// interruption level; the one push that replaces it (Answered on another
+// device / Missed call / Call ended) gets K2_CALL_DONE and NO sound.
+//
+// The clear aps of a sealed call push (K2's answers §2): with the relay's
+// `call-aps` cap, `alert` "K2 / New message", `sound` default,
+// `mutable-content` 1, `category` K2_CALL, `interruption-level`
+// time-sensitive (the done push: K2_CALL_DONE, and the relay's default
+// sound). Without `call-aps` (an older relay, or the first ring after a
+// daemon restart): only the alert, the sound and mutable-content. Both
+// shapes end up the same here: everything is set on a `mutableCopy()`, so
+// the server's level is kept when it sent one (never fresh content, which
+// would drop it), and set when it didn't. The extension has the
+// time-sensitive entitlement too (K2NotificationService.entitlements).
+//
+// Sealed pushes carry no apns-collapse-id, so APNs never replaces the ring:
+// before a done push is shown, this extension removes every other delivered
+// notification of the same call (matched by `callId` in the delivered,
+// unsealed userInfo). One ring, then exactly one silent replacement.
+// KEEP THE CATEGORY IDS IN SYNC with K2CallPush.swift.
 
 import Intents
 import UIKit
@@ -80,11 +92,13 @@ final class NotificationService: UNNotificationServiceExtension {
       guard case .success(let u) = K2PushSealed.unseal(incoming.userInfo),
         let m = incoming.mutableCopy() as? UNMutableNotificationContent
       else {
-        // The generic "K2 / New message" exactly as sent.
+        // The generic "K2 / New message" as sent, except a call's clear
+        // aps (`call-aps`): a done push stays silent, and a ring we can't
+        // read has no Accept / Decline (nothing to answer them with).
         lock.lock()
         self.contentHandler = contentHandler
         lock.unlock()
-        deliver(incoming)
+        deliver(Self.unopenedCall(incoming) ?? incoming)
         return
       }
       m.title = u.title
@@ -196,7 +210,25 @@ final class NotificationService: UNNotificationServiceExtension {
       if m.body.isEmpty {
         m.body = state == "answered" ? "Answered on another device" : state == "missed" ? "Missed call" : "Call ended"
       }
+      // The relay's clear aps gives every sealed push the default sound:
+      // the replacement must not ring again.
+      m.sound = nil
       m.interruptionLevel = .active
+    }
+    return m
+  }
+
+  /// A sealed push we couldn't open, by its clear `call-aps` category (nil:
+  /// not a call, or nothing to change). Its level stays as sent.
+  static func unopenedCall(_ content: UNNotificationContent) -> UNNotificationContent? {
+    let category = content.categoryIdentifier
+    guard category == callRingCategory || category == callDoneCategory,
+      let m = content.mutableCopy() as? UNMutableNotificationContent
+    else { return nil }
+    if category == callDoneCategory {
+      m.sound = nil
+    } else {
+      m.categoryIdentifier = ""
     }
     return m
   }

@@ -186,6 +186,10 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.com.alakazamlabs.k2so.companion
+        # A DM call's ring may get its time-sensitive level here, when the
+        # relay's clear aps has none (K2's answers §3). Needs no Apple
+        # approval; the NSE's profiles must carry it.
+        com.apple.developer.usernotifications.time-sensitive: true
     settings:
       base:
         PRODUCT_NAME: K2NotificationService
