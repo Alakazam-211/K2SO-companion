@@ -203,7 +203,7 @@ describe("Ticket composer — the Thread's GlassComposer", () => {
     expect((sendBtn as HTMLButtonElement).disabled).toBe(true);
     type("Let's talk");
     expect((sendBtn as HTMLButtonElement).disabled).toBe(false);
-    expect(sendBtn.style.background).toBe("rgb(10, 132, 255)");
+    expect(sendBtn.style.background).toBe("var(--color-accent-fill)");
     // A comment is text only: no attach button on a ticket.
     expect(screen.queryByTestId("ticket-composer-attach")).toBeNull();
   });

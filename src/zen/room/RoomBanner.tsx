@@ -16,7 +16,7 @@ export function RoomBanner({
       data-testid="room-banner"
       data-state={failure.state}
       className="flex items-center gap-2 mb-1.5 px-3 py-2 rounded-xl"
-      style={{ background: "rgba(255,255,255,0.08)", color: "#fff" }}
+      style={{ background: "var(--color-wash-2)", color: "var(--color-text-primary)" }}
     >
       {failure.spinner ? (
         <span aria-hidden className="k2-spinner shrink-0" data-testid="room-banner-spinner" />
@@ -26,7 +26,7 @@ export function RoomBanner({
           {failure.copy}
         </span>
         {failure.detail ? (
-          <span className="block text-[11.5px]" style={{ color: "#8e8e93" }}>
+          <span className="block text-[11.5px]" style={{ color: "var(--color-text-muted)" }}>
             {failure.detail}
           </span>
         ) : null}
@@ -36,7 +36,7 @@ export function RoomBanner({
           type="button"
           data-testid="room-banner-action"
           className="shrink-0 text-[13px] font-semibold zen-glass zen-glass-pill"
-          style={{ minHeight: 30, padding: "0 12px", color: "#fff" }}
+          style={{ minHeight: 30, padding: "0 12px", color: "var(--color-text-primary)" }}
           onClick={(e) => {
             e.stopPropagation();
             onAction();

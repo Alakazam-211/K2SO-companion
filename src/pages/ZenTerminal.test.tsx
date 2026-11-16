@@ -555,7 +555,7 @@ describe("ZenTerminal", () => {
     expect(send).toHaveProperty("disabled", true);
     fireEvent.change(input, { target: { value: "ls" } });
     expect(send).toHaveProperty("disabled", false);
-    expect(send.style.background).toBe("rgb(10, 132, 255)");
+    expect(send.style.background).toBe("var(--color-accent-fill)");
     expect(screen.getByTestId("terminal-composer-bar").className).toMatch(/zen-composer-bar/);
     expect(input.closest("[data-k2-variant='zen']")).not.toBeNull();
     // Send keeps the keyboard up.

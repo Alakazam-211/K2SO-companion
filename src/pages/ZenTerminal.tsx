@@ -59,7 +59,7 @@ import { EDGE_ARM_PX } from "../lib/swipeBack";
 const DEV_MODE: boolean = import.meta.env?.DEV ?? false;
 
 const PILL_PX = 34;
-const PILL: CSSProperties = { width: PILL_PX, height: PILL_PX, color: "#fff" };
+const PILL: CSSProperties = { width: PILL_PX, height: PILL_PX, color: "var(--color-text-primary)" };
 /* Viewer/Claimer segmented control (iOS-style). The selected thumb sits
    fully inside the glass pill: inset by SEG_PAD, radius = outer − pad. */
 const SEG_H = 32;
@@ -395,7 +395,7 @@ export function ZenTerminal() {
       ref={swipeRef}
       className="fixed inset-0 z-40 zen-font"
       data-testid="zen-terminal"
-      style={{ background: "#000" }}
+      style={{ background: "var(--color-bg)" }}
     >
       <div
         ref={columnRef}
@@ -428,7 +428,7 @@ export function ZenTerminal() {
               onClick={backToThread}
               data-testid="zen-terminal-done"
               className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
-              style={{ width: PILL_PX, height: PILL_PX, color: "#fff" }}
+              style={{ width: PILL_PX, height: PILL_PX, color: "var(--color-text-primary)" }}
               aria-label="Back"
             >
               <BackChevron />
@@ -450,14 +450,14 @@ export function ZenTerminal() {
               <span
                 data-testid="zen-terminal-title"
                 className="block w-full text-[15px] font-semibold truncate leading-tight"
-                style={{ color: "#fff" }}
+                style={{ color: "var(--color-text-primary)" }}
               >
                 {headerName}
               </span>
               <span
                 data-testid="zen-terminal-subtitle"
                 className="block w-full text-[12px] truncate leading-tight"
-                style={{ color: "#8e8e93" }}
+                style={{ color: "var(--color-text-muted)" }}
               >
                 {subtitle}
               </span>
@@ -560,7 +560,7 @@ export function ZenTerminal() {
         </header>
 
         {DEV_MODE && (
-          <div style={{ flexShrink: 0, color: "#8e8e93", fontSize: 9, padding: "2px 8px", opacity: 0.7 }}>
+          <div style={{ flexShrink: 0, color: "var(--color-text-muted)", fontSize: 9, padding: "2px 8px", opacity: 0.7 }}>
             h={containerHeight.toFixed(0)} | vv={window.visualViewport?.height?.toFixed(0)} | {debugInfo}
           </div>
         )}
@@ -623,20 +623,20 @@ export function ZenTerminal() {
             accessory={
               uploading ? (
                 <p
-                  className="text-[11px] text-[var(--text-muted)] leading-snug mb-1.5"
+                  className="text-[11px] text-[var(--color-text-muted)] leading-snug mb-1.5"
                   data-testid="terminal-composer-label"
                 >
                   Uploading…
                 </p>
               ) : sendError ? (
                 <div className="flex items-start gap-2 pb-2">
-                  <span className="flex-1 text-[var(--warning)] text-[11px] leading-snug">
+                  <span className="flex-1 text-[var(--color-status-warn-text)] text-[11px] leading-snug">
                     {sendError}
                   </span>
                   <button
                     onClick={() => setSendError(null)}
                     aria-label="Dismiss send error"
-                    className="text-[var(--text-muted)] text-[11px] px-1 shrink-0"
+                    className="text-[var(--color-text-muted)] text-[11px] px-1 shrink-0"
                   >
                     ✕
                   </button>

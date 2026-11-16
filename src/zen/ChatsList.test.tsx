@@ -522,12 +522,12 @@ describe("ChatsList", () => {
     const moreBadge = screen.getByTestId("chats-header-more-badge");
     expect(moreBadge.textContent).toBe("2");
     expect(moreBadge.getAttribute("data-tone")).toBe("tickets");
-    expect(moreBadge.style.background).toMatch(/#f59e0b|rgb\(245,\s*158,\s*11\)/);
+    expect(moreBadge.style.background).toBe("var(--color-status-needs-you)");
     openMore();
     const badge = screen.getByTestId("tickets-badge");
     expect(badge.textContent).toBe("2");
     expect(badge.getAttribute("data-tone")).toBe("mine");
-    expect(badge.style.background).toMatch(/#f59e0b|rgb\(245,\s*158,\s*11\)/);
+    expect(badge.style.background).toBe("var(--color-status-needs-you)");
     fireEvent.click(
       screen.getByRole("menuitem", { name: "Tickets, 2 waiting on you, 4 waiting in all" })
     );
@@ -549,7 +549,7 @@ describe("ChatsList", () => {
     const badge = screen.getByTestId("tickets-badge");
     expect(badge.textContent).toBe("2");
     expect(badge.getAttribute("data-tone")).toBe("others");
-    expect(badge.style.background).toMatch(/#f59e0b|rgb\(245,\s*158,\s*11\)/);
+    expect(badge.style.background).toBe("var(--color-status-needs-you)");
     expect(badge.style.color).toMatch(/#000|rgb\(0,\s*0,\s*0\)/);
     expect(
       screen.getByRole("menuitem", { name: "Tickets, none waiting on you, 2 waiting in all" })

@@ -247,7 +247,7 @@ export function bubbleBodyStyle(): BodyStyle {
   const px = zenTextPx(BUBBLE_TEXT_PX);
   let st = bodyStyles.get(px);
   if (!st) {
-    st = { color: "#fff", fontSize: px };
+    st = { color: "inherit", fontSize: px };
     bodyStyles.set(px, st);
   }
   return st;
@@ -325,7 +325,7 @@ function StashOfferCard({
         type="button"
         disabled={state !== "idle"}
         className="mt-2 flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[15px] leading-none border disabled:opacity-80"
-        style={{ borderColor: "rgba(255,255,255,0.4)", color: "#fff" }}
+        style={{ borderColor: "var(--color-control-edge)", color: "var(--color-text-primary)" }}
         onClick={() => {
           if (!onSave || state !== "idle") return;
           setState("saving");
@@ -424,9 +424,11 @@ const Bubble = memo(function Bubble({
         // Settings → Text Size; the markdown body below scales the same way.
         fontSize: zenTextPx(17),
         borderRadius: 18,
-        background: m.mine ? "#0a84ff" : "#3a3a3c",
-        ["--k2-bubble" as string]: m.mine ? "#0a84ff" : "#3a3a3c",
-        color: "#fff",
+        // Yours: the accent fill (desktop's --zen-bubble-me); theirs: the
+        // agent bubble. The words inside inherit this colour.
+        background: m.mine ? "var(--color-accent-fill)" : "var(--color-bubble-agent)",
+        ["--k2-bubble" as string]: m.mine ? "var(--color-accent-fill)" : "var(--color-bubble-agent)",
+        color: m.mine ? "var(--color-on-accent)" : "var(--color-text-primary)",
         // Sending: dimmed. Delivered: it only brightens, gradually
         // (useDeliverBrighten); nothing moves.
         opacity: m.pending ? SENDING_OPACITY : 1,
@@ -447,7 +449,7 @@ const Bubble = memo(function Bubble({
             <div style={closedAs ? { opacity: 0.55 } : undefined} data-card-closed={closedAs ?? undefined}>
               <ChatMessageBody
                 text={choice.prompt}
-                className="!p-0 text-white"
+                className="!p-0"
                 style={bubbleBodyStyle()}
                 onFileLink={onFileLink}
               />
@@ -468,9 +470,9 @@ const Bubble = memo(function Bubble({
                     onClick={() => onAnswer(m.id, o)}
                     className="rounded-full px-3 py-1.5 text-[15px] leading-none border"
                     style={{
-                      borderColor: picked ? "#fff" : "rgba(255,255,255,0.4)",
-                      background: picked ? "#fff" : "transparent",
-                      color: picked ? "#1c1c1e" : "#fff",
+                      borderColor: picked ? "var(--color-text-primary)" : "var(--color-control-edge)",
+                      background: picked ? "var(--color-text-primary)" : "transparent",
+                      color: picked ? "var(--color-bg-surface)" : "var(--color-text-primary)",
                       opacity: open || picked ? 1 : 0.55,
                     }}
                   >
@@ -488,7 +490,7 @@ const Bubble = memo(function Bubble({
           ) : closedAs ? (
             <p
               className="mt-2 pt-1.5 text-[12px] leading-snug"
-              style={{ color: "rgba(255,255,255,0.65)", borderTop: "0.5px solid rgba(255,255,255,0.25)" }}
+              style={{ color: "var(--color-text-secondary)", borderTop: "0.5px solid var(--color-border-strong)" }}
               data-testid="choice-closed"
             >
               {closedCardLine(closedAs, cardAuthorLabel(choice.closedBy, username), m.from, choice.closeReason)}
@@ -555,11 +557,19 @@ function ReplyAwareBody({ m, onFileLink }: { m: ThreadMessage; onFileLink?: (hre
     <>
       {reply ? (
         <div
-          className="flex items-center gap-1.5 min-w-0 mb-1 text-[13px] leading-snug"
-          style={{ color: "rgba(255,255,255,0.65)", borderLeft: "2px solid rgba(255,255,255,0.35)", paddingLeft: 6 }}
+          // The bubble's own word colour (on-accent on yours, text-primary on
+          // theirs), faded: the bar at 35%, the words at 65%. No color-mix
+          // (iOS 15), so the fade is opacity on currentColor.
+          className="relative flex items-center gap-1.5 min-w-0 mb-1 text-[13px] leading-snug"
+          style={{ paddingLeft: 8 }}
           data-testid="reply-quote"
         >
-          <span className="flex-1 min-w-0 truncate">
+          <span
+            aria-hidden
+            className="absolute left-0 top-0 bottom-0"
+            style={{ width: 2, background: "currentColor", opacity: 0.35 }}
+          />
+          <span className="flex-1 min-w-0 truncate" style={{ opacity: 0.65 }}>
             {reply.part ? "part of " : ""}
             {reply.seq ? `#${reply.seq} ` : ""}
             {reply.from}: {threadReplyFirstLine(reply.quote)}
@@ -567,7 +577,7 @@ function ReplyAwareBody({ m, onFileLink }: { m: ThreadMessage; onFileLink?: (hre
         </div>
       ) : null}
       {shown.trim() ? (
-        <ChatMessageBody text={shown} className="!p-0 text-white" style={bubbleBodyStyle()} onFileLink={onFileLink} />
+        <ChatMessageBody text={shown} className="!p-0" style={bubbleBodyStyle()} onFileLink={onFileLink} />
       ) : null}
     </>
   );
@@ -681,7 +691,7 @@ const ThreadRow = memo(function ThreadRow({
             : undefined
         }
       >
-        <span className="px-3 py-0.5 text-[13px] italic text-[var(--text-muted)] select-none">{DELETED_TEXT}</span>
+        <span className="px-3 py-0.5 text-[13px] italic text-[var(--color-text-muted)] select-none">{DELETED_TEXT}</span>
       </div>
     );
   }
@@ -701,7 +711,7 @@ const ThreadRow = memo(function ThreadRow({
         // A bubble wears its own ring (tail included, `outlined`); a row of
         // files only gets this rounded one.
         ...(highlighted && !bubble
-          ? { borderRadius: 20, boxShadow: "0 0 0 2px rgba(10,132,255,.85)", transition: "box-shadow .4s" }
+          ? { borderRadius: 20, boxShadow: "0 0 0 2px var(--color-accent)", transition: "box-shadow .4s" }
           : null),
         ...(pictureOn !== undefined
           ? { position: "relative", marginLeft: pictureOn ? THREAD_PICTURE_PX + THREAD_PICTURE_GAP : 0 }
@@ -716,7 +726,7 @@ const ThreadRow = memo(function ThreadRow({
           sit — and below any send still in progress. */}
       {!m.mine && runFirst ? (
         <span
-          className="flex items-baseline gap-1.5 text-[11px] text-[var(--text-muted)] px-3 mb-0.5 min-w-0 max-w-full"
+          className="flex items-baseline gap-1.5 text-[11px] text-[var(--color-text-muted)] px-3 mb-0.5 min-w-0 max-w-full"
           data-testid="thread-msg-meta"
         >
           <span className="truncate min-w-0">
@@ -787,7 +797,7 @@ const ThreadRow = memo(function ThreadRow({
         // (chatBubbles.css). Fixed height, so no swap ever
         // moves the bubble or the rows around it.
         <span
-          className="zen-receipt flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] text-[var(--text-muted)] px-2 mt-0.5"
+          className="zen-receipt flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] text-[var(--color-text-muted)] px-2 mt-0.5"
           data-testid="thread-msg-time"
           data-status={out?.status ?? (m.failed ? "failed" : m.pending ? "sending" : "sent")}
           data-receipt={receipt}
@@ -797,7 +807,7 @@ const ThreadRow = memo(function ThreadRow({
             <span className="contents" data-testid="outgoing-failed">
               <button
                 type="button"
-                className="text-[var(--warning)]"
+                className="text-[var(--color-status-warn-text)]"
                 data-testid="outgoing-retry"
                 aria-label="Not sent. Tap to retry"
                 title={out.error || undefined}
@@ -2712,7 +2722,7 @@ export function ThreadPane({
         >
           {source === "loading" && holding ? null : source === "loading" ? (
             <span
-              className="text-[11px] text-[var(--text-muted)] tracking-widest uppercase px-2"
+              className="text-[11px] text-[var(--color-text-muted)] tracking-widest uppercase px-2"
               data-testid="thread-loading"
             >
               {sourceWord(source)} thread
@@ -2724,14 +2734,14 @@ export function ThreadPane({
                   className="flex flex-col items-start gap-2 px-2"
                   data-testid="thread-unavailable"
                 >
-                  <span className="text-[13px] text-[var(--text-muted)] leading-snug">
+                  <span className="text-[13px] text-[var(--color-text-muted)] leading-snug">
                     {SESSION_UNAVAILABLE}
                   </span>
                   {doneMode ? (
                     <button
                       type="button"
                       className="text-[13px] zen-glass zen-glass-pill"
-                      style={{ minHeight: 32, padding: "0 12px", color: "#fff" }}
+                      style={{ minHeight: 32, padding: "0 12px", color: "var(--color-text-primary)" }}
                       onClick={() => returnToDrawerOrigin()}
                     >
                       Open main chat
@@ -2739,13 +2749,13 @@ export function ThreadPane({
                   ) : null}
                 </div>
               ) : source === "error" && error ? (
-                <span className="text-[11px] text-[var(--warning)] px-2">
+                <span className="text-[11px] text-[var(--color-status-warn-text)] px-2">
                   {asErrorText(error)}
                 </span>
               ) : null}
               {empty ? (
                 <span
-                  className="text-[11px] text-[var(--text-muted)] px-2"
+                  className="text-[11px] text-[var(--color-text-muted)] px-2"
                   data-testid="thread-empty"
                 >
                   No messages yet
@@ -2762,14 +2772,14 @@ export function ThreadPane({
                       role="status"
                       aria-label="Loading earlier messages"
                       data-testid="thread-older-loading"
-                      className="block w-4 h-4 rounded-full border-2 border-[var(--text-muted)] border-t-transparent opacity-60 animate-spin motion-reduce:animate-none"
+                      className="block w-4 h-4 rounded-full border-2 border-[var(--color-text-muted)] border-t-transparent opacity-60 animate-spin motion-reduce:animate-none"
                     />
                   ) : olderFailedHere ? (
                     <button
                       type="button"
                       data-testid="thread-older-retry"
                       onClick={() => void fetchOlder()}
-                      className="text-[12px] text-[var(--text-muted)] px-3 py-1"
+                      className="text-[12px] text-[var(--color-text-muted)] px-3 py-1"
                     >
                       Couldn’t load earlier · Retry
                     </button>
@@ -2961,7 +2971,7 @@ export function ThreadPane({
           >
             {roomBanner}
             <p
-              className="text-[11px] text-[var(--text-muted)] leading-snug break-words mb-1.5"
+              className="text-[11px] text-[var(--color-text-muted)] leading-snug break-words mb-1.5"
               data-testid="composer-label"
             >
               {composerLabel}
@@ -2971,12 +2981,12 @@ export function ThreadPane({
                 // The room banner's look (RoomBanner): a soft tile in the
                 // field's blurred bar, glass pill buttons.
                 className="flex items-center gap-2 mb-1.5 px-3 py-2 rounded-xl min-w-0"
-                style={{ background: "rgba(255,255,255,0.08)", color: "#fff" }}
+                style={{ background: "var(--color-wash-2)", color: "var(--color-text-primary)" }}
                 data-testid="selection-bar"
                 role="toolbar"
                 aria-label="Selected words"
               >
-                <span className="min-w-0 flex-1 text-[13px] leading-snug truncate" style={{ color: "#fff" }}>
+                <span className="min-w-0 flex-1 text-[13px] leading-snug truncate" style={{ color: "var(--color-text-primary)" }}>
                   Selected
                 </span>
                 {(
@@ -2990,7 +3000,7 @@ export function ThreadPane({
                     key={key}
                     type="button"
                     className="shrink-0 text-[13px] font-semibold zen-glass zen-glass-pill"
-                    style={{ minHeight: 30, padding: "0 12px", color: "#fff" }}
+                    style={{ minHeight: 30, padding: "0 12px", color: "var(--color-text-primary)" }}
                     data-testid={`selection-${key}`}
                     // Keep the selection (and the keyboard) while tapping.
                     onPointerDown={(e) => e.preventDefault()}
@@ -3005,12 +3015,12 @@ export function ThreadPane({
             {replyTo ? (
               <div
                 className="flex items-center gap-1.5 mb-1.5 text-[12px] min-w-0"
-                style={{ color: "var(--text-muted)" }}
+                style={{ color: "var(--color-text-muted)" }}
                 data-testid="reply-chip"
               >
                 <ReplyIcon size={14} strokeWidth={1.75} />
                 <span className="flex-1 min-w-0 truncate">
-                  <span style={{ color: "var(--text)" }}>{replyTo.from || "Reply"}</span>
+                  <span style={{ color: "var(--color-text-primary)" }}>{replyTo.from || "Reply"}</span>
                   {": "}
                   {threadReplyFirstLine(replyTo.text)}
                 </span>
@@ -3036,7 +3046,7 @@ export function ThreadPane({
                     key={`${f.name}-${i}`}
                     type="button"
                     data-testid="attach-chip"
-                    className="text-[12px] px-2 py-1 rounded-full bg-[var(--card)] text-[var(--text)]"
+                    className="text-[12px] px-2 py-1 rounded-full bg-[var(--color-bg-surface)] text-[var(--color-text-primary)]"
                     onClick={() =>
                       setAttachments((prev) => prev.filter((_, j) => j !== i))
                     }

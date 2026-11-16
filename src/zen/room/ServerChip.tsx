@@ -24,7 +24,7 @@ export function ServerChip({
       data-testid={testId}
       data-server-id={serverId}
       className="block truncate text-[11px] leading-tight"
-      style={{ color: "#fff", textAlign: align, maxWidth: "100%" }}
+      style={{ color: "var(--color-text-primary)", textAlign: align, maxWidth: "100%" }}
     >
       {label}
     </span>

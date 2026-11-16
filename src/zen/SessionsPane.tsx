@@ -105,7 +105,7 @@ function Check() {
       height="14"
       viewBox="0 0 24 24"
       fill="none"
-      stroke="var(--accent)"
+      stroke="var(--color-accent-text)"
       strokeWidth="2.5"
       strokeLinecap="round"
       strokeLinejoin="round"
@@ -118,14 +118,14 @@ function Check() {
 }
 
 const ROW =
-  "w-full flex items-center gap-2 text-left px-3 py-2 border-b border-[var(--border)] bg-transparent";
-const HEADING = "px-3 pt-3 pb-1 text-[10px] tracking-widest text-[var(--text-muted)]";
+  "w-full flex items-center gap-2 text-left px-3 py-2 border-b border-[var(--color-wash-2)] bg-transparent";
+const HEADING = "px-3 pt-3 pb-1 text-[10px] tracking-widest text-[var(--color-text-muted)]";
 
 function When({ at }: { at: number | null }) {
   const when = mountainTime(at);
   if (!when) return null;
   return (
-    <span className="truncate text-[10px] text-[var(--text-muted)]" data-testid="session-when">
+    <span className="truncate text-[10px] text-[var(--color-text-muted)]" data-testid="session-when">
       {when}
     </span>
   );
@@ -158,11 +158,11 @@ function WorkspaceNotify({
     void useNotifyPrefsStore.getState().setWorkspacePush(serverId, ws.projectId, v);
   return (
     <div
-      className="px-3 py-2 border-b border-[var(--border)]"
+      className="px-3 py-2 border-b border-[var(--color-wash-2)]"
       data-testid="workspace-notify"
     >
       <div className="flex items-center gap-2">
-        <span className="flex-1 min-w-0 truncate text-[12px] text-[var(--text)]">
+        <span className="flex-1 min-w-0 truncate text-[12px] text-[var(--color-text-primary)]">
           Notifications for {name}
         </span>
         <button
@@ -172,13 +172,13 @@ function WorkspaceNotify({
           aria-label={`Notifications for ${name}`}
           data-testid="workspace-bell"
           className="shrink-0 flex items-center justify-center bg-transparent border-0"
-          style={{ width: 28, height: 28, color: enabled ? "var(--text)" : "var(--text-muted)" }}
+          style={{ width: 28, height: 28, color: enabled ? "var(--color-text-primary)" : "var(--color-text-muted)" }}
           onClick={() => set(!enabled)}
         >
           <BellIcon on={enabled} size={16} />
         </button>
       </div>
-      <div className="flex items-center gap-2 text-[10px] text-[var(--text-muted)]">
+      <div className="flex items-center gap-2 text-[10px] text-[var(--color-text-muted)]">
         <span className="truncate" data-testid="workspace-notify-source">
           {error ? `Could not save: ${error}` : workspaceSourceText(ws, prefs.principal)}
         </span>
@@ -187,7 +187,7 @@ function WorkspaceNotify({
             type="button"
             data-testid="workspace-notify-reset"
             className="shrink-0 bg-transparent border-0 p-0 text-[10px]"
-            style={{ color: "var(--accent)" }}
+            style={{ color: "var(--color-accent-text)" }}
             onClick={() => set(null)}
           >
             Reset
@@ -542,15 +542,15 @@ export function SessionsPane({
 
   return (
     <aside
-      className="flex flex-col h-full min-h-0 border-l border-[var(--border)] bg-[var(--surface)] shrink-0"
+      className="flex flex-col h-full min-h-0 border-l border-[var(--color-border)] bg-[var(--color-bg-surface)] shrink-0"
       style={{ width: 220 }}
       aria-label="Sessions"
       data-testid="sessions-drawer"
     >
-      <div className="flex items-center gap-1.5 pl-3 pr-1.5 h-11 border-b border-[var(--border)]">
+      <div className="flex items-center gap-1.5 pl-3 pr-1.5 h-11 border-b border-[var(--color-wash-2)]">
         <span className="flex-1 min-w-0 flex flex-col">
           {/* Same title style as the Files drawer header. */}
-          <span className="truncate text-[15px] font-semibold text-[var(--text)]">
+          <span className="truncate text-[15px] font-semibold text-[var(--color-text-primary)]">
             Sessions
           </span>
           <ServerChip serverId={scope.id} testId="sessions-server" align="left" />
@@ -576,7 +576,7 @@ export function SessionsPane({
         {notice ? (
           <p
             className="mx-3 mt-2 text-[11px]"
-            style={{ color: "#ef4444" }}
+            style={{ color: "var(--color-status-error-text)" }}
             role="alert"
             data-testid="sessions-start-error"
           >
@@ -590,8 +590,8 @@ export function SessionsPane({
           <button type="button" className={ROW} data-testid="session-row-main" onClick={pickMain}>
             {iconFor(listed.mainTerminalId)}
             <span className="flex flex-col flex-1 min-w-0">
-              <span className="truncate text-[12px] text-[var(--text)]">Main</span>
-              <span className="truncate text-[10px] text-[var(--text-muted)]">{handle}</span>
+              <span className="truncate text-[12px] text-[var(--color-text-primary)]">Main</span>
+              <span className="truncate text-[10px] text-[var(--color-text-muted)]">{handle}</span>
               <Status
                 a={
                   path
@@ -613,9 +613,9 @@ export function SessionsPane({
           >
             {iconFor(side.terminalId, matchSidecarSession(side.addr, side.path, sessions))}
             <span className="flex flex-col flex-1 min-w-0">
-              <span className="truncate text-[12px] text-[var(--text)]">{side.addr}</span>
+              <span className="truncate text-[12px] text-[var(--color-text-primary)]">{side.addr}</span>
               {side.chatTitle && side.chatTitle !== side.addr.split("/").slice(1).join("/") ? (
-                <span className="truncate text-[10px] text-[var(--text-muted)]">{side.chatTitle}</span>
+                <span className="truncate text-[10px] text-[var(--color-text-muted)]">{side.chatTitle}</span>
               ) : null}
               <Status a={activityForRow(side, activity, true)} />
             </span>
@@ -636,14 +636,14 @@ export function SessionsPane({
           >
             {iconFor(t.terminalId)}
             <span className="flex flex-col flex-1 min-w-0">
-              <span className="truncate text-[12px] text-[var(--text)]">{t.title}</span>
+              <span className="truncate text-[12px] text-[var(--color-text-primary)]">{t.title}</span>
               {t.addr ? (
                 t.addr.includes("/") ? (
-                  <span className="truncate text-[10px] text-[var(--text-muted)]">{t.addr}</span>
+                  <span className="truncate text-[10px] text-[var(--color-text-muted)]">{t.addr}</span>
                 ) : null
               ) : (
                 <span
-                  className="truncate text-[10px] text-[var(--text-muted)]"
+                  className="truncate text-[10px] text-[var(--color-text-muted)]"
                   data-testid="session-no-thread"
                 >
                   {live === null ? "loading" : NO_THREAD_HINT}
@@ -655,7 +655,7 @@ export function SessionsPane({
           </button>
         ))}
         {!hasOthers ? (
-          <div className="px-3 py-2 text-[12px] text-[var(--text-muted)]" data-testid="sessions-empty">
+          <div className="px-3 py-2 text-[12px] text-[var(--color-text-muted)]" data-testid="sessions-empty">
             {loading && sessions.length === 0 ? "loading" : SESSIONS_EMPTY}
           </div>
         ) : null}
@@ -664,7 +664,7 @@ export function SessionsPane({
             <button
               type="button"
               className="w-full flex items-center gap-2 text-left zen-glass zen-glass-round"
-              style={{ minHeight: 40, padding: "0 12px", color: "var(--text)" }}
+              style={{ minHeight: 40, padding: "0 12px", color: "var(--color-text-primary)" }}
               aria-expanded={addOpen}
               data-testid="sessions-new-toggle"
               disabled={!!pendingId}
@@ -691,7 +691,7 @@ export function SessionsPane({
                       key={llm.id}
                       type="button"
                       role="menuitem"
-                      className="w-full flex items-center gap-2 text-left px-3 py-2 bg-transparent border-b border-[rgba(255,255,255,0.08)] last:border-b-0"
+                      className="w-full flex items-center gap-2 text-left px-3 py-2 bg-transparent border-b border-[var(--color-wash-2)] last:border-b-0"
                       style={{ opacity: pendingId && !busy ? 0.4 : 1 }}
                       disabled={!!pendingId}
                       data-testid="sessions-llm"
@@ -700,11 +700,11 @@ export function SessionsPane({
                     >
                       <LlmIcon harness={llm.harness ?? llm.name} emoji={llm.emoji} />
                       <span className="flex flex-col flex-1 min-w-0">
-                        <span className="truncate text-[12px] text-[var(--text)]">
+                        <span className="truncate text-[12px] text-[var(--color-text-primary)]">
                           {busy ? `Starting ${llm.name}…` : llm.name}
                         </span>
                         {terminalOnly ? (
-                          <span className="truncate text-[10px] text-[var(--text-muted)]">
+                          <span className="truncate text-[10px] text-[var(--color-text-muted)]">
                             {OPENS_AS_TERMINAL}
                           </span>
                         ) : null}
@@ -717,7 +717,7 @@ export function SessionsPane({
             {addError ? (
               <p
                 className="mt-2 px-1 text-[11px]"
-                style={{ color: "#ef4444" }}
+                style={{ color: "var(--color-status-error-text)" }}
                 role="alert"
                 data-testid="sessions-new-error"
               >
@@ -749,13 +749,13 @@ export function SessionsPane({
               >
                 <LlmIcon harness={h.harness} emoji={emoji} />
                 <span className="flex flex-col flex-1 min-w-0">
-                  <span className="truncate text-[12px] text-[var(--text)]">{h.title}</span>
+                  <span className="truncate text-[12px] text-[var(--color-text-primary)]">{h.title}</span>
                   {h.label ? (
-                    <span className="truncate text-[10px] text-[var(--text-muted)]">{h.label}</span>
+                    <span className="truncate text-[10px] text-[var(--color-text-muted)]">{h.label}</span>
                   ) : null}
                   {busy ? (
                     <span
-                      className="truncate text-[10px] text-[var(--accent)]"
+                      className="truncate text-[10px] text-[var(--color-accent-text)]"
                       data-testid="session-waking"
                     >
                       {WAKING}
@@ -766,13 +766,13 @@ export function SessionsPane({
                   {readOnly ? (
                     <>
                       <span
-                        className="truncate text-[10px] text-[var(--text)]"
+                        className="truncate text-[10px] text-[var(--color-text-primary)]"
                         data-testid="session-read-only"
                       >
                         {OPEN_READ_ONLY}
                       </span>
                       <span
-                        className="text-[10px] leading-snug text-[var(--text-muted)]"
+                        className="text-[10px] leading-snug text-[var(--color-text-muted)]"
                         data-testid="session-read-only-note"
                       >
                         {READ_ONLY_NOTE}
@@ -783,10 +783,10 @@ export function SessionsPane({
                 {currentAddr === h.addr ? <Check /> : null}
               </button>
               {failed ? (
-                <div className="px-3 pb-2 border-b border-[var(--border)]">
+                <div className="px-3 pb-2 border-b border-[var(--color-wash-2)]">
                   <p
                     className="text-[11px]"
-                    style={{ color: "#ef4444" }}
+                    style={{ color: "var(--color-status-error-text)" }}
                     role="alert"
                     data-testid="session-wake-error"
                   >
@@ -794,7 +794,7 @@ export function SessionsPane({
                   </p>
                   <button
                     type="button"
-                    className="mt-1 text-[11px] text-[var(--accent)] bg-transparent p-0"
+                    className="mt-1 text-[11px] text-[var(--color-accent-text)] bg-transparent p-0"
                     data-testid="session-open-without-waking"
                     onClick={() => {
                       setWakeError(null);
@@ -810,7 +810,7 @@ export function SessionsPane({
         })}
         {history.length === 0 && !historyError ? (
           <div
-            className="px-3 py-2 text-[12px] text-[var(--text-muted)]"
+            className="px-3 py-2 text-[12px] text-[var(--color-text-muted)]"
             data-testid="sessions-history-empty"
           >
             {historyLoading || chats === null ? "loading" : HISTORY_EMPTY}
@@ -821,14 +821,14 @@ export function SessionsPane({
             the end. */}
         {historyError ? (
           <div
-            className="px-3 py-2 text-[12px] text-[var(--text-muted)] text-center"
+            className="px-3 py-2 text-[12px] text-[var(--color-text-muted)] text-center"
             data-testid="sessions-history-error"
             role="alert"
           >
             {HISTORY_MORE_ERROR} ·{" "}
             <button
               type="button"
-              className="bg-transparent p-0 text-[var(--accent)]"
+              className="bg-transparent p-0 text-[var(--color-accent-text)]"
               data-testid="sessions-history-retry"
               onClick={() => {
                 setHistoryError(false);
@@ -847,7 +847,7 @@ export function SessionsPane({
                 width: 14,
                 height: 14,
                 borderRadius: 7,
-                border: "2px solid var(--text-muted)",
+                border: "2px solid var(--color-text-muted)",
                 borderTopColor: "transparent",
               }}
             />

@@ -81,11 +81,11 @@ export function ChatMessage({
         >
           {author}
         </span>
-        <span className="text-[10px] text-[var(--text-muted)] tabular-nums shrink-0">
+        <span className="text-[10px] text-[var(--color-text-muted)] tabular-nums shrink-0">
           {timeLabel}
         </span>
       </div>
-      <ChatMessageBody text={body} className="text-[var(--text)]" />
+      <ChatMessageBody text={body} className="text-[var(--color-text-primary)]" />
       {footer ? <div style={{ marginTop: 8 }}>{footer}</div> : null}
     </div>
   );

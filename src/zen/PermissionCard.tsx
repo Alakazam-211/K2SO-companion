@@ -27,8 +27,12 @@ import {
 } from "./permissionCardModel";
 import { PermissionConfirmSheet } from "./PermissionConfirmSheet";
 
-const MUTED = "rgba(255,255,255,0.62)";
-const AMBER = "#fbbf24";
+// Inside the agent bubble (--color-bubble-agent): its quieter words.
+const MUTED = "var(--color-text-secondary)";
+/** Loosens access: the warning's words. */
+const AMBER = "var(--color-status-warn-text)";
+/** Tightens access: the legible green. */
+const GREEN = "var(--color-status-ok-soft)";
 
 function shortTime(secs: number | null): string {
   if (!secs) return "";
@@ -98,7 +102,7 @@ export const PermissionCard = memo(function PermissionCard({ card, id, addr, sco
       )}
       {busy ? <Muted>Sending…</Muted> : null}
       {error ? (
-        <p className="text-[12px]" role="alert" style={{ color: "#ff9f9a" }} data-testid="permission-error">
+        <p className="text-[12px]" role="alert" style={{ color: "var(--color-status-error-bright)" }} data-testid="permission-error">
           {error}
         </p>
       ) : null}
@@ -136,9 +140,9 @@ function Button({ label, onClick, primary, disabled, testId }: { label: string; 
       onClick={onClick}
       className="rounded-full px-3.5 py-1.5 text-[15px] leading-none border"
       style={{
-        borderColor: primary ? "#0a84ff" : "rgba(255,255,255,0.4)",
-        background: primary ? "#0a84ff" : "transparent",
-        color: "#fff",
+        borderColor: primary ? "var(--color-accent-fill)" : "var(--color-control-edge)",
+        background: primary ? "var(--color-accent-fill)" : "transparent",
+        color: primary ? "var(--color-on-accent)" : "var(--color-text-primary)",
         opacity: disabled ? 0.5 : 1,
       }}
       data-testid={testId}
@@ -159,7 +163,7 @@ function Details({ item, compact }: { item: PermissionItem; compact?: boolean })
         {item.direction ? (
           <span
             className="text-[11px] rounded-full px-1.5"
-            style={{ color: item.direction === "loosen" ? AMBER : "#7ee2a8", border: `1px solid ${item.direction === "loosen" ? AMBER : "#7ee2a8"}` }}
+            style={{ color: item.direction === "loosen" ? AMBER : GREEN, border: `1px solid ${item.direction === "loosen" ? AMBER : GREEN}` }}
             data-testid="permission-direction"
           >
             {item.direction === "loosen" ? "Loosens access" : "Tightens access"}
@@ -241,7 +245,7 @@ function Single({
               onChange={(e) => setReason(e.target.value.slice(0, DENY_REASON_MAX))}
               placeholder="Reason (optional)"
               className="rounded-lg px-2.5 py-1.5 text-[15px]"
-              style={{ background: "rgba(0,0,0,0.25)", color: "#fff", border: "1px solid rgba(255,255,255,0.2)" }}
+              style={{ background: "var(--color-bg-elevated)", color: "var(--color-text-primary)", border: "1px solid var(--color-border-strong)" }}
               data-testid="permission-deny-reason"
             />
             <div className="flex flex-wrap" style={{ gap: 6 }}>
@@ -298,11 +302,11 @@ function NoteBox({ max, mine, enabled, onNote }: { max: number; mine: string | n
         rows={2}
         placeholder="Add a note for the approver"
         className="rounded-lg px-2.5 py-1.5 text-[15px] resize-none"
-        style={{ background: "rgba(0,0,0,0.25)", color: "#fff", border: "1px solid rgba(255,255,255,0.2)" }}
+        style={{ background: "var(--color-bg-elevated)", color: "var(--color-text-primary)", border: "1px solid var(--color-border-strong)" }}
         data-testid="permission-note-input"
       />
       <div className="flex items-center justify-between" style={{ gap: 8 }}>
-        <span className="text-[11px]" style={{ color: problem ? "#ff9f9a" : MUTED }}>
+        <span className="text-[11px]" style={{ color: problem ? "var(--color-status-error-bright)" : MUTED }}>
           {problem ?? (saved ? "Note sent" : `${text.length}/${max}`)}
         </span>
         <Button
@@ -350,7 +354,7 @@ function Batch({
       ) : null}
       <div className="flex flex-col" style={{ gap: 10 }}>
         {card.items.map((it) => (
-          <div key={it.requestId} className="flex flex-col" style={{ gap: 6, paddingTop: 8, borderTop: "1px solid rgba(255,255,255,0.12)" }} data-testid="permission-batch-item" data-state={it.state}>
+          <div key={it.requestId} className="flex flex-col" style={{ gap: 6, paddingTop: 8, borderTop: "1px solid var(--color-wash-2)" }} data-testid="permission-batch-item" data-state={it.state}>
             <Details item={it} compact />
             {it.state === "pending" && approver ? (
               <div className="flex flex-wrap" style={{ gap: 6 }}>

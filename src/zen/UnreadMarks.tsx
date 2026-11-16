@@ -9,7 +9,6 @@ import {
   homeRowRefs,
   projectsBackCount,
   rowUnreadOf,
-  toneColor,
   unreadCountText,
   type RowRef,
   type RowUnread,
@@ -26,10 +25,27 @@ import { zenTextPx } from "./zenFont";
 //   - Mute / Unmute items for the row menus.
 // None of it renders for a server without the feature (no entry).
 
+/** A mark's colour from the palette (Settings → Themes): blue unread is the
+ *  accent (a dot is the accent itself, a pill under a count its fill),
+ *  amber is needs-you, grey is neutral. */
+function markColor(tone: RowUnread["tone"], fill: boolean): string {
+  if (tone === "waiting") return "var(--color-status-needs-you)";
+  if (tone === "muted") return "var(--color-neutral)";
+  return fill ? "var(--color-accent-fill)" : "var(--color-accent)";
+}
+
+/** A count's words on its pill. The grey pill keeps white words in every
+ *  palette (neutral is mid-grey in each). */
+function markInk(tone: RowUnread["tone"]): string {
+  if (tone === "waiting") return "var(--color-on-warn)";
+  if (tone === "muted") return "#fff";
+  return "var(--color-on-accent)";
+}
+
 /** The dot left of the avatar. `side` px from the avatar's left edge. */
 export function UnreadDot({ unread, side = 16 }: { unread: RowUnread | null; side?: number }) {
   if (!unread || (unread.tone === "muted" && unread.count === 0)) return null;
-  const c = toneColor(unread.tone);
+  const c = markColor(unread.tone, false);
   return (
     <span
       aria-hidden
@@ -65,8 +81,8 @@ export function UnreadCountPill({
         minWidth: chrome ? 20 : 20,
         height: chrome ? 20 : 20,
         padding: "0 6px",
-        background: toneColor(tone),
-        color: tone === "waiting" ? "#1c1c1e" : "#fff",
+        background: markColor(tone, true),
+        color: markInk(tone),
         fontSize: chrome ? 13 : zenTextPx(12),
         fontWeight: 600,
         lineHeight: 1,
@@ -87,7 +103,7 @@ export function MutedGlyph() {
   return (
     <span
       className="shrink-0 inline-flex"
-      style={{ color: "#8e8e93", alignSelf: "center" }}
+      style={{ color: "var(--color-text-muted)", alignSelf: "center" }}
       data-testid="row-muted"
       aria-label="Muted"
     >
@@ -105,7 +121,7 @@ const ITEM_STYLE = {
   padding: "10px 12px",
   minHeight: 44,
   borderRadius: 10,
-  color: "#fff",
+  color: "var(--color-text-primary)",
 } as const;
 
 /**

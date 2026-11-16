@@ -259,7 +259,7 @@ export interface GlassComposerProps {
 
 /** The Zen glass composer: one full-width rounded tile field holding a
  *  borderless `＋`, the auto-growing textarea and a round send bubble
- *  (grey → #0a84ff). Presentational — ThreadPane and the Zen terminal
+ *  (grey → the accent fill). Presentational — ThreadPane and the Zen terminal
  *  page own what attach and send do. */
 export function GlassComposer({
   value,
@@ -593,8 +593,10 @@ export function GlassComposer({
               ...(dragging
                 ? {
                     boxShadow: dropHot
-                      ? "0 0 0 2px #0a84ff, 0 0 18px rgba(10,132,255,0.45)"
-                      : "0 0 0 1px rgba(10,132,255,0.55)",
+                      ? // The accent ring and a soft glow of it (a negative
+                        // spread for the old 45% glow: no color-mix on iOS 15).
+                        "0 0 0 2px var(--color-accent), 0 0 18px -6px var(--color-accent)"
+                      : "0 0 0 1px var(--color-accent)",
                     transition: "box-shadow 120ms ease",
                   }
                 : {}),
@@ -624,13 +626,13 @@ export function GlassComposer({
                   if (!menuShown) refocus.current = document.activeElement === ref.current;
                   setMenuOpen(!menuShown);
                 }}
-                className="shrink-0 flex items-center justify-center bg-transparent border-0 text-[var(--text-muted)] disabled:opacity-40"
+                className="shrink-0 flex items-center justify-center bg-transparent border-0 text-[var(--color-text-muted)] disabled:opacity-40"
                 style={{
                   width: 30,
                   height: 30,
                   borderRadius: "50%",
                   // Lit while pressed and while its menu is open.
-                  background: plusLit ? "rgba(255,255,255,0.2)" : undefined,
+                  background: plusLit ? "var(--color-wash-3)" : undefined,
                   transition: "background-color 90ms ease-out",
                 }}
                 data-lit={plusLit || undefined}
@@ -647,7 +649,7 @@ export function GlassComposer({
               onFocus={onFocus}
               onPaste={onPasteFiles}
               placeholder={placeholder}
-              className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--text)] outline-none pt-[3px] pb-[5px] placeholder:whitespace-nowrap placeholder:overflow-hidden placeholder:text-ellipsis ${showAttach ? "" : "px-2"}`}
+              className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--color-text-primary)] outline-none pt-[3px] pb-[5px] placeholder:whitespace-nowrap placeholder:overflow-hidden placeholder:text-ellipsis ${showAttach ? "" : "px-2"}`}
               // 3px over, 5px under (not 4/4): the system font sits its
               // lowercase ~1.5px low in a 22px line, so the first line read
               // as a pixel too low against the pill (Riley 2026-10-31).
@@ -680,8 +682,8 @@ export function GlassComposer({
                 onMouseDown={(e) => e.preventDefault()}
                 className={`shrink-0 flex items-center justify-center k2-tile ${
                   sendReady
-                    ? "text-white"
-                    : "k2-tile-raised text-[var(--text-muted)] opacity-60"
+                    ? "text-[var(--color-on-accent)]"
+                    : "k2-tile-raised text-[var(--color-text-muted)] opacity-60"
                 }`}
                 style={{
                   // A short pill, 8px wider than the + (Riley 2026-10-17).
@@ -689,7 +691,7 @@ export function GlassComposer({
                   height: 30,
                   borderRadius: 15,
                   ...(sendReady
-                    ? { background: "#0a84ff", borderColor: "#0a84ff" }
+                    ? { background: "var(--color-accent-fill)", borderColor: "var(--color-accent-fill)" }
                     : {}),
                   // Pressed: a little brighter (Riley 2026-10-18). preventDefault
                   // above keeps the keyboard up but also skips :active on iOS.

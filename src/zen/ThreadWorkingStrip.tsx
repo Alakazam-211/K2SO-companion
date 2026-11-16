@@ -45,11 +45,11 @@ import "./threadDrawer.css";
 // every second. Words: `threadDrawerLine` / `threadStripView`.
 
 const TONE: Record<ThreadStripTone, string> = {
-  working: "var(--success)",
-  monitoring: "var(--accent)",
-  "needs-you": "var(--warning)",
-  stopped: "var(--text-muted)",
-  unverifiable: "var(--text-muted)",
+  working: "var(--color-status-ok)",
+  monitoring: "var(--color-accent)",
+  "needs-you": "var(--color-status-needs-you)",
+  stopped: "var(--color-text-muted)",
+  unverifiable: "var(--color-text-muted)",
 };
 
 /** Slide / fade length (ms); the CSS uses the same. */
@@ -441,13 +441,13 @@ export function ThreadWorkingStrip({
                 <span
                   data-testid="thread-strip-step-full"
                   className="flex items-baseline gap-2 min-w-0 leading-[19px]"
-                  style={{ color: "var(--text)", fontSize: zenTextPx(14) }}
+                  style={{ color: "var(--color-text-primary)", fontSize: zenTextPx(14) }}
                 >
                   <span
                     className={`flex-1 min-w-0 whitespace-normal break-words ${
                       d.step.kind === "thinking" ? "k2-shimmer" : ""
                     }`}
-                    style={d.step.kind === "needs" ? { color: "var(--warning)" } : undefined}
+                    style={d.step.kind === "needs" ? { color: "var(--color-status-warn-text)" } : undefined}
                   >
                     <StepBody step={d.step} />
                   </span>
@@ -455,7 +455,7 @@ export function ThreadWorkingStrip({
                     <span
                       data-testid="thread-strip-elapsed"
                       className="flex-none tabular-nums text-[12px]"
-                      style={{ color: "var(--text-muted)" }}
+                      style={{ color: "var(--color-text-muted)" }}
                     >
                       {d.step.elapsed}
                     </span>
@@ -466,7 +466,7 @@ export function ThreadWorkingStrip({
                 <span
                   data-testid="thread-strip-tally"
                   className="min-w-0 break-words text-[12px] leading-[18px]"
-                  style={{ color: "var(--text-muted)" }}
+                  style={{ color: "var(--color-text-muted)" }}
                 >
                   <DetailBits items={d.tallyItems} fallback={d.tally} />
                 </span>
@@ -475,7 +475,7 @@ export function ThreadWorkingStrip({
                 <span
                   data-testid="thread-strip-children"
                   className="min-w-0 break-words text-[12px] leading-[18px]"
-                  style={{ color: "var(--text-muted)" }}
+                  style={{ color: "var(--color-text-muted)" }}
                 >
                   <DetailBits items={d.childItems} fallback={d.children} />
                 </span>
@@ -497,10 +497,10 @@ export function ThreadWorkingStrip({
                   fontSize: zenTextPx(13),
                   color:
                     display.step.kind === "needs"
-                      ? "var(--warning)"
+                      ? "var(--color-status-warn-text)"
                       : display.tone === "stopped" || display.tone === "unverifiable"
-                        ? "var(--text-muted)"
-                        : "var(--text)",
+                        ? "var(--color-text-muted)"
+                        : "var(--color-text-primary)",
                 }}
               >
                 <StepBody step={display.step} />
@@ -529,7 +529,7 @@ export function ThreadWorkingStrip({
               <span
                 data-testid="thread-strip-since"
                 className="flex-none tabular-nums text-right text-[12px] leading-[18px]"
-                style={{ color: "var(--text-muted)" }}
+                style={{ color: "var(--color-text-muted)" }}
               >
                 {display.clock}
               </span>

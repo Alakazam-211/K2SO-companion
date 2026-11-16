@@ -106,13 +106,13 @@ function FileLine({ a, compact }: { a: ThreadAttachment; compact?: boolean }) {
     <>
       <span
         className="flex items-center justify-center shrink-0"
-        style={{ width: iconPx + 4, height: iconPx + 4, color: "var(--text-muted)", opacity: gone ? 0.5 : 1 }}
+        style={{ width: iconPx + 4, height: iconPx + 4, color: "var(--color-text-muted)", opacity: gone ? 0.5 : 1 }}
       >
         {hidden || a.kind !== "file" ? <PlainFileGlyph size={iconPx} /> : <FileIcon name={a.name} size={iconPx} />}
       </span>
       <span className="flex min-w-0 flex-1 flex-col items-start text-left">
         {hidden ? (
-          <span className="max-w-full truncate text-[13px] text-[var(--text-muted)]" data-testid="thread-file-name">
+          <span className="max-w-full truncate text-[13px] text-[var(--color-text-muted)]" data-testid="thread-file-name">
             {HIDDEN_TEXT}
           </span>
         ) : (
@@ -120,29 +120,29 @@ function FileLine({ a, compact }: { a: ThreadAttachment; compact?: boolean }) {
             text={a.name}
             className="w-full text-[14px] leading-[18px]"
             style={{
-              color: gone ? "var(--text-muted)" : "#fff",
+              color: gone ? "var(--color-text-muted)" : "var(--color-text-primary)",
               textDecoration: gone ? "line-through" : undefined,
             }}
             testId="thread-file-name"
           />
         )}
         {hidden ? null : gone ? (
-          <span className="text-[11px] leading-[14px] text-[var(--text-muted)]" data-testid="thread-file-sub">
+          <span className="text-[11px] leading-[14px] text-[var(--color-text-muted)]" data-testid="thread-file-sub">
             {GONE_TEXT}
           </span>
         ) : size || a.state === "changed" ? (
-          <span className="flex items-center gap-1 text-[11px] leading-[14px] text-[var(--text-muted)]" data-testid="thread-file-sub">
+          <span className="flex items-center gap-1 text-[11px] leading-[14px] text-[var(--color-text-muted)]" data-testid="thread-file-sub">
             {size ? <span>{size}</span> : null}
             {a.state === "changed" ? (
               <>
                 {size ? <span aria-hidden>·</span> : null}
                 <span
                   className="inline-block rounded-full shrink-0"
-                  style={{ width: 6, height: 6, background: "var(--warning)" }}
+                  style={{ width: 6, height: 6, background: "var(--color-status-warn)" }}
                   data-testid="thread-file-changed-dot"
                   aria-hidden
                 />
-                <span style={{ color: "var(--warning)" }}>{CHANGED_TEXT}</span>
+                <span style={{ color: "var(--color-status-warn-text)" }}>{CHANGED_TEXT}</span>
               </>
             ) : null}
           </span>
@@ -153,8 +153,8 @@ function FileLine({ a, compact }: { a: ThreadAttachment; compact?: boolean }) {
 }
 
 const CHIP_STYLE = {
-  background: "var(--tile-raised)",
-  border: "1px solid rgba(255,255,255,0.10)",
+  background: "var(--color-bg-elevated)",
+  border: "1px solid var(--color-wash-2)",
   boxShadow: "var(--tile-sheen)",
   borderRadius: 14,
 } as const;
@@ -189,13 +189,13 @@ function ListCard({ files, onOpen }: { files: readonly ThreadAttachment[]; onOpe
   const more = files.length - shown.length;
   return (
     <div className="flex flex-col min-w-0 w-[260px] max-w-full overflow-hidden" style={CHIP_STYLE} data-testid="thread-files-card">
-      <div className="flex items-center gap-1.5 px-3 pt-2 pb-1 text-[12px] font-medium text-[var(--text-secondary)]" data-testid="thread-files-count">
+      <div className="flex items-center gap-1.5 px-3 pt-2 pb-1 text-[12px] font-medium text-[var(--color-text-secondary)]" data-testid="thread-files-count">
         {files.length} files
       </div>
       {shown.map((a) => {
         const openable = attachmentOpenable(a);
         const props = {
-          className: "flex items-center gap-2 min-w-0 px-2.5 py-1.5 border-t border-[rgba(255,255,255,0.06)]",
+          className: "flex items-center gap-2 min-w-0 px-2.5 py-1.5 border-t border-[var(--color-wash-1)]",
           "data-testid": "thread-file",
           "data-state": a.state,
           "data-kind": a.kind,
@@ -214,7 +214,7 @@ function ListCard({ files, onOpen }: { files: readonly ThreadAttachment[]; onOpe
       {more > 0 ? (
         <button
           type="button"
-          className="px-3 py-2 text-left text-[12px] text-[var(--accent)] border-t border-[rgba(255,255,255,0.06)]"
+          className="px-3 py-2 text-left text-[12px] text-[var(--color-accent-text)] border-t border-[var(--color-wash-1)]"
           onClick={() => setAll(true)}
           data-testid="thread-files-more"
         >

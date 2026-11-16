@@ -2,13 +2,14 @@ import { useEffect, useRef, type ComponentType, type RefObject } from "react";
 import { useBackHandler } from "../lib/androidBack";
 import type { TicketScope, TicketsBadge } from "../api/feedbackPure";
 import { MoreIcon, type IconProps } from "./icons";
+import { useMenuGlassFill } from "./AttachMenu";
 
-/** The in-call green (iOS system green): the Rooms row and the More dot. */
-export const IN_CALL_GREEN = "#30d158";
+/** The in-call green (iOS system green; status-ok): the Rooms row and the More dot. */
+export const IN_CALL_GREEN = "var(--color-status-ok)";
 /** iMessage unread blue: project chats. */
-export const PROJECTS_BLUE = "#0a84ff";
+export const PROJECTS_BLUE = "var(--color-accent-fill)";
 /** Tickets keep amber, whichever count they show. */
-export const TICKETS_AMBER = "#f59e0b";
+export const TICKETS_AMBER = "var(--color-status-needs-you)";
 
 export const MORE_MENU_RADIUS_PX = 22;
 export const MORE_MENU_ROW_PX = 44;
@@ -100,7 +101,7 @@ export function HeaderMoreButton({
       ref={buttonRef}
       type="button"
       className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
-      style={{ width: 40, height: 40, color: "#fff" }}
+      style={{ width: 40, height: 40, color: "var(--color-text-primary)" }}
       onClick={onToggle}
       aria-haspopup="menu"
       aria-expanded={open}
@@ -120,7 +121,7 @@ export function HeaderMoreButton({
             top: -2,
             right: -2,
             background: badge.tone === "tickets" ? TICKETS_AMBER : PROJECTS_BLUE,
-            color: badge.tone === "tickets" ? "#000" : "#fff",
+            color: badge.tone === "tickets" ? "var(--color-on-warn)" : "var(--color-on-accent)",
           }}
         >
           {badgeText(badge.count)}
@@ -138,8 +139,8 @@ export function HeaderMoreButton({
             height: 10,
             borderRadius: "50%",
             background: IN_CALL_GREEN,
-            // A dark rim so the dot reads over the glass.
-            boxShadow: "0 0 0 1.5px #000",
+            // A page-coloured rim so the dot reads over the glass.
+            boxShadow: "0 0 0 1.5px var(--color-bg)",
           }}
         />
       ) : null}
@@ -175,6 +176,7 @@ export function HeaderMoreMenu({
   const close = useRef(onClose);
   close.current = onClose;
   useBackHandler(true, () => close.current());
+  const fill = useMenuGlassFill();
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -213,9 +215,9 @@ export function HeaderMoreMenu({
           overflowY: "auto",
           borderRadius: MORE_MENU_RADIUS_PX,
           padding: "6px 0",
-          color: "#fff",
-          // Darker than the plain glass so the labels read over the list.
-          background: "rgba(36, 36, 40, 0.62)",
+          color: "var(--color-text-primary)",
+          // The attach menu's fill (dark glass; Veil's frost on light).
+          background: fill,
         }}
       >
         {items.map((item) => (
@@ -234,7 +236,7 @@ export function HeaderMoreMenu({
               gap: 12,
               minHeight: MORE_MENU_ROW_PX,
               padding: "0 16px",
-              color: item.color ?? "#fff",
+              color: item.color ?? "var(--color-text-primary)",
               fontSize: 17,
               lineHeight: "22px",
             }}

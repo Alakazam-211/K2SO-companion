@@ -25,7 +25,7 @@ export function StashButton({ onOpen, flash, open }: { onOpen: () => void; flash
         width: 30,
         height: 30,
         borderRadius: "50%",
-        color: flash ? "var(--success)" : "var(--text-muted)",
+        color: flash ? "var(--color-status-ok)" : "var(--color-text-muted)",
         transition: "color 160ms ease",
       }}
     >

@@ -121,7 +121,7 @@ describe("Rooms and the More menu", () => {
     mount();
     const rooms = screen.getByTestId("chats-header-voice");
     expect(rooms.getAttribute("aria-label")).toBe("Rooms (in a call)");
-    expect(rooms.style.color).toMatch(/#30d158|rgb\(48,\s*209,\s*88\)/);
+    expect(rooms.style.color).toBe("var(--color-status-ok)");
     expect(screen.getByTestId("chats-header-more").contains(rooms)).toBe(false);
     expect(screen.queryByTestId("chats-header-more-call")).toBeNull();
     expect(screen.getByTestId("chats-header-more").getAttribute("aria-label")).toBe("More");

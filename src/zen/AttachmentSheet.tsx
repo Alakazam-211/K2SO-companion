@@ -271,13 +271,13 @@ function AttachmentPage({
       case "confirm":
         return (
           <div className="flex h-full flex-col items-center justify-center gap-3 px-8 text-center" data-testid="attachment-confirm">
-            <span className="text-[15px] text-[var(--text)]">This file is {formatAttachmentSize(phase.size)}.</span>
-            <span className="text-[12px] text-[var(--text-muted)]">Downloading it may use a lot of cellular data.</span>
+            <span className="text-[15px] text-[var(--color-text-primary)]">This file is {formatAttachmentSize(phase.size)}.</span>
+            <span className="text-[12px] text-[var(--color-text-muted)]">Downloading it may use a lot of cellular data.</span>
             <div className="flex gap-2">
               <button
                 type="button"
                 className="zen-glass zen-glass-pill px-4 text-[14px]"
-                style={{ height: 36, color: "#fff" }}
+                style={{ height: 36, color: "var(--color-text-primary)" }}
                 onClick={() => setPhase({ k: "card", size: phase.size, bytes: null })}
                 data-testid="attachment-confirm-cancel"
               >
@@ -286,7 +286,7 @@ function AttachmentPage({
               <button
                 type="button"
                 className="rounded-full px-4 text-[14px] font-medium"
-                style={{ height: 36, background: "#0a84ff", color: "#fff" }}
+                style={{ height: 36, background: "var(--color-accent-fill)", color: "var(--color-on-accent)" }}
                 onClick={() => void download(phase.then)}
                 data-testid="attachment-confirm-download"
               >
@@ -306,7 +306,7 @@ function AttachmentPage({
         return (
           <div className="flex h-full flex-col">
             {phase.truncated ? (
-              <div className="shrink-0 mx-4 mb-2 text-[12px] text-[var(--text-muted)]" data-testid="attachment-truncated">
+              <div className="shrink-0 mx-4 mb-2 text-[12px] text-[var(--color-text-muted)]" data-testid="attachment-truncated">
                 Showing the first 512 KB of this file.
               </div>
             ) : null}
@@ -344,13 +344,13 @@ function AttachmentPage({
             <button
               type="button"
               className="rounded-full px-5 text-[14px] font-medium"
-              style={{ height: 38, background: "#0a84ff", color: "#fff" }}
+              style={{ height: 38, background: "var(--color-accent-fill)", color: "var(--color-on-accent)" }}
               onClick={() => (phase.bytes ? void onShare() : fetchWhole("save", phase.size ?? sizeNow))}
               data-testid="attachment-download"
             >
               {phase.bytes ? "Share / Save" : "Download"}
             </button>
-            {shareNote ? <span className="text-[12px] text-[var(--warning)]">{shareNote}</span> : null}
+            {shareNote ? <span className="text-[12px] text-[var(--color-status-warn-text)]">{shareNote}</span> : null}
           </div>
         );
     }
@@ -430,7 +430,7 @@ export function AttachmentSheet({
   const sheet = (
     <div
       ref={swipeRef}
-      className="fixed inset-0 flex flex-col bg-[var(--background)] fv-root"
+      className="fixed inset-0 flex flex-col bg-[var(--color-bg)] fv-root"
       style={{ zIndex: 60 }}
       role="dialog"
       aria-modal="true"
@@ -443,17 +443,17 @@ export function AttachmentSheet({
         style={{ paddingTop: "calc(env(safe-area-inset-top) + 8px)", paddingBottom: 10 }}
       >
         <div className="flex min-w-0 flex-1 flex-col items-start">
-          <span className="flex w-full min-w-0 items-center gap-1 text-[16px] font-semibold text-[var(--text)]">
+          <span className="flex w-full min-w-0 items-center gap-1 text-[16px] font-semibold text-[var(--color-text-primary)]">
             <span className="shrink-0 flex">
               <FileIcon name={file.name} size={18} />
             </span>
             <MiddleEllipsis text={file.name} testId="attachment-name" className="flex-1" />
           </span>
-          <span className="flex max-w-full items-center gap-1.5 text-[12px] text-[var(--text-muted)]">
+          <span className="flex max-w-full items-center gap-1.5 text-[12px] text-[var(--color-text-muted)]">
             {folder ? <span className="truncate">{folder}</span> : null}
             {state === "changed" ? (
-              <span className="flex shrink-0 items-center gap-1" style={{ color: "var(--warning)" }} data-testid="attachment-changed">
-                <span className="inline-block rounded-full" style={{ width: 6, height: 6, background: "var(--warning)" }} aria-hidden />
+              <span className="flex shrink-0 items-center gap-1" style={{ color: "var(--color-status-warn-text)" }} data-testid="attachment-changed">
+                <span className="inline-block rounded-full" style={{ width: 6, height: 6, background: "var(--color-status-warn)" }} aria-hidden />
                 {CHANGED_TEXT}
               </span>
             ) : null}
@@ -465,8 +465,8 @@ export function AttachmentSheet({
             style={{
               padding: "2px 7px",
               borderRadius: 6,
-              background: "var(--wash-15)",
-              color: "#fff",
+              background: "var(--color-wash-3)",
+              color: "var(--color-text-primary)",
               fontVariantNumeric: "tabular-nums",
             }}
             aria-label={`Image ${index + 1} of ${pages.length}`}
@@ -479,7 +479,7 @@ export function AttachmentSheet({
           <button
             type="button"
             className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
-            style={{ width: 34, height: 34, color: "#fff" }}
+            style={{ width: 34, height: 34, color: "var(--color-text-primary)" }}
             onClick={() => void onShare()}
             aria-label="Share"
             data-testid="attachment-share"
@@ -494,7 +494,7 @@ export function AttachmentSheet({
         <button
           type="button"
           className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
-          style={{ width: 34, height: 34, color: "#fff" }}
+          style={{ width: 34, height: 34, color: "var(--color-text-primary)" }}
           onClick={onClose}
           aria-label="Close"
           data-testid="attachment-close"
@@ -530,7 +530,7 @@ export function AttachmentSheet({
         )}
         {shareFailed ? (
           <div
-            className="absolute left-0 right-0 top-1 text-center text-[12px] text-[var(--warning)] pointer-events-none"
+            className="absolute left-0 right-0 top-1 text-center text-[12px] text-[var(--color-status-warn-text)] pointer-events-none"
             data-testid="attachment-share-failed"
           >
             Could not save the file.

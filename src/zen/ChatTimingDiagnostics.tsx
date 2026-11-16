@@ -3,7 +3,7 @@ import { chatCache } from "./chatCache";
 import { chatOpenTimings, subscribeChatTimings, type ChatOpenTiming } from "./chatTiming";
 import { pushInboxStats, subscribePushInboxStats, type PushInboxStats } from "../lib/pushInbox";
 
-const MUTED = "#8e8e93";
+const MUTED = "var(--color-text-muted)";
 
 let snapshot: ChatOpenTiming[] = chatOpenTimings();
 let version = 0;
@@ -110,7 +110,7 @@ export function ChatTimingRow({ serverId }: { serverId: string }) {
           height="12"
           viewBox="0 0 24 24"
           fill="none"
-          stroke={MUTED}
+          stroke="currentColor"
           strokeWidth="2.5"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -136,7 +136,7 @@ export function ChatTimingRow({ serverId }: { serverId: string }) {
           ) : (
             rows.map((t) => (
               <div key={t.id} style={{ marginBottom: 4 }} data-testid="chat-timing-row">
-                <div className="truncate" style={{ color: "#fff" }}>
+                <div className="truncate" style={{ color: "var(--color-text-primary)" }}>
                   {t.kind === "project" ? "Project chat" : t.room.replace(/^t:/, "")}
                 </div>
                 <div>{timingLine(t)}</div>
