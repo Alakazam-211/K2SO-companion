@@ -18,7 +18,8 @@ import { useListField, useZenStore } from "./zenStore";
 import { useZenScope } from "./zenScope";
 import { rowUnreadFor, type RowRef } from "./unread";
 import { useUnreadStore } from "./unreadStore";
-import { AgentMenu, OpenGlyph, RearrangeGlyph, RemoveGlyph, type AgentMenuEntry } from "./AgentMenu";
+import { AgentMenu, OpenGlyph, PinGlyph, RearrangeGlyph, RemoveGlyph, type AgentMenuEntry } from "./AgentMenu";
+import { PINS_FULL_TEXT } from "./groups/homeRowOrder";
 import { GripHandle, rearrangePadLeft } from "./RearrangeBits";
 import { useHoldMenu } from "./useHoldMenu";
 import { useRearrange } from "./useRearrange";
@@ -151,7 +152,17 @@ export function HomeList({
   inset = "16px",
   otherHomeOf,
   gridMax = HOME_GRID_MAX,
+  pins,
 }: {
+  /** Home groups (K2 0.46.13): Pin / Unpin on the hold menu (at most 9
+   *  per group; at the limit Pin shows turned off, with the reason). Rows
+   *  from another group (a search across groups) have no Pin here. */
+  pins?: {
+    isPinned: (address: string) => boolean;
+    full: boolean;
+    onPin: (address: string) => void;
+    onUnpin: (address: string) => void;
+  };
   views: HomeRowView[];
   homeName: string;
   /** How many of the Home's first rows sit in the grid (this Home's "Top
@@ -261,6 +272,20 @@ export function HomeList({
     return [
       ...(canOpen
         ? [{ key: "open", label: "Open", icon: <OpenGlyph />, onSelect: () => openRow(v, failure, action) }]
+        : []),
+      ...(pins && !otherHomeOf?.(v.row.address)
+        ? [
+            pins.isPinned(v.row.address)
+              ? { key: "unpin", label: "Unpin", icon: <PinGlyph off />, onSelect: () => pins.onUnpin(v.row.address) }
+              : {
+                  key: "pin",
+                  label: "Pin",
+                  icon: <PinGlyph off={false} />,
+                  disabled: pins.full,
+                  note: pins.full ? PINS_FULL_TEXT : undefined,
+                  onSelect: () => pins.onPin(v.row.address),
+                },
+          ]
         : []),
       { key: "mute" as const, mute: { serverId: menuTarget?.serverId, rowRef: menuRef } },
       ...(canRearrange && !searching && views.length > 1 && onRearrange

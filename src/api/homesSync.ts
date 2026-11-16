@@ -27,11 +27,36 @@
 // Frames on the person's `/cli/sessions/events` sockets:
 // `{kind:"homes_changed", cursor}` and `{kind:"homes_device_removed",
 // deviceId}`.
+//
+// Home groups (K2 0.46.13, migrations 0305/0306; nothing of it is in
+// 0.46.12):
+//   - the pull answer carries `kinds` (`["home","row","person","channel"]`);
+//     an older server has none (it keeps `home` and `row` only);
+//   - a Home item carries `icon` (a Lucide name `[a-z0-9-]{1,64}`, or
+//     null) and `recentFirst` (boolean);
+//   - a row item (`row` an agent, `person`, `channel`) carries `pinOrder`
+//     (a fractional key, or null = unpinned) and `lastMessagedAt` (epoch
+//     ms, or null);
+//   - a push that leaves one of these out keeps the server's value; null
+//     clears it. A pulled item without one means "doesn't say" (absent
+//     here too), never "cleared";
+//   - an older server refuses a person / channel item per item with
+//     `rejected[].reason = "invalid_kind"`.
+// A row kind this build doesn't know is dropped on read: never drawn and
+// never tombstoned.
 
 import type { ServerScope } from "./scope";
 import { scopedFetch, NOT_CONNECTED } from "./scopedFetch";
 import { apiErrorText } from "../lib/apiError";
-import type { ChangeItem } from "../zen/homesMerge";
+import { isRowKind, type ChangeItem } from "../zen/homesMerge";
+import { isValidOrder } from "../zen/fracIndex";
+import { GROUP_ICON_NAME_RE } from "../zen/groups/groupIconName";
+
+/** The kinds a pull answer without `kinds` (K2 0.46.12 and older) keeps. */
+export const LEGACY_HOMES_KINDS: readonly string[] = ["home", "row"];
+
+/** An older home server's refusal of a person or channel item. */
+export const INVALID_KIND = "invalid_kind";
 
 export const FEATURE_HOMES_SYNC = "homes-sync-v1";
 
@@ -90,15 +115,19 @@ export function parseChangeItem(raw: unknown): ChangeItem | null {
     if (deleted) c.deleted = true;
     const into = str(pick(o, "mergedInto", "merged_into"));
     if (deleted && into) c.mergedInto = into;
+    const icon = pick(o, "icon");
+    if (icon === null || (typeof icon === "string" && GROUP_ICON_NAME_RE.test(icon))) c.icon = icon;
+    const recent = pick(o, "recentFirst", "recent_first");
+    if (typeof recent === "boolean") c.recentFirst = recent;
     return c;
   }
-  if (kind === "row") {
+  if (isRowKind(kind)) {
     const homeId = str(pick(o, "homeId", "home_id"));
     const address = str(o.address);
     if (!homeId || !address) return null;
     const ws = pick(o, "workspaceId", "workspace_id");
     const c: ChangeItem = {
-      kind: "row",
+      kind,
       homeId,
       address: address.trim().toLowerCase(),
       label: str(o.label) ?? "",
@@ -108,6 +137,14 @@ export function parseChangeItem(raw: unknown): ChangeItem | null {
     };
     if (by) c.by = by;
     if (deleted) c.deleted = true;
+    const pin = pick(o, "pinOrder", "pin_order");
+    if (pin === null || (typeof pin === "string" && isValidOrder(pin))) c.pinOrder = pin;
+    const sent = pick(o, "lastMessagedAt", "last_messaged_at");
+    if (sent === null) c.lastMessagedAt = null;
+    else {
+      const n = num(sent);
+      if (n !== null && n > 0) c.lastMessagedAt = n;
+    }
     return c;
   }
   return null;
@@ -119,10 +156,14 @@ export function toWireChange(c: ChangeItem): Record<string, unknown> {
     const w: Record<string, unknown> = { kind: "home", id: c.id, name: c.name, order: c.order, updatedAt: c.updatedAt };
     if (c.deleted) w.deleted = true;
     if (c.deleted && c.mergedInto) w.mergedInto = c.mergedInto;
+    // Group fields only when this write says them (left out = the server
+    // keeps its value; an older server ignores them).
+    if (!c.deleted && c.icon !== undefined) w.icon = c.icon;
+    if (!c.deleted && c.recentFirst !== undefined) w.recentFirst = c.recentFirst;
     return w;
   }
   const w: Record<string, unknown> = {
-    kind: "row",
+    kind: c.kind,
     homeId: c.homeId,
     address: c.address,
     label: c.label,
@@ -131,6 +172,8 @@ export function toWireChange(c: ChangeItem): Record<string, unknown> {
     updatedAt: c.updatedAt,
   };
   if (c.deleted) w.deleted = true;
+  if (!c.deleted && c.pinOrder !== undefined) w.pinOrder = c.pinOrder;
+  if (!c.deleted && c.lastMessagedAt !== undefined) w.lastMessagedAt = c.lastMessagedAt;
   return w;
 }
 
@@ -162,6 +205,11 @@ export interface PullReply {
   serverId: string | null;
   /** `device.syncing`; null when absent. `false` = not registered (yet). */
   syncing: boolean | null;
+  /** The item kinds the server keeps (`kinds`, K2 0.46.13); an answer
+   *  without it (0.46.12 and older) keeps `home` and `row` only. */
+  kinds: string[];
+  /** The answer carried `kinds` (a server with Home groups). */
+  groups: boolean;
 }
 
 export function parsePullReply(raw: unknown): PullReply {
@@ -177,6 +225,10 @@ export function parsePullReply(raw: unknown): PullReply {
     person: str(o.person),
     serverId: str(o.serverId),
     syncing: device && typeof device.syncing === "boolean" ? device.syncing : null,
+    kinds: Array.isArray(o.kinds)
+      ? o.kinds.filter((k): k is string => typeof k === "string")
+      : [...LEGACY_HOMES_KINDS],
+    groups: Array.isArray(o.kinds),
   };
 }
 

@@ -24,7 +24,7 @@ import {
 const ME = "dev-b";
 const OTHER = "dev-a";
 
-function row(address: string, extra: Partial<RowChange> = {}) {
+function row(address: string, extra: Partial<MergeHome["rows"][number]> = {}) {
   return { address, workspaceId: null, label: address.split("::")[0], ...extra };
 }
 
@@ -104,9 +104,13 @@ describe("diffLocal (every local edit is stamped and queued)", () => {
     expect(d.homes[0].rows[0].order! < d.homes[0].rows[1].order!).toBe(true);
   });
 
-  it("deleting a Home tombstones it", () => {
+  it("deleting a Home tombstones it and each of its rows (K2 0.46.13)", () => {
     const d = diffLocal(keyed, [], { now: 5000, by: ME });
-    expect(d.changes).toEqual([expect.objectContaining({ kind: "home", id: "h1", deleted: true, updatedAt: 5000 })]);
+    expect(d.changes).toEqual([
+      expect.objectContaining({ kind: "home", id: "h1", deleted: true, updatedAt: 5000 }),
+      expect.objectContaining({ kind: "row", homeId: "h1", address: "a::s", deleted: true }),
+      expect.objectContaining({ kind: "row", homeId: "h1", address: "b::s", deleted: true }),
+    ]);
   });
 });
 
@@ -375,7 +379,7 @@ describe("K2 0.46.1 final contract", () => {
       rc("h2", "b::s", "V", 5, { by: ME }),
     ];
     const out = redirectOutbox(box, { "h-old": "h1", "h-gone": "h1" });
-    expect(out.map((c) => (c.kind === "row" ? `${c.homeId}|${c.address}` : `${c.id}${c.deleted ? " x" : ""}`))).toEqual([
+    expect(out.map((c) => (c.kind !== "home" ? `${c.homeId}|${c.address}` : `${c.id}${c.deleted ? " x" : ""}`))).toEqual([
       "h1|a::s",
       "h-gone x",
       "h2|b::s",

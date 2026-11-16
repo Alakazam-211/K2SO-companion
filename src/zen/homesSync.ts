@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { getBootStatus } from "../api/client";
 import {
   FEATURE_HOMES_SYNC,
+  INVALID_KIND,
   listHomesDevices,
   onHomesFrame,
   parseCursor,
@@ -24,8 +25,12 @@ import {
   changeKey,
   coalesceOutbox,
   firstSyncMerge,
+  isRowKind,
+  keyKind,
   reconcileFull,
   redirectOutbox,
+  rowChange,
+  rowKeyOf,
   settleOutbox,
   type ChangeItem,
 } from "./homesMerge";
@@ -80,12 +85,22 @@ import { cancelForeground, onForegroundLater } from "../lib/foreground";
 //
 // Gate: the sync server's `/boot-status` must list `homes-sync-v1`. An
 // unreachable server is "offline", not "unsupported".
+//
+// Home groups (K2 0.46.13): there is no `/boot-status` key for them; the
+// pull answer's `kinds` is the signal (kept in the meta as `kinds`). An
+// older server (no `kinds`: `home` and `row` only) drops the group fields
+// it doesn't know (the merge keeps ours, `./homesMerge`) and refuses each
+// person or channel row with `invalid_kind`. Those rows are never dropped:
+// they stay on this phone only (`k2.homes.localOnly.v1`), are not sent
+// while the server's `kinds` lacks their kind, and go again once a pull
+// lists it (desktop `localOnly`, `lib/homes-sync/engine.ts`).
 
 export const HOMES_SYNC_SERVER_KEY = "k2.homes.syncServer.v1";
 export const HOMES_SYNC_META_KEY = "k2.homes.syncMeta.v1";
 export const HOMES_OUTBOX_KEY = "k2.homes.outbox.v1";
 export const HOMES_SYNC_NOTICE_KEY = "k2.homes.syncNotice.v1";
 export const HOMES_DEVICE_ID_KEY = "k2.homes.deviceId.v1";
+export const HOMES_LOCAL_ONLY_KEY = "k2.homes.localOnly.v1";
 
 export const PUSH_DEBOUNCE_MS = 400;
 export const FRAME_DEBOUNCE_MS = 300;
@@ -142,17 +157,22 @@ interface Meta {
    *  `syncing:false` / 409). Absent in older meta: true (it was written
    *  after turning sync on, which registers). */
   registered: boolean;
+  /** The item kinds the server keeps, from its last pull answer (K2
+   *  0.46.13 `kinds`; `home`/`row` for an older server). Null = no pull
+   *  read yet. */
+  kinds: string[] | null;
 }
 
-/** `{serverId, cursor, lastSyncAt, registered}` — for one server. */
+/** `{serverId, cursor, lastSyncAt, registered, kinds}` — for one server. */
 function readMeta(serverId: string | null): Meta {
   const j = readJson(HOMES_SYNC_META_KEY);
-  if (!j || !serverId || j.serverId !== serverId) return { cursor: null, lastSyncAt: null, registered: false };
+  if (!j || !serverId || j.serverId !== serverId) return { cursor: null, lastSyncAt: null, registered: false, kinds: null };
   return {
     // A cursor saved before the final contract may be a numeric string.
     cursor: parseCursor(j.cursor),
     lastSyncAt: typeof j.lastSyncAt === "number" ? j.lastSyncAt : null,
     registered: j.registered !== false,
+    kinds: Array.isArray(j.kinds) ? j.kinds.filter((k): k is string => typeof k === "string") : null,
   };
 }
 
@@ -165,7 +185,7 @@ function isChange(v: unknown): v is ChangeItem {
   const c = v as Record<string, unknown>;
   if (typeof c.updatedAt !== "number" || typeof c.order !== "string") return false;
   if (c.kind === "home") return typeof c.id === "string" && typeof c.name === "string";
-  return c.kind === "row" && typeof c.homeId === "string" && typeof c.address === "string";
+  return isRowKind(c.kind) && typeof c.homeId === "string" && typeof c.address === "string";
 }
 
 /** The persisted outbox for `serverId` (another server's is dropped). */
@@ -177,6 +197,26 @@ export function readOutbox(serverId: string | null): ChangeItem[] {
 
 function writeOutbox(serverId: string | null, items: ChangeItem[]): void {
   lsSet(HOMES_OUTBOX_KEY, serverId && items.length > 0 ? JSON.stringify({ serverId, items }) : null);
+}
+
+/** Person / channel row keys an older server refused (`invalid_kind`),
+ *  for `serverId`: kept on this phone only. */
+export function readLocalOnly(serverId: string | null): Set<string> {
+  const j = readJson(HOMES_LOCAL_ONLY_KEY);
+  if (!j || !serverId || j.serverId !== serverId || !Array.isArray(j.keys)) return new Set();
+  return new Set(j.keys.filter((k): k is string => typeof k === "string"));
+}
+
+function writeLocalOnly(serverId: string | null, keys: Set<string>): void {
+  lsSet(HOMES_LOCAL_ONLY_KEY, serverId && keys.size > 0 ? JSON.stringify({ serverId, keys: [...keys] }) : null);
+}
+
+/** Does a server whose pull listed `kinds` keep items of this key's kind?
+ *  Unknown kinds (no pull yet): assume yes, the push finds out. */
+export function serverKeepsKey(kinds: readonly string[] | null, key: string): boolean {
+  const kind = keyKind(key);
+  if (!kind || !kinds) return true;
+  return kinds.includes(kind);
 }
 
 function readNotice(): HomesSyncNotice | null {
@@ -253,6 +293,9 @@ interface HomesSyncState {
   notice: HomesSyncNotice | null;
   /** An enable / disable in progress (the switch waits). */
   busy: boolean;
+  /** The sync server's kept item kinds (its last pull's `kinds`), or null
+   *  before a pull. Lists `person` / `channel` on K2 0.46.13+. */
+  kinds: string[] | null;
 }
 
 function initialState(): HomesSyncState {
@@ -269,6 +312,7 @@ function initialState(): HomesSyncState {
     devicesError: {},
     notice: readNotice(),
     busy: false,
+    kinds: meta.kinds,
   };
 }
 
@@ -283,6 +327,9 @@ let cursor: number | null = readMeta(readSyncServer()).cursor;
 const rejectedStamps = new Map<string, string>();
 const stampSig = (c: ChangeItem) => `${c.updatedAt}|${c.by ?? ""}`;
 let registered = readMeta(readSyncServer()).registered;
+let serverKinds: string[] | null = readMeta(readSyncServer()).kinds;
+/** Person / channel rows the server refused for their kind (key set). */
+let localOnly: Set<string> = readLocalOnly(readSyncServer());
 /** Bumped by every enable / disable / removal: a run from before stops. */
 let gen = 0;
 
@@ -297,7 +344,66 @@ function setOutbox(items: ChangeItem[]): void {
 }
 
 function saveMeta(lastSyncAt = st().lastSyncAt): void {
-  writeMeta(st().serverId, { cursor, lastSyncAt, registered });
+  writeMeta(st().serverId, { cursor, lastSyncAt, registered, kinds: serverKinds });
+}
+
+function setKinds(next: string[]): void {
+  serverKinds = next;
+  if (st().kinds?.join() !== next.join()) put({ kinds: next });
+  saveMeta();
+}
+
+function saveLocalOnly(): void {
+  writeLocalOnly(st().serverId, localOnly);
+}
+
+/** Outbox items whose kind the server doesn't keep (an older server):
+ *  taken out of the outbox and remembered as local-only (a tombstone just
+ *  goes: there is nothing on the server to delete). */
+function holdUnkeptKinds(): void {
+  if (!serverKinds) return;
+  const box = st().outbox;
+  const keep: ChangeItem[] = [];
+  let held = false;
+  for (const c of box) {
+    const k = changeKey(c);
+    if (serverKeepsKey(serverKinds, k)) {
+      keep.push(c);
+      continue;
+    }
+    held = true;
+    if (c.deleted) localOnly.delete(k);
+    else localOnly.add(k);
+  }
+  if (!held) return;
+  setOutbox(keep);
+  saveLocalOnly();
+}
+
+/** A pull listed `kinds`: queue the local-only rows it now keeps. */
+function releaseLocalOnly(): void {
+  if (localOnly.size === 0) return;
+  const homes = useHomesStore.getState().homes;
+  const send: ChangeItem[] = [];
+  let changed = false;
+  for (const k of [...localOnly]) {
+    if (!serverKeepsKey(serverKinds, k)) continue;
+    localOnly.delete(k);
+    changed = true;
+    for (const h of homes) {
+      const r = h.rows.find((x) => rowKeyOf(h.id, x) === k);
+      if (r) send.push(rowChange(h.id, r));
+    }
+  }
+  // Rows that went meanwhile: nothing to send, nothing to remember.
+  for (const k of [...localOnly]) {
+    if (!homes.some((h) => h.rows.some((x) => rowKeyOf(h.id, x) === k))) {
+      localOnly.delete(k);
+      changed = true;
+    }
+  }
+  if (changed) saveLocalOnly();
+  if (send.length > 0) setOutbox(coalesceOutbox(st().outbox, send));
 }
 
 function setCursor(next: number | null, lastSyncAt = st().lastSyncAt): void {
@@ -370,9 +476,12 @@ function stopLocally(status: HomesSyncStatus = "off"): void {
   lsSet(HOMES_SYNC_SERVER_KEY, null);
   cursor = null;
   registered = false;
+  serverKinds = null;
+  localOnly = new Set();
+  writeLocalOnly(null, localOnly);
   retryAttempt = 0;
   rejectedStamps.clear();
-  put({ serverId: null, status, error: null, outbox: [], lastSyncAt: null });
+  put({ serverId: null, status, error: null, outbox: [], lastSyncAt: null, kinds: null });
 }
 
 /** 410 / a removed frame for this phone: stop, keep Homes, say so once. */
@@ -463,6 +572,7 @@ async function runOnce(): Promise<void> {
   }
 
   let fullNext = false;
+  holdUnkeptKinds();
   const sent = st().outbox;
   if (sent.length > 0) {
     let r = await pushHomes(scope, deviceId, sent);
@@ -485,14 +595,24 @@ async function runOnce(): Promise<void> {
       return;
     }
     const rejectedKeys: string[] = [];
+    let refusedOther = false;
     for (const rj of r.data.rejected) {
       if (rj.item) {
         const k = changeKey(rj.item);
         rejectedKeys.push(k);
         // Our own copy (the echo may not carry `by`).
         const mine = sent.find((c) => changeKey(c) === k);
+        if (rj.reason === INVALID_KIND && rj.item.kind !== "home" && rj.item.kind !== "row") {
+          // An older home server: the row stays on this phone, unsynced,
+          // and goes again once a pull lists its kind.
+          if (mine && !mine.deleted) localOnly.add(k);
+          else localOnly.delete(k);
+          saveLocalOnly();
+          continue;
+        }
+        refusedOther = true;
         if (mine) rejectedStamps.set(k, stampSig(mine));
-      }
+      } else refusedOther = true;
       console.warn("[homes-sync] server rejected", rj.item, rj.reason);
     }
     // Sent items leave the outbox, superseded ones included (the server's
@@ -504,7 +624,7 @@ async function runOnce(): Promise<void> {
     const rejected = new Set(rejectedKeys);
     const accepted = sent.filter((c) => !c.deleted && !rejected.has(changeKey(c))).map(changeKey);
     useHomesStore.getState().markSynced(accepted);
-    if (r.data.superseded > 0 || r.data.rejected.length > 0) fullNext = true;
+    if (r.data.superseded > 0 || refusedOther) fullNext = true;
     if (r.data.changes.length > 0) mergeIn(r.data.changes);
   }
 
@@ -516,6 +636,9 @@ async function runOnce(): Promise<void> {
     return;
   }
   const reply = pulled.data;
+  // The kinds it keeps (K2 0.46.13 `kinds`): local-only rows it now keeps
+  // go again.
+  setKinds(reply.kinds);
   // Hosts the server vouches for: rows migrate to their box ids.
   if (Object.keys(reply.servers).length > 0) useHomeServerIds.getState().hint(reply.servers);
   if (reply.syncing === false) {
@@ -529,6 +652,7 @@ async function runOnce(): Promise<void> {
   // queue what it never had. Never against a server that looks wiped.
   const wiped = reply.syncing === false || (cursor !== null && reply.cursor !== null && reply.cursor < cursor);
   if (reply.full && !wiped) resyncFull(reply.changes);
+  releaseLocalOnly();
   const now = Date.now();
   if (orphans > 0 && since !== null && !reply.full) {
     // Rows for a Home we never saw: re-pull the full set.
@@ -575,7 +699,9 @@ function resyncFull(full: ChangeItem[]): void {
     const dropped = new Set(res.dropped);
     next = next.filter((c) => !dropped.has(changeKey(c)));
   }
-  const push = res.push.filter((c) => rejectedStamps.get(changeKey(c)) !== stampSig(c));
+  const push = res.push.filter(
+    (c) => rejectedStamps.get(changeKey(c)) !== stampSig(c) && !localOnly.has(changeKey(c))
+  );
   if (push.length > 0) next = coalesceOutbox(next, push);
   if (next !== box && (next.length !== box.length || next.some((c, i) => c !== box[i]))) setOutbox(next);
 }
@@ -690,7 +816,10 @@ export async function enableHomesSync(serverId: string): Promise<boolean> {
     retryAttempt = 0;
     put({ serverId, status: "syncing", notice: null, outbox: [] });
     registered = true;
+    localOnly = new Set();
+    writeLocalOnly(serverId, localOnly);
     setCursor(full.data.cursor, null);
+    setKinds(full.data.kinds);
     setOutbox(coalesceOutbox([], merged.changes));
     connectHub();
     if (prev && prev !== serverId) {
@@ -914,7 +1043,14 @@ export function __resetHomesSyncForTests(opts: { deviceId?: string } = {}): void
   deviceIdSource = opts.deviceId ? async () => opts.deviceId as string : defaultDeviceId;
   cursor = readMeta(readSyncServer()).cursor;
   registered = readMeta(readSyncServer()).registered;
+  serverKinds = readMeta(readSyncServer()).kinds;
+  localOnly = readLocalOnly(readSyncServer());
   useHomesSyncStore.setState(initialState(), true);
+}
+
+/** Tests only: the local-only row keys (older server's `invalid_kind`). */
+export function __homesSyncLocalOnly(): string[] {
+  return [...localOnly];
 }
 
 /** Tests only: the in-memory pull cursor. */

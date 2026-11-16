@@ -22,6 +22,9 @@ export type AgentMenuItem = {
   label: string;
   icon?: ReactNode;
   danger?: boolean;
+  /** Shown but turned off, with `note` saying why (Pin at 9 pins). */
+  disabled?: boolean;
+  note?: string;
   onSelect: () => void;
 };
 
@@ -143,6 +146,7 @@ export function AgentMenu({
               key={e.key}
               type="button"
               role="menuitem"
+              aria-disabled={e.disabled || undefined}
               className="w-full flex items-center text-left bg-transparent border-0 text-[16px]"
               style={{
                 gap: 10,
@@ -150,15 +154,23 @@ export function AgentMenu({
                 minHeight: ITEM_H,
                 borderRadius: 10,
                 color: e.danger ? REMOVE_RED : "var(--color-text-primary)",
+                opacity: e.disabled ? 0.45 : 1,
               }}
               data-testid={`menu-${e.key}`}
               onClick={() => {
-                if (!take()) return;
+                if (e.disabled || !take()) return;
                 onClose();
                 e.onSelect();
               }}
             >
-              <span className="flex-1 min-w-0 truncate">{e.label}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block truncate">{e.label}</span>
+                {e.note ? (
+                  <span className="block text-[13px]" style={{ color: "var(--color-text-muted)", whiteSpace: "normal" }} data-testid={`menu-${e.key}-note`}>
+                    {e.note}
+                  </span>
+                ) : null}
+              </span>
               {e.icon ? (
                 <span aria-hidden className="flex shrink-0">
                   {e.icon}

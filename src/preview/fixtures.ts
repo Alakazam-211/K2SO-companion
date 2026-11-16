@@ -3,7 +3,9 @@
 // do); the stubbed network never answers, so nothing replaces it.
 // Names are made up: never a real fleet.
 
-import { useServersStore, type ServerEntry } from "../stores/servers";
+import { serverHostKey, useServersStore, type ServerEntry } from "../stores/servers";
+import { HOMES_LAST_SELECTED_KEY, HOMES_STORAGE_KEY, LIST_TAB_KEY, homeAddress, useHomesStore } from "../zen/homes";
+import { useGroupsSheet } from "../zen/groups/groupsSheetStore";
 import { groupRowId, useZenStore } from "../zen/zenStore";
 import { useMultiServerPrefs } from "../zen/multi/prefs";
 import { useUnreadStore } from "../zen/unreadStore";
@@ -146,7 +148,47 @@ export function threadFixture(): ThreadMessage[] {
   ];
 }
 
-export type PreviewScreen = "thread" | "home" | "settings" | "themes";
+export type PreviewScreen = "thread" | "home" | "settings" | "themes" | "home-groups" | "home-groups-sheet";
+
+/** Home groups (K2 0.46.13): groups with icons, one without, pins, on the
+ *  Home tab; `sheet` opens the Groups sheet on Errands. Once, before the
+ *  first render (storage is this preview origin's own). */
+export function seedHomeGroups(sheet: boolean): void {
+  try {
+    localStorage.removeItem(HOMES_STORAGE_KEY);
+    localStorage.removeItem(HOMES_LAST_SELECTED_KEY);
+    localStorage.setItem(LIST_TAB_KEY, "home");
+  } catch {
+    /* in-memory only */
+  }
+  useHomesStore.getState().reload();
+  useHomesStore.getState().ensureSeeded();
+  const s = () => useHomesStore.getState();
+  const host = serverHostKey(SERVER);
+  const add = (id: string, a: Agent) =>
+    s().addRow(id, { address: homeAddress(a.addr as string, host), workspaceId: null, label: a.name });
+  const studio = s().selectedId;
+  s().renameGroup(studio, "Studio");
+  s().setHomeIcon(studio, "briefcase");
+  for (const a of [ASPEN, BUILDER, SCRIBE, LEDGER, ATLAS, HARBOR]) add(studio, a);
+  s().pinRow(studio, homeAddress("scribe", host));
+  s().pinRow(studio, homeAddress("aspen", host));
+  const errands = s().createGroup();
+  s().renameGroup(errands, "Errands");
+  s().setHomeIcon(errands, "rocket");
+  s().setRecentFirst(errands, true);
+  for (const a of [QUILL, RELAY]) add(errands, a);
+  const reading = s().createGroup();
+  s().renameGroup(reading, "Reading");
+  s().setHomeIcon(reading, "book-open");
+  add(reading, LEDGER);
+  s().createGroup();
+  const lab = s().createGroup();
+  s().renameGroup(lab, "Lab");
+  s().setHomeIcon(lab, "flask-conical");
+  s().selectHome(studio);
+  useGroupsSheet.setState({ open: sheet ? { view: "group", groupId: errands } : null });
+}
 
 /** Put the fixtures in the stores. Safe to call again (after the app's
  *  mount effects started their loads, which then never answer). */
