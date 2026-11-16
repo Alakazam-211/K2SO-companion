@@ -16,6 +16,15 @@ export const JUMP_PILL_TEXT: Record<JumpPillWords, string> = {
 };
 
 const PAD_X = 14;
+/** The pill's fill: zen-glass's 10% white tint over a 60% dark layer (K2
+ *  desktop, from K2 Design 2026-11-16). Over your own blue bubble the plain
+ *  tint left white text about 3:1 (about 1:1 over a white image); with the
+ *  layer it's about 9:1, and it still reads as the same glass on the dark
+ *  canvas. The blur and edge stay zen-glass's. */
+export const JUMP_PILL_FILL = {
+  backgroundImage: "linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1))",
+  backgroundColor: "rgba(0, 0, 0, 0.6)",
+} as const;
 const WIDTH_MS = 220;
 
 /** The pill's words: "N new messages" once two or more arrived. */
@@ -55,6 +64,7 @@ export function JumpPill({
       style={{
         minHeight: 32,
         padding: 0,
+        ...JUMP_PILL_FILL,
         color: "#fff",
         overflow: "hidden",
         whiteSpace: "nowrap",

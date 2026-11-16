@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { JumpPill, jumpPillText } from "./JumpPill";
+import { JUMP_PILL_FILL, JumpPill, jumpPillText } from "./JumpPill";
 
 afterEach(cleanup);
 
@@ -36,5 +36,34 @@ describe("JumpPill", () => {
     } finally {
       spy.mockRestore();
     }
+  });
+});
+
+describe("the pill's fill (K2 Design 2026-11-16)", () => {
+  // Compose the fill's layers over a background, then WCAG contrast with white text.
+  const over = (bg: number[], rgb: number[], a: number) => bg.map((c, i) => c * (1 - a) + rgb[i] * a);
+  const lum = (rgb: number[]) => {
+    const [r, g, b] = rgb.map((c) => {
+      const s = c / 255;
+      return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
+    });
+    return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+  };
+  const whiteOn = (bg: number[]) => 1.05 / (lum(bg) + 0.05);
+  const pill = (bg: number[]) => over(over(bg, [0, 0, 0], 0.6), [255, 255, 255], 0.1);
+
+  it("is the glass tint over a 60% dark layer, on the button itself", () => {
+    render(<JumpPill words="jump" leaving={false} onJump={() => {}} />);
+    const style = screen.getByTestId("thread-new-message").style;
+    expect(style.backgroundColor).toBe("rgba(0, 0, 0, 0.6)");
+    expect(style.backgroundImage).toContain("rgba(255, 255, 255, 0.1)");
+    expect(JUMP_PILL_FILL.backgroundColor).toBe(style.backgroundColor);
+  });
+
+  it("keeps white text readable over your blue bubble and over a white image", () => {
+    const blue = [10, 132, 255];
+    expect(whiteOn(over(blue, [255, 255, 255], 0.1))).toBeLessThan(3.5); // the plain tint: about 3:1
+    expect(whiteOn(pill(blue))).toBeGreaterThan(7);
+    expect(whiteOn(pill([255, 255, 255]))).toBeGreaterThan(4.5);
   });
 });
