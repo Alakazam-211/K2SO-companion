@@ -4,6 +4,7 @@ import { isIosWebView } from "../../lib/nativePicker";
 import { shareOrSaveBytes, type ShareOutcome } from "../files/shareFile";
 import type { CameraAsk, ConsentSheet, EngineEvents, EngineNow, PhoneVoiceEngine, SelfFlags } from "./voiceCall";
 import { nativeJoinErrorCode } from "./voiceWire";
+import { applyNoiseRemoval, type NoiseRemovalState } from "./noiseRemoval";
 
 // The call engine in this build (iOS): Sew's native voice plugin, in Rust
 // (src-tauri/src/voice.rs). Rust drives the system call (CallKit) and joins
@@ -16,7 +17,10 @@ import { nativeJoinErrorCode } from "./voiceWire";
 //     and `k2-voice://video` (the call has video: Sew's `video_changed`);
 //   - "Join with camera": `camera_permission` / `request_camera_permission`
 //     (the plugin never prompts on its own), then K2's `voice_join_camera`
-//     (Sew's `join_with`: CallKit starts a video call).
+//     (Sew's `join_with`: CallKit starts a video call);
+//   - noise removal (Settings → Calls): `set_noise_removal {mode}` before
+//     each join (noiseRemoval.ts), and `sew-voice://noise_removal` into the
+//     call log (which model runs, and why it stepped down).
 
 const CMD = "plugin:sew-voice|";
 
@@ -156,6 +160,22 @@ export async function shareCallLog(): Promise<ShareOutcome> {
   return shareOrSaveBytes(new TextEncoder().encode(text), "K2 call log.txt", "text/plain");
 }
 
+/** The noise removal state as call log codes: `noise standard standard dfn3`. */
+export function noiseWords(s: NoiseRemovalState | null | undefined): string[] | null {
+  if (!s || typeof s !== "object" || typeof s.mode !== "string") return null;
+  const words = ["noise", s.mode, String(s.active ?? "")];
+  if (s.model) words.push(s.model);
+  if (s.reason) words.push(`reason:${s.reason}`);
+  if (s.model_reason) words.push(`model_reason:${s.model_reason}`);
+  if (s.step_downs) words.push(`step_downs:${s.step_downs}`);
+  return words;
+}
+
+function noteNoise(s: NoiseRemovalState | null | undefined): void {
+  const words = noiseWords(s);
+  if (words) void invoke("voice_note", { words }).catch(() => {});
+}
+
 export function sewVoiceEngine(): PhoneVoiceEngine {
   let events: EngineEvents | null = null;
   let listening: Promise<UnlistenFn[]> | null = null;
@@ -173,6 +193,7 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
       }),
       listen<unknown>("k2-voice://consent", ({ payload }) => events?.onConsent?.(parseConsentSheet(payload))),
       listen<unknown>("k2-voice://video", ({ payload }) => events?.onVideo?.(payload === true)),
+      listen<NoiseRemovalState>("sew-voice://noise_removal", ({ payload }) => noteNoise(payload)),
       listen<Row[]>("sew-voice://participants", ({ payload }) => {
         const me = Array.isArray(payload) ? payload.find((p) => p?.is_self) : undefined;
         if (me) events?.onSelfMute?.(me.muted === true || me.deafened === true, selfFlags(me));
@@ -188,6 +209,9 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
     async join(serverId, roomId, e, options) {
       events = e;
       await follow();
+      // The person's choice, set before the call starts (on Android, Off at
+      // the start is what turns off the system's own noise suppression).
+      noteNoise(await applyNoiseRemoval());
       try {
         if (options?.camera) await invoke("voice_join_camera", { target: serverId, room: roomId });
         else await invoke(`${CMD}join`, { target: serverId, room: roomId });

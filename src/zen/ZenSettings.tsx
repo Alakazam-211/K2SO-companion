@@ -8,6 +8,7 @@ import { useMultiServerPrefs } from "./multi/prefs";
 import { useRecentFirstStore } from "./recentFirst";
 import { useJumpOnSendStore } from "./jumpOnSend";
 import { useStashStore } from "./stash/stashStore";
+import { noiseRemovalAvailable, useNoiseRemovalStore } from "./voice/noiseRemoval";
 import { useBackHandler } from "../lib/androidBack";
 import { AcknowledgementsPage } from "./AcknowledgementsPage";
 import { RowChevron } from "./RowChevron";
@@ -21,7 +22,8 @@ const SWITCH_ON = "var(--color-status-ok)";
 
 /** Zen Settings sheet (opened by the Chats header cog). iOS grouped list
  *  of `.k2-tile` cards: Notifications (the same push toggle as the old
- *  Settings page), Appearance (Themes, Zen font, text size), Lists (Recent
+ *  Settings page), Appearance (Themes, Zen font, text size), Chats, Calls
+ *  (Noise removal, where this build has calls), Lists (Recent
  *  agents first, this phone only), Experimental, and About (the old
  *  page's values plus Terminal: Kessel). The pre-Zen UI (and its
  *  "Leave Zen Mode" door) was removed in 4.1.0. */
@@ -76,6 +78,12 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
           <JumpOnSendRow />
           <StashRemoveAfterUseRow />
         </Group>
+
+        {noiseRemovalAvailable() ? (
+          <Group label="Calls" testId="settings-calls" footnote={NOISE_REMOVAL_FOOTNOTE}>
+            <NoiseRemovalRow />
+          </Group>
+        ) : null}
 
         <Group
           label="Lists"
@@ -291,6 +299,27 @@ function StashRemoveAfterUseRow() {
       <span id="zen-stash-remove-label">Remove from stash after use</span>
       <span className="flex items-center shrink-0" data-testid="stash-remove-after-use-switch">
         <Switch on={on} disabled={false} onToggle={() => setOn(!on)} labelledBy="zen-stash-remove-label" />
+      </span>
+    </div>
+  );
+}
+
+const NOISE_REMOVAL_FOOTNOTE =
+  "Removes background noise from your microphone in calls. Off sends the full sound, with echo cancellation still on. On iPhone, Off can still filter some noise for now; a later update turns that off too. Only this phone.";
+
+/** "Noise removal" (voice/noiseRemoval.ts): phone-only for now, default
+ *  on. Takes effect at once, in a call too. */
+function NoiseRemovalRow() {
+  const on = useNoiseRemovalStore((s) => s.on);
+  const setOn = useNoiseRemovalStore((s) => s.setOn);
+  return (
+    <div
+      className="flex items-center justify-between text-[17px]"
+      style={{ minHeight: 44, padding: "6px 12px 6px 16px", gap: 12 }}
+    >
+      <span id="zen-noise-removal-label">Noise removal</span>
+      <span className="flex items-center shrink-0" data-testid="noise-removal-switch">
+        <Switch on={on} disabled={false} onToggle={() => setOn(!on)} labelledBy="zen-noise-removal-label" />
       </span>
     </div>
   );
