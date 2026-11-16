@@ -35,7 +35,7 @@ import { subscribeHomeChat } from "../../api/homeChatEvents";
 import { homeChatRowNoChatLine, type HomeChatChannel, type HomeChatPeople, type HomeChatSummary } from "../../api/homeChatPure";
 import { onServerForget, useServersStore } from "../../stores/servers";
 import { openHomeChat, type OpenHomeChatTarget } from "./openHomeChat";
-import { onHomeChatGone, type HomeChatGone } from "./homeChatStore";
+import { onHomeChatGone, onHomeChatMoved, type HomeChatGone } from "./homeChatStore";
 import { chatRowParts } from "./homeChatRows";
 import { useHomesStore } from "../homes";
 import { entryMatchesHomeHost } from "../homeServerIds";
@@ -193,6 +193,15 @@ export function noteChatDm(serverId: string, ext: string, conv: string): void {
   if (st.dms[ext] === conv) return;
   patch(serverId, { dms: { ...st.dms, [ext]: conv } });
 }
+
+// A DM Sew lost came back under a new id (a send reopened it): the
+// person's row opens and badges the new one.
+onHomeChatMoved((m) => {
+  const st = chatServer(m.serverId);
+  const ext = m.ext ?? Object.keys(st.dms).find((k) => st.dms[k] === m.from) ?? null;
+  if (ext) noteChatDm(m.serverId, ext, m.to);
+  void refreshChatSummary(m.serverId);
+});
 
 const NOTE_MS = 4_000;
 function noteRow(address: string, words: string): void {

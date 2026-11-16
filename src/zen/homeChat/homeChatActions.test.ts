@@ -16,8 +16,12 @@ vi.mock("../../api/homeChat", () => ({ ...api, HOME_CHAT_PAGE_DEFAULT: 50, HOME_
 
 import {
   __resetHomeChatActionsForTests,
+  __setHomeChatSleepForTests,
   applyHomeChatFrame,
+  CHANNEL_ARCHIVED_TEXT,
+  DM_GONE_TEXT,
   dropHomeChatSend,
+  findHomeChatSend,
   loadHomeChatNewest,
   loadHomeChatOlder,
   noteHomeChatDraft,
@@ -26,8 +30,10 @@ import {
   sendHomeChat,
   toggleHomeChatReaction,
 } from "./homeChatActions";
-import { resetHomeChatStore, useHomeChatStore } from "./homeChatStore";
-import { convKey } from "./homeChatModel";
+import { onHomeChatMoved, resetHomeChatStore, useHomeChatStore, type HomeChatMoved } from "./homeChatStore";
+import { convKey, homeChatDraftKey, sendFailedNote } from "./homeChatModel";
+import { useComposerDrafts } from "../composerDrafts";
+import type { HomeChatMembers } from "../../api/homeChatPure";
 
 const scope = { id: "s1", username: () => "sam" } as unknown as ServerScope;
 const KEY = convKey("s1", "9");
@@ -142,6 +148,192 @@ describe("sending", () => {
     const nonce = api.sendHomeChatMessage.mock.calls[0][1].nonce;
     expect(dropHomeChatSend("s1", "9", nonce)?.text).toBe("fix me");
     expect(ids()).toEqual([]);
+  });
+});
+
+// K2 0.46.13's send refusals.
+const refusal = (code: string, status: number, kind = "conflict") => ({ ok: false, kind, code, hint: `server says ${code}`, status });
+
+describe("send: conversation_gone (a DM Sew lost)", () => {
+  const NEW_KEY = convKey("s1", "77");
+  let moved: HomeChatMoved[] = [];
+  let unhook: () => void = () => {};
+  beforeEach(() => {
+    moved = [];
+    unhook();
+    unhook = onHomeChatMoved((m) => moved.push(m));
+    useComposerDrafts.setState({ drafts: {} });
+    useHomeChatStore.getState().openChat({ serverId: "s1", kind: "dm", conversationId: "9", title: "Ann", ext: "k2:ann" });
+  });
+
+  it("reopens the DM, moves everything to the new id and sends once more with the same nonce", async () => {
+    useComposerDrafts.getState().setDraft(homeChatDraftKey("s1", "9"), "half a thought");
+    api.sendHomeChatMessage.mockResolvedValueOnce(refusal("conversation_gone", 404, "not_found"));
+    api.openHomeChatDm.mockResolvedValueOnce({ ok: true, conv: "77", created: true });
+    api.sendHomeChatMessage.mockImplementationOnce(async (_s: unknown, b: { nonce: string }) => ({
+      ok: true,
+      message: msg("80", { conv: "77", authorId: "1", body: "hi", nonce: b.nonce }),
+    }));
+
+    expect(await sendHomeChat(scope, "9", { text: "hi", replyTo: "5" })).toBe(true);
+
+    const [first, second] = api.sendHomeChatMessage.mock.calls.map((c) => c[1]);
+    expect(api.openHomeChatDm).toHaveBeenCalledWith(scope, "k2:ann");
+    expect(first).toMatchObject({ conv: "9", text: "hi", replyTo: "5" });
+    // Same nonce on the new conversation; the reply's original was in the old one.
+    expect(second).toMatchObject({ conv: "77", text: "hi", nonce: first.nonce, replyTo: null });
+
+    const s = useHomeChatStore.getState();
+    expect(s.open?.conversationId).toBe("77");
+    expect(s.dms["s1|k2:ann"]).toBe("77");
+    expect(s.convs[KEY]).toBeUndefined();
+    expect(s.convs[NEW_KEY].messages.map((m) => m.id)).toEqual(["80"]);
+    expect(s.sends[KEY]).toBeUndefined();
+    expect(s.sends[NEW_KEY]).toEqual({});
+    const drafts = useComposerDrafts.getState().drafts;
+    expect(drafts[homeChatDraftKey("s1", "77")!]?.text).toBe("half a thought");
+    expect(drafts[homeChatDraftKey("s1", "9")!]).toBeUndefined();
+    expect(moved).toEqual([{ serverId: "s1", ext: "k2:ann", from: "9", to: "77" }]);
+  });
+
+  it("finds the person from the DM mapping when the view was opened by person", async () => {
+    useHomeChatStore.setState({ open: { serverId: "s1", kind: "dm", conversationId: null, title: "Ann", ext: "k2:ann" } });
+    useHomeChatStore.getState().noteDm("s1", "k2:ann", "9");
+    api.sendHomeChatMessage.mockResolvedValueOnce(refusal("conversation_gone", 404, "not_found"));
+    api.openHomeChatDm.mockResolvedValueOnce({ ok: true, conv: "77", created: true });
+    api.sendHomeChatMessage.mockResolvedValueOnce({ ok: true, message: null });
+    expect(await sendHomeChat(scope, "9", { text: "hi" })).toBe(true);
+    expect(useHomeChatStore.getState().open?.conversationId).toBe("77");
+    expect(useHomeChatStore.getState().dms["s1|k2:ann"]).toBe("77");
+  });
+
+  it("sends again on the same id when the reopen answers the same conversation", async () => {
+    api.sendHomeChatMessage.mockResolvedValueOnce(refusal("conversation_gone", 404, "not_found"));
+    api.openHomeChatDm.mockResolvedValueOnce({ ok: true, conv: "9", created: false });
+    api.sendHomeChatMessage.mockResolvedValueOnce({ ok: true, message: null });
+    expect(await sendHomeChat(scope, "9", { text: "hi" })).toBe(true);
+    expect(api.sendHomeChatMessage.mock.calls[1][1].conv).toBe("9");
+    expect(moved).toEqual([]);
+    expect(useHomeChatStore.getState().open?.conversationId).toBe("9");
+  });
+
+  it("shows Not sent with a clear line when the reopen fails", async () => {
+    api.sendHomeChatMessage.mockResolvedValueOnce(refusal("conversation_gone", 404, "not_found"));
+    api.openHomeChatDm.mockResolvedValueOnce({ ok: false, kind: "network", code: "network", hint: "", status: null });
+    expect(await sendHomeChat(scope, "9", { text: "hi" })).toBe(false);
+    expect(api.sendHomeChatMessage).toHaveBeenCalledTimes(1);
+    const nonce = api.sendHomeChatMessage.mock.calls[0][1].nonce;
+    const s = useHomeChatStore.getState().sends[KEY][nonce];
+    expect(s).toMatchObject({ status: "failed", error: DM_GONE_TEXT });
+    expect(s.final).toBeFalsy();
+    expect(sendFailedNote(findHomeChatSend("s1", { text: "hi" }))).toContain("couldn't be opened again");
+  });
+
+  it("tries the reopen only once", async () => {
+    api.sendHomeChatMessage.mockResolvedValue(refusal("conversation_gone", 404, "not_found"));
+    api.openHomeChatDm.mockResolvedValue({ ok: true, conv: "77", created: true });
+    expect(await sendHomeChat(scope, "9", { text: "hi" })).toBe(false);
+    expect(api.openHomeChatDm).toHaveBeenCalledTimes(1);
+    expect(api.sendHomeChatMessage).toHaveBeenCalledTimes(2);
+    const nonce = api.sendHomeChatMessage.mock.calls[0][1].nonce;
+    expect(useHomeChatStore.getState().sends[NEW_KEY][nonce]).toMatchObject({ status: "failed", error: DM_GONE_TEXT });
+    // Retry from the moved bubble keeps the nonce.
+    api.sendHomeChatMessage.mockReset();
+    api.sendHomeChatMessage.mockResolvedValueOnce({ ok: true, message: null });
+    expect(await retryHomeChatSend(scope, "77", nonce)).toBe(true);
+    expect(api.sendHomeChatMessage.mock.calls[0][1]).toMatchObject({ conv: "77", nonce });
+  });
+});
+
+describe("send: send_in_progress (same nonce still in flight)", () => {
+  let waits: number[] = [];
+  beforeEach(() => {
+    waits = [];
+    __setHomeChatSleepForTests(async (ms) => {
+      waits.push(ms);
+    });
+  });
+
+  it("waits 1 s then 2 s and sends again with the same nonce; the first message dedupes the bubble", async () => {
+    api.sendHomeChatMessage.mockResolvedValueOnce(refusal("send_in_progress", 409, "retry"));
+    api.sendHomeChatMessage.mockResolvedValueOnce(refusal("send_in_progress", 409, "retry"));
+    api.sendHomeChatMessage.mockImplementationOnce(async (_s: unknown, b: { nonce: string }) => ({
+      ok: true,
+      message: msg("40", { authorId: "1", body: "yo", nonce: b.nonce }),
+    }));
+    expect(await sendHomeChat(scope, "9", { text: "yo" })).toBe(true);
+    expect(waits).toEqual([1000, 2000]);
+    const nonces = api.sendHomeChatMessage.mock.calls.map((c) => c[1].nonce);
+    expect(new Set(nonces).size).toBe(1);
+    expect(ids()).toEqual(["40"]);
+  });
+
+  it("dedupes against the bubble even when the answer's copy has no nonce, and against a frame that came first", async () => {
+    let nonce = "";
+    api.sendHomeChatMessage.mockImplementationOnce(async (_s: unknown, b: { nonce: string }) => {
+      nonce = b.nonce;
+      // The first message's frame arrives while the send is still answering.
+      applyHomeChatFrame("s1", { type: "message", conv: "9", message: msg("41", { authorId: "1", body: "yo", nonce }) });
+      return refusal("send_in_progress", 409, "retry");
+    });
+    api.sendHomeChatMessage.mockResolvedValueOnce({ ok: true, message: msg("41", { authorId: "1", body: "yo" }) });
+    expect(await sendHomeChat(scope, "9", { text: "yo" })).toBe(true);
+    expect(ids()).toEqual(["41"]);
+    expect(api.sendHomeChatMessage.mock.calls[1][1].nonce).toBe(nonce);
+  });
+
+  it("gives up after the waits with Retry on the same nonce", async () => {
+    api.sendHomeChatMessage.mockResolvedValue(refusal("send_in_progress", 409, "retry"));
+    expect(await sendHomeChat(scope, "9", { text: "yo" })).toBe(false);
+    expect(api.sendHomeChatMessage).toHaveBeenCalledTimes(3);
+    const nonce = api.sendHomeChatMessage.mock.calls[0][1].nonce;
+    const s = useHomeChatStore.getState().sends[KEY][nonce];
+    expect(s.status).toBe("failed");
+    expect(s.final).toBeFalsy();
+    api.sendHomeChatMessage.mockReset();
+    api.sendHomeChatMessage.mockResolvedValueOnce({ ok: true, message: null });
+    expect(await retryHomeChatSend(scope, "9", nonce)).toBe(true);
+    expect(api.sendHomeChatMessage.mock.calls[0][1].nonce).toBe(nonce);
+  });
+
+  it("stops waiting when the bubble was taken back", async () => {
+    api.sendHomeChatMessage.mockResolvedValue(refusal("send_in_progress", 409, "retry"));
+    __setHomeChatSleepForTests(async () => {
+      const n = api.sendHomeChatMessage.mock.calls[0][1].nonce;
+      dropHomeChatSend("s1", "9", n);
+    });
+    expect(await sendHomeChat(scope, "9", { text: "yo" })).toBe(false);
+    expect(api.sendHomeChatMessage).toHaveBeenCalledTimes(1);
+    expect(useHomeChatStore.getState().sends[KEY]).toEqual({});
+    expect(ids()).toEqual([]);
+  });
+});
+
+describe("send: channel_archived", () => {
+  const channel = (state: string): HomeChatMembers =>
+    ({ conv: "9", name: "general", open: true, state, people: [] }) as unknown as HomeChatMembers;
+
+  it("shows Not sent with no Retry and makes the channel read-only", async () => {
+    useHomeChatStore.getState().setChannel(KEY, channel("active"));
+    api.sendHomeChatMessage.mockResolvedValueOnce(refusal("channel_archived", 409));
+    expect(await sendHomeChat(scope, "9", { text: "hello?" })).toBe(false);
+    const nonce = api.sendHomeChatMessage.mock.calls[0][1].nonce;
+    const s = useHomeChatStore.getState().sends[KEY][nonce];
+    expect(s).toMatchObject({ status: "failed", error: CHANNEL_ARCHIVED_TEXT, final: true });
+    expect(sendFailedNote(s)).toBe("This channel is archived.");
+    expect(useHomeChatStore.getState().channels[KEY].state).toBe("archived");
+    // No Retry: a retry does nothing.
+    expect(await retryHomeChatSend(scope, "9", nonce)).toBe(false);
+    expect(api.sendHomeChatMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("reads the channel again when its facts aren't held", async () => {
+    api.sendHomeChatMessage.mockResolvedValueOnce(refusal("channel_archived", 409));
+    api.fetchHomeChatMembers.mockResolvedValueOnce({ ok: true, members: channel("archived") });
+    await sendHomeChat(scope, "9", { text: "hello?" });
+    await Promise.resolve();
+    expect(api.fetchHomeChatMembers).toHaveBeenCalledWith(scope, { conv: "9" });
+    await vi.waitFor(() => expect(useHomeChatStore.getState().channels[KEY]?.state).toBe("archived"));
   });
 });
 

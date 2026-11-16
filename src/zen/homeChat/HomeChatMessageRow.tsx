@@ -40,7 +40,7 @@ export interface HomeChatRowActions {
 }
 
 /** A send's state on its optimistic bubble. */
-export type RowSend = { status: "sending" | "failed"; error: string | null } | null;
+export type RowSend = { status: "sending" | "failed"; error: string | null; final?: boolean } | null;
 
 function QuoteStrip({ preview, onJump }: { preview: ReplyPreview; onJump: () => void }) {
   const q = quoteText(preview);
@@ -182,7 +182,12 @@ export const HomeChatMessageRow = memo(function HomeChatMessageRow({
           data-testid="home-chat-msg-status"
           data-status={failed ? "failed" : pending ? "sending" : "sent"}
         >
-          {failed && nonce ? (
+          {failed && nonce && send?.final ? (
+            // A retry can't fix it (an archived channel): no Retry.
+            <span className="text-[var(--color-status-warn-text)]" data-testid="home-chat-not-sent" title={send.error || undefined}>
+              Not sent
+            </span>
+          ) : failed && nonce ? (
             <>
               <button
                 type="button"

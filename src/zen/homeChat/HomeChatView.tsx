@@ -58,8 +58,9 @@ import {
   homeChatRows,
   homeChatStashSource,
   memberNames,
+  homeChatDraftKey,
   replyPreview,
-  sendFailedLine,
+  sendFailedNote,
   typingNames,
   type HomeChatTarget,
   type JumpMiss,
@@ -74,6 +75,7 @@ import {
   applyHomeChatFrame,
   dropHomeChatSend,
   ensureHomeChatPeople,
+  findHomeChatSend,
   homeChatReactorNames,
   loadHomeChatChannel,
   loadHomeChatNewest,
@@ -112,10 +114,8 @@ const STASH_FAILED = "Couldn't save to the stash. Try again.";
  *  above the header's bottom. */
 const HEADER_FADE_PX = 12;
 
-/** The composer draft's key for a conversation. */
-export function homeChatDraftKey(serverId: string, conv: string | null): string | null {
-  return conv ? `${serverId}|homechat:${conv}` : null;
-}
+/** The composer draft's key for a conversation (kept here for callers). */
+export { homeChatDraftKey };
 
 /** The dock's height above the bar's bottom gap (the scroller's
  *  `.mchat-gap` spacer adds that gap; TicketView's measure). */
@@ -522,10 +522,8 @@ export function HomeChatView({
     composerRef.current?.focus({ preventScroll: true });
     void sendHomeChat(scope, conv, { text, replyTo }).then((ok) => {
       if (ok) return;
-      const failed = Object.values(useHomeChatStore.getState().sends[convKey(serverId, conv)] ?? {}).find(
-        (s) => s.status === "failed" && s.pending.text === text
-      );
-      setError(sendFailedLine(failed?.error ?? ""));
+      // Found by its words on this server: a DM Sew lost may have moved.
+      setError(sendFailedNote(findHomeChatSend(serverId, { text })));
     });
   };
 
@@ -537,7 +535,11 @@ export function HomeChatView({
       retry: (nonce) => {
         if (!conv) return;
         setError(null);
-        void retryHomeChatSend(scope, conv, nonce).then((ok) => !ok && setError(sendFailedLine("")));
+        void retryHomeChatSend(scope, conv, nonce).then((ok) => {
+          if (ok) return;
+          const s = findHomeChatSend(serverId, { nonce });
+          if (s?.status === "failed") setError(sendFailedNote(s));
+        });
       },
       edit: (nonce) => {
         if (!conv || (draftApi.current?.get() ?? "").trim()) return;

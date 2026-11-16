@@ -12,6 +12,7 @@ import type { ComponentType } from "react";
 import { create } from "zustand";
 import type { HomeChatMembers, HomeChatMessage, HomeChatPeople } from "../../api/homeChatPure";
 import {
+  isOptimistic,
   mergeHomeChatMessages,
   typingCleared,
   typingNoted,
@@ -19,7 +20,7 @@ import {
   type PendingSend,
   type TypingRoster,
 } from "../../api/homeChatHelpers";
-import type { HomeChatTarget } from "./homeChatModel";
+import { convKey, type HomeChatTarget } from "./homeChatModel";
 
 export interface ConvState {
   /** Oldest first; `~<nonce>` ids are sends not yet confirmed. */
@@ -45,6 +46,8 @@ export interface SendState {
   pending: PendingSend;
   status: "sending" | "failed";
   error: string | null;
+  /** A failure a retry can't fix (an archived channel): no Retry. */
+  final?: boolean;
 }
 
 interface HomeChatStore {
@@ -70,6 +73,9 @@ interface HomeChatStore {
   setPeople: (serverId: string, people: HomeChatPeople, at?: number) => void;
   noteDm: (serverId: string, ext: string, conv: string) => void;
   setChannel: (key: string, members: HomeChatMembers) => void;
+  /** A DM reopened under a new conversation id (Sew lost the old one):
+   *  its unconfirmed sends, the open view and the DM mapping move over. */
+  moveConv: (serverId: string, from: string, to: string, ext: string | null) => void;
   noteTyping: (key: string, member: string, now: number) => void;
   clearTyping: (key: string, member: string) => void;
   pruneTyping: (now: number) => void;
@@ -116,6 +122,39 @@ export const useHomeChatStore = create<HomeChatStore>((set) => ({
       return s.dms[k] === conv ? s : { dms: { ...s.dms, [k]: conv } };
     }),
   setChannel: (key, members) => set((s) => ({ channels: { ...s.channels, [key]: members } })),
+  moveConv: (serverId, from, to, ext) =>
+    set((s) => {
+      if (from === to) return s;
+      const a = convKey(serverId, from);
+      const b = convKey(serverId, to);
+      // Only the sends not yet confirmed move: the old history was Sew's
+      // old conversation (the view reads the new one when it moves), so a
+      // reply's original isn't there either.
+      const convs = { ...s.convs };
+      const moving = (convs[a]?.messages ?? []).filter(isOptimistic).map((m) => ({ ...m, conv: to, replyTo: null }));
+      delete convs[a];
+      if (moving.length) {
+        const cur = convs[b] ?? EMPTY_CONV;
+        convs[b] = { ...cur, messages: mergeHomeChatMessages(cur.messages, moving) };
+      }
+      const sends = { ...s.sends };
+      const old = sends[a];
+      delete sends[a];
+      if (old) {
+        const into = { ...(sends[b] ?? {}) };
+        for (const [nonce, st] of Object.entries(old)) into[nonce] = { ...st, pending: { ...st.pending, conv: to, replyTo: null } };
+        sends[b] = into;
+      }
+      const typing = { ...s.typing };
+      delete typing[a];
+      const dms: Record<string, string> = {};
+      for (const [k, v] of Object.entries(s.dms)) dms[k] = k.startsWith(`${serverId}|`) && v === from ? to : v;
+      if (ext) dms[`${serverId}|${ext}`] = to;
+      const o = s.open;
+      const moveOpen =
+        !!o && o.serverId === serverId && o.kind === "dm" && (o.conversationId === from || (!!ext && o.ext === ext));
+      return { convs, sends, typing, dms, open: moveOpen && o ? { ...o, conversationId: to } : o };
+    }),
   noteTyping: (key, member, now) =>
     set((s) => ({ typing: { ...s.typing, [key]: typingNoted(s.typing[key] ?? {}, member, now) } })),
   clearTyping: (key, member) =>
@@ -170,6 +209,28 @@ export function noteHomeChatGone(g: HomeChatGone): void {
       fn(g);
     } catch {
       /* a listener never breaks the sheet */
+    }
+  }
+}
+
+/** A DM Sew lost that K2 reopened under a new conversation id: Home rows
+ *  (their ext → conversation mapping) hear it. */
+export type HomeChatMoved = { serverId: string; ext: string | null; from: string; to: string };
+const movedListeners = new Set<(m: HomeChatMoved) => void>();
+
+export function onHomeChatMoved(fn: (m: HomeChatMoved) => void): () => void {
+  movedListeners.add(fn);
+  return () => {
+    movedListeners.delete(fn);
+  };
+}
+
+export function noteHomeChatMoved(m: HomeChatMoved): void {
+  for (const fn of [...movedListeners]) {
+    try {
+      fn(m);
+    } catch {
+      /* a listener never breaks the send */
     }
   }
 }

@@ -346,6 +346,8 @@ describe("refusals", () => {
     [k2(403, "not_a_person"), "denied", "not_a_person"],
     [k2(409, "channel_open"), "conflict", "channel_open"],
     [k2(409, "channel_archived"), "conflict", "channel_archived"],
+    [k2(404, "conversation_gone"), "not_found", "conversation_gone"],
+    [k2(409, "send_in_progress"), "retry", "send_in_progress"],
     [k2(503, "chat_member_pending", "soon", { retry_after_ms: 2000 }), "retry", "chat_member_pending"],
     [k2(429, "too_many_sockets"), "retry", "too_many_sockets"],
     [k2(400, "usage"), "usage", "usage"],

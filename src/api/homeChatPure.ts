@@ -594,10 +594,12 @@ export function parseHomeChatReactors(v: unknown): { memberIds: string[]; next: 
  *  - `plan` — DM calls need the Pro plan (`host_not_pro`).
  *  - `denied` — this person may not (`not_a_member`, `admin_required`,
  *    `not_creator`, `target_disabled`, `not_a_person`, …).
- *  - `not_found` — `dm_not_found`, `channel_not_found`, `person_not_found`, …
+ *  - `not_found` — `dm_not_found`, `channel_not_found`, `person_not_found`,
+ *    `conversation_gone` (a DM gone on Sew's side), …
  *  - `conflict` — `channel_open`, `channel_archived`, …
  *  - `retry` — try again shortly (`chat_member_pending`, `voice_unavailable`,
- *    `too_many_sockets`, …; `retryAfterMs` when the server said).
+ *    `too_many_sockets`, `send_in_progress`, …; `retryAfterMs` when the
+ *    server said).
  *  - `usage` — the phone sent something wrong (400 / 405 / 413).
  *  - `server` — the server failed (5xx, `sew_error`).
  *  - `network` / `not_connected` / `removed` / `bad_response` — client side. */
@@ -662,12 +664,17 @@ const CODE_KIND: Record<string, HomeChatRefusalKind> = {
   channel_not_found: "not_found",
   person_not_found: "not_found",
   call_not_found: "not_found",
+  // 0.46.13: a DM gone on Sew's side (a send answers 404; reopen it with
+  // `/cli/home-chat/dm` and send again once).
+  conversation_gone: "not_found",
   channel_open: "conflict",
   channel_archived: "conflict",
   room_full: "conflict",
   room_closing: "conflict",
   recording_consent_required: "conflict",
   chat_member_pending: "retry",
+  // 0.46.13: the same nonce is still in flight (409): wait, send it again.
+  send_in_progress: "retry",
   voice_unavailable: "retry",
   voice_member_pending: "retry",
   too_many_sockets: "retry",

@@ -20,7 +20,10 @@ export const HOME_CHAT_Z = 40;
 export function HomeChatHost() {
   const open = useHomeChatStore((s) => s.open);
   if (!open) return null;
-  return <HomeChatScreen key={`${open.serverId}|${open.kind}|${open.conversationId ?? open.ext ?? ""}`} target={open} />;
+  // A DM is its person: when Sew loses the DM and a send reopens it under
+  // a new id, the same screen stays and follows the new id.
+  const who = open.kind === "dm" && open.ext ? open.ext : (open.conversationId ?? open.ext ?? "");
+  return <HomeChatScreen key={`${open.serverId}|${open.kind}|${who}`} target={open} />;
 }
 
 function HomeChatScreen({ target }: { target: HomeChatTarget }) {

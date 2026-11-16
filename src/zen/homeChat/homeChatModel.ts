@@ -35,6 +35,11 @@ export function convKey(serverId: string, conv: string): string {
   return `${serverId}|${conv}`;
 }
 
+/** The composer draft's key for a conversation. */
+export function homeChatDraftKey(serverId: string, conv: string | null): string | null {
+  return conv ? `${serverId}|homechat:${conv}` : null;
+}
+
 // ─── People: names, colours, initials ───
 
 /** The default person colours: the daemon's `person_color::PALETTE`, same
@@ -322,6 +327,13 @@ export function membersSubline(c: { open: boolean; state: string; people: readon
 export function sendFailedLine(reason: string): string {
   const why = reason.trim().replace(/[.\s]+$/, "");
   return `Not sent${why ? ` (${why})` : ""}. Tap Retry on the message to send it again.`;
+}
+
+/** The line for a failed send: a final one (no Retry, e.g. an archived
+ *  channel) says only why; the rest offer Retry. */
+export function sendFailedNote(s: { error: string | null; final?: boolean } | null | undefined): string {
+  if (s?.final) return (s.error ?? "").trim() || "Not sent.";
+  return sendFailedLine(s?.error ?? "");
 }
 
 // ─── The rows the list draws ───
