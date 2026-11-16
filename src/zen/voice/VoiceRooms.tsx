@@ -15,6 +15,7 @@ import { shareCallLog } from "./sewVoice";
 import { useLiveVideo, VideoTile } from "./videoLayer";
 import { canJoinWithCamera, useVoiceCall, type CallRoom } from "./voiceCall";
 import { useVoiceNames } from "./voiceNames";
+import { DM_ROOM_PREFIX } from "../../api/homeChatCallsPure";
 import { hostingStateText, meOffer, roomIsFull, type VoiceRoom, type VoiceRoomsList } from "./voiceWire";
 
 // Voice rooms on every server this phone is signed in to that hosts them
@@ -247,6 +248,8 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
   // In a call the page is the call, at full height; to join another, leave
   // this one (Riley 2026-11-09).
   const inCall = useVoiceCall((s) => s.phase !== "idle" && !!s.room);
+  // A DM call's screen is named for the other person.
+  const dmName = useVoiceCall((s) => (s.phase !== "idle" && s.room?.dm ? s.room.roomName : null));
   const [headerRef, headerPx] = useMeasuredHeight(VOICE_HEADER_PX);
   // The left-edge swipe goes back too, as on every other screen. Not while
   // a recording notice waits: that sheet is the person's to answer.
@@ -288,7 +291,9 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
             {/* Back, not Done (Riley): the call area sits over the page it was
                 opened from, floating tile or menu, and closing returns there. */}
             <BackArrowButton onClick={onClose} testId="voice-done" style={{ pointerEvents: "auto" }} />
-            <h1 className="text-[17px] font-semibold pointer-events-none zen-header-text">Rooms</h1>
+            <h1 className="text-[17px] font-semibold pointer-events-none zen-header-text truncate" data-testid="voice-title">
+              {dmName ?? "Rooms"}
+            </h1>
             <span />
           </div>
         </div>
@@ -358,9 +363,11 @@ function SendCallLog() {
 /** Catch the call store up with the engine, naming an adopted call from
  *  the saved servers (the room's name comes back with the next rooms read). */
 export function resyncVoiceCall(): Promise<void> {
-  return useVoiceCall.getState().resync((serverId) => {
+  return useVoiceCall.getState().resync((serverId, roomId) => {
     const server = useServersStore.getState().servers.find((s) => s.id === serverId);
-    return { serverLabel: server ? serverDisplayName(server) : "", roomName: "Voice room", limit: null };
+    // A DM call's name comes back from its calls store (dmCall.ts).
+    const dm = roomId.startsWith(DM_ROOM_PREFIX);
+    return { serverLabel: server ? serverDisplayName(server) : "", roomName: dm ? "Call" : "Voice room", limit: dm ? 2 : null };
   });
 }
 

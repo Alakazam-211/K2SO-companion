@@ -170,6 +170,32 @@ describe("the phone's voice-room call", () => {
     expect(s.calls).toEqual(["mic", "start", "report:connecting", "report:ended:failed"]);
   });
 
+  it("a join says how it went: taken, refused (with the server's own code), or superseded", async () => {
+    const s = fakeShim();
+    const e = fakeEngine(true);
+    __setCallShimForTests(s.shim);
+    setPhoneVoiceEngine(e.engine);
+    const DM = { serverId: "s1", serverLabel: "box", roomId: "dm:900", roomName: "Alex", limit: 2, dm: { conv: "900" } };
+    let joining = useVoiceCall.getState().join(DM);
+    await flush();
+    e.joined();
+    await expect(joining).resolves.toEqual({ ok: true });
+    expect(e.engine.join).toHaveBeenLastCalledWith("s1", "dm:900", expect.anything(), undefined);
+    await useVoiceCall.getState().leave();
+    // A DM call's refusal reads as a call's, not a room's.
+    joining = useVoiceCall.getState().join(DM);
+    await flush();
+    e.refuse({ code: "unknown", hint: "", raw: "chat_unavailable" });
+    await expect(joining).resolves.toEqual({ ok: false, code: "unknown", raw: "chat_unavailable", hint: "" });
+    expect(useVoiceCall.getState().notice).toBe("Calls aren't available on box right now.");
+    // A leave before the answer: superseded.
+    joining = useVoiceCall.getState().join(DM);
+    await flush();
+    await useVoiceCall.getState().leave();
+    e.joined();
+    await expect(joining).resolves.toMatchObject({ ok: false, code: "superseded" });
+  });
+
   it("CallKit refusing the call leaves nothing behind", async () => {
     const s = fakeShim("call_in_progress");
     const e = fakeEngine();

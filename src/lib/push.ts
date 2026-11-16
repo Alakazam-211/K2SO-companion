@@ -18,6 +18,7 @@ import { parseHomeAddress, selectedHome, useHomesStore } from "../zen/homes";
 import { entryMatchesHomeHost } from "../zen/homeServerIds";
 import { zenProjectPath, zenTicketPath } from "../zen/terminalJump";
 import { pushAvailability, pushIsAvailable } from "./pushAvailability";
+import { routeCallTap } from "../zen/calls/dmCall";
 import { badgeKeyFromReply, learnBadgeKey, normalizeBadgeKey, readBadgeKeys } from "./badgeKeys";
 import {
   FEATURE_PUSH_ENVIRONMENT,
@@ -110,6 +111,16 @@ export interface TapPayload {
    *  and the agent's colour (hex) for the initials fallback. */
   avatarRev?: string;
   agentColor?: string;
+  /** DM calls (K2 0.46.13 `call`): Sew's call id and the call's state
+   *  (`ringing|missed|ended|answered`); `conversationId` is the DM. */
+  callId?: string;
+  callState?: string;
+  /** The saved server whose key opened a sealed push (K2PushSealed). */
+  k2ServerId?: string;
+  /** A call notification's title (the caller) and button (`accept`, or a
+   *  `decline` the native side couldn't send). */
+  title?: string;
+  action?: string;
 }
 
 // ─── Availability (session-cached probe; see ./pushAvailability) ───
@@ -830,6 +841,21 @@ export async function routeTap(
 ): Promise<void> {
   if (!tap) return;
   const kind = str(tap.kind);
+  // A DM call (K2 0.46.13 push kind `call`): Accept joins, a tap opens the
+  // DM (dmCall.ts). On the push's own server, never the active one.
+  if (kind === "call") {
+    const known = new Set(useServersStore.getState().servers.map((s) => s.id));
+    try {
+      await routeCallTap(
+        tap,
+        async () => (await resolveTapServer(tap))?.id ?? null,
+        (id) => known.has(id)
+      );
+    } catch (e) {
+      console.warn("[push] call tap dropped:", e);
+    }
+    return;
+  }
   if (kind !== "thread") {
     const path = tapPath(tap);
     if (!path) return;

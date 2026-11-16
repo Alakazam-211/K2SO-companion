@@ -92,11 +92,17 @@ impl<R: Runtime> K2Push<R> {
         let req = TokenOpRequest {
             op: "get".into(),
             server: Some(server.into()),
-            token: None,
-            tokens: None,
+            ..Default::default()
         };
         let v = self.token_op(req).ok()?;
         v.get("token").and_then(|t| t.as_str()).map(str::to_owned)
+    }
+
+    /// The servers' addresses (id → base URL), kept by Swift for a DM call's
+    /// Decline from a notification. Blocking.
+    pub fn set_call_hosts(&self, hosts: std::collections::HashMap<String, String>) {
+        let req = TokenOpRequest { op: "hosts".into(), hosts: Some(hosts), ..Default::default() };
+        let _ = self.token_op(req);
     }
 
     /// Blocking: the Secure Enclave answers on its own queue.

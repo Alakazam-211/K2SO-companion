@@ -60,6 +60,8 @@ impl<R: Runtime> K2Push<R> {
         None
     }
 
+    pub fn set_call_hosts(&self, _hosts: std::collections::HashMap<String, String>) {}
+
     pub fn voice_key(&self, _req: VoiceKeyRequest) -> crate::Result<serde_json::Value> {
         Ok(serde_json::json!({ "public": null }))
     }

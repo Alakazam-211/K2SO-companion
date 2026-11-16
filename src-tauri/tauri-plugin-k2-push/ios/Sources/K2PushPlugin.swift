@@ -131,6 +131,8 @@ class K2PushPlugin: Plugin {
       // re-installs against the live delegate class) before every probe.
       _ = self.ensureDelegateHooks()
       UNUserNotificationCenter.current().delegate = self.tapDelegate
+      // A DM call's ring carries Accept and Decline (K2CallPush).
+      K2CallPush.registerCategories()
     }
   }
 
@@ -613,6 +615,11 @@ class K2PushPlugin: Plugin {
         invoke.resolve(["ok": true])
       case "sync":
         invoke.resolve(["ok": K2SecureTokens.sync(args.tokens ?? [:])])
+      case "hosts":
+        // The servers' addresses, from Rust (voice.rs `set_hosts`): a DM
+        // call's Decline from a notification posts to the push's server.
+        K2CallPush.setHosts(args.hosts ?? [:])
+        invoke.resolve(["ok": true])
       case "get":
         // For Rust's voice provider, which may run with the webview asleep.
         if let token = K2SecureTokens.get(server: args.server ?? "") {
@@ -866,7 +873,7 @@ class K2PushPlugin: Plugin {
   /// Push payload custom keys ride at the top level of `userInfo`
   /// (relay `apns.rs` convention): {kind, feedbackId?|groupId?,
   /// subdomain?}. Content-free by contract.
-  fileprivate func handleTap(_ userInfo: [AnyHashable: Any]) {
+  fileprivate func handleTap(_ userInfo: [AnyHashable: Any], action: String? = nil, title: String? = nil) {
     var data: [String: Any] = [:]
     for (key, value) in userInfo {
       guard let key = key as? String, key != "aps" else { continue }
@@ -874,10 +881,59 @@ class K2PushPlugin: Plugin {
         data[key] = value
       }
     }
+    // A DM call's button (`accept`, or a `decline` this side couldn't send),
+    // and its title (the caller's name), which userInfo doesn't carry.
+    if let action = action { data["action"] = action }
+    if K2CallPush.isCall(userInfo), let title = title, !title.isEmpty { data["title"] = title }
     DispatchQueue.main.async {
       self.launchTap = data
       if let jsData = JSTypes.coerceDictionaryToJSObject(data) {
         self.trigger("tap", data: jsData)
+      }
+    }
+  }
+
+  /// A DM call push while the app is in front: no banner (the in-app ring
+  /// card shows the ring from the Home chat socket); the webview hears it
+  /// as `callPush`, in case its socket hasn't said so yet.
+  fileprivate func handleCallPush(_ userInfo: [AnyHashable: Any], title: String) {
+    var data: [String: Any] = [:]
+    for (key, value) in userInfo {
+      guard let key = key as? String, key != "aps", let value = value as? String else { continue }
+      data[key] = value
+    }
+    if !title.isEmpty { data["title"] = title }
+    DispatchQueue.main.async {
+      if let jsData = JSTypes.coerceDictionaryToJSObject(data) {
+        self.trigger("callPush", data: jsData)
+      }
+    }
+  }
+
+  /// Decline from the ring's button, the app in the background: the POST
+  /// here (K2CallPush); what can't be sent here goes to the webview.
+  fileprivate func handleCallDecline(_ userInfo: [AnyHashable: Any], title: String, done: @escaping () -> Void) {
+    var task: UIBackgroundTaskIdentifier = .invalid
+    let finish = {
+      DispatchQueue.main.async {
+        done()
+        if task != .invalid {
+          UIApplication.shared.endBackgroundTask(task)
+          task = .invalid
+        }
+      }
+    }
+    DispatchQueue.main.async {
+      task = UIApplication.shared.beginBackgroundTask(withName: "k2.call.decline") {
+        if task != .invalid {
+          UIApplication.shared.endBackgroundTask(task)
+          task = .invalid
+        }
+      }
+      K2CallPush.decline(userInfo) { outcome in
+        pushLog("call decline: \(outcome.rawValue)")
+        if outcome == .unsendable { self.handleTap(userInfo, action: "decline", title: title) }
+        finish()
       }
     }
   }
@@ -1064,6 +1120,12 @@ private class K2PushTapDelegate: NSObject, UNUserNotificationCenterDelegate {
       completionHandler([])
       return
     }
+    // A DM call's ring or its end: the in-app ring card says it.
+    if K2CallPush.isCall(notification.request.content.userInfo) {
+      plugin?.handleCallPush(notification.request.content.userInfo, title: notification.request.content.title)
+      completionHandler([])
+      return
+    }
     plugin?.handlePresentedTotals(notification.request.content.userInfo)
     if #available(iOS 14.0, *) {
       completionHandler([.banner, .sound, .badge])
@@ -1079,8 +1141,27 @@ private class K2PushTapDelegate: NSObject, UNUserNotificationCenterDelegate {
   ) {
     // A recording notice's tap only opens the app (the call's resync shows
     // the sheet): it is no push to route.
-    if !K2CallNotice.isOurs(response.notification) {
-      plugin?.handleTap(response.notification.request.content.userInfo)
+    if K2CallNotice.isOurs(response.notification) {
+      completionHandler()
+      return
+    }
+    let info = response.notification.request.content.userInfo
+    let title = response.notification.request.content.title
+    switch response.actionIdentifier {
+    case K2CallPush.declineAction:
+      // Background: iOS waits for the handler, so the POST finishes first.
+      guard let plugin = plugin else {
+        completionHandler()
+        return
+      }
+      plugin.handleCallDecline(info, title: title, done: completionHandler)
+      return
+    case K2CallPush.acceptAction:
+      plugin?.handleTap(info, action: "accept", title: title)
+    case UNNotificationDismissActionIdentifier:
+      break
+    default:
+      plugin?.handleTap(info, title: title)
     }
     completionHandler()
   }
@@ -1153,6 +1234,8 @@ private struct TokenOpArgs: Decodable {
   let server: String?
   let token: String?
   let tokens: [String: String]?
+  /// `hosts`: server id → base URL (K2CallPush).
+  let hosts: [String: String]?
 }
 
 private struct E2eOpArgs: Decodable {

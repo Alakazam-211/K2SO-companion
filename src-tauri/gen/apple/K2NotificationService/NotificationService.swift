@@ -42,6 +42,19 @@
 // (before the first unlock, no key, a replay): the generic text as sent.
 // A server the app marked sealed-only (`enforce`): its plaintext Thread /
 // ticket / project pushes are shown generic.
+//
+// DM calls (K2 0.46.13 push kind `call`, always sealed in format 1): opened,
+// `data` is `{kind: "call", callId (Sew's), conversationId, callState:
+// ringing|missed|ended|answered}`. The ring (title the caller, body
+// "Incoming call") gets category K2_CALL (Accept / Decline: the app
+// registers them, K2CallPush.swift), the default sound and a time-sensitive
+// interruption level; the one push that replaces it (same apns collapse id
+// `call:<Sew id>`: Answered on another device / Missed call / Call ended)
+// gets K2_CALL_DONE. The relay may send these in clear aps too (`call-aps`);
+// set here they also hold on a relay that doesn't. Before a done push is
+// shown, any other notification of the same call still delivered goes (one
+// ring, then exactly one replacement, even if a relay dropped the collapse
+// id). KEEP THE CATEGORY IDS IN SYNC with K2CallPush.swift.
 
 import Intents
 import UIKit
@@ -93,6 +106,18 @@ final class NotificationService: UNNotificationServiceExtension {
       incoming = m
     }
 
+    // A DM call: its own shape, no Communication intent (no `addr`).
+    if let call = Self.callContent(incoming) {
+      lock.lock()
+      self.contentHandler = contentHandler
+      self.original = call
+      lock.unlock()
+      Self.clearOtherCallNotifications(call, keeping: request.identifier) {
+        self.deliver(call)
+      }
+      return
+    }
+
     // Badge first, so even the fallback paths carry it.
     let badge = Self.applyBadgeTotals(incoming.userInfo)
     let base = Self.withBadge(incoming, badge)
@@ -142,6 +167,61 @@ final class NotificationService: UNNotificationServiceExtension {
     delivered = true
     lock.unlock()
     handler(content)
+  }
+
+  // ── DM calls ────────────────────────────────────────────────────────
+
+  static let callRingCategory = "K2_CALL"
+  static let callDoneCategory = "K2_CALL_DONE"
+
+  /// A call push's shape (nil: not a call). The server's title and body
+  /// stand; the fallbacks are K2's own words.
+  static func callContent(_ content: UNNotificationContent) -> UNNotificationContent? {
+    let info = content.userInfo
+    guard string(info, "kind") == "call",
+      let m = content.mutableCopy() as? UNMutableNotificationContent
+    else { return nil }
+    let state = string(info, "callState")
+    let callId = string(info, "callId")
+    if !callId.isEmpty { m.threadIdentifier = "call:" + callId }
+    if m.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { m.title = "K2" }
+    if state.isEmpty || state == "ringing" {
+      m.categoryIdentifier = callRingCategory
+      if m.body.isEmpty { m.body = "Incoming call" }
+      m.sound = .default
+      m.interruptionLevel = .timeSensitive
+      m.relevanceScore = 1
+    } else {
+      m.categoryIdentifier = callDoneCategory
+      if m.body.isEmpty {
+        m.body = state == "answered" ? "Answered on another device" : state == "missed" ? "Missed call" : "Call ended"
+      }
+      m.interruptionLevel = .active
+    }
+    return m
+  }
+
+  /// A done push: the call's other notifications still delivered go first
+  /// (the ring, when a relay lost the collapse id). `done` runs once.
+  static func clearOtherCallNotifications(
+    _ content: UNNotificationContent, keeping identifier: String, done: @escaping () -> Void
+  ) {
+    let callId = string(content.userInfo, "callId")
+    guard content.categoryIdentifier == callDoneCategory, !callId.isEmpty else {
+      done()
+      return
+    }
+    let center = UNUserNotificationCenter.current()
+    center.getDeliveredNotifications { delivered in
+      let ids = delivered
+        .filter {
+          $0.request.identifier != identifier && string($0.request.content.userInfo, "kind") == "call"
+            && string($0.request.content.userInfo, "callId") == callId
+        }
+        .map { $0.request.identifier }
+      if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
+      done()
+    }
   }
 
   // ── Badge (App Group, K2BadgeStore) ─────────────────────────────────

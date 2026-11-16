@@ -29,6 +29,8 @@ vi.mock("@tauri-apps/plugin-store", () => ({
   })),
 }));
 vi.mock("./revive", () => ({ connectServer: vi.fn() }));
+const calls = vi.hoisted(() => ({ route: vi.fn(async () => {}) }));
+vi.mock("../zen/calls/dmCall", () => ({ routeCallTap: calls.route }));
 vi.mock("../api/client", () => ({
   FEATURE_THREAD_PUSH: "thread-push-v1",
   getBootStatus: vi.fn(),
@@ -491,5 +493,27 @@ describe("registration", () => {
     signOutServer("s1");
     await flush();
     expect(tauriFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("call taps (K2 0.46.13 push kind `call`)", () => {
+  it("go to the DM calls, on the push's server, never through a server switch", async () => {
+    calls.route.mockClear();
+    const navigate = vi.fn();
+    const tap = { kind: "call", subdomain: "work", callId: "4455", conversationId: "900", callState: "ringing", action: "accept" };
+    await routeTap(tap, navigate);
+    expect(calls.route).toHaveBeenCalledTimes(1);
+    const [given, resolve, known] = calls.route.mock.calls[0] as unknown as [
+      typeof tap,
+      () => Promise<string | null>,
+      (id: string) => boolean,
+    ];
+    expect(given).toBe(tap);
+    expect(known("s2")).toBe(true);
+    expect(known("nope")).toBe(false);
+    // The fallback resolver is the thread taps' own server match.
+    await expect(resolve()).resolves.toBe("s2");
+    expect(navigate).not.toHaveBeenCalled();
+    expect(connectServer).not.toHaveBeenCalled();
   });
 });
