@@ -46,7 +46,7 @@ export function ApprovalCard({
           disabled={opening || !server || !url}
           onClick={() => void open()}
           className="self-start rounded-full px-3 py-1.5 text-[15px] leading-none border"
-          style={{ borderColor: "#fff", background: "#fff", color: "#1c1c1e", opacity: opening ? 0.55 : 1 }}
+          style={{ borderColor: "var(--color-text-primary)", background: "var(--color-text-primary)", color: "var(--color-bg-surface)", opacity: opening ? 0.55 : 1 }}
           data-testid="approval-review"
         >
           {opening ? "Opening…" : "Review"}
