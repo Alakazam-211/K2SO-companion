@@ -112,8 +112,8 @@ final class NotificationService: UNNotificationServiceExtension {
       self.contentHandler = contentHandler
       self.original = call
       lock.unlock()
-      Self.clearOtherCallNotifications(call, keeping: request.identifier) { [weak self] in
-        self?.deliver(call)
+      Self.clearOtherCallNotifications(call, keeping: request.identifier) {
+        self.deliver(call)
       }
       return
     }
