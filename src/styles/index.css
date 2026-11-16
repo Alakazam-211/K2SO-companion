@@ -374,6 +374,29 @@ html, body, #root {
   border: 0.5px solid var(--color-frost-edge);
   box-shadow: inset 0 1px 0 var(--color-frost-sheen);
 }
+/* Veil (light): every glass piece gets desktop's light ring (K2 Design;
+   Riley 2026-11-16: "a grey outline on the left/right side … a gradient
+   into the top and bottom where it's a little brighter", or buttons
+   without a shadow vanish on the light page). 1px, bright at the top and
+   bottom, grey down the sides. Drawn as a background layer on the border
+   box under the frost (no pseudo-element, so no element needs to become a
+   positioned box). */
+:root[data-scheme="light"] {
+  --k2-veil-ring: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(0, 0, 0, 0.2) 32%,
+    rgba(0, 0, 0, 0.2) 68%,
+    rgba(255, 255, 255, 0.95) 100%
+  );
+}
+:root[data-scheme="light"] .zen-glass {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--color-frost-fill), var(--color-frost-fill)) padding-box,
+    var(--k2-veil-ring) border-box;
+  box-shadow: inset 0 1px 0 var(--color-frost-sheen);
+}
 /* The Thread's Jump to bottom pill (JumpPill.tsx), as K2 desktop's
    (globals.css --k2-jump-*): on dark, the Frost's 10% white over a 60%
    black layer so white words read over your own bubble or a white picture,
@@ -470,6 +493,24 @@ html, body, #root {
 }
 :root[data-scheme="light"] [data-glass-merged] > .zen-glass-merged-drop {
   display: block;
+}
+/* Veil: the header's pieces keep their own glass and ring instead of the
+   merged outline (its rim mask carries dark-mode alphas, so the light ring
+   wouldn't show); the name pill no longer melts into a button it nears. */
+:root[data-scheme="light"] [data-glass-merged] > .zen-glass-merged-fill,
+:root[data-scheme="light"] [data-glass-merged] > .zen-glass-merged-rim,
+:root[data-scheme="light"] [data-glass-merged] > .zen-glass-merged-drop {
+  display: none;
+}
+:root[data-scheme="light"] [data-glass-merged] [data-glass-shape].zen-glass,
+:root[data-scheme="light"] [data-glass-merged] [data-glass-shape].zen-glass.k2-pressing {
+  border: 1px solid transparent;
+  background:
+    linear-gradient(var(--color-frost-fill), var(--color-frost-fill)) padding-box,
+    var(--k2-veil-ring) border-box;
+  -webkit-backdrop-filter: blur(28px) saturate(180%);
+  backdrop-filter: blur(28px) saturate(180%);
+  box-shadow: inset 0 1px 0 var(--color-frost-sheen);
 }
 /* A header button being pressed grows on its own (usePressSpring, a
    transform), so the merged outline is never redrawn per frame. Its edge
