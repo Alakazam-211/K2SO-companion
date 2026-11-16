@@ -10,18 +10,17 @@
 // Output is two alpha masks for HeaderGlass.tsx: the fill (the frosted
 // layer) and the rim, which redraws `.zen-glass`'s own edge along the
 // merged outline: the 0.5px border at white 22% and the `inset 0 1px 0`
-// light catch at white 28%. In light palettes (Veil) the rim is
-// LiquidGlassJS's CSS material edge instead (Riley 2026-11-16: what the
-// original does on light pages): a 1px white inner edge all the way round
-// at its default 0.9 × specular 0.6; the outline then reads by the shadows
-// HeaderGlass draws under it. Pure apart from `renderGlassMasks` (canvas).
+// light catch at white 28%. In light palettes (Veil) it's the same one
+// even line around the whole merged outline, necks included, painted dark
+// by CSS (Riley 2026-11-16: "Obsidian makes it feel like it's all one
+// piece"); no light catch. Pure apart from `renderGlassMasks` (canvas).
 
 /** How far apart (px) the name pill starts to flow into a button. */
 export const MERGE_K = 16;
 const EDGE_ALPHA = 0.22;
 const SHEEN_ALPHA = 0.28;
-/** Veil: the white inner edge (LiquidGlassJS: 0.9 × its default specular 0.6). */
-const LIGHT_EDGE_ALPHA = 0.54;
+/** Veil: the even dark line's strength (Obsidian's 0.22 white, mirrored). */
+const LIGHT_EDGE_ALPHA = 0.16;
 
 export type GlassMaskStyle = "dark" | "light";
 
@@ -113,9 +112,10 @@ export function renderGlassMasks(
       fd[o + 3] = a * 255;
       if (d > 1.5 || d < -2.5) continue;
       if (style === "light") {
-        // A 1px white line just inside the merged outline (its necks too).
-        const line = a - cov(d + 1);
-        rd[o + 3] = Math.min(1, line * LIGHT_EDGE_ALPHA) * 255;
+        // Obsidian's edge, mirrored: the same thin line (the outer half
+        // pixel) all the way round the merged outline, necks included.
+        const inner = cov(d + 0.5);
+        rd[o + 3] = Math.min(1, (a - inner) * 2 * LIGHT_EDGE_ALPHA) * 255;
         continue;
       }
       const inner = cov(d + 0.5);
