@@ -261,8 +261,20 @@ const SELECTABLE: CSSProperties = { userSelect: "text", WebkitUserSelect: "text"
 /** A message with words, the agent's or the person's: the hold menu
  *  (Reply, Save to stash, Copy, Select Text; K2 0.46.7 parity). Not cards,
  *  secrets, files-only rows or sends still on their way. */
+/** What the hold menu works on: Reply quotes it, Copy copies it, Save to
+ *  stash keeps it (the desktop's `threadBubbleText` and menu text, K2
+ *  0.46.13). A question card is its question (Riley 2026-11-15: reply to
+ *  cards too), a stash offer what it saves; a permission card draws its own
+ *  headline and a secret is never quoted, so they have none. "" = no menu. */
+export function messageMenuText(m: ThreadMessage): string {
+  if (m.deleted || m.kind === "secret") return "";
+  if (m.choice) return m.choice.permission ? "" : m.choice.prompt || m.text;
+  if (m.stashOffer) return stashOfferText(m.stashOffer);
+  return m.text;
+}
+
 export function messageHoldable(m: ThreadMessage, out: OutgoingMessage | null): boolean {
-  return !out && !m.choice && m.kind !== "secret" && Boolean(m.text.trim());
+  return !out && Boolean(messageMenuText(m).trim());
 }
 
 /** What a `stash.offer` saves: exactly what its card shows. */
@@ -1247,6 +1259,7 @@ export function ThreadPane({
       });
   };
   const heldMessage = msgHold.menu ? thread.find((m) => m.id === msgHold.menu?.id) ?? null : null;
+  const heldText = heldMessage ? messageMenuText(heldMessage) : "";
   const holdEntries: AgentMenuEntry[] = heldMessage
     ? [
         // A Thread reply (the desktop's format); project chats come later, as on the desktop.
@@ -1262,7 +1275,7 @@ export function ThreadPane({
                     id: heldMessage.id,
                     seq: heldMessage.seq ?? 0,
                     from: replyFrom(heldMessage),
-                    text: heldMessage.text,
+                    text: heldText,
                     part: false,
                   });
                   composerRef.current?.focus({ preventScroll: true });
@@ -1277,7 +1290,7 @@ export function ThreadPane({
           onSelect: () => {
             msgHold.close();
             void stash
-              .save({ text: heldMessage.text, source: stashSourceNow(heldMessage.from || undefined) })
+              .save({ text: heldText, source: stashSourceNow(heldMessage.from || undefined) })
               .then((r) => r === "error" && setAttachError(STASH_FAILED));
           },
         },
@@ -1286,7 +1299,7 @@ export function ThreadPane({
           label: "Copy",
           onSelect: () => {
             msgHold.close();
-            void copyPlainText(heldMessage.text);
+            void copyPlainText(heldText);
           },
         },
       ]

@@ -104,9 +104,10 @@ export function useMessageHold(area: RefObject<HTMLElement | null>, enabled: boo
       clear();
       if (e.button && e.button !== 0) return;
       const target = holdTarget(e.target);
-      // Buttons and links inside a message keep their own press; the
-      // words themselves are the system's selection (Riley 2026-10-31).
-      if (!target || (e.target as Element).closest("button, a")) return;
+      // Buttons, links and fields inside a message (a card's options, its
+      // Dismiss reason) keep their own press; the words themselves are the
+      // system's selection (Riley 2026-10-31).
+      if (!target || (e.target as Element).closest("button, a, input, textarea, select, [contenteditable]")) return;
       if (pointOnText(e.clientX, e.clientY, target)) return;
       if (wordsSelected()) return;
       const id = target.getAttribute(MESSAGE_HOLD_ATTR) ?? "";

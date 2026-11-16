@@ -28,7 +28,7 @@ vi.mock("../stores/notifyPrefs", () => ({
 
 import { postThread } from "../api/client";
 import { connectOverlayEvents } from "./overlayEvents";
-import { ThreadPane } from "./ThreadPane";
+import { messageHoldable, messageMenuText, ThreadPane } from "./ThreadPane";
 import { useZenStore } from "./zenStore";
 import { useComposerDrafts } from "./composerDrafts";
 import { fakeScope } from "../test/fakeScope";
@@ -356,17 +356,56 @@ describe("holding an agent's message", () => {
     await waitFor(() => expect(live()).toHaveLength(1));
   });
 
-  it("my own messages have the menu too (K2 0.46.7 parity); cards don't", async () => {
+  it("my own messages have the menu too (K2 0.46.7 parity), and so do question cards", async () => {
     useZenStore.setState({
       thread: [
         agentMsg("me1", 1, "mine", { mine: true, from: "bob" }),
-        agentMsg("c1", 2, "Pick one", { choice: { prompt: "Pick one", options: ["A"], answer: null } }),
+        agentMsg("c1", 2, "", { choice: { prompt: "Pick one", options: ["A"], answer: null } }),
       ],
     });
     render(<ThreadPane />);
     const [mine, card] = screen.getAllByTestId("thread-bubble");
     expect(mine.getAttribute("data-message-hold")).toBe("me1");
-    expect(card.getAttribute("data-message-hold")).toBeNull();
+    expect(card.getAttribute("data-message-hold")).toBe("c1");
+  });
+
+  it("the menu's text: a card's question, a stash offer's saved text; none for permission or secret cards", () => {
+    const card = agentMsg("c1", 2, "old body", { choice: { prompt: "Ship it?", options: ["Yes"], answer: null } });
+    expect(messageMenuText(card)).toBe("Ship it?");
+    const bodyOnly = agentMsg("c2", 3, "From the body", { choice: { prompt: "", options: ["Yes"], answer: null } });
+    expect(messageMenuText(bodyOnly)).toBe("From the body");
+    const permission = agentMsg("c3", 4, "Allow?", {
+      choice: { prompt: "Allow?", options: ["Allow"], answer: null, permission: {} as never },
+    });
+    expect(messageMenuText(permission)).toBe("");
+    expect(messageHoldable(permission, null)).toBe(false);
+    expect(messageMenuText(agentMsg("s1", 5, "Paste the key", { kind: "secret" }))).toBe("");
+    const offer = agentMsg("o1", 6, "fallback", { stashOffer: { title: "Deploy", text: "Run the deploy." } as never });
+    expect(messageMenuText(offer)).toBe("Deploy\n\nRun the deploy.");
+  });
+
+  it("Reply to a question card quotes its question in the desktop's format", async () => {
+    useZenStore.setState({
+      thread: [agentMsg("c1", 7, "", { choice: { prompt: "Ship 4.2.3 now?", options: ["Yes", "No"], answer: null } })],
+    });
+    render(<ThreadPane />);
+    hold(screen.getByTestId("thread-bubble"));
+    fireEvent.pointerDown(screen.getByTestId("message-menu"));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reply" }));
+    expect(screen.getByTestId("reply-chip").textContent).toContain("aspen: Ship 4.2.3 now?");
+    type("Wait for the build.");
+    fireEvent.click(screen.getByTestId("composer-send"));
+    await waitFor(() => expect(postThread).toHaveBeenCalled());
+    expect(vi.mocked(postThread).mock.calls[0]).toContainEqual("↩ #7 aspen:\n> Ship 4.2.3 now?\n\nWait for the build.");
+  });
+
+  it("holding a card's option button keeps the button's own press (no menu)", () => {
+    useZenStore.setState({
+      thread: [agentMsg("c1", 7, "", { choice: { prompt: "Ship it?", options: ["Yes"], answer: null } })],
+    });
+    render(<ThreadPane />);
+    hold(screen.getByRole("button", { name: "Yes" }));
+    expect(screen.queryByTestId("message-menu")).toBeNull();
   });
 
   it("Reply: a chip above the field; the send quotes the message in the desktop's format", async () => {
