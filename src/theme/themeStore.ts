@@ -12,6 +12,7 @@ import {
   writeSelection,
   type PaletteId,
   type SchemeMode,
+  type StyleScheme,
   type ThemeSelection,
 } from "./palettes";
 import type { AccentChoice } from "./styleAccent";
@@ -26,8 +27,8 @@ type ThemeState = ThemeSelection & {
   /** Each palette's accent; null is the palette's own. */
   accents: Record<PaletteId, AccentChoice | null>;
   setMode: (mode: SchemeMode) => void;
-  /** A palette card: that side's palette (outside Auto, the mode follows). */
-  pickPalette: (id: PaletteId) => void;
+  /** A palette card: that side's palette, any of the three (outside Auto, the mode follows). */
+  pickPalette: (side: StyleScheme, id: PaletteId) => void;
   setAccent: (id: PaletteId, choice: AccentChoice | null) => void;
   /** The system's appearance changed (Auto). */
   refresh: () => void;
@@ -57,9 +58,9 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     const { dark, light } = get();
     set(commit({ mode, dark, light }));
   },
-  pickPalette: (id) => {
+  pickPalette: (side, id) => {
     const { mode, dark, light } = get();
-    set(commit(selectPalette({ mode, dark, light }, id)));
+    set(commit(selectPalette({ mode, dark, light }, side, id)));
   },
   setAccent: (id, choice) => {
     writeAccent(id, choice);

@@ -38,9 +38,11 @@ describe("Settings → Themes", () => {
       "Auto",
     ]);
     expect(screen.getByTestId("theme-mode-dark").getAttribute("aria-checked")).toBe("true");
-    expect(screen.getByTestId("theme-side-light").textContent).toBe("Veil");
-    expect(screen.getByTestId("theme-side-dark").textContent).toBe("ObsidianDusk");
-    expect(screen.getByTestId("theme-palette-obsidian").getAttribute("aria-checked")).toBe("true");
+    // Any of the three on either side (Riley 2026-11-16).
+    expect(screen.getByTestId("theme-side-light").textContent).toBe("ObsidianVeilDusk");
+    expect(screen.getByTestId("theme-side-dark").textContent).toBe("ObsidianVeilDusk");
+    expect(screen.getByTestId("theme-dark-obsidian").getAttribute("aria-checked")).toBe("true");
+    expect(screen.getByTestId("theme-light-veil").getAttribute("aria-checked")).toBe("true");
   });
 
   it("Light shows the light palette at once and keeps the mode", () => {
@@ -54,7 +56,7 @@ describe("Settings → Themes", () => {
   it("a dark palette card picks it, and moves a Light phone to Dark", () => {
     useThemeStore.setState({ mode: "light", shown: "veil" });
     render(<ThemesPage onBack={() => {}} />);
-    fireEvent.click(screen.getByTestId("theme-palette-yellow"));
+    fireEvent.click(screen.getByTestId("theme-dark-yellow"));
     expect(html().getAttribute("data-palette")).toBe("yellow");
     expect(localStorage.getItem("k2.scheme")).toBe("dark");
     expect(localStorage.getItem("k2.palette.dark")).toBe("yellow");
@@ -62,7 +64,7 @@ describe("Settings → Themes", () => {
 
   it("Auto follows the system with each side's pick", () => {
     render(<ThemesPage onBack={() => {}} />);
-    fireEvent.click(screen.getByTestId("theme-palette-yellow"));
+    fireEvent.click(screen.getByTestId("theme-dark-yellow"));
     systemLight = true;
     fireEvent.click(screen.getByTestId("theme-mode-auto"));
     expect(html().getAttribute("data-palette")).toBe("veil");
@@ -71,7 +73,7 @@ describe("Settings → Themes", () => {
     useThemeStore.getState().refresh();
     expect(html().getAttribute("data-palette")).toBe("yellow");
     // Under Auto a card doesn't change the mode.
-    fireEvent.click(screen.getByTestId("theme-palette-obsidian"));
+    fireEvent.click(screen.getByTestId("theme-dark-obsidian"));
     expect(localStorage.getItem("k2.scheme")).toBe("auto");
     expect(html().getAttribute("data-palette")).toBe("obsidian");
   });
@@ -91,7 +93,7 @@ describe("Settings → Themes", () => {
     fireEvent.click(screen.getByTestId("accent-own"));
     expect(localStorage.getItem("k2.accent.glass.yellow")).toBeNull();
     // Switching to Dusk brings Dusk's (its own gold).
-    fireEvent.click(screen.getByTestId("theme-palette-yellow"));
+    fireEvent.click(screen.getByTestId("theme-dark-yellow"));
     expect(html().style.getPropertyValue("--color-accent")).toBe("#ffc700");
   });
 
@@ -105,6 +107,18 @@ describe("Settings → Themes", () => {
     fireEvent.click(screen.getByTestId("accent-palette-yellow"));
     expect(screen.queryByTestId("accent-yellow")).toBeNull();
     expect(screen.getByTestId("accent-blue")).not.toBeNull();
+  });
+
+  it("the light side can be Dusk: Auto then shows Dusk when the iPhone is light", () => {
+    render(<ThemesPage onBack={() => {}} />);
+    fireEvent.click(screen.getByTestId("theme-mode-auto"));
+    fireEvent.click(screen.getByTestId("theme-light-yellow"));
+    expect(localStorage.getItem("k2.palette.light")).toBe("yellow");
+    systemLight = true;
+    useThemeStore.getState().refresh();
+    expect(html().getAttribute("data-palette")).toBe("yellow");
+    // Its own scheme: the page stays dark.
+    expect(html().getAttribute("data-scheme")).toBe("dark");
   });
 
   it("the Settings row says the palette on screen, and Auto", () => {

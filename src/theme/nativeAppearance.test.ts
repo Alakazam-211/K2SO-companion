@@ -110,8 +110,14 @@ describe("the native appearance bridge", () => {
 
   it("a palette card sends its side's colour", () => {
     onIphoneShell();
-    useThemeStore.getState().pickPalette("yellow");
+    useThemeStore.getState().pickPalette("dark", "yellow");
     expect(sent()).toEqual([{ mode: "dark", bg: "#100f0e", darkBg: "#100f0e", lightBg: "#fafafa" }]);
+  });
+
+  it("a dark palette picked for Light keeps the keyboard and status bar dark", () => {
+    onIphoneShell();
+    useThemeStore.getState().pickPalette("light", "obsidian");
+    expect(sent()[sent().length - 1]).toMatchObject({ mode: "dark", bg: "#0a0a0a", lightBg: "#0a0a0a" });
   });
 
   it("under Auto, an iPhone appearance change moves the colour behind the page", () => {

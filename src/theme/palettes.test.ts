@@ -89,15 +89,20 @@ describe("the choice is per device, under desktop's keys", () => {
     expect(resolvePalette({ ...sel, mode: "light" }, false)).toBe("veil");
   });
 
-  it("a palette card sets its side; outside Auto the mode follows it (desktop's rule)", () => {
+  it("any palette can be either side's; outside Auto the mode moves to the side picked for", () => {
     const sel = { mode: "light" as const, dark: "obsidian" as const, light: "veil" as const };
-    expect(selectPalette(sel, "yellow")).toEqual({ mode: "dark", dark: "yellow", light: "veil" });
-    expect(selectPalette({ ...sel, mode: "auto" }, "yellow")).toEqual({ mode: "auto", dark: "yellow", light: "veil" });
+    expect(selectPalette(sel, "dark", "yellow")).toEqual({ mode: "dark", dark: "yellow", light: "veil" });
+    // Riley: the light side isn't locked to Veil.
+    expect(selectPalette(sel, "light", "yellow")).toEqual({ mode: "light", dark: "obsidian", light: "yellow" });
+    expect(selectPalette({ ...sel, mode: "auto" }, "light", "obsidian")).toEqual({ mode: "auto", dark: "obsidian", light: "obsidian" });
   });
 
-  it("a palette stored for the wrong side, or junk, falls back to the side's default", () => {
+  it("any palette is kept on either side; junk falls back to the side's default", () => {
     localStorage.setItem("k2.palette.light", "obsidian");
-    localStorage.setItem("k2.palette.dark", "<script>");
+    localStorage.setItem("k2.palette.dark", "veil");
+    expect(readSelection()).toEqual({ mode: "dark", dark: "veil", light: "obsidian" });
+    localStorage.setItem("k2.palette.light", "<script>");
+    localStorage.setItem("k2.palette.dark", "sepia");
     localStorage.setItem(SCHEME_KEY, "sepia");
     expect(readSelection()).toEqual({ mode: "dark", dark: "obsidian", light: "veil" });
   });

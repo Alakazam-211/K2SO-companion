@@ -156,8 +156,10 @@ export function parseSchemeMode(raw: string | null): SchemeMode {
 /** A side's palette: the stored one if it is for that side, else the
  *  side's default (Obsidian for dark, Veil for light). */
 function sidePalette(scheme: StyleScheme): PaletteId {
-  const stored = paletteById(read(paletteKey(scheme)));
-  return stored && stored.scheme === scheme ? stored.id : DEFAULT_SELECTION[scheme];
+  // Any of the three on either side (Riley 2026-11-16: "for the light
+  // palette you should be able to choose any of the three"); junk falls
+  // back to the side's default.
+  return paletteById(read(paletteKey(scheme)))?.id ?? DEFAULT_SELECTION[scheme];
 }
 
 export function readSelection(): ThemeSelection {
@@ -196,13 +198,13 @@ export function writeSelection(sel: ThemeSelection, systemLight = systemPrefersL
   write(PALETTE_KEY, resolvePalette(sel, systemLight));
 }
 
-/** Pick a palette (a palette card): it becomes its side's palette; outside
- *  Auto, a palette for the other side moves the mode to it (desktop's
- *  selectionForPalette). */
-export function selectPalette(sel: ThemeSelection, id: PaletteId): ThemeSelection {
+/** Pick a palette card under Light or Dark: any palette can be either
+ *  side's. Outside Auto the mode moves to the side picked for, so the pick
+ *  shows at once; under Auto it waits for the system to show that side. */
+export function selectPalette(sel: ThemeSelection, side: StyleScheme, id: PaletteId): ThemeSelection {
   const p = paletteById(id);
   if (!p) return sel;
-  return { ...sel, [p.scheme]: p.id, mode: sel.mode === "auto" ? "auto" : p.scheme };
+  return { ...sel, [side]: p.id, mode: sel.mode === "auto" ? "auto" : side };
 }
 
 export function readAccent(id: PaletteId): AccentChoice | null {
@@ -274,9 +276,13 @@ export function paletteBg(id: PaletteId): string {
 /** What the native side is told for a selection: the mode, the page colour
  *  on screen, and each side's (for its next launch under Auto). */
 export function nativeLook(sel: ThemeSelection, systemLight = systemPrefersLight()): NativeAppearance {
+  // Light or Dark: the palette on screen sets the keyboard and status bar
+  // (a dark palette picked for Light keeps them dark). Auto stays auto, so
+  // the iPhone's own appearance still reaches the page to pick the side.
+  const shown = paletteById(resolvePalette(sel, systemLight)) ?? PALETTES[0];
   return {
-    mode: sel.mode,
-    bg: paletteBg(resolvePalette(sel, systemLight)),
+    mode: sel.mode === "auto" ? "auto" : shown.scheme,
+    bg: paletteBg(shown.id),
     darkBg: paletteBg(sel.dark),
     lightBg: paletteBg(sel.light),
   };

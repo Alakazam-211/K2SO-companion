@@ -106,7 +106,7 @@ function Segments<T extends string>({
 
 /** A palette as a small preview: its page, a surface bubble, a line of its
  *  text and its accent (this palette's own choice). */
-function PaletteCard({ p, picked, onPick }: { p: Palette; picked: boolean; onPick: () => void }) {
+function PaletteCard({ p, side, picked, onPick }: { p: Palette; side: "light" | "dark"; picked: boolean; onPick: () => void }) {
   const accent = useThemeStore((s) => s.accents[p.id]);
   const fill = accentFillHex(accent, p, p.scheme);
   const text = p.vars["--color-text-primary"];
@@ -117,7 +117,7 @@ function PaletteCard({ p, picked, onPick }: { p: Palette; picked: boolean; onPic
       role="radio"
       aria-checked={picked}
       aria-label={`${p.name}, ${p.scheme === "light" ? "light" : "dark"}`}
-      data-testid={`theme-palette-${p.id}`}
+      data-testid={`theme-${side}-${p.id}`}
       onClick={onPick}
       className="flex flex-col items-center border-0 p-0 bg-transparent"
       style={{ gap: 6, width: 92 }}
@@ -154,13 +154,13 @@ function PaletteSide({ side }: { side: "light" | "dark" }) {
   return (
     <div
       role="radiogroup"
-      aria-label={side === "light" ? "Light palette" : "Dark palette"}
+      aria-label={side === "light" ? "Light mode palette" : "Dark mode palette"}
       className="flex flex-wrap"
       style={{ padding: "14px 16px", gap: 16 }}
       data-testid={`theme-side-${side}`}
     >
-      {PALETTES.filter((p) => p.scheme === side).map((p) => (
-        <PaletteCard key={p.id} p={p} picked={p.id === current} onPick={() => pickPalette(p.id)} />
+      {PALETTES.map((p) => (
+        <PaletteCard key={p.id} p={p} side={side} picked={p.id === current} onPick={() => pickPalette(side, p.id)} />
       ))}
     </div>
   );
@@ -266,11 +266,11 @@ export function ThemesPage({ onBack }: { onBack: () => void }) {
           </div>
         </Group>
 
-        <Group label="Light palette" testId="themes-light">
+        <Group label="Light mode palette" testId="themes-light">
           <PaletteSide side="light" />
         </Group>
 
-        <Group label="Dark palette" testId="themes-dark" footnote="Each palette keeps its own accent below. Only this phone.">
+        <Group label="Dark mode palette" testId="themes-dark" footnote="Any palette works in either mode. Each keeps its own accent below. Only this phone.">
           <PaletteSide side="dark" />
         </Group>
 
