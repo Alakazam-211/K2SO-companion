@@ -1,0 +1,159 @@
+// Theme preview (development only; served by preview/vite.config.ts, never
+// in the app build). Real screens with fixture data, under any palette and
+// accent, at iPhone size, with no server:
+//
+//   /preview/theme.html?palette=obsidian|veil|yellow&accent=<hex|yellow>&screen=thread|home|settings|themes
+//
+// Extras: `jump=1` scrolls the Thread up so the jump pill shows; `chrome=0`
+// hides the fake status bar and home indicator. Open it at 393×852 (device
+// mode) or use scripts/theme-shots.mjs. `window.__previewReady` turns true
+// once the screen has settled.
+
+import "./netStub";
+import { StrictMode, useEffect, type ReactNode } from "react";
+import { createRoot } from "react-dom/client";
+import { MemoryRouter } from "react-router-dom";
+import "../styles/index.css";
+import { initZenFont } from "../zen/zenFont";
+import { applyTheme, paletteById, writeAccent, writeSelection, DEFAULT_SELECTION, type PaletteId } from "../theme/palettes";
+import { parseAccentChoice } from "../theme/styleAccent";
+import { useThemeStore } from "../theme/themeStore";
+import { Zen } from "../pages/Zen";
+import { ZenSettings } from "../zen/ZenSettings";
+import { ThemesPage } from "../zen/ThemesPage";
+import { seedDraft, seedStores, type PreviewScreen } from "./fixtures";
+
+const params = new URLSearchParams(location.search);
+const palette: PaletteId = paletteById(params.get("palette"))?.id ?? "obsidian";
+const accent = parseAccentChoice(params.get("accent"));
+const screen: PreviewScreen = (["thread", "home", "settings", "themes"] as const).find((s) => s === params.get("screen")) ?? "thread";
+const jump = params.get("jump") === "1";
+const chrome = params.get("chrome") !== "0";
+
+// iPhone 15/16 Pro insets (portrait): the status bar and the home indicator.
+const SAFE = { top: 59, bottom: 34, left: 0, right: 0 };
+for (const [side, px] of Object.entries(SAFE)) {
+  document.documentElement.style.setProperty(`--preview-safe-${side}`, `${px}px`);
+}
+
+// iOS scrollbars overlay and fade; desktop WebKit's would take a gutter.
+const noScrollbars = document.createElement("style");
+noScrollbars.textContent = "*::-webkit-scrollbar { width: 0 !important; height: 0 !important; display: none; } * { scrollbar-width: none; }";
+document.head.appendChild(noScrollbars);
+
+// The theme, as Settings → Themes would leave it: this palette on its side,
+// shown, with this accent.
+const p = paletteById(palette)!;
+const selection = { ...DEFAULT_SELECTION, mode: p.scheme, [p.scheme]: p.id };
+writeSelection(selection, false);
+writeAccent(p.id, accent);
+useThemeStore.setState({
+  ...selection,
+  shown: p.id,
+  accents: { obsidian: null, veil: null, yellow: null, [p.id]: accent },
+});
+applyTheme(p.id, accent);
+initZenFont();
+
+seedStores(screen);
+if (screen === "thread") seedDraft();
+
+/** The phone's status bar and home indicator, in the palette's text colour. */
+function PhoneChrome() {
+  if (!chrome) return null;
+  const ink = "var(--color-text-primary, #fff)";
+  return (
+    <div aria-hidden style={{ position: "fixed", inset: 0, pointerEvents: "none", zIndex: 2147483000 }}>
+      <div
+        style={{
+          position: "absolute",
+          top: 0,
+          left: 0,
+          right: 0,
+          height: SAFE.top,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+          padding: "4px 30px 0 46px",
+          color: ink,
+          font: "600 17px -apple-system, system-ui, sans-serif",
+        }}
+      >
+        <span>9:41</span>
+        <span style={{ display: "flex", gap: 6, alignItems: "center" }}>
+          <svg width="18" height="12" viewBox="0 0 18 12" fill={ink}>
+            <rect x="0" y="8" width="3" height="4" rx="1" />
+            <rect x="5" y="5.5" width="3" height="6.5" rx="1" />
+            <rect x="10" y="3" width="3" height="9" rx="1" />
+            <rect x="15" y="0" width="3" height="12" rx="1" />
+          </svg>
+          <svg width="27" height="13" viewBox="0 0 27 13" fill="none">
+            <rect x="0.5" y="0.5" width="23" height="12" rx="3.5" stroke={ink} opacity="0.4" />
+            <rect x="2" y="2" width="20" height="9" rx="2" fill={ink} />
+            <rect x="25" y="4.5" width="1.5" height="4" rx="0.75" fill={ink} opacity="0.4" />
+          </svg>
+        </span>
+      </div>
+      <div
+        style={{
+          position: "absolute",
+          bottom: 8,
+          left: "50%",
+          width: 134,
+          height: 5,
+          marginLeft: -67,
+          borderRadius: 3,
+          background: ink,
+        }}
+      />
+    </div>
+  );
+}
+
+/** Re-seed after the screen's mount effects (their loads never answer, but
+ *  some clear the stores first), then say ready. */
+function Settle({ children }: { children: ReactNode }) {
+  useEffect(() => {
+    const timers: number[] = [];
+    const reseed = () => seedStores(screen);
+    reseed();
+    timers.push(window.setTimeout(reseed, 120), window.setTimeout(reseed, 500));
+    timers.push(
+      window.setTimeout(async () => {
+        if (jump) {
+          const list = document.querySelector<HTMLElement>("[data-testid=thread-scroller]");
+          if (list) {
+            list.scrollTop = Math.max(0, list.scrollTop - 260);
+            list.dispatchEvent(new Event("scroll"));
+          }
+        }
+        await document.fonts?.ready;
+        window.setTimeout(() => (window.__previewReady = true), 600);
+      }, 700)
+    );
+    return () => timers.forEach((t) => window.clearTimeout(t));
+  }, []);
+  return <>{children}</>;
+}
+
+function Screen() {
+  if (screen === "settings" || screen === "themes") {
+    return (
+      <div className="zen-font" style={{ position: "fixed", inset: 0 }}>
+        {screen === "settings" ? <ZenSettings onClose={() => {}} /> : <ThemesPage onBack={() => {}} />}
+      </div>
+    );
+  }
+  return <Zen />;
+}
+
+createRoot(document.getElementById("root")!).render(
+  <StrictMode>
+    <MemoryRouter initialEntries={["/zen"]}>
+      <Settle>
+        <Screen />
+      </Settle>
+    </MemoryRouter>
+    <PhoneChrome />
+  </StrictMode>
+);
