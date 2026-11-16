@@ -139,6 +139,9 @@ export function threadAuthorKind(raw: unknown): string | null {
 export function isPersonThreadPost(doc: { via?: unknown; author?: unknown }): boolean {
   const kind = threadAuthorKind(doc.author);
   if (kind) return kind !== "agent";
+  // A bare string stamp (an older shape): a person's, as the phone always
+  // read any author. An unknown stamp never turns a person into the agent.
+  if (typeof doc.author === "string" && doc.author.trim()) return true;
   return doc.via === "compose";
 }
 

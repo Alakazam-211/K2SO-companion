@@ -1,5 +1,17 @@
 import { useLayoutEffect, useRef } from "react";
 import { renderGlassMasks, shapeFromRect, type GlassShape } from "./glassMerge";
+import { PRESSING_CLASS } from "../lib/usePressSpring";
+
+/** Decode a mask image before it is shown: a new data URL set straight
+ *  onto mask-image is decoded asynchronously by WebKit, and the merged
+ *  glass shows unmasked for that frame (the flash on Back from Chatter,
+ *  Riley 2026-11-16). Resolves even when decoding isn't available. */
+function decoded(url: string): Promise<void> {
+  if (typeof Image === "undefined") return Promise.resolve();
+  const img = new Image();
+  img.src = url;
+  return typeof img.decode === "function" ? img.decode().catch(() => undefined) : Promise.resolve();
+}
 
 /** Marks a glass piece of the chat header: `button` pieces keep their own
  *  outline among themselves; the `pill` (agent name) melts into them. */
@@ -38,8 +50,20 @@ export function HeaderGlass() {
     if (!host || !fill || !rim || typeof ResizeObserver === "undefined") return;
     let frame = 0;
     let lastKey = "";
+    let retry = 0;
+    let generation = 0;
     const draw = () => {
       frame = 0;
+      // A piece mid-press is scaled by its spring (a transform), so its rect
+      // isn't its real outline: measuring it would redraw the masks twice
+      // around every tap. Wait until the spring settles.
+      if (host.querySelector(`[${GLASS_SHAPE_ATTR}].${PRESSING_CLASS}`)) {
+        if (!retry) retry = window.setTimeout(() => {
+          retry = 0;
+          schedule();
+        }, 120);
+        return;
+      }
       const base = host.getBoundingClientRect();
       const buttons: GlassShape[] = [];
       let pill: GlassShape | null = null;
@@ -62,12 +86,24 @@ export function HeaderGlass() {
         host.removeAttribute(GLASS_MERGED_ATTR);
         return;
       }
-      fill.style.webkitMaskImage = fill.style.maskImage = `url(${masks.fill})`;
-      for (const drop of [ambientRef.current, contactRef.current]) {
-        if (drop) drop.style.webkitMaskImage = drop.style.maskImage = `url(${masks.fill})`;
+      const apply = () => {
+        fill.style.webkitMaskImage = fill.style.maskImage = `url(${masks.fill})`;
+        for (const drop of [ambientRef.current, contactRef.current]) {
+          if (drop) drop.style.webkitMaskImage = drop.style.maskImage = `url(${masks.fill})`;
+        }
+        rim.style.webkitMaskImage = rim.style.maskImage = `url(${masks.rim})`;
+        host.setAttribute(GLASS_MERGED_ATTR, "1");
+      };
+      // The first draw shows at once (nothing to flash from); later ones
+      // swap only once both images are decoded, and only if still current.
+      if (!host.hasAttribute(GLASS_MERGED_ATTR)) {
+        apply();
+        return;
       }
-      rim.style.webkitMaskImage = rim.style.maskImage = `url(${masks.rim})`;
-      host.setAttribute(GLASS_MERGED_ATTR, "1");
+      const mine = ++generation;
+      void Promise.all([decoded(masks.fill), decoded(masks.rim)]).then(() => {
+        if (mine === generation) apply();
+      });
     };
     const schedule = () => {
       if (!frame) frame = requestAnimationFrame(draw);
@@ -91,6 +127,8 @@ export function HeaderGlass() {
     scheme.observe(document.documentElement, { attributes: true, attributeFilter: ["data-scheme"] });
     schedule();
     return () => {
+      generation += 1;
+      if (retry) window.clearTimeout(retry);
       scheme.disconnect();
       if (frame) cancelAnimationFrame(frame);
       ro.disconnect();
