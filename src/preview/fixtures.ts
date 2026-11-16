@@ -17,7 +17,7 @@ import type { StubAgent } from "../zen/stubData";
 import type { ServerProject } from "../zen/serverPins";
 import type { RowLast } from "../zen/rowPreview";
 import { useHomeGridStore } from "../zen/homeGrid";
-import { seedHomeChatServer } from "../zen/homeChat/homeChatStore";
+import { seedHomeChatServer } from "../zen/homeChat/homeChatRowsStore";
 import type { HomeChatGate } from "../api/homeChat";
 import {
   NO_HOME_CHAT_FLAGS,
@@ -27,6 +27,7 @@ import {
   type HomeChatPerson,
   type HomeChatSummaryRow,
 } from "../api/homeChatPure";
+import { seedHomeChat } from "./homeChatFixtures";
 
 export const SERVER_ID = "preview";
 const SERVER: ServerEntry = {
@@ -164,17 +165,29 @@ export type PreviewScreen =
   | "home"
   | "settings"
   | "themes"
+  /** A DM (Maya): reactions, a reply and its chip, typing, a missed call. */
+  | "home-chat"
+  /** A channel (#design): names over runs, three people typing. */
+  | "home-chat-channel"
+  /** The DM with a bubble's hold menu open (quick emoji on top). */
+  | "home-chat-menu"
+  /** The channel's members sheet. */
+  | "home-chat-members"
+  /** Home groups (the group bar) and the Groups sheet on Errands. */
   | "home-groups"
   | "home-groups-sheet"
+  /** People and channel rows on Home (a pinned person, badges, a greyed
+   *  row from a Mac server), a person's hold menu, "Same person?". */
   | "home-people"
   | "home-people-menu"
   | "home-same-person"
+  /** Add to Home on People, Channels, and the New channel form. */
   | "add-to-home"
   | "add-to-home-channels"
   | "add-to-home-new";
 
-/** The People and channels screens (K2 0.46.13 `home-chat-v1`). */
-export const HOME_CHAT_SCREENS: readonly PreviewScreen[] = [
+/** The people and channel ROWS screens (Home list, Add to Home). */
+export const HOME_ROWS_SCREENS: readonly PreviewScreen[] = [
   "home-people",
   "home-people-menu",
   "home-same-person",
@@ -182,6 +195,27 @@ export const HOME_CHAT_SCREENS: readonly PreviewScreen[] = [
   "add-to-home-channels",
   "add-to-home-new",
 ];
+
+export const PREVIEW_SCREENS: readonly PreviewScreen[] = [
+  "thread",
+  "home",
+  "settings",
+  "themes",
+  "home-chat",
+  "home-chat-channel",
+  "home-chat-menu",
+  "home-chat-members",
+  "home-groups",
+  "home-groups-sheet",
+  ...HOME_ROWS_SCREENS,
+];
+
+/** The Home chat screens: which conversation they open. */
+export function homeChatKindOf(screen: PreviewScreen): "dm" | "channel" | null {
+  if (screen === "home-chat" || screen === "home-chat-menu") return "dm";
+  if (screen === "home-chat-channel" || screen === "home-chat-members") return "channel";
+  return null;
+}
 
 /** A second saved server, signed in, whose chat is off (a Mac server): its
  *  rows grey and its picker sections say why. */
@@ -223,7 +257,7 @@ const CHANNELS: HomeChatChannel[] = [
  *  channels (a pinned person in the grid, badges, a greyed row from a Mac
  *  server), the Home chat state of both servers, and the extras each
  *  screen opens. Once, before the first render. */
-export function seedHomeChat(screen: PreviewScreen): void {
+export function seedHomeRows(screen: PreviewScreen): void {
   try {
     localStorage.removeItem(HOMES_STORAGE_KEY);
     localStorage.removeItem(HOMES_LAST_SELECTED_KEY);
@@ -350,16 +384,16 @@ export function seedHomeGroups(sheet: boolean): void {
  *  mount effects started their loads, which then never answer). */
 export function seedStores(screen: PreviewScreen): void {
   const now = Date.now();
-  const chat = HOME_CHAT_SCREENS.includes(screen);
+  const rows = HOME_ROWS_SCREENS.includes(screen);
   useServersStore.setState({
-    servers: chat ? [SERVER, PARITY] : [SERVER],
+    servers: rows ? [SERVER, PARITY] : [SERVER],
     activeServerId: SERVER_ID,
     hydrated: true,
-    tokens: chat ? { [SERVER_ID]: "preview-token", [PARITY_ID]: "preview-token-2" } : { [SERVER_ID]: "preview-token" },
+    tokens: rows ? { [SERVER_ID]: "preview-token", [PARITY_ID]: "preview-token-2" } : { [SERVER_ID]: "preview-token" },
     recovery: { [SERVER_ID]: "connected" },
   });
-  useMultiServerPrefs.setState({ multiServer: chat });
-  if (chat) seedHomeChatServers(now);
+  useMultiServerPrefs.setState({ multiServer: rows });
+  if (rows) seedHomeChatServers(now);
 
   const byKey: Record<string, UnreadEntry> = {
     [unreadKey("thread", "conv-builder")]: entry("conv-builder", { unread: 3, lastReadSeq: 7 }),
@@ -413,6 +447,8 @@ export function seedStores(screen: PreviewScreen): void {
     sending: false,
     sendError: null,
   });
+  const chat = homeChatKindOf(screen);
+  if (chat) seedHomeChat(chat, SERVER_ID);
 }
 
 /** The composer's text in the open Thread (a saved draft, as on the phone). */

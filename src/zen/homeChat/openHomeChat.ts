@@ -1,18 +1,18 @@
-// The seams to the Home chat view and to DM calls (4.3.0). Both are built
-// on their own branches (`home-chat-view`: the chat view; `home-dm-calls`:
-// `callPersonFromRow`); the rows and the hold menu here call through these
-// two settable handlers, wired when the branches merge:
+// How Home's person and channel rows reach the chat view and DM calls
+// (4.3.0).
 //
-//   setOpenHomeChatHandler((t) => …open the chat view…)
-//   setCallPersonHandler((serverId, person) => …ring…)
-//
-// Until a handler is set, the request is kept (`useHomeChatSeams`) so a
-// late-mounted chat view can pick it up and the preview/tests can see it.
+//   - Open: a row's tap goes to the chat view's real `openHomeChat`
+//     (`./homeChatStore`), mapping the row's kind (`person` → `dm`). A
+//     handler set with `setOpenHomeChatHandler` wins (tests).
+//   - Call: built on its own branch (`home-dm-calls`); until its handler
+//     is wired (`setCallPersonHandler`), a Call is kept in
+//     `useHomeChatSeams.pendingCall`.
 
 import { create } from "zustand";
+import { openHomeChat as openChatView } from "./homeChatStore";
 
-/** What the chat view opens: a DM (by its Sew conversation, the person's
- *  ext beside it) or a channel, on one server. */
+/** What a row opens: a DM (by its Sew conversation, the person's ext
+ *  beside it) or a channel, on one server. */
 export interface OpenHomeChatTarget {
   serverId: string;
   kind: "person" | "channel";
@@ -22,6 +22,8 @@ export interface OpenHomeChatTarget {
   title: string;
   /** A DM's other person (`k2:owner` / `k2:connect:…`). */
   ext?: string;
+  /** A channel: invite-only (lock) or open (#); null when not known. */
+  inviteOnly?: boolean | null;
   /** The Home row it came from (`<handle>::<host>`). */
   address?: string;
 }
@@ -43,24 +45,13 @@ let openHandler: OpenHandler | null = null;
 let callHandler: CallHandler | null = null;
 
 interface SeamsState {
-  /** The last open asked for while no chat view was wired. */
-  pendingOpen: OpenHomeChatTarget | null;
   /** The last Call asked for while no call handler was wired. */
   pendingCall: { serverId: string; person: CallPersonTarget } | null;
-  takePendingOpen: () => OpenHomeChatTarget | null;
 }
 
-export const useHomeChatSeams = create<SeamsState>((set, get) => ({
-  pendingOpen: null,
-  pendingCall: null,
-  takePendingOpen: () => {
-    const t = get().pendingOpen;
-    if (t) set({ pendingOpen: null });
-    return t;
-  },
-}));
+export const useHomeChatSeams = create<SeamsState>(() => ({ pendingCall: null }));
 
-/** Wire the chat view (null unwires). Returns the unwire. */
+/** Override the open (tests); null goes back to the chat view. */
 export function setOpenHomeChatHandler(fn: OpenHandler | null): () => void {
   openHandler = fn;
   return () => {
@@ -76,13 +67,19 @@ export function setCallPersonHandler(fn: CallHandler | null): () => void {
   };
 }
 
-/** Open a Home chat (the chat view's entry). */
+/** Open a row's chat in the chat view. */
 export function openHomeChat(t: OpenHomeChatTarget): void {
   if (openHandler) {
     openHandler(t);
     return;
   }
-  useHomeChatSeams.setState({ pendingOpen: t });
+  openChatView({
+    serverId: t.serverId,
+    kind: t.kind === "person" ? "dm" : "channel",
+    conversationId: t.conversationId,
+    title: t.title,
+    ...(t.kind === "person" ? { ext: t.ext ?? null } : { inviteOnly: t.inviteOnly ?? null }),
+  });
 }
 
 /** Ring a person from their Home row (the DM calls entry). */
@@ -98,5 +95,5 @@ export function callPersonFromRow(serverId: string, person: CallPersonTarget): v
 export function __resetHomeChatSeamsForTests(): void {
   openHandler = null;
   callHandler = null;
-  useHomeChatSeams.setState({ pendingOpen: null, pendingCall: null });
+  useHomeChatSeams.setState({ pendingCall: null });
 }

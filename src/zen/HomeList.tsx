@@ -35,7 +35,7 @@ import {
 import { UnreadDot } from "./UnreadMarks";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { chatRowLook, type ChatHomeView, type ChatRowLook } from "./homeChat/chatRowLook";
-import { useHomeChatStore, openHomeChatRow } from "./homeChat/homeChatStore";
+import { useHomeChatRowsStore, openHomeChatRow } from "./homeChat/homeChatRowsStore";
 import { ChannelAvatar, CallGlyph, PersonAvatar } from "./homeChat/HomeChatGlyphs";
 import { confirmRemoveChatRow } from "./homeChat/HomeConfirmSheet";
 import { callPersonFromRow } from "./homeChat/openHomeChat";
@@ -214,8 +214,9 @@ export function HomeList({
   const unreadServers = useUnreadStore((s) => s.servers);
   const unreadAddrs = useUnreadStore((s) => s.addrs);
   // People and channels (K2 0.46.13): their servers' Home chat state.
-  const chatByServer = useHomeChatStore((s) => s.byServer);
-  const chatNotes = useHomeChatStore((s) => s.rowNotes);
+  const chatByServer = useHomeChatRowsStore((s) => s.byServer);
+  const chatNotes = useHomeChatRowsStore((s) => s.rowNotes);
+  const chatDeleted = useHomeChatRowsStore((s) => s.deleted);
   const tokens = useServersStore((s) => s.tokens);
 
   const hold = useHoldMenu();
@@ -276,13 +277,19 @@ export function HomeList({
   };
 
   const lookOf = (v: ChatHomeView): ChatRowLook =>
-    chatRowLook(v, { byServer: chatByServer, tokens, rowNotes: chatNotes, hereChip });
+    chatRowLook(v, { byServer: chatByServer, tokens, rowNotes: chatNotes, deleted: chatDeleted, hereChip });
 
   /** A person or channel row's tap: the DM (opened or made first) or the
    *  channel, in the chat view. A server with no chat opens nothing. */
   const openChat = (v: ChatHomeView, look: ChatRowLook) => {
     if (look.noChat || !look.serverId) return;
-    void openHomeChatRow(look.serverId, { kind: v.chat, handle: v.handle, title: look.name, address: v.row.address });
+    void openHomeChatRow(look.serverId, {
+      kind: v.chat,
+      handle: v.handle,
+      title: look.name,
+      address: v.row.address,
+      inviteOnly: look.inviteOnly,
+    });
   };
 
   const pinEntries = (v: HomeRowView): AgentMenuEntry[] =>
@@ -428,9 +435,9 @@ export function HomeList({
 
   const chatAvatar = (v: ChatHomeView, look: ChatRowLook, size: number, fontSize: number) =>
     v.chat === "person" ? (
-      <PersonAvatar username={look.username} name={look.name} picture={look.person?.picture ?? null} size={size} fontSize={fontSize} />
+      <PersonAvatar username={look.username} name={look.name} picture={look.person?.picture ?? null} size={size} fontSize={fontSize} glass testId="person-avatar" />
     ) : (
-      <ChannelAvatar inviteOnly={look.inviteOnly} size={size} />
+      <ChannelAvatar inviteOnly={look.inviteOnly} size={size} glass testId="channel-avatar" />
     );
 
   const chatLabel = (v: ChatHomeView, look: ChatRowLook) =>

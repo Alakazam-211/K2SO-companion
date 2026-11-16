@@ -32,14 +32,14 @@ import { homeHasAddress, type Home, type HomeRow } from "../homes";
 import { savedServerForHost, serverDisplayName } from "../homeView";
 import { CheckIcon } from "../icons";
 import { ChannelAvatar, PersonAvatar } from "./HomeChatGlyphs";
-import { channelRow, chatRowParts, isPersonExt, matchesElsewhere, personRow, pickablePerson, samePersonCopy } from "./homeChatRows";
+import { channelRow, chatRowParts, isPersonExt, matchesElsewhere, personRow, canAddPerson, samePersonCopy } from "./homeChatRows";
 import {
   refreshChatChannels,
   refreshChatPeople,
   refreshChatServer,
-  useHomeChatStore,
+  useHomeChatRowsStore,
   type HomeChatServerState,
-} from "./homeChatStore";
+} from "./homeChatRowsStore";
 import { askHome } from "./HomeConfirmSheet";
 
 /** A server the pickers list: its saved id, its name, and the host its
@@ -249,17 +249,17 @@ function useServerLookup() {
 
 export function PeoplePanel({ home, servers, q, onAddRow }: ChatPanelProps) {
   useServersRead(servers, "people");
-  const byServer = useHomeChatStore((s) => s.byServer);
+  const byServer = useHomeChatRowsStore((s) => s.byServer);
   const lookup = useServerLookup();
   const [busy, setBusy] = useState(false);
 
   const pick = async (server: ChatPickServer, p: HomeChatPerson) => {
-    if (busy || !pickablePerson(p)) return;
+    if (busy || !canAddPerson(p)) return;
     const row = personRow(p, server.host);
     if (!row) return;
     setBusy(true);
     try {
-      const add = await samePersonGate(p, server.id, home, { ...lookup, byServer: useHomeChatStore.getState().byServer });
+      const add = await samePersonGate(p, server.id, home, { ...lookup, byServer: useHomeChatRowsStore.getState().byServer });
       if (add) onAddRow(row);
     } finally {
       setBusy(false);
@@ -285,11 +285,11 @@ export function PeoplePanel({ home, servers, q, onAddRow }: ChatPanelProps) {
               shown.map((p) => {
                 const row = personRow(p, server.host);
                 const taken = !!row && homeHasAddress(home, row.address);
-                const ready = pickablePerson(p);
+                const ready = canAddPerson(p);
                 return (
                   <PickRow
                     key={p.ext}
-                    avatar={<PersonAvatar username={p.username} name={p.displayName} picture={p.picture} size={40} fontSize={15} />}
+                    avatar={<PersonAvatar username={p.username} name={p.displayName} picture={p.picture} size={40} fontSize={15} glass />}
                     name={p.displayName}
                     detail={ready ? (p.role ? `${p.username} · ${p.role === "voice_chat" ? "voice & chat" : p.role}` : p.username) : "Setting up…"}
                     taken={taken}
@@ -323,7 +323,7 @@ export function ChannelsPanel({ home, servers, q, onAddRow, mode }: ChatPanelPro
 
 function ChannelPickList({ home, servers, q, onAddRow }: ChatPanelProps) {
   useServersRead(servers, "channels");
-  const byServer = useHomeChatStore((s) => s.byServer);
+  const byServer = useHomeChatRowsStore((s) => s.byServer);
   return (
     <div data-testid="add-channels">
       {servers.map((server) => {
@@ -346,7 +346,7 @@ function ChannelPickList({ home, servers, q, onAddRow }: ChatPanelProps) {
                 return (
                   <PickRow
                     key={c.conv}
-                    avatar={<ChannelAvatar inviteOnly={c.inviteOnly} size={40} />}
+                    avatar={<ChannelAvatar inviteOnly={c.inviteOnly} size={40} glass testId="channel-avatar" />}
                     name={c.name}
                     detail={c.inviteOnly ? "Invite only" : "Open"}
                     taken={taken}
@@ -380,7 +380,7 @@ export function NewChannelForm({
   waitDeps?: { sleep?: (ms: number) => Promise<void>; now?: () => number };
 }) {
   useServersRead(servers, "people");
-  const byServer = useHomeChatStore((s) => s.byServer);
+  const byServer = useHomeChatRowsStore((s) => s.byServer);
   const usable = servers.filter((s) => byServer[s.id]?.gate?.offered);
   const [serverId, setServerId] = useState<string | null>(null);
   const server = usable.find((s) => s.id === serverId) ?? usable[0] ?? null;
@@ -388,7 +388,7 @@ export function NewChannelForm({
   const [open, setOpen] = useState(false);
   const [members, setMembers] = useState<Set<string>>(() => new Set());
   const [state, setState] = useState<FormState>({ kind: "idle" });
-  const people = server ? (byServer[server.id]?.people?.people ?? []).filter(pickablePerson) : [];
+  const people = server ? (byServer[server.id]?.people?.people ?? []).filter(canAddPerson) : [];
   const anyRead = servers.some((s) => byServer[s.id]?.gate?.checkedAt != null);
 
   const create = async () => {

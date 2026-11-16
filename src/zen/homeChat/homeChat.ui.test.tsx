@@ -28,9 +28,16 @@ import { homeAddress, useHomesStore, type Home } from "../homes";
 import { resolveHomeRows } from "../homeView";
 import { HOLD_MENU_MS } from "../useHoldMenu";
 import { PeoplePanel, NewChannelForm, type ChatPickServer } from "./AddToHomePanels";
-import { __resetHomeChatStoreForTests, seedHomeChatServer, useHomeChatStore } from "./homeChatStore";
+import {
+  CHANNEL_DELETED_LINE,
+  __resetHomeChatRowsStoreForTests,
+  seedHomeChatServer,
+  useHomeChatGoneRows,
+  useHomeChatRowsStore,
+} from "./homeChatRowsStore";
+import { closeHomeChat, noteHomeChatGone, resetHomeChatStore, useHomeChatStore } from "./homeChatStore";
 import { HomeConfirmHost } from "./HomeConfirmSheet";
-import { __resetHomeChatSeamsForTests, setCallPersonHandler, setOpenHomeChatHandler, useHomeChatSeams } from "./openHomeChat";
+import { __resetHomeChatSeamsForTests, setCallPersonHandler, setOpenHomeChatHandler } from "./openHomeChat";
 
 const A: ServerEntry = { id: "sa", nickname: "Studio", url: "https://studio.example", username: "sam", rememberPassword: false };
 const B: ServerEntry = { id: "sb", nickname: "Parity", url: "https://parity.example", username: "sam", rememberPassword: false };
@@ -116,10 +123,11 @@ const CRIT = { kind: "channel" as const, address: homeAddress("502", HA), worksp
 const MIA = { kind: "person" as const, address: homeAddress("k2:connect:mia", HB), workspaceId: null, label: "Mia Chen" };
 
 beforeEach(() => {
-  __resetHomeChatStoreForTests();
+  __resetHomeChatRowsStoreForTests();
   __resetHomeChatSeamsForTests();
+  resetHomeChatStore();
   for (const f of Object.values(api)) f.mockReset();
-  api.refreshHomeChatGate.mockImplementation(async (scope: { id: string }) => useHomeChatStore.getState().byServer[scope.id]?.gate);
+  api.refreshHomeChatGate.mockImplementation(async (scope: { id: string }) => useHomeChatRowsStore.getState().byServer[scope.id]?.gate);
   api.fetchHomeChatSummary.mockResolvedValue({ ok: true, chat: "live", convs: [] });
   api.fetchHomeChatChannels.mockResolvedValue({ ok: true, channels: [], next: null });
   api.fetchHomeChatPeople.mockResolvedValue({ ok: true, me: { ext: "", memberId: null }, people: [] });
@@ -164,29 +172,76 @@ describe("person and channel rows on Home", () => {
     expect(mia.textContent).toContain("Parity");
   });
 
-  it("a tap on a person opens (or makes) the DM first, then the chat view through the seam", async () => {
-    const opened = vi.fn();
-    setOpenHomeChatHandler(opened);
+  it("a tap on a person opens (or makes) the DM first, then the real chat view (kind dm)", async () => {
     api.openHomeChatDm.mockResolvedValue({ ok: true, conv: "601", created: false });
     renderList(homeWith([ANA]));
     fireEvent.click(screen.getByTestId("home-chat-person-k2:connect:ana"));
-    await waitFor(() => expect(opened).toHaveBeenCalled());
+    await waitFor(() => expect(useHomeChatStore.getState().open).not.toBeNull());
     expect(api.openHomeChatDm.mock.calls[0][1]).toBe("k2:connect:ana");
-    expect(opened.mock.calls[0][0]).toMatchObject({ serverId: "sa", kind: "person", conversationId: "601", title: "Ana Ruiz", ext: "k2:connect:ana" });
+    expect(useHomeChatStore.getState().open).toEqual({
+      serverId: "sa",
+      kind: "dm",
+      conversationId: "601",
+      title: "Ana Ruiz",
+      ext: "k2:connect:ana",
+    });
     // The DM is remembered: no second /dm.
-    expect(useHomeChatStore.getState().byServer.sa.dms["k2:connect:ana"]).toBe("601");
+    expect(useHomeChatRowsStore.getState().byServer.sa.dms["k2:connect:ana"]).toBe("601");
   });
 
-  it("a channel opens by its id; a row on a server without chat opens nothing", async () => {
+  it("a channel opens the real view by its id, with invite-only; a row on a server without chat opens nothing", async () => {
     renderList(homeWith([CRIT, MIA]));
     fireEvent.click(screen.getByTestId("home-chat-channel-502"));
-    await waitFor(() => expect(useHomeChatSeams.getState().pendingOpen).not.toBeNull());
-    expect(useHomeChatSeams.getState().pendingOpen).toMatchObject({ kind: "channel", conversationId: "502" });
+    await waitFor(() => expect(useHomeChatStore.getState().open).not.toBeNull());
+    expect(useHomeChatStore.getState().open).toEqual({
+      serverId: "sa",
+      kind: "channel",
+      conversationId: "502",
+      title: "design-crit",
+      inviteOnly: true,
+    });
     expect(api.openHomeChatDm).not.toHaveBeenCalled();
-    useHomeChatSeams.setState({ pendingOpen: null });
+    act(() => closeHomeChat());
     fireEvent.click(screen.getByTestId("home-chat-person-k2:connect:mia"));
     await new Promise((r) => setTimeout(r, 0));
-    expect(useHomeChatSeams.getState().pendingOpen).toBeNull();
+    expect(useHomeChatStore.getState().open).toBeNull();
+  });
+
+  it("a handler set on the seam wins (tests, a later push tap)", async () => {
+    const opened = vi.fn();
+    setOpenHomeChatHandler(opened);
+    renderList(homeWith([CRIT]));
+    fireEvent.click(screen.getByTestId("home-chat-channel-502"));
+    await waitFor(() => expect(opened).toHaveBeenCalled());
+    expect(opened.mock.calls[0][0]).toMatchObject({ kind: "channel", conversationId: "502", address: CRIT.address });
+    expect(useHomeChatStore.getState().open).toBeNull();
+  });
+
+  it("a channel deleted in the chat view greys its row; one left comes off every group", async () => {
+    const ch = (conv: string, label: string) => ({ kind: "channel" as const, address: homeAddress(conv, HA), workspaceId: null, label });
+    useHomesStore.setState((s) => ({
+      homes: [
+        { ...s.homes[0], id: "g1", rows: [ch("502", "design-crit"), ch("503", "launch")] },
+        { id: "g2", name: "Other", rows: [ch("503", "launch")] },
+      ],
+      selectedId: "g1",
+    }));
+    function Live() {
+      useHomeChatGoneRows(true);
+      return null;
+    }
+    render(<Live />);
+    act(() => noteHomeChatGone({ serverId: "sa", conv: "502", why: "deleted" }));
+    expect(useHomeChatRowsStore.getState().deleted["sa|502"]).toBe(true);
+    act(() => noteHomeChatGone({ serverId: "sa", conv: "503", why: "left" }));
+    const homes = useHomesStore.getState().homes;
+    expect(homes.find((h) => h.id === "g1")!.rows.map((r) => r.label)).toEqual(["design-crit"]);
+    expect(homes.find((h) => h.id === "g2")!.rows).toEqual([]);
+    cleanup();
+    renderList(homeWith([ch("502", "design-crit")]));
+    const row = screen.getByTestId("home-chat-channel-502");
+    expect(row.closest("[data-home-row]")?.getAttribute("data-greyed")).toBe("1");
+    expect(row.textContent).toContain(CHANNEL_DELETED_LINE);
   });
 
   it("the hold menu: Call (person, chat offered) goes through its seam; Remove asks, Cancel keeps the row", async () => {
@@ -225,7 +280,7 @@ describe("Add to Home: People", () => {
   function renderPeople(home: Home, onAddRow = vi.fn(() => true)) {
     // People read with each server's own login; here the seeded lists stand.
     api.fetchHomeChatPeople.mockImplementation(async (scope: { id: string }) => {
-      const p = useHomeChatStore.getState().byServer[scope.id]?.people;
+      const p = useHomeChatRowsStore.getState().byServer[scope.id]?.people;
       return p ? { ok: true, ...p } : { ok: false, kind: "network", code: "network", hint: "down", status: null };
     });
     api.fetchHomeChatSummary.mockResolvedValue({ ok: true, chat: "live", convs: [] });
@@ -289,7 +344,7 @@ describe("Add to Home: New channel", () => {
 
   it("makes it (Invite only by default, the ticked people), waits for Sew's id, then adds the row", async () => {
     seedHomeChatServer("sa", { people: { me: { ext: "k2:connect:me", memberId: "2" }, people: [person("k2:connect:ana", "ana", "Ana Ruiz")] } });
-    api.fetchHomeChatPeople.mockImplementation(async () => ({ ok: true, ...useHomeChatStore.getState().byServer.sa.people }));
+    api.fetchHomeChatPeople.mockImplementation(async () => ({ ok: true, ...useHomeChatRowsStore.getState().byServer.sa.people }));
     api.createHomeChatChannel.mockResolvedValue({ ok: true, slug: "c-x1", conv: null, state: "pending", name: "launch", open: false });
     api.waitForHomeChatChannel.mockResolvedValue({ ok: true, conv: "777" });
     api.fetchHomeChatChannels.mockResolvedValue({ ok: true, channels: [], next: null });

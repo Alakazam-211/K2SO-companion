@@ -3,7 +3,7 @@
 // rules behind a person or channel row, the Add to Home pickers and the
 // "Same person?" question. Ported from desktop
 // `components/HomeChat/HomeChatRow.tsx`, `HomeChatGlyphs.tsx`,
-// `components/Presence/PresenceChip.tsx` and `lib/home-chat/people.ts`.
+// `lib/home-chat/people.ts`.
 // No I/O and no React.
 
 import {
@@ -17,54 +17,8 @@ import type { HomeChatGate } from "../../api/homeChat";
 import { homeAddress, parseHomeAddress, type HomeRow } from "../homes";
 import type { RowUnread } from "../unread";
 
-// ─── Person colour and initials (§2.5, §5 item 9) ───
-
-/** The daemon's Automatic palette (`k2_core::person_color::PALETTE`), in
- *  its order: the hash must match the daemon's and the desktop's. A
- *  person's colour is identity, like a workspace colour, so it is the same
- *  in every palette. */
-export const PERSON_COLORS = ["#3a9e96", "#3a87a8", "#6a6fc8", "#8c62c4", "#b25cb0", "#c45a86", "#9b7a95", "#64778f"] as const;
-
-/** A username's colour: `h = (h*31 + utf16 unit) >>> 0`, `% 8`. */
-export function personColor(username: string): string {
-  let h = 0;
-  for (let i = 0; i < username.length; i++) h = (h * 31 + username.charCodeAt(i)) >>> 0;
-  return PERSON_COLORS[h % PERSON_COLORS.length];
-}
-
-function channelLum(v: number): number {
-  const s = v / 255;
-  return s <= 0.03928 ? s / 12.92 : ((s + 0.055) / 1.055) ** 2.4;
-}
-
-/** WCAG relative luminance of `#rrggbb` (anything else reads as black). */
-export function relativeLuminance(hex: string): number {
-  const c = /^#[0-9a-f]{6}$/i.test(hex.trim()) ? hex.trim().toLowerCase() : "#000000";
-  const r = parseInt(c.slice(1, 3), 16);
-  const g = parseInt(c.slice(3, 5), 16);
-  const b = parseInt(c.slice(5, 7), 16);
-  return 0.2126 * channelLum(r) + 0.7152 * channelLum(g) + 0.0722 * channelLum(b);
-}
-
-/** The initials' ink on `hex`: white or black, whichever contrasts more
- *  (desktop `personInk`: one of the two always clears 4.5:1). */
-export function personInk(hex: string): "#ffffff" | "#000000" {
-  const l = relativeLuminance(hex);
-  const onWhite = 1.05 / (l + 0.05);
-  const onBlack = (l + 0.05) / 0.05;
-  return onWhite >= onBlack ? "#ffffff" : "#000000";
-}
-
-/** Initials: two letters when the name has two parts (`Ana Ruiz` → `AR`),
- *  else one; the wire's `owner` reads as "Owner". */
-export function personInitials(name: string): string {
-  const n = (name === "owner" ? "Owner" : name).trim();
-  const parts = n.split(/[\s._-]+/).filter(Boolean);
-  if (parts.length === 0) return "?";
-  const first = [...parts[0]][0] ?? "?";
-  const second = parts.length > 1 ? [...parts[1]][0] ?? "" : "";
-  return (first + second).toUpperCase();
-}
+// Person colours and initials are the chat view's (`./homeChatModel`:
+// `personColor`, `personInk`, `personInitials`), shared with the rows.
 
 // ─── Who is a person, and "Same person?" (§2.4, §5 item 8) ───
 
@@ -76,8 +30,9 @@ export function isPersonExt(ext: string): boolean {
   return PERSON_EXT_RE.test(ext.trim().toLowerCase());
 }
 
-/** A person who can be picked: their chat is set up (`ready`). */
-export function pickablePerson(p: HomeChatPerson): boolean {
+/** A person Add to Home may pick: their chat is set up (`ready`). (The
+ *  chat view's `pickablePerson` is the members sheet's rule.) */
+export function canAddPerson(p: HomeChatPerson): boolean {
   return p.ready && isPersonExt(p.ext);
 }
 

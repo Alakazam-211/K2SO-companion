@@ -14,7 +14,7 @@ import {
   matchesElsewhere,
   summaryRowFor,
 } from "./homeChatRows";
-import type { HomeChatServerState } from "./homeChatStore";
+import { CHANNEL_DELETED_LINE, type HomeChatServerState } from "./homeChatRowsStore";
 
 export type ChatHomeView = Extract<HomeRowView, { kind: "chat" }>;
 
@@ -46,6 +46,8 @@ export function chatRowLook(
     byServer: Readonly<Record<string, HomeChatServerState | undefined>>;
     tokens: Readonly<Record<string, string>>;
     rowNotes: Readonly<Record<string, string>>;
+    /** `<serverId>|<conv>` of channels deleted from this phone (greyed, still open read-only). */
+    deleted?: Readonly<Record<string, true>>;
     /** The active server's chip on its own rows (several servers). */
     hereChip: string | null;
   }
@@ -69,6 +71,7 @@ export function chatRowLook(
   const also = person && sid ? matchesElsewhere(person, sid, others) : [];
   const chip = !v.here ? v.serverLabel : (ctx.hereChip ?? (also.length ? v.serverLabel : null));
   const note = ctx.rowNotes[v.row.address];
+  const deleted = v.chat === "channel" && !!sid && !!ctx.deleted?.[`${sid}|${v.handle}`];
   return {
     serverId: sid,
     name,
@@ -77,8 +80,8 @@ export function chatRowLook(
     inviteOnly,
     unread,
     when: sum?.lastAtMs ? mountainListWhen(sum.lastAtMs) : "",
-    line: note ?? quiet?.line ?? chatRowLine(v.chat, inviteOnly, unread),
-    quiet: !!quiet,
+    line: note ?? quiet?.line ?? (deleted ? CHANNEL_DELETED_LINE : chatRowLine(v.chat, inviteOnly, unread)),
+    quiet: !!quiet || deleted,
     noChat: !!quiet?.noChat,
     offered: !!st?.gate?.offered,
     chip,

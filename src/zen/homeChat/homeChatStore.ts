@@ -1,310 +1,209 @@
-// What Home knows of each server's Home chat (K2 0.46.13, brief §2.2,
-// §2.4–2.7): its gate, its people, its channels, its summary (badges), and
-// the DMs this phone opened. One entry per saved server, read with THAT
-// server's own login (`scopeFor`); never the active server's.
+// The open Home chat (a DM or a channel, K2 0.46.13 `home-chat-v1`) and
+// what this phone holds of each conversation it opened: messages (merged
+// by id, oldest first; optimistic sends until the server's copy with the
+// same nonce lands), sends in flight or failed, who is typing, and each
+// server's people (names and member ids).
 //
-//   - The gate is the API layer's (`refreshHomeChatGate`); this store keeps
-//     a copy for rendering and hears every change (`onHomeChatGate`).
-//   - People, channels and the summary are read only once the gate is
-//     open. A failed read keeps the last answer (rows keep their last
-//     badge, greyed by the error).
-//   - Live: `useHomeChatLive` holds each offered server's events socket
-//     while Home shows its rows, and re-reads the summary on
-//     `summary_changed` / `member_removed` / `read` and after a reconnect.
-//
-// The preview harness and tests seed it directly (`seedHomeChatServer`).
+// `openHomeChat` is the entry point other parts call (Home rows, a push
+// tap later): the HomeChatHost in Zen shows the view while `open` is set.
+// Memory only: a relaunch reads the server again.
 
-import { useEffect, useMemo } from "react";
+import type { ComponentType } from "react";
 import { create } from "zustand";
-import { scopeFor } from "../../api/scope";
+import type { HomeChatMembers, HomeChatMessage, HomeChatPeople } from "../../api/homeChatPure";
 import {
-  fetchHomeChatChannels,
-  fetchHomeChatPeople,
-  fetchHomeChatSummary,
-  homeChatGateNow,
-  onHomeChatGate,
-  openHomeChatDm,
-  refreshHomeChatGate,
-  type HomeChatGate,
-} from "../../api/homeChat";
-import { subscribeHomeChat } from "../../api/homeChatEvents";
-import type { HomeChatChannel, HomeChatPeople, HomeChatSummary } from "../../api/homeChatPure";
-import { onServerForget } from "../../stores/servers";
-import { openHomeChat, type OpenHomeChatTarget } from "./openHomeChat";
+  mergeHomeChatMessages,
+  typingCleared,
+  typingNoted,
+  typingPruned,
+  type PendingSend,
+  type TypingRoster,
+} from "../../api/homeChatHelpers";
+import type { HomeChatTarget } from "./homeChatModel";
 
-export interface HomeChatServerState {
-  /** Null until read. */
-  gate: HomeChatGate | null;
-  people: HomeChatPeople | null;
-  peopleAt: number | null;
-  peopleError: string | null;
-  channels: HomeChatChannel[] | null;
-  channelsAt: number | null;
-  channelsError: string | null;
-  summary: HomeChatSummary | null;
-  summaryError: string | null;
-  /** ext → the DM's conversation id, as `/cli/home-chat/dm` answered. */
-  dms: Record<string, string>;
+export interface ConvState {
+  /** Oldest first; `~<nonce>` ids are sends not yet confirmed. */
+  messages: HomeChatMessage[];
+  /** Sew has older messages than the first one held. */
+  hasMore: boolean;
+  /** A page has been read since the view opened (else: cached / none). */
+  loaded: boolean;
+  /** The last read failed (the words to show), null when fine. */
+  error: string | null;
+  loadingOlder: boolean;
 }
 
-export const EMPTY_CHAT_SERVER: HomeChatServerState = Object.freeze({
-  gate: null,
-  people: null,
-  peopleAt: null,
-  peopleError: null,
-  channels: null,
-  channelsAt: null,
-  channelsError: null,
-  summary: null,
-  summaryError: null,
-  dms: {},
-}) as HomeChatServerState;
+export const EMPTY_CONV: ConvState = Object.freeze({
+  messages: [],
+  hasMore: true,
+  loaded: false,
+  error: null,
+  loadingOlder: false,
+}) as ConvState;
 
-/** People and channel lists stay good this long (a forced read skips it). */
-export const HOME_CHAT_LIST_FRESH_MS = 60_000;
+export interface SendState {
+  pending: PendingSend;
+  status: "sending" | "failed";
+  error: string | null;
+}
 
 interface HomeChatStore {
-  byServer: Record<string, HomeChatServerState>;
-  /** A row's note after a failed open (address → words), cleared later. */
-  rowNotes: Record<string, string>;
+  open: HomeChatTarget | null;
+  /** convKey → its messages and read state. */
+  convs: Record<string, ConvState>;
+  /** convKey → nonce → a send not yet confirmed. */
+  sends: Record<string, Record<string, SendState>>;
+  /** convKey → who is typing (member → when their name clears). */
+  typing: Record<string, TypingRoster>;
+  /** serverId → its people answer (names, your member id). */
+  people: Record<string, { people: HomeChatPeople; at: number }>;
+  /** `<serverId>|<ext>` → that DM's conversation, once known. */
+  dms: Record<string, string>;
+  /** convKey → a channel's facts (name, open, creator, people). */
+  channels: Record<string, HomeChatMembers>;
+  openChat: (target: HomeChatTarget) => void;
+  closeChat: () => void;
+  patchConv: (key: string, patch: Partial<ConvState>) => void;
+  mergeMessages: (key: string, incoming: readonly HomeChatMessage[]) => void;
+  mapMessages: (key: string, fn: (list: HomeChatMessage[]) => HomeChatMessage[]) => void;
+  setSend: (key: string, nonce: string, s: SendState | null) => void;
+  setPeople: (serverId: string, people: HomeChatPeople, at?: number) => void;
+  noteDm: (serverId: string, ext: string, conv: string) => void;
+  setChannel: (key: string, members: HomeChatMembers) => void;
+  noteTyping: (key: string, member: string, now: number) => void;
+  clearTyping: (key: string, member: string) => void;
+  pruneTyping: (now: number) => void;
 }
 
-export const useHomeChatStore = create<HomeChatStore>(() => ({ byServer: {}, rowNotes: {} }));
-
-function patch(serverId: string, p: Partial<HomeChatServerState>): void {
-  useHomeChatStore.setState((s) => ({
-    byServer: { ...s.byServer, [serverId]: { ...(s.byServer[serverId] ?? EMPTY_CHAT_SERVER), ...p } },
-  }));
-}
-
-export function chatServer(serverId: string): HomeChatServerState {
-  return useHomeChatStore.getState().byServer[serverId] ?? EMPTY_CHAT_SERVER;
-}
-
-/** Seed one server (preview harness, tests). */
-export function seedHomeChatServer(serverId: string, p: Partial<HomeChatServerState>): void {
-  patch(serverId, p);
-}
-
-// The gate's own changes (a closing refusal, the socket's flags).
-let gateHooked = false;
-function hookGate(): void {
-  if (gateHooked) return;
-  gateHooked = true;
-  onHomeChatGate((id, gate) => patch(id, { gate }));
-  onServerForget((id) =>
-    useHomeChatStore.setState((s) => {
-      if (!(id in s.byServer)) return s;
-      const byServer = { ...s.byServer };
-      delete byServer[id];
-      return { byServer };
-    })
-  );
-}
-
-const inflight = new Map<string, Promise<unknown>>();
-function once<T>(key: string, run: () => Promise<T>): Promise<T> {
-  const running = inflight.get(key) as Promise<T> | undefined;
-  if (running) return running;
-  const p = run().finally(() => inflight.delete(key));
-  inflight.set(key, p);
-  return p;
-}
-
-/** Read `serverId`'s gate (fresh for 2 min unless `force`). Never throws. */
-export async function refreshChatGate(serverId: string, force = false): Promise<HomeChatGate | null> {
-  if (!serverId) return null;
-  hookGate();
-  try {
-    const scope = scopeFor(serverId);
-    const gate = await refreshHomeChatGate(scope, { force });
-    patch(serverId, { gate });
-    return gate;
-  } catch {
-    return null;
-  }
-}
-
-/** The gate as this store knows it (no I/O). */
-export function chatGateOffered(serverId: string): boolean {
-  return !!chatServer(serverId).gate?.offered;
-}
-
-/** Read `serverId`'s people (when its gate is open). */
-export function refreshChatPeople(serverId: string, force = false): Promise<void> {
-  return once(`people|${serverId}`, async () => {
-    const st = chatServer(serverId);
-    if (!st.gate?.offered) return;
-    if (!force && st.peopleAt !== null && Date.now() - st.peopleAt < HOME_CHAT_LIST_FRESH_MS) return;
-    const r = await fetchHomeChatPeople(scopeFor(serverId));
-    if (r.ok) patch(serverId, { people: { me: r.me, people: r.people }, peopleAt: Date.now(), peopleError: null });
-    else patch(serverId, { peopleError: r.hint || r.code });
-  });
-}
-
-/** Read `serverId`'s channels (the first page of Sew browse). */
-export function refreshChatChannels(serverId: string, force = false): Promise<void> {
-  return once(`channels|${serverId}`, async () => {
-    const st = chatServer(serverId);
-    if (!st.gate?.offered) return;
-    if (!force && st.channelsAt !== null && Date.now() - st.channelsAt < HOME_CHAT_LIST_FRESH_MS) return;
-    const r = await fetchHomeChatChannels(scopeFor(serverId));
-    if (r.ok) patch(serverId, { channels: r.channels, channelsAt: Date.now(), channelsError: null });
-    else patch(serverId, { channelsError: r.hint || r.code });
-  });
-}
-
-/** Read `serverId`'s summary (every conversation's badge). */
-export function refreshChatSummary(serverId: string): Promise<void> {
-  return once(`summary|${serverId}`, async () => {
-    if (!chatServer(serverId).gate?.offered) return;
-    const r = await fetchHomeChatSummary(scopeFor(serverId));
-    if (r.ok) patch(serverId, { summary: { chat: r.chat, convs: r.convs }, summaryError: null });
-    else patch(serverId, { summaryError: r.hint || r.code });
-  });
-}
-
-/** Gate, then (when open) summary and people: what Home's rows need. */
-export async function refreshChatServer(serverId: string, opts: { people?: boolean; channels?: boolean } = {}): Promise<void> {
-  const gate = await refreshChatGate(serverId);
-  if (!gate?.offered) return;
-  await Promise.all([
-    refreshChatSummary(serverId),
-    opts.people === false ? Promise.resolve() : refreshChatPeople(serverId),
-    opts.channels ? refreshChatChannels(serverId) : Promise.resolve(),
-  ]);
-}
-
-export function noteChatDm(serverId: string, ext: string, conv: string): void {
-  const st = chatServer(serverId);
-  if (st.dms[ext] === conv) return;
-  patch(serverId, { dms: { ...st.dms, [ext]: conv } });
-}
-
-const NOTE_MS = 4_000;
-function noteRow(address: string, words: string): void {
-  useHomeChatStore.setState((s) => ({ rowNotes: { ...s.rowNotes, [address]: words } }));
-  setTimeout(() => {
-    useHomeChatStore.setState((s) => {
-      if (s.rowNotes[address] !== words) return s;
-      const rowNotes = { ...s.rowNotes };
-      delete rowNotes[address];
-      return { rowNotes };
-    });
-  }, NOTE_MS);
-}
-
-/** Open a person or channel row: a person's DM is opened (or made) first
- *  with `/cli/home-chat/dm`; then the chat view (`openHomeChat`). A gate
- *  not read yet is read first; a closed one opens nothing. False (and a
- *  note on the row) when it couldn't. */
-export async function openHomeChatRow(
-  serverId: string,
-  row: { kind: "person" | "channel"; handle: string; title: string; address: string }
-): Promise<boolean> {
-  let gate = chatServer(serverId).gate;
-  if (!gate || gate.checkedAt === null) gate = await refreshChatGate(serverId);
-  if (!gate?.offered) {
-    noteRow(row.address, gate?.pickerLine ?? "No chat on this server.");
-    return false;
-  }
-  let conv = row.kind === "channel" ? row.handle : chatServer(serverId).dms[row.handle] ?? null;
-  if (!conv) {
-    const r = await openHomeChatDm(scopeFor(serverId), row.handle);
-    if (!r.ok) {
-      noteRow(row.address, r.kind === "network" || r.kind === "not_connected" ? "Couldn’t reach the server. Try again." : r.hint || "Couldn’t open the chat.");
-      return false;
-    }
-    conv = r.conv;
-    noteChatDm(serverId, row.handle, conv);
-  }
-  const target: OpenHomeChatTarget = {
-    serverId,
-    kind: row.kind,
-    conversationId: conv,
-    title: row.title,
-    address: row.address,
-    ...(row.kind === "person" ? { ext: row.handle } : {}),
-  };
-  openHomeChat(target);
-  return true;
-}
-
-// ─── Live ───
-
-const SUMMARY_DEBOUNCE_MS = 300;
-
-/** Read `gateIds`' gates (and, where open, summaries and people), and hold
- *  the events sockets of `liveIds` (offered servers only: the servers
- *  whose rows are on screen) to keep their summaries current. A gate that
- *  opens later subscribes then. */
-export function useHomeChatLive(
-  gateIds: readonly string[],
-  liveIds: readonly string[] = gateIds,
-  opts: { people?: boolean } = {}
-): void {
-  const key = [...new Set(gateIds.filter(Boolean))].sort().join("\n");
-  const liveKey = [...new Set(liveIds.filter(Boolean))].sort().join("\n");
-  const offeredKey = useHomeChatStore((s) =>
-    liveKey
-      .split("\n")
-      .filter((id) => id && s.byServer[id]?.gate?.offered)
-      .join("\n")
-  );
-  const wantPeople = opts.people !== false;
-  // Read every gate (and, when open, summary and people).
-  useEffect(() => {
-    for (const id of key ? key.split("\n") : []) void refreshChatServer(id, { people: wantPeople });
-  }, [key, wantPeople]);
-  // One socket per offered server.
-  useEffect(() => {
-    const ids = offeredKey ? offeredKey.split("\n") : [];
-    const timers = new Map<string, ReturnType<typeof setTimeout>>();
-    const soon = (id: string) => {
-      const t = timers.get(id);
-      if (t) clearTimeout(t);
-      timers.set(
-        id,
-        setTimeout(() => {
-          timers.delete(id);
-          void refreshChatSummary(id);
-        }, SUMMARY_DEBOUNCE_MS)
-      );
-    };
-    const unsubs = ids.map((id) => {
-      try {
-        return subscribeHomeChat(
-          scopeFor(id),
-          (f) => {
-            if (f.type === "summary_changed" || f.type === "member_removed" || f.type === "read" || f.type === "message") soon(id);
-            else if (f.type === "status" || f.type === "hello") patch(id, { gate: homeChatGateNow(scopeFor(id)) });
-          },
-          {
-            onLink: (info) => {
-              if (info.up && info.reopened) soon(id);
-            },
-          }
-        );
-      } catch {
-        return () => {};
+export const useHomeChatStore = create<HomeChatStore>((set) => ({
+  open: null,
+  convs: {},
+  sends: {},
+  typing: {},
+  people: {},
+  dms: {},
+  channels: {},
+  openChat: (target) => set({ open: { ...target } }),
+  closeChat: () => set((s) => (s.open ? { open: null } : s)),
+  patchConv: (key, patch) =>
+    set((s) => ({ convs: { ...s.convs, [key]: { ...(s.convs[key] ?? EMPTY_CONV), ...patch } } })),
+  mergeMessages: (key, incoming) =>
+    set((s) => {
+      if (incoming.length === 0) return s;
+      const cur = s.convs[key] ?? EMPTY_CONV;
+      const messages = mergeHomeChatMessages(cur.messages, incoming);
+      return messages === cur.messages ? s : { convs: { ...s.convs, [key]: { ...cur, messages } } };
+    }),
+  mapMessages: (key, fn) =>
+    set((s) => {
+      const cur = s.convs[key];
+      if (!cur) return s;
+      const messages = fn(cur.messages);
+      return messages === cur.messages ? s : { convs: { ...s.convs, [key]: { ...cur, messages } } };
+    }),
+  setSend: (key, nonce, st) =>
+    set((s) => {
+      const cur = { ...(s.sends[key] ?? {}) };
+      if (st) cur[nonce] = st;
+      else if (nonce in cur) delete cur[nonce];
+      else return s;
+      return { sends: { ...s.sends, [key]: cur } };
+    }),
+  setPeople: (serverId, people, at = Date.now()) => set((s) => ({ people: { ...s.people, [serverId]: { people, at } } })),
+  noteDm: (serverId, ext, conv) =>
+    set((s) => {
+      const k = `${serverId}|${ext}`;
+      return s.dms[k] === conv ? s : { dms: { ...s.dms, [k]: conv } };
+    }),
+  setChannel: (key, members) => set((s) => ({ channels: { ...s.channels, [key]: members } })),
+  noteTyping: (key, member, now) =>
+    set((s) => ({ typing: { ...s.typing, [key]: typingNoted(s.typing[key] ?? {}, member, now) } })),
+  clearTyping: (key, member) =>
+    set((s) => {
+      const cur = s.typing[key];
+      if (!cur) return s;
+      const next = typingCleared(cur, member);
+      return next === cur ? s : { typing: { ...s.typing, [key]: next } };
+    }),
+  pruneTyping: (now) =>
+    set((s) => {
+      let changed = false;
+      const typing: Record<string, TypingRoster> = {};
+      for (const [k, roster] of Object.entries(s.typing)) {
+        const next = typingPruned(roster, now);
+        if (next !== roster) changed = true;
+        if (Object.keys(next).length > 0) typing[k] = next;
+        else if (Object.keys(roster).length > 0) changed = true;
       }
-    });
-    return () => {
-      for (const u of unsubs) u();
-      for (const t of timers.values()) clearTimeout(t);
-    };
-  }, [offeredKey]);
+      return changed ? { typing } : s;
+    }),
+}));
+
+/** Open a DM or a channel on its server (the view slides over Zen; swipe
+ *  back or Back closes it). For a DM known only by person, pass `ext` and
+ *  `conversationId: null`. Gate first (`homeChatOffered`): this never
+ *  checks it. */
+export function openHomeChat(target: HomeChatTarget): void {
+  useHomeChatStore.getState().openChat(target);
 }
 
-/** Some server in `serverIds` offers people and channels (the gate is
- *  open): Add to Home shows its People and Channels tabs. */
-export function useAnyChatOffered(serverIds: readonly string[]): boolean {
-  const key = useMemo(() => serverIds.join("\n"), [serverIds]);
-  return useHomeChatStore((s) => (key ? key.split("\n") : []).some((id) => !!s.byServer[id]?.gate?.offered));
+/** Close the open Home chat (if any). */
+export function closeHomeChat(): void {
+  useHomeChatStore.getState().closeChat();
 }
 
-/** Tests only. */
-export function __resetHomeChatStoreForTests(): void {
-  useHomeChatStore.setState({ byServer: {}, rowNotes: {} });
-  inflight.clear();
+/** A channel the person left or deleted here: other parts (Home rows)
+ *  hear it to drop or grey the row. */
+export type HomeChatGone = { serverId: string; conv: string; why: "left" | "deleted" };
+const goneListeners = new Set<(g: HomeChatGone) => void>();
+
+export function onHomeChatGone(fn: (g: HomeChatGone) => void): () => void {
+  goneListeners.add(fn);
+  return () => {
+    goneListeners.delete(fn);
+  };
+}
+
+export function noteHomeChatGone(g: HomeChatGone): void {
+  for (const fn of [...goneListeners]) {
+    try {
+      fn(g);
+    } catch {
+      /* a listener never breaks the sheet */
+    }
+  }
+}
+
+// ─── Hooks for DM calls (another part wires calls) ───
+
+/** The open conversation, as the call hooks get it. */
+export interface HomeChatConversation {
+  serverId: string;
+  kind: "dm" | "channel";
+  conversationId: string;
+  title: string;
+  /** A DM's other person, when known. */
+  ext: string | null;
+}
+
+export interface HomeChatCallHooks {
+  /** A call record line's "Call back" (absent: no button). */
+  onCallBack?: (conversation: HomeChatConversation) => void;
+  /** Buttons at the right of a DM's header (the Call button), given the
+   *  conversation once it is known (null while the DM opens). */
+  HeaderActions?: ComponentType<{ conversation: HomeChatConversation | null; target: HomeChatTarget }>;
+}
+
+export const useHomeChatCallHooks = create<HomeChatCallHooks>(() => ({}));
+
+/** The calls part registers its Call button and Call back here; the host
+ *  passes them to the view (props given to `HomeChatView` directly win). */
+export function setHomeChatCallHooks(hooks: HomeChatCallHooks): void {
+  useHomeChatCallHooks.setState(hooks, true);
+}
+
+/** Tests and the preview: forget everything. */
+export function resetHomeChatStore(): void {
+  useHomeChatStore.setState({ open: null, convs: {}, sends: {}, typing: {}, people: {}, dms: {}, channels: {} });
+  goneListeners.clear();
 }

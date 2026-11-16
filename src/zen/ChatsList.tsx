@@ -72,7 +72,7 @@ import { MAX_PINS, displayRows, isPinned as isRowPinned, pinnedRows, planRowDrop
 import { HomeTabToggle } from "./HomeTabToggle";
 import { parseHomeAddress, readListTab, selectedHome, useHomesStore, writeListTab, type ListTab } from "./homes";
 import { homeRowMatches, renameRepairFor, resolveHomeRows, rowsAcrossHomes, serverDisplayName, type HomeRowView } from "./homeView";
-import { useAnyChatOffered, useHomeChatLive } from "./homeChat/homeChatStore";
+import { useAnyChatOffered, useHomeChatGoneRows, useHomeChatLive } from "./homeChat/homeChatRowsStore";
 import type { ChatPickServer } from "./homeChat/AddToHomePanels";
 import { HomeConfirmHost } from "./homeChat/HomeConfirmSheet";
 import { boxIdForSaved, homeHostFor, useHomeServerIds } from "./homeServerIds";
@@ -571,6 +571,8 @@ export function ChatsList() {
   );
   useHomeChatLive(onHome ? chatServerIds : [], onHome && zenScreen === "list" ? chatLiveIds : []);
   const chatOffered = useAnyChatOffered(chatServerIds);
+  // A channel left in the chat view comes off Home; one deleted greys.
+  useHomeChatGoneRows(true);
   const otherHomeOf = across
     ? (address: string) => {
         const h = across.homeOf.get(address);

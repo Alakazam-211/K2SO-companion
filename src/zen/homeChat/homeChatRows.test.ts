@@ -2,8 +2,8 @@ import { describe, expect, it } from "vitest";
 import type { HomeChatGate } from "../../api/homeChat";
 import { HOME_CHAT_COPY_MAC, HOME_CHAT_COPY_NO_CHAT, NO_HOME_CHAT_FLAGS, type HomeChatSummary } from "../../api/homeChatPure";
 import { unreadCountText } from "../unread";
+import { PERSON_COLORS, personColor, personInitials, personInk, relativeLuminance } from "./homeChatModel";
 import {
-  PERSON_COLORS,
   badgeUnread,
   channelInviteOnly,
   channelRow,
@@ -12,12 +12,8 @@ import {
   chatRowQuiet,
   matchesElsewhere,
   mightBeSamePerson,
-  personColor,
-  personInitials,
-  personInk,
   personRow,
-  pickablePerson,
-  relativeLuminance,
+  canAddPerson,
   samePersonCopy,
   summaryRowFor,
 } from "./homeChatRows";
@@ -61,12 +57,11 @@ describe("person colour (brief §2.5, §5 item 9)", () => {
     expect(personInk("#ffffff")).toBe("#000000");
   });
 
-  it("initials: two parts give two letters; owner reads Owner", () => {
-    expect(personInitials("Ana Ruiz")).toBe("AR");
-    expect(personInitials("chloe")).toBe("C");
-    expect(personInitials("owner")).toBe("O");
-    expect(personInitials("  ")).toBe("?");
-    expect(personInitials("élodie dupont")).toBe("ÉD");
+  it("initials (the chat view's, shared): two parts give two letters at row sizes; owner reads Owner", () => {
+    expect(personInitials("Ana Ruiz", 50)).toBe("AR");
+    expect(personInitials("chloe", 50)).toBe("C");
+    expect(personInitials("owner", 50)).toBe("O");
+    expect(personInitials("  ", 50)).toBe("?");
   });
 });
 
@@ -118,8 +113,8 @@ describe("rows", () => {
 
   it("pickable: ready people only", () => {
     const base = { ext: "k2:owner", username: "owner", displayName: "O", picture: null, role: null, memberId: "1" };
-    expect(pickablePerson({ ...base, ready: true })).toBe(true);
-    expect(pickablePerson({ ...base, ready: false })).toBe(false);
+    expect(canAddPerson({ ...base, ready: true })).toBe(true);
+    expect(canAddPerson({ ...base, ready: false })).toBe(false);
   });
 
   it("finds a row's summary: channel by id; person by the opened DM, else `with`", () => {

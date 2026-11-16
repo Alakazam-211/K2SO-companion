@@ -50,6 +50,7 @@ import { ServerChip } from "../zen/room/ServerChip";
 import { ZEN_SERVER_PARAM, resolveServerRef, withServerParam } from "../zen/room/serverRef";
 import { OverlayAddServer } from "../zen/OverlayAddServer";
 import { PairLinkHost } from "../zen/PairLinkHost";
+import { HomeChatHost } from "../zen/homeChat/HomeChatHost";
 import { UsagePage } from "../zen/UsagePage";
 import { pool } from "../zen/multi/pool";
 import { FileIcon, SearchIcon, TerminalIcon } from "../zen/icons";
@@ -1161,6 +1162,8 @@ export function Zen() {
           <UsagePage serverId={usageServerId} onBack={() => setUsageServerId(null)} />
         </div>
       ) : null}
+      {/* A DM or channel on Home (openHomeChat), over everything above. */}
+      <HomeChatHost />
       <PairLinkHost />
     </div>
   );

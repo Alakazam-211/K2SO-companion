@@ -3,9 +3,10 @@
 // Cancel. `askHome({...})` resolves the picked choice's id, or null for
 // Cancel, Back, or a tap outside: a Cancel never does anything.
 //
-// Used by Remove from Home on a person or channel row, the "Same person?"
-// question (§2.4: Same person / Different person + Cancel), and a
-// channel's Delete ("Delete #name?", Keep it).
+// Used by Remove from Home on a person or channel row and the "Same
+// person?" question (§2.4: Same person / Different person + Cancel). A
+// channel's Delete is the chat view's (`HomeChatConfirmSheet`, in the
+// members sheet).
 
 import { createPortal } from "react-dom";
 import { create } from "zustand";
@@ -65,19 +66,6 @@ export async function confirmRemoveChatRow(name: string, groupName: string, kind
     testId: "home-remove-confirm",
   });
   return id === "remove";
-}
-
-/** A channel's Delete (desktop: "Delete #name?" with Keep it focused):
- *  archives it; its history stays. */
-export async function confirmDeleteChannel(name: string): Promise<boolean> {
-  const id = await askHome({
-    title: `Delete #${name}?`,
-    body: "Everyone loses it from their Home. Its history stays on the server.",
-    choices: [{ id: "delete", label: "Delete", danger: true }],
-    cancelLabel: "Keep it",
-    testId: "channel-delete-confirm",
-  });
-  return id === "delete";
 }
 
 /** The sheet; mount once where Home is. */
