@@ -22,9 +22,10 @@ import { useThreadFilesOn } from "./ThreadFiles";
 import { Switch } from "./ZenSettings";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 
-const MUTED = "#8e8e93";
-const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
-const RED = "#ef4444";
+const MUTED = "var(--color-text-muted)";
+const HAIRLINE = "0.5px solid var(--color-wash-2)";
+/** Destructive and error words. */
+const RED = "var(--color-status-error-text)";
 const PILL_H = 36;
 /** Resting header content height (below the safe area): title + subtitle. */
 export const SERVER_SETTINGS_HEADER_PX = 60;
@@ -85,7 +86,7 @@ export function ServerSettingsPage({
     <div
       ref={swipeRef}
       className="absolute inset-0 flex flex-col min-w-0 overflow-x-hidden"
-      style={{ background: "#000", zIndex: 7, fontFamily: "var(--zen-font)" }}
+      style={{ background: "var(--color-bg)", color: "var(--color-text-primary)", zIndex: 7, fontFamily: "var(--zen-font)" }}
       data-testid="server-settings-page"
     >
       <header
@@ -104,7 +105,7 @@ export function ServerSettingsPage({
             onClick={onBack}
             data-testid="server-settings-back"
             className="flex items-center justify-center shrink-0 justify-self-start zen-glass zen-glass-pill"
-            style={{ width: PILL_H, height: PILL_H, color: "#fff", pointerEvents: "auto" }}
+            style={{ width: PILL_H, height: PILL_H, color: "var(--color-text-primary)", pointerEvents: "auto" }}
             aria-label="Back to servers"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -220,7 +221,7 @@ export function ServerSettingsPage({
                 <button
                   type="button"
                   className="flex-1 text-[17px] k2-tile"
-                  style={{ minHeight: 40, borderRadius: 12, color: "#fff" }}
+                  style={{ minHeight: 40, borderRadius: 12, color: "var(--color-text-primary)" }}
                   data-testid="server-settings-remove-cancel"
                   onClick={() => setConfirmingRemove(false)}
                 >
@@ -229,7 +230,7 @@ export function ServerSettingsPage({
                 <button
                   type="button"
                   className="flex-1 text-[17px] font-semibold"
-                  style={{ minHeight: 40, borderRadius: 12, color: "#fff", background: RED }}
+                  style={{ minHeight: 40, borderRadius: 12, color: "var(--color-on-danger)", background: "var(--color-danger)" }}
                   data-testid="server-settings-remove-confirm-button"
                   onClick={() => {
                     useServersStore.getState().removeServer(serverId);
@@ -486,7 +487,7 @@ function PairingGroup({ serverId, paired }: { serverId: string; paired: boolean 
           {justPaired ? (
             <p
               className="text-[15px] font-semibold flex items-center"
-              style={{ color: "#30d158", padding: "4px 16px 4px", gap: 6 }}
+              style={{ color: "var(--color-status-ok)", padding: "4px 16px 4px", gap: 6 }}
               data-testid="server-settings-pair-success"
             >
               <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -522,11 +523,11 @@ function PairingGroup({ serverId, paired }: { serverId: string; paired: boolean 
             spellCheck={false}
             disabled={busy}
             className="k2-tile w-full"
-            style={{ minHeight: 40, padding: "0 14px", borderRadius: 10, color: "#fff", fontSize: 16, marginTop: 10 }}
+            style={{ minHeight: 40, padding: "0 14px", borderRadius: 10, color: "var(--color-text-primary)", fontSize: 16, marginTop: 10 }}
             data-testid="server-settings-pair-password"
           />
           {busy && stepText ? (
-            <p className="text-[13px]" style={{ color: "#fff", marginTop: 8 }} aria-live="polite" data-testid="server-settings-pair-step">
+            <p className="text-[13px]" style={{ color: "var(--color-text-primary)", marginTop: 8 }} aria-live="polite" data-testid="server-settings-pair-step">
               {stepText}
             </p>
           ) : null}
@@ -539,7 +540,7 @@ function PairingGroup({ serverId, paired }: { serverId: string; paired: boolean 
             <button
               type="button"
               className="flex-1 text-[17px] k2-tile"
-              style={{ minHeight: 40, borderRadius: 12, color: "#fff" }}
+              style={{ minHeight: 40, borderRadius: 12, color: "var(--color-text-primary)" }}
               disabled={busy}
               onClick={() => {
                 setOpen(false);
@@ -552,7 +553,7 @@ function PairingGroup({ serverId, paired }: { serverId: string; paired: boolean 
             <button
               type="button"
               className="flex-1 text-[17px] font-semibold"
-              style={{ minHeight: 40, borderRadius: 12, color: "#fff", background: "#0a84ff", opacity: !password || busy ? 0.4 : 1 }}
+              style={{ minHeight: 40, borderRadius: 12, color: "var(--color-on-accent)", background: "var(--color-accent-fill)", opacity: !password || busy ? 0.4 : 1 }}
               disabled={!password || busy}
               onClick={() => void onSwitch()}
               data-testid="server-settings-pair-confirm"
@@ -565,7 +566,7 @@ function PairingGroup({ serverId, paired }: { serverId: string; paired: boolean 
         <button
           type="button"
           className="w-full text-left text-[17px]"
-          style={{ minHeight: 44, padding: "11px 16px", color: "#0a84ff", borderTop: HAIRLINE }}
+          style={{ minHeight: 44, padding: "11px 16px", color: "var(--color-accent-text)", borderTop: HAIRLINE }}
           onClick={() => setOpen(true)}
           data-testid="server-settings-pair-open"
         >

@@ -7,8 +7,8 @@ import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { BackArrowButton } from "./BackArrowButton";
 import { agentPermissionRows, agentSettingRows, projectRowOf, type AgentInfoRow } from "./agentSettings";
 
-const MUTED = "#8e8e93";
-const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
+const MUTED = "var(--color-text-muted)";
+const HAIRLINE = "0.5px solid var(--color-wash-2)";
 
 type Loaded = { settings: AgentInfoRow[]; permissions: AgentInfoRow[] };
 
@@ -81,7 +81,7 @@ export function AgentSettingsPage({
   return createPortal(
     <div
       className="fixed inset-0 flex flex-col zen-font"
-      style={{ background: "#000", color: "#fff", zIndex: 76, paddingTop: "env(safe-area-inset-top)" }}
+      style={{ background: "var(--color-bg)", color: "var(--color-text-primary)", zIndex: 76, paddingTop: "env(safe-area-inset-top)" }}
       data-testid="agent-settings-page"
     >
       <div

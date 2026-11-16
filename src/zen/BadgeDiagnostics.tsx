@@ -9,8 +9,8 @@ import {
 import { useServersStore } from "../stores/servers";
 import { e2eDiagnostics, type E2eDiagnostics } from "../lib/pushE2e";
 
-const MUTED = "#8e8e93";
-const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
+const MUTED = "var(--color-text-muted)";
+const HAIRLINE = "0.5px solid var(--color-wash-2)";
 
 /** "Oct 17, 3:04 PM"-style local time, or "Never". */
 export function formatLastReceived(ms: number | null): string {

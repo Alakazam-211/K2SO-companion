@@ -55,10 +55,10 @@ type RecoveryKey = "connected" | "reconnecting" | "reauthenticating" | "signin-r
 
 /** Dot color per recovery state. */
 export const RECOVERY_DOT: Record<RecoveryKey, string> = {
-  connected: "#22c55e",
-  reconnecting: "#f59e0b",
-  reauthenticating: "#f59e0b",
-  "signin-required": "#ef4444",
+  connected: "var(--color-status-ok)",
+  reconnecting: "var(--color-status-warn)",
+  reauthenticating: "var(--color-status-warn)",
+  "signin-required": "var(--color-status-error)",
 };
 
 /** Lower-case state word under a server row. */

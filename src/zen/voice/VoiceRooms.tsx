@@ -83,7 +83,7 @@ function useRooms(server: ServerEntry): VoiceRoomsResult | null {
 }
 
 function Occupants({ room }: { room: VoiceRoom }) {
-  if (room.occupants.length === 0) return <span style={{ color: "#8e8e93" }}>Empty</span>;
+  if (room.occupants.length === 0) return <span style={{ color: "var(--color-text-muted)" }}>Empty</span>;
   const names = room.occupants.map((o) => o.name ?? o.user);
   const shown = names.slice(0, 3).join(", ");
   return <span>{names.length > 3 ? `${shown} and ${names.length - 3} more` : shown}</span>;
@@ -116,16 +116,16 @@ function RoomRow({ server, room }: { server: ServerEntry; room: VoiceRoom }) {
       data-testid={`voice-room-${server.id}-${room.id}`}
     >
       <div className="min-w-0 flex-1">
-        <div className="text-[16px] truncate" style={{ color: "#fff" }}>
+        <div className="text-[16px] truncate" style={{ color: "var(--color-text-primary)" }}>
           {room.name}
           {room.limit !== null ? (
-            <span className="text-[13px]" style={{ color: "#8e8e93" }}>
+            <span className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>
               {" "}
               · {room.occupants.length}/{room.limit}
             </span>
           ) : null}
         </div>
-        <div className="text-[13px] truncate" style={{ color: "#c7c7cc" }}>
+        <div className="text-[13px] truncate" style={{ color: "var(--color-text-secondary)" }}>
           <Occupants room={room} />
         </div>
       </div>
@@ -134,7 +134,7 @@ function RoomRow({ server, room }: { server: ServerEntry; room: VoiceRoom }) {
           <button
             type="button"
             className="zen-glass zen-glass-pill flex items-center justify-center"
-            style={{ minHeight: 34, width: 40, padding: 0, color: "#fff" }}
+            style={{ minHeight: 34, width: 40, padding: 0, color: "var(--color-text-primary)" }}
             onClick={() => join(true)}
             aria-label={`Join ${room.name} with camera`}
             data-testid="voice-room-join-camera"
@@ -145,7 +145,7 @@ function RoomRow({ server, room }: { server: ServerEntry; room: VoiceRoom }) {
         <button
           type="button"
           className="zen-glass zen-glass-pill text-[15px]"
-          style={{ minHeight: 34, padding: "0 16px", color: "#fff", opacity: full || closed ? 0.4 : 1 }}
+          style={{ minHeight: 34, padding: "0 16px", color: "var(--color-text-primary)", opacity: full || closed ? 0.4 : 1 }}
           disabled={full || closed}
           onClick={() => join(false)}
           data-testid="voice-room-join"
@@ -168,13 +168,13 @@ function MeOffer({ server, list }: { server: ServerEntry; list: VoiceRoomsList }
   if (!offer || !room || (call.room?.serverId === server.id && call.room.roomId === room.id)) return null;
   return (
     <div className="flex items-center" style={{ gap: 10, padding: "10px 14px" }} data-testid="voice-me-offer">
-      <span className="min-w-0 flex-1 text-[14px]" style={{ color: "#c7c7cc" }}>
+      <span className="min-w-0 flex-1 text-[14px]" style={{ color: "var(--color-text-secondary)" }}>
         {offer.line}
       </span>
       <button
         type="button"
         className="zen-glass zen-glass-pill text-[14px] shrink-0"
-        style={{ minHeight: 34, padding: "0 14px", color: "#30d158" }}
+        style={{ minHeight: 34, padding: "0 14px", color: "var(--color-status-ok)" }}
         onClick={() =>
           void call.join({
             serverId: server.id,
@@ -203,16 +203,16 @@ function ServerRooms({ server }: { server: ServerEntry }) {
   }, [put, rooms, server.id]);
   return (
     <section style={{ marginBottom: 18 }} data-testid={`voice-server-${server.id}`}>
-      <h2 className="text-[13px] uppercase" style={{ color: "#8e8e93", padding: "0 14px 6px", letterSpacing: 0.4 }}>
+      <h2 className="text-[13px] uppercase" style={{ color: "var(--color-text-muted)", padding: "0 14px 6px", letterSpacing: 0.4 }}>
         {label}
       </h2>
       <div className="k2-tile" style={{ borderRadius: 14, overflow: "hidden" }}>
         {!r ? (
-          <p className="text-[14px]" style={{ padding: 14, color: "#8e8e93" }}>
+          <p className="text-[14px]" style={{ padding: 14, color: "var(--color-text-muted)" }}>
             Loading…
           </p>
         ) : !r.ok ? (
-          <p className="text-[14px]" style={{ padding: 14, color: "#8e8e93" }} data-testid="voice-server-problem">
+          <p className="text-[14px]" style={{ padding: 14, color: "var(--color-text-muted)" }} data-testid="voice-server-problem">
             {r.code === "device_session_ended"
               ? `This phone was signed out of ${label}. Pair it again to see its rooms.`
               : r.code === "signin_required"
@@ -222,7 +222,7 @@ function ServerRooms({ server }: { server: ServerEntry }) {
                   : `Couldn't load ${label}'s rooms.`}
           </p>
         ) : r.list.rooms.length === 0 ? (
-          <p className="text-[14px]" style={{ padding: 14, color: "#8e8e93" }}>
+          <p className="text-[14px]" style={{ padding: 14, color: "var(--color-text-muted)" }}>
             {hostingStateText(r.list.hosting) ?? "No voice rooms yet."}
           </p>
         ) : (
@@ -258,7 +258,7 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
       <button
         type="button"
         className="w-full text-left text-[14px] k2-tile"
-        style={{ padding: 12, marginBottom: 14, borderRadius: 12, color: "#ffd60a" }}
+        style={{ padding: 12, marginBottom: 14, borderRadius: 12, color: "var(--color-status-warn-text)" }}
         onClick={clearNotice}
         data-testid="voice-notice"
       >
@@ -270,7 +270,9 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
     <div
       ref={swipeRef}
       className="absolute inset-0 flex flex-col"
-      style={{ background: "#000", zIndex: 6 }}
+      // In a call the page stays dark: Sew's kit draws on it in white, the
+      // call screen being dark in every palette.
+      style={{ background: inCall ? "#000" : "var(--color-bg)", color: inCall ? "#fff" : "var(--color-text-primary)", zIndex: 6 }}
       data-testid="overlay-voice"
     >
       <header
@@ -306,7 +308,7 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
         >
           {noticeLine}
           {list.length === 0 ? (
-            <p className="text-[14px]" style={{ padding: 14, color: "#8e8e93" }} data-testid="voice-empty">
+            <p className="text-[14px]" style={{ padding: 14, color: "var(--color-text-muted)" }} data-testid="voice-empty">
               No voice rooms yet. Rooms show here from Linux servers with Pro that you're signed in to.
             </p>
           ) : (
@@ -337,14 +339,14 @@ function SendCallLog() {
       <button
         type="button"
         className="zen-glass zen-glass-pill text-[14px]"
-        style={{ minHeight: 34, padding: "0 14px", color: "#fff", opacity: busy ? 0.5 : 1 }}
+        style={{ minHeight: 34, padding: "0 14px", color: "var(--color-text-primary)", opacity: busy ? 0.5 : 1 }}
         disabled={busy}
         onClick={() => void send()}
         data-testid="voice-send-log"
       >
         Send call log
       </button>
-      <p className="text-[12px]" style={{ color: "#8e8e93", marginTop: 6 }}>
+      <p className="text-[12px]" style={{ color: "var(--color-text-muted)", marginTop: 6 }}>
         {failed
           ? "Couldn't get the call log. Try again."
           : "For when a call misbehaves: call events and error codes with times. No names, addresses or audio."}
@@ -377,16 +379,16 @@ export function ConsentSheet() {
         padding: 16,
         borderRadius: 16,
         zIndex: 5,
-        background: "#1c1c1e",
+        background: "var(--color-bg-surface)",
       }}
       role="dialog"
       aria-labelledby="voice-consent-title"
       data-testid="voice-consent"
     >
-      <h2 id="voice-consent-title" className="text-[17px] font-semibold" style={{ color: "#fff", marginBottom: 8 }}>
+      <h2 id="voice-consent-title" className="text-[17px] font-semibold" style={{ color: "var(--color-text-primary)", marginBottom: 8 }}>
         {sheet.title}
       </h2>
-      <p className="text-[14px]" style={{ color: "#c7c7cc", whiteSpace: "pre-line", marginBottom: 14 }}>
+      <p className="text-[14px]" style={{ color: "var(--color-text-secondary)", whiteSpace: "pre-line", marginBottom: 14 }}>
         {sheet.text}
       </p>
       <div className="flex flex-col" style={{ gap: 8 }}>
@@ -395,7 +397,7 @@ export function ConsentSheet() {
             key={c.label}
             type="button"
             className="zen-glass zen-glass-pill text-[15px]"
-            style={{ minHeight: 40, padding: "0 14px", color: "#fff" }}
+            style={{ minHeight: 40, padding: "0 14px", color: "var(--color-text-primary)" }}
             onClick={() => void answer(c.granted)}
             data-testid="voice-consent-choice"
           >
@@ -412,10 +414,10 @@ function CallLine({ room, status }: { room: CallRoom; status: string }) {
   const time = useCallDuration();
   return (
     <div className="min-w-0" data-testid="voice-call-line">
-      <div className="text-[15px] truncate" style={{ color: "#fff" }}>
+      <div className="text-[15px] truncate" style={{ color: "var(--color-text-primary)" }}>
         {room.roomName}
       </div>
-      <div className="text-[12px] truncate" style={{ color: "#30d158" }}>
+      <div className="text-[12px] truncate" style={{ color: "var(--color-status-ok)" }}>
         {status} · {room.serverLabel}
         {time ? <span style={{ fontVariantNumeric: "tabular-nums" }}> · {time}</span> : null}
       </div>

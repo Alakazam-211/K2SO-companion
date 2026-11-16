@@ -32,7 +32,7 @@ export function AcknowledgementsPage({ onBack }: { onBack: () => void }) {
   return (
     <div
       className="absolute inset-0 flex flex-col"
-      style={{ background: "#000", zIndex: 7, paddingTop: "env(safe-area-inset-top)" }}
+      style={{ background: "var(--color-bg)", color: "var(--color-text-primary)", zIndex: 7, paddingTop: "env(safe-area-inset-top)" }}
       data-testid="acknowledgements-page"
     >
       <div
@@ -48,13 +48,13 @@ export function AcknowledgementsPage({ onBack }: { onBack: () => void }) {
         style={{ padding: "4px 16px calc(24px + var(--safe-bottom))", WebkitOverflowScrolling: "touch" }}
       >
         {failed ? (
-          <p className="text-[15px]" style={{ color: "var(--text-muted)" }} data-testid="acknowledgements-failed">
+          <p className="text-[15px]" style={{ color: "var(--color-text-muted)" }} data-testid="acknowledgements-failed">
             Couldn't load the acknowledgements.
           </p>
         ) : (
           <pre
             className="text-[12px] whitespace-pre-wrap break-words"
-            style={{ color: "var(--text-secondary)", userSelect: "text", WebkitUserSelect: "text" }}
+            style={{ color: "var(--color-text-secondary)", userSelect: "text", WebkitUserSelect: "text" }}
             data-testid="acknowledgements-text"
           >
             {text ?? ""}

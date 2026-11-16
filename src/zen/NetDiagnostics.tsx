@@ -1,7 +1,7 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
 import { netStatsVersion, netSummary, subscribeNetStats, type NetEvent, type NetReturn, type NetSummary } from "../lib/netStats";
 
-const MUTED = "#8e8e93";
+const MUTED = "var(--color-text-muted)";
 
 /** "18 requests, 2 sockets in 10 s after 42 s away (thread ×4, …)". */
 export function returnLine(r: NetReturn): string {
@@ -79,7 +79,7 @@ export function NetRow({ serverUrl }: { serverUrl: string }) {
                   {l}
                 </div>
               ))}
-              <div style={{ color: "#fff", marginTop: 6 }}>Returns to the app (all servers, first 10 s)</div>
+              <div style={{ color: "var(--color-text-primary)", marginTop: 6 }}>Returns to the app (all servers, first 10 s)</div>
               {s.returns.length === 0 ? (
                 <div>None yet this session.</div>
               ) : (
@@ -91,7 +91,7 @@ export function NetRow({ serverUrl }: { serverUrl: string }) {
               )}
               {s.events.length ? (
                 <>
-                  <div style={{ color: "#fff", marginTop: 6 }}>Events</div>
+                  <div style={{ color: "var(--color-text-primary)", marginTop: 6 }}>Events</div>
                   {s.events.map((e, i) => (
                     <div key={`${e.at}-${i}`} data-testid="net-event-row">
                       {eventLine(e)}

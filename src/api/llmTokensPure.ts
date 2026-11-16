@@ -94,12 +94,13 @@ export const STATE_LABELS: Record<string, string> = {
   unknown: "Unknown",
 };
 
+/** Status dot per state: Glass palette tokens (src/theme). */
 export const STATE_COLORS: Record<string, string> = {
-  signed_in: "#22c55e",
-  needs_login: "#ef4444",
-  signing_in: "#eab308",
-  not_set_up: "#6b7280",
-  unknown: "#6b7280",
+  signed_in: "var(--color-status-ok)",
+  needs_login: "var(--color-status-error)",
+  signing_in: "var(--color-status-warn)",
+  not_set_up: "var(--color-neutral)",
+  unknown: "var(--color-neutral)",
 };
 
 /** The page's standing note (Riley, 2026-10-17). */
