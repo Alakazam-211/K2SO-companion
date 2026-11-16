@@ -1,0 +1,364 @@
+{
+  "$schema": "../../style.schema.json#/$defs/palette",
+  "id": "yellow",
+  "name": "Dusk",
+  "schemes": [
+    "dark"
+  ],
+  "color": {
+    "bg": {
+      "$value": "#100f0e",
+      "$type": "color"
+    },
+    "bg-surface": {
+      "$value": "#1b1a18",
+      "$type": "color"
+    },
+    "bg-elevated": {
+      "$value": "#252320",
+      "$type": "color"
+    },
+    "bg-inset": {
+      "$value": "#171614",
+      "$type": "color"
+    },
+    "bg-stripe": {
+      "$value": "#1b1a18",
+      "$type": "color"
+    },
+    "bg-canvas": {
+      "$value": "#100f0e",
+      "$type": "color"
+    },
+    "bg-hover": {
+      "$value": "rgba(255, 255, 255, 0.08)",
+      "$type": "color"
+    },
+    "border": {
+      "$value": "#33302b",
+      "$type": "color"
+    },
+    "border-strong": {
+      "$value": "rgba(255, 255, 255, 0.28)",
+      "$type": "color"
+    },
+    "text-primary": {
+      "$value": "#eae6de",
+      "$type": "color"
+    },
+    "text-secondary": {
+      "$value": "#bab2a4",
+      "$type": "color"
+    },
+    "control-edge": { "$value": "#807a6f", "$type": "color" },
+    "control-hover": { "$value": "var(--color-border)", "$type": "color", "$description": "Hover fill of the default Button (an elevated chip at rest). Glass keeps the border step; its tile buttons hover by the Glass rules in globals." },
+    "control-hover-quiet": { "$value": "var(--color-bg-elevated)", "$type": "color", "$description": "Hover fill of the quiet Button (clear at rest, so the card or page shows). Glass hovers its tile buttons by the Glass rules in globals; this is the fallback." },
+    "divider": { "$value": "#59554c", "$type": "color", "$description": "Short dividers between items in a row: tab-strip tabs, top-bar groups. Between border and control-edge, about 2:1 on the tab strip and the top bar capsule." },
+    "text-muted": {
+      "$value": "#a09a8e",
+      "$type": "color"
+    },
+    "accent": {
+      "$value": "#ffc700",
+      "$type": "color",
+      "$description": "Bezel's gold."
+    },
+    "accent-hover": {
+      "$value": "#ffd54d",
+      "$type": "color"
+    },
+    "accent-soft": {
+      "$value": "#ffe38a",
+      "$type": "color"
+    },
+    "on-accent": {
+      "$value": "#1a1400",
+      "$type": "color",
+      "$description": "Ink on gold: white fails contrast on #ffc700."
+    },
+    "on-danger": {
+      "$value": "#ffffff",
+      "$type": "color",
+      "$description": "The label on a danger fill (danger, danger-active, danger-muted): 4.5:1 on each."
+    },
+    "on-warn": {
+      "$value": "#1a1400",
+      "$type": "color",
+      "$description": "The ink on a warning or needs-you fill (the Tickets count): 4.5:1 on status-needs-you."
+    },
+    "chart-1": {
+      "$value": "#3987e5",
+      "$type": "color",
+      "$description": "Chart series 1 (Usage: Claude). The series hues are a fixed order validated together for colour-blind separation and at least 3:1 on this palette's cards; colour follows the thing, never its rank."
+    },
+    "chart-2": {
+      "$value": "#d95926",
+      "$type": "color",
+      "$description": "Chart series 2 (Usage: Codex)."
+    },
+    "chart-3": {
+      "$value": "#199e70",
+      "$type": "color",
+      "$description": "Chart series 3 (Usage: Grok)."
+    },
+    "chart-other": {
+      "$value": "#9085e9",
+      "$type": "color",
+      "$description": "Chart series for anything past the named ones."
+    },
+    "status-working": {
+      "$value": "var(--color-accent-text)",
+      "$type": "color",
+      "$description": "Working marks (the working grid, the Thread strip's dot, starting / installing dots): the highlight colour's legible variant, so they follow the palette's accent and a chosen one. --color-accent-text clears 4.5:1 on bg, bg-surface and bg-elevated (lib/style-accent.ts for a chosen colour), which keeps the marks over 3:1 on selected and hovered rows."
+    },
+    "status-error": {
+      "$value": "#ee5757",
+      "$type": "color"
+    },
+    "status-ok": {
+      "$value": "#4fbf6f",
+      "$type": "color"
+    },
+    "status-warn": {
+      "$value": "#e5b83c",
+      "$type": "color"
+    },
+    "status-ok-soft": {
+      "$value": "#7ad494",
+      "$type": "color"
+    },
+    "status-warn-soft": {
+      "$value": "#eec964",
+      "$type": "color"
+    },
+    "status-error-soft": {
+      "$value": "#f38585",
+      "$type": "color"
+    },
+    "status-error-bright": {
+      "$value": "#f9b0b0",
+      "$type": "color"
+    },
+    "status-error-text": {
+      "$value": "#f07a7a",
+      "$type": "color"
+    },
+    "status-working-soft": {
+      "$value": "#f6a967",
+      "$type": "color"
+    },
+    "status-warn-text": {
+      "$value": "#eec964",
+      "$type": "color"
+    },
+    "status-needs-you": {
+      "$value": "#e5b83c",
+      "$type": "color"
+    },
+    "status-warn-amber": {
+      "$value": "#e5b83c",
+      "$type": "color"
+    },
+    "status-warn-amber-soft": {
+      "$value": "#efd382",
+      "$type": "color"
+    },
+    "status-warn-amber-bright": {
+      "$value": "#f7e4ad",
+      "$type": "color"
+    },
+    "status-ok-hover": {
+      "$value": "#3da45c",
+      "$type": "color"
+    },
+    "danger": {
+      "$value": "#d13b3b",
+      "$type": "color"
+    },
+    "danger-active": {
+      "$value": "#b02f2f",
+      "$type": "color"
+    },
+    "danger-muted": {
+      "$value": "#a83636",
+      "$type": "color"
+    },
+    "danger-hover": {
+      "$value": "#f38585",
+      "$type": "color"
+    },
+    "neutral": {
+      "$value": "#8a8275",
+      "$type": "color"
+    },
+    "control-track-off": {
+      "$value": "rgba(120, 120, 128, 0.32)",
+      "$type": "color"
+    },
+    "wash-1": {
+      "$value": "rgba(255, 250, 235, 0.04)",
+      "$type": "color"
+    },
+    "wash-2": {
+      "$value": "rgba(255, 250, 235, 0.08)",
+      "$type": "color"
+    },
+    "wash-3": {
+      "$value": "rgba(255, 250, 235, 0.16)",
+      "$type": "color"
+    },
+    "row-hover": {
+      "$value": "rgba(255, 250, 235, 0.10)",
+      "$type": "color",
+      "$description": "Hover band on a list row (Settings lists): about 1.3:1 against the resting row on dark palettes, 1.2:1 or more on light ones. On it the row's muted text steps up to text-secondary (SETTING_LIST_ROW_HOVER), which reads at 4.5:1."
+    },
+    "scrim": {
+      "$value": "rgba(8, 7, 5, 0.55)",
+      "$type": "color"
+    },
+    "media-label-bg": {
+      "$value": "rgba(0, 0, 0, 0.62)",
+      "$type": "color",
+      "$description": "Behind a name or time drawn on video (any picture, either scheme)."
+    },
+    "media-label-text": {
+      "$value": "#ffffff",
+      "$type": "color"
+    },
+    "diff-add-text": {
+      "$value": "#a9d16f",
+      "$type": "color"
+    },
+    "diff-remove-text": {
+      "$value": "#f9b0b0",
+      "$type": "color"
+    },
+    "diff-modified-border": {
+      "$value": "#7ad494",
+      "$type": "color"
+    },
+    "code-inline": {
+      "$value": "#e0b56e",
+      "$type": "color"
+    },
+    "overlay-soft-bg": {
+      "$value": "rgba(255, 250, 235, 0.05)",
+      "$type": "color"
+    },
+    "overlay-soft-border": {
+      "$value": "rgba(255, 250, 235, 0.08)",
+      "$type": "color"
+    },
+    "scrollbar-thumb": {
+      "$value": "rgba(255, 250, 235, 0.10)",
+      "$type": "color"
+    },
+    "scrollbar-thumb-hover": {
+      "$value": "rgba(255, 250, 235, 0.20)",
+      "$type": "color"
+    },
+    "scrollbar-thumb-strong": {
+      "$value": "rgba(255, 250, 235, 0.25)",
+      "$type": "color"
+    },
+    "scrollbar-thumb-strong-hover": {
+      "$value": "rgba(255, 250, 235, 0.40)",
+      "$type": "color"
+    },
+    "ring-edge-strong": {
+      "$value": "rgba(255, 255, 255, 0.22)",
+      "$type": "color"
+    },
+    "ring-edge": {
+      "$value": "rgba(255, 255, 255, 0.14)",
+      "$type": "color"
+    },
+    "ring-hairline": {
+      "$value": "rgba(255, 255, 255, 0.06)",
+      "$type": "color"
+    },
+    "ring-hairline-soft": {
+      "$value": "rgba(255, 255, 255, 0.05)",
+      "$type": "color"
+    },
+    "frost-fill": {
+      "$value": "rgba(255, 255, 255, 0.10)",
+      "$type": "color"
+    },
+    "frost-edge": {
+      "$value": "rgba(255, 255, 255, 0.22)",
+      "$type": "color"
+    },
+    "frost-sheen": {
+      "$value": "rgba(255, 255, 255, 0.28)",
+      "$type": "color"
+    },
+    "bubble-agent": {
+      "$value": "#38352f",
+      "$type": "color"
+    },
+    "shadow": {
+      "$value": "rgba(0, 0, 0, 0.5)",
+      "$type": "color"
+    },
+    "shadow-soft": {
+      "$value": "rgba(0, 0, 0, 0.3)",
+      "$type": "color"
+    },
+    "thread-raised": {
+      "$value": "var(--color-bg-surface)",
+      "$type": "color"
+    },
+    "syntax-keyword": { "$value": "#ff7ab2", "$type": "color", "$description": "Code: keywords (import, const, return). Every syntax colour reads at 4.5:1 on bg, bg-surface and bg-inset (the editor, the pane tile and the code well)." },
+    "syntax-string": { "$value": "#f2a96b", "$type": "color", "$description": "Code: strings." },
+    "syntax-number": { "$value": "#d9c97c", "$type": "color", "$description": "Code: numbers and literals." },
+    "syntax-comment": { "$value": "#9aa4b2", "$type": "color", "$description": "Code: comments. Quieter than code but still 4.5:1." },
+    "syntax-function": { "$value": "#6cbcf7", "$type": "color", "$description": "Code: function and method names." },
+    "syntax-type": { "$value": "#5dd8c6", "$type": "color", "$description": "Code: types and classes." },
+    "syntax-property": { "$value": "#b3cdff", "$type": "color", "$description": "Code: properties and definitions." },
+    "syntax-punctuation": { "$value": "#c7c7cc", "$type": "color", "$description": "Code: punctuation and operators." },
+    "presence-1": { "$value": "#a193f7", "$type": "color", "$description": "Live editing: the first other person or agent (carets, name flags, holds). Presence colours reach 3:1 on bg and bg-surface." },
+    "presence-2": { "$value": "#55b6ec", "$type": "color", "$description": "Live editing: the second." },
+    "presence-3": { "$value": "#ef74ab", "$type": "color", "$description": "Live editing: the third." },
+    "presence-4": { "$value": "#eda055", "$type": "color", "$description": "Live editing: the fourth." },
+    "find-match": { "$value": "rgba(255, 195, 92, 0.24)", "$type": "color", "$description": "Find: every match, a wash over the editor. text-primary keeps 4.5:1 on it." },
+    "find-match-current": { "$value": "rgba(255, 195, 92, 0.30)", "$type": "color", "$description": "Find: the current match, stronger than the others." },
+    "selection": { "$value": "rgba(64, 159, 255, 0.32)", "$type": "color", "$description": "Selected text in editors. text-primary keeps 4.5:1 on it." }
+  },
+  "terminal": {
+    "fg": {
+      "$value": "#e5e1d8",
+      "$type": "color"
+    },
+    "bg": {
+      "$value": "#100f0e",
+      "$type": "color"
+    },
+    "cursor": {
+      "$value": "#ffc700",
+      "$type": "color"
+    },
+    "selection": {
+      "$value": "#3a372f",
+      "$type": "color"
+    },
+    "ansi": [
+      "#171614",
+      "#ee5757",
+      "#4fbf6f",
+      "#e5b83c",
+      "#6fa7d8",
+      "#c08ac4",
+      "#5cc0b8",
+      "#c9c2b4",
+      "#6f695f",
+      "#f38585",
+      "#7ad494",
+      "#eec964",
+      "#93c0e8",
+      "#d5a8d8",
+      "#84d5cd",
+      "#f4f0e7"
+    ]
+  }
+}

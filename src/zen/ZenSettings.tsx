@@ -2,6 +2,7 @@ import { useState, type ReactNode } from "react";
 import { ABOUT } from "../lib/about";
 import { usePushToggle } from "../lib/usePushToggle";
 import { ZEN_FONTS, ZEN_TEXT_SIZES, useZenFontStore } from "./zenFont";
+import { AccentRow, PaletteRow } from "./ThemeRows";
 import { useMultiServerPrefs } from "./multi/prefs";
 import { useRecentFirstStore } from "./recentFirst";
 import { useJumpOnSendStore } from "./jumpOnSend";
@@ -18,7 +19,7 @@ const SWITCH_ON = "#30d158";
 
 /** Zen Settings sheet (opened by the Chats header cog). iOS grouped list
  *  of `.k2-tile` cards: Notifications (the same push toggle as the old
- *  Settings page), Appearance (Zen font + text size), Lists (Recent
+ *  Settings page), Appearance (palette, accent, Zen font, text size), Lists (Recent
  *  agents first, this phone only), Experimental, and About (the old
  *  page's values plus Terminal: Kessel). The pre-Zen UI (and its
  *  "Leave Zen Mode" door) was removed in 4.1.0. */
@@ -59,6 +60,8 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
         </Group>
 
         <Group label="Appearance" testId="settings-appearance">
+          <PaletteRow />
+          <AccentRow />
           <FontRow />
           <TextSizeRow />
         </Group>
@@ -296,7 +299,7 @@ function FontRow() {
   const font = useZenFontStore((s) => s.font);
   const setFont = useZenFontStore((s) => s.setFont);
   return (
-    <div className="flex flex-col text-[17px]" style={{ padding: "11px 12px 12px 16px", gap: 10 }}>
+    <div className="flex flex-col text-[17px]" style={{ padding: "11px 12px 12px 16px", gap: 10, borderTop: HAIRLINE }}>
       <span id="zen-font-label">Font</span>
       <div
         role="radiogroup"

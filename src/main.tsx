@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App";
 import "./styles/index.css";
 import { initZenFont } from "./zen/zenFont";
+import { initTheme } from "./theme/palettes";
 import { installAndroidBack } from "./lib/androidBack";
 import { initKbDragRecorder } from "./lib/kbDragRecorder";
 import { initKbDiag } from "./lib/kbDiag";
@@ -42,6 +43,8 @@ if (/android/i.test(navigator.userAgent)) {
 // <html> before the first render so Meslo users never see a system-font
 // flash and text never jumps size.
 initZenFont();
+// Settings → Appearance → Palette and Accent, before the first paint.
+initTheme();
 
 // Diagnostics → Keyboard drag recorder (off by default: one pref read).
 initKbDragRecorder();

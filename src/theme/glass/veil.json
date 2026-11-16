@@ -1,0 +1,381 @@
+{
+  "$schema": "../../style.schema.json#/$defs/palette",
+  "id": "veil",
+  "name": "Veil",
+  "schemes": [
+    "light"
+  ],
+  "color": {
+    "bg": {
+      "$value": "#fafafa",
+      "$type": "color"
+    },
+    "bg-surface": {
+      "$value": "#ffffff",
+      "$type": "color"
+    },
+    "bg-elevated": {
+      "$value": "#f7f7f8",
+      "$type": "color"
+    },
+    "bg-inset": {
+      "$value": "#f5f5f5",
+      "$type": "color"
+    },
+    "bg-stripe": {
+      "$value": "#ffffff",
+      "$type": "color"
+    },
+    "bg-canvas": {
+      "$value": "#fafafa",
+      "$type": "color"
+    },
+    "bg-hover": {
+      "$value": "rgba(60, 60, 67, 0.08)",
+      "$type": "color"
+    },
+    "border": {
+      "$value": "#eaeaea",
+      "$type": "color"
+    },
+    "border-strong": {
+      "$value": "rgba(60, 60, 67, 0.35)",
+      "$type": "color"
+    },
+    "control-edge": {
+      "$value": "#7f7f84",
+      "$type": "color"
+    },
+    "control-hover": { "$value": "var(--color-border)", "$type": "color", "$description": "Hover fill of the default Button (an elevated chip at rest). Glass keeps the border step; its tile buttons hover by the Glass rules in globals." },
+    "control-hover-quiet": { "$value": "var(--color-bg-elevated)", "$type": "color", "$description": "Hover fill of the quiet Button (clear at rest, so the card or page shows). Glass hovers its tile buttons by the Glass rules in globals; this is the fallback." },
+    "divider": {
+      "$value": "#ababae",
+      "$type": "color",
+      "$description": "Short dividers between items in a row: tab-strip tabs, top-bar groups. Between border and control-edge, about 2:1 on the tab strip and the top bar capsule."
+    },
+    "text-primary": {
+      "$value": "#000000",
+      "$type": "color"
+    },
+    "text-secondary": {
+      "$value": "#58585d",
+      "$type": "color"
+    },
+    "text-muted": {
+      "$value": "#6e6e73",
+      "$type": "color"
+    },
+    "accent": {
+      "$value": "var(--glass-accent)",
+      "$type": "color"
+    },
+    "accent-hover": {
+      "$value": "color-mix(in srgb, var(--color-accent) 72%, black)",
+      "$type": "color",
+      "$description": "Deeper accent: hover text, and text on an accent wash (the info Callout). Deep enough to clear 4.5:1 on that wash over any Veil surface."
+    },
+    "accent-soft": {
+      "$value": "color-mix(in srgb, var(--color-accent) 60%, white)",
+      "$type": "color"
+    },
+    "on-accent": {
+      "$value": "#ffffff",
+      "$type": "color"
+    },
+    "on-danger": {
+      "$value": "#ffffff",
+      "$type": "color",
+      "$description": "The label on a danger fill (danger, danger-active, danger-muted): 4.5:1 on each."
+    },
+    "on-warn": {
+      "$value": "#1a1400",
+      "$type": "color",
+      "$description": "The ink on a warning or needs-you fill (the Tickets count): 4.5:1 on status-needs-you."
+    },
+    "accent-fill": {
+      "$value": "color-mix(in srgb, var(--color-accent) 78%, black)",
+      "$type": "color",
+      "$description": "The accent as a fill under on-accent text (filled buttons, the selected segment, count badges): deep enough that the label clears 4.5:1, including at a 90% hover. Icons, rings and switches keep accent."
+    },
+    "accent-fill-hover": {
+      "$value": "color-mix(in srgb, var(--color-accent-fill) 78%, black)",
+      "$type": "color",
+      "$description": "Hover on a filled accent control (the accent Button): the fill deepened to 78%, at least 1.3:1 from the resting fill so the change shows, and the white label reads better on it, not worse. A custom accent derives its own (lib/style-accent)."
+    },
+    "chart-1": {
+      "$value": "#2a78d6",
+      "$type": "color",
+      "$description": "Chart series 1 (Usage: Claude). The series hues are a fixed order validated together for colour-blind separation and at least 3:1 on this palette's cards; colour follows the thing, never its rank."
+    },
+    "chart-2": {
+      "$value": "#c8531f",
+      "$type": "color",
+      "$description": "Chart series 2 (Usage: Codex)."
+    },
+    "chart-3": {
+      "$value": "#13865d",
+      "$type": "color",
+      "$description": "Chart series 3 (Usage: Grok)."
+    },
+    "chart-other": {
+      "$value": "#6250d6",
+      "$type": "color",
+      "$description": "Chart series for anything past the named ones."
+    },
+    "status-working": {
+      "$value": "var(--color-accent-text)",
+      "$type": "color",
+      "$description": "Working marks (the working grid, the Thread strip's dot, starting / installing dots): the highlight colour's legible variant, so they follow the palette's accent and a chosen one. --color-accent-text clears 4.5:1 on bg, bg-surface and bg-elevated (lib/style-accent.ts for a chosen colour), which keeps the marks over 3:1 on selected and hovered rows."
+    },
+    "status-error": {
+      "$value": "#ff3b30",
+      "$type": "color"
+    },
+    "status-ok": {
+      "$value": "#34c759",
+      "$type": "color"
+    },
+    "status-warn": {
+      "$value": "#ff9500",
+      "$type": "color"
+    },
+    "status-ok-soft": {
+      "$value": "#1e7534",
+      "$type": "color",
+      "$description": "Ok text and dots (the (active) mark, ok callouts): at least 4.5:1 on every ground."
+    },
+    "status-warn-soft": {
+      "$value": "#c26b00",
+      "$type": "color"
+    },
+    "status-error-soft": {
+      "$value": "#d70015",
+      "$type": "color"
+    },
+    "status-error-bright": {
+      "$value": "#a50011",
+      "$type": "color"
+    },
+    "status-error-text": {
+      "$value": "#d70015",
+      "$type": "color"
+    },
+    "status-working-soft": {
+      "$value": "#0a6fd6",
+      "$type": "color"
+    },
+    "status-warn-text": {
+      "$value": "#a25400",
+      "$type": "color"
+    },
+    "status-needs-you": {
+      "$value": "#ff9500",
+      "$type": "color"
+    },
+    "status-warn-amber": {
+      "$value": "#c26b00",
+      "$type": "color"
+    },
+    "status-warn-amber-soft": {
+      "$value": "#a85a00",
+      "$type": "color"
+    },
+    "status-warn-amber-bright": {
+      "$value": "#8f4c00",
+      "$type": "color"
+    },
+    "status-ok-hover": {
+      "$value": "#248a3d",
+      "$type": "color"
+    },
+    "danger": {
+      "$value": "#d9302a",
+      "$type": "color"
+    },
+    "danger-active": {
+      "$value": "#d70015",
+      "$type": "color"
+    },
+    "danger-muted": {
+      "$value": "#c0392b",
+      "$type": "color"
+    },
+    "danger-hover": {
+      "$value": "#d70015",
+      "$type": "color"
+    },
+    "neutral": {
+      "$value": "#6e6e73",
+      "$type": "color"
+    },
+    "control-track-off": {
+      "$value": "rgba(120, 120, 128, 0.20)",
+      "$type": "color"
+    },
+    "wash-1": {
+      "$value": "rgba(60, 60, 67, 0.05)",
+      "$type": "color"
+    },
+    "wash-2": {
+      "$value": "rgba(60, 60, 67, 0.09)",
+      "$type": "color"
+    },
+    "wash-3": {
+      "$value": "rgba(60, 60, 67, 0.16)",
+      "$type": "color"
+    },
+    "row-hover": {
+      "$value": "rgba(60, 60, 67, 0.12)",
+      "$type": "color",
+      "$description": "Hover band on a list row (Settings lists): about 1.3:1 against the resting row on dark palettes, 1.2:1 or more on light ones. On it the row's muted text steps up to text-secondary (SETTING_LIST_ROW_HOVER), which reads at 4.5:1."
+    },
+    "scrim": {
+      "$value": "rgba(30, 30, 35, 0.32)",
+      "$type": "color"
+    },
+    "media-label-bg": {
+      "$value": "rgba(0, 0, 0, 0.62)",
+      "$type": "color",
+      "$description": "Behind a name or time drawn on video (any picture, either scheme)."
+    },
+    "media-label-text": {
+      "$value": "#ffffff",
+      "$type": "color"
+    },
+    "diff-add-text": {
+      "$value": "#1a7f37",
+      "$type": "color"
+    },
+    "diff-remove-text": {
+      "$value": "#c0392b",
+      "$type": "color"
+    },
+    "diff-modified-border": {
+      "$value": "#34c759",
+      "$type": "color"
+    },
+    "code-inline": {
+      "$value": "#9a5b00",
+      "$type": "color"
+    },
+    "overlay-soft-bg": {
+      "$value": "rgba(60, 60, 67, 0.05)",
+      "$type": "color"
+    },
+    "overlay-soft-border": {
+      "$value": "rgba(60, 60, 67, 0.08)",
+      "$type": "color"
+    },
+    "scrollbar-thumb": {
+      "$value": "rgba(60, 60, 67, 0.18)",
+      "$type": "color"
+    },
+    "scrollbar-thumb-hover": {
+      "$value": "rgba(60, 60, 67, 0.32)",
+      "$type": "color"
+    },
+    "scrollbar-thumb-strong": {
+      "$value": "rgba(60, 60, 67, 0.34)",
+      "$type": "color"
+    },
+    "scrollbar-thumb-strong-hover": {
+      "$value": "rgba(60, 60, 67, 0.5)",
+      "$type": "color"
+    },
+    "ring-edge-strong": {
+      "$value": "rgba(255, 255, 255, 0.85)",
+      "$type": "color"
+    },
+    "ring-edge": {
+      "$value": "rgba(255, 255, 255, 0.7)",
+      "$type": "color"
+    },
+    "ring-hairline": {
+      "$value": "rgba(60, 60, 67, 0.08)",
+      "$type": "color"
+    },
+    "ring-hairline-soft": {
+      "$value": "rgba(60, 60, 67, 0.06)",
+      "$type": "color"
+    },
+    "frost-fill": {
+      "$value": "rgba(255, 255, 255, 0.72)",
+      "$type": "color"
+    },
+    "frost-edge": {
+      "$value": "#eaeaea",
+      "$type": "color"
+    },
+    "frost-sheen": {
+      "$value": "rgba(255, 255, 255, 0.9)",
+      "$type": "color"
+    },
+    "bubble-agent": {
+      "$value": "#e9e9eb",
+      "$type": "color"
+    },
+    "shadow": {
+      "$value": "rgba(60, 60, 67, 0.16)",
+      "$type": "color"
+    },
+    "shadow-soft": {
+      "$value": "rgba(60, 60, 67, 0.1)",
+      "$type": "color"
+    },
+    "thread-raised": {
+      "$value": "var(--color-bg-surface)",
+      "$type": "color"
+    },
+    "syntax-keyword": { "$value": "#a1349b", "$type": "color", "$description": "Code: keywords (import, const, return). Every syntax colour reads at 4.5:1 on bg, bg-surface and bg-inset (the editor, the pane tile and the code well)." },
+    "syntax-string": { "$value": "#b0401b", "$type": "color", "$description": "Code: strings." },
+    "syntax-number": { "$value": "#6c5a00", "$type": "color", "$description": "Code: numbers and literals." },
+    "syntax-comment": { "$value": "#5d6c79", "$type": "color", "$description": "Code: comments. Quieter than code but still 4.5:1." },
+    "syntax-function": { "$value": "#0f64a0", "$type": "color", "$description": "Code: function and method names." },
+    "syntax-type": { "$value": "#0b7366", "$type": "color", "$description": "Code: types and classes." },
+    "syntax-property": { "$value": "#3e3fa8", "$type": "color", "$description": "Code: properties and definitions." },
+    "syntax-punctuation": { "$value": "#3a3a40", "$type": "color", "$description": "Code: punctuation and operators." },
+    "presence-1": { "$value": "#5b45c9", "$type": "color", "$description": "Live editing: the first other person or agent (carets, name flags, holds). Presence colours reach 3:1 on bg and bg-surface." },
+    "presence-2": { "$value": "#1d6aa1", "$type": "color", "$description": "Live editing: the second." },
+    "presence-3": { "$value": "#ad2d67", "$type": "color", "$description": "Live editing: the third." },
+    "presence-4": { "$value": "#9a520f", "$type": "color", "$description": "Live editing: the fourth." },
+    "find-match": { "$value": "rgba(255, 195, 0, 0.30)", "$type": "color", "$description": "Find: every match, a wash over the editor. text-primary keeps 4.5:1 on it." },
+    "find-match-current": { "$value": "rgba(255, 170, 0, 0.42)", "$type": "color", "$description": "Find: the current match, stronger than the others." },
+    "selection": { "$value": "rgba(8, 106, 204, 0.20)", "$type": "color", "$description": "Selected text in editors. text-primary keeps 4.5:1 on it." }
+  },
+  "terminal": {
+    "fg": {
+      "$value": "#1c1c1e",
+      "$type": "color"
+    },
+    "bg": {
+      "$value": "#ffffff",
+      "$type": "color"
+    },
+    "cursor": {
+      "$value": "#1c1c1e",
+      "$type": "color"
+    },
+    "selection": {
+      "$value": "#cfe3ff",
+      "$type": "color"
+    },
+    "ansi": [
+      "#1c1c1e",
+      "#d70015",
+      "#248a3d",
+      "#b25d00",
+      "#0a6fd6",
+      "#8944ab",
+      "#0071a4",
+      "#6e6e73",
+      "#48484a",
+      "#ff3b30",
+      "#34c759",
+      "#c26b00",
+      "#0a84ff",
+      "#bf5af2",
+      "#32ade6",
+      "#000000"
+    ]
+  }
+}

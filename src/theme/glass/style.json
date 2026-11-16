@@ -1,0 +1,22 @@
+{
+  "$schema": "../style.schema.json#/$defs/manifest",
+  "id": "glass",
+  "name": "Glass",
+  "author": "Alakazam Labs",
+  "version": "0.1.0",
+  "schemaVersion": 1,
+  "description": "Rounded and calm, like the K2 phone app. Solid cards on a plain background, with see-through menus.",
+  "defaultPalette": "obsidian",
+  "defaultPalettes": {
+    "dark": "obsidian",
+    "light": "veil"
+  },
+  "capabilities": {
+    "gaps": false,
+    "backdrop": true,
+    "schemes": ["dark", "light"]
+  },
+  "dials": [
+    { "id": "frost", "label": "Frost", "token": "--material-blur", "min": 0, "max": 40, "step": 1, "unit": "px", "default": 28 }
+  ]
+}
