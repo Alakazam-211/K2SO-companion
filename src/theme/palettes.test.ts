@@ -153,3 +153,17 @@ describe("applyTheme", () => {
     expect(document.documentElement.style.getPropertyValue("--color-accent")).toBe("#40c8e0");
   });
 });
+
+describe("stamping fixes after the conversion", () => {
+  it("the accent as words is defined for every palette's own accent", () => {
+    expect(themeVars("obsidian", null)["--color-accent-text"]).toMatch(/^#[0-9a-f]{6}$/);
+    expect(themeVars("veil", null)["--color-accent-text"]).toMatch(/^#[0-9a-f]{6}$/);
+    expect(themeVars("yellow", null)["--color-accent-text"]).toBe("#ffc700");
+    // A custom accent still wins.
+    expect(themeVars("obsidian", "#ff375f")["--color-accent-text"]).not.toBe(themeVars("obsidian", null)["--color-accent-text"]);
+  });
+
+  it("leaves the phone's own --radius-* alone (the terminal grid's 4px pills)", () => {
+    expect(Object.keys(themeVars("obsidian", null)).filter((k) => k.startsWith("--radius-"))).toEqual([]);
+  });
+});

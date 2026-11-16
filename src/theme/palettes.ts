@@ -14,7 +14,15 @@ import obsidian from "./glass/obsidian.json";
 import veil from "./glass/veil.json";
 import dusk from "./glass/yellow.json";
 import tokens from "./glass/tokens.json";
-import { accentStorageKey, accentVarsFor, ACCENT_VARS, parseAccentChoice, type AccentChoice } from "./styleAccent";
+import {
+  accentStorageKey,
+  accentTextFor,
+  accentVarsFor,
+  ACCENT_VARS,
+  defaultAccentHex,
+  parseAccentChoice,
+  type AccentChoice,
+} from "./styleAccent";
 import { resolveAllColorMix } from "./colorMix";
 import { syncNativeAppearance, type NativeAppearance } from "./nativeAppearance";
 
@@ -89,10 +97,11 @@ export function paletteById(id: string | null | undefined): Palette | null {
   return PALETTES.find((p) => p.id === id) ?? null;
 }
 
-/** tokens.json groups the phone defines its own way and doesn't take yet.
- *  None now: `--tile-*` (index.css's Glass tiles) takes the palette's
- *  values, stamped with their color-mix() resolved (so iOS 15 gets them). */
-const SHARED_GROUPS_LATER = new Set<string>();
+/** tokens.json groups the phone defines its own way and doesn't take.
+ *  `--radius-*`: the phone's own `--radius-pill` is 4px (the terminal grid's
+ *  pills, TerminalGridParts.tsx); desktop's 999px would round them. `--tile-*`
+ *  does come from here (index.css's Glass tiles), color-mix() resolved. */
+const SHARED_GROUPS_LATER = new Set<string>(["radius"]);
 
 /** The shared Glass values every palette uses (radius, material, motion…),
  *  under desktop's names: `--radius-box`, `--material-blur`, … */
@@ -218,6 +227,10 @@ export function themeVars(id: PaletteId, accent: AccentChoice | null): Record<st
   return resolveAllColorMix({
     ...SHARED_VARS,
     "--glass-accent": GLASS_BLUE,
+    // The accent as words: the palettes reference it (status-working) but
+    // don't define it; desktop's base stylesheet does. Worked out the same
+    // way here for the palette's own accent (a custom one overrides it).
+    "--color-accent-text": accentTextFor(defaultAccentHex(p), p, p.scheme),
     ...p.vars,
     ...accentVarsFor(accent, p, p.scheme),
   });
