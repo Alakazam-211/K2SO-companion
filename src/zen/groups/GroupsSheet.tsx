@@ -10,7 +10,7 @@
 //   Page: the name (saved as you type; emptied, it saves as the next unused
 //   "Group N", shown as the placeholder; a failed save keeps the text, edges
 //   the field and says so, with Try again), "Most recent at the top", the
-//   icon picker (search, No icon, Recent, then all 244), and Delete group
+//   icon picker (search, the current icon, No icon, Recent, then all 244), and Delete group
 //   (confirmed once; off on the last group, with the reason).
 //
 // Palette tokens only; the app's sheet tile and glass field.
@@ -296,6 +296,7 @@ function GroupPage({
   const fallback = emptyNameFallback(useHomesStore.getState().homes, home.id);
   const found = useMemo(() => searchGroupIcons(q), [q]);
   const recentDefs = recents.map((n) => groupIcon(n)).filter((d): d is NonNullable<typeof d> => !!d);
+  const currentDef = groupIcon(home.icon) ?? null;
 
   const saveName = (text: string) => {
     let ok = false;
@@ -436,8 +437,14 @@ function GroupPage({
           <>
             {grid(
               [
+                // The group's own icon first, ringed (K2 Design 4.3.0: a
+                // lone number there read as stray); then No icon, then
+                // the recents.
+                ...(currentDef
+                  ? [cell(`current-${currentDef.name}`, currentDef.name, true, () => pick(currentDef.name), <GroupGlyph icon={currentDef.name} n={index + 1} size={22} />, "group-icon-current")]
+                  : []),
                 cell("none", "No icon", !home.icon, () => pick(null), <GroupDot n={index + 1} size={24} />, "group-icon-none-cell"),
-                ...recentDefs.map((d) =>
+                ...recentDefs.filter((d) => d.name !== currentDef?.name).map((d) =>
                   cell(`recent-${d.name}`, d.name, home.icon === d.name, () => pick(d.name), <GroupGlyph icon={d.name} n={index + 1} size={22} />, `group-icon-recent-${d.name}`)
                 ),
               ],

@@ -132,16 +132,27 @@ export function parseHomeChatStatus(v: unknown): HomeChatStatus | null {
   };
 }
 
-/** The desktop's picker copy for a server whose chat isn't usable
- *  (`HomeChatPickers.tsx` `noChatLine`). */
-export const HOME_CHAT_COPY_MAC = "No chat on this server (chat runs on Linux servers).";
+/** The picker copy for a server whose chat isn't usable (desktop
+ *  `HomeChatPickers.tsx` `noChatLine`; the Mac line reworded by K2
+ *  Design's 4.3.0 review, with the server's name). */
+export function homeChatMacLine(serverName?: string | null): string {
+  return `Chat isn’t available on ${serverName?.trim() || "this server"}. It needs a Linux server.`;
+}
 export const HOME_CHAT_COPY_SPACE_PENDING = "Chat is still being set up on this server.";
 export const HOME_CHAT_COPY_NO_CHAT = "No chat on this server.";
+/** A Home row's short form (the row has no room for the reason). */
+export const HOME_CHAT_COPY_ROW_NO_CHAT = "No chat on this server";
 
-export function homeChatNoChatLine(reason: string | null | undefined): string {
-  if (reason === "mac") return HOME_CHAT_COPY_MAC;
+export function homeChatNoChatLine(reason: string | null | undefined, serverName?: string | null): string {
+  if (reason === "mac") return homeChatMacLine(serverName);
   if (reason === "space_pending") return HOME_CHAT_COPY_SPACE_PENDING;
   return HOME_CHAT_COPY_NO_CHAT;
+}
+
+/** A Home row's line for a server with no usable chat: the short form,
+ *  except while it is still being set up. */
+export function homeChatRowNoChatLine(reason: string | null | undefined): string {
+  return reason === "space_pending" ? HOME_CHAT_COPY_SPACE_PENDING : HOME_CHAT_COPY_ROW_NO_CHAT;
 }
 
 // ─── People (§2.4) ───

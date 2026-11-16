@@ -168,19 +168,23 @@ export function ReactionChips({
   );
 }
 
-/** The hold menu's top row: the six quick emoji (a ring on yours). */
+/** The hold menu's emoji bar: the six quick emoji (a ring on yours).
+ *  `floating`: its own pill above the lifted message (no room kept under
+ *  it for the menu's items). */
 export function QuickReactionRow({
   mine,
   onPick,
+  floating = false,
 }: {
   /** Emoji you already reacted with on this message. */
   mine: ReadonlySet<string>;
   onPick: (emoji: string) => void;
+  floating?: boolean;
 }) {
   return (
     <div
       className="flex items-center justify-between"
-      style={{ padding: "2px 2px 6px", gap: 2 }}
+      style={{ padding: floating ? "0 2px" : "2px 2px 6px", gap: 2 }}
       role="group"
       aria-label="React"
       data-testid="home-chat-quick-reactions"

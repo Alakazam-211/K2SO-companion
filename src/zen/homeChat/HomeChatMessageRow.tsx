@@ -143,6 +143,9 @@ export const HomeChatMessageRow = memo(function HomeChatMessageRow({
           <span className="shrink-0">{mountainTime(m.createdAtMs)}</span>
         </span>
       ) : null}
+      {/* The bubble and its chips: what the hold menu lifts above the dim
+          (the name line stays on the page, as iOS lifts only the bubble). */}
+      <div className={`flex flex-col min-w-0 max-w-full ${mine ? "items-end" : "items-start"}`} data-home-chat-lift={m.id}>
       <div
         className={`relative px-3 py-2 leading-snug break-words min-w-0 max-w-full${tail ? " zen-tail" : ""}${held ? " zen-outlined" : ""}`}
         data-testid="home-chat-bubble"
@@ -172,6 +175,7 @@ export const HomeChatMessageRow = memo(function HomeChatMessageRow({
         onToggle={(emoji) => actions.toggleReaction(m.id, emoji)}
         whoFor={(emoji) => actions.whoReacted(m.id, emoji)}
       />
+      </div>
       {mine && (run.last || send) ? (
         <span
           className="flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] text-[var(--color-text-muted)] px-2 mt-0.5"

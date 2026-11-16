@@ -32,7 +32,7 @@ import {
   type HomeChatGate,
 } from "../../api/homeChat";
 import { subscribeHomeChat } from "../../api/homeChatEvents";
-import type { HomeChatChannel, HomeChatPeople, HomeChatSummary } from "../../api/homeChatPure";
+import { homeChatRowNoChatLine, type HomeChatChannel, type HomeChatPeople, type HomeChatSummary } from "../../api/homeChatPure";
 import { onServerForget, useServersStore } from "../../stores/servers";
 import { openHomeChat, type OpenHomeChatTarget } from "./openHomeChat";
 import { onHomeChatGone, type HomeChatGone } from "./homeChatStore";
@@ -218,7 +218,7 @@ export async function openHomeChatRow(
   let gate = chatServer(serverId).gate;
   if (!gate || gate.checkedAt === null) gate = await refreshChatGate(serverId);
   if (!gate?.offered) {
-    noteRow(row.address, gate?.pickerLine ?? "No chat on this server.");
+    noteRow(row.address, homeChatRowNoChatLine(gate?.reason));
     return false;
   }
   let conv = row.kind === "channel" ? row.handle : chatServer(serverId).dms[row.handle] ?? null;

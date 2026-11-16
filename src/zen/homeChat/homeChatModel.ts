@@ -283,6 +283,23 @@ export function leaveCopy(c: { name: string; open: boolean } | null): { title: s
   };
 }
 
+/** Where a Home chat message saved to the stash came from (the stash's
+ *  shared source fields): the server, your login there, and the
+ *  conversation's other person (a DM) or the channel. */
+export function homeChatStashSource(
+  server: { hostKey: string; label: string; user: string },
+  chat: { kind: "dm" | "channel"; ext?: string | null; conv: string | null; title: string; inviteOnly?: boolean | null }
+): { server_id: string | null; server_label: string | null; user: string | null; agent: string | null; agent_name: string | null } {
+  const dm = chat.kind === "dm";
+  return {
+    server_id: server.hostKey || null,
+    server_label: server.label || null,
+    user: server.user || null,
+    agent: (dm ? chat.ext : chat.conv) || null,
+    agent_name: chat.title ? (dm || chat.inviteOnly ? chat.title : `#${chat.title}`) : null,
+  };
+}
+
 /** A role as the sheet says it: Owner, Admin; a member says nothing. */
 export function memberRoleLabel(role: string | null | undefined): string | null {
   if (role === "owner") return "Owner";

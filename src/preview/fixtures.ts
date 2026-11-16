@@ -286,6 +286,8 @@ export function seedHomeRows(screen: PreviewScreen): void {
   s().pinRow(launch, homeAddress("k2:connect:ana", host));
   s().pinRow(launch, homeAddress("quill", host));
   s().pinRow(launch, homeAddress("atlas", host));
+  // A fourth pin past the 3-wide grid: a pinned row (its quiet pin mark).
+  s().pinRow(launch, homeAddress("k2:connect:ben", host));
   useHomeGridStore.getState().setSize(launch, 3);
   try {
     const tab = screen === "add-to-home-channels" || screen === "add-to-home-new" ? "channels" : "people";

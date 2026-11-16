@@ -332,7 +332,7 @@ describe("the gate: home-chat-v1 AND status.on, never assumed", () => {
   });
 
   it.each([
-    ["mac", answer(200, { ok: true, on: false, reason: "mac", flags: {}, chat: null }), "No chat on this server (chat runs on Linux servers)."],
+    ["mac", answer(200, { ok: true, on: false, reason: "mac", flags: {}, chat: null }), "Chat isn’t available on this server. It needs a Linux server."],
     ["space_pending", answer(200, { ok: true, on: false, reason: "space_pending", flags: {}, chat: null }), "Chat is still being set up on this server."],
     ["sew_off", answer(200, { ok: true, on: false, reason: "sew_off", flags: {}, chat: null }), "No chat on this server."],
     ["off", refuse(404, "home_chat_off"), "No chat on this server."],
