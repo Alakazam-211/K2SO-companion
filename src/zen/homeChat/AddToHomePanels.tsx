@@ -24,6 +24,7 @@ import {
   HOME_CHAT_CREATE_POLL_MS,
   HOME_CHAT_CREATE_TIMEOUT_COPY,
   HOME_CHAT_CREATE_WAIT_MS,
+  homeChatNoChatLine,
   type HomeChatChannel,
   type HomeChatPerson,
 } from "../../api/homeChatPure";
@@ -32,7 +33,7 @@ import { homeHasAddress, type Home, type HomeRow } from "../homes";
 import { savedServerForHost, serverDisplayName } from "../homeView";
 import { CheckIcon } from "../icons";
 import { ChannelAvatar, PersonAvatar } from "./HomeChatGlyphs";
-import { channelRow, chatRowParts, isPersonExt, matchesElsewhere, personRow, canAddPerson, samePersonCopy } from "./homeChatRows";
+import { channelRow, chatRowParts, isPersonExt, matchesElsewhere, personDetail, personRow, canAddPerson, samePersonCopy } from "./homeChatRows";
 import {
   refreshChatChannels,
   refreshChatPeople,
@@ -69,13 +70,18 @@ export function tokenMatch(q: string, hay: readonly string[]): boolean {
   return words.every((w) => parts.some((p) => p.startsWith(w)) || whole.some((h) => h.includes(w)));
 }
 
-/** A server's line while it has nothing to list (none: list it). */
-export function chatSectionStatus(st: HomeChatServerState | undefined, need: "people" | "channels"): string | null {
+/** A server's line while it has nothing to list (none: list it).
+ *  `serverName` names it in the no-chat line. */
+export function chatSectionStatus(
+  st: HomeChatServerState | undefined,
+  need: "people" | "channels",
+  serverName?: string | null
+): string | null {
   const gate = st?.gate ?? null;
   if (!gate || gate.checkedAt === null) return "Loading…";
   if (!gate.offered) {
     if (gate.feature && gate.on === null && gate.refusal) return "Can’t reach this server right now.";
-    return gate.pickerLine ?? HOME_CHAT_COPY_NO_CHAT;
+    return gate.pickerLine ? homeChatNoChatLine(gate.reason, serverName) : HOME_CHAT_COPY_NO_CHAT;
   }
   if (need === "people") {
     if (!st?.people) return st?.peopleError ? `Couldn’t list people: ${st.peopleError}` : "Loading people…";
@@ -270,7 +276,7 @@ export function PeoplePanel({ home, servers, q, onAddRow }: ChatPanelProps) {
     <div data-testid="add-people">
       {servers.map((server) => {
         const st = byServer[server.id];
-        const status = chatSectionStatus(st, "people");
+        const status = chatSectionStatus(st, "people", server.label);
         const people = status ? [] : (st?.people?.people ?? []).filter((p) => isPersonExt(p.ext));
         const shown = people.filter((p) => tokenMatch(q, [p.displayName, p.username]));
         if (q.trim() && !status && shown.length === 0) return null;
@@ -291,7 +297,7 @@ export function PeoplePanel({ home, servers, q, onAddRow }: ChatPanelProps) {
                     key={p.ext}
                     avatar={<PersonAvatar username={p.username} name={p.displayName} picture={p.picture} size={40} fontSize={15} glass />}
                     name={p.displayName}
-                    detail={ready ? (p.role ? `${p.username} · ${p.role === "voice_chat" ? "voice & chat" : p.role}` : p.username) : "Setting up…"}
+                    detail={ready ? personDetail(p.username, p.role) : "Setting up…"}
                     taken={taken}
                     disabled={!ready}
                     groupName={home.name}
@@ -328,7 +334,7 @@ function ChannelPickList({ home, servers, q, onAddRow }: ChatPanelProps) {
     <div data-testid="add-channels">
       {servers.map((server) => {
         const st = byServer[server.id];
-        const status = chatSectionStatus(st, "channels");
+        const status = chatSectionStatus(st, "channels", server.label);
         const channels = status ? [] : (st?.channels ?? []).filter((c) => !c.archived);
         const shown = channels.filter((c) => tokenMatch(q, [c.name]));
         if (q.trim() && !status && shown.length === 0) return null;

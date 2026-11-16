@@ -278,17 +278,29 @@ describe("the Groups sheet", () => {
     expect(screen.queryByTestId("group-name-error")).toBeNull();
   });
 
-  it("icon by name: picking sets it and remembers it under Recent; No icon clears it", () => {
+  it("icon by name: picking sets it and shows it first, ringed, above All icons; No icon clears it and it waits under Recent", () => {
     openList();
     fireEvent.click(screen.getByTestId("groups-row-0"));
     fireEvent.change(screen.getByTestId("group-icon-query"), { target: { value: "rock" } });
     fireEvent.click(screen.getByTestId("group-icon-rocket"));
     expect(st().homes[0].icon).toBe("rocket");
     fireEvent.change(screen.getByTestId("group-icon-query"), { target: { value: "" } });
-    expect(screen.getByTestId("group-icon-recent-rocket").getAttribute("aria-pressed")).toBe("true");
+    // K2 Design 4.3.0: the group's own icon leads the row, selected.
+    const row = screen.getByTestId("group-icon-recent");
+    const first = row.querySelector("button")!;
+    expect(first.getAttribute("data-testid")).toBe("group-icon-current");
+    expect(first.getAttribute("aria-pressed")).toBe("true");
+    expect(first.style.boxShadow).toContain("var(--color-accent)");
+    expect(first.querySelector("[data-group-icon=rocket]")).not.toBeNull();
+    expect(screen.getByTestId("group-icon-none-cell").getAttribute("aria-pressed")).toBe("false");
+    // Not twice: the recents skip the current one.
+    expect(screen.queryByTestId("group-icon-recent-rocket")).toBeNull();
     expect(screen.getByTestId("group-icon-grid").querySelectorAll("button")).toHaveLength(244);
     fireEvent.click(screen.getByTestId("group-icon-none-cell"));
     expect(st().homes[0].icon).toBeUndefined();
+    expect(screen.queryByTestId("group-icon-current")).toBeNull();
+    expect(screen.getByTestId("group-icon-recent").querySelector("button")?.getAttribute("data-testid")).toBe("group-icon-none-cell");
+    expect(screen.getByTestId("group-icon-recent-rocket").getAttribute("aria-pressed")).toBe("false");
   });
 
   it("Most recent at the top is a switch on the group", () => {

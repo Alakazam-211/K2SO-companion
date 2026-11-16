@@ -247,6 +247,12 @@ export function HomeList({
     );
   }
 
+  /** Pinned on the shown Home (a search hit from another Home is not). */
+  const pinnedHere = (address: string) => !!pins && !otherHomeOf?.(address) && pins.isPinned(address);
+  /** A row's or tile's element (the hold menu lifts it). */
+  const homeRowElement = (address: string): HTMLElement | null =>
+    Array.from(document.querySelectorAll<HTMLElement>("[data-home-row]")).find((el) => el.getAttribute("data-home-row") === address) ?? null;
+
   const menu = hold.menu && !rearranging ? hold.menu : null;
   const menuView = menu ? views.find((v) => v.row.address === menu.id) ?? null : null;
   const menuTarget = menuView ? homeRowTarget(menuView, zenId) : null;
@@ -588,6 +594,7 @@ export function HomeList({
             serverChip={look.chip}
             unread={look.unread}
             avatar={chatAvatar(v, look, 50, 18)}
+            pinned={pinnedHere(address)}
           />
         </button>
         {i < listed.length - 1 && !shift.dragging ? (
@@ -793,6 +800,7 @@ export function HomeList({
                 stub={source === "stub" && v.kind === "here"}
                 serverChip={v.kind === "remote" ? v.serverLabel : hereChip}
                 unread={unread}
+                pinned={pinnedHere(address)}
               />
             </button>
             {failure && remoteView && !rearranging ? (
@@ -827,6 +835,9 @@ export function HomeList({
           entries={menuEntries(menuView)}
           onClose={hold.close}
           testId="home-row-menu"
+          // The held row or tile lifted above the dim (K2 Design 4.3.0).
+          lift={() => homeRowElement(menu.id)}
+          liftSurface
         />
       ) : null}
     </div>

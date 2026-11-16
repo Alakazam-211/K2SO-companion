@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { HomeChatGate } from "../../api/homeChat";
-import { HOME_CHAT_COPY_MAC, HOME_CHAT_COPY_NO_CHAT, NO_HOME_CHAT_FLAGS, type HomeChatSummary } from "../../api/homeChatPure";
+import { HOME_CHAT_COPY_ROW_NO_CHAT, NO_HOME_CHAT_FLAGS, homeChatMacLine, type HomeChatSummary } from "../../api/homeChatPure";
 import { unreadCountText } from "../unread";
 import { PERSON_COLORS, personColor, personInitials, personInk, relativeLuminance } from "./homeChatModel";
 import {
@@ -12,6 +12,7 @@ import {
   chatRowQuiet,
   matchesElsewhere,
   mightBeSamePerson,
+  personDetail,
   personRow,
   canAddPerson,
   samePersonCopy,
@@ -89,12 +90,19 @@ describe("Same person? (brief §2.4, §5 item 8; desktop lib/home-chat/people.ts
     expect(hits.map((h) => [h.serverId, h.person.ext])).toEqual([["s2", "k2:connect:y"]]);
   });
 
-  it("copies the desktop's words", () => {
+  it("the desktop's question; K2 Design's body (4.3.0)", () => {
     const c = samePersonCopy("Ana R.", "Ana Ruiz", "Studio");
     expect(c.title).toBe("Is Ana R. the same person as Ana Ruiz on Studio?");
-    expect(c.body).toBe(
-      "Same person keeps one row: Ana Ruiz's row stays, and its menu's “Also on” switches servers. Different person adds a second row."
-    );
+    expect(c.body).toBe("Same person: one row, and its menu switches between servers. Different person: two rows.");
+  });
+
+  it("a picker's handle and role: the word once when they match", () => {
+    expect(personDetail("owner", "owner")).toBe("owner");
+    expect(personDetail("Owner", "owner")).toBe("owner");
+    expect(personDetail("ana", "admin")).toBe("ana · admin");
+    expect(personDetail("ben", "voice_chat")).toBe("ben · voice & chat");
+    expect(personDetail("ben", null)).toBe("ben");
+    expect(personDetail("", "member")).toBe("member");
   });
 });
 
@@ -153,11 +161,11 @@ describe("rows", () => {
     expect(chatRowQuiet({ ...base, saved: false, look: null })?.line).toBe("Parity is not saved on this phone");
     expect(chatRowQuiet({ ...base, signedIn: false, look: null })?.line).toBe("Sign in to Parity");
     expect(
-      chatRowQuiet({ ...base, look: { gate: gate({ on: false, reason: "mac", pickerLine: HOME_CHAT_COPY_MAC }), summary: null, summaryError: null } })
-    ).toEqual({ line: HOME_CHAT_COPY_MAC, noChat: true });
+      chatRowQuiet({ ...base, look: { gate: gate({ on: false, reason: "mac", pickerLine: homeChatMacLine() }), summary: null, summaryError: null } })
+    ).toEqual({ line: HOME_CHAT_COPY_ROW_NO_CHAT, noChat: true });
     // An older server (no `home-chat-v1`): no chat.
     expect(chatRowQuiet({ ...base, look: { gate: gate({ feature: false }), summary: null, summaryError: null } })).toEqual({
-      line: HOME_CHAT_COPY_NO_CHAT,
+      line: HOME_CHAT_COPY_ROW_NO_CHAT,
       noChat: true,
     });
     // A blip reading the status: can't be reached, still opens later.

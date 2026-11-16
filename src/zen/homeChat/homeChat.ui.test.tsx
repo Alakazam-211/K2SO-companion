@@ -20,7 +20,7 @@ vi.mock("../../api/homeChat", async (orig) => ({ ...(await orig<typeof import(".
 vi.mock("../../api/homeChatEvents", () => ({ subscribeHomeChat: vi.fn(() => () => {}) }));
 
 import type { HomeChatGate } from "../../api/homeChat";
-import { HOME_CHAT_COPY_MAC, HOME_CHAT_CREATE_TIMEOUT_COPY, NO_HOME_CHAT_FLAGS, type HomeChatPerson } from "../../api/homeChatPure";
+import { HOME_CHAT_COPY_ROW_NO_CHAT, HOME_CHAT_CREATE_TIMEOUT_COPY, NO_HOME_CHAT_FLAGS, homeChatMacLine, type HomeChatPerson } from "../../api/homeChatPure";
 import { useServersStore, type ServerEntry } from "../../stores/servers";
 import { HomeList } from "../HomeList";
 import { AddAgentSheet } from "../AddAgentSheet";
@@ -53,7 +53,7 @@ const gate = (offered: boolean, reason: string | null = null): HomeChatGate => (
   chat: offered ? "live" : null,
   checkedAt: Date.now(),
   refusal: null,
-  pickerLine: offered ? null : reason === "mac" ? HOME_CHAT_COPY_MAC : "No chat on this server.",
+  pickerLine: offered ? null : reason === "mac" ? homeChatMacLine() : "No chat on this server.",
 });
 
 const person = (ext: string, username: string, displayName: string, ready = true): HomeChatPerson => ({
@@ -92,7 +92,7 @@ function homeWith(rows: Home["rows"]): Home {
   return { id: "h1", name: "Launch", rows };
 }
 
-function renderList(home: Home, onRemove = vi.fn()) {
+function renderList(home: Home, onRemove = vi.fn(), pinned: readonly string[] = []) {
   const views = resolveHomeRows(home.rows, {
     activeHostKey: HA,
     agents: [],
@@ -110,7 +110,7 @@ function renderList(home: Home, onRemove = vi.fn()) {
         onRemove={onRemove}
         onOpenRemote={() => {}}
         previewFor={() => ""}
-        pins={{ isPinned: () => false, full: false, onPin: vi.fn(), onUnpin: vi.fn() }}
+        pins={{ isPinned: (a) => pinned.includes(a), full: false, onPin: vi.fn(), onUnpin: vi.fn() }}
       />
       <HomeConfirmHost />
     </>
@@ -168,7 +168,8 @@ describe("person and channel rows on Home", () => {
     expect(crit.querySelector("[data-testid=row-unread-count]")).toBeNull();
     const mia = screen.getByTestId("home-chat-person-k2:connect:mia");
     expect(mia.closest("[data-home-row]")?.getAttribute("data-greyed")).toBe("1");
-    expect(mia.textContent).toContain(HOME_CHAT_COPY_MAC);
+    expect(mia.textContent).toContain(HOME_CHAT_COPY_ROW_NO_CHAT);
+    expect(mia.textContent).not.toContain("Linux");
     expect(mia.textContent).toContain("Parity");
   });
 
@@ -269,6 +270,32 @@ describe("person and channel rows on Home", () => {
     fireEvent.click(await screen.findByTestId("home-remove-confirm-remove"));
     await waitFor(() => expect(onRemove).toHaveBeenCalledWith(CRIT.address));
   });
+
+  it("the hold menu lifts the held row above a dim (K2 Design 4.3.0): its words never run under the menu", async () => {
+    renderList(homeWith([ANA, CRIT]));
+    const ana = screen.getByTestId("home-chat-person-k2:connect:ana");
+    const rowEl = ana.closest<HTMLElement>("[data-home-row]")!;
+    hold(ana);
+    expect(screen.getByTestId("home-row-menu-backdrop").getAttribute("data-dim")).toBe("1");
+    const lifted = screen.getByTestId("home-row-menu-lifted");
+    expect(lifted.textContent).toContain("Ana Ruiz");
+    expect(lifted.style.background).toBe("var(--color-bg-elevated)");
+    expect(rowEl.style.visibility).toBe("hidden");
+    // One row in the page's tree (the copy carries no test ids).
+    expect(screen.getAllByTestId("home-chat-person-k2:connect:ana")).toHaveLength(1);
+    tap(screen.getByTestId("home-row-menu-backdrop"));
+    await waitFor(() => expect(screen.queryByTestId("home-row-menu")).toBeNull());
+    expect(rowEl.style.visibility).toBe("");
+  });
+
+  it("a pinned row (past the grid) wears a quiet pin in its trailing meta; others none", () => {
+    renderList(homeWith([ANA, CRIT]), vi.fn(), [ANA.address]);
+    const pin = screen.getByTestId("home-chat-person-k2:connect:ana").querySelector<SVGElement>("[data-testid=row-pin-mark]");
+    expect(pin).not.toBeNull();
+    expect(pin!.getAttribute("width")).toBe("12");
+    expect(pin!.closest("[data-testid=row-when]")).not.toBeNull();
+    expect(screen.getByTestId("home-chat-channel-502").querySelector("[data-testid=row-pin-mark]")).toBeNull();
+  });
 });
 
 describe("Add to Home: People", () => {
@@ -304,7 +331,7 @@ describe("Add to Home: People", () => {
 
   it("lists each server's people; Setting up… can't be picked; a Mac server says why; a pick adds a person row", async () => {
     const onAddRow = renderPeople(homeWith([]));
-    expect(screen.getByTestId("add-people-status-sb").textContent).toBe(HOME_CHAT_COPY_MAC);
+    expect(screen.getByTestId("add-people-status-sb").textContent).toBe("Chat isn’t available on Parity. It needs a Linux server.");
     fireEvent.click(screen.getByTestId("add-person-sa-k2:connect:dev"));
     expect(screen.getByTestId("add-person-sa-k2:connect:dev").textContent).toContain("Setting up…");
     expect(onAddRow).not.toHaveBeenCalled();

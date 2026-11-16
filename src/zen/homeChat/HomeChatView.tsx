@@ -12,8 +12,8 @@
 //
 // What differs:
 //   - names over every run in a channel; in a DM only the other person's;
-//   - the hold menu has the six quick emoji across its top (K2 Design),
-//     then Reply, Copy and More emoji…; chips under bubbles;
+//   - the hold menu lifts the held bubble above a dim, the six quick emoji
+//     above it, then Reply, Copy, Save to stash, More emoji…; chips under bubbles;
 //   - Reply sends Sew's reference (`replyTo`), and the quote strip jumps
 //     to the original, paging back up to 20 pages;
 //   - who is typing on the composer's edge; the box sends `typing` at most
@@ -28,7 +28,7 @@ import { scopeFor } from "../../api/scope";
 import { ackHomeChat, homeChatGateNow, onHomeChatGate, viewHomeChat } from "../../api/homeChat";
 import { subscribeHomeChat } from "../../api/homeChatEvents";
 import { REPLY_JUMP_MAX_PAGES, isOptimistic, typingMembers } from "../../api/homeChatHelpers";
-import type { HomeChatMessage } from "../../api/homeChatPure";
+import { homeChatNoChatLine, type HomeChatMessage } from "../../api/homeChatPure";
 import { copyPlainText } from "../../lib/clipboard";
 import { useViewport, useViewportPadRef } from "../../lib/useViewportHeight";
 import { useKeyboardFlip } from "../../kit/mobileChat/useKeyboardFlip";
@@ -42,7 +42,8 @@ import { FOOTER_BLUR_FADE_PX, ZenFooterBlur, useMeasuredHeight, underHeaderPaddi
 import { HeaderGlass } from "../HeaderGlass";
 import { AgentMenu, type AgentMenuEntry } from "../AgentMenu";
 import { JumpPill } from "../JumpPill";
-import { ReplyIcon } from "../icons";
+import { BookmarkPlusIcon, ReplyIcon } from "../icons";
+import { useStashSaver } from "../stash/useStashSaver";
 import { ServerChip } from "../room/ServerChip";
 import { useMessageHold } from "../stash/useMessageHold";
 import { captureTopMessage, nearNewest, restoreTopMessage, stickToNewest, type MessageAnchor } from "../threadScroll";
@@ -55,6 +56,7 @@ import {
   convKey,
   firstLine,
   homeChatRows,
+  homeChatStashSource,
   memberNames,
   replyPreview,
   sendFailedLine,
@@ -102,6 +104,11 @@ const TYPING_ROOM_PX = 20;
 const FLASH_MS = 1400;
 const AVATAR_LIFT = "drop-shadow(0 3px 8px var(--color-shadow))";
 const COMPOSER_PREFIX = "home-chat-composer";
+/** The Thread's words when a stash save fails. */
+const STASH_FAILED = "Couldn't save to the stash. Try again.";
+/** How far below the floating header text starts to fade once the list
+ *  has scrolled (the scroll-edge fade, `.zen-header-blur--edge`). */
+const HEADER_FADE_PX = 28;
 
 /** The composer draft's key for a conversation. */
 export function homeChatDraftKey(serverId: string, conv: string | null): string | null {
@@ -175,15 +182,15 @@ export function HomeChatView({
   const names = useMemo(() => memberNames(people), [people]);
   const messages = state.messages;
 
-  // ── The gate: chat switched off on this server ──
-  const [gateOff, setGateOff] = useState(() => {
-    const g = homeChatGateNow(scope);
-    return g.feature && g.on === false;
-  });
+  // ── The gate: chat switched off on this server (and why) ──
+  const offReason = (g: { feature: boolean; on: boolean | null; reason: string | null }): string | false =>
+    g.feature && g.on === false ? (g.reason ?? "") : false;
+  const [gateOffWhy, setGateOffWhy] = useState<string | false>(() => offReason(homeChatGateNow(scope)));
+  const gateOff = gateOffWhy !== false;
   useEffect(
     () =>
       onHomeChatGate((id, g) => {
-        if (id === serverId) setGateOff(g.feature && g.on === false);
+        if (id === serverId) setGateOffWhy(offReason(g));
       }),
     [serverId]
   );
@@ -277,6 +284,19 @@ export function HomeChatView({
   const [atNewest, setAtNewest] = useState(true);
   const [newCount, setNewCount] = useState(0);
   const [headerRef, headerPx] = useMeasuredHeight(HEADER_PX);
+  // The header's scroll-edge fade is on once the list is off its top (at
+  // rest the first message sits sharp just under the header).
+  const headerBlurRef = useRef<HTMLDivElement>(null);
+  const markScrolled = (el: HTMLElement) => {
+    const blur = headerBlurRef.current;
+    if (!blur) return;
+    const on = el.scrollTop > 1;
+    if ((blur.getAttribute("data-scrolled") === "1") !== on) blur.setAttribute("data-scrolled", on ? "1" : "0");
+  };
+  useLayoutEffect(() => {
+    const el = scrollerRef.current;
+    if (el) markScrolled(el);
+  });
   const [dockPx, setDockPx] = useState(0);
   const dockPxRef = useRef<number | null>(null);
 
@@ -529,8 +549,9 @@ export function HomeChatView({
     [react, scope, jump, conv, serverId]
   );
 
-  // ── The hold menu: quick emoji, Reply, Copy, More emoji… ──
+  // ── The hold menu: quick emoji, Reply, Copy, Save to stash, More emoji… ──
   const msgHold = useMessageHold(scrollerRef, true);
+  const stash = useStashSaver();
   const held = msgHold.menu ? (messages.find((m) => m.id === msgHold.menu?.id) ?? null) : null;
   const heldMine = useMemo(() => new Set(held?.reactions.filter((r) => r.me).map((r) => r.emoji) ?? []), [held]);
   const holdEntries: AgentMenuEntry[] = held
@@ -549,6 +570,20 @@ export function HomeChatView({
             ]
           : []),
         { key: "copy", label: "Copy", onSelect: () => void copyPlainText(held.body) },
+        // The Thread's Save to stash (same words and icon), from this
+        // conversation's other person or channel.
+        {
+          key: "stash",
+          label: "Save to stash",
+          icon: <BookmarkPlusIcon size={18} strokeWidth={1.75} />,
+          onSelect: () => {
+            const source = homeChatStashSource(
+              { hostKey: scope.hostKey, label: scope.label, user: scope.username() },
+              { kind: target.kind, ext: target.ext, conv, title, inviteOnly }
+            );
+            void stash.save({ text: held.body, source }).then((r) => r === "error" && setError(STASH_FAILED));
+          },
+        },
         ...(!readOnly
           ? [
               {
@@ -596,7 +631,16 @@ export function HomeChatView({
         data-testid="home-chat-header"
         style={{ zIndex: 10, paddingTop: "env(safe-area-inset-top)", pointerEvents: "none" }}
       >
-        <div className="zen-header-blur" aria-hidden>
+        {/* The scroll-edge fade (K2 Design 4.3.0): once the list has
+            scrolled, text fades in the band under the header and is gone
+            before it reaches the name pill (`--edge` in index.css). */}
+        <div
+          ref={headerBlurRef}
+          className="zen-header-blur zen-header-blur--early zen-header-blur--edge"
+          data-testid="home-chat-header-blur"
+          style={{ ["--zen-edge-fade" as string]: `${HEADER_FADE_PX}px` }}
+          aria-hidden
+        >
           <span className="zen-header-blur-1" />
           <span className="zen-header-blur-2" />
           <span className="zen-header-blur-3" />
@@ -670,6 +714,7 @@ export function HomeChatView({
         data-testid="home-chat-scroller"
         onScroll={(e) => {
           const el = e.currentTarget;
+          markScrolled(el);
           lastScrollAt.current = Date.now();
           const prev = lastTop.current;
           lastTop.current = el.scrollTop;
@@ -696,7 +741,7 @@ export function HomeChatView({
         <div ref={contentRef} className={`${CHAT_CONTENT_CLASS} min-w-0 flex flex-col`}>
           {gateOff ? (
             <p className="py-10 text-center text-[14px]" style={{ color: "var(--color-text-muted)" }} data-testid="home-chat-off">
-              No chat on this server.
+              {homeChatNoChatLine(gateOffWhy || null, scope.label)}
             </p>
           ) : failedToOpen ? (
             <div className="flex flex-col items-center gap-3 py-10" data-testid="home-chat-error">
@@ -901,12 +946,19 @@ export function HomeChatView({
           onClose={msgHold.close}
           align="center"
           testId="home-chat-menu"
+          // The held message (its name, bubble and chips) lifted above the
+          // dim; the emoji bar above it, the menu under its chips.
+          lift={() => {
+            const id = msgHold.menu?.id;
+            return id ? (Array.from(listRef.current?.querySelectorAll<HTMLElement>("[data-home-chat-lift]") ?? []).find((el) => el.getAttribute("data-home-chat-lift") === id) ?? null) : null;
+          }}
           headPx={readOnly ? 0 : QUICK_ROW_PX}
           head={
             readOnly
               ? undefined
               : (take) => (
                   <QuickReactionRow
+                    floating
                     mine={heldMine}
                     onPick={(emoji) => {
                       if (!take()) return;
@@ -918,6 +970,7 @@ export function HomeChatView({
           }
         />
       ) : null}
+      {stash.dialog}
       {emojiFor ? (
         <EmojiSheet
           onClose={() => setEmojiFor(null)}

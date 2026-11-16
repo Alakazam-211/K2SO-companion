@@ -37,6 +37,7 @@ import { resetHomeChatStore, useHomeChatStore } from "./homeChatStore";
 import { __resetHomeChatActionsForTests } from "./homeChatActions";
 import { convKey, type HomeChatTarget } from "./homeChatModel";
 import { useServersStore } from "../../stores/servers";
+import { useStashStore } from "../stash/stashStore";
 
 const ME = "1";
 const ANA = "2";
@@ -122,11 +123,17 @@ describe("the DM", () => {
     render(<HomeChatView target={DM} onBack={() => {}} />);
     fireEvent.contextMenu(screen.getByTestId("home-chat-bubble"));
     const menu = screen.getByTestId("home-chat-menu");
-    expect(within(menu).getAllByTestId("home-chat-quick-reaction").map((b) => b.textContent)).toEqual(["👍", "❤️", "😂", "🎉", "😮", "🙏"]);
-    expect(within(menu).getByTestId("menu-reply")).toBeTruthy();
-    expect(within(menu).getByTestId("menu-copy")).toBeTruthy();
-    expect(within(menu).getByTestId("menu-more-emoji")).toBeTruthy();
-    fireEvent.click(within(menu).getAllByTestId("home-chat-quick-reaction")[0]);
+    // The emoji bar floats on its own above the lifted message.
+    const bar = screen.getByTestId("home-chat-menu-head");
+    expect(within(menu).queryAllByTestId("home-chat-quick-reaction")).toHaveLength(0);
+    expect(within(bar).getAllByTestId("home-chat-quick-reaction").map((b) => b.textContent)).toEqual(["👍", "❤️", "😂", "🎉", "😮", "🙏"]);
+    expect(Array.from(menu.querySelectorAll("[role=menuitem]")).map((b) => b.getAttribute("data-testid"))).toEqual([
+      "menu-reply",
+      "menu-copy",
+      "menu-stash",
+      "menu-more-emoji",
+    ]);
+    fireEvent.click(within(bar).getAllByTestId("home-chat-quick-reaction")[0]);
     expect(api.reactHomeChat).toHaveBeenCalledWith(expect.anything(), { conv: "9", msg: "10", emoji: "👍", on: true });
     await waitFor(() => expect(screen.queryByTestId("home-chat-menu")).toBeNull());
     const chips = screen.getAllByTestId("home-chat-reaction");
@@ -321,5 +328,83 @@ describe("the channel", () => {
     render(<HomeChatView target={CHANNEL} onBack={() => {}} />);
     expect(screen.getByTestId("home-chat-readonly").textContent).toBe("This channel is archived: it is read-only.");
     expect(screen.queryByTestId("home-chat-composer-input")).toBeNull();
+  });
+});
+
+describe("K2 Design's review (4.3.0)", () => {
+  it("the hold menu lifts the held message above a dim + blur, on the menu material, the page row hidden under its copy", async () => {
+    seed([msg("10", ANA, "hi", { reactions: [{ emoji: "🎉", count: 1, me: false }] }), msg("11", ME, "yo")]);
+    render(<HomeChatView target={DM} onBack={() => {}} />);
+    const row = screen.getAllByTestId("home-chat-msg")[0];
+    fireEvent.contextMenu(within(row).getByTestId("home-chat-bubble"));
+    const backdrop = screen.getByTestId("home-chat-menu-backdrop");
+    expect(backdrop.getAttribute("data-dim")).toBe("1");
+    expect(backdrop.style.background).toBe("var(--color-scrim)");
+    const menu = screen.getByTestId("home-chat-menu");
+    expect(menu.style.background).not.toBe("");
+    // The copy: the bubble and its chips (not the name line), no test ids
+    // or hold hooks; the page's own hidden under it while it is up.
+    const lifted = screen.getByTestId("home-chat-menu-lifted");
+    expect(lifted.textContent).toContain("hi");
+    expect(lifted.textContent).toContain("🎉");
+    expect(lifted.textContent).not.toContain("Ana Diaz");
+    expect(lifted.querySelector("[data-testid], [data-message-hold], [data-home-chat-msg], [data-home-chat-lift]")).toBeNull();
+    const piece = row.querySelector<HTMLElement>("[data-home-chat-lift]")!;
+    expect(piece.style.visibility).toBe("hidden");
+    expect(within(row).getByTestId("home-chat-msg-name").textContent).toBe("Ana Diaz");
+    expect(screen.getAllByTestId("home-chat-bubble")).toHaveLength(2);
+    // Over the Home chat's own layer (z 40), not inside it.
+    expect(menu.closest("[data-testid=home-chat-view]")).toBeNull();
+    fireEvent.click(backdrop);
+    await waitFor(() => expect(screen.queryByTestId("home-chat-menu")).toBeNull());
+    expect(piece.style.visibility).toBe("");
+  });
+
+  it("Save to stash: the Thread's words, the message's text, from the other person (a DM) or the channel", async () => {
+    const save = vi.fn(async (_input: { text: string; source?: object }) => "saved" as const);
+    useStashStore.setState({ save });
+    seed([msg("10", ANA, "keep this")]);
+    render(<HomeChatView target={DM} onBack={() => {}} />);
+    fireEvent.contextMenu(screen.getByTestId("home-chat-bubble"));
+    const item = screen.getByTestId("menu-stash");
+    expect(item.textContent).toBe("Save to stash");
+    expect(item.querySelector("svg")).not.toBeNull();
+    fireEvent.click(item);
+    await waitFor(() => expect(save).toHaveBeenCalled());
+    expect(save.mock.calls[0][0]).toMatchObject({
+      text: "keep this",
+      source: { server_label: "Studio", user: "sam", agent: "k2:connect:ana", agent_name: "Ana Diaz" },
+    });
+    cleanup();
+    seed([msg("10", ANA, "for the room")]);
+    render(<HomeChatView target={CHANNEL} onBack={() => {}} />);
+    fireEvent.contextMenu(screen.getByTestId("home-chat-bubble"));
+    fireEvent.click(screen.getByTestId("menu-stash"));
+    await waitFor(() => expect(save).toHaveBeenCalledTimes(2));
+    expect(save.mock.calls[1][0]).toMatchObject({ text: "for the room", source: { agent: "9", agent_name: "#design" } });
+  });
+
+  it("the floating header fades text under it once the list has scrolled", () => {
+    seed([msg("10", ANA, "a"), msg("11", ANA, "b")]);
+    render(<HomeChatView target={CHANNEL} onBack={() => {}} />);
+    const blur = screen.getByTestId("home-chat-header-blur");
+    expect(blur.className).toContain("zen-header-blur--edge");
+    expect(blur.getAttribute("data-scrolled")).not.toBe("1");
+    const scroller = screen.getByTestId("home-chat-scroller");
+    scroller.scrollTop = 120;
+    fireEvent.scroll(scroller);
+    expect(blur.getAttribute("data-scrolled")).toBe("1");
+    scroller.scrollTop = 0;
+    fireEvent.scroll(scroller);
+    expect(blur.getAttribute("data-scrolled")).toBe("0");
+    // The first message starts below the header (and its air).
+    expect(scroller.style.paddingTop).toContain("env(safe-area-inset-top)");
+  });
+
+  it("chat switched off on a Mac server says so with the server's name", () => {
+    api.homeChatGateNow.mockReturnValueOnce({ feature: true, on: false, reason: "mac" } as never);
+    seed([]);
+    render(<HomeChatView target={DM} onBack={() => {}} />);
+    expect(screen.getByTestId("home-chat-off").textContent).toBe("Chat isn’t available on Studio. It needs a Linux server.");
   });
 });

@@ -45,6 +45,15 @@ export function useMenuGlassFill(dark: string = MENU_GLASS_DARK): string {
   return light ? "var(--color-frost-fill)" : dark;
 }
 
+/** The menu material at its full fill: solid, so nothing behind reads
+ *  through it (a lifted hold menu over a dimmed page; K2 Design 4.3.0).
+ *  The raised tone on a dark palette (iOS's dark menu), the card white on
+ *  a light one. */
+export function useMenuSolidFill(): string {
+  const light = useThemeStore((s) => paletteById(s.shown)?.scheme === "light");
+  return light ? "var(--color-bg-surface)" : "var(--color-bg-elevated)";
+}
+
 /** Keep the textarea focused: a blur drops the iOS keyboard (send pattern). */
 const keepFocus = (e: SyntheticEvent) => e.preventDefault();
 

@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
-  HOME_CHAT_COPY_MAC,
   HOME_CHAT_COPY_NO_CHAT,
+  HOME_CHAT_COPY_ROW_NO_CHAT,
   HOME_CHAT_COPY_SPACE_PENDING,
   compareSewIds,
   homeChatBadgeText,
+  homeChatMacLine,
   homeChatNoChatLine,
+  homeChatRowNoChatLine,
   parseHomeChatAddResults,
   parseHomeChatBadge,
   parseHomeChatChannels,
@@ -94,13 +96,23 @@ describe("status and flags", () => {
     expect(parseHomeChatFlags("x").httpTyping).toBe(false);
   });
 
-  it("the desktop's picker copy per reason", () => {
-    expect(homeChatNoChatLine("mac")).toBe("No chat on this server (chat runs on Linux servers).");
+  it("the picker copy per reason; the Mac line names the server (K2 Design 4.3.0)", () => {
+    expect(homeChatNoChatLine("mac", "Parity")).toBe("Chat isn’t available on Parity. It needs a Linux server.");
+    expect(homeChatNoChatLine("mac")).toBe("Chat isn’t available on this server. It needs a Linux server.");
+    expect(homeChatMacLine("  ")).toBe(homeChatMacLine(null));
+    expect(homeChatMacLine("Parity")).not.toMatch(/[()<>]/);
     expect(homeChatNoChatLine("space_pending")).toBe("Chat is still being set up on this server.");
     expect(homeChatNoChatLine("off")).toBe(HOME_CHAT_COPY_NO_CHAT);
     expect(homeChatNoChatLine(null)).toBe(HOME_CHAT_COPY_NO_CHAT);
-    expect(HOME_CHAT_COPY_MAC).toContain("Linux");
     expect(HOME_CHAT_COPY_SPACE_PENDING).toContain("set up");
+  });
+
+  it("a Home row's short form (the row cuts the long one off)", () => {
+    expect(HOME_CHAT_COPY_ROW_NO_CHAT).toBe("No chat on this server");
+    expect(homeChatRowNoChatLine("mac")).toBe(HOME_CHAT_COPY_ROW_NO_CHAT);
+    expect(homeChatRowNoChatLine("off")).toBe(HOME_CHAT_COPY_ROW_NO_CHAT);
+    expect(homeChatRowNoChatLine(null)).toBe(HOME_CHAT_COPY_ROW_NO_CHAT);
+    expect(homeChatRowNoChatLine("space_pending")).toBe(HOME_CHAT_COPY_SPACE_PENDING);
   });
 });
 

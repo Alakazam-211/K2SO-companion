@@ -7,7 +7,7 @@
 // No I/O and no React.
 
 import {
-  HOME_CHAT_COPY_NO_CHAT,
+  homeChatRowNoChatLine,
   type HomeChatBadge,
   type HomeChatChannel,
   type HomeChatPerson,
@@ -70,12 +70,23 @@ export function matchesElsewhere<P extends Who>(
   return out;
 }
 
-/** The question's words (desktop `askSamePerson`, copied exactly). */
+/** The question's words (desktop `askSamePerson`'s title; the body as K2
+ *  Design reworded it for 4.3.0). */
 export function samePersonCopy(name: string, theirName: string, theirServer: string): { title: string; body: string } {
   return {
     title: `Is ${name} the same person as ${theirName} on ${theirServer}?`,
-    body: `Same person keeps one row: ${theirName}'s row stays, and its menu's “Also on” switches servers. Different person adds a second row.`,
+    body: "Same person: one row, and its menu switches between servers. Different person: two rows.",
   };
+}
+
+/** A person's line under their name in a picker: their handle and role,
+ *  the word once when both are the same ("owner", not "owner · owner"). */
+export function personDetail(username: string, role: string | null | undefined): string {
+  const r = role ? (role === "voice_chat" ? "voice & chat" : role) : "";
+  const u = username.trim();
+  if (!r) return u;
+  if (!u || u.toLowerCase() === r.toLowerCase()) return r;
+  return `${u} · ${r}`;
 }
 
 // ─── Rows ───
@@ -167,7 +178,8 @@ export function chatRowQuiet(opts: {
     if (gate.feature && gate.on === null && gate.refusal) {
       return { line: `${opts.serverLabel} can’t be reached`, noChat: false };
     }
-    return { line: gate.pickerLine ?? HOME_CHAT_COPY_NO_CHAT, noChat: true };
+    // The short form: the row has no room for the reason (K2 Design).
+    return { line: homeChatRowNoChatLine(gate.reason), noChat: true };
   }
   if (opts.look?.summaryError) return { line: `${opts.serverLabel} can’t be reached`, noChat: false };
   if (opts.look?.summary?.chat === "unavailable") return { line: "Chat isn’t available right now", noChat: false };
