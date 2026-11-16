@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { scopeFor } from "../api/scope";
 import {
   ADD_ON_DESKTOP_NOTE,
@@ -17,11 +18,13 @@ import {
   refreshLlmTokenUsage,
   splitTool,
   switchBlockReason,
+  switchConfirmText,
   switchLlmToken,
   tokenName,
   unsupportedText,
   usageCheckedAtSecs,
   visibleTools,
+  withServerDefault,
   type LlmToken,
   type LlmTokenTool,
   type LlmTokensDoc,
@@ -52,7 +55,7 @@ type Phase =
 /** Usage (Servers card → gauge): one server's LLM subscriptions and API
  *  tokens, mirroring desktop Settings → LLMs → Tokens — the server default
  *  per tool, every other token, each one's own usage windows and when
- *  they reset — with a Switch on each other signed-in subscription
+ *  they reset — with Make default on each other signed-in subscription
  *  (`POST /cli/llm/accounts/switch`). Adding a subscription stays on the
  *  desktop. A full page over the Servers sheet: the glass back chevron,
  *  Android Back and the left-edge swipe all go back. */
@@ -65,6 +68,10 @@ export function UsagePage({ serverId, onBack }: { serverId: string; onBack: () =
   const [refreshing, setRefreshing] = useState(false);
   const [switchingId, setSwitchingId] = useState<string | null>(null);
   const [switchDenied, setSwitchDenied] = useState<string | null>(null);
+  // Make default (desktop's wording, K2 Design 2026-11-16): confirm first,
+  // then the badge moves at once; "… is now the … server default." after.
+  const [ask, setAsk] = useState<{ tool: LlmTokenTool; to: LlmToken } | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   const [rowWarnings, setRowWarnings] = useState<Record<string, string[]>>({});
   const [now, setNow] = useState(() => Date.now());
@@ -137,22 +144,29 @@ export function UsagePage({ serverId, onBack }: { serverId: string; onBack: () =
     };
   }, [load, refresh]);
 
-  const doSwitch = async (token: LlmToken) => {
-    if (switchingId || switchDenied) return;
+  const doSwitch = async (tool: LlmTokenTool, token: LlmToken) => {
+    if (switchingId || switchDenied || !doc) return;
     setSwitchingId(token.id);
+    setNotice(null);
     setRowErrors((m) => {
       const { [token.id]: _drop, ...rest } = m;
       return rest;
     });
     setRowWarnings({});
+    // The badge moves at once (desktop); a refusal puts the old one back.
+    const before = doc;
+    setDoc(withServerDefault(doc, tool.tool, token.id));
     const r = await switchLlmToken(scopeFor(serverId), token.id);
     if (!mounted.current) return;
     if (r.ok) {
       if (r.warnings.length > 0) setRowWarnings({ [token.id]: r.warnings });
+      setNotice(`\u201c${token.label}\u201d is now the ${tool.display} server default.`);
       await load();
     } else if (r.kind === "forbidden") {
+      setDoc(before);
       setSwitchDenied(FORBIDDEN_SWITCH_TEXT);
     } else {
+      setDoc(before);
       setRowErrors((m) => ({ ...m, [token.id]: r.error }));
     }
     if (mounted.current) setSwitchingId(null);
@@ -268,6 +282,11 @@ export function UsagePage({ serverId, onBack }: { serverId: string; onBack: () =
         ) : null}
 
         {switchDenied ? <Banner color={AMBER} testId="usage-switch-denied">{switchDenied}</Banner> : null}
+        {notice ? (
+          <Banner color="var(--color-status-ok)" testId="usage-switch-notice">
+            {notice}
+          </Banner>
+        ) : null}
         {reloadError ? <Banner color={RED} testId="usage-reload-error">{reloadError}</Banner> : null}
 
         {phase.kind === "loading" ? (
@@ -297,12 +316,102 @@ export function UsagePage({ serverId, onBack }: { serverId: string; onBack: () =
               switchDenied={switchDenied}
               rowErrors={rowErrors}
               rowWarnings={rowWarnings}
-              onSwitch={(t) => void doSwitch(t)}
+              onSwitch={(t) => setAsk({ tool, to: t })}
             />
           ))
         )}
       </div>
+      {ask ? (
+        <MakeDefaultSheet
+          tool={ask.tool}
+          to={ask.to}
+          now={now}
+          onCancel={() => setAsk(null)}
+          onConfirm={() => {
+            const { tool, to } = ask;
+            setAsk(null);
+            void doSwitch(tool, to);
+          }}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/** Make default's confirm (desktop's ConfirmSheet with switchConfirmText):
+ *  from what to what, who moves, and any used-up limit as a warning. */
+function MakeDefaultSheet({
+  tool,
+  to,
+  now,
+  onCancel,
+  onConfirm,
+}: {
+  tool: LlmTokenTool;
+  to: LlmToken;
+  now: number;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  // Android Back = Cancel.
+  useBackHandler(true, onCancel);
+  const from = tool.accounts.find((a) => a.id === tool.activeId) ?? null;
+  const { title, message } = switchConfirmText(tool, from, to, now);
+  return createPortal(
+    <div
+      className="fixed inset-0 flex items-end justify-center"
+      style={{ background: "var(--color-scrim)", zIndex: 60, fontFamily: "var(--zen-font)" }}
+      data-testid="usage-switch-confirm"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onCancel();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label={title}
+        className="w-full k2-tile k2-tile-sheet flex flex-col"
+        style={{
+          borderTopLeftRadius: 14,
+          borderTopRightRadius: 14,
+          padding: "16px 16px max(12px, var(--safe-bottom))",
+          gap: 12,
+          color: "var(--color-text-primary)",
+        }}
+      >
+        <h2 className="text-[17px] font-semibold text-center" data-testid="usage-switch-confirm-title">
+          {title}
+        </h2>
+        <p
+          className="text-[13px] whitespace-pre-line"
+          style={{ color: "var(--color-text-secondary)", lineHeight: 1.4 }}
+          data-testid="usage-switch-confirm-body"
+        >
+          {message}
+        </p>
+        <div className="flex" style={{ gap: 10 }}>
+          <button
+            type="button"
+            className="flex-1 text-[17px] k2-tile"
+            style={{ minHeight: 44, borderRadius: 12, color: "var(--color-text-primary)" }}
+            data-testid="usage-switch-confirm-cancel"
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="flex-1 text-[17px] font-semibold"
+            style={{ minHeight: 44, borderRadius: 12, color: "var(--color-on-accent)", background: "var(--color-accent-fill)" }}
+            data-testid="usage-switch-confirm-go"
+            onClick={onConfirm}
+          >
+            Make default
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }
 
@@ -375,7 +484,7 @@ function ToolSection({
       </div>
       {active && others.length > 0 ? (
         <p className="text-[12px]" style={{ color: MUTED, padding: "6px 16px 0", lineHeight: 1.35 }}>
-          Switching changes the {tool.display} server default for every chat on Server default; running sessions pick it up.
+          Make default changes the {tool.display} server default for every chat on Server default; running sessions pick it up.
         </p>
       ) : null}
     </section>
@@ -453,13 +562,13 @@ function TokenRow({
             className="shrink-0 text-[15px] k2-tile disabled:opacity-40"
             style={{ minHeight: 34, padding: "0 14px", borderRadius: 17, color: "var(--color-text-primary)" }}
             disabled={busy || !!switchDenied}
-            title={switchDenied ?? undefined}
+            title={switchDenied ?? `Make \u201c${token.label}\u201d the ${tool.display} server default`}
             aria-busy={switching || undefined}
-            aria-label={`Switch ${tool.display} to ${token.label}`}
+            aria-label={`Make \u201c${token.label}\u201d the ${tool.display} server default`}
             data-testid={`usage-switch-${token.id}`}
             onClick={() => onSwitch(token)}
           >
-            {switching ? "Switching…" : "Switch"}
+            {switching ? "Making default…" : "Make default"}
           </button>
         ) : null}
       </div>
@@ -484,7 +593,7 @@ function TokenRow({
       ))}
       {error ? (
         <Line color={RED} testId={`usage-switch-error-${token.id}`} role="alert">
-          Couldn't switch: {error}
+          Couldn't change the server default: {error}
         </Line>
       ) : null}
     </div>

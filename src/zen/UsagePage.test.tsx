@@ -136,8 +136,18 @@ describe("UsagePage", () => {
     render(<UsagePage serverId="s1" onBack={() => {}} />);
     const btn = await screen.findByTestId("usage-switch-acc_home");
     await waitFor(() => expect(calls("/cli/llm/accounts/list").length).toBeGreaterThanOrEqual(2));
+    // Desktop's wording: Make default, then a confirm sheet saying what moves.
+    expect(btn.textContent).toBe("Make default");
     fireEvent.click(btn);
-    await waitFor(() => expect(btn.textContent).toBe("Switching…"));
+    expect(calls("/cli/llm/accounts/switch")).toHaveLength(0);
+    expect(screen.getByTestId("usage-switch-confirm-title").textContent).toMatch(/^Make \u201c.+\u201d the Claude server default\?$/);
+    expect(screen.getByTestId("usage-switch-confirm-body").textContent).toContain("Every chat set to Server default on this server moves to");
+    expect(screen.getByTestId("usage-switch-confirm-go").textContent).toBe("Make default");
+    fireEvent.click(screen.getByTestId("usage-switch-confirm-go"));
+    // The badge moves at once, before the daemon answers.
+    await waitFor(() =>
+      expect(screen.getByTestId("usage-token-acc_home").getAttribute("data-active")).toBe("true")
+    );
     expect(calls("/cli/llm/accounts/switch")).toHaveLength(1);
     const [, init] = calls("/cli/llm/accounts/switch")[0];
     expect(init.method).toBe("POST");
@@ -146,27 +156,42 @@ describe("UsagePage", () => {
     await waitFor(() =>
       expect(screen.getByTestId("usage-token-acc_home").getAttribute("data-active")).toBe("true")
     );
-    // The new default leads; the old one now offers Switch.
+    // The new default leads; the old one now offers Make default.
     const rows = within(screen.getByTestId("usage-tool-claude")).getAllByTestId(/^usage-token-acc_/);
     expect(rows[0].getAttribute("data-testid")).toBe("usage-token-acc_home");
     expect(screen.getByTestId("usage-switch-acc_work")).toBeTruthy();
+    expect((await screen.findByTestId("usage-switch-notice")).textContent).toMatch(/^\u201c.+\u201d is now the Claude server default\.$/);
   });
 
-  it("a failed switch shows the daemon's reason inline on that row", async () => {
+  it("a refused Make default puts the old default back and says why on that row", async () => {
     daemon({
       switch: () => res(409, { error: { code: "signing_in", hint: "this token is signing in" } }),
     });
     render(<UsagePage serverId="s1" onBack={() => {}} />);
     fireEvent.click(await screen.findByTestId("usage-switch-acc_home"));
+    fireEvent.click(screen.getByTestId("usage-switch-confirm-go"));
     const err = await screen.findByTestId("usage-switch-error-acc_home");
-    expect(err.textContent).toBe("Couldn't switch: this token is signing in");
+    expect(err.textContent).toBe("Couldn't change the server default: this token is signing in");
+    // Refused: the old default comes back.
+    expect(screen.getByTestId("usage-token-acc_home").getAttribute("data-active")).toBeNull();
     expect((screen.getByTestId("usage-switch-acc_home") as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it("Cancel on the confirm sheet sends nothing and leaves the default", async () => {
+    daemon({});
+    render(<UsagePage serverId="s1" onBack={() => {}} />);
+    fireEvent.click(await screen.findByTestId("usage-switch-acc_home"));
+    fireEvent.click(screen.getByTestId("usage-switch-confirm-cancel"));
+    expect(screen.queryByTestId("usage-switch-confirm")).toBeNull();
+    expect(calls("/cli/llm/accounts/switch")).toHaveLength(0);
+    expect(screen.getByTestId("usage-token-acc_home").getAttribute("data-active")).toBeNull();
   });
 
   it("403 on switch disables Switch with a short reason", async () => {
     daemon({ switch: () => res(403, { error: "role_required", required: "member", role: "member" }) });
     render(<UsagePage serverId="s1" onBack={() => {}} />);
     fireEvent.click(await screen.findByTestId("usage-switch-acc_home"));
+    fireEvent.click(screen.getByTestId("usage-switch-confirm-go"));
     const denied = await screen.findByTestId("usage-switch-denied");
     expect(denied.textContent).toBe(FORBIDDEN_SWITCH_TEXT);
     expect((screen.getByTestId("usage-switch-acc_home") as HTMLButtonElement).disabled).toBe(true);

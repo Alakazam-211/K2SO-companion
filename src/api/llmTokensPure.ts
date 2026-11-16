@@ -236,6 +236,45 @@ export function visibleTools(doc: LlmTokensDoc | null): LlmTokenTool[] {
   return (doc?.tools ?? []).filter((t) => t.supported && t.accounts.length > 0);
 }
 
+/** Desktop's note on who a server-default change leaves alone
+ *  (AgentAccountsColumn.tsx KEEP_OWN_NOTE). */
+export const KEEP_OWN_NOTE = "Workspaces and chats that picked their own token keep it.";
+
+/** Make default's confirm sheet: desktop's `switchConfirmText`
+ *  (AgentAccountsColumn.tsx), word for word. */
+export function switchConfirmText(
+  tool: Pick<LlmTokenTool, "display">,
+  from: LlmToken | null,
+  to: LlmToken,
+  nowMs: number = Date.now()
+): { title: string; message: string; warnings: string[] } {
+  const toName = tokenName(tool.display, to);
+  const fromName = from ? tokenName(tool.display, from) : "no token";
+  const warnings = exhaustedWindows(to, nowMs);
+  const lines = [
+    `From: ${fromName}`,
+    `To: ${toName}`,
+    "",
+    `Every chat set to Server default on this server moves to “${to.label}”, and running chats pick it up. ${KEEP_OWN_NOTE}`,
+  ];
+  if (warnings.length > 0) lines.push("", ...warnings.map((w) => `Warning: ${w}`));
+  return { title: `Make “${to.label}” the ${tool.display} server default?`, message: lines.join("\n"), warnings };
+}
+
+/** The list with `tokenId` as its tool's server default: Make default moves
+ *  the badge (and the row to the top) at once, as on the desktop; a refused
+ *  change puts the old document back. */
+export function withServerDefault(doc: LlmTokensDoc, toolId: string, tokenId: string): LlmTokensDoc {
+  return {
+    ...doc,
+    tools: doc.tools.map((t) =>
+      t.tool !== toolId
+        ? t
+        : { ...t, activeId: tokenId, accounts: t.accounts.map((a) => ({ ...a, active: a.id === tokenId })) }
+    ),
+  };
+}
+
 /** The server default first, then the others in the daemon's order. */
 export function splitTool(tool: LlmTokenTool): { active: LlmToken | null; others: LlmToken[] } {
   const active = tool.accounts.find((a) => a.id === tool.activeId) ?? null;

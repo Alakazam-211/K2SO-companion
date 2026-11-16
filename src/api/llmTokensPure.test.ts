@@ -18,6 +18,9 @@ import {
   tokenName,
   usageCheckedAtSecs,
   visibleTools,
+  KEEP_OWN_NOTE,
+  switchConfirmText,
+  withServerDefault,
 } from "./llmTokensPure";
 import { listBody, NOW_MS } from "../test/llmTokensFixture";
 
@@ -183,5 +186,30 @@ describe("failureKind", () => {
     expect(failureKind(403, "owner_only")).toBe("forbidden");
     expect(failureKind(409, "this token is signing in")).toBe("error");
     expect(failureKind(undefined, "Could not reach server")).toBe("error");
+  });
+});
+
+describe("Make default (desktop's wording)", () => {
+  const doc = parseLlmTokensDoc(listBody())!;
+  const claude = doc.tools.find((t) => t.tool === "claude")!;
+  const from = claude.accounts.find((a) => a.id === claude.activeId) ?? null;
+  const to = claude.accounts.find((a) => a.id !== claude.activeId && a.kind !== "api_key")!;
+
+  it("asks with desktop's switchConfirmText", () => {
+    const c = switchConfirmText(claude, from, to, NOW_MS);
+    expect(c.title).toBe(`Make \u201c${to.label}\u201d the ${claude.display} server default?`);
+    expect(c.message.split("\n")[0]).toBe(`From: ${from ? tokenName(claude.display, from) : "no token"}`);
+    expect(c.message.split("\n")[1]).toBe(`To: ${tokenName(claude.display, to)}`);
+    expect(c.message).toContain(KEEP_OWN_NOTE);
+  });
+
+  it("moves the default in one tool only", () => {
+    const next = withServerDefault(doc, "claude", to.id);
+    const t = next.tools.find((x) => x.tool === "claude")!;
+    expect(t.activeId).toBe(to.id);
+    expect(t.accounts.filter((a) => a.active).map((a) => a.id)).toEqual([to.id]);
+    expect(next.tools.filter((x) => x.tool !== "claude")).toEqual(doc.tools.filter((x) => x.tool !== "claude"));
+    // The original is untouched (a refusal puts it back).
+    expect(doc.tools.find((x) => x.tool === "claude")!.activeId).toBe(claude.activeId);
   });
 });
