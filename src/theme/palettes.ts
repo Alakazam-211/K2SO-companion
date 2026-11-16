@@ -16,6 +16,7 @@ import dusk from "./glass/yellow.json";
 import tokens from "./glass/tokens.json";
 import { accentStorageKey, accentVarsFor, ACCENT_VARS, parseAccentChoice, type AccentChoice } from "./styleAccent";
 import { resolveAllColorMix } from "./colorMix";
+import { syncNativeAppearance, type NativeAppearance } from "./nativeAppearance";
 
 export type StyleScheme = "dark" | "light";
 export type PaletteId = "obsidian" | "veil" | "yellow";
@@ -154,9 +155,10 @@ export function readSelection(): ThemeSelection {
   return { mode: parseSchemeMode(read(SCHEME_KEY)), dark: sidePalette("dark"), light: sidePalette("light") };
 }
 
-/** True when iOS (or the browser) shows light. Under the app's old dark
- *  lock this always says dark; Auto needs the native side to follow the
- *  system (stage 3). */
+/** True when iOS (or the browser) shows light. On the phone the web view's
+ *  `prefers-color-scheme` is the native mode (src-tauri/src/appearance.rs):
+ *  forced under Light and Dark, the iPhone's own under Auto, and live, so
+ *  only Auto reads it (resolveScheme). */
 export function systemPrefersLight(): boolean {
   try {
     return typeof window !== "undefined" && typeof window.matchMedia === "function"
@@ -245,8 +247,29 @@ export function applyTheme(id: PaletteId, accent: AccentChoice | null, root?: HT
   el.style.colorScheme = p.scheme;
 }
 
-/** main.tsx, before the first render: the stored palette and accent. */
+/** A palette's page colour (`--color-bg`), for the native side. */
+export function paletteBg(id: PaletteId): string {
+  const p = paletteById(id) ?? PALETTES[0];
+  return p.vars["--color-bg"] ?? (p.scheme === "light" ? "#ffffff" : "#000000");
+}
+
+/** What the native side is told for a selection: the mode, the page colour
+ *  on screen, and each side's (for its next launch under Auto). */
+export function nativeLook(sel: ThemeSelection, systemLight = systemPrefersLight()): NativeAppearance {
+  return {
+    mode: sel.mode,
+    bg: paletteBg(resolvePalette(sel, systemLight)),
+    darkBg: paletteBg(sel.dark),
+    lightBg: paletteBg(sel.light),
+  };
+}
+
+/** main.tsx, before the first render: the stored palette and accent, and
+ *  the mode to the native side (keyboard, status bar, next launch). */
 export function initTheme(): void {
-  const id = resolvePalette(readSelection());
+  const sel = readSelection();
+  const light = systemPrefersLight();
+  const id = resolvePalette(sel, light);
   applyTheme(id, readAccent(id));
+  syncNativeAppearance(nativeLook(sel, light));
 }

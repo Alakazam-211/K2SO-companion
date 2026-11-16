@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import {
   applyTheme,
+  nativeLook,
   PALETTES,
   readAccent,
   readSelection,
@@ -14,6 +15,7 @@ import {
   type ThemeSelection,
 } from "./palettes";
 import type { AccentChoice } from "./styleAccent";
+import { syncNativeAppearance } from "./nativeAppearance";
 
 /** Settings → Themes (ThemesPage.tsx; desktop's Settings → Themes): Light,
  *  Dark or Auto; the palette for each side (under Auto, the two picks);
@@ -41,6 +43,7 @@ function commit(sel: ThemeSelection): Pick<ThemeState, "mode" | "dark" | "light"
   writeSelection(sel, light);
   const shown = resolvePalette(sel, light);
   applyTheme(shown, readAccent(shown));
+  syncNativeAppearance(nativeLook(sel, light));
   return { mode: sel.mode, dark: sel.dark, light: sel.light, shown };
 }
 
@@ -67,14 +70,20 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
   },
   refresh: () => {
     const { mode, dark, light, shown } = get();
-    const next = resolvePalette({ mode, dark, light });
+    const systemLight = systemPrefersLight();
+    const next = resolvePalette({ mode, dark, light }, systemLight);
+    // Native under Auto already follows the iPhone; this moves the colour
+    // behind the page with it (deduped: nothing changed, nothing sent).
+    syncNativeAppearance(nativeLook({ mode, dark, light }, systemLight));
     if (next === shown) return;
     applyTheme(next, readAccent(next));
     set({ shown: next });
   },
 }));
 
-/** Under Auto, follow the system's light/dark as it changes. */
+/** Under Auto, follow the system's light/dark as it changes. On the phone
+ *  the web view's media query is the native mode (src-tauri/src/
+ *  appearance.rs): under Auto the iPhone's own, live. */
 export function watchSystemScheme(): () => void {
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
   const mq = window.matchMedia("(prefers-color-scheme: light)");
