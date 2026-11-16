@@ -380,20 +380,18 @@ html, body, #root {
    without a shadow vanish on the light page). 1px, bright at the top and
    bottom, grey down the sides. Drawn as a background layer on the border
    box under the frost (no pseudo-element, so no element needs to become a
-   positioned box). Around the piece like a clock (Riley 2026-11-16): the
-   grey is darkest at 3 and 9 o'clock and shifts back to the bright frost
-   edge by 1:30, 4:30, 7:30 and 10:30, so a wide pill keeps its grey at the
-   rounded ends. A conic gradient from the centre (iOS 12.1+). */
+   positioned box). The grey sits at the left and right edges only and
+   fades to the bright frost within a fixed 8px, the same on a small button
+   and a wide pill (Riley 2026-11-16: "the gradient into the middle is
+   unnecessary … for really big bubbles it should be the same amount as
+   really small bubbles"); top and bottom stay bright. */
 :root[data-scheme="light"] {
-  --k2-veil-ring: conic-gradient(
-    rgba(255, 255, 255, 0.95) 0deg,
-    rgba(255, 255, 255, 0.95) 45deg,
-    rgba(0, 0, 0, 0.2) 90deg,
-    rgba(255, 255, 255, 0.95) 135deg,
-    rgba(255, 255, 255, 0.95) 225deg,
-    rgba(0, 0, 0, 0.2) 270deg,
-    rgba(255, 255, 255, 0.95) 315deg,
-    rgba(255, 255, 255, 0.95) 360deg
+  --k2-veil-ring: linear-gradient(
+    to right,
+    rgba(0, 0, 0, 0.2) 0px,
+    rgba(255, 255, 255, 0.95) 8px,
+    rgba(255, 255, 255, 0.95) calc(100% - 8px),
+    rgba(0, 0, 0, 0.2) 100%
   );
 }
 :root[data-scheme="light"] .zen-glass {
