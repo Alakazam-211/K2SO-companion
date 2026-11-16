@@ -6,7 +6,7 @@ Default permissions for the k2-push plugin: availability probe,
 permission request, token fetch, launch-tap read, the notification
 avatar cache (Communication Notifications), the app-icon badge
 totals and their delivery diagnostics, clearing read notifications, the composer's attach
-pickers (photo library, document picker), the pairing QR scanner, the voice call's system UI, the Keychain copy of login tokens, and the event listener
+pickers (photo library, document picker), the pairing QR scanner, the native signed-approval screens (open a request by id; the Approver keys screen; neither takes bytes to sign nor returns a signature), the voice call's system UI, the Keychain copy of login tokens, and the event listener
 plumbing for `tap`/`tokenRefresh`/`badgeTotals`.
 """
 
@@ -27,6 +27,8 @@ permissions = [
   "allow-pick-media",
   "allow-pick-documents",
   "allow-scan-qr",
+  "allow-approval-open",
+  "allow-approver-keys",
   "allow-register-listener",
   "allow-remove-listener",
 ]

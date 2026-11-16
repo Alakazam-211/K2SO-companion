@@ -144,6 +144,8 @@ import { MessageFiles, patchThreadFileState, useThreadFilesOn } from "./ThreadFi
 import { JumpPill, type JumpPillWords } from "./JumpPill";
 import { PermissionCard } from "./PermissionCard";
 import type { PermissionCardModel } from "./permissionCardModel";
+import type { ApprovalCardModel } from "./approvals";
+import { ApprovalCard } from "./ApprovalCard";
 import { ThreadImagesContext, type ThreadImagesSource } from "./ThreadImages";
 import { FEATURE_THREAD_IMAGES, attachmentOpenable, isImageAttachment } from "../api/threadAttachmentPure";
 import { AttachmentSheet, type OpenAttachment } from "./AttachmentSheet";
@@ -509,6 +511,8 @@ const Bubble = memo(function Bubble({
           ) : null}
           {waiting && canAnswer && !answerHeld && !answering && m.id ? <CardDismiss id={m.id} /> : null}
         </div>
+      ) : m.approval ? (
+        <ThreadApprovalCard card={m.approval} />
       ) : m.stashOffer && !m.mine ? (
         <StashOfferCard m={m} offer={m.stashOffer} onSave={onStashOffer} />
       ) : (
@@ -597,6 +601,26 @@ function ThreadPermissionCard({ card, id, enabled }: { card: PermissionCardModel
       scope={scope}
       enabled={enabled && !!addr}
       onWritten={() => void useZenStore.getState().refreshOpenThread()}
+    />
+  );
+}
+
+/** A signed-approval card on the open Thread: Review opens the native
+ *  screen for this server; a re-read after it closes shows the status. */
+function ThreadApprovalCard({ card }: { card: ApprovalCardModel }) {
+  const scope = useZenScope();
+  let url = "";
+  try {
+    url = scope.httpBase();
+  } catch {
+    url = "";
+  }
+  return (
+    <ApprovalCard
+      card={card}
+      server={scope.id}
+      url={url}
+      onClosed={() => void useZenStore.getState().refreshOpenThread()}
     />
   );
 }

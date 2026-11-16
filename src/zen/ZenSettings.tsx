@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ABOUT } from "../lib/about";
 import { usePushToggle } from "../lib/usePushToggle";
 import { ZEN_FONTS, ZEN_TEXT_SIZES, useZenFontStore } from "./zenFont";
@@ -13,6 +13,8 @@ import { useBackHandler } from "../lib/androidBack";
 import { AcknowledgementsPage } from "./AcknowledgementsPage";
 import { RowChevron } from "./RowChevron";
 import { BackArrowButton } from "./BackArrowButton";
+import { approverKeyStatus, openApproverKeys } from "./approvals";
+import { isIosWebView } from "../lib/nativePicker";
 
 const MUTED = "var(--color-text-muted)";
 const HAIRLINE = "0.5px solid var(--color-wash-2)";
@@ -101,6 +103,16 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
           <MultiServerRow />
         </Group>
 
+        {isIosWebView() ? (
+          <Group
+            label="Approvals"
+            testId="settings-approvals"
+            footnote="Lets you approve an agent's request, such as a K2 release, on this iPhone with Face ID or your passcode."
+          >
+            <ApproverKeysRow />
+          </Group>
+        ) : null}
+
         <Group label="About" testId="settings-about">
           <ValueRow label="App" value={ABOUT.app} />
           <ValueRow label="Version" value={ABOUT.version} divider />
@@ -121,6 +133,35 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
       {notices ? <AcknowledgementsPage onBack={() => setNotices(false)} /> : null}
       {themes ? <ThemesPage onBack={() => setThemes(false)} /> : null}
     </div>
+  );
+}
+
+/** Opens the phone's native Approver keys screen (signed approvals S1):
+ *  the keys, their six words, Share public keys. Shows how many keys this
+ *  phone has. */
+function ApproverKeysRow() {
+  const [count, setCount] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    void approverKeyStatus().then((k) => live && setCount(k.length));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return (
+    <button
+      type="button"
+      className="w-full flex items-center justify-between text-[17px] text-left"
+      style={{ minHeight: 44, padding: "11px 16px" }}
+      data-testid="settings-approver-keys"
+      onClick={() => void openApproverKeys().then((k) => setCount(k.length))}
+    >
+      <span>Approver keys</span>
+      <span className="flex items-center" style={{ color: MUTED, gap: 6 }}>
+        <span data-testid="approver-keys-value">{count === null ? "" : count === 0 ? "Not set up" : count === 1 ? "1 key" : `${count} keys`}</span>
+        <RowChevron />
+      </span>
+    </button>
   );
 }
 

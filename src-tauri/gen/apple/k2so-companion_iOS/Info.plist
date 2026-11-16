@@ -67,6 +67,8 @@
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
 	</array>
+	<key>NSFaceIDUsageDescription</key>
+	<string>K2 uses Face ID to check it's you when you approve a request, such as a release.</string>
 	<key>NSCameraUsageDescription</key>
 	<string>K2 uses the camera so people in a voice room can see you when you turn your camera on, so you can attach a photo or video to a message, and to scan the pairing QR code from your computer.</string>
 	<key>NSMicrophoneUsageDescription</key>
