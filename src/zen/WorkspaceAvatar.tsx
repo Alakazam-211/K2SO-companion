@@ -18,7 +18,7 @@ export function WorkspaceAvatar({
   iconUrl,
   size,
   fontSize,
-  fallback = "#3a3a3c",
+  fallback = "var(--color-bg-elevated)",
 }: Props) {
   const small = size <= AVATAR_SMALL_PX;
   return (
@@ -31,7 +31,7 @@ export function WorkspaceAvatar({
         borderRadius: "50%",
         background: color || fallback,
         fontSize,
-        color: "#fff",
+        color: color ? "#fff" : "var(--color-text-primary)",
         position: "relative",
         // Own stacking context: the glass layer stays inside the avatar,
         // so a sibling activity dot (later in the DOM) paints above it.

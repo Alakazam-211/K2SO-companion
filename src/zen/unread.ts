@@ -261,12 +261,21 @@ export function rowUnreadOf(e: UnreadEntry | null | undefined): RowUnread | null
   return null;
 }
 
-export const UNREAD_BLUE = "#0a84ff";
-export const WAITING_AMBER = "#f59e0b";
-export const MUTED_GREY = "#8e8e93";
+/** A tone's colour (palette tokens, so Veil, Dusk and a chosen accent
+ *  follow). `dot`: the bare dot. `fill`: under a count's words (the accent
+ *  deepened so on-accent reads); pair it with `toneInk`. */
+export function toneColor(tone: RowUnread["tone"], as: "dot" | "fill" = "dot"): string {
+  if (tone === "waiting") return "var(--color-status-needs-you)";
+  if (tone === "muted") return "var(--color-neutral)";
+  return as === "fill" ? "var(--color-accent-fill)" : "var(--color-accent)";
+}
 
-export function toneColor(tone: RowUnread["tone"]): string {
-  return tone === "waiting" ? WAITING_AMBER : tone === "muted" ? MUTED_GREY : UNREAD_BLUE;
+/** The words on `toneColor(tone, "fill")`. Muted is a mid grey in every
+ *  palette, so white reads on it. */
+export function toneInk(tone: RowUnread["tone"]): string {
+  if (tone === "waiting") return "var(--color-on-warn)";
+  if (tone === "muted") return "#fff";
+  return "var(--color-on-accent)";
 }
 
 // ─── Totals for the chrome ───

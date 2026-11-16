@@ -57,7 +57,7 @@ export function FocusGroupPicker({
       role="menuitemradio"
       aria-checked={on}
       className="w-full flex items-center text-left bg-transparent border-0"
-      style={{ gap: 12, padding: "10px 14px", minHeight: 48, color: "#fff" }}
+      style={{ gap: 12, padding: "10px 14px", minHeight: 48, color: "var(--color-text-primary)" }}
       onClick={onClick}
       data-testid={`group-pick-${key}`}
     >
@@ -69,11 +69,11 @@ export function FocusGroupPicker({
           height: 12,
           borderRadius: "50%",
           background: dot || "transparent",
-          boxShadow: dot ? undefined : "inset 0 0 0 1.5px #8e8e93",
+          boxShadow: dot ? undefined : "inset 0 0 0 1.5px var(--color-control-edge)",
         }}
       />
       <span className="flex-1 min-w-0 truncate text-[16px]">{label}</span>
-      <span aria-hidden className="shrink-0" style={{ width: 18, color: "#0a84ff" }}>
+      <span aria-hidden className="shrink-0" style={{ width: 18, color: "var(--color-accent-text)" }}>
         {on ? (
           <CheckIcon size={18} strokeWidth={2.6} testId="group-pick-check" />
         ) : null}
@@ -84,7 +84,7 @@ export function FocusGroupPicker({
   return (
     <div
       className="absolute inset-0 flex items-end justify-center"
-      style={{ background: "rgba(0,0,0,.45)", zIndex: 30 }}
+      style={{ background: "var(--color-scrim)", zIndex: 30 }}
       data-no-pin="1"
       data-testid="group-picker"
       onClick={(e) => {
@@ -100,7 +100,7 @@ export function FocusGroupPicker({
           borderTopRightRadius: 14,
           padding: "16px 0 max(12px, var(--safe-bottom))",
           maxHeight: "80%",
-          color: "#fff",
+          color: "var(--color-text-primary)",
         }}
       >
         <h2
@@ -131,13 +131,13 @@ export function FocusGroupPicker({
               aria-label="New group name"
               maxLength={60}
               className="flex-1 min-w-0 text-[16px] k2-tile k2-tile-raised outline-none"
-              style={{ height: 40, borderRadius: 10, padding: "0 12px", color: "#fff" }}
+              style={{ height: 40, borderRadius: 10, padding: "0 12px", color: "var(--color-text-primary)" }}
               data-testid="group-new-name"
             />
             <button
               type="submit"
               className="shrink-0 font-semibold text-[16px] disabled:opacity-40"
-              style={{ height: 40, borderRadius: 10, padding: "0 14px", background: "#0a84ff", color: "#fff" }}
+              style={{ height: 40, borderRadius: 10, padding: "0 14px", background: "var(--color-accent-fill)", color: "var(--color-on-accent)" }}
               disabled={busy || !name.trim()}
               data-testid="group-new-add"
             >
@@ -148,7 +148,7 @@ export function FocusGroupPicker({
           <button
             type="button"
             className="w-full flex items-center text-left bg-transparent border-0 shrink-0"
-            style={{ gap: 12, padding: "10px 14px", minHeight: 48, color: "#0a84ff" }}
+            style={{ gap: 12, padding: "10px 14px", minHeight: 48, color: "var(--color-accent-text)" }}
             onClick={() => setNaming(true)}
             data-testid="group-pick-new"
           >
@@ -163,7 +163,7 @@ export function FocusGroupPicker({
           <p
             role="status"
             className="text-[13px] text-center shrink-0"
-            style={{ color: "#ff453a", padding: "4px 16px 0" }}
+            style={{ color: "var(--color-status-error-text)", padding: "4px 16px 0" }}
             data-testid="group-new-error"
           >
             {error}
@@ -172,7 +172,7 @@ export function FocusGroupPicker({
         <button
           type="button"
           className="w-full text-[17px] bg-transparent border-0 shrink-0"
-          style={{ minHeight: 44, color: "#8e8e93", marginTop: 4 }}
+          style={{ minHeight: 44, color: "var(--color-text-muted)", marginTop: 4 }}
           onClick={onClose}
           data-testid="group-picker-cancel"
         >

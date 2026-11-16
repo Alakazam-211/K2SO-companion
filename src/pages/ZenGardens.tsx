@@ -9,7 +9,7 @@ import { forgetGardenLibs } from "../zen/gardens/frameDoc";
 import { forgetGardenFeed } from "../zen/gardens/GardensList";
 
 const GARDEN_PARAM = "garden";
-const MUTED = "#8e8e93";
+const MUTED = "var(--color-text-muted)";
 
 function feedProblem(r: GardenRefusal, server: string): string {
   if (r.code === "unreachable") return `Can't reach ${server}.`;
@@ -78,7 +78,7 @@ export function ZenGardens() {
   const title = current?.name ?? "Gardens";
 
   return (
-    <div className="h-full min-h-0 flex flex-col zen-font" style={{ background: "#000", color: "#fff" }} data-testid="zen-gardens">
+    <div className="h-full min-h-0 flex flex-col zen-font" style={{ background: "var(--color-bg)", color: "var(--color-text-primary)" }} data-testid="zen-gardens">
       {/* In the page flow under #root, which already keeps clear of the
           status bar (index.css): no inset of its own, or it doubles. */}
       <header className="shrink-0">
@@ -86,7 +86,7 @@ export function ZenGardens() {
           <button
             type="button"
             className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
-            style={{ width: 34, height: 34, color: "#fff" }}
+            style={{ width: 34, height: 34, color: "var(--color-text-primary)" }}
             aria-label="Back"
             data-testid="gardens-back"
             onClick={() => navigate(-1)}
@@ -128,7 +128,7 @@ export function ZenGardens() {
                 key={g.id}
                 type="button"
                 className="w-full text-left text-[17px]"
-                style={{ padding: "14px 20px", borderBottom: "0.5px solid rgba(255,255,255,.12)", color: "#fff" }}
+                style={{ padding: "14px 20px", borderBottom: "0.5px solid var(--color-wash-2)", color: "var(--color-text-primary)" }}
                 data-testid="gardens-row"
                 onClick={() => open(g.id)}
               >

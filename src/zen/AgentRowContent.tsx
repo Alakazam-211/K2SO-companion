@@ -57,14 +57,14 @@ export const AgentRowContent = memo(AgentRowContentInner, sameRow);
 const TAG_LOOK = {
   // Focus group: indigo; Home: green with a house. The server chip is the
   // neutral glass pill.
-  group: { background: "rgba(94,92,230,0.24)", color: "#c9c8ff" },
-  home: { background: "rgba(48,209,88,0.2)", color: "#a8ebb9" },
+  group: { background: "rgba(94,92,230,0.24)", color: "var(--color-text-secondary)" },
+  home: { background: "rgba(48,209,88,0.2)", color: "var(--color-status-ok-soft)" },
 } as const;
 
 /** A search tag after the name. A focus group with its own colour
  *  (`#rrggbb`) tints the tag with it. */
 export function RowTag({ kind, label, color }: { kind: keyof typeof TAG_LOOK; label: string; color?: string | null }) {
-  const own = color && /^#[0-9a-f]{6}$/i.test(color) ? { background: `${color}40`, color: "#f2f2f7" } : null;
+  const own = color && /^#[0-9a-f]{6}$/i.test(color) ? { background: `${color}40`, color: "var(--color-text-primary)" } : null;
   return (
     <span
       className="shrink-0 truncate rounded-full inline-flex items-center"
@@ -116,7 +116,7 @@ function AgentRowContentInner({
   /** Unread marks (K2 0.46.1 `thread-read-v1`); null = none. */
   unread?: RowUnread | null;
 }) {
-  const busyColor = busy ? activityColor(busy) : "var(--success)";
+  const busyColor = busy ? activityColor(busy) : "var(--color-status-ok)";
   const strong = !!unread?.emphasis;
   const line2 = (node: ReactNode) =>
     unread && unread.count > 1 ? (
@@ -144,7 +144,7 @@ function AgentRowContentInner({
               height: 14,
               background: busyColor,
               color: busyColor,
-              border: "2.5px solid var(--root)",
+              border: "2.5px solid var(--color-bg)",
               // The pulse ring starts outside the cutout border.
               ["--k2-pulse-edge" as string]: "2.5px",
             }}
@@ -179,7 +179,7 @@ function AgentRowContentInner({
                   maxWidth: 96,
                   padding: "1px 8px",
                   fontSize: zenTextPx(12),
-                  color: "#d1d1d6",
+                  color: "var(--color-text-secondary)",
                   fontWeight: 400,
                 }}
                 data-testid="row-server-chip"
@@ -195,7 +195,7 @@ function AgentRowContentInner({
           ) : (
             <span
               className="shrink-0 flex items-center gap-1"
-              style={{ color: "#8e8e93", fontWeight: 400, fontSize: zenTextPx(14) }}
+              style={{ color: "var(--color-text-muted)", fontWeight: 400, fontSize: zenTextPx(14) }}
               data-testid="row-when"
             >
               {when}
@@ -216,7 +216,7 @@ function AgentRowContentInner({
             <span
               className="block truncate"
               style={{
-                color: strong ? "#f2f2f7" : "#8e8e93",
+                color: strong ? "var(--color-text-primary)" : "var(--color-text-muted)",
                 lineHeight: 1.3,
                 fontSize: zenTextPx(14),
                 ...(strong ? { fontWeight: 600 } : null),

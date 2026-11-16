@@ -37,7 +37,7 @@ export function GripHandle({
         width: `calc(${inset} + ${GRIP_W}px)`,
         paddingRight: GRIP_GAP_RIGHT,
         zIndex: 1,
-        color: "#8e8e93",
+        color: "var(--color-text-muted)",
         touchAction: "none",
         cursor: "grab",
         userSelect: "none",
@@ -78,9 +78,9 @@ export function RearrangeDone({ onDone }: { onDone: () => void }) {
         height: 40,
         padding: "0 22px",
         borderRadius: 20,
-        color: "#fff",
-        background: "#0a84ff",
-        borderColor: "#0a84ff",
+        color: "var(--color-on-accent)",
+        background: "var(--color-accent-fill)",
+        borderColor: "var(--color-accent-fill)",
       }}
       data-no-pin="1"
       data-testid="rearrange-done"

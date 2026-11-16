@@ -458,7 +458,7 @@ describe("ChatsList", () => {
     const dot = screen.getByTestId("server-status-dot");
     expect(serverBtn.firstElementChild).toBe(dot);
     expect(dot.style.width).toBe("8px");
-    expect(dot.getAttribute("style")).toMatch(/#22c55e|rgb\(34,\s*197,\s*94\)/);
+    expect(dot.getAttribute("style")).toMatch(/var\(--color-status-ok\)/);
   });
 
   it("a long nickname is truncated inside a width-capped pill", () => {
@@ -492,7 +492,7 @@ describe("ChatsList", () => {
     expect(screen.getByTestId("server-name").textContent).toBe("Servers");
     expect(serverBtn.getAttribute("title")).toBe("Servers");
     expect(screen.getByTestId("server-status-dot").getAttribute("style")).toMatch(
-      /#8e8e93|rgb\(142,\s*142,\s*147\)/
+      /var\(--color-neutral\)/
     );
   });
 
@@ -527,7 +527,7 @@ describe("ChatsList", () => {
     const badge = screen.getByTestId("tickets-badge");
     expect(badge.textContent).toBe("2");
     expect(badge.getAttribute("data-tone")).toBe("mine");
-    expect(badge.style.background).toMatch(/#f59e0b|rgb\(245,\s*158,\s*11\)/);
+    expect(badge.style.background).toBe("var(--color-status-needs-you)");
     fireEvent.click(
       screen.getByRole("menuitem", { name: "Tickets, 2 waiting on you, 4 waiting in all" })
     );
@@ -549,8 +549,8 @@ describe("ChatsList", () => {
     const badge = screen.getByTestId("tickets-badge");
     expect(badge.textContent).toBe("2");
     expect(badge.getAttribute("data-tone")).toBe("others");
-    expect(badge.style.background).toMatch(/#f59e0b|rgb\(245,\s*158,\s*11\)/);
-    expect(badge.style.color).toMatch(/#000|rgb\(0,\s*0,\s*0\)/);
+    expect(badge.style.background).toBe("var(--color-status-needs-you)");
+    expect(badge.style.color).toBe("var(--color-on-warn)");
     expect(
       screen.getByRole("menuitem", { name: "Tickets, none waiting on you, 2 waiting in all" })
     ).not.toBeNull();
@@ -1255,7 +1255,7 @@ describe("ChatsList", () => {
     const headerDot = screen.getByTestId("server-status-dot");
     expect(serverBtn.contains(headerDot)).toBe(true);
     expect(headerDot?.getAttribute("style") || headerDot?.style.background).toMatch(
-      /#ef4444|rgb\(239,\s*68,\s*68\)/
+      /var\(--color-status-error\)/
     );
     fireEvent.click(serverBtn);
     expect(screen.getByText("sign-in required")).not.toBeNull();
@@ -1999,7 +1999,7 @@ describe("ChatsList", () => {
       const done = screen.getByTestId("rearrange-done");
       expect(done.textContent).toBe("Done");
       expect(done.className).toContain("k2-tile");
-      expect(done.style.background).toBe("rgb(10, 132, 255)");
+      expect(done.style.background).toBe("var(--color-accent-fill)");
       expect(done.style.right).toBe("16px");
       expect(done.style.bottom).toContain(SEARCH_BAR_REST_BOTTOM);
       // A tap does not open the chat; a hold opens no menu.

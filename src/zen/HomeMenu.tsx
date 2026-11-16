@@ -9,7 +9,7 @@ const ITEM = {
   padding: "10px 12px",
   minHeight: 44,
   borderRadius: 10,
-  color: "#fff",
+  color: "var(--color-text-primary)",
 } as const;
 
 type Mode = { kind: "list" } | { kind: "new" } | { kind: "rename" } | { kind: "delete" };
@@ -95,7 +95,7 @@ export function HomeMenu({
           overflowY: "auto",
           borderRadius: 16,
           padding: 6,
-          color: "#fff",
+          color: "var(--color-text-primary)",
         }}
       >
         {mode.kind === "new" || mode.kind === "rename" ? (
@@ -107,7 +107,7 @@ export function HomeMenu({
               submitName();
             }}
           >
-            <span className="text-[13px] font-semibold" style={{ color: "#8e8e93" }}>
+            <span className="text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
               {mode.kind === "new" ? "New Home" : `Rename ${current.name}`}
             </span>
             <input
@@ -118,14 +118,14 @@ export function HomeMenu({
               aria-label="Home name"
               maxLength={HOME_NAME_MAX}
               className="k2-tile k2-tile-raised outline-none text-[16px]"
-              style={{ height: 40, borderRadius: 10, padding: "0 12px", color: "#fff" }}
+              style={{ height: 40, borderRadius: 10, padding: "0 12px", color: "var(--color-text-primary)" }}
               data-testid="home-name-input"
             />
             <span className="flex" style={{ gap: 8 }}>
               <button
                 type="button"
                 className="flex-1 bg-transparent border-0 text-[16px]"
-                style={{ height: 40, borderRadius: 10, color: "#8e8e93" }}
+                style={{ height: 40, borderRadius: 10, color: "var(--color-text-muted)" }}
                 onClick={() => setMode({ kind: "list" })}
                 data-testid="home-name-cancel"
               >
@@ -134,7 +134,7 @@ export function HomeMenu({
               <button
                 type="submit"
                 className="flex-1 border-0 text-[16px] font-semibold disabled:opacity-40"
-                style={{ height: 40, borderRadius: 10, background: "#0a84ff", color: "#fff" }}
+                style={{ height: 40, borderRadius: 10, background: "var(--color-accent-fill)", color: "var(--color-on-accent)" }}
                 disabled={!name.trim()}
                 data-testid="home-name-save"
               >
@@ -147,7 +147,7 @@ export function HomeMenu({
             {syncNotice ? (
               <div
                 className="flex items-start text-[13px]"
-                style={{ gap: 8, padding: "8px 12px", color: "#ffd60a", lineHeight: 1.35 }}
+                style={{ gap: 8, padding: "8px 12px", color: "var(--color-status-warn-text)", lineHeight: 1.35 }}
                 data-testid="home-menu-sync-notice"
               >
                 <span className="flex-1 min-w-0">This phone was removed from Home sync on {syncNotice}.</span>
@@ -155,7 +155,7 @@ export function HomeMenu({
                   <button
                     type="button"
                     className="shrink-0 bg-transparent border-0 p-0 font-semibold"
-                    style={{ color: "#0a84ff" }}
+                    style={{ color: "var(--color-accent-text)" }}
                     onClick={onDismissSyncNotice}
                     data-testid="home-menu-sync-notice-ok"
                   >
@@ -166,7 +166,7 @@ export function HomeMenu({
             ) : syncedFrom ? (
               <div
                 className="text-[13px] truncate"
-                style={{ padding: "6px 12px 4px", color: "#8e8e93" }}
+                style={{ padding: "6px 12px 4px", color: "var(--color-text-muted)" }}
                 data-testid="home-menu-synced-from"
               >
                 Synced from {syncedFrom}
@@ -189,10 +189,10 @@ export function HomeMenu({
                   data-testid={`home-option-${h.id}`}
                 >
                   <span className="flex-1 min-w-0 truncate text-[16px]">{h.name}</span>
-                  <span className="shrink-0 text-[13px]" style={{ color: "#8e8e93" }}>
+                  <span className="shrink-0 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
                     {h.rows.length}
                   </span>
-                  <span aria-hidden className="shrink-0" style={{ width: 16, color: "#0a84ff" }}>
+                  <span aria-hidden className="shrink-0" style={{ width: 16, color: "var(--color-accent-text)" }}>
                     {on ? (
                       <CheckIcon size={16} strokeWidth={2.6} testId="home-check" />
                     ) : null}
@@ -200,7 +200,7 @@ export function HomeMenu({
                 </button>
               );
             })}
-            <div aria-hidden style={{ height: 1, margin: "4px 8px", background: "rgba(255,255,255,.12)" }} />
+            <div aria-hidden style={{ height: 1, margin: "4px 8px", background: "var(--color-wash-2)" }} />
             <button
               type="button"
               role="menuitem"
@@ -234,7 +234,7 @@ export function HomeMenu({
                   role="radiogroup"
                   aria-label="Top grid size"
                   className="shrink-0 flex rounded-full"
-                  style={{ background: "rgba(255,255,255,.12)", padding: 2 }}
+                  style={{ background: "var(--color-wash-2)", padding: 2 }}
                 >
                   {HOME_GRID_CHOICES.map((n) => {
                     const on = n === gridSize;
@@ -249,8 +249,8 @@ export function HomeMenu({
                           minWidth: 34,
                           height: 28,
                           padding: "0 8px",
-                          background: on ? "#0a84ff" : "transparent",
-                          color: "#fff",
+                          background: on ? "var(--color-accent-fill)" : "transparent",
+                          color: on ? "var(--color-on-accent)" : "var(--color-text-primary)",
                         }}
                         onClick={() => onGridSize(n)}
                         data-testid={`home-grid-${n}`}
@@ -267,7 +267,7 @@ export function HomeMenu({
                 type="button"
                 role="menuitem"
                 className="w-full flex items-center text-left bg-transparent border-0 text-[16px] font-semibold"
-                style={{ ...ITEM, color: "#ff453a" }}
+                style={{ ...ITEM, color: "var(--color-status-error)" }}
                 onClick={() => {
                   onDelete();
                   onClose();
@@ -284,7 +284,7 @@ export function HomeMenu({
                 disabled={lastHome}
                 title={lastHome ? "You need at least one Home" : undefined}
                 className="w-full flex items-center text-left bg-transparent border-0 text-[16px] disabled:opacity-40"
-                style={{ ...ITEM, color: "#ff453a" }}
+                style={{ ...ITEM, color: "var(--color-status-error)" }}
                 onClick={() => setMode({ kind: "delete" })}
                 data-testid="home-menu-delete"
               >

@@ -124,7 +124,7 @@ export function GlassSearchBar({
           onBlur={() => setTyping(false)}
           placeholder={placeholder}
           className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[17px]"
-          style={{ color: "#fff" }}
+          style={{ color: "var(--color-text-primary)" }}
           aria-label={searchLabel}
           data-testid={inputTestId}
         />
@@ -132,7 +132,7 @@ export function GlassSearchBar({
           <button
             type="button"
             className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
-            style={{ width: 24, height: 24, margin: "-2px -6px -2px 0", color: "#fff" }}
+            style={{ width: 24, height: 24, margin: "-2px -6px -2px 0", color: "var(--color-text-primary)" }}
             // Keep focus in the field so the iOS keyboard stays up.
             onPointerDown={(e) => e.preventDefault()}
             onMouseDown={(e) => e.preventDefault()}
@@ -155,7 +155,7 @@ export function GlassSearchBar({
             bottom: SEARCH_BAR_HEIGHT + 8,
             padding: "8px 12px",
             maxWidth: "80%",
-            color: "#fff",
+            color: "var(--color-text-primary)",
           }}
           data-testid={plusTestId ? `${plusTestId}-note` : "search-plus-note"}
         >

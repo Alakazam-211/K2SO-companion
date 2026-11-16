@@ -24,7 +24,7 @@ import { usePoolEntries } from "./pool";
 import { ensureRemoteIcon, remoteIconFor, useRemoteIcons } from "./remoteIcons";
 import { loadServerRows, rowsStale, useRemoteRows } from "./remoteRows";
 
-const MUTED = "#8e8e93";
+const MUTED = "var(--color-text-muted)";
 
 function SectionStatus({
   serverId,
@@ -55,7 +55,7 @@ function SectionStatus({
     >
       <p
         className="flex-1 min-w-0 text-[14px] break-words"
-        style={{ color: state.kind === "failed" ? "#ff9f0a" : MUTED }}
+        style={{ color: state.kind === "failed" ? "var(--color-status-warn-text)" : MUTED }}
         title={detail ?? undefined}
       >
         {state.copy}
@@ -64,7 +64,7 @@ function SectionStatus({
         <button
           type="button"
           className="shrink-0 zen-glass zen-glass-pill text-[14px] font-semibold"
-          style={{ minHeight: 32, padding: "0 12px", color: "#0a84ff" }}
+          style={{ minHeight: 32, padding: "0 12px", color: "var(--color-accent-text)" }}
           aria-label={action.aria}
           data-testid={`add-agent-server-action-${serverId}`}
           onClick={action.run}

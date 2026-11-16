@@ -45,7 +45,7 @@ function CardLabel({ children, right }: { children: ReactNode; right?: ReactNode
   return (
     <div
       className="flex items-baseline gap-2 text-[11px] uppercase tracking-wider"
-      style={{ color: "#8e8e93", padding: "12px 14px 6px" }}
+      style={{ color: "var(--color-text-muted)", padding: "12px 14px 6px" }}
     >
       <span className="font-semibold">{children}</span>
       {right ? <span className="ml-auto normal-case tracking-normal tabular-nums">{right}</span> : null}
@@ -93,7 +93,7 @@ export function BriefLinks({ links, maxHeight }: { links: BriefLink[]; maxHeight
   if (links.length === 0) return null;
   return (
     <div data-testid="brief-links" style={{ padding: "8px 4px 0" }}>
-      <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "#8e8e93" }}>
+      <div className="text-[11px] font-semibold uppercase tracking-wider" style={{ color: "var(--color-text-muted)" }}>
         Links in this brief
       </div>
       <ol
@@ -102,7 +102,7 @@ export function BriefLinks({ links, maxHeight }: { links: BriefLink[]; maxHeight
       >
         {links.map((l) => (
           <li key={l.n} className="flex items-baseline gap-1.5 min-w-0 text-[14px]">
-            <span className="tabular-nums shrink-0" style={{ color: "#8e8e93" }}>
+            <span className="tabular-nums shrink-0" style={{ color: "var(--color-text-muted)" }}>
               [{l.n}]
             </span>
             <button
@@ -110,7 +110,7 @@ export function BriefLinks({ links, maxHeight }: { links: BriefLink[]; maxHeight
               data-testid="brief-link"
               onClick={() => void openExternal(l.url)}
               className="min-w-0 truncate text-left bg-transparent border-0 p-0"
-              style={{ color: "var(--accent)" }}
+              style={{ color: "var(--color-accent-text)" }}
             >
               {l.url}
             </button>
@@ -128,7 +128,7 @@ function TextCard({ label, text, testId }: { label: string; text: string; testId
       <CardLabel>{label}</CardLabel>
       <div
         className="leading-snug whitespace-pre-wrap break-words [overflow-wrap:anywhere]"
-        style={{ padding: "0 14px 14px", color: "var(--text)", fontSize: zenTextPx(15) }}
+        style={{ padding: "0 14px 14px", color: "var(--color-text-primary)", fontSize: zenTextPx(15) }}
       >
         {text}
       </div>
@@ -160,7 +160,7 @@ export function BriefCard({
     return (
       <section className="k2-tile overflow-hidden" style={{ borderRadius: CARD_RADIUS }} data-testid="brief-loading">
         <CardLabel>Brief</CardLabel>
-        <p className="text-[14px]" style={{ padding: "0 14px 14px", color: "#8e8e93" }}>
+        <p className="text-[14px]" style={{ padding: "0 14px 14px", color: "var(--color-text-muted)" }}>
           Loading brief…
         </p>
       </section>
@@ -209,8 +209,8 @@ export function BriefCard({
           className="w-full text-[15px] font-medium bg-transparent border-0"
           style={{
             padding: "12px 14px",
-            color: "var(--accent)",
-            borderTop: "1px solid rgba(255,255,255,0.08)",
+            color: "var(--color-accent-text)",
+            borderTop: "1px solid var(--color-wash-2)",
           }}
         >
           Read full brief
@@ -240,7 +240,7 @@ export function BriefReader({
   return (
     <div
       className="absolute inset-0 flex flex-col"
-      style={{ background: "#000", zIndex: 12, paddingTop: "env(safe-area-inset-top)" }}
+      style={{ background: "var(--color-bg)", zIndex: 12, paddingTop: "env(safe-area-inset-top)" }}
       data-testid="brief-reader"
       role="dialog"
       aria-label={`Brief: ${title}`}
@@ -250,7 +250,7 @@ export function BriefReader({
           type="button"
           data-testid="brief-reader-close"
           className="text-[17px] zen-glass zen-glass-pill shrink-0"
-          style={{ minHeight: 34, padding: "0 14px", color: "#fff" }}
+          style={{ minHeight: 34, padding: "0 14px", color: "var(--color-text-primary)" }}
           onClick={onClose}
         >
           Close

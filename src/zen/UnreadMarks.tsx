@@ -10,6 +10,7 @@ import {
   projectsBackCount,
   rowUnreadOf,
   toneColor,
+  toneInk,
   unreadCountText,
   type RowRef,
   type RowUnread,
@@ -65,8 +66,8 @@ export function UnreadCountPill({
         minWidth: chrome ? 20 : 20,
         height: chrome ? 20 : 20,
         padding: "0 6px",
-        background: toneColor(tone),
-        color: tone === "waiting" ? "#1c1c1e" : "#fff",
+        background: toneColor(tone, "fill"),
+        color: toneInk(tone),
         fontSize: chrome ? 13 : zenTextPx(12),
         fontWeight: 600,
         lineHeight: 1,
@@ -87,7 +88,7 @@ export function MutedGlyph() {
   return (
     <span
       className="shrink-0 inline-flex"
-      style={{ color: "#8e8e93", alignSelf: "center" }}
+      style={{ color: "var(--color-text-muted)", alignSelf: "center" }}
       data-testid="row-muted"
       aria-label="Muted"
     >
@@ -105,7 +106,7 @@ const ITEM_STYLE = {
   padding: "10px 12px",
   minHeight: 44,
   borderRadius: 10,
-  color: "#fff",
+  color: "var(--color-text-primary)",
 } as const;
 
 /**
