@@ -83,7 +83,7 @@ describe("Settings → Themes", () => {
     expect(html().style.getPropertyValue("--color-accent")).toBe("#ff375f");
     // Dusk's accent, edited from Obsidian: saved, the screen keeps Obsidian's.
     fireEvent.click(screen.getByTestId("accent-palette-yellow"));
-    expect(screen.getByTestId("accent-value").textContent).toBe("Its own");
+    expect(screen.getByTestId("accent-value").textContent).toBe("Default");
     fireEvent.change(screen.getByTestId("accent-custom"), { target: { value: "#40c8e0" } });
     expect(localStorage.getItem("k2.accent.glass.yellow")).toBe("#40c8e0");
     expect(html().style.getPropertyValue("--color-accent")).toBe("#ff375f");
@@ -93,6 +93,18 @@ describe("Settings → Themes", () => {
     // Switching to Dusk brings Dusk's (its own gold).
     fireEvent.click(screen.getByTestId("theme-palette-yellow"));
     expect(html().style.getPropertyValue("--color-accent")).toBe("#ffc700");
+  });
+
+  it("the palette's own is the Default swatch; a preset of the same colour isn't offered twice", () => {
+    render(<ThemesPage onBack={() => {}} />);
+    expect(screen.getByTestId("accent-own").getAttribute("aria-label")).toBe("Default (Obsidian's own)");
+    expect(screen.getByTestId("accent-value").textContent).toBe("Default");
+    // Obsidian's own is Glass's blue: no separate Blue swatch.
+    expect(screen.queryByTestId("accent-blue")).toBeNull();
+    // Dusk's own is its gold: no Yellow, but Blue is back.
+    fireEvent.click(screen.getByTestId("accent-palette-yellow"));
+    expect(screen.queryByTestId("accent-yellow")).toBeNull();
+    expect(screen.getByTestId("accent-blue")).not.toBeNull();
   });
 
   it("the Settings row says the palette on screen, and Auto", () => {

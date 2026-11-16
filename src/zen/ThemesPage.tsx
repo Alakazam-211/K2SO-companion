@@ -187,17 +187,22 @@ function AccentPicker({ p }: { p: Palette }) {
   const setAccent = useThemeStore((s) => s.setAccent);
   const custom = accent !== null && !ACCENT_PRESETS.some((x) => x.choice === accent);
   const shown = accentFillHex(accent, p, p.scheme);
+  // The palette's own is the Default swatch; a preset that is the same
+  // colour (Blue on Obsidian and Veil, Yellow on Dusk) would be a twin, so
+  // it isn't offered (K2 Design 2026-11-16).
+  const own = accentFillHex(null, p, p.scheme).toLowerCase();
+  const presets = ACCENT_PRESETS.filter((x) => accentFillHex(x.choice, p, p.scheme).toLowerCase() !== own || accent === x.choice);
   return (
     <div className="flex flex-col text-[17px]" style={{ padding: "11px 16px 14px", gap: 12, borderTop: HAIRLINE }}>
       <div className="flex items-center justify-between" style={{ gap: 12 }}>
         <span id="theme-accent-label">{p.name}'s accent</span>
         <span style={{ color: MUTED }} data-testid="accent-value">
-          {accent === null ? "Its own" : (ACCENT_PRESETS.find((x) => x.choice === accent)?.label ?? shown.toUpperCase())}
+          {accent === null ? "Default" : (ACCENT_PRESETS.find((x) => x.choice === accent)?.label ?? shown.toUpperCase())}
         </span>
       </div>
       <div role="radiogroup" aria-labelledby="theme-accent-label" className="flex flex-wrap items-center" style={{ gap: 12 }} data-testid="accent-swatches">
-        <Swatch color={accentFillHex(null, p, p.scheme)} label={`${p.name}'s own`} on={accent === null} onPick={() => setAccent(p.id, null)} testId="accent-own" />
-        {ACCENT_PRESETS.map((x) => (
+        <Swatch color={accentFillHex(null, p, p.scheme)} label={`Default (${p.name}'s own)`} on={accent === null} onPick={() => setAccent(p.id, null)} testId="accent-own" />
+        {presets.map((x) => (
           <Swatch
             key={x.choice}
             color={accentFillHex(x.choice, p, p.scheme)}

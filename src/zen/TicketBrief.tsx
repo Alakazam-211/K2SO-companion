@@ -3,9 +3,12 @@ import type { FeedbackBrief } from "../api/feedbackPure";
 import {
   briefRenderable,
   buildBriefSrcDoc,
+  safeBriefColors,
+  type BriefColors,
   type BriefLink,
   type BriefSrcDoc,
 } from "../api/ticketBrief";
+import { useThemeStore } from "../theme/themeStore";
 import { openExternal } from "../lib/openExternal";
 import type { BriefEntry } from "../stores/feedback";
 import { zenTextPx } from "./zenFont";
@@ -24,14 +27,36 @@ import { useBackHandler } from "../lib/androidBack";
 
 const CARD_RADIUS = 16;
 
-/** Memo on sha256: event refetches never rebuild (or reload) the frame. */
+/** The palette's colours as stamped on <html> (Settings → Themes), for the
+ *  sandboxed frame, which can't read the page's CSS variables. */
+export function pageBriefColors(): BriefColors {
+  if (typeof document === "undefined") return safeBriefColors(null);
+  const root = document.documentElement;
+  const cs = getComputedStyle(root);
+  const v = (name: string) => cs.getPropertyValue(name).trim();
+  return safeBriefColors({
+    scheme: root.getAttribute("data-scheme") === "light" ? "light" : "dark",
+    bg: v("--color-bg-surface"),
+    text: v("--color-text-primary"),
+    text2: v("--color-text-secondary"),
+    muted: v("--color-text-muted"),
+    border: v("--color-border"),
+    accent: v("--color-accent-text"),
+    wash: v("--color-wash-1"),
+    mark: v("--color-selection"),
+  });
+}
+
+/** Memo on sha256 and the look: event refetches never rebuild (or reload)
+ *  the frame; a palette or accent change redraws it in the new colours. */
 export function useBriefDoc(brief: FeedbackBrief | null): BriefSrcDoc | null {
   const sha = brief?.sha256 ?? "";
   const ok = briefRenderable(brief);
+  const look = useThemeStore((s) => `${s.shown}|${s.accents[s.shown] ?? ""}`);
   return useMemo(
-    () => (ok && brief ? buildBriefSrcDoc(brief.html) : null),
+    () => (ok && brief ? buildBriefSrcDoc(brief.html, pageBriefColors()) : null),
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [sha, ok]
+    [sha, ok, look]
   );
 }
 
@@ -75,12 +100,12 @@ export function BriefFrame({
       className="block w-full border-0"
       style={
         fill
-          ? { height: "100%", background: "#1c1c1e" }
+          ? { height: "100%", background: "var(--color-bg-surface)" }
           : {
               position: "absolute",
               inset: 0,
               height: "100%",
-              background: "#1c1c1e",
+              background: "var(--color-bg-surface)",
               pointerEvents: "none",
             }
       }
@@ -198,7 +223,7 @@ export function BriefCard({
             className="absolute left-0 right-0 bottom-0 pointer-events-none"
             style={{
               height: 72,
-              background: "linear-gradient(to bottom, rgba(28,28,30,0), #1c1c1e)",
+              background: "linear-gradient(to bottom, transparent, var(--color-bg-surface))",
             }}
           />
         </div>

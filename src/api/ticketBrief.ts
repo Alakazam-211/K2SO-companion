@@ -51,27 +51,58 @@ export function briefRenderable(brief: FeedbackBrief | null | undefined): brief 
   );
 }
 
-/** Dark Zen tokens (index.css :root / .k2-tile). No color-mix: iOS 15–16.1
- *  lacks it, so tints are plain rgba. */
-const T = {
+/** The colours a brief is drawn in: the palette's (Settings → Themes),
+ *  read from the page by TicketBrief, so a Veil phone gets a light brief.
+ *  The frame is sandboxed and can't read the page's CSS variables, so the
+ *  values are passed in as plain colours. */
+export interface BriefColors {
+  scheme: "dark" | "light";
+  bg: string;
+  text: string;
+  text2: string;
+  muted: string;
+  border: string;
+  accent: string;
+  wash: string;
+  mark: string;
+}
+
+/** Obsidian's (the default, and what a brief drew in before palettes). */
+export const DARK_BRIEF_COLORS: BriefColors = {
+  scheme: "dark",
   bg: "#1c1c1e",
-  text: "#e4e4e7",
-  text2: "#a1a1aa",
-  muted: "#8e8e93",
-  border: "#3a3a3c",
-  accent: "#22d3ee",
-  accentTint: "rgba(34, 211, 238, 0.10)",
+  text: "#ffffff",
+  text2: "#c7c7cc",
+  muted: "#a1a1a6",
+  border: "#333333",
+  accent: "#409fff",
   wash: "rgba(255, 255, 255, 0.06)",
-  font: '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif',
-  mono: 'ui-monospace, Menlo, "SF Mono", monospace',
+  mark: "rgba(64, 159, 255, 0.32)",
 };
 
-/** The K2 brief stylesheet on our dark tokens. Agents can't style a brief
+/** Only a plain colour goes into the frame's CSS (no other syntax). */
+const PLAIN_COLOR = /^(#[0-9a-f]{3,8}|rgba?\(\s*[\d.]+\s*,\s*[\d.]+\s*,\s*[\d.]+\s*(,\s*[\d.]+\s*)?\))$/i;
+
+/** `c` with anything that isn't a plain colour put back to Obsidian's. */
+export function safeBriefColors(c: Partial<BriefColors> | null | undefined): BriefColors {
+  const out: BriefColors = { ...DARK_BRIEF_COLORS, scheme: c?.scheme === "light" ? "light" : "dark" };
+  for (const k of ["bg", "text", "text2", "muted", "border", "accent", "wash", "mark"] as const) {
+    const v = (c?.[k] ?? "").trim();
+    if (PLAIN_COLOR.test(v)) out[k] = v;
+  }
+  return out;
+}
+
+const FONT = '-apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif';
+const MONO = 'ui-monospace, Menlo, "SF Mono", monospace';
+
+/** The K2 brief stylesheet in the palette's colours. Agents can't style a brief
  *  (no `style=`), so this is the whole look. `.k2-need` is "What I need
  *  from you", `.k2-options` the choices, `.k2-callout` an aside. */
-export function briefStylesheet(): string {
+export function briefStylesheet(colors: Partial<BriefColors> = DARK_BRIEF_COLORS): string {
+  const T = { ...safeBriefColors(colors), font: FONT, mono: MONO };
   return [
-    `:root{color-scheme:dark;}`,
+    `:root{color-scheme:${T.scheme};}`,
     `html,body{margin:0;padding:0;background:${T.bg};color:${T.text};}`,
     `body.k2-brief{font-family:${T.font};font-size:15px;line-height:1.5;padding:14px 16px;overflow-wrap:anywhere;-webkit-text-size-adjust:100%;}`,
     `h1,h2,h3,h4{color:${T.text};line-height:1.3;margin:1.1em 0 .45em;}`,
@@ -92,8 +123,8 @@ export function briefStylesheet(): string {
     `img{max-width:100%;height:auto}`,
     `figure{margin:.8em 0}figcaption{color:${T.muted};font-size:.9em}`,
     `details{margin:.5em 0}`,
-    `mark{background:rgba(34,211,238,.3);color:inherit}`,
-    `.k2-need{border:1px solid ${T.accent};background:${T.accentTint};border-radius:12px;padding:.2em .9em .4em;margin:.9em 0}`,
+    `mark{background:${T.mark};color:inherit}`,
+    `.k2-need{border:1px solid ${T.accent};background:${T.wash};border-radius:12px;padding:.2em .9em .4em;margin:.9em 0}`,
     `.k2-need::before{content:"What I need from you";display:block;margin:.6em 0 .2em;font-size:.72em;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:${T.accent}}`,
     `ol.k2-options,.k2-options ol,.k2-options ul{padding-left:1.6em}.k2-options li{padding:.15em 0}`,
     `.k2-callout{border-left:3px solid ${T.accent};background:${T.wash};border-radius:0 8px 8px 0;padding:.4em .9em;margin:.7em 0}`,
@@ -108,7 +139,7 @@ const DROP_TAGS = "script,style,link,meta,base,iframe,frame,object,embed,form,te
 
 /** Build the frame document for a cleaned brief, plus the links taken out
  *  of it. Pure apart from the inert DOMParser. */
-export function buildBriefSrcDoc(html: string): BriefSrcDoc {
+export function buildBriefSrcDoc(html: string, colors?: Partial<BriefColors>): BriefSrcDoc {
   const doc = new DOMParser().parseFromString(
     `<!doctype html><html><head></head><body>${html}</body></html>`,
     "text/html"
@@ -141,7 +172,7 @@ export function buildBriefSrcDoc(html: string): BriefSrcDoc {
     '<meta charset="utf-8">' +
     '<meta name="viewport" content="width=device-width, initial-scale=1">' +
     "<style>" +
-    briefStylesheet() +
+    briefStylesheet(colors) +
     '</style></head><body class="k2-brief">' +
     doc.body.innerHTML +
     "</body></html>";

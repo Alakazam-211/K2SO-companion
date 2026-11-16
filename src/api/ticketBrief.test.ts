@@ -5,6 +5,9 @@ import {
   buildBriefSrcDoc,
   INERT_FRAME_CSP,
   quickAnswerOptions,
+  briefStylesheet,
+  safeBriefColors,
+  DARK_BRIEF_COLORS,
 } from "./ticketBrief";
 
 const BRIEF_HTML =
@@ -83,5 +86,33 @@ describe("briefRenderable", () => {
     expect(briefRenderable({ ...brief, sanitizer: "k2-brief-v0" })).toBe(false);
     expect(briefRenderable({ ...brief, html: "  " })).toBe(false);
     expect(briefRenderable(null)).toBe(false);
+  });
+});
+
+describe("the brief follows the palette (Settings → Themes)", () => {
+  it("defaults to Obsidian's dark colours", () => {
+    const css = briefStylesheet();
+    expect(css).toContain(":root{color-scheme:dark;}");
+    expect(css).toContain("background:#1c1c1e;color:#ffffff;");
+  });
+
+  it("draws in the palette's colours, light included", () => {
+    const css = briefStylesheet({ scheme: "light", bg: "#ffffff", text: "#000000", accent: "#086acc" });
+    expect(css).toContain(":root{color-scheme:light;}");
+    expect(css).toContain("background:#ffffff;color:#000000;");
+    expect(css).toContain("a{color:#086acc;");
+  });
+
+  it("takes only plain colours into the frame's CSS", () => {
+    const c = safeBriefColors({ bg: "red;}body{display:none", text: "url(x)", wash: "rgba(1, 2, 3, 0.5)" });
+    expect(c.bg).toBe(DARK_BRIEF_COLORS.bg);
+    expect(c.text).toBe(DARK_BRIEF_COLORS.text);
+    expect(c.wash).toBe("rgba(1, 2, 3, 0.5)");
+  });
+
+  it("the frame document carries the colours it was given", () => {
+    const { frameHtml } = buildBriefSrcDoc("<p>Hi</p>", { scheme: "light", bg: "#fafafa" });
+    expect(frameHtml).toContain("color-scheme:light");
+    expect(frameHtml).toContain("background:#fafafa;");
   });
 });

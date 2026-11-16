@@ -117,7 +117,7 @@ describe("GlassSearchBar + button", () => {
     expect(glyph).not.toBeNull();
     expect(plus.textContent).toBe(PLUS_GLYPH);
     expect(glyph.style.fontSize).toBe(`${PLUS_GLYPH_PX}px`);
-    expect(glyph.style.color).toBe("rgb(255, 255, 255)");
+    expect(glyph.style.color).toBe("var(--color-text-primary)");
   });
 
   it("uses the composer's attach glyph, brighter", () => {
@@ -140,8 +140,8 @@ describe("GlassSearchBar + button", () => {
     // Same glyph and size; the bar's plus is white like the header icons.
     expect(a.textContent).toBe(b.textContent);
     expect(a.style.fontSize).toBe(b.style.fontSize);
-    expect(b.style.color).toBe("rgb(255, 255, 255)");
-    expect(a.style.color).toBe("var(--text-muted)");
+    expect(b.style.color).toBe("var(--color-text-primary)");
+    expect(a.style.color).toBe("var(--color-text-muted)");
   });
 });
 
