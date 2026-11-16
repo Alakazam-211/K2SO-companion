@@ -78,6 +78,17 @@ describe("Settings → Themes", () => {
     expect(html().getAttribute("data-palette")).toBe("obsidian");
   });
 
+  it("Auto's note says phone, not iPhone, on Android", () => {
+    html().classList.add("platform-android");
+    try {
+      useThemeStore.setState({ mode: "auto" });
+      render(<ThemesPage onBack={() => {}} />);
+      expect(screen.getByTestId("themes-appearance").textContent).toContain("Auto follows your phone's Light or Dark");
+    } finally {
+      html().classList.remove("platform-android");
+    }
+  });
+
   it("an accent for each of the three palettes, starting on the one on screen", () => {
     render(<ThemesPage onBack={() => {}} />);
     expect(screen.getByTestId("accent-palette-obsidian").getAttribute("aria-checked")).toBe("true");

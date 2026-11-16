@@ -11,6 +11,11 @@ import { PALETTES, paletteById, type Palette, type PaletteId, type SchemeMode } 
 import { accentFillHex } from "../theme/styleAccent";
 import { useThemeStore } from "../theme/themeStore";
 
+/** "iPhone" on iOS; Android (main.tsx's .platform-android) says "phone". */
+function deviceWord(): string {
+  return document.documentElement.classList.contains("platform-android") ? "phone" : "iPhone";
+}
+
 const MUTED = "var(--color-text-muted)";
 const HAIRLINE = "0.5px solid var(--color-wash-2)";
 /** A picked swatch or card: iOS's ring with a tile-colour gap. */
@@ -260,7 +265,7 @@ export function ThemesPage({ onBack }: { onBack: () => void }) {
         style={{ padding: "0 16px calc(24px + var(--safe-bottom))", WebkitOverflowScrolling: "touch" }}
         data-testid="themes-scroll"
       >
-        <Group label="Appearance" testId="themes-appearance" footnote={mode === "auto" ? "Auto follows your iPhone's Light or Dark appearance, with the palettes below." : undefined}>
+        <Group label="Appearance" testId="themes-appearance" footnote={mode === "auto" ? `Auto follows your ${deviceWord()}'s Light or Dark appearance, with the palettes below.` : undefined}>
           <div style={{ padding: "11px 12px 12px 16px" }}>
             <Segments options={SCHEME_MODES} value={mode} onPick={setMode} label="Light, Dark or Auto" testId="theme-mode" />
           </div>

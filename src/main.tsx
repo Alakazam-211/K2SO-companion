@@ -14,6 +14,7 @@ import { setPhoneVoiceEngine } from "./zen/voice/voiceCall";
 import { resyncVoiceCall } from "./zen/voice/VoiceRooms";
 import { HIDDEN, placeTile } from "./zen/voice/videoTile";
 import { onForegroundLater } from "./lib/foreground";
+import { installAndroidSystemBars } from "./lib/androidSystemBars";
 
 // Android's WebView reports env(safe-area-inset-bottom) as 0 while the
 // app draws edge-to-edge behind the system nav — bottom bars need an
@@ -38,6 +39,9 @@ if (/android/i.test(navigator.userAgent)) {
   window.addEventListener("k2-insets", (e) =>
     setSafeBottom((e as CustomEvent<{ bottom: number }>).detail.bottom),
   );
+
+  // Status bar / nav icons dark on a light palette (src/lib/androidSystemBars.ts).
+  installAndroidSystemBars();
 }
 
 // Zen UI font + text size prefs (Settings → Appearance): stamp them on

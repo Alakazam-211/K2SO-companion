@@ -9,6 +9,7 @@ import androidx.activity.OnBackPressedCallback
 import androidx.activity.SystemBarStyle
 import androidx.activity.enableEdgeToEdge
 import androidx.core.view.ViewCompat
+import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsCompat
 
 class MainActivity : TauriActivity() {
@@ -52,6 +53,17 @@ class MainActivity : TauriActivity() {
 
     webView.addJavascriptInterface(object {
       @JavascriptInterface fun safeBottom(): Float = safeBottomCss
+
+      // Settings → Themes: dark status-bar and nav icons over a light
+      // palette, light icons over a dark one (src/lib/androidSystemBars.ts).
+      @JavascriptInterface fun setLightBars(light: Boolean) {
+        runOnUiThread {
+          WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = light
+            isAppearanceLightNavigationBars = light
+          }
+        }
+      }
     }, "K2Insets")
 
     // Listen on the content parent, not the WebView: a listener on the
