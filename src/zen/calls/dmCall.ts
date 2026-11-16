@@ -312,8 +312,6 @@ export async function startDmCall(
   }
   const cur = get().active;
   if (isThis(cur, serverId, conv) && !isFinalPhase(cur.phase)) return { ok: true };
-  // Another DM call up: it ends with this one (one voice entry per person).
-  if (cur && !isFinalPhase(cur.phase) && cur.k2CallId) void apiLeave(scopeFor(cur.serverId), cur.k2CallId);
 
   // The gate: this server offers Home chat (and so DM calls). Never assumed.
   const scope = scopeFor(serverId);
@@ -331,6 +329,11 @@ export async function startDmCall(
     set({ notice: noticeFor(target, raw, raw, "") });
     return { ok: false, code: "gate", raw, hint: "" };
   }
+
+  // Another DM call up: it ends with this one (one voice entry per person;
+  // the voice store lets its media go before this join).
+  const prev = get().active;
+  if (prev && !isFinalPhase(prev.phase) && prev.k2CallId) void apiLeave(scopeFor(prev.serverId), prev.k2CallId);
 
   // A ring for you in this DM: this join answers it.
   const ringing = get().rings.filter((r) => r.serverId === serverId && r.conv === conv);
