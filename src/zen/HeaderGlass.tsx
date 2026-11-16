@@ -27,6 +27,10 @@ export const GLASS_HIDDEN_ATTR = "data-glass-hidden";
 export function HeaderGlass() {
   const fillRef = useRef<HTMLDivElement>(null);
   const rimRef = useRef<HTMLDivElement>(null);
+  // Veil's two shadows under the merged outline (LiquidGlassJS's CSS
+  // material: an ambient lift and a 1px contact), each masked to the fill.
+  const ambientRef = useRef<HTMLSpanElement>(null);
+  const contactRef = useRef<HTMLSpanElement>(null);
   useLayoutEffect(() => {
     const fill = fillRef.current;
     const rim = rimRef.current;
@@ -59,6 +63,9 @@ export function HeaderGlass() {
         return;
       }
       fill.style.webkitMaskImage = fill.style.maskImage = `url(${masks.fill})`;
+      for (const drop of [ambientRef.current, contactRef.current]) {
+        if (drop) drop.style.webkitMaskImage = drop.style.maskImage = `url(${masks.fill})`;
+      }
       rim.style.webkitMaskImage = rim.style.maskImage = `url(${masks.rim})`;
       host.setAttribute(GLASS_MERGED_ATTR, "1");
     };
@@ -93,6 +100,12 @@ export function HeaderGlass() {
   }, []);
   return (
     <>
+      <div aria-hidden className="zen-glass-merged-drop zen-glass-merged-drop--ambient">
+        <span ref={ambientRef} />
+      </div>
+      <div aria-hidden className="zen-glass-merged-drop zen-glass-merged-drop--contact">
+        <span ref={contactRef} />
+      </div>
       <div ref={fillRef} aria-hidden className="zen-glass-merged-fill" data-testid="header-glass-fill" />
       <div ref={rimRef} aria-hidden className="zen-glass-merged-rim" data-testid="header-glass-rim" />
     </>

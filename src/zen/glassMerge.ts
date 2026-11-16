@@ -10,18 +10,18 @@
 // Output is two alpha masks for HeaderGlass.tsx: the fill (the frosted
 // layer) and the rim, which redraws `.zen-glass`'s own edge along the
 // merged outline: the 0.5px border at white 22% and the `inset 0 1px 0`
-// light catch at white 28%. In light palettes (Veil) the rim is iOS's light
-// glass edge instead (Riley 2026-11-16, from Messages): a 1px line, full
-// where the outline faces sideways and fading to nothing where it faces up
-// or down, painted dark by HeaderGlass's CSS; no light catch. Pure apart
-// from `renderGlassMasks` (canvas).
+// light catch at white 28%. In light palettes (Veil) the rim is
+// LiquidGlassJS's CSS material edge instead (Riley 2026-11-16: what the
+// original does on light pages): a 1px white inner edge all the way round
+// at its default 0.9 × specular 0.6; the outline then reads by the shadows
+// HeaderGlass draws under it. Pure apart from `renderGlassMasks` (canvas).
 
 /** How far apart (px) the name pill starts to flow into a button. */
 export const MERGE_K = 16;
 const EDGE_ALPHA = 0.22;
 const SHEEN_ALPHA = 0.28;
-/** Veil: the side line's strength at 3 and 9 o'clock (painted black). */
-const LIGHT_EDGE_ALPHA = 0.22;
+/** Veil: the white inner edge (LiquidGlassJS: 0.9 × its default specular 0.6). */
+const LIGHT_EDGE_ALPHA = 0.54;
 
 export type GlassMaskStyle = "dark" | "light";
 
@@ -113,13 +113,9 @@ export function renderGlassMasks(
       fd[o + 3] = a * 255;
       if (d > 1.5 || d < -2.5) continue;
       if (style === "light") {
-        // A 1px line inside the outline, weighted by how sideways the edge
-        // faces: |x| of the distance field's gradient (1 at the sides, 0 on
-        // top and bottom), so it follows the corners and the merged necks.
+        // A 1px white line just inside the merged outline (its necks too).
         const line = a - cov(d + 1);
-        const nx = (mergedDistance(x + 0.5, y, buttons, pill, k) - mergedDistance(x - 0.5, y, buttons, pill, k));
-        const side = Math.min(1, Math.abs(nx));
-        rd[o + 3] = Math.min(1, line * side * side * LIGHT_EDGE_ALPHA) * 255;
+        rd[o + 3] = Math.min(1, line * LIGHT_EDGE_ALPHA) * 255;
         continue;
       }
       const inner = cov(d + 0.5);
