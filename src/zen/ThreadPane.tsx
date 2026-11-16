@@ -413,6 +413,7 @@ const Bubble = memo(function Bubble({
       // content clips inside.
       className={`relative px-3 py-2 leading-snug break-words min-w-0 max-w-full${tail ? " zen-tail" : ""}${fadeIn ? " zen-bubble-fade" : breathing ? " zen-bubble-breathe" : ""}${outlined ? " zen-outlined" : ""}`}
       data-testid="thread-bubble"
+      data-mine={m.mine ? "" : undefined}
       data-fly-target={flying ? "true" : undefined}
       data-tail={tail || undefined}
       {...{ [MESSAGE_HOLD_ATTR]: holdable ? m.id : undefined }}

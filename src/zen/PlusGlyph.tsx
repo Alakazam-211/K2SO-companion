@@ -3,7 +3,7 @@
 export const PLUS_GLYPH = "＋";
 export const PLUS_GLYPH_PX = 22;
 
-/** `bright`: white, like the header bubbles' icons (the Agents / Servers
+/** `bright`: primary text (white on dark palettes), like the header bubbles' icons (the Agents / Servers
  *  bottom bar, Riley 2026-10-18). The composer keeps the muted plus. */
 export function PlusGlyph({ bright = false }: { bright?: boolean }) {
   return (
@@ -13,7 +13,7 @@ export function PlusGlyph({ bright = false }: { bright?: boolean }) {
       style={{
         fontSize: PLUS_GLYPH_PX,
         lineHeight: 1,
-        color: bright ? "#fff" : "var(--text-muted)",
+        color: bright ? "var(--color-text-primary)" : "var(--color-text-muted)",
       }}
     >
       {PLUS_GLYPH}

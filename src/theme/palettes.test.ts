@@ -167,3 +167,12 @@ describe("stamping fixes after the conversion", () => {
     expect(Object.keys(themeVars("obsidian", null)).filter((k) => k.startsWith("--radius-"))).toEqual([]);
   });
 });
+
+describe("Dusk's accent fill", () => {
+  it("is its gold (desktop's fallback), so your bubble and Send have a fill", () => {
+    expect(themeVars("yellow", null)["--color-accent-fill"]).toBe("var(--color-accent)");
+    expect(themeVars("yellow", null)["--color-accent"]).toBe("#ffc700");
+    // Obsidian keeps its own deeper fill.
+    expect(themeVars("obsidian", null)["--color-accent-fill"]).toBe("#086cd1");
+  });
+});

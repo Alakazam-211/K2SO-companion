@@ -5,7 +5,7 @@ export function StubMark() {
   return (
     <span
       data-stub="true"
-      className="shrink-0 text-[var(--warning)] uppercase tracking-widest"
+      className="shrink-0 text-[var(--color-status-warn-text)] uppercase tracking-widest"
     >
       {STUB_MARK}
     </span>

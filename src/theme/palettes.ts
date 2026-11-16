@@ -231,6 +231,11 @@ export function themeVars(id: PaletteId, accent: AccentChoice | null): Record<st
     // don't define it; desktop's base stylesheet does. Worked out the same
     // way here for the palette's own accent (a custom one overrides it).
     "--color-accent-text": accentTextFor(defaultAccentHex(p), p, p.scheme),
+    // Dusk names no accent fill (its gold already carries its ink): desktop
+    // reads `var(--color-accent-fill, var(--color-accent))`, so the fill is
+    // the accent itself there. The same here, so every palette has one.
+    "--color-accent-fill": "var(--color-accent)",
+    "--color-accent-fill-hover": "var(--color-accent-hover)",
     ...p.vars,
     ...accentVarsFor(accent, p, p.scheme),
   });
