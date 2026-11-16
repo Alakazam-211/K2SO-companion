@@ -107,8 +107,10 @@ const COMPOSER_PREFIX = "home-chat-composer";
 /** The Thread's words when a stash save fails. */
 const STASH_FAILED = "Couldn't save to the stash. Try again.";
 /** How far below the floating header text starts to fade once the list
- *  has scrolled (the scroll-edge fade, `.zen-header-blur--edge`). */
-const HEADER_FADE_PX = 28;
+ *  has scrolled (the scroll-edge fade, `.zen-header-blur--edge`): 24px
+ *  below the name pill, whose bottom edge is the header's 12px padding
+ *  above the header's bottom. */
+const HEADER_FADE_PX = 12;
 
 /** The composer draft's key for a conversation. */
 export function homeChatDraftKey(serverId: string, conv: string | null): string | null {

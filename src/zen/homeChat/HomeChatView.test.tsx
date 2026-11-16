@@ -389,6 +389,8 @@ describe("K2 Design's review (4.3.0)", () => {
     render(<HomeChatView target={CHANNEL} onBack={() => {}} />);
     const blur = screen.getByTestId("home-chat-header-blur");
     expect(blur.className).toContain("zen-header-blur--edge");
+    // The fade starts 24px below the pill (12px header padding + 12px).
+    expect(blur.style.getPropertyValue("--zen-edge-fade")).toBe("12px");
     expect(blur.getAttribute("data-scrolled")).not.toBe("1");
     const scroller = screen.getByTestId("home-chat-scroller");
     scroller.scrollTop = 120;
