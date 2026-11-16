@@ -13,9 +13,10 @@ import {
 } from "./homesSync";
 import { Switch } from "./ZenSettings";
 
-const MUTED = "#8e8e93";
-const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
-const RED = "#ef4444";
+const MUTED = "var(--color-text-muted)";
+const HAIRLINE = "0.5px solid var(--color-wash-2)";
+/** Error and destructive words. */
+const RED = "var(--color-status-error-text)";
 
 const PLATFORM_LABEL: Record<string, string> = {
   ios: "iOS",
@@ -110,13 +111,13 @@ export function HomeSyncSection({ serverId, label }: { serverId: string; label: 
             style={{ padding: "10px 12px 10px 16px", gap: 12, borderBottom: HAIRLINE }}
             data-testid="homesync-removed-notice"
           >
-            <span className="text-[13px]" style={{ color: "#ffd60a", lineHeight: 1.35 }}>
+            <span className="text-[13px]" style={{ color: "var(--color-status-warn-text)", lineHeight: 1.35 }}>
               This phone was removed from Home sync on {myNotice.label}.
             </span>
             <button
               type="button"
               className="shrink-0 text-[13px] font-semibold"
-              style={{ color: "#0a84ff" }}
+              style={{ color: "var(--color-accent-text)" }}
               onClick={dismissHomesSyncNotice}
               data-testid="homesync-removed-notice-ok"
             >
@@ -254,7 +255,7 @@ function Confirm({
         <button
           type="button"
           className="flex-1 text-[16px] k2-tile"
-          style={{ minHeight: 38, borderRadius: 12, color: "#fff" }}
+          style={{ minHeight: 38, borderRadius: 12, color: "var(--color-text-primary)" }}
           onClick={onNo}
           data-testid={`${testId}-cancel`}
         >
@@ -263,7 +264,7 @@ function Confirm({
         <button
           type="button"
           className="flex-1 text-[16px] font-semibold"
-          style={{ minHeight: 38, borderRadius: 12, color: "#fff", background: danger ? RED : "#0a84ff" }}
+          style={{ minHeight: 38, borderRadius: 12, color: danger ? "var(--color-on-danger)" : "var(--color-on-accent)", background: danger ? "var(--color-danger)" : "var(--color-accent-fill)" }}
           onClick={onYes}
           data-testid={`${testId}-yes`}
         >

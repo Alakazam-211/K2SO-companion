@@ -10,7 +10,7 @@ import {
 import { gapSeries, type KbScore } from "../lib/kbDragScore";
 import { Switch } from "./ZenSettings";
 
-const MUTED = "#8e8e93";
+const MUTED = "var(--color-text-muted)";
 
 let version = 0;
 function subscribe(fn: () => void) {
@@ -63,11 +63,11 @@ function Sparkline({ drag }: { drag: RecordedDrag }) {
       style={{ display: "block", margin: "4px 0" }}
     >
       <rect x={0} y={y(1)} width={W} height={y(-1) - y(1)} fill="rgba(52,199,89,0.18)" />
-      <line x1={0} x2={W} y1={H / 2} y2={H / 2} stroke="rgba(255,255,255,0.25)" strokeWidth={1} />
+      <line x1={0} x2={W} y1={H / 2} y2={H / 2} stroke="var(--color-wash-3)" strokeWidth={1} />
       {release ? (
         <line x1={x(release.t)} x2={x(release.t)} y1={0} y2={H} stroke="rgba(10,132,255,0.6)" strokeWidth={1} />
       ) : null}
-      <path d={d} fill="none" stroke="#fff" strokeWidth={1.25} />
+      <path d={d} fill="none" stroke="var(--color-text-primary)" strokeWidth={1.25} />
     </svg>
   );
 }
@@ -80,7 +80,7 @@ function CopyTrace({ drag }: { drag: RecordedDrag }) {
       <button
         type="button"
         className="text-[12px]"
-        style={{ color: "#0a84ff", minHeight: 32, padding: "0 4px" }}
+        style={{ color: "var(--color-accent-text)", minHeight: 32, padding: "0 4px" }}
         data-testid="kb-drag-copy"
         onClick={() => {
           const text = json();
@@ -101,7 +101,7 @@ function CopyTrace({ drag }: { drag: RecordedDrag }) {
           value={shown}
           onFocus={(e) => e.currentTarget.select()}
           className="w-full text-[10px]"
-          style={{ height: 80, background: "#111", color: "#ddd", border: 0 }}
+          style={{ height: 80, background: "var(--color-bg-inset)", color: "var(--color-text-secondary)", border: 0 }}
           data-testid="kb-drag-json"
         />
       ) : null}
@@ -150,7 +150,7 @@ export function KeyboardDragRow() {
                 return (
                   <div key={i} style={{ marginBottom: 8 }} data-testid="kb-drag-row">
                     <Sparkline drag={d} />
-                    <div style={{ color: "#fff" }}>{a}</div>
+                    <div style={{ color: "var(--color-text-primary)" }}>{a}</div>
                     <div>{b}</div>
                     <CopyTrace drag={d} />
                   </div>
@@ -159,7 +159,7 @@ export function KeyboardDragRow() {
               <button
                 type="button"
                 className="text-[13px]"
-                style={{ color: "#ff453a", minHeight: 36 }}
+                style={{ color: "var(--color-status-error-text)", minHeight: 36 }}
                 data-testid="kb-drag-clear"
                 onClick={() => clearRecordedDrags()}
               >

@@ -29,12 +29,15 @@ import {
 } from "./serverUpdateStore";
 import "./serverUpdate.css";
 
-const MUTED = "#8e8e93";
-const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
-const RED = "#ef4444";
-const GREEN = "#30d158";
-const BLUE = "#0a84ff";
-const AMBER = "#f59e0b";
+const MUTED = "var(--color-text-muted)";
+const HAIRLINE = "0.5px solid var(--color-wash-2)";
+/** Error and destructive words. */
+const RED = "var(--color-status-error-text)";
+const GREEN = "var(--color-status-ok)";
+/** The accent as words (a link). */
+const BLUE = "var(--color-accent-text)";
+/** Warning words. */
+const AMBER = "var(--color-status-warn-text)";
 
 export interface ServerUpdateSectionProps {
   serverId: string;
@@ -148,8 +151,8 @@ function RowButton({
         minHeight: 36,
         padding: "0 14px",
         borderRadius: 10,
-        color: "#fff",
-        background: primary ? BLUE : undefined,
+        color: primary ? "var(--color-on-accent)" : "var(--color-text-primary)",
+        background: primary ? "var(--color-accent-fill)" : undefined,
         opacity: disabled ? 0.5 : 1,
       }}
       disabled={disabled}
@@ -371,7 +374,7 @@ function ConfirmSheet({
   return createPortal(
     <div
       className="fixed inset-0 flex items-end justify-center"
-      style={{ background: "rgba(0,0,0,.45)", zIndex: 60, fontFamily: "var(--zen-font)" }}
+      style={{ background: "var(--color-scrim)", zIndex: 60, fontFamily: "var(--zen-font)" }}
       data-testid="server-update-confirm"
       onClick={(e) => {
         if (e.target === e.currentTarget) onCancel();
@@ -387,7 +390,7 @@ function ConfirmSheet({
           borderTopRightRadius: 14,
           padding: "16px 16px max(12px, var(--safe-bottom))",
           gap: 12,
-          color: "#fff",
+          color: "var(--color-text-primary)",
         }}
       >
         <h2 className="text-[17px] font-semibold text-center" data-testid="server-update-confirm-title">
@@ -400,8 +403,8 @@ function ConfirmSheet({
             padding: "10px 12px",
             borderRadius: 10,
             background: "rgba(245,158,11,.14)",
-            border: `1px solid ${AMBER}`,
-            color: "#fbbf24",
+            border: "1px solid var(--color-status-warn)",
+            color: "var(--color-status-warn-text)",
             lineHeight: 1.35,
           }}
           data-testid="server-update-confirm-warning"
@@ -415,7 +418,7 @@ function ConfirmSheet({
           <button
             type="button"
             className="flex-1 text-[17px] k2-tile"
-            style={{ minHeight: 44, borderRadius: 12, color: "#fff" }}
+            style={{ minHeight: 44, borderRadius: 12, color: "var(--color-text-primary)" }}
             data-testid="server-update-confirm-cancel"
             onClick={onCancel}
           >
@@ -424,7 +427,7 @@ function ConfirmSheet({
           <button
             type="button"
             className="flex-1 text-[17px] font-semibold"
-            style={{ minHeight: 44, borderRadius: 12, color: "#fff", background: RED }}
+            style={{ minHeight: 44, borderRadius: 12, color: "var(--color-on-danger)", background: "var(--color-danger)" }}
             data-testid="server-update-confirm-go"
             onClick={onConfirm}
           >

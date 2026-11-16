@@ -32,10 +32,12 @@ import { useSwipeBack } from "../lib/useSwipeBack";
 import { LlmIcon } from "./LlmIcon";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 
-const MUTED = "#8e8e93";
-const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
-const RED = "#ef4444";
-const AMBER = "#f59e0b";
+const MUTED = "var(--color-text-muted)";
+const HAIRLINE = "0.5px solid var(--color-wash-2)";
+/** Error words. */
+const RED = "var(--color-status-error-text)";
+/** Warning words. */
+const AMBER = "var(--color-status-warn-text)";
 const PILL_H = 36;
 /** Resting header content height (below the safe area): title + server. */
 export const USAGE_HEADER_PX = 60;
@@ -162,7 +164,7 @@ export function UsagePage({ serverId, onBack }: { serverId: string; onBack: () =
     <div
       ref={swipeRef}
       className="absolute inset-0 flex flex-col min-w-0 overflow-x-hidden"
-      style={{ background: "#000", zIndex: 8, fontFamily: "var(--zen-font)" }}
+      style={{ background: "var(--color-bg)", color: "var(--color-text-primary)", zIndex: 8, fontFamily: "var(--zen-font)" }}
       data-testid="usage-page"
     >
       <header
@@ -182,7 +184,7 @@ export function UsagePage({ serverId, onBack }: { serverId: string; onBack: () =
             onClick={onBack}
             data-testid="usage-back"
             className="flex items-center justify-center shrink-0 justify-self-start zen-glass zen-glass-pill"
-            style={{ width: PILL_H, height: PILL_H, color: "#fff", pointerEvents: "auto" }}
+            style={{ width: PILL_H, height: PILL_H, color: "var(--color-text-primary)", pointerEvents: "auto" }}
             aria-label="Back to servers"
           >
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -205,7 +207,7 @@ export function UsagePage({ serverId, onBack }: { serverId: string; onBack: () =
             disabled={refreshing || phase.kind !== "ready"}
             data-testid="usage-refresh"
             className="flex items-center justify-center shrink-0 justify-self-end zen-glass zen-glass-pill disabled:opacity-40"
-            style={{ width: PILL_H, height: PILL_H, color: "#fff", pointerEvents: "auto" }}
+            style={{ width: PILL_H, height: PILL_H, color: "var(--color-text-primary)", pointerEvents: "auto" }}
             aria-label="Refresh usage"
             aria-busy={refreshing || undefined}
           >
@@ -419,7 +421,7 @@ function TokenRow({
       data-active={token.active ? "true" : undefined}
     >
       {first ? (
-        <p className="text-[11px] uppercase tracking-wide" style={{ color: "#22c55e", marginBottom: 4, letterSpacing: ".04em" }}>
+        <p className="text-[11px] uppercase tracking-wide" style={{ color: "var(--color-status-ok)", marginBottom: 4, letterSpacing: ".04em" }}>
           Active
         </p>
       ) : null}
@@ -449,7 +451,7 @@ function TokenRow({
           <button
             type="button"
             className="shrink-0 text-[15px] k2-tile disabled:opacity-40"
-            style={{ minHeight: 34, padding: "0 14px", borderRadius: 17, color: "#fff" }}
+            style={{ minHeight: 34, padding: "0 14px", borderRadius: 17, color: "var(--color-text-primary)" }}
             disabled={busy || !!switchDenied}
             title={switchDenied ?? undefined}
             aria-busy={switching || undefined}
@@ -531,13 +533,13 @@ function UsageWindows({ token, now }: { token: LlmToken; now: number }) {
                 </span>
               ) : null}
             </div>
-            <div style={{ height: 4, borderRadius: 2, background: "rgba(255,255,255,.12)", marginTop: 3 }}>
+            <div style={{ height: 4, borderRadius: 2, background: "var(--color-wash-2)", marginTop: 3 }}>
               <div
                 style={{
                   height: 4,
                   borderRadius: 2,
                   width: `${pct}%`,
-                  background: pct >= 90 ? RED : "var(--accent)",
+                  background: pct >= 90 ? "var(--color-status-error)" : "var(--color-accent)",
                 }}
                 role="meter"
                 aria-label={`${w.label} used`}

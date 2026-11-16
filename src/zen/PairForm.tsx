@@ -166,17 +166,17 @@ export function PairForm({
     minHeight: 40,
     padding: "0 14px",
     borderRadius: 10,
-    color: "#fff",
+    color: "var(--color-text-primary)",
     fontSize: 16,
   };
   const primary: CSSProperties = {
     minHeight: 44,
     borderRadius: 12,
-    background: "#0a84ff",
-    color: "#fff",
+    background: "var(--color-accent-fill)",
+    color: "var(--color-on-accent)",
   };
   const label = (text: string) => (
-    <span className="text-[11px] uppercase tracking-wide" style={{ color: "#8e8e93" }}>
+    <span className="text-[11px] uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>
       {text}
     </span>
   );
@@ -192,12 +192,12 @@ export function PairForm({
           style={{ width: 72, height: 72, borderRadius: 36, background: "rgba(48,209,88,0.16)" }}
           aria-hidden
         >
-          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--color-status-ok)" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round">
             <path d="M5 12.5l4.5 4.5L19 7.5" />
           </svg>
         </div>
         <h2 className="text-[22px] font-semibold">Paired</h2>
-        <p className="text-[15px]" style={{ color: "#c7c7cc", lineHeight: 1.4 }} data-testid="pair-success-text">
+        <p className="text-[15px]" style={{ color: "var(--color-text-secondary)", lineHeight: 1.4 }} data-testid="pair-success-text">
           This {phoneName()} is signed in to {to}
           {pairedAs ? ` as ${pairedAs}` : ""}. It stays signed in without a password.
         </p>
@@ -230,7 +230,7 @@ export function PairForm({
                 <div
                   key={s.key}
                   className="flex items-center"
-                  style={{ minHeight: 44, gap: 12, color: state === "next" ? "#636366" : "#fff" }}
+                  style={{ minHeight: 44, gap: 12, color: state === "next" ? "var(--color-text-muted)" : "var(--color-text-primary)" }}
                   data-testid={`pair-step-${s.key}`}
                   data-state={state}
                 >
@@ -240,7 +240,7 @@ export function PairForm({
               );
             })}
           </div>
-          <p className="text-[13px] text-center" style={{ color: "#8e8e93" }}>
+          <p className="text-[13px] text-center" style={{ color: "var(--color-text-muted)" }}>
             This can take a few seconds. Keep K2 open.
           </p>
         </div>
@@ -255,45 +255,45 @@ export function PairForm({
         </h2>
         <div className="k2-tile flex flex-col" style={{ borderRadius: 12, padding: "4px 14px" }}>
           <div className="flex items-center justify-between" style={{ minHeight: 44, gap: 12 }}>
-            <span style={{ color: "#8e8e93" }}>Server</span>
+            <span style={{ color: "var(--color-text-muted)" }}>Server</span>
             <span className="font-semibold truncate" data-testid="pair-confirm-host">
               {host}
             </span>
           </div>
-          <div style={{ height: 0.5, background: "rgba(255,255,255,0.12)" }} />
+          <div style={{ height: 0.5, background: "var(--color-wash-2)" }} />
           <div className="flex items-center justify-between" style={{ minHeight: 44, gap: 12 }}>
-            <span style={{ color: "#8e8e93" }}>Login</span>
+            <span style={{ color: "var(--color-text-muted)" }}>Login</span>
             <span className="font-semibold truncate" data-testid="pair-confirm-login">
               {login ?? "Shown after pairing"}
             </span>
           </div>
         </div>
         {!isK2DevServer(url) ? (
-          <p className="text-[13px]" style={{ color: "#ffd60a" }} data-testid="pair-warn-host">
+          <p className="text-[13px]" style={{ color: "var(--color-status-warn-text)" }} data-testid="pair-warn-host">
             This isn't a k2.dev address. Only pair with a computer you own or trust.
           </p>
         ) : null}
         {codeElsewhere ? (
-          <p className="text-[13px]" style={{ color: "#ffd60a" }} data-testid="pair-warn-code-host">
+          <p className="text-[13px]" style={{ color: "var(--color-status-warn-text)" }} data-testid="pair-warn-code-host">
             This code was made on {codeElsewhere}, not {host}.
           </p>
         ) : null}
         {replacing && login && replacing.username && login !== replacing.username ? (
-          <p className="text-[13px]" style={{ color: "#ffd60a" }} data-testid="pair-warn-replace">
+          <p className="text-[13px]" style={{ color: "var(--color-status-warn-text)" }} data-testid="pair-warn-replace">
             This phone uses {replacing.username} on {replacing.nickname || hostLabel(replacing.url)} now. Pairing
             switches it to {login}.
           </p>
         ) : other ? (
-          <p className="text-[13px]" style={{ color: "#ffd60a" }} data-testid="pair-warn-replace">
+          <p className="text-[13px]" style={{ color: "var(--color-status-warn-text)" }} data-testid="pair-warn-replace">
             {other.nickname || hostLabel(other.url)} is already on this phone. Pairing replaces how it signs in.
           </p>
         ) : null}
-        <p className="text-[13px]" style={{ color: "#8e8e93" }}>
+        <p className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>
           Only pair with a code you made yourself or got from someone you trust. This phone then stays signed in
           without a password until you sign out or the pairing is removed.
         </p>
         {error ? (
-          <p className="text-[13px] text-center" style={{ color: "#ef4444" }}>
+          <p className="text-[13px] text-center" style={{ color: "var(--color-status-error-text)" }}>
             {error}
           </p>
         ) : null}
@@ -310,7 +310,7 @@ export function PairForm({
         <button
           type="button"
           className="w-full text-[17px]"
-          style={{ minHeight: 44, color: "#8e8e93" }}
+          style={{ minHeight: 44, color: "var(--color-text-muted)" }}
           disabled={busy}
           onClick={() => {
             setStep("enter");
@@ -332,14 +332,14 @@ export function PairForm({
       }}
       data-testid="pair-form"
     >
-      <p className="text-[13px]" style={{ color: "#8e8e93" }}>
+      <p className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>
         On your computer, open K2 Settings → K2 Companion and choose Pair a phone (or your profile → Your phones). Then scan its QR code or type the code.
       </p>
       {qrScannerAvailable() ? (
         <button
           type="button"
           className="w-full font-semibold k2-tile"
-          style={{ minHeight: 44, borderRadius: 12, color: "#fff" }}
+          style={{ minHeight: 44, borderRadius: 12, color: "var(--color-text-primary)" }}
           disabled={busy}
           onClick={() => void onScan()}
           data-testid="pair-scan"
@@ -379,7 +379,7 @@ export function PairForm({
         />
       </label>
       {error ? (
-        <p className="text-[13px] text-center" style={{ color: "#ef4444" }} data-testid="pair-error">
+        <p className="text-[13px] text-center" style={{ color: "var(--color-status-error-text)" }} data-testid="pair-error">
           {error}
         </p>
       ) : null}
@@ -401,7 +401,7 @@ type ProgressStep = PairStep | "agents";
 function StepMark({ state }: { state: "done" | "now" | "next" }) {
   if (state === "done") {
     return (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#30d158" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--color-status-ok)" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
         <path d="M5 12.5l4.5 4.5L19 7.5" />
       </svg>
     );
@@ -410,10 +410,10 @@ function StepMark({ state }: { state: "done" | "now" | "next" }) {
     return (
       <span
         className="animate-spin"
-        style={{ width: 18, height: 18, margin: 1, flexShrink: 0, borderRadius: 9, border: "2px solid rgba(255,255,255,0.25)", borderTopColor: "#fff" }}
+        style={{ width: 18, height: 18, margin: 1, flexShrink: 0, borderRadius: 9, border: "2px solid var(--color-wash-3)", borderTopColor: "var(--color-text-primary)" }}
         aria-hidden
       />
     );
   }
-  return <span style={{ width: 18, height: 18, margin: 1, flexShrink: 0, borderRadius: 9, border: "2px solid #3a3a3c" }} aria-hidden />;
+  return <span style={{ width: 18, height: 18, margin: 1, flexShrink: 0, borderRadius: 9, border: "2px solid var(--color-border)" }} aria-hidden />;
 }

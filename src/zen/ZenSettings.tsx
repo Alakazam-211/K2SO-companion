@@ -13,10 +13,11 @@ import { AcknowledgementsPage } from "./AcknowledgementsPage";
 import { RowChevron } from "./RowChevron";
 import { BackArrowButton } from "./BackArrowButton";
 
-const MUTED = "#8e8e93";
-const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
-/** iOS system green. */
-const SWITCH_ON = "#30d158";
+const MUTED = "var(--color-text-muted)";
+const HAIRLINE = "0.5px solid var(--color-wash-2)";
+/** iOS system green (Obsidian #30d158). Glass has no switch token (desktop's
+ *  switches use the accent); the phone keeps iOS's green. */
+const SWITCH_ON = "var(--color-status-ok)";
 
 /** Zen Settings sheet (opened by the Chats header cog). iOS grouped list
  *  of `.k2-tile` cards: Notifications (the same push toggle as the old
@@ -32,7 +33,7 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
   return (
     <div
       className="absolute inset-0 flex flex-col"
-      style={{ background: "#000", zIndex: 6, paddingTop: "env(safe-area-inset-top)" }}
+      style={{ background: "var(--color-bg)", color: "var(--color-text-primary)", zIndex: 6, paddingTop: "env(safe-area-inset-top)" }}
       data-testid="overlay-settings"
     >
       <div
@@ -348,8 +349,8 @@ function FontRow() {
               style={{
                 height: 28,
                 padding: "0 8px",
-                color: on ? "#fff" : "#a1a1aa",
-                background: on ? "rgba(255,255,255,0.18)" : "transparent",
+                color: on ? "var(--color-text-primary)" : "var(--color-text-muted)",
+                background: on ? "var(--color-wash-3)" : "transparent",
               }}
             >
               {f.label}
@@ -412,7 +413,7 @@ function TextSizeRow() {
                   width: 2,
                   height: 12,
                   borderRadius: 1,
-                  background: "rgba(255,255,255,.45)",
+                  background: "var(--color-control-edge)",
                   transform: "translate(-50%, -50%)",
                 }}
               />

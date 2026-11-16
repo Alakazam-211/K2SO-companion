@@ -54,7 +54,7 @@ function CheckMark() {
       <path
         d="M3 8.5l3.2 3.2L13 4.8"
         fill="none"
-        stroke="#22c55e"
+        stroke="var(--color-status-ok)"
         strokeWidth="2.2"
         strokeLinecap="round"
         strokeLinejoin="round"
@@ -73,7 +73,7 @@ function ServerNotifyStatus({ serverId }: { serverId: string }) {
   return (
     <span
       className="block text-[12px] truncate"
-      style={{ color: "#8e8e93", lineHeight: 1.3 }}
+      style={{ color: "var(--color-text-muted)", lineHeight: 1.3 }}
       data-testid="server-notify-status"
     >
       {error ? `Could not save: ${error}` : serverBellStatus(prefs)}
@@ -96,7 +96,7 @@ function ServerBell({ serverId, label }: { serverId: string; label: string }) {
         width: 34,
         height: 34,
         borderRadius: 17,
-        color: enabled ? "#fff" : "#8e8e93",
+        color: enabled ? "var(--color-text-primary)" : "var(--color-text-muted)",
         pointerEvents: "auto",
       }}
       aria-label={`${enabled ? "Turn off" : "Turn on"} notifications from ${label}`}
@@ -120,7 +120,7 @@ function ServerUsageButton({ label, onOpen }: { label: string; onOpen: () => voi
     <button
       type="button"
       className="shrink-0 flex items-center justify-center k2-tile"
-      style={{ width: 34, height: 34, borderRadius: 17, color: "#fff", pointerEvents: "auto" }}
+      style={{ width: 34, height: 34, borderRadius: 17, color: "var(--color-text-primary)", pointerEvents: "auto" }}
       aria-label={`Usage on ${label}`}
       data-testid="server-usage"
       onClick={(e) => {
@@ -151,7 +151,7 @@ function ServerSettingsButton({
     <button
       type="button"
       className="relative shrink-0 flex items-center justify-center k2-tile"
-      style={{ width: 34, height: 34, borderRadius: 17, color: "#fff", pointerEvents: "auto" }}
+      style={{ width: 34, height: 34, borderRadius: 17, color: "var(--color-text-primary)", pointerEvents: "auto" }}
       aria-label={updateAvailable ? `Settings for ${label}, update available` : `Settings for ${label}`}
       data-testid="server-settings"
       onClick={(e) => {
@@ -171,8 +171,8 @@ function ServerSettingsButton({
             width: 9,
             height: 9,
             borderRadius: "50%",
-            background: "#0a84ff",
-            boxShadow: "0 0 0 1.5px #000",
+            background: "var(--color-accent)",
+            boxShadow: "0 0 0 1.5px var(--color-bg)",
           }}
         />
       ) : null}
@@ -331,7 +331,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
     return (
       <div
         className="absolute inset-0 flex flex-col"
-        style={{ background: "#000", zIndex: 6, paddingTop: "env(safe-area-inset-top)" }}
+        style={{ background: "var(--color-bg)", color: "var(--color-text-primary)", zIndex: 6, paddingTop: "env(safe-area-inset-top)" }}
         data-testid="overlay-servers"
       >
         <OverlayAddServer
@@ -346,7 +346,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
   return (
     <div
       className="absolute inset-0 flex flex-col"
-      style={{ background: "#000", zIndex: 6 }}
+      style={{ background: "var(--color-bg)", color: "var(--color-text-primary)", zIndex: 6 }}
       data-testid="overlay-servers"
     >
       {/* Floats over the list from y=0 with the chat / Agents header's
@@ -385,7 +385,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
           {multi ? (
             <p
               className="text-[12px] uppercase tracking-wide"
-              style={{ color: "#8e8e93", padding: "0 4px 6px" }}
+              style={{ color: "var(--color-text-muted)", padding: "0 4px 6px" }}
               data-testid="servers-pinned-label"
             >
               Default server (Tickets, classic view)
@@ -431,7 +431,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                     className="shrink-0 flex items-center text-[11px] uppercase"
                     style={{
                       gap: 4,
-                      color: pinnedState === "connected" ? "#22c55e" : RECOVERY_DOT[pinnedState],
+                      color: RECOVERY_DOT[pinnedState],
                       letterSpacing: ".04em",
                     }}
                   >
@@ -445,7 +445,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                 </span>
                 <span
                   className="block text-[14px] truncate"
-                  style={{ color: "#8e8e93", lineHeight: 1.3 }}
+                  style={{ color: "var(--color-text-muted)", lineHeight: 1.3 }}
                 >
                   {pinned.username} @ {hostLabel(pinned.url)}
                 </span>
@@ -462,7 +462,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                   minHeight: 34,
                   padding: "0 12px",
                   borderRadius: 17,
-                  color: "#8e8e93",
+                  color: "var(--color-text-muted)",
                 }}
                 aria-label={`Edit ${labelOf(pinned)}`}
                 onClick={() => setEditingId(pinned.id)}
@@ -495,14 +495,14 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
         data-testid="overlay-servers-list"
       >
         {servers.length === 0 ? (
-          <p className="px-4 py-6 text-[14px]" style={{ color: "#8e8e93" }}>
+          <p className="px-4 py-6 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
             No servers yet.
           </p>
         ) : visible.length === 0 ? (
           query.trim() ? (
             <p
               className="px-4 py-6 text-[14px]"
-              style={{ color: "#8e8e93" }}
+              style={{ color: "var(--color-text-muted)" }}
               data-testid="overlay-servers-empty"
             >
               No servers match
@@ -537,7 +537,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                 style={{
                   gap: 10,
                   padding: "10px 8px 10px 6px",
-                  borderBottom: "0.5px solid rgba(255,255,255,.12)",
+                  borderBottom: "0.5px solid var(--color-wash-2)",
                 }}
               >
                 <button
@@ -567,7 +567,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                     </span>
                     <span
                       className="block text-[14px] truncate"
-                      style={{ color: "#8e8e93", lineHeight: 1.3 }}
+                      style={{ color: "var(--color-text-muted)", lineHeight: 1.3 }}
                     >
                       {server.username} @ {hostLabel(server.url)}
                     </span>
@@ -589,7 +589,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
                       minHeight: 34,
                       padding: "0 12px",
                       borderRadius: 17,
-                      color: "#8e8e93",
+                      color: "var(--color-text-muted)",
                     }}
                     aria-label={`Edit ${label}`}
                     onClick={() => setEditingId(server.id)}

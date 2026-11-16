@@ -97,14 +97,14 @@ export function OverlayAddServer({
     minHeight: 40,
     padding: "0 14px",
     borderRadius: 10,
-    color: "#fff",
+    color: "var(--color-text-primary)",
     fontSize: 16,
   };
 
   return (
     <div
       className="flex flex-col h-full min-h-0"
-      style={{ background: "#000", color: "#fff" }}
+      style={{ background: "var(--color-bg)", color: "var(--color-text-primary)" }}
       data-testid="overlay-add-server"
     >
       <header
@@ -161,8 +161,8 @@ export function OverlayAddServer({
               style={{
                 minHeight: 32,
                 borderRadius: 8,
-                color: "#fff",
-                background: mode === m ? "rgba(255,255,255,0.18)" : "transparent",
+                color: "var(--color-text-primary)",
+                background: mode === m ? "var(--color-wash-3)" : "transparent",
               }}
               disabled={pairPhase !== "idle"}
               onClick={() => setMode(m)}
@@ -192,7 +192,7 @@ export function OverlayAddServer({
         onSubmit={(e) => void onSubmit(e)}
       >
         <label className="flex flex-col gap-1.5">
-          <span className="text-[11px] uppercase tracking-wide" style={{ color: "#8e8e93" }}>
+          <span className="text-[11px] uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>
             K2 Connect address
           </span>
           <input
@@ -206,7 +206,7 @@ export function OverlayAddServer({
           />
         </label>
         <label className="flex flex-col gap-1.5">
-          <span className="text-[11px] uppercase tracking-wide" style={{ color: "#8e8e93" }}>
+          <span className="text-[11px] uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>
             Username
           </span>
           <input
@@ -220,7 +220,7 @@ export function OverlayAddServer({
           />
         </label>
         <label className="flex flex-col gap-1.5">
-          <span className="text-[11px] uppercase tracking-wide" style={{ color: "#8e8e93" }}>
+          <span className="text-[11px] uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>
             Password
           </span>
           <span className="relative block">
@@ -239,7 +239,7 @@ export function OverlayAddServer({
             <button
               type="button"
               className="absolute right-0 top-0 flex h-full w-11 items-center justify-center"
-              style={{ color: "#8e8e93" }}
+              style={{ color: "var(--color-text-muted)" }}
               onClick={() => setShowPassword((v) => !v)}
               aria-label={showPassword ? "Hide password" : "Show password"}
               aria-pressed={showPassword}
@@ -249,7 +249,7 @@ export function OverlayAddServer({
           </span>
         </label>
         <label className="flex flex-col gap-1.5">
-          <span className="text-[11px] uppercase tracking-wide" style={{ color: "#8e8e93" }}>
+          <span className="text-[11px] uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>
             Nickname (optional)
           </span>
           <input
@@ -261,7 +261,7 @@ export function OverlayAddServer({
           />
         </label>
         {error ? (
-          <p className="text-[13px] text-center" style={{ color: "#ef4444" }}>
+          <p className="text-[13px] text-center" style={{ color: "var(--color-status-error-text)" }}>
             {error}
           </p>
         ) : null}
@@ -272,8 +272,8 @@ export function OverlayAddServer({
           style={{
             minHeight: 44,
             borderRadius: 12,
-            background: "#0a84ff",
-            color: "#fff",
+            background: "var(--color-accent-fill)",
+            color: "var(--color-on-accent)",
             opacity: !isValid || busy ? 0.4 : 1,
           }}
         >
@@ -282,13 +282,13 @@ export function OverlayAddServer({
         {editing ? (
           confirmingRemove ? (
             <div className="flex flex-col gap-2">
-              <p className="text-[13px] text-center" style={{ color: "#8e8e93" }}>
+              <p className="text-[13px] text-center" style={{ color: "var(--color-text-muted)" }}>
                 Remove this server from the phone? You will need to sign in again to add it back.
               </p>
               <button
                 type="button"
                 className="w-full text-[17px] font-semibold"
-                style={{ minHeight: 44, color: "#fff", background: "#ef4444", borderRadius: 12 }}
+                style={{ minHeight: 44, color: "var(--color-on-danger)", background: "var(--color-danger)", borderRadius: 12 }}
                 onClick={() => {
                   useServersStore.getState().removeServer(editing.id);
                   onCancel?.();
@@ -299,7 +299,7 @@ export function OverlayAddServer({
               <button
                 type="button"
                 className="w-full text-[17px]"
-                style={{ minHeight: 44, color: "#8e8e93" }}
+                style={{ minHeight: 44, color: "var(--color-text-muted)" }}
                 onClick={() => setConfirmingRemove(false)}
               >
                 Keep server
@@ -309,14 +309,14 @@ export function OverlayAddServer({
             <button
               type="button"
               className="w-full text-[17px]"
-              style={{ minHeight: 44, color: "#ef4444" }}
+              style={{ minHeight: 44, color: "var(--color-status-error-text)" }}
               onClick={() => setConfirmingRemove(true)}
             >
               Remove
             </button>
           )
         ) : null}
-        <p className="text-[11px] text-center" style={{ color: "#8e8e93" }}>
+        <p className="text-[11px] text-center" style={{ color: "var(--color-text-muted)" }}>
           Sign in with your K2 Connect account to reach your machine
         </p>
       </form>

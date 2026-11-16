@@ -11,10 +11,12 @@ import { PALETTES, paletteById, type Palette, type PaletteId, type SchemeMode } 
 import { accentFillHex } from "../theme/styleAccent";
 import { useThemeStore } from "../theme/themeStore";
 
-const MUTED = "#8e8e93";
-const HAIRLINE = "0.5px solid rgba(255,255,255,.12)";
-/** A picked swatch or card: iOS's ring with a page-colour gap. */
-const PICKED_RING = "0 0 0 2px #1c1c1e, 0 0 0 4px #fff";
+const MUTED = "var(--color-text-muted)";
+const HAIRLINE = "0.5px solid var(--color-wash-2)";
+/** A picked swatch or card: iOS's ring with a tile-colour gap. */
+const PICKED_RING = "0 0 0 2px var(--color-bg-surface), 0 0 0 4px var(--color-text-primary)";
+/** A swatch's or card's resting edge, so a colour near the tile's still shows. */
+const REST_EDGE = "inset 0 0 0 1px var(--color-wash-3)";
 
 export const SCHEME_MODES: readonly { id: SchemeMode; label: string }[] = [
   { id: "light", label: "Light" },
@@ -90,8 +92,8 @@ function Segments<T extends string>({
             style={{
               height: 28,
               padding: "0 8px",
-              color: on ? "#fff" : "#a1a1aa",
-              background: on ? "rgba(255,255,255,0.18)" : "transparent",
+              color: on ? "var(--color-text-primary)" : "var(--color-text-muted)",
+              background: on ? "var(--color-wash-3)" : "transparent",
             }}
           >
             {o.label}
@@ -130,7 +132,7 @@ function PaletteCard({ p, picked, onPick }: { p: Palette; picked: boolean; onPic
           padding: 8,
           gap: 5,
           background: p.swatch.bg,
-          boxShadow: picked ? PICKED_RING : "inset 0 0 0 1px rgba(255,255,255,.18)",
+          boxShadow: picked ? PICKED_RING : REST_EDGE,
         }}
       >
         <span style={{ alignSelf: "flex-start", width: 46, height: 12, borderRadius: 6, background: bubble }} />
@@ -139,7 +141,7 @@ function PaletteCard({ p, picked, onPick }: { p: Palette; picked: boolean; onPic
           <span style={{ width: 16, height: 16, borderRadius: 8, background: fill }} />
         </span>
       </span>
-      <span className="text-[13px]" style={{ color: picked ? "#fff" : "#a1a1aa" }}>
+      <span className="text-[13px]" style={{ color: picked ? "var(--color-text-primary)" : "var(--color-text-muted)" }}>
         {p.name}
       </span>
     </button>
@@ -174,7 +176,7 @@ function Swatch({ color, label, on, onPick, testId }: { color: string; label: st
       data-testid={testId}
       onClick={onPick}
       className="shrink-0 rounded-full border-0 p-0"
-      style={{ width: 30, height: 30, background: color, boxShadow: on ? PICKED_RING : "inset 0 0 0 1px rgba(255,255,255,.18)" }}
+      style={{ width: 30, height: 30, background: color, boxShadow: on ? PICKED_RING : REST_EDGE }}
     />
   );
 }
@@ -211,7 +213,7 @@ function AccentPicker({ p }: { p: Palette }) {
             width: 30,
             height: 30,
             background: custom ? shown : "conic-gradient(#ff453a, #ff9f0a, #ffd60a, #30d158, #40c8e0, #0a84ff, #bf5af2, #ff375f, #ff453a)",
-            boxShadow: custom ? PICKED_RING : "inset 0 0 0 1px rgba(255,255,255,.18)",
+            boxShadow: custom ? PICKED_RING : REST_EDGE,
           }}
         >
           <input
@@ -240,7 +242,7 @@ export function ThemesPage({ onBack }: { onBack: () => void }) {
   return (
     <div
       className="absolute inset-0 flex flex-col"
-      style={{ background: "#000", zIndex: 7, paddingTop: "env(safe-area-inset-top)" }}
+      style={{ background: "var(--color-bg)", color: "var(--color-text-primary)", zIndex: 7, paddingTop: "env(safe-area-inset-top)" }}
       data-testid="themes-page"
     >
       <div className="grid items-center shrink-0" style={{ gridTemplateColumns: "1fr auto 1fr", minHeight: 44, padding: "12px 12px 8px", columnGap: 8 }}>

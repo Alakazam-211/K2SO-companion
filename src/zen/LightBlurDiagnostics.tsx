@@ -2,7 +2,7 @@ import { useSyncExternalStore } from "react";
 import { lightBlurOn, setLightBlur, subscribeLightBlur } from "../lib/lightBlur";
 import { Switch } from "./ZenSettings";
 
-const MUTED = "#8e8e93";
+const MUTED = "var(--color-text-muted)";
 
 /** Diagnostics → Light blur: A/B the two-layer header / footer blur
  *  against the shipped four-layer one (lib/lightBlur.ts). */

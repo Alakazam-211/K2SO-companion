@@ -2,7 +2,7 @@ import { useState } from "react";
 import { kbClear, kbReport, returnHoldOn, setReturnHoldOn } from "../lib/kbDiag";
 import { Switch } from "./ZenSettings";
 
-const MUTED = "#8e8e93";
+const MUTED = "var(--color-text-muted)";
 
 /** Server settings → Diagnostics → "Keyboard events": the switch for
  *  keeping the keyboard as left when the app returns (WebKit focus hold),
@@ -52,18 +52,18 @@ export function KeyboardEventsRow() {
           </div>
           <pre
             className="text-[10px]"
-            style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", background: "#111", color: "#ddd", padding: 8, borderRadius: 8, maxHeight: 260, overflow: "auto" }}
+            style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", background: "var(--color-bg-inset)", color: "var(--color-text-secondary)", padding: 8, borderRadius: 8, maxHeight: 260, overflow: "auto" }}
             data-testid="kb-events-log"
           >
             {log ?? "…"}
           </pre>
           <div className="flex" style={{ gap: 16 }}>
-            <button type="button" style={{ color: "#0a84ff", minHeight: 36 }} data-testid="kb-events-refresh" onClick={() => void refresh()}>
+            <button type="button" style={{ color: "var(--color-accent-text)", minHeight: 36 }} data-testid="kb-events-refresh" onClick={() => void refresh()}>
               Refresh
             </button>
             <button
               type="button"
-              style={{ color: "#0a84ff", minHeight: 36 }}
+              style={{ color: "var(--color-accent-text)", minHeight: 36 }}
               data-testid="kb-events-copy"
               onClick={() => {
                 try {
@@ -77,7 +77,7 @@ export function KeyboardEventsRow() {
             </button>
             <button
               type="button"
-              style={{ color: "#ff453a", minHeight: 36 }}
+              style={{ color: "var(--color-status-error-text)", minHeight: 36 }}
               data-testid="kb-events-clear"
               onClick={() => void kbClear().then(refresh)}
             >
