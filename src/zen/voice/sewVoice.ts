@@ -26,13 +26,60 @@ const CMD = "plugin:sew-voice|";
 
 type StatePayload = { state?: string; reason?: string };
 
-/** The plugin's `ErrorInfo`: `{code, message?, detail?}`. */
-function joinError(err: unknown): { code: string; hint?: string } {
+/** The plugin's `ErrorInfo`: `{code, message?, detail?}`. `raw` keeps the
+ *  server's own code (a DM call's `chat_unavailable`, `dm_not_found`, …),
+ *  which the voice rooms' codes fold into `unknown`. */
+export function joinError(err: unknown): { code: string; hint?: string; raw: string } {
   const e = err && typeof err === "object" ? (err as { code?: unknown; detail?: unknown }) : {};
   const code = typeof e.code === "string" ? e.code : "unknown";
   const detail = e.detail && typeof e.detail === "object" ? (e.detail as Record<string, unknown>) : null;
   const hint = typeof detail?.hint === "string" ? detail.hint : undefined;
-  return { code: nativeJoinErrorCode(code, detail), ...(hint ? { hint } : {}) };
+  return { code: nativeJoinErrorCode(code, detail), ...(hint ? { hint } : {}), raw: code };
+}
+
+/** A DM call's ids once its native join is taken (Rust `voice.rs`
+ *  `dm_call_ids`): K2's `vc_…` call record (leave) and Sew's call (cancel,
+ *  ring again). Ids only. */
+export type NativeDmCallIds = { room: string; dm: string; callId: string | null; sewCallId: string | null };
+
+export function parseDmCallIds(v: unknown): NativeDmCallIds | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.room !== "string" || typeof o.dm !== "string" || !o.dm) return null;
+  return {
+    room: o.room,
+    dm: o.dm,
+    callId: typeof o.callId === "string" && o.callId ? o.callId : null,
+    sewCallId: typeof o.sewCallId === "string" && o.sewCallId ? o.sewCallId : null,
+  };
+}
+
+/** The last join's DM call ids (`null`: a voice room, none, or no native engine). */
+export async function readDmCallIds(): Promise<NativeDmCallIds | null> {
+  if (!isIosWebView()) return null;
+  try {
+    return parseDmCallIds(await invoke<unknown>("voice_dm_call"));
+  } catch {
+    return null;
+  }
+}
+
+/** Hear each DM call join's ids (`k2-voice://dm-call`). */
+export function listenDmCallIds(fn: (ids: NativeDmCallIds | null) => void): () => void {
+  if (!isIosWebView()) return () => {};
+  let off: UnlistenFn | null = null;
+  let stopped = false;
+  void listen<unknown>("k2-voice://dm-call", ({ payload }) => fn(parseDmCallIds(payload))).then(
+    (u) => {
+      if (stopped) u();
+      else off = u;
+    },
+    () => {}
+  );
+  return () => {
+    stopped = true;
+    off?.();
+  };
 }
 
 export function parseConsentSheet(body: unknown): ConsentSheet | null {

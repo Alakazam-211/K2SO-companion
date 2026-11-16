@@ -360,8 +360,10 @@ pub struct PipAnimate {
     pub started_at: Option<f64>,
 }
 
-/// Login tokens in the Keychain (iOS): `set`, `remove`, or `sync` the set.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+/// Login tokens in the Keychain (iOS): `set`, `remove`, or `sync` the set;
+/// `hosts` keeps the servers' addresses (id → base URL) for a DM call's
+/// Decline from a notification, sent with the app in the background.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TokenOpRequest {
     pub op: String,
@@ -371,6 +373,8 @@ pub struct TokenOpRequest {
     pub token: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tokens: Option<std::collections::HashMap<String, String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hosts: Option<std::collections::HashMap<String, String>>,
 }
 
 /// `e2e_op` (K2 0.46.3 `push-e2e-v1`, iOS): the phone's push keys.

@@ -10,7 +10,7 @@ vi.mock("@tauri-apps/api/event", () => ({
   }),
 }));
 
-import { askCamera, parseConsentSheet, parseSnapshot, sewVoiceEngine, shareCallLog } from "./sewVoice";
+import { askCamera, parseConsentSheet, parseDmCallIds, parseSnapshot, sewVoiceEngine, shareCallLog } from "./sewVoice";
 
 beforeEach(() => {
   handlers.clear();
@@ -111,11 +111,38 @@ describe("Sew's native engine, from the webview", () => {
     await expect(sewVoiceEngine().join("s1", "r", { onState: () => {} })).rejects.toEqual({
       code: "room_full",
       hint: "full",
+      raw: "room_full",
     });
     invoke.mockRejectedValue({ code: "device_session_ended", detail: { hint: null } });
     await expect(sewVoiceEngine().join("s1", "r", { onState: () => {} })).rejects.toEqual({
       code: "device_session_ended",
+      raw: "device_session_ended",
     });
+    // A DM call's own refusal keeps the server's code beside the rooms' reading.
+    invoke.mockRejectedValue({ code: "dm_not_found", detail: { hint: "not your DM", details: null } });
+    await expect(sewVoiceEngine().join("s1", "dm:900", { onState: () => {} })).rejects.toEqual({
+      code: "unknown",
+      hint: "not your DM",
+      raw: "dm_not_found",
+    });
+    expect(invoke).toHaveBeenLastCalledWith("plugin:sew-voice|join", { target: "s1", room: "dm:900" });
+  });
+
+  it("reads a DM join's ids from Rust, and refuses anything else", () => {
+    expect(parseDmCallIds({ room: "dm:900", dm: "900", callId: "vc_1", sewCallId: "4455" })).toEqual({
+      room: "dm:900",
+      dm: "900",
+      callId: "vc_1",
+      sewCallId: "4455",
+    });
+    expect(parseDmCallIds({ room: "dm:900", dm: "900", callId: null, sewCallId: "" })).toEqual({
+      room: "dm:900",
+      dm: "900",
+      callId: null,
+      sewCallId: null,
+    });
+    expect(parseDmCallIds(null)).toBeNull();
+    expect(parseDmCallIds({ room: "dm:900" })).toBeNull();
   });
 
   it("consent sends the version the person saw", async () => {

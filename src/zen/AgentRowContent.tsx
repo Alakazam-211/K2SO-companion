@@ -31,8 +31,8 @@ function sameRow(a: RowProps, b: RowProps): boolean {
   for (const k of keys) {
     if (k === "unread") {
       if (!sameUnread(a.unread, b.unread)) return false;
-    } else if (k === "preview") {
-      if (!sameNode(a.preview, b.preview)) return false;
+    } else if (k === "preview" || k === "avatar") {
+      if (!sameNode(a[k], b[k])) return false;
     } else if (!Object.is(a[k], b[k])) return false;
   }
   return true;
@@ -96,6 +96,7 @@ function AgentRowContentInner({
   groupColor = null,
   homeTag = null,
   unread = null,
+  avatar = null,
 }: {
   name: string;
   initial: string;
@@ -115,6 +116,9 @@ function AgentRowContentInner({
   homeTag?: string | null;
   /** Unread marks (K2 0.46.1 `thread-read-v1`); null = none. */
   unread?: RowUnread | null;
+  /** Draw this instead of the workspace avatar (a person's initials, a
+   *  channel's glyph: Home chat rows). Keep it stable across renders. */
+  avatar?: ReactNode;
 }) {
   const busyColor = busy ? activityColor(busy) : "var(--color-status-ok)";
   const strong = !!unread?.emphasis;
@@ -131,7 +135,7 @@ function AgentRowContentInner({
     <>
       <span className="relative shrink-0">
         <UnreadDot unread={unread} />
-        <WorkspaceAvatar initial={initial} color={color} iconUrl={iconUrl} size={50} fontSize={18} />
+        {avatar ?? <WorkspaceAvatar initial={initial} color={color} iconUrl={iconUrl} size={50} fontSize={18} />}
         {busy ? (
           <span
             aria-hidden

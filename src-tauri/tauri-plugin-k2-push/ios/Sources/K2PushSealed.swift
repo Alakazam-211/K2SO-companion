@@ -7,8 +7,9 @@
 // with this phone's keys (K2PushKeys), checks it is fresh (K2PushReplay)
 // and returns what today's plaintext push would have carried: the title,
 // body and group, and a `userInfo` with today's keys (the sealed `data`
-// plus `subdomain`, `instanceId`, `badgeKey`), so the badge store, the
-// avatar lookup and the tap router are reused unchanged.
+// plus `subdomain`, `instanceId`, `badgeKey`, and `k2ServerId`: the saved
+// server whose key opened it), so the badge store, the avatar lookup and
+// the tap router are reused unchanged.
 //
 // Diagnostics (TestFlight / internal builds read them): the last 20
 // sealed pushes — key names, `e2e` length, the result, `ctr`, server —
@@ -82,6 +83,9 @@ public enum K2PushSealed {
     if let iid = srv["iid"] as? String { info["instanceId"] = iid }
     if let bk = j["bk"] as? String { info["badgeKey"] = bk }
     if info["kind"] == nil, let k = j["kind"] as? String { info["kind"] = k }
+    // The saved server whose key opened it: a DM call's Decline from the
+    // notification posts there (K2CallPush), and a tap needs no guessing.
+    if !o.record.server.isEmpty { info["k2ServerId"] = o.record.server }
     return .success(
       Unsealed(
         title: (j["title"] as? String) ?? "K2",

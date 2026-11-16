@@ -74,6 +74,9 @@ pub struct Native {
     screen: Arc<Mutex<ScreenRing>>,
     /// The App Group's container (Swift's, asked once: `callOp appGroup`).
     app_group: Arc<OnceLock<PathBuf>>,
+    /// The last DM call join's ids (`{room, dm, callId, sewCallId}`, or
+    /// `null`), for a webview that missed [`DM_CALL_EVENT`].
+    dm_call: Arc<Mutex<Value>>,
 }
 
 /// Sew install id → the app's server ids that joined through it. Sew knows
@@ -241,7 +244,15 @@ pub fn set_hosts(native: &Native, hosts: HashMap<String, String>) {
     } else {
         native.with_installs(|i| i.prune(&|s| hosts.contains_key(s)))
     };
-    *native.hosts.write().unwrap_or_else(|e| e.into_inner()) = hosts;
+    *native.hosts.write().unwrap_or_else(|e| e.into_inner()) = hosts.clone();
+    // Swift keeps them too: a DM call's Decline from a notification posts
+    // with the app in the background, maybe before the webview runs.
+    // run_mobile_plugin blocks until Swift answers: never on the main thread.
+    if !hosts.is_empty() {
+        if let Some(app) = native.app() {
+            tauri::async_runtime::spawn_blocking(move || app.k2_push().set_call_hosts(hosts));
+        }
+    }
     if orphans.is_empty() {
         return;
     }
@@ -334,7 +345,11 @@ impl K2Provider {
         let (base, token) = self.login(&req.target).await?;
         *self.native.joining.lock().unwrap_or_else(|e| e.into_inner()) = Some(req.target.clone());
         let (status, retry_after, body) = self.post(&format!("{base}/cli/voice/join"), &token, &join_body(&req)).await?;
-        answer_from(status, retry_after, &body, &base, &token)
+        let answer = answer_from(status, retry_after, &body, &base, &token);
+        if answer.is_ok() {
+            self.native.note_dm_call(&req.room, dm_call_ids(&req.room, &body));
+        }
+        answer
     }
 
     async fn consent_inner(&self, answer: ConsentAnswer) -> Result<Recording, ProviderError> {
@@ -420,7 +435,46 @@ pub fn join_body(req: &JoinRequest) -> Value {
     if let Some(notice) = &req.recording_notice {
         join["recording_notice"] = json!(notice);
     }
-    json!({ "room": req.room, "join": join })
+    match dm_of_room(&req.room) {
+        // A DM call (K2 0.46.13 `voice/dm_call.rs`): the room is
+        // `dm:<conversation id>`, and K2 takes `{dm, join}`. Without
+        // `join.ring` the join rings, or answers a ring already there for
+        // this person; a re-join (a dropped admit, an expired credential)
+        // never rings the other person again.
+        Some(conv) => {
+            if req.rejoin.is_some() {
+                join["ring"] = json!(false);
+            }
+            json!({ "dm": conv, "join": join })
+        }
+        None => json!({ "room": req.room, "join": join }),
+    }
+}
+
+/// A DM call's room id: `dm:<conversation id>` (the desktop's and the
+/// webview's `dmRoomId`).
+pub const DM_ROOM_PREFIX: &str = "dm:";
+
+/// The DM conversation of a DM call's room id; `None` for a voice room.
+pub fn dm_of_room(room: &str) -> Option<&str> {
+    room.strip_prefix(DM_ROOM_PREFIX).filter(|c| !c.is_empty())
+}
+
+/// What the webview keeps from a DM join's answer: K2's call record
+/// (`callId`, `vc_…`, for leave) and Sew's call (`call.id`, for cancel and
+/// ring again). Ids only: never the media token or the call credential.
+/// `null` for a voice room.
+pub fn dm_call_ids(room: &str, body: &[u8]) -> Value {
+    let Some(conv) = dm_of_room(room) else { return Value::Null };
+    let v: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+    let id = |x: Option<&Value>| match x {
+        Some(Value::String(s)) if !s.is_empty() => Some(s.clone()),
+        Some(Value::Number(n)) => Some(n.to_string()),
+        _ => None,
+    };
+    let call_id = id(v.get("callId")).filter(|c| c.starts_with("vc_"));
+    let sew = id(v.pointer("/call/id")).filter(|c| c.bytes().all(|b| b.is_ascii_digit()));
+    json!({ "room": room, "dm": conv, "callId": call_id, "sewCallId": sew })
 }
 
 /// What the daemon answered, as the plugin's types.
@@ -580,6 +634,28 @@ pub const CONSENT_EVENT: &str = "k2-voice://consent";
 
 /// The call has video or no longer (`video_changed`): the call screen's tile.
 pub const VIDEO_EVENT: &str = "k2-voice://video";
+
+/// A DM call's ids once its join is taken ([`dm_call_ids`]), or `null`
+/// after a voice room's join.
+pub const DM_CALL_EVENT: &str = "k2-voice://dm-call";
+
+impl Native {
+    /// Keep a join's DM call ids and tell the webview.
+    fn note_dm_call(&self, room: &str, ids: Value) {
+        if dm_of_room(room).is_some() {
+            self.note("join dm call");
+        }
+        *self.dm_call.lock().unwrap_or_else(|e| e.into_inner()) = ids.clone();
+        if let Some(app) = self.app() {
+            let _ = app.emit(DM_CALL_EVENT, ids);
+        }
+    }
+}
+
+/// The last join's DM call ids (`null`: a voice room, or no join yet).
+pub fn dm_call_now(native: &Native) -> Value {
+    native.dm_call.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
 
 impl VoiceListener for CallKitBridge {
     fn on_state(&self, state: &StateEvent) {
@@ -1857,6 +1933,44 @@ mod tests {
         let notice = json!({ "recording_id": "77", "consent": true, "notice_version": 3 });
         let held = join_body(&req(Some(notice.clone())));
         assert_eq!(held["join"]["recording_notice"], notice);
+    }
+
+    fn dm_req(rejoin: Value) -> JoinRequest {
+        serde_json::from_value(json!({ "target": "s1", "room": "dm:900", "muted": false, "deafened": false, "rejoin": rejoin }))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_dm_call_joins_with_dm_and_a_rejoin_never_rings_again() {
+        let first = join_body(&dm_req(Value::Null));
+        assert_eq!(first, json!({ "dm": "900", "join": { "call_credential": true, "self_mute": false, "self_deaf": false } }));
+        assert!(first.get("room").is_none());
+        let again = join_body(&dm_req(json!("admit_lost")));
+        assert_eq!(again["dm"], json!("900"));
+        assert_eq!(again["join"]["ring"], json!(false));
+        // A voice room is unchanged, and `dm:` alone is no DM.
+        assert_eq!(join_body(&req(None))["room"], json!("room-1"));
+        assert_eq!(dm_of_room("dm:"), None);
+        assert_eq!(dm_of_room("room-1"), None);
+    }
+
+    #[test]
+    fn a_dm_joins_ids_keep_k2s_and_sews_apart() {
+        let body = json!({
+            "ok": true, "callId": "vc_1f2e", "dm": "900",
+            "room": { "id": "dm:900", "kind": "dm", "channelId": "900" },
+            "call": { "id": 4455, "channel_id": "900" },
+            "join": { "token": "secret", "call_credential": "sewcc_x" },
+        });
+        let ids = dm_call_ids("dm:900", body.to_string().as_bytes());
+        assert_eq!(ids, json!({ "room": "dm:900", "dm": "900", "callId": "vc_1f2e", "sewCallId": "4455" }));
+        assert!(!ids.to_string().contains("secret") && !ids.to_string().contains("sewcc_"));
+        // Swapped shapes are refused, and a room has none.
+        let swapped = json!({ "callId": "4455", "call": { "id": "vc_1" } });
+        let ids = dm_call_ids("dm:900", swapped.to_string().as_bytes());
+        assert_eq!(ids["callId"], Value::Null);
+        assert_eq!(ids["sewCallId"], Value::Null);
+        assert_eq!(dm_call_ids("room-1", body.to_string().as_bytes()), Value::Null);
     }
 
     /// Sew's contract fixture (`recording.held.recording`, 0.8.0).

@@ -63,9 +63,18 @@ import { HomeList, homeRowTarget, openHomeRowOnServer, type RemoteRowLook } from
 import { homeGridSize, useHomeGridStore } from "./homeGrid";
 import { prefetchTargets, useChatPrefetch, type PrefetchTarget } from "./chatPrefetch";
 import { HomeMenu } from "./HomeMenu";
+import { HomeGroupBar, GROUP_BAR_HEIGHT } from "./groups/HomeGroupBar";
+import { GroupsSheet } from "./groups/GroupsSheet";
+import { useGroupsSheet } from "./groups/groupsSheetStore";
+import { useGroupSwipe } from "./groups/useGroupSwipe";
+import { neighbourIndex } from "./groups/groupSwipe";
+import { MAX_PINS, displayRows, isPinned as isRowPinned, pinnedRows, planRowDrop } from "./groups/homeRowOrder";
 import { HomeTabToggle } from "./HomeTabToggle";
 import { parseHomeAddress, readListTab, selectedHome, useHomesStore, writeListTab, type ListTab } from "./homes";
-import { homeRowMatches, renameRepairFor, resolveHomeRows, rowsAcrossHomes, type HomeRowView } from "./homeView";
+import { homeRowMatches, renameRepairFor, resolveHomeRows, rowsAcrossHomes, serverDisplayName, type HomeRowView } from "./homeView";
+import { useAnyChatOffered, useHomeChatGoneRows, useHomeChatLive } from "./homeChat/homeChatRowsStore";
+import type { ChatPickServer } from "./homeChat/AddToHomePanels";
+import { HomeConfirmHost } from "./homeChat/HomeConfirmSheet";
 import { boxIdForSaved, homeHostFor, useHomeServerIds } from "./homeServerIds";
 import { dismissHomesSyncNotice, useHomesSyncBadge, useHomesSyncStore } from "./homesSync";
 import { OtherServerSection } from "./multi/OtherServerSection";
@@ -526,8 +535,12 @@ export function ChatsList() {
   // Home's rows first, then the others', each once (`rowsAcrossHomes`).
   const homeSearch = onHome && q.trim().length > 0 && homes.length > 1;
   const across = useMemo(() => (homeSearch ? rowsAcrossHomes(homes, home.id) : null), [homeSearch, homes, home.id]);
+  // Home groups (K2 0.46.13): pinned rows first in pin order, then the
+  // group's manual order (or newest own send first, "Most recent at the
+  // top").
+  const homeOrdered = useMemo(() => displayRows(home), [home]);
   const homeViews = useMemo(() => {
-    const views = resolveHomeRows(across ? across.rows : home.rows, {
+    const views = resolveHomeRows(across ? across.rows : homeOrdered, {
       activeHostKey,
       agents,
       agentsLoaded: source !== "loading",
@@ -535,8 +548,31 @@ export function ChatsList() {
       servers,
       remote: multi.on ? { byServer: multi.byServer, tokens } : undefined,
     });
-    return multi.on ? views : views.filter((v) => v.kind !== "remote");
-  }, [across, home.rows, activeHostKey, agents, source, serverProjects, servers, multi.on, multi.byServer, tokens, boxIds]);
+    // Flag off: the active server's rows only (people and channels too).
+    return multi.on ? views : views.filter((v) => v.kind !== "remote" && !(v.kind === "chat" && !v.here));
+  }, [across, homeOrdered, activeHostKey, agents, source, serverProjects, servers, multi.on, multi.byServer, tokens, boxIds]);
+  // People and channels (K2 0.46.13, `home-chat-v1`): the servers asked
+  // (signed in; the active one first, then by name; flag off: the active
+  // one only), and those whose rows are on screen (their sockets).
+  const chatServers = useMemo((): ChatPickServer[] => {
+    const signed = servers.filter((s) => (tokens[s.id] ?? "").length > 0);
+    const active = signed.filter((s) => s.id === activeServerId);
+    const rest = multi.on
+      ? signed
+          .filter((s) => s.id !== activeServerId)
+          .sort((a, b) => serverDisplayName(a).localeCompare(serverDisplayName(b), undefined, { sensitivity: "base" }))
+      : [];
+    return [...active, ...rest].map((s) => ({ id: s.id, label: serverDisplayName(s), host: homeHostFor(s) }));
+  }, [servers, tokens, activeServerId, multi.on, boxIds]);
+  const chatServerIds = useMemo(() => chatServers.map((s) => s.id), [chatServers]);
+  const chatLiveIds = useMemo(
+    () => [...new Set(homeViews.flatMap((v) => (v.kind === "chat" && v.server ? [v.server.id] : [])))],
+    [homeViews]
+  );
+  useHomeChatLive(onHome ? chatServerIds : [], onHome && zenScreen === "list" ? chatLiveIds : []);
+  const chatOffered = useAnyChatOffered(chatServerIds);
+  // A channel left in the chat view comes off Home; one deleted greys.
+  useHomeChatGoneRows(true);
   const otherHomeOf = across
     ? (address: string) => {
         const h = across.homeOf.get(address);
@@ -546,15 +582,19 @@ export function ChatsList() {
   // "Recent agents first": this phone's latest sends, then the Home's own
   // order. Home has no pins of its own, so pins are not held at the top (they
   // would look frozen). Off: the Home's own order.
+  // A group with its own "Most recent at the top" (synced) is already in
+  // that order; else this phone's "Recent agents first" setting applies
+  // below the group's pins.
   const homeShown = useMemo(() => {
-    if (!recentOn) return homeViews;
+    if (!recentOn || home.recentFirst) return homeViews;
     const { keyOf } = homeViewRecent({
       activeServerId: zen.id,
       activePinnedIds: pinnedIds,
       remotePinnedIds: (sid) => multi.byServer[sid]?.pinnedIds,
     });
-    return orderRecentFirst(homeViews, recentSent, keyOf);
-  }, [recentOn, homeViews, recentSent, zen.id, pinnedIds, multi.byServer]);
+    return orderRecentFirst(homeViews, recentSent, keyOf, (v) => isRowPinned(v.row));
+  }, [recentOn, home.recentFirst, homeViews, recentSent, zen.id, pinnedIds, multi.byServer]);
+  const homePinsFull = pinnedRows(home).length >= MAX_PINS;
   // Rename repair (flag on; desktop `repairFromList`): a row whose handle
   // left its server while its workspace id is still there follows the
   // rename. The active server's lists only while Zen is on it (a room on
@@ -736,6 +776,44 @@ export function ChatsList() {
   const homeRearranging = onHome && rearrangeTab === "home";
   const homeGridMax = useHomeGridStore((st) => homeGridSize(st.sizes, home.id));
   const rearranging = agentsRearranging || homeRearranging;
+
+  // Home groups: the bar above the search bar, the Groups sheet, and the
+  // swipe between groups (starts inside the list away from the left edge,
+  // which is the back gesture's, or anywhere on the bar).
+  const groupsSheet = useGroupsSheet((s) => s.open);
+  const groupBarRef = useRef<HTMLElement | null>(null);
+  const homeSlideRef = useRef<HTMLDivElement | null>(null);
+  const showGroupBar = onHome && !searching && !rearranging;
+  useGroupSwipe({
+    listRef,
+    barRef: groupBarRef,
+    slideRef: homeSlideRef,
+    active: onHome && zenScreen === "list",
+    rebindKey: showGroupBar ? "bar" : "no-bar",
+    canStart: () => {
+      const hs = useHomesStore.getState();
+      return (
+        hs.homes.length > 1 &&
+        !searching &&
+        !rearranging &&
+        !homeMenu &&
+        !addAgent &&
+        !useGroupsSheet.getState().open &&
+        !document.querySelector("[data-testid=home-row-menu]")
+      );
+    },
+    neighbours: () => {
+      const hs = useHomesStore.getState();
+      const i = hs.homes.findIndex((h) => h.id === hs.selectedId);
+      return { prev: i > 0, next: i >= 0 && i < hs.homes.length - 1 };
+    },
+    onCommit: (direction) => {
+      const hs = useHomesStore.getState();
+      const i = hs.homes.findIndex((h) => h.id === hs.selectedId);
+      const to = neighbourIndex(i, hs.homes.length, direction);
+      if (to !== null) hs.selectHome(hs.homes[to].id);
+    },
+  });
   const rearrange = useRearrange({
     keys: reorderItems.map((it) => it.key),
     scrollRef: listRef,
@@ -1424,6 +1502,10 @@ export function ChatsList() {
           gridSize={homeGridMax}
           onGridSize={(n) => useHomeGridStore.getState().setSize(home.id, n)}
           onClose={() => setHomeMenu(false)}
+          onEditGroups={() => {
+            setHomeMenu(false);
+            useGroupsSheet.getState().show({ view: "list" });
+          }}
         />
       ) : null}
 
@@ -1538,7 +1620,12 @@ export function ChatsList() {
           // (bar + its 8px gap + 8px air) — not the resting 96.
           paddingBottom: searching
             ? SEARCH_BAR_HEIGHT + SEARCH_BAR_KEYBOARD_GAP * 2
-            : 96,
+            : showGroupBar
+              ? 96 + GROUP_BAR_HEIGHT + 8
+              : 96,
+          // A group swipe slides the Home list sideways: never a
+          // horizontal scroll.
+          overflowX: "hidden",
           WebkitOverflowScrolling: ghost ? "auto" : "touch",
           overflowY: ghost ? "hidden" : "auto",
           touchAction: ghost ? "none" : undefined,
@@ -1557,25 +1644,37 @@ export function ChatsList() {
           onOpen={(id) => navigate(`${withServerParam("/zen/gardens", gardensHome.id)}${gardensHome.id ? "&" : "?"}garden=${encodeURIComponent(id)}`)}
         />
       ) : onHome ? (
+        <div ref={homeSlideRef} data-testid="home-slide" style={{ willChange: "transform" }}>
         <HomeList
           views={homeShown.filter((v) => homeRowMatches(v, q))}
           homeName={home.name}
           gridMax={homeGridMax}
           searching={searching}
-          // Recent agents first sorts the Home itself: no Rearrange.
-          canRearrange={!recentOn}
+          // Recent first (this phone's, or the group's) sorts the Home
+          // itself: no Rearrange.
+          canRearrange={!recentOn && !home.recentFirst}
           rearranging={homeRearranging}
           onRearrange={() => setRearrangeTab("home")}
           scrollRef={listRef}
           onReorder={(order, moved) => {
             // The moved row takes the slot of the row shown there before
-            // (hidden flag-off rows keep their places in storage). Same
-            // Home write as any edit, so Homes sync carries it.
+            // (hidden flag-off rows and people / channels keep their
+            // places). Pins move among the pins, the rest among the rest
+            // (`planRowDrop`). Same Home write as any edit, so Homes sync
+            // carries it.
             const shown = homeViews.map((v) => v.row.address);
             const next = shown[order.indexOf(moved)];
-            const from = home.rows.findIndex((r) => r.address === moved);
-            const to = home.rows.findIndex((r) => r.address === next);
-            if (from >= 0 && to >= 0) useHomesStore.getState().moveRow(home.id, from, to);
+            const display = displayRows(home).map((r) => r.address);
+            const plan = planRowDrop(home, display.indexOf(moved), display.indexOf(next));
+            const st = useHomesStore.getState();
+            if (plan && "pins" in plan) st.reorderPins(home.id, plan.pins);
+            else if (plan) st.setRowOrder(home.id, plan.rows);
+          }}
+          pins={{
+            isPinned: (address) => home.rows.some((r) => r.address === address && isRowPinned(r)),
+            full: homePinsFull,
+            onPin: (address) => void useHomesStore.getState().pinRow(home.id, address),
+            onUnpin: (address) => void useHomesStore.getState().unpinRow(home.id, address),
           }}
           inset={ZEN_LIST_CONTENT_INSET}
           previewFor={previewFor}
@@ -1609,6 +1708,7 @@ export function ChatsList() {
             });
           }}
         />
+        </div>
       ) : (
       <>
       <span id={ROW_HINT_ID} className="sr-only">
@@ -1971,6 +2071,31 @@ export function ChatsList() {
 
       {rearranging ? <RearrangeDone onDone={() => setRearrangeTab(null)} /> : null}
 
+      {showGroupBar ? (
+        // Home groups: a strip just above the search bar.
+        <div
+          className="absolute flex justify-center"
+          style={{
+            zIndex: 6,
+            left: 16,
+            right: 16,
+            bottom: `calc(${SEARCH_BAR_REST_BOTTOM} + ${SEARCH_BAR_HEIGHT + 8}px)`,
+            pointerEvents: "none",
+          }}
+          data-no-pin="1"
+        >
+          <div style={{ pointerEvents: "auto", maxWidth: "100%" }}>
+            <HomeGroupBar
+              groups={homes.map((h) => ({ id: h.id, name: h.name, icon: h.icon ?? null }))}
+              currentId={home.id}
+              onSelect={(id) => useHomesStore.getState().selectHome(id)}
+              onOpenGroups={(id) => useGroupsSheet.getState().show({ view: "group", groupId: id })}
+              barRef={groupBarRef}
+            />
+          </div>
+        </div>
+      ) : null}
+
       <GlassSearchBar
         query={q}
         onQuery={setQ}
@@ -1978,7 +2103,7 @@ export function ChatsList() {
         leading={serverPill}
         // Gardens are built by agents: nothing to add from here.
         onPlus={onGardens ? undefined : () => (onHome ? setAddAgent(true) : setNewWorkspace(true))}
-        plusLabel={onGardens ? undefined : onHome ? "Add agent" : "New workspace"}
+        plusLabel={onGardens ? undefined : onHome ? (chatOffered ? "Add to Home" : "Add agent") : "New workspace"}
         plusBlockedNote={onGardens || onHome || canCreate ? null : createRoleNote()}
         barRef={searchBarRef}
         blurRef={searchBlurRef}
@@ -2023,8 +2148,19 @@ export function ChatsList() {
           onAdd={(row) => useHomesStore.getState().addRow(home.id, row)}
           onRemove={(address) => useHomesStore.getState().removeRow(home.id, address)}
           onClose={() => setAddAgent(false)}
+          chat={
+            chatOffered
+              ? {
+                  groupIcon: home.icon ?? null,
+                  groupNumber: Math.max(1, homes.findIndex((h) => h.id === home.id) + 1),
+                  servers: chatServers,
+                  onAddRow: (row) => useHomesStore.getState().addRow(home.id, row),
+                }
+              : null
+          }
         />
       ) : null}
+      {onHome ? <HomeConfirmHost /> : null}
       {newWorkspace ? (
         <NewWorkspaceSheet
           onClose={() => setNewWorkspace(false)}
@@ -2058,6 +2194,7 @@ export function ChatsList() {
       ) : null}
 
       {settings ? <ZenSettings onClose={() => setSettings(false)} /> : null}
+      {onHome && groupsSheet ? <GroupsSheet at={groupsSheet} /> : null}
       </div>
     </div>
   );

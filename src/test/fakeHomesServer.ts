@@ -7,6 +7,14 @@
 // tombstones), devices register / list (`{ok, devices}`) / remove, and
 // 410 for a removed device. Hand `fetch` to the mocked
 // `@tauri-apps/plugin-http`.
+//
+// `groups: true` makes it a K2 0.46.13 server (Home groups, migrations
+// 0305/0306): the pull answer carries `kinds`, items keep `icon`,
+// `recentFirst`, `pinOrder` and `lastMessagedAt` (a push that leaves one
+// out keeps the stored value; `lastMessagedAt` never moves back), and
+// person / channel rows are kept. Without it (0.46.12): no `kinds`, those
+// fields are dropped, and a person / channel item is refused per item with
+// `invalid_kind`.
 
 import { isValidOrder } from "../zen/fracIndex";
 
@@ -56,10 +64,15 @@ export interface FakeHomesServer {
   rejectNext: string[];
   /** Drop every registration (a wiped server DB): pushes get 409. */
   forgetDevices: () => void;
+  /** A K2 0.46.13 server (Home groups); false = 0.46.12. */
+  groups: boolean;
 }
 
+const GROUP_FIELDS = ["icon", "recentFirst", "pinOrder", "lastMessagedAt"] as const;
+const PREFIX: Record<string, string> = { row: "r", person: "p", channel: "c" };
+
 function key(it: Item): string {
-  return it.kind === "home" ? `h|${it.id}` : `r|${it.homeId}|${it.address}`;
+  return it.kind === "home" ? `h|${it.id}` : `${PREFIX[String(it.kind)] ?? "r"}|${it.homeId}|${it.address}`;
 }
 
 /** The server's rule: later updatedAt, then the larger deviceId, then a
@@ -75,15 +88,30 @@ function newer(a: Item, b: Item): boolean {
 
 export function fakeHomesServer(
   host: string,
-  opts: { serverId?: string; features?: string[]; publicHost?: string | null } = {}
+  opts: { serverId?: string; features?: string[]; publicHost?: string | null; groups?: boolean } = {}
 ): FakeHomesServer {
   const latest = new Map<string, { seq: number; item: Item }>();
   let seq = 0;
   const put = (item: Item, deviceId?: string): "applied" | "superseded" => {
     const k = key(item);
-    const rec = deviceId ? { ...item, deviceId } : item;
+    let rec: Item = deviceId ? { ...item, deviceId } : { ...item };
     const held = latest.get(k);
     if (held && !newer(rec, held.item)) return "superseded";
+    if (!srv.groups) {
+      // 0.46.12: the group fields are not stored.
+      for (const f of GROUP_FIELDS) delete rec[f];
+    } else if (held && !rec.deleted) {
+      // A field left out keeps the stored value (recentFirst: null too).
+      for (const f of GROUP_FIELDS) {
+        if (rec[f] === undefined || (f === "recentFirst" && rec[f] === null)) {
+          if (held.item[f] !== undefined) rec = { ...rec, [f]: held.item[f] };
+        }
+      }
+      const was = held.item.lastMessagedAt;
+      if (typeof was === "number" && (typeof rec.lastMessagedAt !== "number" || rec.lastMessagedAt < was)) {
+        rec = { ...rec, lastMessagedAt: was };
+      }
+    }
     seq += 1;
     latest.set(k, { seq, item: rec });
     return "applied";
@@ -109,6 +137,7 @@ export function fakeHomesServer(
     servers: { [host]: serverId },
     floor: 0,
     rejectNext: [],
+    groups: opts.groups ?? false,
     items: () => [...latest.values()].map((r) => r.item),
     cursor: () => seq,
     seed: (items) => {
@@ -152,6 +181,7 @@ export function fakeHomesServer(
           redirects: srv.redirects,
           device: { deviceId: dev ?? null, syncing: !!d },
           servers: srv.servers,
+          ...(srv.groups ? { kinds: ["home", "row", "person", "channel"] } : {}),
         });
       }
       if (u.pathname === "/cli/me/homes/push") {
@@ -167,6 +197,10 @@ export function fakeHomesServer(
         for (const it of ordered) {
           if (srv.rejectNext.includes(key(it))) {
             rejected.push({ item: it, reason: "invalid" });
+            continue;
+          }
+          if (!srv.groups && it.kind !== "home" && it.kind !== "row") {
+            rejected.push({ item: it, reason: "invalid_kind" });
             continue;
           }
           if (!it.deleted && !isValidOrder(String(it.order ?? ""))) {

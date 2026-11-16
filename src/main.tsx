@@ -5,6 +5,7 @@ import "./styles/index.css";
 import { initZenFont } from "./zen/zenFont";
 import { initTheme } from "./theme/palettes";
 import { watchSystemScheme } from "./theme/themeStore";
+import { wireHomeChatCalls } from "./zen/homeChat/wireCalls";
 import { installAndroidBack } from "./lib/androidBack";
 import { initKbDragRecorder } from "./lib/kbDragRecorder";
 import { initKbDiag } from "./lib/kbDiag";
@@ -48,6 +49,8 @@ initZenFont();
 initTheme();
 // Auto: follow the iPhone's light/dark as it changes.
 watchSystemScheme();
+// Home (4.3.0): DM calls joined to the rows and the chat view.
+wireHomeChatCalls();
 
 // Diagnostics → Keyboard drag recorder (off by default: one pref read).
 initKbDragRecorder();

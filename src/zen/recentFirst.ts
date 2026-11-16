@@ -117,6 +117,8 @@ export function homeViewRecent(ctx: {
       const handle = parseHomeAddress(v.row.address)?.handle ?? null;
       if (v.kind === "here") return recentSentKey(ctx.activeServerId, v.agent);
       if (v.kind === "missing") return recentSentKey(ctx.activeServerId, { addr: handle });
+      // People and channels: their own sends stamp the row (`lastMessagedAt`).
+      if (v.kind === "chat") return null;
       return recentSentKey(v.server?.id, v.resolved?.agent ?? { addr: handle });
     },
     isPinned: (v) => {

@@ -85,6 +85,9 @@ describe("wire ↔ model (the only place that knows the wire)", () => {
       person: "owner",
       serverId: "3f9a0c1d2e4b5a67",
       syncing: true,
+      // No `kinds` (K2 0.46.12 and older): home and row only.
+      kinds: ["home", "row"],
+      groups: false,
     });
     expect(typeof r.cursor).toBe("number");
     expect(parsePullReply({ full: true, cursor: 0, changes: [] })).toMatchObject({ full: true, cursor: 0 });
@@ -92,7 +95,7 @@ describe("wire ↔ model (the only place that knows the wire)", () => {
     expect(parsePullReply({ homes: [{ kind: "home", id: "x", name: "", order: "", updatedAt: 0 }], cursor: "42" })).toMatchObject({ cursor: 42 });
     expect(parsePullReply({ cursor: "abc" }).cursor).toBeNull();
     expect(parsePullReply({ cursor: 1.5 }).cursor).toBeNull();
-    expect(parsePullReply(null)).toEqual({ changes: [], cursor: null, full: false, redirects: {}, servers: {}, person: null, serverId: null, syncing: null });
+    expect(parsePullReply(null)).toEqual({ changes: [], cursor: null, full: false, redirects: {}, servers: {}, person: null, serverId: null, syncing: null, kinds: ["home", "row"], groups: false });
     expect(parsePullReply({ device: { deviceId: "p", syncing: false } }).syncing).toBe(false);
   });
 

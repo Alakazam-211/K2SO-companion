@@ -34,7 +34,7 @@ describe("Home store (HM2)", () => {
     const doc = stored();
     expect(doc?.version).toBe(1);
     expect(doc?.homes).toHaveLength(1);
-    expect(doc?.homes[0].name).toBe("Home");
+    expect(doc?.homes[0].name).toBe("Group 1");
     expect(doc?.homes[0].rows).toEqual([]);
     // A second call keeps the same Home.
     const id = doc?.homes[0].id;
@@ -79,7 +79,7 @@ describe("Home store (HM2)", () => {
     expect(selectedHome(useHomesStore.getState()).name).toBe("Work");
     expect(useHomesStore.getState().renameHome(work, "Office")).toBe(true);
     expect(useHomesStore.getState().renameHome(work, "")).toBe(false);
-    expect(stored()?.homes.map((h) => h.name)).toEqual(["Home", "Office"]);
+    expect(stored()?.homes.map((h) => h.name)).toEqual(["Group 1", "Office"]);
     expect(useHomesStore.getState().deleteHome(work)).toBe(true);
     expect(useHomesStore.getState().selectedId).toBe(first);
     expect(useHomesStore.getState().deleteHome(first)).toBe(false);

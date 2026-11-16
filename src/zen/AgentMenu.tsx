@@ -22,6 +22,9 @@ export type AgentMenuItem = {
   label: string;
   icon?: ReactNode;
   danger?: boolean;
+  /** Shown but turned off, with `note` saying why (Pin at 9 pins). */
+  disabled?: boolean;
+  note?: string;
   onSelect: () => void;
 };
 
@@ -69,6 +72,8 @@ export function AgentMenu({
   onClose,
   align = "end",
   testId = "agent-menu",
+  head,
+  headPx = 0,
 }: {
   /** The menu's accessible name (the agent's). */
   label: string;
@@ -77,6 +82,12 @@ export function AgentMenu({
   onClose: () => void;
   align?: "center" | "end";
   testId?: string;
+  /** A row above the entries (Home chat's quick reactions). `take` is the
+   *  menu's guard: true only for a fresh press inside the menu, so the
+   *  hold's own release never picks from it. */
+  head?: (take: () => boolean) => ReactNode;
+  /** The head's height (px), for the placement. */
+  headPx?: number;
 }) {
   // Clicks count only after a fresh press inside the menu (or a key), so
   // the hold's own release / synthetic click never runs an item.
@@ -93,7 +104,7 @@ export function AgentMenu({
   // What is visible: above the keyboard while it is up (Riley: the newest
   // message's menu went under the keyboard).
   const vp = useViewport();
-  const place = agentMenuPlacement(menu.rect, entries.length, align, vp.offsetTop + vp.height);
+  const place = agentMenuPlacement(menu.rect, entries.length + (head ? headPx / ITEM_H : 0), align, vp.offsetTop + vp.height);
   return (
     <div
       data-no-pin="1"
@@ -129,6 +140,7 @@ export function AgentMenu({
           color: "var(--color-text-primary)",
         }}
       >
+        {head ? head(take) : null}
         {entries.map((e) =>
           isMute(e) ? (
             <MuteMenuItems
@@ -143,6 +155,7 @@ export function AgentMenu({
               key={e.key}
               type="button"
               role="menuitem"
+              aria-disabled={e.disabled || undefined}
               className="w-full flex items-center text-left bg-transparent border-0 text-[16px]"
               style={{
                 gap: 10,
@@ -150,15 +163,23 @@ export function AgentMenu({
                 minHeight: ITEM_H,
                 borderRadius: 10,
                 color: e.danger ? REMOVE_RED : "var(--color-text-primary)",
+                opacity: e.disabled ? 0.45 : 1,
               }}
               data-testid={`menu-${e.key}`}
               onClick={() => {
-                if (!take()) return;
+                if (e.disabled || !take()) return;
                 onClose();
                 e.onSelect();
               }}
             >
-              <span className="flex-1 min-w-0 truncate">{e.label}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block truncate">{e.label}</span>
+                {e.note ? (
+                  <span className="block text-[13px]" style={{ color: "var(--color-text-muted)", whiteSpace: "normal" }} data-testid={`menu-${e.key}-note`}>
+                    {e.note}
+                  </span>
+                ) : null}
+              </span>
               {e.icon ? (
                 <span aria-hidden className="flex shrink-0">
                   {e.icon}

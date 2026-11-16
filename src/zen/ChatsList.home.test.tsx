@@ -170,8 +170,8 @@ describe("Home view (HM3/HM7)", () => {
     expect(empty.textContent).toContain(HOME_EMPTY_TITLE);
     expect(empty.textContent).toContain(HOME_EMPTY_BODY);
     expect(empty.className).toMatch(/zen-glass/);
-    expect(parseHomesDoc(localStorage.getItem(HOMES_STORAGE_KEY))?.homes[0].name).toBe("Home");
-    expect(screen.getByTestId("chats-title-home").textContent).toContain("Home");
+    expect(parseHomesDoc(localStorage.getItem(HOMES_STORAGE_KEY))?.homes[0].name).toBe("Group 1");
+    expect(screen.getByTestId("chats-title-home").textContent).toContain("Group 1");
   });
 
   it("flag off: lists only the active server's rows; other servers' rows are hidden but kept", () => {
@@ -313,7 +313,7 @@ describe("Home title dropdown (HM4)", () => {
     expect(within(screen.getByTestId("home-title-menu")).getAllByRole("menuitemradio")).toHaveLength(2);
     fireEvent.click(screen.getByTestId("home-menu-delete"));
     fireEvent.click(screen.getByTestId("home-menu-delete-confirm"));
-    expect(screen.getByTestId("chats-title-home").textContent).toContain("Home");
+    expect(screen.getByTestId("chats-title-home").textContent).toContain("Group 1");
     expect(useHomesStore.getState().homes).toHaveLength(1);
 
     // Picking another Home switches the list.
@@ -365,7 +365,7 @@ describe("+ on Home: Add Agent (HM5)", () => {
     expect(within(screen.getByTestId("add-agent-row-/a")).getByTestId("add-agent-check")).not.toBeNull();
     expect(storedRows()).toEqual([expect.objectContaining({ address: `alpha::${HOST}`, workspaceId: "pa", label: "alpha" })]);
     // Uncheck: off the Home, back to the empty ring; a re-tap adds it again.
-    expect(screen.getByRole("button", { name: "Remove alpha from Home" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Remove alpha from Group 1" })).not.toBeNull();
     fireEvent.click(screen.getByTestId("add-agent-row-/a"));
     expect(storedRows()).toEqual([]);
     expect(screen.getByTestId("add-agent-row-/a").getAttribute("aria-pressed")).toBe("false");
@@ -428,7 +428,7 @@ describe("Home row menu and Rearrange (HM6)", () => {
     fireEvent.contextMenu(screen.getByTestId("home-row-alpha"));
     const menu = screen.getByTestId("home-row-menu");
     expect(menu.className).toMatch(/zen-glass/);
-    expect(menuLabels(menu)).toEqual(["Open", "Rearrange", "Remove from Home"]);
+    expect(menuLabels(menu)).toEqual(["Open", "Pin", "Rearrange", "Remove from Home"]);
     // No Move up / Move down any more.
     expect(screen.queryByTestId("home-menu-up")).toBeNull();
     expect(screen.queryByTestId("home-menu-down")).toBeNull();

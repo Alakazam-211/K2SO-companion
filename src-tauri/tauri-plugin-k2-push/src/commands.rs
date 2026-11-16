@@ -179,6 +179,7 @@ pub(crate) async fn token_op<R: Runtime>(
         server,
         token,
         tokens,
+        hosts: None,
     })
 }
 
