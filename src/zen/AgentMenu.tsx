@@ -69,6 +69,8 @@ export function AgentMenu({
   onClose,
   align = "end",
   testId = "agent-menu",
+  head,
+  headPx = 0,
 }: {
   /** The menu's accessible name (the agent's). */
   label: string;
@@ -77,6 +79,12 @@ export function AgentMenu({
   onClose: () => void;
   align?: "center" | "end";
   testId?: string;
+  /** A row above the entries (Home chat's quick reactions). `take` is the
+   *  menu's guard: true only for a fresh press inside the menu, so the
+   *  hold's own release never picks from it. */
+  head?: (take: () => boolean) => ReactNode;
+  /** The head's height (px), for the placement. */
+  headPx?: number;
 }) {
   // Clicks count only after a fresh press inside the menu (or a key), so
   // the hold's own release / synthetic click never runs an item.
@@ -93,7 +101,7 @@ export function AgentMenu({
   // What is visible: above the keyboard while it is up (Riley: the newest
   // message's menu went under the keyboard).
   const vp = useViewport();
-  const place = agentMenuPlacement(menu.rect, entries.length, align, vp.offsetTop + vp.height);
+  const place = agentMenuPlacement(menu.rect, entries.length + (head ? headPx / ITEM_H : 0), align, vp.offsetTop + vp.height);
   return (
     <div
       data-no-pin="1"
@@ -129,6 +137,7 @@ export function AgentMenu({
           color: "var(--color-text-primary)",
         }}
       >
+        {head ? head(take) : null}
         {entries.map((e) =>
           isMute(e) ? (
             <MuteMenuItems
