@@ -21,12 +21,14 @@ import { useThemeStore } from "../theme/themeStore";
 import { Zen } from "../pages/Zen";
 import { ZenSettings } from "../zen/ZenSettings";
 import { ThemesPage } from "../zen/ThemesPage";
-import { seedDraft, seedStores, type PreviewScreen } from "./fixtures";
+import { seedDraft, seedHomeGroups, seedStores, type PreviewScreen } from "./fixtures";
 
 const params = new URLSearchParams(location.search);
 const palette: PaletteId = paletteById(params.get("palette"))?.id ?? "obsidian";
 const accent = parseAccentChoice(params.get("accent"));
-const screen: PreviewScreen = (["thread", "home", "settings", "themes"] as const).find((s) => s === params.get("screen")) ?? "thread";
+const screen: PreviewScreen =
+  (["thread", "home", "settings", "themes", "home-groups", "home-groups-sheet"] as const).find((s) => s === params.get("screen")) ??
+  "thread";
 const jump = params.get("jump") === "1";
 const chrome = params.get("chrome") !== "0";
 
@@ -57,6 +59,7 @@ initZenFont();
 
 seedStores(screen);
 if (screen === "thread") seedDraft();
+if (screen === "home-groups" || screen === "home-groups-sheet") seedHomeGroups(screen === "home-groups-sheet");
 
 /** The phone's status bar and home indicator, in the palette's text colour. */
 function PhoneChrome() {
