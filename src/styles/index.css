@@ -374,32 +374,23 @@ html, body, #root {
   border: 0.5px solid var(--color-frost-edge);
   box-shadow: inset 0 1px 0 var(--color-frost-sheen);
 }
-/* Veil (light): every glass piece gets desktop's light ring (K2 Design;
-   Riley 2026-11-16: "a grey outline on the left/right side … a gradient
-   into the top and bottom where it's a little brighter", or buttons
-   without a shadow vanish on the light page). 1px, bright at the top and
-   bottom, grey down the sides. Drawn as a background layer on the border
-   box under the frost (no pseudo-element, so no element needs to become a
-   positioned box). The grey sits at the left and right ends, about 8px
-   deep at the widest point, and its inner edge curves with the piece's
-   own outline instead of stopping in a straight line (Riley 2026-11-16:
-   "a little concave … following the shape of the outside of the
-   bubble"); the same on a small button and a wide pill; top and bottom
-   stay bright. An ellipse as wide as the piece and twice its height: its
-   rim meets the box only at the two ends. */
+/* Veil (light): every glass piece gets a thin edge like iOS's own light
+   glass (Riley 2026-11-16, from a screenshot of Messages): a 1px grey line
+   darkest at 3 and 9 o'clock that thins out along the curve toward the top
+   and bottom, a bright catch along the top, a clean frost inside (no grey
+   showing through it) and a soft drop. The side lines are inset shadows
+   offset sideways, so they follow the corner radius and fade on their own;
+   no element needs to become a positioned box. */
 :root[data-scheme="light"] {
-  --k2-veil-ring: radial-gradient(
-    ellipse 50% 100% at 50% 50%,
-    rgba(255, 255, 255, 0.95) calc(100% - 8px),
-    rgba(0, 0, 0, 0.2) 100%
-  );
+  --k2-veil-edge:
+    inset 1px 0 0 rgba(0, 0, 0, 0.22),
+    inset -1px 0 0 rgba(0, 0, 0, 0.22),
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 2px 10px rgba(0, 0, 0, 0.07);
 }
 :root[data-scheme="light"] .zen-glass {
-  border: 1px solid transparent;
-  background:
-    linear-gradient(var(--color-frost-fill), var(--color-frost-fill)) padding-box,
-    var(--k2-veil-ring) border-box;
-  box-shadow: inset 0 1px 0 var(--color-frost-sheen);
+  border-color: rgba(0, 0, 0, 0.06);
+  box-shadow: var(--k2-veil-edge);
 }
 /* The Thread's Jump to bottom pill (JumpPill.tsx), as K2 desktop's
    (globals.css --k2-jump-*): on dark, the Frost's 10% white over a 60%
@@ -498,7 +489,7 @@ html, body, #root {
 :root[data-scheme="light"] [data-glass-merged] > .zen-glass-merged-drop {
   display: block;
 }
-/* Veil: the header's pieces keep their own glass and ring instead of the
+/* Veil: the header's pieces keep their own glass and edge instead of the
    merged outline (its rim mask carries dark-mode alphas, so the light ring
    wouldn't show); the name pill no longer melts into a button it nears. */
 :root[data-scheme="light"] [data-glass-merged] > .zen-glass-merged-fill,
@@ -508,13 +499,11 @@ html, body, #root {
 }
 :root[data-scheme="light"] [data-glass-merged] [data-glass-shape].zen-glass,
 :root[data-scheme="light"] [data-glass-merged] [data-glass-shape].zen-glass.k2-pressing {
-  border: 1px solid transparent;
-  background:
-    linear-gradient(var(--color-frost-fill), var(--color-frost-fill)) padding-box,
-    var(--k2-veil-ring) border-box;
+  background-color: var(--color-frost-fill);
   -webkit-backdrop-filter: blur(28px) saturate(180%);
   backdrop-filter: blur(28px) saturate(180%);
-  box-shadow: inset 0 1px 0 var(--color-frost-sheen);
+  border-color: rgba(0, 0, 0, 0.06);
+  box-shadow: var(--k2-veil-edge);
 }
 /* A header button being pressed grows on its own (usePressSpring, a
    transform), so the merged outline is never redrawn per frame. Its edge
