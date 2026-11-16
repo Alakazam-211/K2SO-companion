@@ -105,9 +105,23 @@ export const SHARED_VARS: Readonly<Record<string, string>> = Object.fromEntries(
 );
 
 // ─── Storage (desktop's keys; per device) ────────────────────────────────
+//
+// As desktop's stores/style.ts: `k2.scheme` is the MODE (`light`, `dark` or
+// `auto`); `k2.palette.dark` / `k2.palette.light` are each side's palette
+// (under Auto, the two picks); `k2.palette` mirrors the palette on screen;
+// `k2.style` is `glass` (the phone has only Glass).
 
+export type SchemeMode = StyleScheme | "auto";
+
+/** The look as chosen: the mode, and the palette for each side. */
+export type ThemeSelection = { mode: SchemeMode; dark: PaletteId; light: PaletteId };
+
+export const STYLE_KEY = "k2.style";
 export const SCHEME_KEY = "k2.scheme";
-export const paletteKey = (scheme: StyleScheme): string => `k2.palette.${scheme}`;
+export const PALETTE_KEY = "k2.palette";
+export const paletteKey = (scheme: StyleScheme): string => `${PALETTE_KEY}.${scheme}`;
+
+export const DEFAULT_SELECTION: Readonly<ThemeSelection> = { mode: "dark", dark: "obsidian", light: "veil" };
 
 function read(key: string): string | null {
   try {
@@ -126,21 +140,59 @@ function write(key: string, value: string | null): void {
   }
 }
 
-/** The chosen palette: the scheme picks which of `k2.palette.<scheme>` to
- *  read; a palette of the wrong scheme (or none) falls back to that
- *  scheme's default (Obsidian for dark, Veil for light). */
-export function readPalette(): PaletteId {
-  const scheme: StyleScheme = read(SCHEME_KEY) === "light" ? "light" : "dark";
-  const stored = paletteById(read(paletteKey(scheme)));
-  if (stored && stored.scheme === scheme) return stored.id;
-  return scheme === "light" ? "veil" : DEFAULT_PALETTE;
+export function parseSchemeMode(raw: string | null): SchemeMode {
+  return raw === "light" || raw === "auto" ? raw : "dark";
 }
 
-export function writePalette(id: PaletteId): void {
+/** A side's palette: the stored one if it is for that side, else the
+ *  side's default (Obsidian for dark, Veil for light). */
+function sidePalette(scheme: StyleScheme): PaletteId {
+  const stored = paletteById(read(paletteKey(scheme)));
+  return stored && stored.scheme === scheme ? stored.id : DEFAULT_SELECTION[scheme];
+}
+
+export function readSelection(): ThemeSelection {
+  return { mode: parseSchemeMode(read(SCHEME_KEY)), dark: sidePalette("dark"), light: sidePalette("light") };
+}
+
+/** True when iOS (or the browser) shows light. Under the app's old dark
+ *  lock this always says dark; Auto needs the native side to follow the
+ *  system (stage 3). */
+export function systemPrefersLight(): boolean {
+  try {
+    return typeof window !== "undefined" && typeof window.matchMedia === "function"
+      ? window.matchMedia("(prefers-color-scheme: light)").matches
+      : false;
+  } catch {
+    return false;
+  }
+}
+
+/** The side a mode shows: Auto follows the system. */
+export function resolveScheme(mode: SchemeMode, systemLight = systemPrefersLight()): StyleScheme {
+  return mode === "auto" ? (systemLight ? "light" : "dark") : mode;
+}
+
+/** The palette on screen for a selection. */
+export function resolvePalette(sel: ThemeSelection, systemLight = systemPrefersLight()): PaletteId {
+  return sel[resolveScheme(sel.mode, systemLight)];
+}
+
+export function writeSelection(sel: ThemeSelection, systemLight = systemPrefersLight()): void {
+  write(STYLE_KEY, STYLE_ID);
+  write(SCHEME_KEY, sel.mode);
+  write(paletteKey("dark"), sel.dark);
+  write(paletteKey("light"), sel.light);
+  write(PALETTE_KEY, resolvePalette(sel, systemLight));
+}
+
+/** Pick a palette (a palette card): it becomes its side's palette; outside
+ *  Auto, a palette for the other side moves the mode to it (desktop's
+ *  selectionForPalette). */
+export function selectPalette(sel: ThemeSelection, id: PaletteId): ThemeSelection {
   const p = paletteById(id);
-  if (!p) return;
-  write(SCHEME_KEY, p.scheme);
-  write(paletteKey(p.scheme), p.id);
+  if (!p) return sel;
+  return { ...sel, [p.scheme]: p.id, mode: sel.mode === "auto" ? "auto" : p.scheme };
 }
 
 export function readAccent(id: PaletteId): AccentChoice | null {
@@ -196,6 +248,6 @@ export function applyTheme(id: PaletteId, accent: AccentChoice | null, root?: HT
 
 /** main.tsx, before the first render: the stored palette and accent. */
 export function initTheme(): void {
-  const id = readPalette();
+  const id = resolvePalette(readSelection());
   applyTheme(id, readAccent(id));
 }

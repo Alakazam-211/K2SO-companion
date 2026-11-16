@@ -2,7 +2,8 @@ import { useState, type ReactNode } from "react";
 import { ABOUT } from "../lib/about";
 import { usePushToggle } from "../lib/usePushToggle";
 import { ZEN_FONTS, ZEN_TEXT_SIZES, useZenFontStore } from "./zenFont";
-import { AccentRow, PaletteRow } from "./ThemeRows";
+import { ThemesPage, themeSummary } from "./ThemesPage";
+import { useThemeStore } from "../theme/themeStore";
 import { useMultiServerPrefs } from "./multi/prefs";
 import { useRecentFirstStore } from "./recentFirst";
 import { useJumpOnSendStore } from "./jumpOnSend";
@@ -19,7 +20,7 @@ const SWITCH_ON = "#30d158";
 
 /** Zen Settings sheet (opened by the Chats header cog). iOS grouped list
  *  of `.k2-tile` cards: Notifications (the same push toggle as the old
- *  Settings page), Appearance (palette, accent, Zen font, text size), Lists (Recent
+ *  Settings page), Appearance (Themes, Zen font, text size), Lists (Recent
  *  agents first, this phone only), Experimental, and About (the old
  *  page's values plus Terminal: Kessel). The pre-Zen UI (and its
  *  "Leave Zen Mode" door) was removed in 4.1.0. */
@@ -27,6 +28,7 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
   // Android Back = Done.
   useBackHandler(true, onClose);
   const [notices, setNotices] = useState(false);
+  const [themes, setThemes] = useState(false);
   return (
     <div
       className="absolute inset-0 flex flex-col"
@@ -60,8 +62,7 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
         </Group>
 
         <Group label="Appearance" testId="settings-appearance">
-          <PaletteRow />
-          <AccentRow />
+          <ThemesRow onOpen={() => setThemes(true)} />
           <FontRow />
           <TextSizeRow />
         </Group>
@@ -109,7 +110,32 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
         </Group>
       </div>
       {notices ? <AcknowledgementsPage onBack={() => setNotices(false)} /> : null}
+      {themes ? <ThemesPage onBack={() => setThemes(false)} /> : null}
     </div>
+  );
+}
+
+/** Settings → Themes (ThemesPage.tsx): Light, Dark or Auto, the palettes and
+ *  their accents, on a page of its own, as desktop's Settings → Themes. */
+function ThemesRow({ onOpen }: { onOpen: () => void }) {
+  const shown = useThemeStore((s) => s.shown);
+  const mode = useThemeStore((s) => s.mode);
+  return (
+    <button
+      type="button"
+      className="w-full flex items-center justify-between text-[17px] text-left"
+      style={{ minHeight: 44, padding: "11px 16px", gap: 12 }}
+      data-testid="settings-themes"
+      onClick={onOpen}
+    >
+      <span>Themes</span>
+      <span className="flex items-center min-w-0" style={{ gap: 6, color: MUTED }}>
+        <span className="truncate" data-testid="settings-themes-value">
+          {themeSummary(shown, mode)}
+        </span>
+        <RowChevron />
+      </span>
+    </button>
   );
 }
 

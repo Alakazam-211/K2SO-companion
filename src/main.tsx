@@ -4,6 +4,7 @@ import App from "./App";
 import "./styles/index.css";
 import { initZenFont } from "./zen/zenFont";
 import { initTheme } from "./theme/palettes";
+import { watchSystemScheme } from "./theme/themeStore";
 import { installAndroidBack } from "./lib/androidBack";
 import { initKbDragRecorder } from "./lib/kbDragRecorder";
 import { initKbDiag } from "./lib/kbDiag";
@@ -45,6 +46,8 @@ if (/android/i.test(navigator.userAgent)) {
 initZenFont();
 // Settings → Appearance → Palette and Accent, before the first paint.
 initTheme();
+// Auto: follow the iPhone's light/dark as it changes.
+watchSystemScheme();
 
 // Diagnostics → Keyboard drag recorder (off by default: one pref read).
 initKbDragRecorder();

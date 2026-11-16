@@ -6,12 +6,15 @@ import {
   PALETTES,
   paletteById,
   readAccent,
-  readPalette,
+  readSelection,
+  resolvePalette,
+  resolveScheme,
   SCHEME_KEY,
+  selectPalette,
   themeVars,
   tokenVars,
   writeAccent,
-  writePalette,
+  writeSelection,
 } from "./palettes";
 
 beforeEach(() => {
@@ -62,31 +65,41 @@ describe("the three Glass palettes", () => {
 });
 
 describe("the choice is per device, under desktop's keys", () => {
-  it("defaults to Obsidian", () => {
-    expect(readPalette()).toBe("obsidian");
+  it("defaults to Dark with Obsidian, Veil for light", () => {
+    expect(readSelection()).toEqual({ mode: "dark", dark: "obsidian", light: "veil" });
+    expect(resolvePalette(readSelection(), true)).toBe("obsidian");
   });
 
-  it("stores the scheme and that scheme's palette", () => {
-    writePalette("yellow");
-    expect(localStorage.getItem(SCHEME_KEY)).toBe("dark");
+  it("stores the mode and each side's palette, and mirrors the palette on screen", () => {
+    writeSelection({ mode: "auto", dark: "yellow", light: "veil" }, true);
+    expect(localStorage.getItem(SCHEME_KEY)).toBe("auto");
     expect(localStorage.getItem("k2.palette.dark")).toBe("yellow");
-    expect(readPalette()).toBe("yellow");
-    writePalette("veil");
-    expect(localStorage.getItem(SCHEME_KEY)).toBe("light");
     expect(localStorage.getItem("k2.palette.light")).toBe("veil");
-    expect(readPalette()).toBe("veil");
-    // Back to dark: the dark palette chosen before comes back.
-    localStorage.setItem(SCHEME_KEY, "dark");
-    expect(readPalette()).toBe("yellow");
+    expect(localStorage.getItem("k2.palette")).toBe("veil");
+    expect(localStorage.getItem("k2.style")).toBe("glass");
+    expect(readSelection()).toEqual({ mode: "auto", dark: "yellow", light: "veil" });
   });
 
-  it("a palette of the wrong scheme, or junk, falls back to the scheme's default", () => {
-    localStorage.setItem(SCHEME_KEY, "light");
+  it("Auto follows the system; Light and Dark don't", () => {
+    const sel = { mode: "auto" as const, dark: "yellow" as const, light: "veil" as const };
+    expect(resolveScheme("auto", true)).toBe("light");
+    expect(resolvePalette(sel, true)).toBe("veil");
+    expect(resolvePalette(sel, false)).toBe("yellow");
+    expect(resolvePalette({ ...sel, mode: "dark" }, true)).toBe("yellow");
+    expect(resolvePalette({ ...sel, mode: "light" }, false)).toBe("veil");
+  });
+
+  it("a palette card sets its side; outside Auto the mode follows it (desktop's rule)", () => {
+    const sel = { mode: "light" as const, dark: "obsidian" as const, light: "veil" as const };
+    expect(selectPalette(sel, "yellow")).toEqual({ mode: "dark", dark: "yellow", light: "veil" });
+    expect(selectPalette({ ...sel, mode: "auto" }, "yellow")).toEqual({ mode: "auto", dark: "yellow", light: "veil" });
+  });
+
+  it("a palette stored for the wrong side, or junk, falls back to the side's default", () => {
     localStorage.setItem("k2.palette.light", "obsidian");
-    expect(readPalette()).toBe("veil");
-    localStorage.setItem(SCHEME_KEY, "dark");
     localStorage.setItem("k2.palette.dark", "<script>");
-    expect(readPalette()).toBe("obsidian");
+    localStorage.setItem(SCHEME_KEY, "sepia");
+    expect(readSelection()).toEqual({ mode: "dark", dark: "obsidian", light: "veil" });
   });
 
   it("each palette keeps its own accent (k2.accent.glass.<palette>); junk is the default", () => {
@@ -133,7 +146,7 @@ describe("applyTheme", () => {
   });
 
   it("initTheme applies what was stored", () => {
-    writePalette("yellow");
+    writeSelection({ mode: "dark", dark: "yellow", light: "veil" }, false);
     writeAccent("yellow", "#40c8e0");
     initTheme();
     expect(document.documentElement.getAttribute("data-palette")).toBe("yellow");
