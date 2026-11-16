@@ -214,6 +214,9 @@ done
 CARGO_TOML="$PROJECT_DIR/src-tauri/Cargo.toml"
 PROJECT_YML="$PROJECT_DIR/src-tauri/gen/apple/project.yml"
 sed -i '' "1,/^version = /s/^version = \"[^\"]*\"/version = \"$VERSION\"/" "$CARGO_TOML"
+# Cargo.lock's own entry too: --remote-build runs `cargo fetch --locked`,
+# which refuses a lock whose root package version is stale.
+sed -i '' "/^name = \"k2so-companion\"$/{n;s/^version = \"[^\"]*\"/version = \"$VERSION\"/;}" "$PROJECT_DIR/src-tauri/Cargo.lock"
 # Every target (app, NSE, Broadcast) in one pass: same VERSION, same BUILD_NUMBER.
 sed -i '' "s/CFBundleShortVersionString: .*/CFBundleShortVersionString: $VERSION/; s/CFBundleVersion: .*/CFBundleVersion: \"$BUILD_NUMBER\"/" "$PROJECT_YML"
 
