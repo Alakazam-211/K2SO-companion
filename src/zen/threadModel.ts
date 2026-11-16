@@ -123,11 +123,37 @@ export type StashOffer = { text: string; title: string | null };
 export const STASH_OFFER_TEXT_MAX = 20_000;
 export const STASH_OFFER_TITLE_MAX = 200;
 
+/** A post's author stamp kind (`agent` | `owner` | `user` | `guest` |
+ *  `imported` | a later kind), or null with no stamp. The daemon stamps it
+ *  from the request's credential; K2 0.46.13 (`thread-author-agent-v1`)
+ *  adds `agent`. */
+export function threadAuthorKind(raw: unknown): string | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const kind = (raw as { kind?: unknown }).kind;
+  return typeof kind === "string" && kind.trim() ? kind.trim() : null;
+}
+
+/** A person's post (K2's rule, desktop thread-viewer.ts isPersonThreadPost,
+ *  K2 m_4xhkftZ9ra): any stamp that isn't `agent`, whatever the `via`; with
+ *  no stamp (rows from before 0.46.13), `via:"compose"`. */
+export function isPersonThreadPost(doc: { via?: unknown; author?: unknown }): boolean {
+  const kind = threadAuthorKind(doc.author);
+  if (kind) return kind !== "agent";
+  return doc.via === "compose";
+}
+
+/** An agent's post: the `agent` stamp, or no stamp and not `via:"compose"`
+ *  (older rows, K2's own notes). */
+export function isAgentThreadPost(doc: { via?: unknown; author?: unknown }): boolean {
+  return !isPersonThreadPost(doc);
+}
+
 /** `doc.kind === "stash.offer"` with `doc.stash = {text, title?}`, posted
- *  by an agent (not a person's post: no `author`, not `via:"compose"`). */
+ *  by an agent (isAgentThreadPost: an `agent` stamp, or no stamp and not
+ *  `via:"compose"`). A person's offer shows as a plain message. */
 export function stashOfferOf(doc: { kind?: unknown; stash?: unknown; author?: unknown; via?: unknown }): StashOffer | null {
   if (doc.kind !== "stash.offer" || !doc.stash || typeof doc.stash !== "object") return null;
-  if (doc.author || doc.via === "compose") return null;
+  if (!isAgentThreadPost(doc)) return null;
   const o = doc.stash as { text?: unknown; title?: unknown };
   if (typeof o.text !== "string" || !o.text.trim() || o.text.length > STASH_OFFER_TEXT_MAX) return null;
   const line = typeof o.title === "string" ? o.title.replace(/\s+/g, " ").trim().slice(0, STASH_OFFER_TITLE_MAX) : "";

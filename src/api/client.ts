@@ -760,6 +760,9 @@ export type ThreadLatestItem = {
   at?: number | null;
   from?: string | null;
   via?: string | null;
+  /** The newest message's author stamp, where the server sends it (K2
+   *  thread-author-agent-v1); read with threadModel's isPersonThreadPost. */
+  author?: unknown;
   kind?: string | null;
   preview?: string | null;
   /** K2 0.46.1 `thread-attachments-v1`: files on the newest message (0

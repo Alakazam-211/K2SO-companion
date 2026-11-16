@@ -11,7 +11,7 @@ import { fetchProjectGroupMessages } from "../api/projectGroups";
 import { scopeFor, serverMemory, type ServerScope } from "../api/scope";
 import { attachmentCountLabel } from "../api/threadAttachmentPure";
 import type { RowLast } from "./rowPreview";
-import { DELETED_TEXT, isOwnerAuthored, normaliseThreadItem, type ThreadMessage } from "./threadModel";
+import { DELETED_TEXT, isOwnerAuthored, normaliseThreadItem, threadAuthorKind, type ThreadMessage } from "./threadModel";
 import { noteThreadAddr } from "./unreadStore";
 
 // Multi-server (MA6): every key is `<serverId>|t:<addr>` or
@@ -218,7 +218,10 @@ export function rowLastFromLatest(
   return {
     at,
     seq,
-    mine: item.via === "compose" || isOwnerAuthored(from, username, item.addr),
+    // Yours when you sent it (owner or your login); an unstamped
+    // `via:"compose"` row from before 0.46.13 too. A stamped person post is
+    // someone's, not necessarily yours, so `via` alone no longer decides.
+    mine: (item.via === "compose" && threadAuthorKind(item.author) === null) || isOwnerAuthored(from, username, item.addr),
     kind,
     text,
     flat: true,
