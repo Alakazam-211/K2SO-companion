@@ -123,6 +123,11 @@ export const DAEMON_FEATURES = [
   // K2 0.46.8+: a Linux Pro server hosts voice rooms (`/cli/voice/*`,
   // zen/voice). Listed only while it hosts.
   "voice-rooms-v1",
+  // K2 0.46.13: people and channels on Home (`/cli/home-chat/*`, its
+  // events socket, DM calls). Listed only while the owner's `homeChat`
+  // switch is on and Sew's K5 Space is ready (Linux). Read by the gate in
+  // api/homeChat (with `GET /cli/home-chat/status` `on`); never assumed.
+  "home-chat-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];
