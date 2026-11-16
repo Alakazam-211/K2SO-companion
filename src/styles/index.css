@@ -380,16 +380,16 @@ html, body, #root {
    without a shadow vanish on the light page). 1px, bright at the top and
    bottom, grey down the sides. Drawn as a background layer on the border
    box under the frost (no pseudo-element, so no element needs to become a
-   positioned box). The grey sits at the left and right edges only and
-   fades to the bright frost within a fixed 8px, the same on a small button
-   and a wide pill (Riley 2026-11-16: "the gradient into the middle is
-   unnecessary … for really big bubbles it should be the same amount as
-   really small bubbles"); top and bottom stay bright. */
+   positioned box). The grey sits at the left and right ends, about 8px
+   deep at the widest point, and its inner edge curves with the piece's
+   own outline instead of stopping in a straight line (Riley 2026-11-16:
+   "a little concave … following the shape of the outside of the
+   bubble"); the same on a small button and a wide pill; top and bottom
+   stay bright. An ellipse as wide as the piece and twice its height: its
+   rim meets the box only at the two ends. */
 :root[data-scheme="light"] {
-  --k2-veil-ring: linear-gradient(
-    to right,
-    rgba(0, 0, 0, 0.2) 0px,
-    rgba(255, 255, 255, 0.95) 8px,
+  --k2-veil-ring: radial-gradient(
+    ellipse 50% 100% at 50% 50%,
     rgba(255, 255, 255, 0.95) calc(100% - 8px),
     rgba(0, 0, 0, 0.2) 100%
   );
