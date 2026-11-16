@@ -203,8 +203,8 @@ function ImageTile({
         height: box.h,
         maxWidth: "100%",
         borderRadius: 16,
-        background: "var(--tile-raised)",
-        border: "1px solid rgba(255,255,255,0.08)",
+        background: "var(--color-bg-elevated)",
+        border: "1px solid var(--color-wash-2)",
       }}
       onClick={() => onOpen(a)}
       aria-label={`Open image ${a.name}${changed ? `, ${CHANGED_TEXT}` : ""}`}
@@ -222,7 +222,7 @@ function ImageTile({
           data-testid="thread-image-img"
         />
       ) : failed ? (
-        <span className="absolute inset-0 flex items-center justify-center text-[var(--text-muted)]" aria-hidden>
+        <span className="absolute inset-0 flex items-center justify-center text-[var(--color-text-muted)]" aria-hidden>
           <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
             <rect x="3" y="4" width="18" height="16" rx="2" />
             <circle cx="9" cy="10" r="1.6" />
@@ -233,7 +233,7 @@ function ImageTile({
       {changed ? (
         <span
           className="absolute top-1.5 right-1.5 rounded-full"
-          style={{ width: 8, height: 8, background: "var(--warning)", boxShadow: "0 0 0 1.5px rgba(0,0,0,0.5)" }}
+          style={{ width: 8, height: 8, background: "var(--color-status-warn)", boxShadow: "0 0 0 1.5px var(--color-media-label-bg)" }}
           data-testid="thread-image-changed"
           aria-hidden
         />

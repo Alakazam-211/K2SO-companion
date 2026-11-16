@@ -522,7 +522,7 @@ describe("ChatsList", () => {
     const moreBadge = screen.getByTestId("chats-header-more-badge");
     expect(moreBadge.textContent).toBe("2");
     expect(moreBadge.getAttribute("data-tone")).toBe("tickets");
-    expect(moreBadge.style.background).toMatch(/#f59e0b|rgb\(245,\s*158,\s*11\)/);
+    expect(moreBadge.style.background).toBe("var(--color-status-needs-you)");
     openMore();
     const badge = screen.getByTestId("tickets-badge");
     expect(badge.textContent).toBe("2");

@@ -30,7 +30,7 @@ import { zenTextPx } from "./zenFont";
 /** The dot left of the avatar. `side` px from the avatar's left edge. */
 export function UnreadDot({ unread, side = 16 }: { unread: RowUnread | null; side?: number }) {
   if (!unread || (unread.tone === "muted" && unread.count === 0)) return null;
-  const c = toneColor(unread.tone);
+  const c = toneColor(unread.tone, "dot");
   return (
     <span
       aria-hidden

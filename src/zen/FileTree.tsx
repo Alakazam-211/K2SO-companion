@@ -140,7 +140,7 @@ export function FileTree({
     if (!st || (st.status === "loading" && st.entries.length === 0)) {
       return (
         <div
-          className="py-1 text-[11px] text-[var(--text-muted)]"
+          className="py-1 text-[11px] text-[var(--color-text-muted)]"
           style={{ paddingLeft: 10 + depth * 12 }}
           data-testid="tree-loading"
         >
@@ -151,7 +151,7 @@ export function FileTree({
     if (st.status === "error") {
       return (
         <div
-          className="py-1 pr-2 text-[11px] text-[var(--text-muted)] break-words"
+          className="py-1 pr-2 text-[11px] text-[var(--color-text-muted)] break-words"
           style={{ paddingLeft: 10 + depth * 12 }}
           data-testid="tree-error"
         >
@@ -163,7 +163,7 @@ export function FileTree({
     if (rows.length === 0) {
       return (
         <div
-          className="py-1 text-[11px] text-[var(--text-muted)]"
+          className="py-1 text-[11px] text-[var(--color-text-muted)]"
           style={{ paddingLeft: 10 + depth * 12 }}
         >
           Empty
@@ -187,8 +187,8 @@ export function FileTree({
                   ...ROW_STYLE,
                   paddingLeft: 6 + depth * 12,
                   touchAction: "pan-y",
-                  background: sel ? "rgba(255,255,255,0.08)" : undefined,
-                  color: active ? "var(--accent)" : dim ? "var(--text-muted)" : "var(--text)",
+                  background: sel ? "var(--color-row-hover)" : undefined,
+                  color: active ? "var(--color-accent-text)" : dim ? "var(--color-text-muted)" : "var(--color-text-primary)",
                 }}
                 data-file-path={e.path}
                 data-file-name={e.name}
@@ -203,7 +203,7 @@ export function FileTree({
                   else onOpenFile(e.path);
                 }}
               >
-                <span className="shrink-0 w-[10px] flex justify-center text-[var(--text-muted)]">
+                <span className="shrink-0 w-[10px] flex justify-center text-[var(--color-text-muted)]">
                   {e.isDirectory ? <Chevron open={open} /> : null}
                 </span>
                 <span className="shrink-0 flex items-center" style={{ opacity: dim ? 0.55 : undefined }}>
@@ -217,7 +217,7 @@ export function FileTree({
         })}
         {rows.length > shown.length ? (
           <div
-            className="py-1 text-[11px] text-[var(--text-muted)]"
+            className="py-1 text-[11px] text-[var(--color-text-muted)]"
             style={{ paddingLeft: 10 + depth * 12 }}
             data-testid="tree-more"
           >
@@ -232,7 +232,7 @@ export function FileTree({
     <div role="tree" aria-label="Workspace files" data-testid="file-tree">
       <button
         type="button"
-        className={`${ROW_CLASS} pl-2 text-[var(--text-muted)]`}
+        className={`${ROW_CLASS} pl-2 text-[var(--color-text-muted)]`}
         style={ROW_STYLE}
         data-testid="tree-root"
         aria-label={`${baseName(root)} (workspace folder)`}

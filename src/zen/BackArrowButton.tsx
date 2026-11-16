@@ -26,7 +26,7 @@ export function BackArrowButton({
     <button
       type="button"
       className="flex items-center justify-center shrink-0 justify-self-start zen-glass zen-glass-pill"
-      style={{ width: 34, height: 34, color: "#fff", ...style }}
+      style={{ width: 34, height: 34, color: "var(--color-text-primary)", ...style }}
       onClick={onClick}
       aria-label={label}
       data-testid={testId}

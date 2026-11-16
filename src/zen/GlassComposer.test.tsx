@@ -342,7 +342,7 @@ describe("GlassComposer + lit", () => {
     fireEvent.click(plus);
     expect(plus.getAttribute("aria-expanded")).toBe("true");
     expect(plus.hasAttribute("data-lit")).toBe(true);
-    expect(plus.style.background).toContain("rgba(255, 255, 255, 0.2)");
+    expect(plus.style.background).toContain("var(--color-wash-3)");
   });
 });
 

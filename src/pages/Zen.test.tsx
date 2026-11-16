@@ -601,7 +601,7 @@ describe("Zen keeps the chats list mounted", () => {
     expect(right.firstElementChild).toBe(screen.getByTestId("chat-header-buttons"));
     expect(screen.queryByTestId("chat-session-line")).toBeNull();
     expect(screen.queryByTestId("chat-sidecar-title")).toBeNull();
-    expect(screen.getByTestId("chat-rename-open").style.color).toBe("rgb(255, 255, 255)");
+    expect(screen.getByTestId("chat-rename-open").style.color).toBe("var(--color-text-primary)");
     expect(screen.getByTestId("chat-rename-open").getAttribute("aria-label")).toBe(
       "Rename Example Sidecar"
     );

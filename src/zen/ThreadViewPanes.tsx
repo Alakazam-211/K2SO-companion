@@ -115,19 +115,19 @@ function PaneShell({
       data-testid={testid}
     >
       <div style={{ padding: "0 16px 10px" }}>
-        <h2 className="font-semibold" style={{ color: "#fff", fontSize: zenTextPx(17) }}>
+        <h2 className="font-semibold" style={{ color: "var(--color-text-primary)", fontSize: zenTextPx(17) }}>
           {title}
         </h2>
-        <p style={{ color: "#8e8e93", fontSize: zenTextPx(13) }}>{hint}</p>
+        <p style={{ color: "var(--color-text-muted)", fontSize: zenTextPx(13) }}>{hint}</p>
       </div>
       {load.loading && load.rows.length === 0 ? (
-        <p style={{ padding: "0 16px", color: "#8e8e93", fontSize: zenTextPx(14) }}>Loading…</p>
+        <p style={{ padding: "0 16px", color: "var(--color-text-muted)", fontSize: zenTextPx(14) }}>Loading…</p>
       ) : load.error && load.rows.length === 0 ? (
-        <p style={{ padding: "0 16px", color: "#8e8e93", fontSize: zenTextPx(14) }} data-testid={`${testid}-error`}>
+        <p style={{ padding: "0 16px", color: "var(--color-text-muted)", fontSize: zenTextPx(14) }} data-testid={`${testid}-error`}>
           {load.error}
         </p>
       ) : load.rows.length === 0 ? (
-        <p style={{ padding: "0 16px", color: "#8e8e93", fontSize: zenTextPx(14) }} data-testid={`${testid}-empty`}>
+        <p style={{ padding: "0 16px", color: "var(--color-text-muted)", fontSize: zenTextPx(14) }} data-testid={`${testid}-empty`}>
           {empty}
         </p>
       ) : (
@@ -148,7 +148,7 @@ function ChatterRow({ item }: { item: ChatterItem }) {
     <button
       type="button"
       className="k2-tile text-left"
-      style={{ borderRadius: 14, padding: "9px 12px", color: "#fff" }}
+      style={{ borderRadius: 14, padding: "9px 12px", color: "var(--color-text-primary)" }}
       onClick={() => more && setOpen((v) => !v)}
       aria-expanded={more ? open : undefined}
       data-testid="chatter-row"
@@ -156,9 +156,9 @@ function ChatterRow({ item }: { item: ChatterItem }) {
       <span className="flex items-baseline justify-between" style={{ gap: 8 }}>
         <span className="truncate font-semibold" style={{ fontSize: zenTextPx(13) }}>
           {item.from}
-          {item.to ? <span style={{ color: "#8e8e93", fontWeight: 400 }}> → {item.to}</span> : null}
+          {item.to ? <span style={{ color: "var(--color-text-muted)", fontWeight: 400 }}> → {item.to}</span> : null}
         </span>
-        <span className="shrink-0" style={{ color: "#8e8e93", fontSize: zenTextPx(11) }}>
+        <span className="shrink-0" style={{ color: "var(--color-text-muted)", fontSize: zenTextPx(11) }}>
           {mountainTime(item.at)}
         </span>
       </span>
@@ -170,10 +170,10 @@ function ChatterRow({ item }: { item: ChatterItem }) {
 }
 
 const TONE_COLOR: Record<HeartbeatTone, string> = {
-  ok: "#30d158",
-  warn: "#ff9f0a",
-  error: "#ff453a",
-  muted: "#8e8e93",
+  ok: "var(--color-status-ok)",
+  warn: "var(--color-status-warn)",
+  error: "var(--color-status-error)",
+  muted: "var(--color-neutral)",
 };
 
 /** K2's heartbeat symbol (ThreadDrawerSelector `HeartbeatIcon`): the EKG
@@ -191,7 +191,9 @@ export function HeartbeatIcon({ size = 14 }: { size?: number }) {
       strokeLinejoin="round"
       aria-hidden="true"
       data-testid="heartbeat-icon"
-      style={{ flex: "none", color: "#ff375f" }}
+      // Desktop draws this line in plain currentColor; the phone's red was
+      // its own (#ff375f), so it takes the palette's status red.
+      style={{ flex: "none", color: "var(--color-status-error)" }}
     >
       <path d="M2 12h5l2-5 4 10 2-5h7" />
     </svg>
@@ -201,16 +203,23 @@ export function HeartbeatIcon({ size = 14 }: { size?: number }) {
 function HeartbeatRowView({ row }: { row: HeartbeatRow }) {
   return (
     <div
-      className="k2-tile"
-      style={{ borderRadius: 14, padding: "9px 12px", color: "#fff", background: "rgba(255, 55, 95, 0.08)" }}
+      className="k2-tile relative"
+      // isolate: the tint (z -1) paints over the row's own fill, under its words.
+      style={{ borderRadius: 14, padding: "9px 12px", color: "var(--color-text-primary)", background: "transparent", isolation: "isolate" }}
       data-testid="heartbeat-row"
     >
+      {/* The heartbeat tint: the status red at 8% (no color-mix on iOS 15). */}
+      <span
+        aria-hidden
+        className="absolute inset-0 pointer-events-none"
+        style={{ zIndex: -1, borderRadius: "inherit", background: "var(--color-status-error)", opacity: 0.08 }}
+      />
       <div className="flex items-baseline justify-between" style={{ gap: 8 }}>
         <span className="flex items-center min-w-0 font-semibold" style={{ gap: 5, fontSize: zenTextPx(13) }}>
           <HeartbeatIcon />
           <span className="truncate">Heartbeat · {row.source}</span>
         </span>
-        <span className="shrink-0" style={{ color: "#8e8e93", fontSize: zenTextPx(11) }}>
+        <span className="shrink-0" style={{ color: "var(--color-text-muted)", fontSize: zenTextPx(11) }}>
           {mountainTime(row.at)}
         </span>
       </div>
@@ -219,7 +228,7 @@ function HeartbeatRowView({ row }: { row: HeartbeatRow }) {
         <span>{row.status}</span>
       </div>
       {row.detail ? (
-        <div style={{ marginTop: 2, color: "#8e8e93", fontSize: zenTextPx(13), wordBreak: "break-word" }}>{row.detail}</div>
+        <div style={{ marginTop: 2, color: "var(--color-text-muted)", fontSize: zenTextPx(13), wordBreak: "break-word" }}>{row.detail}</div>
       ) : null}
     </div>
   );

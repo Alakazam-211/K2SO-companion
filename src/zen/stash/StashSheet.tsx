@@ -12,7 +12,7 @@ import { useStashSyncStore } from "./stashSync";
 // ✕ deletes it; the header's X closes it. Opened from the bookmark in an
 // empty message field.
 
-const MUTED = "#8e8e93";
+const MUTED = "var(--color-text-muted)";
 
 export function StashSheet({ onChoose, onClose }: { onChoose: (id: string) => void; onClose: () => void }) {
   useBackHandler(true, onClose);
@@ -33,7 +33,7 @@ export function StashSheet({ onChoose, onClose }: { onChoose: (id: string) => vo
   return createPortal(
     <div
       className="fixed inset-0 flex items-end justify-center"
-      style={{ background: "rgba(0,0,0,.45)", zIndex: 60, fontFamily: "var(--zen-font)" }}
+      style={{ background: "var(--color-scrim)", zIndex: 60, fontFamily: "var(--zen-font)" }}
       data-testid="stash-sheet"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -49,7 +49,7 @@ export function StashSheet({ onChoose, onClose }: { onChoose: (id: string) => vo
           borderTopRightRadius: 14,
           padding: "14px 0 max(12px, var(--safe-bottom))",
           maxHeight: "75vh",
-          color: "#fff",
+          color: "var(--color-text-primary)",
         }}
       >
         <div className="flex items-center px-4 pb-2" style={{ gap: 8 }}>
@@ -61,7 +61,7 @@ export function StashSheet({ onChoose, onClose }: { onChoose: (id: string) => vo
             type="button"
             onClick={onClose}
             className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
-            style={{ width: 30, height: 30, color: "#fff" }}
+            style={{ width: 30, height: 30, color: "var(--color-text-primary)" }}
             aria-label="Close"
             data-testid="stash-sheet-close"
           >
@@ -88,7 +88,7 @@ export function StashSheet({ onChoose, onClose }: { onChoose: (id: string) => vo
               const source = stashSourceLabel(item.source);
               const files = item.attachments.length;
               return (
-                <li key={item.id} className="flex items-stretch" style={{ borderTop: "0.5px solid rgba(255,255,255,0.12)" }}>
+                <li key={item.id} className="flex items-stretch" style={{ borderTop: "0.5px solid var(--color-wash-2)" }}>
                   <button
                     type="button"
                     className="flex-1 min-w-0 text-left px-4 py-2.5"
@@ -101,14 +101,14 @@ export function StashSheet({ onChoose, onClose }: { onChoose: (id: string) => vo
                       {source ? <span aria-hidden="true">·</span> : null}
                       <span className="flex-none tabular-nums">{stashAge(item.created_at, now)}</span>
                       {unsynced[item.id] ? (
-                        <span className="flex-none" style={{ color: "#ff9f0a" }} data-testid="stash-item-unsynced">
+                        <span className="flex-none" style={{ color: "var(--color-status-warn-text)" }} data-testid="stash-item-unsynced">
                           {unsynced[item.id] === "too_large" ? "Too long to sync" : "Not synced"}
                         </span>
                       ) : null}
                       {files ? (
                         <span
                           className="flex-none rounded-full px-1.5"
-                          style={{ background: "rgba(255,255,255,0.12)", color: "#fff" }}
+                          style={{ background: "var(--color-wash-2)", color: "var(--color-text-primary)" }}
                           data-testid="stash-item-files"
                         >
                           {files === 1 ? "1 file" : `${files} files`}
@@ -144,24 +144,24 @@ export function StashFullDialog({ onReplace, onCancel }: { onReplace: () => void
   return createPortal(
     <div
       className="fixed inset-0 flex items-center justify-center px-8"
-      style={{ background: "rgba(0,0,0,.45)", zIndex: 65, fontFamily: "var(--zen-font)" }}
+      style={{ background: "var(--color-scrim)", zIndex: 65, fontFamily: "var(--zen-font)" }}
       data-testid="stash-full"
       onClick={(e) => {
         if (e.target === e.currentTarget) onCancel();
       }}
     >
-      <div role="alertdialog" aria-modal="true" aria-label="Stash full" className="w-full k2-tile k2-tile-sheet text-center" style={{ maxWidth: 300, borderRadius: 14, color: "#fff" }}>
+      <div role="alertdialog" aria-modal="true" aria-label="Stash full" className="w-full k2-tile k2-tile-sheet text-center" style={{ maxWidth: 300, borderRadius: 14, color: "var(--color-text-primary)" }}>
         <p className="text-[15px] leading-snug px-4 pt-4 pb-3">
           Your stash is full ({STASH_MAX}). Remove the oldest?
         </p>
-        <div className="flex" style={{ borderTop: "0.5px solid rgba(255,255,255,0.15)" }}>
-          <button type="button" className="flex-1 py-2.5 text-[16px]" style={{ color: "#0a84ff" }} onClick={onCancel} data-testid="stash-full-cancel">
+        <div className="flex" style={{ borderTop: "0.5px solid var(--color-wash-2)" }}>
+          <button type="button" className="flex-1 py-2.5 text-[16px]" style={{ color: "var(--color-accent-text)" }} onClick={onCancel} data-testid="stash-full-cancel">
             Cancel
           </button>
           <button
             type="button"
             className="flex-1 py-2.5 text-[16px] font-semibold"
-            style={{ color: "#ff453a", borderLeft: "0.5px solid rgba(255,255,255,0.15)" }}
+            style={{ color: "var(--color-status-error-text)", borderLeft: "0.5px solid var(--color-wash-2)" }}
             onClick={onReplace}
             data-testid="stash-full-replace"
           >

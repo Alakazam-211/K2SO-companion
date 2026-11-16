@@ -74,7 +74,7 @@ import { usageAgeText } from "../api/llmAccountFor";
 const HEADER_BTN: CSSProperties = {
   width: 36,
   height: 36,
-  color: "#fff",
+  color: "var(--color-text-primary)",
 };
 
 /** iMessage contact photo above the name. */
@@ -82,10 +82,10 @@ const HEADER_AVATAR_PX = 42;
 /** Resting header content height (below the safe area): avatar + name. */
 export const CHAT_HEADER_PX = 84;
 /** Soft shadow under the header avatar, over the name bubble. */
-const AVATAR_LIFT = "drop-shadow(0 3px 8px rgba(0, 0, 0, 0.55))";
+const AVATAR_LIFT = "drop-shadow(0 3px 8px var(--color-shadow))";
 /** The LLM mark's own lift inside the usage bubble: closer to the glass
  *  than the picture's. */
-const LLM_LIFT = "drop-shadow(0 1.5px 2.5px rgba(0, 0, 0, 0.6))";
+const LLM_LIFT = "drop-shadow(0 1.5px 2.5px var(--color-shadow))";
 /** Buttons centre on the avatar. */
 const HEADER_BTN_TOP = (HEADER_AVATAR_PX - 36) / 2;
 
@@ -416,7 +416,7 @@ export function Zen() {
   });
   chatterOnTopRef.current = useBackHandler(wantThread && chatter.open, chatter.close);
   /** The chats list peeks from under a back-chevron swipe (it is where
-   *  Back lands); Done returns to another chat, so that drag shows black. */
+   *  Back lands); Done returns to another chat, so that drag shows the page. */
   const chatsLayerRef = useRef<HTMLDivElement>(null);
   const peekChats = (on: boolean) => {
     const el = chatsLayerRef.current;
@@ -464,7 +464,7 @@ export function Zen() {
   const headerSub = [stubBanner, err].filter(Boolean).join(" · ");
 
   return (
-    <div className="relative h-full min-h-0 zen-font" style={{ background: "#000" }}>
+    <div className="relative h-full min-h-0 zen-font" style={{ background: "var(--color-bg)" }}>
       <div
         ref={chatsLayerRef}
         className="h-full min-h-0 zen-chats-layer"
@@ -774,7 +774,7 @@ export function Zen() {
                 <span
                   data-testid="chat-header-title"
                   className="block min-w-0 text-[15px] font-bold truncate text-center"
-                  style={{ color: "#fff" }}
+                  style={{ color: "var(--color-text-primary)" }}
                 >
                   {centreTitle}
                 </span>
@@ -783,7 +783,7 @@ export function Zen() {
                     type="button"
                     data-testid="chat-rename-open"
                     className="shrink-0 flex items-center justify-center bg-transparent border-0 p-0"
-                    style={{ color: "#fff", width: 18, height: 18, pointerEvents: "auto" }}
+                    style={{ color: "var(--color-text-primary)", width: 18, height: 18, pointerEvents: "auto" }}
                     aria-label={`Rename ${sidecarTitle}`}
                     onClick={(e) => {
                       e.stopPropagation();
@@ -806,7 +806,7 @@ export function Zen() {
                   type="button"
                   data-testid="chat-hide"
                   className="text-[11px] bg-transparent border-0 p-0"
-                  style={{ color: "#8e8e93", pointerEvents: "auto" }}
+                  style={{ color: "var(--color-text-muted)", pointerEvents: "auto" }}
                   onClick={(e) => {
                     e.stopPropagation();
                     if (agentId) useZenStore.getState().hideSidecarChat(agentId);
@@ -819,7 +819,7 @@ export function Zen() {
               {headerSub ? (
                 <span
                   className="block w-full text-[9px] tracking-widest uppercase truncate text-center"
-                  style={{ color: "#f59e0b" }}
+                  style={{ color: "var(--color-status-warn-text)" }}
                   data-testid="chat-header-sub"
                 >
                   {headerSub}
@@ -914,7 +914,7 @@ export function Zen() {
                 className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
                 style={{
                   ...HEADER_BTN,
-                  background: sessionsOpen ? "rgba(255,255,255,0.18)" : undefined,
+                  background: sessionsOpen ? "var(--color-wash-3)" : undefined,
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -942,7 +942,7 @@ export function Zen() {
                 className="flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
                 style={{
                   ...HEADER_BTN,
-                  background: filesPaneOpen ? "rgba(255,255,255,0.18)" : undefined,
+                  background: filesPaneOpen ? "var(--color-wash-3)" : undefined,
                 }}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -980,7 +980,7 @@ export function Zen() {
               className="absolute inset-0"
               style={{
                 zIndex: 5,
-                background: "var(--root, #000)",
+                background: "var(--color-bg)",
                 transform: chatter.open ? CHATTER_OPEN_TRANSFORM : CHATTER_CLOSED_TRANSFORM,
                 transition: CHATTER_TRANSITION,
                 willChange: "transform",
@@ -996,7 +996,7 @@ export function Zen() {
           ) : null}
           {filesOpen && !viewingFile ? (
             <div
-              className="absolute bottom-0 right-0 border-l border-[var(--border)] bg-[var(--background)] flex flex-col"
+              className="absolute bottom-0 right-0 border-l border-[var(--color-border)] bg-[var(--color-bg)] flex flex-col"
               data-testid="file-pane"
               data-dragging={fileDragging ? "1" : undefined}
               style={{
@@ -1015,7 +1015,7 @@ export function Zen() {
           ) : null}
           {sessionsOpen && !groupChat ? (
             <div
-              className="absolute bottom-0 right-0 border-l border-[var(--border)] bg-[var(--background)] flex flex-col"
+              className="absolute bottom-0 right-0 border-l border-[var(--color-border)] bg-[var(--color-bg)] flex flex-col"
               data-testid="sessions-pane"
               style={{ top: "env(safe-area-inset-top)", zIndex: 15 }}
               onClick={(e) => e.stopPropagation()}
@@ -1038,7 +1038,7 @@ export function Zen() {
           ) : null}
           {viewingFile ? (
             <div
-              className="absolute bottom-0 right-0 w-[78%] border-l border-[var(--border)] bg-[var(--background)] flex flex-col"
+              className="absolute bottom-0 right-0 w-[78%] border-l border-[var(--color-border)] bg-[var(--color-bg)] flex flex-col"
               data-testid="file-stage"
               style={{ top: "env(safe-area-inset-top)", zIndex: 15 }}
               onClick={(e) => e.stopPropagation()}
@@ -1053,7 +1053,7 @@ export function Zen() {
             <div
               className="absolute inset-0 z-20 flex items-end justify-center"
               data-testid="chat-rename"
-              style={{ background: "rgba(0,0,0,.55)" }}
+              style={{ background: "var(--color-scrim)" }}
               onClick={(e) => {
                 e.stopPropagation();
                 closeRename();
@@ -1089,7 +1089,7 @@ export function Zen() {
                     });
                 }}
               >
-                <label className="block text-[12px] mb-2" style={{ color: "#8e8e93" }}>
+                <label className="block text-[12px] mb-2" style={{ color: "var(--color-text-muted)" }}>
                   Chat name
                 </label>
                 <input
@@ -1097,14 +1097,14 @@ export function Zen() {
                   value={renameValue}
                   onChange={(e) => setRenameValue(e.target.value)}
                   className="w-full px-3 py-2 text-[16px] rounded-lg k2-tile k2-tile-raised"
-                  style={{ color: "#fff" }}
+                  style={{ color: "var(--color-text-primary)" }}
                   autoFocus
                 />
                 {renameError ? (
                   <p
                     data-testid="chat-rename-error"
                     className="mt-2 text-[12px]"
-                    style={{ color: "#ff453a" }}
+                    style={{ color: "var(--color-status-error-text)" }}
                   >
                     {renameError}
                   </p>
@@ -1113,7 +1113,7 @@ export function Zen() {
                   <button
                     type="button"
                     className="px-3 py-2 text-[14px] bg-transparent border-0"
-                    style={{ color: "#8e8e93" }}
+                    style={{ color: "var(--color-text-muted)" }}
                     onClick={() => setRenameOpen(false)}
                   >
                     Cancel
@@ -1123,7 +1123,7 @@ export function Zen() {
                     data-testid="chat-rename-save"
                     disabled={renameBusy || !renameValue.trim()}
                     className="px-3 py-2 text-[14px] bg-transparent border-0"
-                    style={{ color: "#0a84ff" }}
+                    style={{ color: "var(--color-accent-text)" }}
                   >
                     Save
                   </button>
@@ -1138,7 +1138,7 @@ export function Zen() {
         // MS34 / MA3: sign in to THE ROOM's server only, never switching.
         <div
           className="fixed inset-0 flex flex-col"
-          style={{ background: "#000", zIndex: 60, paddingTop: "env(safe-area-inset-top)" }}
+          style={{ background: "var(--color-bg)", zIndex: 60, paddingTop: "env(safe-area-inset-top)" }}
           data-testid="room-sign-in"
         >
           <OverlayAddServer
@@ -1204,7 +1204,7 @@ function ThreadHome({
         left: 0,
         right: 0,
         bottom: 0,
-        background: "#000",
+        background: "var(--color-bg)",
       }}
     >
       {children}

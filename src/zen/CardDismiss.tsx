@@ -42,7 +42,7 @@ export function CardDismiss({ id }: { id: string }) {
           data-testid="thread-card-dismiss"
           onClick={() => setOpen(true)}
           className="-mr-1 px-1 py-0.5 text-[13px] leading-none"
-          style={{ color: "rgba(255,255,255,0.65)" }}
+          style={{ color: "var(--color-text-secondary)" }}
           aria-label="Dismiss this card without answering it"
         >
           Dismiss
@@ -73,7 +73,7 @@ export function CardDismiss({ id }: { id: string }) {
         aria-label="Why you are dismissing this card (optional)"
         className="w-full rounded-lg px-2.5 py-1.5 outline-none"
         // 16px: iOS zooms into a smaller field.
-        style={{ fontSize: 16, color: "#fff", background: "rgba(0,0,0,0.25)", border: "1px solid rgba(255,255,255,0.25)" }}
+        style={{ fontSize: 16, color: "var(--color-text-primary)", background: "var(--color-bg-elevated)", border: "1px solid var(--color-border-strong)" }}
       />
       <div className="flex items-center gap-1.5">
         <button
@@ -82,7 +82,7 @@ export function CardDismiss({ id }: { id: string }) {
           disabled={busy}
           onClick={() => void send()}
           className="rounded-full px-3 py-1.5 text-[15px] leading-none border"
-          style={{ borderColor: "rgba(255,255,255,0.4)", color: "#fff", opacity: busy ? 0.6 : 1 }}
+          style={{ borderColor: "var(--color-control-edge)", color: "var(--color-text-primary)", opacity: busy ? 0.6 : 1 }}
         >
           {busy ? "Dismissing…" : "Dismiss card"}
         </button>
@@ -92,16 +92,16 @@ export function CardDismiss({ id }: { id: string }) {
           disabled={busy}
           onClick={keep}
           className="rounded-full px-3 py-1.5 text-[15px] leading-none border"
-          style={{ borderColor: "rgba(255,255,255,0.4)", color: "#fff", opacity: busy ? 0.6 : 1 }}
+          style={{ borderColor: "var(--color-control-edge)", color: "var(--color-text-primary)", opacity: busy ? 0.6 : 1 }}
         >
           Keep
         </button>
       </div>
-      <p className="text-[12px] leading-snug" style={{ color: "rgba(255,255,255,0.65)" }}>
+      <p className="text-[12px] leading-snug" style={{ color: "var(--color-text-secondary)" }}>
         {CARD_DISMISS_HINT}
       </p>
       {error ? (
-        <p data-testid="thread-card-dismiss-error" role="alert" className="text-[12px] leading-snug" style={{ color: "#ff9f9a" }}>
+        <p data-testid="thread-card-dismiss-error" role="alert" className="text-[12px] leading-snug" style={{ color: "var(--color-status-error-bright)" }}>
           {error}
         </p>
       ) : null}

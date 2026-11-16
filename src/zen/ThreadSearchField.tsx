@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { currentMatchIndex, stepMatchIndex, threadSearchStatus } from "./threadSearch";
 import { useThreadSearch } from "./threadSearchStore";
 
-const BTN = { width: 30, height: 30, color: "#fff" } as const;
+const BTN = { width: 30, height: 30, color: "var(--color-text-primary)" } as const;
 
 function Chevron({ up }: { up: boolean }) {
   return (
@@ -64,12 +64,12 @@ export function ThreadSearchField({ onClose }: { onClose: () => void }) {
         placeholder="Search this chat"
         aria-label="Search this chat"
         className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[16px]"
-        style={{ color: "#fff" }}
+        style={{ color: "var(--color-text-primary)" }}
         data-testid="thread-search-input"
       />
       <span
         className="shrink-0 text-[12px]"
-        style={{ color: "#8e8e93", fontVariantNumeric: "tabular-nums", padding: "0 4px" }}
+        style={{ color: "var(--color-text-muted)", fontVariantNumeric: "tabular-nums", padding: "0 4px" }}
         aria-live="polite"
         aria-label={status.spoken || undefined}
         data-testid="thread-search-count"

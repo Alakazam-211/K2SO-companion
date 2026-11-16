@@ -1,6 +1,8 @@
 import { useEffect, useRef, type ComponentType, type RefObject, type SyntheticEvent } from "react";
 import { useBackHandler } from "../lib/androidBack";
 import { CameraIcon, FolderIcon, PhotoIcon, type IconProps } from "./icons";
+import { paletteById } from "../theme/palettes";
+import { useThemeStore } from "../theme/themeStore";
 
 /** The attach menu's choices, top to bottom. */
 export type AttachChoice = "library" | "camera" | "files";
@@ -32,6 +34,16 @@ export const CAMERA_PHOTO_ONLY_LABEL = "Take Photo";
 
 export const ATTACH_MENU_RADIUS_PX = 22;
 export const ATTACH_MENU_ROW_PX = 44;
+
+/** A glass menu's fill (attach, More). On a dark palette: darker than the
+ *  plain glass so the labels read over the thread (iOS's menu material; no
+ *  palette token is this dark and see-through). On a light one: Veil's own
+ *  frost, so its dark words read. `dark`: a menu's own dark fill. */
+export const MENU_GLASS_DARK = "rgba(36, 36, 40, 0.62)";
+export function useMenuGlassFill(dark: string = MENU_GLASS_DARK): string {
+  const light = useThemeStore((s) => paletteById(s.shown)?.scheme === "light");
+  return light ? "var(--color-frost-fill)" : dark;
+}
 
 /** Keep the textarea focused: a blur drops the iOS keyboard (send pattern). */
 const keepFocus = (e: SyntheticEvent) => e.preventDefault();
@@ -67,6 +79,7 @@ export function AttachMenu({
   const close = useRef(onClose);
   close.current = onClose;
   useBackHandler(true, () => close.current());
+  const fill = useMenuGlassFill();
 
   useEffect(() => {
     const outside = (e: Event) => {
@@ -108,9 +121,8 @@ export function AttachMenu({
         width: "min(250px, calc(100vw - 32px))",
         borderRadius: ATTACH_MENU_RADIUS_PX,
         padding: "6px 0",
-        color: "#fff",
-        // Darker than the plain glass so the labels read over the thread.
-        background: "rgba(36, 36, 40, 0.62)",
+        color: "var(--color-text-primary)",
+        background: fill,
       }}
     >
       {(files ? ATTACH_MENU_ITEMS : []).map(({ choice, label, Icon }) => (
@@ -123,7 +135,7 @@ export function AttachMenu({
         />
       ))}
       {files && extras.length ? (
-        <div role="separator" style={{ height: 0.5, margin: "6px 16px", background: "rgba(255,255,255,0.18)" }} />
+        <div role="separator" style={{ height: 0.5, margin: "6px 16px", background: "var(--color-wash-3)" }} />
       ) : null}
       {extras.map(({ key, label, Icon, onSelect, disabled }) => (
         <MenuRow
@@ -167,7 +179,7 @@ function MenuRow({
         gap: 12,
         minHeight: ATTACH_MENU_ROW_PX,
         padding: "0 16px",
-        color: "#fff",
+        color: "var(--color-text-primary)",
         fontSize: 17,
         lineHeight: "22px",
       }}

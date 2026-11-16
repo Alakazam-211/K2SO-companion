@@ -41,11 +41,12 @@ import { useViewportHeight } from "../lib/useViewportHeight";
 import { PlusGlyph } from "./PlusGlyph";
 import { workspaceHandleOf } from "./composerAttach";
 import { useBackHandler } from "../lib/androidBack";
+import { useMenuGlassFill } from "./AttachMenu";
 
 /** Drawer width. The tree needs more room than the old resource list. */
 export const FILE_PANE_PX = 224;
 
-const ICON_BTN = { width: 28, height: 28, color: "#fff" } as const;
+const ICON_BTN = { width: 28, height: 28, color: "var(--color-text-primary)" } as const;
 
 /** The workspace folder the tree is rooted at: the agent's own path, or
  *  for a project chat its PoC member's workspace (`project-group/show`).
@@ -243,12 +244,12 @@ function FilePaneOpen() {
 
   return (
     <aside
-      className="flex flex-col h-full min-h-0 border-l border-[var(--border)] bg-[var(--surface)] shrink-0"
+      className="flex flex-col h-full min-h-0 border-l border-[var(--color-border)] bg-[var(--color-bg-surface)] shrink-0"
       style={{ width: FILE_PANE_PX }}
       aria-label="Files"
     >
-      <div className="flex items-center gap-1.5 pl-3 pr-1.5 h-11 border-b border-[var(--border)]">
-        <span className="flex-1 min-w-0 text-[15px] font-semibold text-[var(--text)]" data-testid="files-title">
+      <div className="flex items-center gap-1.5 pl-3 pr-1.5 h-11 border-b border-[var(--color-wash-2)]">
+        <span className="flex-1 min-w-0 text-[15px] font-semibold text-[var(--color-text-primary)]" data-testid="files-title">
           Files
         </span>
         <button
@@ -307,7 +308,7 @@ function FilePaneOpen() {
         <button
           type="button"
           onClick={toggleResources}
-          className={`w-full flex items-center gap-1.5 px-3 pt-2 pb-1.5 text-left text-[10px] text-[var(--text-muted)] tracking-widest bg-transparent border-0 ${source === "live" ? "" : "uppercase"}`}
+          className={`w-full flex items-center gap-1.5 px-3 pt-2 pb-1.5 text-left text-[10px] text-[var(--color-text-muted)] tracking-widest bg-transparent border-0 ${source === "live" ? "" : "uppercase"}`}
           aria-expanded={!resourcesCollapsed}
           aria-controls="files-resources-body"
           data-testid="resources-toggle"
@@ -339,15 +340,15 @@ function FilePaneOpen() {
           <div id="files-resources-body" data-testid="resources-body" className="pb-1">
             {files.length === 0 && source === "live" ? (
               <div className="k2-tile rounded-[14px] mx-2 mb-2 px-3 py-3" data-testid="resources-empty">
-                <div className="text-[12px] text-[var(--text)] font-medium">
+                <div className="text-[12px] text-[var(--color-text-primary)] font-medium">
                   {RESOURCES_EMPTY_TITLE}
                 </div>
-                <div className="mt-1 text-[11px] leading-4 text-[var(--text-muted)]">
+                <div className="mt-1 text-[11px] leading-4 text-[var(--color-text-muted)]">
                   {RESOURCES_EMPTY_LINE}
                 </div>
               </div>
             ) : files.length === 0 ? (
-              <div className="px-3 py-2 text-[12px] text-[var(--text-muted)]">
+              <div className="px-3 py-2 text-[12px] text-[var(--color-text-muted)]">
                 {source === "loading" ? "loading" : asErrorText(fileError, "empty")}
               </div>
             ) : (
@@ -374,10 +375,10 @@ function FilePaneOpen() {
                     aria-label={f.name}
                     className={`w-full flex items-start gap-1.5 text-left px-3 py-1.5 text-[12px] select-none ${
                       f.missing
-                        ? "text-[var(--text-muted)]"
+                        ? "text-[var(--color-text-muted)]"
                         : active
-                          ? "text-[var(--accent)]"
-                          : "text-[var(--text)]"
+                          ? "text-[var(--color-accent-text)]"
+                          : "text-[var(--color-text-primary)]"
                     }`}
                     style={{ WebkitTouchCallout: "none", WebkitUserSelect: "none", touchAction: "pan-y" }}
                   >
@@ -399,7 +400,7 @@ function FilePaneOpen() {
                         className={f.missing ? "line-through" : ""}
                       />
                       {sub ? (
-                        <span className="truncate text-[10px] leading-[14px] text-[var(--text-muted)]">{sub}</span>
+                        <span className="truncate text-[10px] leading-[14px] text-[var(--color-text-muted)]">{sub}</span>
                       ) : null}
                     </span>
                   </button>
@@ -411,7 +412,7 @@ function FilePaneOpen() {
         <div
           role="separator"
           className="mx-3 my-1 h-px"
-          style={{ background: "var(--tile-edge, var(--border))" }}
+          style={{ background: "var(--tile-edge, var(--color-border))" }}
           data-testid="resources-divider"
         />
         {root ? (
@@ -425,7 +426,7 @@ function FilePaneOpen() {
             />
           </div>
         ) : rootNote && source !== "stub" ? (
-          <div className="px-3 py-3 text-[11px] text-[var(--text-muted)]" data-testid="files-tree-note">
+          <div className="px-3 py-3 text-[11px] text-[var(--color-text-muted)]" data-testid="files-tree-note">
             {rootNote}
           </div>
         ) : null}
@@ -460,7 +461,7 @@ function FilePaneOpen() {
           <button
             type="button"
             className="w-full flex items-center gap-2 text-left zen-glass zen-glass-round"
-            style={{ minHeight: 40, padding: "0 12px", color: "var(--text)" }}
+            style={{ minHeight: 40, padding: "0 12px", color: "var(--color-text-primary)" }}
             data-testid="files-new-toggle"
             onClick={() => mkdirTarget && setNewFile({ scope, startDir: mkdirTarget })}
           >
@@ -559,7 +560,7 @@ function FilePaneOpen() {
       {drag
         ? createPortal(
             <div
-              className="fixed z-[80] pointer-events-none flex items-center gap-1.5 px-3 py-1.5 zen-glass zen-glass-pill text-[12px] text-white"
+              className="fixed z-[80] pointer-events-none flex items-center gap-1.5 px-3 py-1.5 zen-glass zen-glass-pill text-[12px] text-[var(--color-text-primary)]"
               style={{
                 left: drag.x,
                 top: drag.y,
@@ -582,7 +583,7 @@ function FilePaneOpen() {
         ? createPortal(
             <div
               role="status"
-              className="fixed left-1/2 z-[90] px-3 py-1.5 zen-glass zen-glass-pill text-[13px] text-white pointer-events-none"
+              className="fixed left-1/2 z-[90] px-3 py-1.5 zen-glass zen-glass-pill text-[13px] text-[var(--color-text-primary)] pointer-events-none"
               style={{ top: "calc(env(safe-area-inset-top) + 56px)", transform: "translateX(-50%)" }}
               data-testid="files-toast"
             >
@@ -619,8 +620,10 @@ function FileRowMenu({
   const below = !menu.rect || menu.rect.bottom + (pin ? 155 : 110) < vh;
   const top = menu.rect ? (below ? menu.rect.bottom + 4 : menu.rect.top - 4) : vh / 2;
   const right = menu.rect && typeof window !== "undefined" ? Math.max(8, window.innerWidth - menu.rect.right + 8) : 8;
-  const item = "w-full text-left px-4 py-2.5 text-[15px] text-white bg-transparent border-0";
+  const item = "w-full text-left px-4 py-2.5 text-[15px] text-[var(--color-text-primary)] bg-transparent border-0";
   useBackHandler(true, onClose);
+  // Its own darker glass on a dark palette; Veil's frost on light.
+  const menuFill = useMenuGlassFill("rgba(44, 44, 46, 0.82)");
   return (
     <div
       className="fixed inset-0 z-[70]"
@@ -642,10 +645,10 @@ function FileRowMenu({
           right,
           minWidth: 168,
           transform: below ? undefined : "translateY(-100%)",
-          background: "rgba(44,44,46,0.82)",
+          background: menuFill,
         }}
       >
-        <div className="px-4 pt-2 pb-1 text-[11px] text-[var(--text-muted)] flex items-center gap-1.5">
+        <div className="px-4 pt-2 pb-1 text-[11px] text-[var(--color-text-muted)] flex items-center gap-1.5">
           <span className="shrink-0 flex">
             <EntryIcon name={menu.name} isDirectory={menu.isDirectory} />
           </span>
@@ -658,7 +661,7 @@ function FileRowMenu({
           <button
             type="button"
             role="menuitem"
-            className={`${item} border-t border-[rgba(255,255,255,0.12)]`}
+            className={`${item} border-t border-[var(--color-wash-2)]`}
             onClick={onRename}
             data-testid="file-menu-rename"
           >
@@ -669,7 +672,7 @@ function FileRowMenu({
           <button
             type="button"
             role="menuitem"
-            className={`${item} border-t border-[rgba(255,255,255,0.12)]`}
+            className={`${item} border-t border-[var(--color-wash-2)]`}
             onClick={() => onPin(pin)}
             data-testid={pin === "add" ? "file-menu-resource-add" : "file-menu-resource-remove"}
           >
@@ -762,7 +765,7 @@ function NameSheetView({
   return (
     <div
       className="fixed top-0 left-0 right-0 z-[75] flex items-end justify-center"
-      style={{ background: "rgba(0,0,0,.5)", height: viewportHeight }}
+      style={{ background: "var(--color-scrim)", height: viewportHeight }}
       data-testid="files-name-sheet"
       onClick={(e) => {
         if (e.target === e.currentTarget && !busy) onClose();
@@ -777,10 +780,10 @@ function NameSheetView({
         }}
         onSubmit={submit}
       >
-        <div className="text-[15px] font-semibold text-[var(--text)]">
+        <div className="text-[15px] font-semibold text-[var(--color-text-primary)]">
           {sheet.kind === "mkdir" ? "New folder" : "Rename"}
         </div>
-        <div className="mt-0.5 mb-3 text-[12px] text-[var(--text-muted)] flex gap-1 min-w-0">
+        <div className="mt-0.5 mb-3 text-[12px] text-[var(--color-text-muted)] flex gap-1 min-w-0">
           <span className="shrink-0">in</span>
           <MiddleEllipsis text={displayPathUnder(dir, root)} title={dir} testId="files-sheet-target" />
         </div>
@@ -810,17 +813,17 @@ function NameSheetView({
           autoCapitalize="off"
           autoCorrect="off"
           spellCheck={false}
-          className="w-full px-3 py-2 text-[16px] rounded-lg k2-tile k2-tile-raised text-[var(--text)]"
+          className="w-full px-3 py-2 text-[16px] rounded-lg k2-tile k2-tile-raised text-[var(--color-text-primary)]"
         />
         {shownError ? (
-          <p className="mt-2 text-[12px]" style={{ color: "#ff453a" }} data-testid="files-name-error">
+          <p className="mt-2 text-[12px]" style={{ color: "var(--color-status-error-text)" }} data-testid="files-name-error">
             {shownError}
           </p>
         ) : null}
         <div className="flex justify-end gap-2 mt-3">
           <button
             type="button"
-            className="px-3 py-2 text-[14px] bg-transparent border-0 text-[var(--text-muted)]"
+            className="px-3 py-2 text-[14px] bg-transparent border-0 text-[var(--color-text-muted)]"
             onClick={onClose}
             disabled={busy}
           >
@@ -831,7 +834,7 @@ function NameSheetView({
             data-testid="files-name-save"
             disabled={busy || Boolean(invalid)}
             className="px-3 py-2 text-[14px] bg-transparent border-0 disabled:opacity-40"
-            style={{ color: "#0a84ff" }}
+            style={{ color: "var(--color-accent-text)" }}
           >
             {sheet.kind === "mkdir" ? "Create" : "Rename"}
           </button>

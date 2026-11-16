@@ -18,7 +18,7 @@ import {
 } from "../api/permissionConfirm";
 import { useBackHandler } from "../lib/androidBack";
 
-const MUTED = "#8e8e93";
+const MUTED = "var(--color-text-muted)";
 
 export type PermissionConfirmProps = {
   scope: ServerScope;
@@ -85,7 +85,7 @@ export function PermissionConfirmSheet({ scope, action, requestId, headline, onC
     }
   }
 
-  const field: CSSProperties = { width: "100%", minHeight: 44, padding: "0 14px", borderRadius: 10, color: "#fff", fontSize: 16 };
+  const field: CSSProperties = { width: "100%", minHeight: 44, padding: "0 14px", borderRadius: 10, color: "var(--color-text-primary)", fontSize: 16 };
   const busy = phase.kind === "busy";
   const label =
     phase.kind === "ready" || phase.kind === "busy"
@@ -97,7 +97,7 @@ export function PermissionConfirmSheet({ scope, action, requestId, headline, onC
   return createPortal(
     <div
       className="fixed inset-0 flex items-end justify-center"
-      style={{ background: "rgba(0,0,0,.45)", zIndex: 60, fontFamily: "var(--zen-font)" }}
+      style={{ background: "var(--color-scrim)", zIndex: 60, fontFamily: "var(--zen-font)" }}
       data-testid="permission-confirm"
       onClick={(e) => {
         if (e.target === e.currentTarget && !busy) onCancel();
@@ -113,7 +113,7 @@ export function PermissionConfirmSheet({ scope, action, requestId, headline, onC
           borderTopRightRadius: 14,
           padding: "16px 16px max(12px, var(--safe-bottom))",
           gap: 12,
-          color: "#fff",
+          color: "var(--color-text-primary)",
         }}
         onSubmit={(e) => {
           e.preventDefault();
@@ -154,7 +154,7 @@ export function PermissionConfirmSheet({ scope, action, requestId, headline, onC
           </label>
         )}
         {error ? (
-          <p className="text-[13px] text-center" role="alert" style={{ color: "#ff6961" }} data-testid="permission-confirm-error">
+          <p className="text-[13px] text-center" role="alert" style={{ color: "var(--color-status-error-text)" }} data-testid="permission-confirm-error">
             {error}
           </p>
         ) : null}
@@ -162,7 +162,7 @@ export function PermissionConfirmSheet({ scope, action, requestId, headline, onC
           <button
             type="button"
             className="flex-1 text-[17px] k2-tile"
-            style={{ minHeight: 44, borderRadius: 12, color: "#fff" }}
+            style={{ minHeight: 44, borderRadius: 12, color: "var(--color-text-primary)" }}
             disabled={busy}
             onClick={onCancel}
             data-testid="permission-confirm-cancel"
@@ -173,7 +173,7 @@ export function PermissionConfirmSheet({ scope, action, requestId, headline, onC
             <button
               type="submit"
               className="flex-1 text-[17px] font-semibold"
-              style={{ minHeight: 44, borderRadius: 12, color: "#fff", background: "#0a84ff", opacity: password && !busy ? 1 : 0.5 }}
+              style={{ minHeight: 44, borderRadius: 12, color: "var(--color-on-accent)", background: "var(--color-accent-fill)", opacity: password && !busy ? 1 : 0.5 }}
               disabled={!password || busy}
               data-testid="permission-confirm-allow"
             >
