@@ -454,15 +454,6 @@ html, body, #root {
 .zen-glass-merged-rim {
   background: var(--zen-glass-rim-paint, #fff);
 }
-:root[data-scheme="light"] {
-  --zen-glass-rim-paint: linear-gradient(
-    to bottom,
-    rgba(255, 255, 255, 0.95) 0%,
-    rgba(0, 0, 0, 0.2) 32%,
-    rgba(0, 0, 0, 0.2) 68%,
-    rgba(255, 255, 255, 0.95) 100%
-  );
-}
 /* Veil's soft drop under the merged outline (5px blur, 2px down). Hook for
    a layer HeaderGlass.tsx doesn't draw yet: `.zen-glass-merged-drop`
    holding one child masked with the FILL mask, under the fill. The blur
@@ -489,21 +480,12 @@ html, body, #root {
 :root[data-scheme="light"] [data-glass-merged] > .zen-glass-merged-drop {
   display: block;
 }
-/* Veil: the header's pieces keep their own glass and edge instead of the
-   merged outline (its rim mask carries dark-mode alphas, so the light ring
-   wouldn't show); the name pill no longer melts into a button it nears. */
-:root[data-scheme="light"] [data-glass-merged] > .zen-glass-merged-fill,
-:root[data-scheme="light"] [data-glass-merged] > .zen-glass-merged-rim,
-:root[data-scheme="light"] [data-glass-merged] > .zen-glass-merged-drop {
-  display: none;
-}
-:root[data-scheme="light"] [data-glass-merged] [data-glass-shape].zen-glass,
-:root[data-scheme="light"] [data-glass-merged] [data-glass-shape].zen-glass.k2-pressing {
-  background-color: var(--color-frost-fill);
-  -webkit-backdrop-filter: blur(28px) saturate(180%);
-  backdrop-filter: blur(28px) saturate(180%);
-  border-color: rgba(0, 0, 0, 0.06);
-  box-shadow: var(--k2-veil-edge);
+/* Veil: the merged outline stays (the pieces melt together as on dark);
+   its rim mask carries iOS's light edge (glassMerge.ts style "light": a 1px
+   line strongest where the outline faces sideways), painted dark here, and
+   the merged frost gets the same soft drop as a lone piece. */
+:root[data-scheme="light"] .zen-glass-merged-rim {
+  background: #000;
 }
 /* A header button being pressed grows on its own (usePressSpring, a
    transform), so the merged outline is never redrawn per frame. Its edge

@@ -48,10 +48,12 @@ export function HeaderGlass() {
         else buttons.push(s);
       }
       const dpr = Math.min(3, window.devicePixelRatio || 1);
-      const key = JSON.stringify([Math.round(base.width), Math.round(base.height), dpr, buttons, pill]);
+      // Veil draws iOS's light edge in the rim (glassMerge.ts).
+      const style = document.documentElement.getAttribute("data-scheme") === "light" ? "light" : "dark";
+      const key = JSON.stringify([Math.round(base.width), Math.round(base.height), dpr, buttons, pill, style]);
       if (key === lastKey) return;
       lastKey = key;
-      const masks = buttons.length || pill ? renderGlassMasks(base.width, base.height, dpr, buttons, pill) : null;
+      const masks = buttons.length || pill ? renderGlassMasks(base.width, base.height, dpr, buttons, pill, undefined, style) : null;
       if (!masks) {
         host.removeAttribute(GLASS_MERGED_ATTR);
         return;
@@ -77,8 +79,12 @@ export function HeaderGlass() {
       schedule();
     });
     mo.observe(host, { childList: true, subtree: true, attributes: true, attributeFilter: [GLASS_HIDDEN_ATTR] });
+    // Light <-> dark palette: the rim is drawn differently (glassMerge.ts).
+    const scheme = new MutationObserver(schedule);
+    scheme.observe(document.documentElement, { attributes: true, attributeFilter: ["data-scheme"] });
     schedule();
     return () => {
+      scheme.disconnect();
       if (frame) cancelAnimationFrame(frame);
       ro.disconnect();
       mo.disconnect();
