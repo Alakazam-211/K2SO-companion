@@ -80,14 +80,15 @@ describe("the native appearance bridge", () => {
     expect(nativeAppearanceAvailable()).toBe(false);
   });
 
-  it("initTheme tells native the stored mode with the page colours (default: Dark, Obsidian)", () => {
+  it("initTheme tells native the stored mode with the page colours (default: Auto, Obsidian by day, Dusk at night)", () => {
     onIphoneShell();
     initTheme();
-    expect(sent()).toEqual([{ mode: "dark", bg: "#0a0a0a", darkBg: "#0a0a0a", lightBg: "#fafafa" }]);
+    expect(sent()).toEqual([{ mode: "auto", bg: "#100f0e", darkBg: "#100f0e", lightBg: "#0a0a0a" }]);
   });
 
   it("initTheme sends a stored Light (Veil) and Dusk as the dark side", () => {
     localStorage.setItem(SCHEME_KEY, "light");
+    localStorage.setItem(paletteKey("light"), "veil");
     localStorage.setItem(paletteKey("dark"), "yellow");
     onIphoneShell();
     initTheme();
@@ -131,10 +132,11 @@ describe("the native appearance bridge", () => {
   });
 
   it("an unchanged look is not sent twice", () => {
+    useThemeStore.setState({ mode: "auto", dark: "yellow", light: "obsidian", shown: "yellow" });
     onIphoneShell();
     initTheme();
     initTheme();
-    useThemeStore.getState().setMode("dark");
+    useThemeStore.getState().setMode("auto");
     useThemeStore.getState().refresh();
     expect(sent()).toHaveLength(1);
   });

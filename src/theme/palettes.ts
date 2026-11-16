@@ -130,7 +130,10 @@ export const SCHEME_KEY = "k2.scheme";
 export const PALETTE_KEY = "k2.palette";
 export const paletteKey = (scheme: StyleScheme): string => `${PALETTE_KEY}.${scheme}`;
 
-export const DEFAULT_SELECTION: Readonly<ThemeSelection> = { mode: "dark", dark: "obsidian", light: "veil" };
+/** The phone's look before anyone picks (Riley 2026-11-16): Auto, with
+ *  Obsidian by day (the iPhone in Light) and Dusk at night (Dark). Both
+ *  dark, so the black launch screen fits either. A stored choice wins. */
+export const DEFAULT_SELECTION: Readonly<ThemeSelection> = { mode: "auto", dark: "yellow", light: "obsidian" };
 
 function read(key: string): string | null {
   try {
@@ -150,7 +153,7 @@ function write(key: string, value: string | null): void {
 }
 
 export function parseSchemeMode(raw: string | null): SchemeMode {
-  return raw === "light" || raw === "auto" ? raw : "dark";
+  return raw === "light" || raw === "dark" || raw === "auto" ? raw : DEFAULT_SELECTION.mode;
 }
 
 /** A side's palette: the stored one if it is for that side, else the

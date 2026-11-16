@@ -65,9 +65,10 @@ describe("the three Glass palettes", () => {
 });
 
 describe("the choice is per device, under desktop's keys", () => {
-  it("defaults to Dark with Obsidian, Veil for light", () => {
-    expect(readSelection()).toEqual({ mode: "dark", dark: "obsidian", light: "veil" });
+  it("defaults to Auto: Obsidian by day, Dusk at night (Riley 2026-11-16)", () => {
+    expect(readSelection()).toEqual({ mode: "auto", dark: "yellow", light: "obsidian" });
     expect(resolvePalette(readSelection(), true)).toBe("obsidian");
+    expect(resolvePalette(readSelection(), false)).toBe("yellow");
   });
 
   it("stores the mode and each side's palette, and mirrors the palette on screen", () => {
@@ -100,11 +101,11 @@ describe("the choice is per device, under desktop's keys", () => {
   it("any palette is kept on either side; junk falls back to the side's default", () => {
     localStorage.setItem("k2.palette.light", "obsidian");
     localStorage.setItem("k2.palette.dark", "veil");
-    expect(readSelection()).toEqual({ mode: "dark", dark: "veil", light: "obsidian" });
+    expect(readSelection()).toEqual({ mode: "auto", dark: "veil", light: "obsidian" });
     localStorage.setItem("k2.palette.light", "<script>");
     localStorage.setItem("k2.palette.dark", "sepia");
     localStorage.setItem(SCHEME_KEY, "sepia");
-    expect(readSelection()).toEqual({ mode: "dark", dark: "obsidian", light: "veil" });
+    expect(readSelection()).toEqual({ mode: "auto", dark: "yellow", light: "obsidian" });
   });
 
   it("each palette keeps its own accent (k2.accent.glass.<palette>); junk is the default", () => {
