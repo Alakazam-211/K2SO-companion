@@ -36,6 +36,11 @@ set -euo pipefail
 #   exportArchive signs it here with the entitlements files. Node:
 #   K2_IOS_BUILD_NODE (default build-node). Same checks as a local build, plus
 #   the exported IPA's entitlements.
+# Where it lands: an upload pushes HEAD to origin/main and tags v<version>,
+#   so it must run from main or release-<version>. A test-track TestFlight
+#   build from any other branch: RELEASE_BRANCH=<branch> NO_TAG=1 (the
+#   script refuses otherwise, and refuses a "never merge" commit on main
+#   or a tag). A hotfix from an older line: RELEASE_BRANCH=release-<x>.
 # VOICE_CRYPTO=1: the voice build. See "Export compliance" in Step 2.
 #   EXPORT_COMPLIANCE_CODE=<code> adds the code App Store Connect issues
 #   once encryption documentation is approved (see there).
@@ -45,6 +50,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+ORIG_ARGS="$*"
 NO_UPLOAD=""
 SIZE_REPORT=""
 REMOTE_BUILD=""
@@ -116,6 +122,45 @@ if ! git -C "$PROJECT_DIR" diff --quiet -- ':!src-tauri/icons' ':!src-tauri/gen/
   echo "Error: Working tree has uncommitted changes. Commit or stash first."
   git -C "$PROJECT_DIR" status --short
   exit 1
+fi
+
+# Where this run lands (a guard, not a reminder: K2, 2026-11-16, after a
+# test-track session build was pushed to main and tagged). An upload ends
+# by pushing HEAD to origin/${RELEASE_BRANCH:-main} and tagging v<version>
+# (unless NO_TAG=1). So, before anything is changed:
+#   - Landing on main: only from main itself or release-<version> (the
+#     shipping line). Any other branch is a test-track build: run it with
+#     RELEASE_BRANCH=<its branch> NO_TAG=1.
+#   - Tagging: only main or a release-* line takes the version's tag.
+#   - Never anything carrying a "never merge" commit onto main or a tag.
+if [ -z "$NO_UPLOAD" ]; then
+  CUR_BRANCH="$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD)"
+  TARGET_BRANCH="${RELEASE_BRANCH:-main}"
+  if [ "$TARGET_BRANCH" = "main" ] && [ "$CUR_BRANCH" != "main" ] && [ "$CUR_BRANCH" != "release-$VERSION" ]; then
+    if [ -n "${NO_TAG:-}" ]; then
+      echo "Error: this run would push $CUR_BRANCH to GitHub main."
+    else
+      echo "Error: this run would push $CUR_BRANCH to GitHub main and tag v$VERSION."
+    fi
+    echo "  Shipping $VERSION: run it from main or release-$VERSION."
+    echo "  A TestFlight-only (test-track) build: RELEASE_BRANCH=$CUR_BRANCH NO_TAG=1 $0 $ORIG_ARGS"
+    exit 1
+  fi
+  if [ -z "${NO_TAG:-}" ] && [ "$TARGET_BRANCH" != "main" ] && [ "${TARGET_BRANCH#release-}" = "$TARGET_BRANCH" ]; then
+    echo "Error: only main or a release-* line takes the v$VERSION tag; $TARGET_BRANCH is a test track."
+    echo "  Run it with NO_TAG=1: RELEASE_BRANCH=$TARGET_BRANCH NO_TAG=1 $0 $ORIG_ARGS"
+    exit 1
+  fi
+  if [ "$TARGET_BRANCH" = "main" ] || [ -z "${NO_TAG:-}" ]; then
+    git -C "$PROJECT_DIR" fetch -q origin main 2>/dev/null || true
+    NEVER="$(git -C "$PROJECT_DIR" log --format='%h %s' -i --grep='never merge' origin/main..HEAD 2>/dev/null || true)"
+    if [ -n "$NEVER" ]; then
+      echo "Error: HEAD carries a never-merge commit, so it can't land on $TARGET_BRANCH or take a tag:"
+      echo "$NEVER" | sed 's/^/  /'
+      echo "  A test-track build: RELEASE_BRANCH=$CUR_BRANCH NO_TAG=1 $0 $ORIG_ARGS"
+      exit 1
+    fi
+  fi
 fi
 
 # Noise removal's DeepFilterNet3 weights (39 MB, not in git): downloaded
