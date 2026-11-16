@@ -15,7 +15,9 @@ set -euo pipefail
 #   1. Bumps version in package.json, tauri.conf.json, Info.plist,
 #      Cargo.toml and project.yml
 #   2. Stamps a unique timestamp build number
-#   3. Builds frontend + iOS archive
+#   3. Builds frontend + iOS archive (after scripts/fetch-dfn3.sh has
+#      fetched and verified the noise removal weights; the archive's
+#      copy is verified too)
 #   4. Exports App Store IPA
 #   5. Uploads to App Store Connect
 #   6. Commits, tags, and pushes HEAD to origin/main + the tag
@@ -104,6 +106,12 @@ if ! git -C "$PROJECT_DIR" diff --quiet -- ':!src-tauri/icons' ':!src-tauri/gen/
   git -C "$PROJECT_DIR" status --short
   exit 1
 fi
+
+# Noise removal's DeepFilterNet3 weights (39 MB, not in git): downloaded
+# from Sew's release and checked against their pinned sha256s, before
+# anything is changed. A mismatch stops the release here; the archive is
+# checked again after the build.
+"$SCRIPT_DIR/fetch-dfn3.sh"
 
 # Generate unique build number (YYYYMMDDHHmm)
 BUILD_NUMBER="$(date +%Y%m%d%H%M)"
@@ -266,6 +274,12 @@ if [ ! -d "$ARCHIVE_PATH" ]; then
   exit 1
 fi
 echo "  ✓ Archive built"
+# The weights must be in the app, unaltered (tauri.ios.conf.json bundles
+# src-tauri/resources/dfn3/ as assets/dfn3/, the plugin's default place).
+if ! "$SCRIPT_DIR/fetch-dfn3.sh" --verify "$ARCHIVE_PATH/Products/Applications/K2.app/assets/dfn3"; then
+  echo "Error: the archived app lacks verified DeepFilterNet3 weights (assets/dfn3)."
+  exit 1
+fi
 if [ -n "${VOICE_CRYPTO:-}" ] && [ -n "${EXPORT_COMPLIANCE_CODE:-}" ]; then
   # The flag must reach the binary: tauri merges Info.ios.plist on build.
   ARCHIVED_ITS="$(/usr/libexec/PlistBuddy -c 'Print :ITSAppUsesNonExemptEncryption' "$ARCHIVE_PATH/Products/Applications/K2.app/Info.plist" 2>/dev/null || true)"

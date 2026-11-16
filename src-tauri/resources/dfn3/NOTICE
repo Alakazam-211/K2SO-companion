@@ -1,0 +1,30 @@
+DeepFilterNet3 (low-latency variant) model weights: dfn3_ll.nnef.tar
+
+Copyright (c) 2021 Hendrik Schröter
+DeepFilterNet (https://github.com/Rikorose/DeepFilterNet) is the work of Hendrik Schröter and the
+DeepFilterNet authors.
+
+Licensed under either of the MIT license (LICENSE-MIT, the authors' text, unchanged) or the
+Apache License, Version 2.0 (LICENSE-APACHE, the authors' text, unchanged), at your option.
+
+Converted by Alakazam Labs. The file dfn3_ll.nnef.tar is a modified form of
+DeepFilterNet3_ll_onnx.tar.gz from the authors' repository (models/, commit
+978576aa8400552a4ce9730838c635aa30db5e61, the v0.5.6 tag): the ONNX graphs' float32 weights
+were renamed and stored as NNEF tensor files, values unchanged, with an NNEF graph that declares
+them; the graphs' operators are not included. The archive's README.txt says the same.
+
+Sew's noise removal (the sew-noise crate, cargo feature dfn3) runs this model with its own
+inference code.
+
+From the authors' README (at commit 978576aa8400552a4ce9730838c635aa30db5e61), word for word:
+
+If you use the DeepFilterNet3 model, please cite: *DeepFilterNet: Perceptually Motivated Real-Time Speech Enhancement*
+
+```bibtex
+@inproceedings{schroeter2023deepfilternet3,
+  title = {{DeepFilterNet}: Perceptually Motivated Real-Time Speech Enhancement},
+  author = {Schröter, Hendrik and Rosenkranz, Tobias and Escalante-B., Alberto N. and Maier, Andreas},
+  booktitle={INTERSPEECH},
+  year = {2023},
+}
+```

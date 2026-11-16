@@ -27,4 +27,6 @@ pbjson	0.9.0	MIT	ok	influxdata/pbjson@48ee5989564e0ace82ad71b87736d3d1b2e0e1cd	L
 pbjson-build	0.9.0	MIT	ok	influxdata/pbjson@48ee5989564e0ace82ad71b87736d3d1b2e0e1cd	LICENSE
 pbjson-types	0.9.0	MIT	ok	influxdata/pbjson@48ee5989564e0ace82ad71b87736d3d1b2e0e1cd	LICENSE
 sonora-aec3	0.2.0	BSD-3-Clause	ok	dignifiedquire/sonora@a024d6ef8351add55be5e8b1d6cc35f555787660	LICENSE
+str0m-aws-lc-rs	0.7.0	MIT OR Apache-2.0	ok	algesten/str0m@5f2183ce7c67117cd1960dfeb11bed11fc188b66	LICENSE-MIT.txt
+str0m-proto	0.8.0	MIT OR Apache-2.0	ok	algesten/str0m@5f2183ce7c67117cd1960dfeb11bed11fc188b66	LICENSE-MIT.txt
 strictdom	1.0.1	MIT	none	wilsonpage/strictdom@v1.0.1	

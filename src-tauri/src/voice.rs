@@ -184,6 +184,16 @@ pub fn plugin(native: &Native) -> tauri::plugin::TauriPlugin<Wry> {
         .name("k2-pip".into())
         .spawn(move || pip_loop(&mut pip_sink, pip_rx))
         .expect("the PiP thread starts");
+    // Noise removal (feature `dfn3`): the plugin loads DeepFilterNet3's
+    // weights on a thread of its own at start, from its default place,
+    // `dfn3/dfn3_ll.nnef.tar` in the app's resource directory (iOS:
+    // K2.app/assets/dfn3/), where tauri.ios.conf.json bundles
+    // src-tauri/resources/dfn3/ (scripts/fetch-dfn3.sh). `dfn3_weights`
+    // isn't needed for that place (the resource directory is only known
+    // once the app runs); missing or altered weights leave Standard on
+    // RNNoise. The person's On/Off is the webview's (noiseRemoval.ts): it
+    // sets `set_noise_removal` before each join; until then the engine's
+    // default is Standard.
     tauri_plugin_sew_voice::Builder::new(K2Provider::new(native.clone()))
         .listener(Arc::new(CallKitBridge { tx, watch, native: native.clone(), held: AtomicBool::new(false) }))
         .hardware_device_key(Arc::new(EnclaveKey { native: native.clone() }))
@@ -1822,6 +1832,22 @@ mod tests {
             v["recording_notice"] = n;
         }
         serde_json::from_value(v).unwrap()
+    }
+
+    /// The DeepFilterNet3 weights are where the plugin looks by default
+    /// (`dfn3/<DFN3_WEIGHTS_FILE>` in the resource directory), and
+    /// scripts/fetch-dfn3.sh pins the file Sew's loader accepts.
+    #[test]
+    fn dfn3_weights_bundle_where_the_plugin_looks() {
+        let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"));
+        let conf: Value =
+            serde_json::from_str(&std::fs::read_to_string(root.join("tauri.ios.conf.json")).unwrap()).unwrap();
+        assert_eq!(conf["bundle"]["resources"], json!({ "resources/dfn3/*": "dfn3/" }));
+        assert_eq!(sew_call_client::DFN3_WEIGHTS_FILE, "dfn3_ll.nnef.tar");
+        let script = std::fs::read_to_string(root.join("../scripts/fetch-dfn3.sh")).unwrap();
+        assert!(script.contains(&format!("\nWEIGHTS=\"{}\"\n", sew_call_client::DFN3_WEIGHTS_FILE)));
+        let pinned = format!("\"$WEIGHTS {}\"", sew_noise::dfn3::WEIGHTS_SHA256);
+        assert!(script.contains(&pinned), "fetch-dfn3.sh must pin {pinned}");
     }
 
     #[test]

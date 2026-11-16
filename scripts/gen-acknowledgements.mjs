@@ -140,6 +140,7 @@ for (const p of pkgs) {
 
 const fontDir = join(ROOT, "src/assets/fonts");
 const fontFiles = readdirSync(join(fontDir, "licenses")).sort();
+const dfn3Dir = join(ROOT, "src-tauri/resources/dfn3");
 const section = (title, body) => `${rule()}\n${title}\n${rule()}\n\n${body.trim()}\n`;
 
 const parts = [
@@ -149,6 +150,12 @@ const parts = [
   section("Bundled: LLM provider icons (Lobe Icons)", read(join(ROOT, "src/assets/llm/NOTICE.md"))),
   section("Bundled: terminal key tables, ported from Orca", read(join(ROOT, "src/lib/terminalKeys.ts")).split("\n").filter((l) => l.startsWith("//")).map((l) => l.replace(/^\/\/ ?/, "")).join("\n")),
   section("Bundled: MesloLGM Nerd Font Mono", read(join(fontDir, "NOTICE.md"))),
+  // Noise removal's model weights (src-tauri/resources/dfn3, bundled as a
+  // resource; scripts/fetch-dfn3.sh checks the tarball's copies match).
+  section(
+    "Bundled: DeepFilterNet3 noise removal model (MIT OR Apache-2.0)",
+    ["NOTICE", "LICENSE-MIT", "LICENSE-APACHE"].map((f) => tidy(read(join(dfn3Dir, f)))).join(`\n\n${rule("-")}\n\n`)
+  ),
   ...fontFiles.map((f) => section(`Font licence: ${f}`, read(join(fontDir, "licenses", f)))),
   section(
     "Packages",

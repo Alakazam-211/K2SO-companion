@@ -28,6 +28,14 @@ describe("public/acknowledgements.txt", () => {
     expect(text).toContain("LiveKit");
   });
 
+  it("carries DeepFilterNet3's notice and licences (noise removal's bundled weights)", () => {
+    expect(text).toContain("Bundled: DeepFilterNet3 noise removal model (MIT OR Apache-2.0)");
+    expect(text).toContain("Copyright (c) 2021 Hendrik Schröter");
+    expect(text).toContain("Converted by Alakazam Labs");
+    expect(text).toMatch(/sew-noise 0\.10\.2 \(crate\): MIT OR Apache-2\.0/);
+    expect(text).toMatch(/nnnoiseless [\d.]+ \(crate\): BSD-3-Clause/);
+  });
+
   it("names K2 as MIT and ships no FSL package", () => {
     expect(text).toContain("MIT License\n\nCopyright (c) 2025-2026 Alakazam Labs");
     expect(text).not.toContain("sew-crypto");

@@ -10,6 +10,12 @@ src-tauri/target/
 # build outputs + signing secrets are excluded by src-tauri/gen/android/.gitignore
 src-tauri/gen/android/keystore.properties
 src-tauri/gen/apple/build/
+# Tauri copies bundle.resources (tauri.ios.conf.json) here on each iOS build.
+src-tauri/gen/apple/assets/
+# DeepFilterNet3 weights (39 MB): scripts/fetch-dfn3.sh downloads and
+# verifies them. NOTICE and the licence files beside them are committed.
+src-tauri/resources/dfn3/dfn3_ll.nnef.tar
+src-tauri/resources/dfn3/*.part
 
 # macOS
 .DS_Store
