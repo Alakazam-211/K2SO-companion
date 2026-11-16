@@ -211,9 +211,11 @@ final class NotificationService: UNNotificationServiceExtension {
         m.body = state == "answered" ? "Answered on another device" : state == "missed" ? "Missed call" : "Call ended"
       }
       // The relay's clear aps gives every sealed push the default sound:
-      // the replacement must not ring again.
+      // the replacement must not ring again. Passive, as K2 0.46.13 sends
+      // it with call-aps (no screen wake); set here so a relay without
+      // call-aps behaves the same.
       m.sound = nil
-      m.interruptionLevel = .active
+      m.interruptionLevel = .passive
     }
     return m
   }
@@ -227,6 +229,7 @@ final class NotificationService: UNNotificationServiceExtension {
     else { return nil }
     if category == callDoneCategory {
       m.sound = nil
+      m.interruptionLevel = .passive
     } else {
       m.categoryIdentifier = ""
     }
