@@ -13,17 +13,13 @@
   border: 1px solid var(--tile-edge);
   box-shadow: var(--tile-sheen);
 }
-/* Small avatars (terminal header, 28px): same 1px rim, softer sheen. */
+/* Small avatars (terminal header, 28px): same 1px rim, softer sheen (the
+   palette's ring edge: white 14% on dark). */
 .k2-avatar-sm .k2-avatar-glass {
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
-}
-@supports (color: color-mix(in srgb, red, blue)) {
-  .k2-avatar-sm .k2-avatar-glass {
-    box-shadow: inset 0 1px 0 color-mix(in srgb, white 12%, transparent);
-  }
+  box-shadow: inset 0 1px 0 var(--color-ring-edge);
 }
 @media (prefers-reduced-transparency: reduce) {
   .k2-avatar-glass {
-    border-color: var(--card-border);
+    border-color: var(--color-border);
   }
 }

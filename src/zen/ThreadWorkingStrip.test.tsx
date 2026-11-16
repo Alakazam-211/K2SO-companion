@@ -194,12 +194,12 @@ describe("ThreadWorkingStrip drawer", () => {
     expect(base).toMatch(/background: var\(--k2-tag-fill\)/);
     expect(base).toMatch(/color: var\(--k2-tag-ink\)/);
     const hues: Record<string, string> = {
-      subagents: "var(--accent)",
-      cmd: "var(--success)",
-      edit: "var(--warning)",
+      subagents: "var(--color-accent)",
+      cmd: "var(--color-status-ok)",
+      edit: "var(--color-status-warn)",
       read: "#2dd4bf",
       search: "var(--group-5)",
-      background: "var(--text-muted)",
+      background: "var(--color-neutral)",
     };
     const fills = new Set<string>();
     for (const [key, hue] of Object.entries(hues)) {
@@ -234,7 +234,7 @@ describe("ThreadWorkingStrip drawer", () => {
     fireEvent.click(toggle());
     check(screen.getByTestId("thread-strip-step-full").querySelector("code"));
     const code = drawerCss.match(/\n\.k2-drawer-code \{([^}]*)\}/g)!.join("");
-    expect(code).toContain("--k2-tag-fill: rgba(228, 228, 231, 0.11);");
+    expect(code).toContain("--k2-tag-fill: var(--color-wash-2);");
     expect(code).toContain("color: inherit;");
   });
 

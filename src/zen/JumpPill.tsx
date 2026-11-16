@@ -16,14 +16,23 @@ export const JUMP_PILL_TEXT: Record<JumpPillWords, string> = {
 };
 
 const PAD_X = 14;
-/** The pill's fill: zen-glass's 10% white tint over a 60% dark layer (K2
- *  desktop, from K2 Design 2026-11-16). Over your own blue bubble the plain
- *  tint left white text about 3:1 (about 1:1 over a white image); with the
- *  layer it's about 9:1, and it still reads as the same glass on the dark
- *  canvas. The blur and edge stay zen-glass's. */
+/** The pill's fill, as K2 desktop's (from K2 Design 2026-11-16): on dark,
+ *  zen-glass's 10% white tint over a 60% dark layer. Over your own blue
+ *  bubble the plain tint left white text about 3:1 (about 1:1 over a white
+ *  image); with the layer it's about 9:1, and it still reads as the same
+ *  glass on the dark canvas. On light (Veil): the 72% white Frost, no dark
+ *  layer, dark words and a 45% dark rim. The values are index.css's
+ *  `--jump-pill-*` (per scheme); the fallbacks here are dark's. The blur
+ *  stays zen-glass's. */
+export const JUMP_PILL_DARK = {
+  tint: "rgba(255, 255, 255, 0.1)",
+  scrim: "rgba(0, 0, 0, 0.6)",
+} as const;
+const TINT = `var(--jump-pill-tint, ${JUMP_PILL_DARK.tint})`;
 export const JUMP_PILL_FILL = {
-  backgroundImage: "linear-gradient(rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.1))",
-  backgroundColor: "rgba(0, 0, 0, 0.6)",
+  backgroundImage: `linear-gradient(${TINT}, ${TINT})`,
+  backgroundColor: `var(--jump-pill-scrim, ${JUMP_PILL_DARK.scrim})`,
+  color: "var(--jump-pill-ink, #fff)",
 } as const;
 const WIDTH_MS = 220;
 
@@ -60,12 +69,11 @@ export function JumpPill({
       type="button"
       data-testid="thread-new-message"
       data-words={words}
-      className="pointer-events-auto zen-glass zen-glass-pill zen-pill-in text-[13px] flex items-center justify-center"
+      className="pointer-events-auto zen-glass zen-glass-pill zen-jump-pill zen-pill-in text-[13px] flex items-center justify-center"
       style={{
         minHeight: 32,
         padding: 0,
         ...JUMP_PILL_FILL,
-        color: "#fff",
         overflow: "hidden",
         whiteSpace: "nowrap",
         ...(width !== null ? { width } : { padding: `0 ${PAD_X}px` }),

@@ -92,7 +92,9 @@
    small filled pill with no border or outline. Each kind has its own
    muted tint: the fill is its hue at ~16% alpha, the icon and number the
    same hue lightened to ~85%. Plain rgba/hex first for iOS 15–16.1 (no
-   color-mix); the @supports block below derives both from the tokens. */
+   color-mix; worked out for Obsidian's hues); the @supports block below
+   derives both from the tokens. On a light palette the ink darkens instead
+   (the light-scheme rules after it). */
 .k2-drawer-tag {
   border: 0;
   outline: 0;
@@ -116,19 +118,19 @@
   box-decoration-break: clone;
 }
 .k2-drawer-tag-subagents {
-  --k2-tag-hue: var(--accent);
-  --k2-tag-fill: rgba(34, 211, 238, 0.16);
-  --k2-tag-ink: #a7edf8;
+  --k2-tag-hue: var(--color-accent);
+  --k2-tag-fill: rgba(10, 132, 255, 0.16);
+  --k2-tag-ink: #9dceff;
 }
 .k2-drawer-tag-cmd {
-  --k2-tag-hue: var(--success);
-  --k2-tag-fill: rgba(34, 197, 94, 0.16);
-  --k2-tag-ink: #a7e7be;
+  --k2-tag-hue: var(--color-status-ok);
+  --k2-tag-fill: rgba(48, 209, 88, 0.16);
+  --k2-tag-ink: #acedbc;
 }
 .k2-drawer-tag-edit {
-  --k2-tag-hue: var(--warning);
-  --k2-tag-fill: rgba(245, 158, 11, 0.16);
-  --k2-tag-ink: #fbd9a1;
+  --k2-tag-hue: var(--color-status-warn);
+  --k2-tag-fill: rgba(255, 159, 10, 0.16);
+  --k2-tag-ink: #ffd99d;
 }
 .k2-drawer-tag-read {
   --k2-tag-hue: #2dd4bf;
@@ -141,12 +143,12 @@
   --k2-tag-ink: #dcbbfc;
 }
 .k2-drawer-tag-background {
-  --k2-tag-hue: var(--text-muted);
-  --k2-tag-fill: rgba(113, 113, 122, 0.18);
-  --k2-tag-ink: #c6c6ca;
+  --k2-tag-hue: var(--color-neutral);
+  --k2-tag-fill: rgba(142, 142, 147, 0.18);
+  --k2-tag-ink: #d2d2d4;
 }
 .k2-drawer-code {
-  --k2-tag-fill: rgba(228, 228, 231, 0.11);
+  --k2-tag-fill: var(--color-wash-2);
   color: inherit;
 }
 @supports (color: color-mix(in srgb, red, blue)) {
@@ -157,7 +159,23 @@
   .k2-drawer-tag-background {
     --k2-tag-fill: color-mix(in srgb, var(--k2-tag-hue) 18%, transparent);
   }
-  .k2-drawer-code {
-    --k2-tag-fill: color-mix(in srgb, var(--text) 11%, transparent);
-  }
+}
+/* Light palettes: the hue lightened toward white would vanish on a white
+   tile, so the ink takes each kind's legible text colour (the fill stays
+   the hue at 16–18%). */
+:root[data-scheme="light"] .k2-drawer-tag-subagents {
+  --k2-tag-ink: var(--color-accent-text);
+}
+:root[data-scheme="light"] .k2-drawer-tag-cmd {
+  --k2-tag-ink: var(--color-status-ok-soft);
+}
+:root[data-scheme="light"] .k2-drawer-tag-edit {
+  --k2-tag-ink: var(--color-status-warn-text);
+}
+:root[data-scheme="light"] .k2-drawer-tag-read,
+:root[data-scheme="light"] .k2-drawer-tag-search {
+  --k2-tag-ink: var(--color-text-secondary);
+}
+:root[data-scheme="light"] .k2-drawer-tag-background {
+  --k2-tag-ink: var(--color-text-muted);
 }

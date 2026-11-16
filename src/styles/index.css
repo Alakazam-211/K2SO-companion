@@ -1,62 +1,70 @@
 @import "tailwindcss";
 
-/* Palette + radius: THIS FILE.
-   Colours: the :root block below.
-   Radius: --radius (0 today — square. Raise it for glass).
-   Surfaces that fight glass are named, not restyled: --root, --chrome
-   are the same hex as --background. */
+/* Colours come from K2 desktop Glass's palettes (src/theme/palettes.ts
+   stamps every `--color-*` token on <html>, with any chosen accent; map:
+   docs/glass-palettes-conversion.md). New code uses the tokens directly.
+   The names below are the phone's older ones, kept as aliases onto the
+   tokens so every screen follows the palette until it is converted.
+   Radius: --radius (0 today — square). */
 
 :root {
-  --background: #0a0a0a;
-  --surface: #111111;
-  --border: #1a1a1a;
-  --border-hover: #333333;
-  --text: #e4e4e7;
-  --text-secondary: #a1a1aa;
-  --text-muted: #71717a;
-  --accent: #22d3ee;
-  --accent-dim: #0e7490;
-  --success: #22c55e;
-  --warning: #f59e0b;
-  --error: #ef4444;
+  /* The page, cards and lines. */
+  --background: var(--color-bg);
+  --root: var(--color-bg);
+  --chrome: var(--color-bg);
+  --surface: var(--color-bg-surface);
+  --card: var(--color-bg-surface);
+  --border: var(--color-border);
+  --card-border: var(--color-border);
+  --border-hover: var(--color-border-strong);
 
-  /* Opaque chrome (TabBar, headers) and the document fill.
-     Same hex as --background today. Change these for glass; do not
-     change --background unless the page fill should move too. */
-  --root: #0a0a0a;
-  --chrome: #0a0a0a;
+  /* Words. */
+  --text: var(--color-text-primary);
+  --text-secondary: var(--color-text-secondary);
+  --text-muted: var(--color-text-muted);
 
-  /* List cards that used to hardcode #1c1c1e / #333 */
-  --card: #1c1c1e;
-  --card-border: #333333;
+  /* The accent. The old --accent was a cyan (#22d3ee) from the first UI;
+     every use left is words or an icon (links, checkmarks, a picked file,
+     "monitoring"), so it is the accent as text. --accent-dim was its dark
+     outline: now the accent itself (a thin ring). */
+  --accent: var(--color-accent-text);
+  --accent-dim: var(--color-accent);
+  /* No translucent accent without color-mix (iOS 15); unused today. */
+  --accent-08: var(--color-wash-1);
 
-  /* Primary buttons that used to be bg-white / text-black / gray-200 */
-  --button: #ffffff;
-  --button-text: #000000;
-  --button-hover: oklch(92.8% 0.006 264.531);
+  --success: var(--color-status-ok);
+  --warning: var(--color-status-warn);
+  --error: var(--color-status-error);
 
-  /* White glyphs on a coloured fill (avatars, thumbs) */
+  /* The old inverse button (unused today): ink on the page colour. */
+  --button: var(--color-text-primary);
+  --button-text: var(--color-bg);
+  --button-hover: var(--color-text-secondary);
+
+  /* White glyphs on an identity colour (avatars, thumbs): white in every
+     palette, not the accent's label colour. */
   --on-fill: #ffffff;
 
-  --overlay: rgba(0, 0, 0, 0.6);
-  --overlay-rail: rgba(0, 0, 0, 0.5);
-  --shadow: rgba(0, 0, 0, 0.35);
-  --accent-08: rgba(34, 211, 238, 0.08);
+  --overlay: var(--color-scrim);
+  --overlay-rail: var(--color-scrim);
+  --shadow: var(--color-shadow-soft);
+  --shadow-50: var(--color-shadow);
+  /* Amber washes: no translucent warning token, and amber at 10–15% reads
+     on dark and light alike. */
   --warning-10: rgba(245, 158, 11, 0.1);
-  --wash-04: rgba(255, 255, 255, 0.04);
-  --wash-05: rgba(255, 255, 255, 0.05);
-  --wash-08: rgba(255, 255, 255, 0.08);
-  --scroll-thumb: rgba(255, 255, 255, 0.25);
-  --scroll-thumb-hover: rgba(255, 255, 255, 0.4);
-  --wash-15: rgba(255, 255, 255, 0.15);
-  --wash-20: rgba(255, 255, 255, 0.2);
   --warning-15: rgba(245, 158, 11, 0.15);
-  --term-muted: rgba(224, 224, 224, 0.7);
-  --root-75: rgba(10, 10, 10, 0.75);
-  --root-85: rgba(10, 10, 10, 0.85);
-  --root-92: rgba(10, 10, 10, 0.92);
-  --selection: rgba(96, 165, 250, 0.35);
-  --shadow-50: rgba(0, 0, 0, 0.5);
+  --wash-04: var(--color-wash-1);
+  --wash-05: var(--color-wash-1);
+  --wash-08: var(--color-bg-hover);
+  --wash-15: var(--color-wash-2);
+  --wash-20: var(--color-wash-3);
+  --scroll-thumb: var(--color-scrollbar-thumb-strong);
+  --scroll-thumb-hover: var(--color-scrollbar-thumb-strong-hover);
+  --term-muted: var(--color-text-muted);
+  --root-75: rgba(var(--k2-page-rgb), 0.75);
+  --root-85: rgba(var(--k2-page-rgb), 0.85);
+  --root-92: rgba(var(--k2-page-rgb), 0.92);
+  --selection: var(--color-selection);
 
   --group-1: #3b82f6;
   --group-2: #ef4444;
@@ -82,6 +90,34 @@
   --author-name-l: 72%;
 }
 
+/* The page colour as bare RGB channels, for the see-through ramps (header,
+   footer and key-row tints; the terminal overlays) as `rgba(var(--k2-page-rgb),
+   a)`: iOS 15 has no color-mix(). Mirrors each palette's `color.bg`. */
+:root,
+:root[data-palette="obsidian"] {
+  --k2-page-rgb: 10, 10, 10;
+}
+:root[data-palette="veil"] {
+  --k2-page-rgb: 250, 250, 250;
+}
+:root[data-palette="yellow"] {
+  --k2-page-rgb: 16, 15, 14;
+}
+
+/* The accent as words or an icon. palettes.ts stamps it only for a chosen
+   accent; for the palette's own blue, desktop's values (Glass overrides.css:
+   Obsidian lightens it a little, Veil darkens it to read on white), here
+   with the mix already worked out. A stamped value (inline) wins. */
+:root {
+  --color-accent-text: var(--color-accent);
+}
+:root[data-palette="obsidian"] {
+  --color-accent-text: #409fff; /* #0a84ff 78% with white */
+}
+:root[data-palette="veil"] {
+  --color-accent-text: #086acc; /* #0a84ff 80% with black */
+}
+
 /* Square today. One class so --radius reaches every card/panel. */
 .theme-radius {
   border-radius: var(--radius);
@@ -99,8 +135,9 @@ html, body, #root {
   height: 100%;
   width: 100%;
   overflow: hidden;
-  background: var(--root);
-  color: var(--text);
+  /* Fallbacks: Obsidian, for a frame before main.tsx stamps the palette. */
+  background: var(--color-bg, #0a0a0a);
+  color: var(--color-text-primary, #ffffff);
   font-family: "SF Mono", "Fira Code", "JetBrains Mono", "Cascadia Code", ui-monospace, monospace;
 }
 
@@ -211,7 +248,7 @@ html, body, #root {
   box-shadow: 0 3px 8px rgba(0, 0, 0, 0.15), 0 1px 1px rgba(0, 0, 0, 0.16), 0 0 0 0.5px rgba(0, 0, 0, 0.04);
 }
 .zen-text-slider:focus-visible::-webkit-slider-thumb {
-  box-shadow: 0 0 0 3px var(--accent), 0 3px 8px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 0 0 3px var(--color-accent), 0 3px 8px rgba(0, 0, 0, 0.15);
 }
 .zen-text-slider::-moz-range-track {
   height: 44px;
@@ -327,13 +364,34 @@ html, body, #root {
   }
 }
 
-/* Overlay Chats chrome — iOS liquid glass on dark. */
+/* Overlay Chats chrome — iOS liquid glass: the palette's Frost (white 10%,
+   a 22% rim and a 28% light catch on dark; Veil's milky 72% white, a
+   #eaeaea rim and a 90% catch). */
 .zen-glass {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--color-frost-fill);
   -webkit-backdrop-filter: blur(28px) saturate(180%);
   backdrop-filter: blur(28px) saturate(180%);
-  border: 0.5px solid rgba(255, 255, 255, 0.22);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  border: 0.5px solid var(--color-frost-edge);
+  box-shadow: inset 0 1px 0 var(--color-frost-sheen);
+}
+/* The Thread's Jump to bottom pill (JumpPill.tsx), as K2 desktop's
+   (globals.css --k2-jump-*): on dark, the Frost's 10% white over a 60%
+   black layer so white words read over your own bubble or a white picture,
+   and its own rim; on light, Veil's 72% white Frost, no dark layer, dark
+   words and a 45% dark rim (3:1 on the page and a tile). */
+:root {
+  --jump-pill-tint: var(--color-frost-fill);
+  --jump-pill-scrim: rgba(0, 0, 0, 0.6);
+  --jump-pill-edge: var(--color-frost-edge);
+  --jump-pill-ink: #ffffff;
+}
+:root[data-scheme="light"] {
+  --jump-pill-scrim: transparent;
+  --jump-pill-edge: rgba(0, 0, 0, 0.45);
+  --jump-pill-ink: var(--color-text-primary);
+}
+.zen-glass.zen-jump-pill {
+  border-color: var(--jump-pill-edge);
 }
 .zen-glass-pill {
   border-radius: 999px;
@@ -368,12 +426,50 @@ html, body, #root {
   display: block;
 }
 .zen-glass-merged-fill {
-  background: rgba(255, 255, 255, 0.1);
+  background: var(--color-frost-fill);
   -webkit-backdrop-filter: blur(28px) saturate(180%);
   backdrop-filter: blur(28px) saturate(180%);
 }
+/* The rim's paint. Dark: white, its mask (glassMerge.ts) carrying the 22%
+   rim and the 28% light catch. Veil (K2 Design): desktop's light glass ring,
+   1px, bright at top and bottom and dark down the sides. */
 .zen-glass-merged-rim {
-  background: #fff;
+  background: var(--zen-glass-rim-paint, #fff);
+}
+:root[data-scheme="light"] {
+  --zen-glass-rim-paint: linear-gradient(
+    to bottom,
+    rgba(255, 255, 255, 0.95) 0%,
+    rgba(0, 0, 0, 0.2) 32%,
+    rgba(0, 0, 0, 0.2) 68%,
+    rgba(255, 255, 255, 0.95) 100%
+  );
+}
+/* Veil's soft drop under the merged outline (5px blur, 2px down). Hook for
+   a layer HeaderGlass.tsx doesn't draw yet: `.zen-glass-merged-drop`
+   holding one child masked with the FILL mask, under the fill. The blur
+   is on the wrapper, so it softens the masked shape; a filter on the
+   fill itself would cut its backdrop blur. */
+.zen-glass-merged-drop {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  display: none;
+  transform: translateY(2px);
+  filter: blur(2.5px);
+}
+.zen-glass-merged-drop > * {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.06);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+}
+:root[data-scheme="light"] [data-glass-merged] > .zen-glass-merged-drop {
+  display: block;
 }
 /* A header button being pressed grows on its own (usePressSpring, a
    transform), so the merged outline is never redrawn per frame. Its edge
@@ -384,8 +480,8 @@ html, body, #root {
    Riley 2026-11-15). Turning a backdrop-filter on mid-slide is also
    avoided. */
 [data-glass-merged] [data-glass-shape].k2-pressing {
-  border-color: rgba(255, 255, 255, 0.22);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  border-color: var(--color-frost-edge);
+  box-shadow: inset 0 1px 0 var(--color-frost-sheen);
 }
 [data-glass-merged] [data-glass-shape] {
   background-color: transparent;
@@ -470,12 +566,15 @@ html, body, #root {
   -webkit-mask-image: linear-gradient(to bottom, #000 0%, #000 12%, transparent 40%);
   mask-image: linear-gradient(to bottom, #000 0%, #000 12%, transparent 40%);
 }
+/* The tint is the page's own colour in every palette (desktop's
+   .k2-header-tint): at 85%, 55% at 45%, then clear. On Obsidian that is the
+   old black within a hair; on Veil the band melts into the white page. */
 .zen-header-tint {
   background: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 0.85) 0%,
-    rgba(0, 0, 0, 0.55) 45%,
-    rgba(0, 0, 0, 0) 100%
+    rgba(var(--k2-page-rgb), 0.85) 0%,
+    rgba(var(--k2-page-rgb), 0.55) 45%,
+    rgba(var(--k2-page-rgb), 0) 100%
   );
 }
 /* Agents list only (`--early`): rows soften ~20px before they reach the
@@ -510,15 +609,19 @@ html, body, #root {
 .zen-header-blur--early > .zen-header-tint {
   background: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 0.85) 0%,
-    rgba(0, 0, 0, 0.55) calc((100% - var(--zen-blur-early)) * 0.45),
-    rgba(0, 0, 0, 0.12) calc(100% - var(--zen-blur-early) - 20px),
-    rgba(0, 0, 0, 0) 100%
+    rgba(var(--k2-page-rgb), 0.85) 0%,
+    rgba(var(--k2-page-rgb), 0.55) calc((100% - var(--zen-blur-early)) * 0.45),
+    rgba(var(--k2-page-rgb), 0.12) calc(100% - var(--zen-blur-early) - 20px),
+    rgba(var(--k2-page-rgb), 0) 100%
   );
 }
 /* Name and sidecar line stay legible where the tint has thinned out. */
 .zen-header-text {
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+/* Dark words on a light page need no shadow (desktop Veil). */
+:root[data-scheme="light"] .zen-header-text {
+  text-shadow: none;
 }
 /* No backdrop blur: a heavier solid ramp so text never sits on bubbles. */
 @media (prefers-reduced-transparency: reduce) {
@@ -532,9 +635,9 @@ html, body, #root {
   .zen-header-blur--early > .zen-header-tint {
     background: linear-gradient(
       to bottom,
-      rgba(0, 0, 0, 0.96) 0%,
-      rgba(0, 0, 0, 0.88) 60%,
-      rgba(0, 0, 0, 0) 100%
+      rgba(var(--k2-page-rgb), 0.96) 0%,
+      rgba(var(--k2-page-rgb), 0.88) 60%,
+      rgba(var(--k2-page-rgb), 0) 100%
     );
   }
 }
@@ -543,9 +646,9 @@ html, body, #root {
   .zen-header-blur--early > .zen-header-tint {
     background: linear-gradient(
       to bottom,
-      rgba(0, 0, 0, 0.96) 0%,
-      rgba(0, 0, 0, 0.88) 60%,
-      rgba(0, 0, 0, 0) 100%
+      rgba(var(--k2-page-rgb), 0.96) 0%,
+      rgba(var(--k2-page-rgb), 0.88) 60%,
+      rgba(var(--k2-page-rgb), 0) 100%
     );
   }
 }
@@ -592,9 +695,9 @@ html, body, #root {
 .zen-footer-tint {
   background: linear-gradient(
     to top,
-    rgba(0, 0, 0, 0.85) 0%,
-    rgba(0, 0, 0, 0.55) 45%,
-    rgba(0, 0, 0, 0) 100%
+    rgba(var(--k2-page-rgb), 0.85) 0%,
+    rgba(var(--k2-page-rgb), 0.55) 45%,
+    rgba(var(--k2-page-rgb), 0) 100%
   );
 }
 @media (prefers-reduced-transparency: reduce) {
@@ -607,9 +710,9 @@ html, body, #root {
   .zen-footer-tint {
     background: linear-gradient(
       to top,
-      rgba(0, 0, 0, 0.96) 0%,
-      rgba(0, 0, 0, 0.88) 60%,
-      rgba(0, 0, 0, 0) 100%
+      rgba(var(--k2-page-rgb), 0.96) 0%,
+      rgba(var(--k2-page-rgb), 0.88) 60%,
+      rgba(var(--k2-page-rgb), 0) 100%
     );
   }
 }
@@ -617,9 +720,9 @@ html, body, #root {
   .zen-footer-tint {
     background: linear-gradient(
       to top,
-      rgba(0, 0, 0, 0.96) 0%,
-      rgba(0, 0, 0, 0.88) 60%,
-      rgba(0, 0, 0, 0) 100%
+      rgba(var(--k2-page-rgb), 0.96) 0%,
+      rgba(var(--k2-page-rgb), 0.88) 60%,
+      rgba(var(--k2-page-rgb), 0) 100%
     );
   }
 }
@@ -667,31 +770,31 @@ html, body, #root {
    top inner edge, and a soft drop. No blur — WebKit kept stale blurred
    layers on desktop, and blur over a scrolling list costs frames on iOS.
    Frosted `.zen-glass` stays on floating chrome only. Radius belongs to
-   each tile. */
+   each tile.
+   The values are the palette's (Glass tokens.json `tile.*`): palettes.ts
+   stamps --tile-fill, --tile-raised, --tile-edge, --tile-sheen and
+   --tile-shadow on <html> with their color-mix() already resolved, so iOS
+   15 gets the real rim. The ones below are Obsidian's, for a frame before
+   the stamp; a stamped value (inline) wins. */
 :root {
-  --tile: var(--card);
-  --tile-raised: #2c2c2e;
-  /* Plain fallbacks: iOS 15–16.1 has no color-mix (the mixes below,
-     composited on --card, come out about the same). */
-  --tile-edge: rgba(60, 60, 62, 0.75);
-  --tile-sheen: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  --tile-fill: var(--color-bg-surface);
+  --tile-raised: var(--color-bg-elevated);
+  --tile-edge: rgba(72, 72, 72, 0.613);
+  --tile-sheen: inset 0 1px 0 var(--color-ring-edge-strong);
   --tile-shadow: 0 10px 30px rgba(0, 0, 0, 0.08);
-}
-@supports (color: color-mix(in srgb, red, blue)) {
-  :root {
-    --tile-edge: color-mix(
-      in srgb,
-      var(--card-border) 55%,
-      color-mix(in srgb, var(--text) 14%, transparent)
-    );
-    --tile-sheen: inset 0 1px 0 color-mix(in srgb, white 22%, transparent);
-    --tile-shadow: 0 10px 30px color-mix(in srgb, black 8%, transparent);
-  }
+  /* The old name. */
+  --tile: var(--tile-fill);
 }
 .k2-tile {
-  background: var(--tile);
+  background: var(--tile-fill);
   border: 1px solid var(--tile-edge);
   box-shadow: var(--tile-sheen), var(--tile-shadow);
+}
+/* Veil's tiles (K2 Design, desktop's light glass): solid white, the plain
+   border, a soft two-step drop and no inner light catch. */
+:root[data-scheme="light"] .k2-tile {
+  border-color: var(--color-border);
+  box-shadow: 0 2px 5px rgba(0, 0, 0, 0.08), 0 1px 1px rgba(0, 0, 0, 0.06);
 }
 .k2-tile-raised {
   background: var(--tile-raised);
@@ -740,7 +843,7 @@ html, body, #root {
   width: 7px;
   height: 7px;
   border-radius: 50%;
-  background: #f59e0b;
+  background: var(--color-status-warn);
   vertical-align: middle;
   animation: pulse 1.4s ease-in-out infinite;
 }
@@ -749,8 +852,8 @@ html, body, #root {
   width: 14px;
   height: 14px;
   border-radius: 50%;
-  border: 2px solid rgba(255, 255, 255, 0.25);
-  border-top-color: #fff;
+  border: 2px solid var(--color-wash-3);
+  border-top-color: var(--color-text-primary);
   animation: spin 0.9s linear infinite;
 }
 
@@ -766,11 +869,11 @@ html, body, #root {
 .k2-shimmer {
   background: linear-gradient(
       90deg,
-      var(--text-muted) 0%,
-      var(--text-muted) 40%,
-      var(--text) 50%,
-      var(--text-muted) 60%,
-      var(--text-muted) 100%
+      var(--color-text-muted) 0%,
+      var(--color-text-muted) 40%,
+      var(--color-text-primary) 50%,
+      var(--color-text-muted) 60%,
+      var(--color-text-muted) 100%
     )
     0 0 / 250% 100%;
   -webkit-background-clip: text;
@@ -884,22 +987,22 @@ html, body, #root {
     animation: k2-fade-in 200ms ease-out both;
   }
   .k2-shimmer {
-    color: var(--text-muted);
+    color: var(--color-text-muted);
     background: none;
   }
 }
 @media (prefers-reduced-transparency: reduce) {
   .k2-tile {
-    border-color: var(--card-border);
+    border-color: var(--color-border);
   }
 }
 
 /* Project / Feedback markdown — desktop globals.css `.markdown-content`
-   + compact `.chat-markdown`, remapped onto Companion tokens. */
+   + compact `.chat-markdown`, remapped onto the Glass tokens. */
 .markdown-content {
   font-size: 13px;
   line-height: 1.6;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   overflow-wrap: anywhere;
   word-break: break-word;
 }
@@ -908,7 +1011,7 @@ html, body, #root {
 .markdown-content h3,
 .markdown-content h4 {
   font-weight: 600;
-  color: var(--text);
+  color: var(--color-text-primary);
   margin: 0 0 8px 0;
 }
 .markdown-content h1 { font-size: 1.35em; }
@@ -917,10 +1020,10 @@ html, body, #root {
 .markdown-content h4 { font-size: 1.05em; }
 .markdown-content p {
   margin: 0 0 10px 0;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
 }
 .markdown-content a {
-  color: var(--accent);
+  color: var(--color-accent-text);
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -942,13 +1045,13 @@ html, body, #root {
   cursor: pointer;
 }
 .markdown-content strong {
-  color: var(--text);
+  color: var(--color-text-primary);
   font-weight: 600;
 }
 .markdown-content em { font-style: italic; }
 .markdown-content pre {
-  background: var(--background);
-  border: 1px solid var(--border);
+  background: var(--color-bg-inset);
+  border: 1px solid var(--color-border);
   padding: 10px;
   margin: 0 0 10px 0;
   overflow-x: auto;
@@ -957,12 +1060,12 @@ html, body, #root {
   background: none;
   padding: 0;
   font-size: 12px;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
   border: none;
 }
 .markdown-content code {
-  background: var(--background);
-  color: var(--accent);
+  background: var(--color-bg-inset);
+  color: var(--color-code-inline);
   padding: 1px 4px;
   font-size: 0.9em;
 }
@@ -970,13 +1073,13 @@ html, body, #root {
   margin: 0 0 10px 0;
   padding-left: 1.3em;
   list-style-type: disc;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
 }
 .markdown-content ol {
   margin: 0 0 10px 0;
   padding-left: 1.3em;
   list-style-type: decimal;
-  color: var(--text-secondary);
+  color: var(--color-text-secondary);
 }
 .markdown-content ul ul { list-style-type: circle; }
 .markdown-content li { margin: 3px 0; display: list-item; }
@@ -985,8 +1088,8 @@ html, body, #root {
 .markdown-content blockquote {
   margin: 0 0 10px 0;
   padding: 6px 12px;
-  border-left: 3px solid var(--accent);
-  color: var(--text-muted);
+  border-left: 3px solid var(--color-accent);
+  color: var(--color-text-muted);
 }
 .markdown-content blockquote p { margin: 0; }
 .markdown-content table {
@@ -996,21 +1099,21 @@ html, body, #root {
   font-size: 12px;
 }
 .markdown-content thead th {
-  background: var(--background);
-  color: var(--text);
+  background: var(--color-bg-inset);
+  color: var(--color-text-primary);
   font-weight: 600;
   text-align: left;
   padding: 6px 8px;
-  border: 1px solid var(--border);
+  border: 1px solid var(--color-border);
 }
 .markdown-content tbody td {
   padding: 5px 8px;
-  border: 1px solid var(--border);
-  color: var(--text-secondary);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-secondary);
 }
 .markdown-content hr {
   border: none;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--color-border);
   margin: 12px 0;
 }
 .markdown-content img {
@@ -1022,7 +1125,7 @@ html, body, #root {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", system-ui, sans-serif;
   font-size: 14px;
   line-height: 1.5;
-  color: var(--text);
+  color: var(--color-text-primary);
   /* Unlayered so it cannot lose to a reset. Inset the prose from the card. */
   padding: 4px 4px 2px;
 }
@@ -1038,7 +1141,7 @@ html, body, #root {
 }
 .chat-markdown p {
   margin: 0 0 6px 0;
-  color: var(--text);
+  color: var(--color-text-primary);
 }
 .chat-markdown p:last-child,
 .chat-markdown ul:last-child,
@@ -1051,7 +1154,7 @@ html, body, #root {
 .chat-markdown ol {
   margin: 0 0 6px 0;
   padding-left: 1.2em;
-  color: var(--text);
+  color: var(--color-text-primary);
 }
 .chat-markdown li { margin: 2px 0; }
 .chat-markdown pre {
@@ -1103,8 +1206,7 @@ button, a, nav {
 }
 
 ::selection {
-  background: var(--accent);
-  color: var(--background);
+  background: var(--color-selection);
 }
 
 ::-webkit-scrollbar {
@@ -1114,10 +1216,10 @@ button, a, nav {
   background: transparent;
 }
 ::-webkit-scrollbar-thumb {
-  background: var(--scroll-thumb);
+  background: var(--color-scrollbar-thumb-strong);
 }
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--scroll-thumb-hover);
+  background: var(--color-scrollbar-thumb-strong-hover);
 }
 
 @keyframes spin {
@@ -1150,32 +1252,35 @@ button, a, nav {
   }
 }
 .zen-seg-thumb {
-  background: rgba(255, 255, 255, 0.22);
+  background: var(--color-wash-3);
   box-shadow:
     inset 0 0.5px 0 rgba(255, 255, 255, 0.4),
-    0 1px 3px rgba(0, 0, 0, 0.25);
+    0 1px 3px var(--color-shadow-soft);
   transition: transform 180ms cubic-bezier(0.25, 0.8, 0.25, 1);
   pointer-events: none;
   z-index: 0;
 }
-/* Home | Agents: the selected thumb is blue glass (the Send button's
-   blue, with the same sheen). */
+/* Home | Agents: the selected thumb is the accent fill (the Send
+   button's), with the same sheen; its picked icon wears on-accent. */
 .zen-seg-thumb-blue {
-  background: rgba(10, 132, 255, 0.92);
+  background: var(--color-accent-fill);
   box-shadow:
     inset 0 0.5px 0 rgba(255, 255, 255, 0.45),
-    0 1px 4px rgba(10, 132, 255, 0.35);
+    0 1px 4px var(--color-shadow-soft);
 }
 .zen-seg-btn {
   position: relative;
   z-index: 1;
   background: transparent;
   border-radius: 999px;
-  color: rgba(235, 235, 245, 0.55);
+  color: var(--color-text-muted);
   transition: color 180ms ease;
 }
 .zen-seg-btn[data-selected] {
-  color: #fff;
+  color: var(--color-text-primary);
+}
+.zen-seg-thumb-blue ~ .zen-seg-btn[data-selected] {
+  color: var(--color-on-accent);
 }
 @media (prefers-reduced-motion: reduce) {
   .zen-seg-thumb,
@@ -1219,11 +1324,11 @@ button, a, nav {
 .zen-header-blur--heavy > .zen-header-tint {
   background: linear-gradient(
     to bottom,
-    rgba(0, 0, 0, 0.85) 0%,
-    rgba(0, 0, 0, 0.85) calc(var(--zen-blur-h) * 0.6),
-    rgba(0, 0, 0, 0.4) calc(var(--zen-blur-h) * 0.85),
-    rgba(0, 0, 0, 0.1) var(--zen-blur-h),
-    rgba(0, 0, 0, 0) 100%
+    rgba(var(--k2-page-rgb), 0.85) 0%,
+    rgba(var(--k2-page-rgb), 0.85) calc(var(--zen-blur-h) * 0.6),
+    rgba(var(--k2-page-rgb), 0.4) calc(var(--zen-blur-h) * 0.85),
+    rgba(var(--k2-page-rgb), 0.1) var(--zen-blur-h),
+    rgba(var(--k2-page-rgb), 0) 100%
   );
 }
 /* Same fallback as the shared stack (this block's tint would win over it). */
@@ -1231,9 +1336,9 @@ button, a, nav {
   .zen-header-blur--heavy > .zen-header-tint {
     background: linear-gradient(
       to bottom,
-      rgba(0, 0, 0, 0.96) 0%,
-      rgba(0, 0, 0, 0.88) 60%,
-      rgba(0, 0, 0, 0) 100%
+      rgba(var(--k2-page-rgb), 0.96) 0%,
+      rgba(var(--k2-page-rgb), 0.88) 60%,
+      rgba(var(--k2-page-rgb), 0) 100%
     );
   }
 }
@@ -1241,9 +1346,9 @@ button, a, nav {
   .zen-header-blur--heavy > .zen-header-tint {
     background: linear-gradient(
       to bottom,
-      rgba(0, 0, 0, 0.96) 0%,
-      rgba(0, 0, 0, 0.88) 60%,
-      rgba(0, 0, 0, 0) 100%
+      rgba(var(--k2-page-rgb), 0.96) 0%,
+      rgba(var(--k2-page-rgb), 0.88) 60%,
+      rgba(var(--k2-page-rgb), 0) 100%
     );
   }
 }
@@ -1294,9 +1399,9 @@ button, a, nav {
 .zen-edge-blur--to-left > .zen-edge-blur-tint {
   background: linear-gradient(
     to left,
-    rgba(0, 0, 0, 0.85) 0%,
-    rgba(0, 0, 0, 0.55) 45%,
-    rgba(0, 0, 0, 0) 100%
+    rgba(var(--k2-page-rgb), 0.85) 0%,
+    rgba(var(--k2-page-rgb), 0.55) 45%,
+    rgba(var(--k2-page-rgb), 0) 100%
   );
 }
 /* No backdrop blur: a heavier solid ramp, right to left. */
@@ -1310,9 +1415,9 @@ button, a, nav {
   .zen-edge-blur--to-left > .zen-edge-blur-tint {
     background: linear-gradient(
       to left,
-      rgba(0, 0, 0, 0.96) 0%,
-      rgba(0, 0, 0, 0.88) 60%,
-      rgba(0, 0, 0, 0) 100%
+      rgba(var(--k2-page-rgb), 0.96) 0%,
+      rgba(var(--k2-page-rgb), 0.88) 60%,
+      rgba(var(--k2-page-rgb), 0) 100%
     );
   }
 }
@@ -1320,18 +1425,22 @@ button, a, nav {
   .zen-edge-blur--to-left > .zen-edge-blur-tint {
     background: linear-gradient(
       to left,
-      rgba(0, 0, 0, 0.96) 0%,
-      rgba(0, 0, 0, 0.88) 60%,
-      rgba(0, 0, 0, 0) 100%
+      rgba(var(--k2-page-rgb), 0.96) 0%,
+      rgba(var(--k2-page-rgb), 0.88) 60%,
+      rgba(var(--k2-page-rgb), 0) 100%
     );
   }
 }
 
-/* App is all dark. Pin the color scheme so WebKit draws form controls and
-   the iOS keyboard dark even when the system is in Light mode. Native
-   side also forces UIUserInterfaceStyle=Dark (Info.ios.plist + lib.rs). */
+/* The color scheme follows the palette (palettes.ts also stamps it inline),
+   so WebKit draws form controls and the keyboard to match. Dark until the
+   palette is stamped. Native side still forces UIUserInterfaceStyle=Dark
+   (Info.ios.plist + lib.rs) until Auto lands there. */
 :root {
   color-scheme: dark;
+}
+:root[data-scheme="light"] {
+  color-scheme: light;
 }
 
 /* Search fields draw their own glass clear button (GlassSearchBar). */

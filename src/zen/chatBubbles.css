@@ -3,7 +3,8 @@
 
 /* The tail: on the last bubble of a run only. A vector mask (crisp at any
    scale in WKWebView) filled with the bubble's colour (`--k2-bubble`),
-   tucked under the bubble's bottom corner. Inside the bubble's own box
+   tucked under the bubble's bottom corner (your bubble: the accent fill;
+   theirs: --color-bubble-agent; the Thread sets `--k2-bubble`). Inside the bubble's own box
    (a pseudo-element), so the bubble's opacity — the "Sending…" dim and
    breathe — applies to bubble and tail as one. `.zen-tail-solo` is the
    same tail as a real element: the send flight carries it on its blue. */
@@ -23,7 +24,7 @@
   bottom: 0;
   width: 20px;
   height: 20px;
-  background: var(--k2-bubble, #0a84ff);
+  background: var(--k2-bubble, var(--color-accent-fill));
   pointer-events: none;
   -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M0 0H14V8C14 13 16 17 20 19.6C15.5 20.2 11.5 18.6 9 16.2C7 18.5 3.5 20 0 20Z'/%3E%3C/svg%3E")
     center / 100% 100% no-repeat;
@@ -53,13 +54,13 @@
 /* Picked or opened from a notification: a ring that follows the bubble's
    real shape, tail included (the tail is a masked pseudo-element, so a
    drop-shadow traces it; a box-shadow would ignore it). A 2px gap in the
-   page colour, then 2px of blue, so it reads on a blue bubble too. Chained
+   page colour, then 2px of the accent, so it reads on your own bubble too. Chained
    drop-shadows grow the shape step by step (corners included). */
 .zen-outlined {
-  filter: drop-shadow(1.5px 0 0 var(--root, #0a0a0a)) drop-shadow(-1.5px 0 0 var(--root, #0a0a0a))
-    drop-shadow(0 1.5px 0 var(--root, #0a0a0a)) drop-shadow(0 -1.5px 0 var(--root, #0a0a0a))
-    drop-shadow(1.5px 0 0 rgba(10, 132, 255, 0.95)) drop-shadow(-1.5px 0 0 rgba(10, 132, 255, 0.95))
-    drop-shadow(0 1.5px 0 rgba(10, 132, 255, 0.95)) drop-shadow(0 -1.5px 0 rgba(10, 132, 255, 0.95));
+  filter: drop-shadow(1.5px 0 0 var(--color-bg)) drop-shadow(-1.5px 0 0 var(--color-bg))
+    drop-shadow(0 1.5px 0 var(--color-bg)) drop-shadow(0 -1.5px 0 var(--color-bg))
+    drop-shadow(1.5px 0 0 var(--color-accent)) drop-shadow(-1.5px 0 0 var(--color-accent))
+    drop-shadow(0 1.5px 0 var(--color-accent)) drop-shadow(0 -1.5px 0 var(--color-accent));
 }
 
 /* The receipt: drawn over the newest confirmed outgoing message's fixed-
@@ -134,8 +135,8 @@
 
 /* "See more" (MessageFold.tsx): a message taller than 14 lines folds to
    its first ~14. The clip holds one row more than it shows; on that row a
-   fade into the bubble's own colour (`--k2-bubble`: blue mine, grey
-   theirs) and the button, drawn over the clip, so measuring never moves
+   fade into the bubble's own colour (`--k2-bubble`: the accent fill mine,
+   --color-bubble-agent theirs) and the button, drawn over the clip, so measuring never moves
    the layout. Open: "See less" below the words. `overflow: clip` (not
    hidden): a clipped box can't be scrolled by focus, find or
    scrollIntoView, so the hidden part never slides into the folded view. */
@@ -152,11 +153,13 @@
   right: 0;
   bottom: 0;
   height: calc(var(--zen-fold-line, 1.5em) * 2.25);
-  background: linear-gradient(to bottom, transparent, var(--k2-bubble, #3a3a3c) 62%);
+  background: linear-gradient(to bottom, transparent, var(--k2-bubble, var(--color-bubble-agent)) 62%);
   pointer-events: none;
 }
 /* A dark pill, not bold words (Riley: it read as part of the text). It
-   stays inside the one row the clip keeps for it. */
+   stays inside the one row the clip keeps for it. Dark with white words in
+   every palette: it sits on a bubble (any accent, or the agent's grey), not
+   on the page, like a label over a picture. */
 .zen-fold-toggle {
   position: relative;
   display: inline-flex;

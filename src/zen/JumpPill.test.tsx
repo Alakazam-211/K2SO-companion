@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { JUMP_PILL_FILL, JumpPill, jumpPillText } from "./JumpPill";
+import { JUMP_PILL_DARK, JUMP_PILL_FILL, JumpPill, jumpPillText } from "./JumpPill";
 
 afterEach(cleanup);
 
@@ -52,12 +52,35 @@ describe("the pill's fill (K2 Design 2026-11-16)", () => {
   const whiteOn = (bg: number[]) => 1.05 / (lum(bg) + 0.05);
   const pill = (bg: number[]) => over(over(bg, [0, 0, 0], 0.6), [255, 255, 255], 0.1);
 
-  it("is the glass tint over a 60% dark layer, on the button itself", () => {
+  it("is the glass tint over a 60% dark layer, on the button itself, through the palette's --jump-pill-*", () => {
     render(<JumpPill words="jump" leaving={false} onJump={() => {}} />);
-    const style = screen.getByTestId("thread-new-message").style;
-    expect(style.backgroundColor).toBe("rgba(0, 0, 0, 0.6)");
-    expect(style.backgroundImage).toContain("rgba(255, 255, 255, 0.1)");
-    expect(JUMP_PILL_FILL.backgroundColor).toBe(style.backgroundColor);
+    const pill = screen.getByTestId("thread-new-message");
+    expect(JUMP_PILL_DARK).toEqual({ tint: "rgba(255, 255, 255, 0.1)", scrim: "rgba(0, 0, 0, 0.6)" });
+    expect(JUMP_PILL_FILL.backgroundColor).toBe("var(--jump-pill-scrim, rgba(0, 0, 0, 0.6))");
+    expect(JUMP_PILL_FILL.backgroundImage).toBe(
+      "linear-gradient(var(--jump-pill-tint, rgba(255, 255, 255, 0.1)), var(--jump-pill-tint, rgba(255, 255, 255, 0.1)))"
+    );
+    expect(pill.style.getPropertyValue("background-color")).toBe(JUMP_PILL_FILL.backgroundColor);
+    expect(pill.style.getPropertyValue("color")).toBe(JUMP_PILL_FILL.color);
+    expect(pill.className).toContain("zen-jump-pill");
+  });
+
+  it("index.css: dark keeps the 60% layer and white words; light is Veil's Frost, no layer, dark words, a 45% rim", async () => {
+    // @ts-expect-error Node fs — vitest runtime, not in app tsconfig libs
+    const { readFileSync } = await import("fs");
+    const css = readFileSync("src/styles/index.css", "utf8") as string;
+    const at = css.indexOf("--jump-pill-tint:");
+    const dark = css.slice(at, css.indexOf("}", at));
+    expect(dark).toContain("--jump-pill-tint: var(--color-frost-fill);");
+    expect(dark).toContain(`--jump-pill-scrim: ${JUMP_PILL_DARK.scrim};`);
+    expect(dark).toContain("--jump-pill-ink: #ffffff;");
+    const lightAt = css.indexOf('[data-scheme="light"] {\n  --jump-pill-scrim');
+    expect(lightAt).toBeGreaterThan(at);
+    const light = css.slice(lightAt, css.indexOf("}", lightAt));
+    expect(light).toContain("--jump-pill-scrim: transparent;");
+    expect(light).toContain("--jump-pill-edge: rgba(0, 0, 0, 0.45);");
+    expect(light).toContain("--jump-pill-ink: var(--color-text-primary);");
+    expect(css).toMatch(/\.zen-glass\.zen-jump-pill \{\s*border-color: var\(--jump-pill-edge\);/);
   });
 
   it("keeps white text readable over your blue bubble and over a white image", () => {

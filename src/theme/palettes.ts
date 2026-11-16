@@ -88,11 +88,10 @@ export function paletteById(id: string | null | undefined): Palette | null {
   return PALETTES.find((p) => p.id === id) ?? null;
 }
 
-/** tokens.json groups the phone already defines its own way and doesn't take
- *  yet: `--tile-*` (index.css's Glass tiles, with iOS 15 fallbacks) moves to
- *  the palette's values in the dark conversion (stage 2), on purpose, not
- *  as a side effect of stamping. */
-const SHARED_GROUPS_LATER = new Set(["tile"]);
+/** tokens.json groups the phone defines its own way and doesn't take yet.
+ *  None now: `--tile-*` (index.css's Glass tiles) takes the palette's
+ *  values, stamped with their color-mix() resolved (so iOS 15 gets them). */
+const SHARED_GROUPS_LATER = new Set<string>();
 
 /** The shared Glass values every palette uses (radius, material, motion…),
  *  under desktop's names: `--radius-box`, `--material-blur`, … */
