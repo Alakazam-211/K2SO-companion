@@ -1982,6 +1982,21 @@ fn voice_consent(_app: tauri::AppHandle) -> serde_json::Value {
     serde_json::Value::Null
 }
 
+/// The last voice join's DM call ids (`{room, dm, callId, sewCallId}`:
+/// K2's `vc_…` id for leave, Sew's for cancel and ring again), or `null`
+/// (a voice room, no join yet, or off iOS). For a webview that missed
+/// `k2-voice://dm-call`.
+#[tauri::command]
+fn voice_dm_call(_app: tauri::AppHandle) -> serde_json::Value {
+    #[cfg(target_os = "ios")]
+    {
+        use tauri::Manager;
+        return voice::dm_call_now(&_app.state::<voice::Native>());
+    }
+    #[allow(unreachable_code)]
+    serde_json::Value::Null
+}
+
 /// Why the last call ended when K2 left it itself (a held re-join nobody
 /// answered: `recording_consent_timeout`); `null` otherwise, and off iOS.
 #[tauri::command]
@@ -2139,6 +2154,7 @@ pub fn run() {
             voice_hosts,
             voice_consent,
             voice_ended_why,
+            voice_dm_call,
             voice_call_log,
             voice_note,
             voice_join_camera,

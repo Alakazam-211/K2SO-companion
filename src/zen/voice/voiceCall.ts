@@ -8,6 +8,8 @@ import {
   type CameraRefusal,
   type VoiceErrorCode,
 } from "./voiceWire";
+import { dmCallEndedText, dmJoinErrorText } from "../calls/dmCallText";
+import { convOfDmRoom } from "../../api/homeChatCallsPure";
 
 // The phone's one voice-room call (rooms only for now: Riley 2026-11-04).
 // The engine is the truth (Sew's sew-call-client over K2's kessel-audio, in
@@ -131,7 +133,26 @@ export type CallRoom = {
   roomId: string;
   roomName: string;
   limit: number | null;
+  /** A DM call (K2 0.46.13): `roomId` is `dm:<conv>` and `roomName` the
+   *  other person's name. The engine's join sends `{dm, join}`. */
+  dm?: { conv: string };
 };
+
+/** How a join went: taken (held or in), or why not. `raw` is the server's
+ *  own code (`chat_unavailable`, `dm_not_found`, …); `superseded`: a newer
+ *  join or a leave came first. */
+export type JoinOutcome =
+  | { ok: true }
+  | { ok: false; code: VoiceErrorCode | "superseded" | "start_refused"; raw: string; hint: string };
+
+const SUPERSEDED: JoinOutcome = { ok: false, code: "superseded", raw: "superseded", hint: "" };
+
+/** The line a failed join shows, for a room or a DM call. */
+function joinFailedText(room: CallRoom, code: VoiceErrorCode, raw: string, hint: string): string {
+  return room.dm
+    ? dmJoinErrorText(raw, code, room.roomName, room.serverLabel, hint)
+    : joinErrorText(code, room.roomName, room.serverLabel, room.limit, hint);
+}
 
 type CallState = SelfFlags & {
   phase: CallPhase;
@@ -150,7 +171,7 @@ type CallState = SelfFlags & {
   startedAt: number | null;
   /** `camera`: "Join with camera" (the permission first; refused, the call
    *  still joins, without it). */
-  join(room: CallRoom, options?: JoinOptions): Promise<void>;
+  join(room: CallRoom, options?: JoinOptions): Promise<JoinOutcome>;
   /** A choice from `consent`: `null` gives up the held join. */
   answerConsent(granted: boolean | null): Promise<void>;
   /** Catch up with the engine (back in the foreground, or after a reload).
@@ -204,11 +225,13 @@ let unlisten: (() => void) | null = null;
 /** Each join's id: an old join's late answer never touches a newer call. */
 let attempt = 0;
 
-function codeOf(err: unknown): { code: VoiceErrorCode; hint: string } {
-  const e = err && typeof err === "object" ? (err as { code?: unknown; hint?: unknown }) : {};
+function codeOf(err: unknown): { code: VoiceErrorCode; hint: string; raw: string } {
+  const e = err && typeof err === "object" ? (err as { code?: unknown; hint?: unknown; raw?: unknown }) : {};
+  const code = typeof e.code === "string" ? (e.code as VoiceErrorCode) : "unknown";
   return {
-    code: typeof e.code === "string" ? (e.code as VoiceErrorCode) : "unknown",
+    code,
     hint: typeof e.hint === "string" ? e.hint : "",
+    raw: typeof e.raw === "string" && e.raw ? e.raw : code,
   };
 }
 
@@ -229,7 +252,12 @@ export const useVoiceCall = create<CallState>((set, get) => {
       video: false,
       consent: null,
       startedAt: null,
-      notice: room && reason && reason !== "left" ? callEndedText(reason, room.roomName, room.serverLabel, true) : null,
+      notice:
+        room && reason && reason !== "left"
+          ? room.dm
+            ? dmCallEndedText(reason, room.roomName, room.serverLabel)
+            : callEndedText(reason, room.roomName, room.serverLabel, true)
+          : null,
     });
   }
 
@@ -303,21 +331,21 @@ export const useVoiceCall = create<CallState>((set, get) => {
         set({
           phase: "idle",
           room: null,
-          notice: joinErrorText("e2ee_unsupported", room.roomName, room.serverLabel, room.limit),
+          notice: joinFailedText(room, "e2ee_unsupported", "e2ee_unsupported", ""),
         });
-        return;
+        return { ok: false, code: "e2ee_unsupported", raw: "e2ee_unsupported", hint: "" };
       }
       // Before the system call, so its prompt never lands in CallKit's. A
       // refusal still joins: the person can listen.
       const mic = await shim.microphone();
-      if (id !== attempt) return;
+      if (id !== attempt) return SUPERSEDED;
       if (mic === "denied") set({ notice: MIC_DENIED_LINE });
       // The camera's prompt too, before the system call. Refused: the call
       // joins without the camera and says why.
       let camera = options?.camera === true && !!engine.cameraJoin;
       if (camera && engine.cameraPermission) {
         const ask = await engine.cameraPermission();
-        if (id !== attempt) return;
+        if (id !== attempt) return SUPERSEDED;
         if (!ask.ok) {
           camera = false;
           set({ notice: cameraRefusalText(ask.code) });
@@ -331,39 +359,42 @@ export const useVoiceCall = create<CallState>((set, get) => {
         try {
           await engine.join(room.serverId, room.roomId, events, camera ? { camera: true } : undefined);
         } catch (err) {
-          if (id !== attempt) return;
-          const { code, hint } = codeOf(err);
+          if (id !== attempt) return SUPERSEDED;
+          const { code, hint, raw } = codeOf(err);
           set({
             phase: "idle",
             room: null,
             consent: null,
-            notice: joinErrorText(code, room.roomName, room.serverLabel, room.limit, hint),
+            notice: joinFailedText(room, code, raw, hint),
           });
+          return { ok: false, code, raw, hint };
         }
-        return;
+        return id === attempt ? { ok: true } : SUPERSEDED;
       }
       unlisten = shim.listen(onShim);
       const refused = await shim.start(room.roomName, room.serverLabel);
-      if (id !== attempt) return;
+      if (id !== attempt) return SUPERSEDED;
       if (refused) {
         stopListening();
         set({ phase: "idle", room: null, notice: `Couldn't start the call (${refused}).` });
-        return;
+        return { ok: false, code: "start_refused", raw: refused, hint: "" };
       }
       shim.report("connecting");
       try {
         await engine.join(room.serverId, room.roomId, events);
       } catch (err) {
-        if (id !== attempt) return;
-        const { code, hint } = codeOf(err);
+        if (id !== attempt) return SUPERSEDED;
+        const { code, hint, raw } = codeOf(err);
         shim.report("ended", "failed");
         stopListening();
         set({
           phase: "idle",
           room: null,
-          notice: joinErrorText(code, room.roomName, room.serverLabel, room.limit, hint),
+          notice: joinFailedText(room, code, raw, hint),
         });
+        return { ok: false, code, raw, hint };
       }
+      return id === attempt ? { ok: true } : SUPERSEDED;
     },
 
     async leave() {
@@ -429,7 +460,8 @@ export const useVoiceCall = create<CallState>((set, get) => {
         // The webview reloaded mid-call: take the call back.
         if (!now.serverId || !now.roomId) return;
         const names = name?.(now.serverId, now.roomId) ?? { serverLabel: "", roomName: "Voice room", limit: null };
-        room = { serverId: now.serverId, roomId: now.roomId, ...names };
+        const conv = convOfDmRoom(now.roomId);
+        room = { serverId: now.serverId, roomId: now.roomId, ...names, ...(conv ? { dm: { conv } } : {}) };
       }
       // The call's time: this store's own, else the one kept through a
       // reload, else from now (it connected while nobody was looking).
