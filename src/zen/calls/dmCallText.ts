@@ -16,7 +16,17 @@ const RETRYABLE = new Set([
   "retry",
 ]);
 
+/** The call is over, not refused (Sew 0.10.2): `call_not_active` (Sew's
+ *  `invalid_state` for a call still ending, any case), and `call_ended`
+ *  (Rust's re-join, voice.rs `CALL_ENDED`: the call ended while this phone
+ *  re-joined it). Said "Call ended", never with "Try again". */
+export function isCallOver(raw: string | null | undefined): boolean {
+  const r = (raw ?? "").toLowerCase();
+  return r === "call_not_active" || r === "call_ended";
+}
+
 export function dmCallRetryable(raw: string, code?: string): boolean {
+  if (isCallOver(raw) || isCallOver(code)) return false;
   return RETRYABLE.has(raw) || (code !== undefined && RETRYABLE.has(code));
 }
 
@@ -30,6 +40,7 @@ export function dmJoinErrorText(
   hint = ""
 ): string {
   const where = serverLabel || "that server";
+  if (isCallOver(raw) || isCallOver(code)) return callingLine("ended", name);
   switch (raw) {
     case "host_not_pro":
     case "plan":
@@ -85,6 +96,7 @@ export function dmJoinErrorText(
 /** Why a DM call's media ended, when the person didn't hang up. */
 export function dmCallEndedText(reason: string, name: string, serverLabel: string): string {
   const where = serverLabel || "the server";
+  if (isCallOver(reason)) return callingLine("ended", name);
   switch (reason) {
     case "network":
     case "disconnected":

@@ -34,7 +34,20 @@ export function joinError(err: unknown): { code: string; hint?: string; raw: str
   const code = typeof e.code === "string" ? e.code : "unknown";
   const detail = e.detail && typeof e.detail === "object" ? (e.detail as Record<string, unknown>) : null;
   const hint = typeof detail?.hint === "string" ? detail.hint : undefined;
-  return { code: nativeJoinErrorCode(code, detail), ...(hint ? { hint } : {}), raw: code };
+  // Sew's `invalid_state` for a DM call still ending (K2 passes Sew's
+  // error through in `details.sew`): the call is over, said as such.
+  const raw = callNotActive(code, detail) ? "call_not_active" : code;
+  return { code: nativeJoinErrorCode(code, detail), ...(hint ? { hint } : {}), raw };
+}
+
+/** Sew's `call_not_active`, as the code or a reason, Sew's own or inside
+ *  K2's refusal (`details.sew`), in any case. */
+export function callNotActive(code: string, detail: Record<string, unknown> | null): boolean {
+  const is = (v: unknown) => typeof v === "string" && v.toLowerCase() === "call_not_active";
+  const o = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : null);
+  const details = o(detail?.details);
+  const sew = o(details?.sew);
+  return is(code) || is(details?.reason) || is(sew?.code) || is(o(sew?.details)?.reason);
 }
 
 /** A DM call's ids once its native join is taken (Rust `voice.rs`
@@ -52,6 +65,15 @@ export function parseDmCallIds(v: unknown): NativeDmCallIds | null {
     callId: typeof o.callId === "string" && o.callId ? o.callId : null,
     sewCallId: typeof o.sewCallId === "string" && o.sewCallId ? o.sewCallId : null,
   };
+}
+
+/** Any join's K2 call id (`k2-voice://dm-call`: a voice room's has
+ *  `dm: null`), with the room it is for. K2's `vc_…` only. */
+export function parseJoinCallId(v: unknown): { room: string; callId: string } | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.room !== "string" || !o.room) return null;
+  return typeof o.callId === "string" && o.callId.startsWith("vc_") ? { room: o.room, callId: o.callId } : null;
 }
 
 /** The last join's DM call ids (`null`: a voice room, none, or no native engine). */
@@ -241,6 +263,11 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
       listen<unknown>("k2-voice://consent", ({ payload }) => events?.onConsent?.(parseConsentSheet(payload))),
       listen<unknown>("k2-voice://video", ({ payload }) => events?.onVideo?.(payload === true)),
       listen<NoiseRemovalState>("sew-voice://noise_removal", ({ payload }) => noteNoise(payload)),
+      // Each join's (and re-join's) K2 call id: for session/leave.
+      listen<unknown>("k2-voice://dm-call", ({ payload }) => {
+        const ids = parseJoinCallId(payload);
+        if (ids) events?.onCallId?.(ids.room, ids.callId);
+      }),
       listen<Row[]>("sew-voice://participants", ({ payload }) => {
         const me = Array.isArray(payload) ? payload.find((p) => p?.is_self) : undefined;
         if (me) events?.onSelfMute?.(me.muted === true || me.deafened === true, selfFlags(me));
@@ -267,6 +294,13 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
       }
     },
     cameraPermission: askCamera,
+    async callId() {
+      try {
+        return parseJoinCallId(await invoke<unknown>("voice_dm_call"));
+      } catch {
+        return null;
+      }
+    },
     async leave() {
       await invoke(`${CMD}leave`).catch(() => {});
     },

@@ -1982,10 +1982,10 @@ fn voice_consent(_app: tauri::AppHandle) -> serde_json::Value {
     serde_json::Value::Null
 }
 
-/// The last voice join's DM call ids (`{room, dm, callId, sewCallId}`:
-/// K2's `vc_…` id for leave, Sew's for cancel and ring again), or `null`
-/// (a voice room, no join yet, or off iOS). For a webview that missed
-/// `k2-voice://dm-call`.
+/// The last voice join's call ids (`{room, dm, callId, sewCallId}`: K2's
+/// `vc_…` id for session/leave, Sew's for cancel and ring again; a voice
+/// room's has `dm: null`), or `null` (no join yet, or off iOS). For a
+/// webview that missed `k2-voice://dm-call`.
 #[tauri::command]
 fn voice_dm_call(_app: tauri::AppHandle) -> serde_json::Value {
     #[cfg(target_os = "ios")]

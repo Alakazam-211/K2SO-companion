@@ -33,6 +33,35 @@ export async function fetchVoiceRooms(scope: ServerScope): Promise<VoiceRoomsRes
   }
 }
 
+/** A session leave's own deadline: it never holds the UI up. */
+export const SESSION_LEAVE_TIMEOUT_MS = 8_000;
+
+/** K2's call ids are `vc_…` (Sew's are digits: never these). */
+export function isK2CallId(v: unknown): v is string {
+  return typeof v === "string" && /^vc_[A-Za-z0-9_-]+$/.test(v);
+}
+
+/** `POST /cli/voice/session/leave {callId}` after the engine left a room
+ *  or a DM call (K2's answers §4): ends K2's record of this login's call,
+ *  and Sew's seat if Sew still has one. Idempotent (`already: true` is a
+ *  success). Never without K2's `vc_…` id: without one K2 leaves whatever
+ *  call the person is in, which could be their desktop's. Fire and forget:
+ *  `true` when K2 took it. */
+export async function leaveVoiceSession(scope: ServerScope, callId: string): Promise<boolean> {
+  if (!isK2CallId(callId)) return false;
+  try {
+    const out = await scopedFetch(scope, "/cli/voice/session/leave", {
+      method: "POST",
+      body: JSON.stringify({ callId }),
+      priority: "background",
+      timeoutMs: SESSION_LEAVE_TIMEOUT_MS,
+    });
+    return out.ok;
+  } catch {
+    return false;
+  }
+}
+
 /** `voice_rooms_changed {rev}`: re-read the list. */
 export function isVoiceRoomsChanged(frame: unknown): boolean {
   return !!frame && typeof frame === "object" && (frame as { kind?: unknown }).kind === "voice_rooms_changed";

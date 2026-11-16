@@ -10,6 +10,8 @@ import {
 } from "./voiceWire";
 import { dmCallEndedText, dmJoinErrorText } from "../calls/dmCallText";
 import { convOfDmRoom } from "../../api/homeChatCallsPure";
+import { scopeFor } from "../../api/scope";
+import { isK2CallId, leaveVoiceSession } from "./voiceApi";
 
 // The phone's one voice-room call (rooms only for now: Riley 2026-11-04).
 // The engine is the truth (Sew's sew-call-client over K2's kessel-audio, in
@@ -69,6 +71,9 @@ export type EngineEvents = {
   onSelfMute?(muted: boolean, flags?: SelfFlags): void;
   /** The call has video (a camera or a shared screen), or no longer. */
   onVideo?(on: boolean): void;
+  /** A join (or the engine's re-join) was taken: K2's `vc_…` call id for
+   *  `roomId`, for the session leave after the call. */
+  onCallId?(roomId: string, callId: string): void;
 };
 
 /** How a join starts: `camera`, your camera on once connected and in front. */
@@ -90,6 +95,9 @@ export interface PhoneVoiceEngine {
    *  only from the person's own tap. */
   cameraPermission?(): Promise<CameraAsk>;
   leave(): Promise<void>;
+  /** The last taken join's K2 call id (`vc_…`) and its room, if any: for
+   *  a webview that missed `onCallId`. */
+  callId?(): Promise<{ room: string; callId: string } | null>;
   setMuted(muted: boolean): void;
   /** Deafen or undeafen (`muted`: the mic as well, in the same step). */
   setDeafened?(deafened: boolean, muted?: boolean): void;
@@ -225,6 +233,32 @@ let unlisten: (() => void) | null = null;
 /** Each join's id: an old join's late answer never touches a newer call. */
 let attempt = 0;
 
+// K2's record of the call (K2's answers §4): after the engine leaves a room
+// or a DM call, for any reason (Hang up, the other side ended, a drop, a
+// re-join that found the call over, an error), `POST /cli/voice/session/leave
+// {callId}` with K2's `vc_…` id, fire and forget. The engine's own leave
+// goes first (it clears Sew's seat fastest); K2's leave is idempotent, and
+// never sent without the id.
+
+/** The call's K2 record: the last taken join's (a re-join brings a new one). */
+let k2Call: { serverId: string; roomId: string; callId: string } | null = null;
+
+export type SessionLeaver = (serverId: string, callId: string) => void;
+
+const defaultSessionLeaver: SessionLeaver = (serverId, callId) => {
+  try {
+    void leaveVoiceSession(scopeFor(serverId), callId).catch(() => {});
+  } catch {
+    // A server the app no longer has: nothing to leave there.
+  }
+};
+
+let sessionLeaver: SessionLeaver = defaultSessionLeaver;
+
+function leaveK2Call(serverId: string, callId: string): void {
+  if (serverId && isK2CallId(callId)) sessionLeaver(serverId, callId);
+}
+
 function codeOf(err: unknown): { code: VoiceErrorCode; hint: string; raw: string } {
   const e = err && typeof err === "object" ? (err as { code?: unknown; hint?: unknown; raw?: unknown }) : {};
   const code = typeof e.code === "string" ? (e.code as VoiceErrorCode) : "unknown";
@@ -241,6 +275,10 @@ export const useVoiceCall = create<CallState>((set, get) => {
     // A join still in flight belongs to this call: its answer is ignored.
     attempt += 1;
     const room = get().room;
+    // The engine has left (or lost) the call: K2's record goes too.
+    const record = k2Call;
+    k2Call = null;
+    if (record) leaveK2Call(record.serverId, record.callId);
     if (!engine.drivesSystemCall) shim.report("ended", reason);
     stopListening();
     forgetStart();
@@ -283,9 +321,41 @@ export const useVoiceCall = create<CallState>((set, get) => {
     unlisten = null;
   }
 
-  /** The engine's events for call `id`. */
-  function follow(id: number, micDenied: boolean): EngineEvents {
+  /** A taken join's K2 call id (`id`: which join of ours it answered). */
+  function noteCallId(id: number, joined: CallRoom | null, roomId: string, callId: string): void {
+    if (!isK2CallId(callId)) return;
+    const room = get().room;
+    if (id === attempt && get().phase !== "idle" && room?.roomId === roomId) {
+      k2Call = { serverId: room.serverId, roomId, callId };
+      return;
+    }
+    // A join that answered after its call was left or replaced: its record
+    // goes now (the desktop leaves late joins too). K2 answers
+    // `in_another_room` rather than end a newer call elsewhere.
+    if (id !== attempt && joined?.roomId === roomId && k2Call?.callId !== callId) {
+      leaveK2Call(joined.serverId, callId);
+    }
+  }
+
+  /** The engine's last join's call id, when its event went by unheard. */
+  async function readCallId(id: number): Promise<void> {
+    const now = engine.callId ? await engine.callId().catch(() => null) : null;
+    if (now && id === attempt) noteCallId(id, get().room, now.room, now.callId);
+  }
+
+  /** A join the engine took: still ours, or superseded meanwhile. */
+  function taken(id: number): JoinOutcome {
+    if (id !== attempt) return SUPERSEDED;
+    if (!k2Call) void readCallId(id);
+    return { ok: true };
+  }
+
+  /** The engine's events for call `id` (`joined`: the join's room, when known). */
+  function follow(id: number, micDenied: boolean, joined: CallRoom | null = null): EngineEvents {
     return {
+      onCallId(roomId, callId) {
+        noteCallId(id, joined ?? (id === attempt ? get().room : null), roomId, callId);
+      },
       onState(s, reason) {
         if (id !== attempt) return;
         if (s === "ended") return ended(reason, id);
@@ -324,8 +394,9 @@ export const useVoiceCall = create<CallState>((set, get) => {
     async join(room, options) {
       if (get().phase !== "idle") await get().leave();
       const id = ++attempt;
-      // A new call: its own time, from its own connect.
+      // A new call: its own time, from its own connect, and its own record.
       forgetStart();
+      k2Call = null;
       set({ phase: "joining", room, muted: false, ...NO_FLAGS, video: false, notice: null, startedAt: null });
       if (!engine.available) {
         set({
@@ -351,7 +422,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
           set({ notice: cameraRefusalText(ask.code) });
         }
       }
-      const events = follow(id, mic === "denied");
+      const events = follow(id, mic === "denied", room);
       if (engine.drivesSystemCall) {
         // Rust starts the system call when the engine connects; it knows
         // only ids, so name the call first.
@@ -369,7 +440,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
           });
           return { ok: false, code, raw, hint };
         }
-        return id === attempt ? { ok: true } : SUPERSEDED;
+        return taken(id);
       }
       unlisten = shim.listen(onShim);
       const refused = await shim.start(room.roomName, room.serverLabel);
@@ -394,7 +465,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
         });
         return { ok: false, code, raw, hint };
       }
-      return id === attempt ? { ok: true } : SUPERSEDED;
+      return taken(id);
     },
 
     async leave() {
@@ -451,8 +522,12 @@ export const useVoiceCall = create<CallState>((set, get) => {
       const now = await engine.resync(follow(id, false));
       if (!now || id !== attempt) return;
       if (now.state === "idle" || now.state === "ended") {
-        // The call ended while the webview slept.
-        if (get().phase !== "idle") ended(now.reason, id);
+        // The call ended while the webview slept (its record, if this
+        // webview never heard it, from the engine first).
+        if (get().phase !== "idle") {
+          if (!k2Call) await readCallId(id);
+          ended(now.reason, id);
+        }
         return;
       }
       let room = get().room;
@@ -481,6 +556,7 @@ export const useVoiceCall = create<CallState>((set, get) => {
         consent: now.consent,
         startedAt,
       });
+      if (!k2Call) void readCallId(id);
     },
 
     clearNotice: () => set({ notice: null }),
@@ -501,11 +577,18 @@ export function __setCallShimForTests(next: CallShim): void {
   shim = next;
 }
 
+/** Tests: hear the session leaves instead of sending them (`null`: the real one). */
+export function __setSessionLeaverForTests(next: SessionLeaver | null): void {
+  sessionLeaver = next ?? defaultSessionLeaver;
+}
+
 export function __resetVoiceCallForTests(): void {
   engine = UNAVAILABLE_ENGINE;
   shim = callShim();
   unlisten = null;
   attempt = 0;
+  k2Call = null;
+  sessionLeaver = defaultSessionLeaver;
   forgetStart();
   useVoiceCall.setState({ phase: "idle", room: null, muted: false, ...NO_FLAGS, video: false, notice: null, consent: null, startedAt: null });
 }

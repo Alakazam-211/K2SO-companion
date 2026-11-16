@@ -10,7 +10,16 @@ vi.mock("@tauri-apps/api/event", () => ({
   }),
 }));
 
-import { askCamera, parseConsentSheet, parseDmCallIds, parseSnapshot, sewVoiceEngine, shareCallLog } from "./sewVoice";
+import {
+  askCamera,
+  callNotActive,
+  parseConsentSheet,
+  parseDmCallIds,
+  parseJoinCallId,
+  parseSnapshot,
+  sewVoiceEngine,
+  shareCallLog,
+} from "./sewVoice";
 
 beforeEach(() => {
   handlers.clear();
@@ -143,6 +152,36 @@ describe("Sew's native engine, from the webview", () => {
     });
     expect(parseDmCallIds(null)).toBeNull();
     expect(parseDmCallIds({ room: "dm:900" })).toBeNull();
+    // A voice room's ids (dm: null) are no DM call's, but carry K2's id.
+    const room = { room: "room-1", dm: null, callId: "vc_r1", sewCallId: null };
+    expect(parseDmCallIds(room)).toBeNull();
+    expect(parseJoinCallId(room)).toEqual({ room: "room-1", callId: "vc_r1" });
+    expect(parseJoinCallId({ room: "dm:900", dm: "900", callId: "4455" })).toBeNull();
+    expect(parseJoinCallId({ room: "", callId: "vc_1" })).toBeNull();
+  });
+
+  it("hands each taken join's K2 id to the call store (event and read)", async () => {
+    invoke.mockImplementation(async (cmd: string) =>
+      cmd === "voice_dm_call" ? { room: "room-1", dm: null, callId: "vc_r1", sewCallId: null } : null
+    );
+    const got: Array<[string, string]> = [];
+    const e = sewVoiceEngine();
+    await e.join("s1", "room-1", { onState: () => {}, onCallId: (r, c) => void got.push([r, c]) });
+    handlers.get("k2-voice://dm-call")?.({ payload: { room: "room-1", dm: null, callId: "vc_r2", sewCallId: null } });
+    handlers.get("k2-voice://dm-call")?.({ payload: { room: "dm:900", dm: "900", callId: null, sewCallId: "4455" } });
+    expect(got).toEqual([["room-1", "vc_r2"]]);
+    expect(await e.callId!()).toEqual({ room: "room-1", callId: "vc_r1" });
+  });
+
+  it("Sew's call_not_active (inside K2's refusal) keeps its own code: the call is over", async () => {
+    const sew = { code: "invalid_state", hint: "refused", details: { reason: "call_not_active" } };
+    invoke.mockRejectedValue({ code: "invalid_state", detail: { hint: "refused", details: { sew } } });
+    await expect(sewVoiceEngine().join("s1", "dm:900", { onState: () => {} })).rejects.toMatchObject({
+      raw: "call_not_active",
+    });
+    expect(callNotActive("CALL_NOT_ACTIVE", null)).toBe(true);
+    expect(callNotActive("invalid_state", { details: { reason: "call_not_active" } })).toBe(true);
+    expect(callNotActive("invalid_state", { details: { sew: { code: "not_dm" } } })).toBe(false);
   });
 
   it("consent sends the version the person saw", async () => {

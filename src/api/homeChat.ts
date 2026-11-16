@@ -510,12 +510,16 @@ export async function cancelDmCall(
   return r.ok ? ok(parseDmCancelAnswer(r.body)) : r;
 }
 
-/** `POST /cli/voice/call/leave {callId?}` — K2's call id (`vc_…`); none
- *  leaves whatever call this login is in. */
-export async function leaveDmCall(scope: ServerScope, callId?: K2CallId): Promise<HomeChatResult<DmLeaveAnswer>> {
+/** `POST /cli/voice/call/leave {callId}` — K2's call id (`vc_…`), always:
+ *  without one K2 leaves whatever call this login is in, which could be
+ *  another device's (K2's answers §4). The call store's leave is
+ *  `session/leave` (zen/voice/voiceApi.ts `leaveVoiceSession`), the same
+ *  leave. */
+export async function leaveDmCall(scope: ServerScope, callId: K2CallId): Promise<HomeChatResult<DmLeaveAnswer>> {
+  if (!callId) return clientRefusal("usage", "callId is K2's call id (vc_…)");
   const r = await call(scope, "/cli/voice/call/leave", {
     method: "POST",
-    body: callId ? { callId } : {},
+    body: { callId },
     priority: "user",
   });
   return r.ok ? ok(parseDmLeaveAnswer(r.body)) : r;

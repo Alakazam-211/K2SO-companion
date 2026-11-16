@@ -74,8 +74,8 @@ pub struct Native {
     screen: Arc<Mutex<ScreenRing>>,
     /// The App Group's container (Swift's, asked once: `callOp appGroup`).
     app_group: Arc<OnceLock<PathBuf>>,
-    /// The last DM call join's ids (`{room, dm, callId, sewCallId}`, or
-    /// `null`), for a webview that missed [`DM_CALL_EVENT`].
+    /// The last join's ids (`{room, dm, callId, sewCallId}`, `dm: null` for
+    /// a voice room, or `null`), for a webview that missed [`DM_CALL_EVENT`].
     dm_call: Arc<Mutex<Value>>,
 }
 
@@ -344,12 +344,77 @@ impl K2Provider {
     async fn join_inner(&self, req: JoinRequest) -> Result<JoinAnswer, ProviderError> {
         let (base, token) = self.login(&req.target).await?;
         *self.native.joining.lock().unwrap_or_else(|e| e.into_inner()) = Some(req.target.clone());
-        let (status, retry_after, body) = self.post(&format!("{base}/cli/voice/join"), &token, &join_body(&req)).await?;
+        let url = format!("{base}/cli/voice/join");
+        let join = join_body(&req);
+        let mut tried_again = false;
+        let (status, retry_after, body) = loop {
+            let (status, retry_after, body) = self.post(&url, &token, &join).await?;
+            match rejoin_step(&req, tried_again, status, &body) {
+                RejoinStep::Take => break (status, retry_after, body),
+                RejoinStep::TryAgain => {
+                    self.native.note("dm re-join: call not active, once more");
+                    tried_again = true;
+                    pause(CALL_NOT_ACTIVE_WAIT).await;
+                }
+                RejoinStep::Ended => {
+                    self.native.note("dm re-join: call not active again: ended");
+                    return Err(refused(CALL_ENDED, "the call ended"));
+                }
+                RejoinStep::LeaveNewCall => {
+                    self.native.note("dm re-join opened a new call: leaving it");
+                    let answer = answer_from(status, retry_after, &body, &base, &token);
+                    self.leave_new_call(&base, &token, answer.as_ref().ok(), &body).await;
+                    return Err(refused(CALL_ENDED, "the call ended while you were away"));
+                }
+            }
+        };
         let answer = answer_from(status, retry_after, &body, &base, &token);
         if answer.is_ok() {
             self.native.note_dm_call(&req.room, dm_call_ids(&req.room, &body));
+        } else if let Some(id) = k2_call_id(&body).filter(|_| status == 200) {
+            // K2 took the join but the engine can't use it: K2's record (and
+            // Sew's seat, which K2's leave gives up) goes now.
+            self.k2_leave(&base, &token, &id).await;
         }
         answer
+    }
+
+    /// A DM re-join that opened a new call (the old one had ended): this
+    /// phone is alone in it, and no end rule fires for a call nobody was
+    /// rung into, so it stays open until we leave. First Sew's own leave
+    /// with the join's call credential (what the engine's leave sends:
+    /// `POST <lane>/api/v1/me/voice/leave`), then K2's record.
+    async fn leave_new_call(&self, base: &str, token: &str, answer: Option<&JoinAnswer>, body: &[u8]) {
+        if let Some((url, bearer)) = answer.and_then(sew_leave) {
+            let r = self.http.post(url).bearer_auth(bearer).json(&json!({})).timeout(LEAVE_TIMEOUT).send().await;
+            self.native.note(match r {
+                Ok(res) if res.status().is_success() => "sew leave ok",
+                Ok(_) => "sew leave refused",
+                Err(_) => "sew leave failed",
+            });
+        }
+        if let Some(id) = k2_call_id(body) {
+            self.k2_leave(base, token, &id).await;
+        }
+    }
+
+    /// `POST /cli/voice/session/leave {callId}` with K2's `vc_…` id (never
+    /// without one: that would leave the person's call on another device).
+    /// Idempotent; the answer only goes to the call log.
+    async fn k2_leave(&self, base: &str, token: &str, call_id: &str) {
+        let r = self
+            .http
+            .post(format!("{base}/cli/voice/session/leave"))
+            .bearer_auth(token)
+            .json(&session_leave_body(call_id))
+            .timeout(LEAVE_TIMEOUT)
+            .send()
+            .await;
+        self.native.note(match r {
+            Ok(res) if res.status().is_success() => "k2 leave ok",
+            Ok(_) => "k2 leave refused",
+            Err(_) => "k2 leave failed",
+        });
     }
 
     async fn consent_inner(&self, answer: ConsentAnswer) -> Result<Recording, ProviderError> {
@@ -451,6 +516,100 @@ pub fn join_body(req: &JoinRequest) -> Value {
     }
 }
 
+// ── A DM call's re-join (K2's answers, companion-dm-call-answers-v1 §1) ──
+//
+// The engine's re-join (a lost admit, an expired credential) sends
+// `join.ring: false` ([`join_body`]). Sew de-dupes by the DM's live call:
+// a join into it never rings anyone. Two answers need more:
+//   - Sew's `invalid_state` / `call_not_active` while the old call is
+//     still ending: once more after [`CALL_NOT_ACTIVE_WAIT`]; the same
+//     again and the call has ended.
+//   - `created: true`: the old call had ended and this join opened a new,
+//     silent one with only this phone in it. Leave it at once (Sew's leave,
+//     then K2's) and the call ends here.
+// Either end is the engine's refusal [`CALL_ENDED`]: the call screen says
+// "Call ended".
+
+/// The end reason (a refused re-join's code) of a DM call that ended while
+/// this phone was re-joining it.
+pub const CALL_ENDED: &str = "call_ended";
+
+/// How long a re-join waits before trying a call that's still ending again.
+const CALL_NOT_ACTIVE_WAIT: Duration = Duration::from_millis(1500);
+
+/// A leave's own deadline (Sew's or K2's): it never holds the call's end up.
+const LEAVE_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// What a DM re-join does with the daemon's answer.
+#[derive(Debug, PartialEq)]
+pub enum RejoinStep {
+    /// The answer as any join's.
+    Take,
+    /// The old call is still ending: try once more, after a moment.
+    TryAgain,
+    /// Still not active the second time: the call has ended.
+    Ended,
+    /// The join opened a new call: leave it, the call has ended.
+    LeaveNewCall,
+}
+
+/// A DM call's re-join answer ([`RejoinStep`]); a first join or a voice
+/// room's join is always taken as is.
+pub fn rejoin_step(req: &JoinRequest, tried_again: bool, status: u16, body: &[u8]) -> RejoinStep {
+    if req.rejoin.is_none() || dm_of_room(&req.room).is_none() {
+        return RejoinStep::Take;
+    }
+    let v: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+    if status >= 400 && call_not_active(&v) {
+        return if tried_again { RejoinStep::Ended } else { RejoinStep::TryAgain };
+    }
+    if status == 200 && v.get("created") == Some(&Value::Bool(true)) {
+        return RejoinStep::LeaveNewCall;
+    }
+    RejoinStep::Take
+}
+
+/// Sew's `call_not_active` (an `invalid_state` refusal), as Sew's own error
+/// or inside K2's (`details.sew`), in any case.
+pub fn call_not_active(v: &Value) -> bool {
+    let e = v.get("error").unwrap_or(v);
+    let is = |p: &str| e.pointer(p).and_then(Value::as_str).is_some_and(|s| s.eq_ignore_ascii_case("call_not_active"));
+    is("/code") || is("/details/reason") || is("/details/sew/code") || is("/details/sew/details/reason")
+}
+
+/// K2's call record in a join answer (`callId`, `vc_…`).
+pub fn k2_call_id(body: &[u8]) -> Option<String> {
+    let v: Value = serde_json::from_slice(body).ok()?;
+    v.get("callId").and_then(Value::as_str).filter(|c| c.starts_with("vc_")).map(str::to_owned)
+}
+
+/// `POST /cli/voice/session/leave`'s body: always K2's call id.
+pub fn session_leave_body(call_id: &str) -> Value {
+    json!({ "callId": call_id })
+}
+
+/// The engine's own leave for a join it never took: Sew's
+/// `POST /api/v1/me/voice/leave` under the join's lane, with its call
+/// credential (sew-call-client `api::leave`). `None` without a credential.
+pub fn sew_leave(answer: &JoinAnswer) -> Option<(url::Url, String)> {
+    let bearer = answer.call_credential()?.token.clone();
+    Some((sew_leave_url(&answer.api_base)?, bearer))
+}
+
+/// Sew's leave route under a join's lane (`…/_k2/voice/sew/`).
+pub fn sew_leave_url(api_base: &url::Url) -> Option<url::Url> {
+    let mut base = api_base.clone();
+    if !base.path().ends_with('/') {
+        base.set_path(&format!("{}/", base.path()));
+    }
+    base.join("api/v1/me/voice/leave").ok()
+}
+
+/// A pause on the async runtime without a timer of our own.
+async fn pause(d: Duration) {
+    let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(d)).await;
+}
+
 /// A DM call's room id: `dm:<conversation id>` (the desktop's and the
 /// webview's `dmRoomId`).
 pub const DM_ROOM_PREFIX: &str = "dm:";
@@ -460,12 +619,14 @@ pub fn dm_of_room(room: &str) -> Option<&str> {
     room.strip_prefix(DM_ROOM_PREFIX).filter(|c| !c.is_empty())
 }
 
-/// What the webview keeps from a DM join's answer: K2's call record
-/// (`callId`, `vc_…`, for leave) and Sew's call (`call.id`, for cancel and
-/// ring again). Ids only: never the media token or the call credential.
-/// `null` for a voice room.
+/// What the webview keeps from a join's answer: K2's call record
+/// (`callId`, `vc_…`, for `session/leave` after any leave) and, for a DM
+/// call, Sew's call (`call.id`, for cancel and ring again). Ids only: never
+/// the media token or the call credential. A voice room's has `dm: null`.
 pub fn dm_call_ids(room: &str, body: &[u8]) -> Value {
-    let Some(conv) = dm_of_room(room) else { return Value::Null };
+    let Some(conv) = dm_of_room(room) else {
+        return json!({ "room": room, "dm": Value::Null, "callId": k2_call_id(body), "sewCallId": Value::Null });
+    };
     let v: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
     let id = |x: Option<&Value>| match x {
         Some(Value::String(s)) if !s.is_empty() => Some(s.clone()),
@@ -635,8 +796,8 @@ pub const CONSENT_EVENT: &str = "k2-voice://consent";
 /// The call has video or no longer (`video_changed`): the call screen's tile.
 pub const VIDEO_EVENT: &str = "k2-voice://video";
 
-/// A DM call's ids once its join is taken ([`dm_call_ids`]), or `null`
-/// after a voice room's join.
+/// A join's call ids once it is taken ([`dm_call_ids`]; a voice room's
+/// with `dm: null`).
 pub const DM_CALL_EVENT: &str = "k2-voice://dm-call";
 
 impl Native {
@@ -1954,6 +2115,39 @@ mod tests {
         assert_eq!(dm_of_room("room-1"), None);
     }
 
+    /// K2's answers §1 and Sew's (v0.10.2): a re-join that opened a new
+    /// call leaves it; a call still ending is tried once more, then ended.
+    #[test]
+    fn a_dm_rejoin_leaves_a_new_call_and_tries_an_ending_one_once_more() {
+        let rejoin = dm_req(json!("admit_lost"));
+        let created = json!({ "ok": true, "callId": "vc_9", "dm": "900", "created": true }).to_string();
+        let live = json!({ "ok": true, "callId": "vc_9", "dm": "900", "created": false }).to_string();
+        assert_eq!(rejoin_step(&rejoin, false, 200, created.as_bytes()), RejoinStep::LeaveNewCall);
+        assert_eq!(rejoin_step(&rejoin, false, 200, live.as_bytes()), RejoinStep::Take);
+        // A first join (the caller's own new call) and a voice room take it as is.
+        assert_eq!(rejoin_step(&dm_req(Value::Null), false, 200, created.as_bytes()), RejoinStep::Take);
+        assert_eq!(rejoin_step(&req(None), false, 200, created.as_bytes()), RejoinStep::Take);
+
+        // K2's pass-through of Sew's `invalid_state` / `call_not_active`.
+        let ending = json!({ "error": { "code": "invalid_state", "hint": "refused",
+            "details": { "sew": { "code": "invalid_state", "details": { "reason": "call_not_active" } } } } })
+        .to_string();
+        assert_eq!(rejoin_step(&rejoin, false, 422, ending.as_bytes()), RejoinStep::TryAgain);
+        assert_eq!(rejoin_step(&rejoin, true, 422, ending.as_bytes()), RejoinStep::Ended);
+        assert!(call_not_active(&json!({ "error": { "code": "CALL_NOT_ACTIVE" } })));
+        assert!(!call_not_active(&json!({ "error": { "code": "room_full" } })));
+        assert_eq!(rejoin_step(&dm_req(Value::Null), false, 422, ending.as_bytes()), RejoinStep::Take);
+
+        // The leaves: Sew's under the lane (the engine's own route), K2's with its id.
+        let lane = url::Url::parse(&format!("https://box.example{API_BASE_PATH}")).unwrap();
+        assert_eq!(sew_leave_url(&lane).unwrap().as_str(), "https://box.example/_k2/voice/sew/api/v1/me/voice/leave");
+        let bare = url::Url::parse("https://box.example/_k2/voice/sew").unwrap();
+        assert_eq!(sew_leave_url(&bare).unwrap().as_str(), "https://box.example/_k2/voice/sew/api/v1/me/voice/leave");
+        assert_eq!(k2_call_id(created.as_bytes()).as_deref(), Some("vc_9"));
+        assert_eq!(k2_call_id(br#"{"callId":"4455"}"#), None);
+        assert_eq!(session_leave_body("vc_9"), json!({ "callId": "vc_9" }));
+    }
+
     #[test]
     fn a_dm_joins_ids_keep_k2s_and_sews_apart() {
         let body = json!({
@@ -1970,7 +2164,11 @@ mod tests {
         let ids = dm_call_ids("dm:900", swapped.to_string().as_bytes());
         assert_eq!(ids["callId"], Value::Null);
         assert_eq!(ids["sewCallId"], Value::Null);
-        assert_eq!(dm_call_ids("room-1", body.to_string().as_bytes()), Value::Null);
+        // A voice room's: K2's id only (for session/leave).
+        assert_eq!(
+            dm_call_ids("room-1", body.to_string().as_bytes()),
+            json!({ "room": "room-1", "dm": null, "callId": "vc_1f2e", "sewCallId": null })
+        );
     }
 
     /// Sew's contract fixture (`recording.held.recording`, 0.8.0).

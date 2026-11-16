@@ -6,7 +6,6 @@ import {
   fetchHomeChatPeople,
   homeChatGateNow,
   homeChatGateStale,
-  leaveDmCall as apiLeave,
   openHomeChatDm,
   refreshHomeChatGate,
   ringDmCallAgain as apiRingAgain,
@@ -38,9 +37,16 @@ import { requestOpenHomeChat } from "./homeChatOpen";
 // leaves it first).
 //
 // THE TWO CALL IDS (K2 brief §3, desktop decision 11):
-//   - K2's `vc_…` (the join answer's top-level `callId`): leave
-//     (`/cli/voice/call/leave`). From the native join (Rust keeps the ids
+//   - K2's `vc_…` (the join answer's top-level `callId`): leave. The voice
+//     store posts `/cli/voice/session/leave {callId}` after any leave of
+//     the media (voiceCall.ts). From the native join (Rust keeps the ids
 //     only: `k2-voice://dm-call`, `voice_dm_call`).
+//
+// RE-JOIN (K2's answers §1, Sew 0.10.2): the engine's own re-join (a lost
+// admit, an expired credential) sends `join.ring: false` and never rings.
+// If the call had ended meanwhile, Rust (voice.rs `rejoin_step`) leaves the
+// new call that join opened, or gives up on one still ending after one
+// more try, and the engine ends with `call_ended`: "Call ended" here.
 //   - Sew's (digits; `call.id`, `call_ring.call_id`, the push's `callId`):
 //     decline, ring again, cancel. From the native join, else the first
 //     `call_updated` frame.
@@ -216,8 +222,9 @@ export function clearDmCallNotice(): void {
 let followingVoice = false;
 
 /** When the media ends while a DM call is up (the other side hung up, a
- *  drop, your own Hang up on the call tile): the call is over here, and
- *  K2's record is left with its `vc_…` id (idempotent). */
+ *  drop, a re-join that found the call over, your own Hang up on the call
+ *  tile): the call is over here. K2's record is left by the voice store,
+ *  after any leave (`session/leave` with its `vc_…` id). */
 function followVoice(): void {
   if (followingVoice) return;
   followingVoice = true;
@@ -227,7 +234,6 @@ function followVoice(): void {
     const a = get().active;
     if (!room?.dm || !a || !isThis(a, room.serverId, room.dm.conv)) return;
     if (a.phase === "joining" || isFinalPhase(a.phase)) return;
-    if (a.k2CallId) void apiLeave(scopeFor(a.serverId), a.k2CallId);
     set({ active: null });
     if (s.notice) {
       set({ notice: { text: s.notice, retry: null } });
@@ -331,9 +337,8 @@ export async function startDmCall(
   }
 
   // Another DM call up: it ends with this one (one voice entry per person;
-  // the voice store lets its media go before this join).
-  const prev = get().active;
-  if (prev && !isFinalPhase(prev.phase) && prev.k2CallId) void apiLeave(scopeFor(prev.serverId), prev.k2CallId);
+  // the voice store lets its media go before this join, and leaves K2's
+  // record of it).
 
   // A ring for you in this DM: this join answers it.
   const ringing = get().rings.filter((r) => r.serverId === serverId && r.conv === conv);
@@ -433,8 +438,8 @@ export async function cancelOutgoingDmCall(): Promise<void> {
     // other side sees a missed call.
     fellBack = a.phase !== "joining";
   }
+  // The media's leave also leaves K2's record (the voice store).
   if (inThisMedia(a)) await useVoiceCall.getState().leave();
-  if (a.k2CallId) void apiLeave(scopeFor(a.serverId), a.k2CallId);
   if (fellBack) set({ notice: { text: cancelFellBackText(a.name), retry: null } });
 }
 

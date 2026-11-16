@@ -15,7 +15,6 @@ const api = vi.hoisted(() => ({
   cancelDmCall: vi.fn(),
   declineDmCall: vi.fn(),
   ringDmCallAgain: vi.fn(),
-  leaveDmCall: vi.fn(async (..._a: unknown[]) => ({ ok: true, left: true, already: false, why: null, room: null })),
   fetchHomeChatPeople: vi.fn(async (..._a: unknown[]) => ({
     ok: true,
     me: { ext: "k2:owner", memberId: "100" },
@@ -30,7 +29,6 @@ vi.mock("../../api/homeChat", () => ({
   cancelDmCall: (...a: unknown[]) => api.cancelDmCall(...a),
   declineDmCall: (...a: unknown[]) => api.declineDmCall(...a),
   ringDmCallAgain: (...a: unknown[]) => api.ringDmCallAgain(...a),
-  leaveDmCall: (...a: unknown[]) => api.leaveDmCall(...a),
   fetchHomeChatPeople: (...a: unknown[]) => api.fetchHomeChatPeople(...a),
   openHomeChatDm: (...a: unknown[]) => api.openHomeChatDm(...a),
 }));
@@ -40,6 +38,7 @@ import type { CallShim } from "../voice/callShim";
 import {
   __resetVoiceCallForTests,
   __setCallShimForTests,
+  __setSessionLeaverForTests,
   setPhoneVoiceEngine,
   useVoiceCall,
   type EngineEvents,
@@ -98,11 +97,15 @@ const engine: PhoneVoiceEngine & { joins: Array<[string, string]> } = {
   leave: vi.fn(async () => {
     order.push("leave");
   }),
+  // The native join's ids as the engine reads them (Rust's `voice_dm_call`).
+  callId: async () => (nativeIds?.callId ? { room: nativeIds.room, callId: nativeIds.callId } : null),
   setMuted: () => {},
   system: () => {},
 };
 
 let nativeIds: { room: string; dm: string; callId: string | null; sewCallId: string | null } | null = null;
+/** `session/leave` as the voice store sends it: `[serverId, callId]`. */
+const k2Leaves: Array<[string, string]> = [];
 
 function ring(over: Partial<Record<string, unknown>> = {}): HomeChatRing {
   return parseRing({
@@ -153,7 +156,11 @@ beforeEach(() => {
   });
   api.declineDmCall.mockReset().mockResolvedValue({ ok: true, declined: true });
   api.ringDmCallAgain.mockReset().mockResolvedValue({ ok: true, rung: true });
-  api.leaveDmCall.mockClear();
+  k2Leaves.length = 0;
+  __setSessionLeaverForTests((serverId, callId) => {
+    order.push(`k2leave:${callId}`);
+    k2Leaves.push([serverId, callId]);
+  });
   api.openHomeChatDm.mockReset();
   vi.mocked(engine.join).mockClear();
   vi.mocked(engine.leave).mockClear();
@@ -243,8 +250,9 @@ describe("the caller's Cancel and Call again", () => {
     order.length = 0;
     await cancelOutgoingDmCall();
     expect(api.cancelDmCall).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }), "900", "4455");
-    // Cancel first: a leave first would read as an unanswered call.
-    expect(order).toEqual(["cancel", "leave"]);
+    // Cancel first: a leave first would read as an unanswered call. K2's
+    // record after the media (session/leave, the voice store's).
+    expect(order).toEqual(["cancel", "leave", "k2leave:vc_abc"]);
     expect(useDmCalls.getState().active?.phase).toBe("cancelled");
     expect(useDmCalls.getState().notice).toBeNull();
   });
@@ -289,13 +297,69 @@ describe("the caller's Cancel and Call again", () => {
     expect(useDmCalls.getState().active?.phase).toBe("missed");
   });
 
-  it("hanging up a connected call leaves K2's record with K2's vc_ id", async () => {
+  it("hanging up a connected call: the engine's leave, then session/leave with K2's vc_ id", async () => {
     await startDmCall("s1", "900", { name: "Alex" });
     events!.onState("connected");
     onHomeChatCallFrame("s1", { type: "call_updated", conv: "900", call: call({ state: "active", participant_ids: ["100", "200"] }) });
+    order.length = 0;
     await useVoiceCall.getState().leave();
-    expect(api.leaveDmCall).toHaveBeenCalledWith(expect.objectContaining({ id: "s1" }), "vc_abc");
+    expect(order).toEqual(["leave", "k2leave:vc_abc"]);
+    expect(k2Leaves).toEqual([["s1", "vc_abc"]]);
     expect(useDmCalls.getState().active).toBeNull();
+  });
+});
+
+// K2's answers §4: session/leave after ANY leave of the engine, with K2's id.
+describe("K2's record after a DM call's media goes", () => {
+  it("the other side ended it: the media goes, then K2's record", async () => {
+    await startDmCall("s1", "900", { name: "Alex" });
+    events!.onState("connected");
+    onHomeChatCallFrame("s1", { type: "call_updated", conv: "900", call: call({ state: "active", participant_ids: ["100", "200"] }) });
+    order.length = 0;
+    onHomeChatCallFrame("s1", { type: "call_updated", conv: "900", call: call({ state: "ended", end_reason: "ended" }) });
+    await flush();
+    expect(order).toEqual(["leave", "k2leave:vc_abc"]);
+    expect(useDmCalls.getState().active).toBeNull();
+  });
+
+  it("a drop (the engine ended on its own) leaves K2's record too, once", async () => {
+    await startDmCall("s1", "900", { name: "Alex" });
+    events!.onState("connected");
+    events!.onState("ended", "network");
+    expect(k2Leaves).toEqual([["s1", "vc_abc"]]);
+    expect(useDmCalls.getState().notice?.text).toBe("The call with Alex dropped: the connection was lost.");
+  });
+
+  it("never without K2's id", async () => {
+    nativeIds = { room: "dm:900", dm: "900", callId: null, sewCallId: "4455" };
+    await startDmCall("s1", "900", { name: "Alex" });
+    events!.onState("connected");
+    await useVoiceCall.getState().leave();
+    expect(k2Leaves).toEqual([]);
+  });
+});
+
+// K2's answers §1 with Sew's (0.10.2): the engine's own re-join never rings
+// (`join.ring: false`, Rust voice.rs `join_body`); one that found the call
+// over (a new call it left at once, or `call_not_active` twice) ends the
+// engine with `call_ended` (voice.rs `rejoin_step`).
+describe("a re-join that found the call over", () => {
+  it("says 'Call ended' and leaves K2's record (the old one and the re-join's)", async () => {
+    await startDmCall("s1", "900", { name: "Alex" });
+    events!.onState("connected");
+    onHomeChatCallFrame("s1", { type: "call_updated", conv: "900", call: call({ state: "active", participant_ids: ["100", "200"] }) });
+    events!.onState("reconnecting");
+    events!.onState("ended", "call_ended");
+    expect(useDmCalls.getState().active).toBeNull();
+    expect(useDmCalls.getState().notice).toEqual({ text: "Call ended", retry: null });
+    expect(k2Leaves).toEqual([["s1", "vc_abc"]]);
+  });
+
+  it("a join refused with Sew's call_not_active reads 'Call ended', with no Try again", async () => {
+    refuseWith = { code: "unknown", hint: "refused", raw: "call_not_active" };
+    const out = await startDmCall("s1", "900", { name: "Alex" });
+    expect(out).toMatchObject({ ok: false, raw: "call_not_active" });
+    expect(useDmCalls.getState().notice).toEqual({ text: "Call ended", retry: null });
   });
 });
 
