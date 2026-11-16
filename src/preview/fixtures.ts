@@ -16,6 +16,7 @@ import type { ThreadMessage } from "../zen/threadModel";
 import type { StubAgent } from "../zen/stubData";
 import type { ServerProject } from "../zen/serverPins";
 import type { RowLast } from "../zen/rowPreview";
+import { seedHomeChat } from "./homeChatFixtures";
 
 export const SERVER_ID = "preview";
 const SERVER: ServerEntry = {
@@ -148,7 +149,42 @@ export function threadFixture(): ThreadMessage[] {
   ];
 }
 
-export type PreviewScreen = "thread" | "home" | "settings" | "themes" | "home-groups" | "home-groups-sheet";
+export type PreviewScreen =
+  | "thread"
+  | "home"
+  | "settings"
+  | "themes"
+  /** A DM (Maya): reactions, a reply and its chip, typing, a missed call. */
+  | "home-chat"
+  /** A channel (#design): names over runs, three people typing. */
+  | "home-chat-channel"
+  /** The DM with a bubble's hold menu open (quick emoji on top). */
+  | "home-chat-menu"
+  /** The channel's members sheet. */
+  | "home-chat-members"
+  /** Home groups (the group bar) and the Groups sheet on Errands. */
+  | "home-groups"
+  | "home-groups-sheet";
+
+export const PREVIEW_SCREENS: readonly PreviewScreen[] = [
+  "thread",
+  "home",
+  "settings",
+  "themes",
+  "home-chat",
+  "home-chat-channel",
+  "home-chat-menu",
+  "home-chat-members",
+  "home-groups",
+  "home-groups-sheet",
+];
+
+/** The Home chat screens: which conversation they open. */
+export function homeChatKindOf(screen: PreviewScreen): "dm" | "channel" | null {
+  if (screen === "home-chat" || screen === "home-chat-menu") return "dm";
+  if (screen === "home-chat-channel" || screen === "home-chat-members") return "channel";
+  return null;
+}
 
 /** Home groups (K2 0.46.13): groups with icons, one without, pins, on the
  *  Home tab; `sheet` opens the Groups sheet on Errands. Once, before the
@@ -255,6 +291,8 @@ export function seedStores(screen: PreviewScreen): void {
     sending: false,
     sendError: null,
   });
+  const chat = homeChatKindOf(screen);
+  if (chat) seedHomeChat(chat, SERVER_ID);
 }
 
 /** The composer's text in the open Thread (a saved draft, as on the phone). */

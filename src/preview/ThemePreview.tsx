@@ -2,7 +2,7 @@
 // in the app build). Real screens with fixture data, under any palette and
 // accent, at iPhone size, with no server:
 //
-//   /preview/theme.html?palette=obsidian|veil|yellow&accent=<hex|yellow>&screen=thread|home|settings|themes
+//   /preview/theme.html?palette=obsidian|veil|yellow&accent=<hex|yellow>&screen=thread|home|settings|themes|home-chat|home-chat-channel|home-chat-menu|home-chat-members
 //
 // Extras: `jump=1` scrolls the Thread up so the jump pill shows; `chrome=0`
 // hides the fake status bar and home indicator. Open it at 393×852 (device
@@ -21,14 +21,12 @@ import { useThemeStore } from "../theme/themeStore";
 import { Zen } from "../pages/Zen";
 import { ZenSettings } from "../zen/ZenSettings";
 import { ThemesPage } from "../zen/ThemesPage";
-import { seedDraft, seedHomeGroups, seedStores, type PreviewScreen } from "./fixtures";
+import { PREVIEW_SCREENS, seedDraft, seedHomeGroups, seedStores, type PreviewScreen } from "./fixtures";
 
 const params = new URLSearchParams(location.search);
 const palette: PaletteId = paletteById(params.get("palette"))?.id ?? "obsidian";
 const accent = parseAccentChoice(params.get("accent"));
-const screen: PreviewScreen =
-  (["thread", "home", "settings", "themes", "home-groups", "home-groups-sheet"] as const).find((s) => s === params.get("screen")) ??
-  "thread";
+const screen: PreviewScreen = PREVIEW_SCREENS.find((s) => s === params.get("screen")) ?? "thread";
 const jump = params.get("jump") === "1";
 const chrome = params.get("chrome") !== "0";
 
@@ -123,6 +121,21 @@ function Settle({ children }: { children: ReactNode }) {
     timers.push(window.setTimeout(reseed, 120), window.setTimeout(reseed, 500));
     timers.push(
       window.setTimeout(async () => {
+        // Home chat: open the hold menu on Maya's newest message (and, on
+        // the DM, pick Reply so the chip shows), or the members sheet.
+        if (screen === "home-chat" || screen === "home-chat-menu") {
+          const bubbles = document.querySelectorAll<HTMLElement>("[data-message-hold]");
+          const theirs = Array.from(bubbles).filter((b) => !b.closest("[data-mine]"));
+          const target = theirs[theirs.length - 1];
+          target?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, button: 2 }));
+          if (screen === "home-chat") {
+            await new Promise((r) => window.setTimeout(r, 50));
+            document.querySelector<HTMLElement>("[data-testid=menu-reply]")?.click();
+          }
+        }
+        if (screen === "home-chat-members") {
+          document.querySelector<HTMLElement>("[data-testid=home-chat-title-button]")?.click();
+        }
         if (jump) {
           const list = document.querySelector<HTMLElement>("[data-testid=thread-scroller]");
           if (list) {
