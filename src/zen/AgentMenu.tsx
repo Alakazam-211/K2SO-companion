@@ -20,8 +20,6 @@ import { rectOf, type HeldMenu, type MenuRect } from "./useHoldMenu";
 // full fill, and a `head` (the quick emoji) floats on its own above the
 // lifted message, clear of its reaction chips.
 
-/** iOS system yellow, the Messages pin glyph. */
-export const PIN_YELLOW = "var(--color-status-warn-text)";
 const REMOVE_RED = "var(--color-status-error)";
 const ITEM_H = 44;
 const MENU_W = 220;
@@ -383,10 +381,11 @@ const glyph = (children: ReactNode, testId?: string) => (
   </svg>
 );
 
-/** lucide "pin" / "pin-off". */
+/** lucide "pin" / "pin-off", in the menu's plain icon colour like Open,
+ *  Call and Rearrange (K2 Design, 4.3.0: only Remove is coloured). */
 export function PinGlyph({ off }: { off: boolean }) {
   return (
-    <span className="flex" style={{ color: PIN_YELLOW }}>
+    <span className="flex">
       {glyph(
         off ? (
           <>
