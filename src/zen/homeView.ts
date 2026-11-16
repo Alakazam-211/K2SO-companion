@@ -1,5 +1,5 @@
 import { hostLabel, serverHostKey, type ServerEntry } from "../stores/servers";
-import { homeAddress, parseHomeAddress, type Home, type HomeRow } from "./homes";
+import { homeAddress, isAgentRow, parseHomeAddress, type Home, type HomeRow } from "./homes";
 import { entryMatchesHomeHost, homeHostLabel } from "./homeServerIds";
 import { workspaceIdForRow } from "./multi/merge";
 import { pinProjectIdForRow, type ServerProject } from "./serverPins";
@@ -132,6 +132,8 @@ export function resolveHomeRows(
     ? ctx.servers.filter((s) => serverHostKey(s) === ctx.activeHostKey)
     : [];
   for (const row of rows) {
+    // People and channel rows (K2 0.46.13) are drawn by Home chat, not here.
+    if (!isAgentRow(row)) continue;
     const parsed = parseHomeAddress(row.address);
     if (!parsed) continue;
     // Either spelling of the active server: host key or box id.
@@ -229,7 +231,7 @@ export function rowsAcrossHomes(
   const homeOf = new Map<string, { id: string; name: string }>();
   for (const h of ordered) {
     for (const r of h.rows) {
-      if (homeOf.has(r.address)) continue;
+      if (!isAgentRow(r) || homeOf.has(r.address)) continue;
       homeOf.set(r.address, { id: h.id, name: h.name });
       rows.push(r);
     }
