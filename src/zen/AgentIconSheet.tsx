@@ -72,12 +72,12 @@ export function AgentIconSheet({
   };
 
   const pill = "text-[15px] k2-tile k2-tile-raised";
-  const pillStyle = { minHeight: 36, padding: "0 14px", borderRadius: 18, color: "#fff" };
+  const pillStyle = { minHeight: 36, padding: "0 14px", borderRadius: 18, color: "var(--color-text-primary)" };
 
   return (
     <div
       className="absolute inset-0 flex items-end justify-center"
-      style={{ background: "rgba(0,0,0,.45)", zIndex: 30 }}
+      style={{ background: "var(--color-scrim)", zIndex: 30 }}
       data-testid="agent-icon-sheet"
       onClick={(e) => {
         e.stopPropagation();
@@ -94,12 +94,12 @@ export function AgentIconSheet({
           padding: "16px 16px max(12px, var(--safe-bottom))",
           maxHeight: "90%",
           gap: 14,
-          color: "#fff",
+          color: "var(--color-text-primary)",
         }}
       >
         <div className="flex flex-col items-center" style={{ gap: 2 }}>
           <h2 className="text-[17px] font-semibold text-center">Change icon</h2>
-          <p className="text-[12px] text-center" style={{ color: "#8e8e93" }} data-testid="agent-icon-subtitle">
+          <p className="text-[12px] text-center" style={{ color: "var(--color-text-muted)" }} data-testid="agent-icon-subtitle">
             Icon for {target.name}
           </p>
         </div>
@@ -111,7 +111,7 @@ export function AgentIconSheet({
             iconUrl={draft.iconUrl}
             size={PREVIEW_PX}
             fontSize={38}
-            fallback="#2c2c2e"
+            fallback="var(--color-bg-elevated)"
           />
         </span>
 
@@ -130,7 +130,7 @@ export function AgentIconSheet({
             <button
               type="button"
               className={pill}
-              style={{ ...pillStyle, color: "#ff453a" }}
+              style={{ ...pillStyle, color: "var(--color-status-error)" }}
               disabled={busy}
               onClick={() => setDraft((d) => ({ ...d, iconUrl: null }))}
               data-testid="agent-icon-remove"
@@ -149,7 +149,7 @@ export function AgentIconSheet({
         </div>
 
         <div className="flex flex-col items-center w-full" style={{ gap: 6 }}>
-          <span className="text-[13px]" style={{ color: "#8e8e93" }}>
+          <span className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>
             Colour (shown without a photo)
           </span>
           <div className="flex flex-wrap justify-center" style={{ gap: 10 }} role="radiogroup" aria-label="Colour">
@@ -167,7 +167,7 @@ export function AgentIconSheet({
                   height: 30,
                   borderRadius: "50%",
                   background: c,
-                  boxShadow: draft.color === c ? "0 0 0 2px #000, 0 0 0 4px #fff" : undefined,
+                  boxShadow: draft.color === c ? "0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-text-primary)" : undefined,
                 }}
                 data-testid={`agent-icon-color-${c.slice(1)}`}
               />
@@ -176,7 +176,7 @@ export function AgentIconSheet({
         </div>
 
         {error ? (
-          <p role="alert" className="text-[13px] text-center" style={{ color: "#ff453a" }} data-testid="agent-icon-error">
+          <p role="alert" className="text-[13px] text-center" style={{ color: "var(--color-status-error-text)" }} data-testid="agent-icon-error">
             {error}
           </p>
         ) : null}
@@ -184,7 +184,7 @@ export function AgentIconSheet({
         <button
           type="button"
           className="w-full flex items-center justify-between text-[15px] k2-tile k2-tile-raised shrink-0"
-          style={{ minHeight: 44, padding: "0 12px 0 14px", borderRadius: 12, color: "#fff" }}
+          style={{ minHeight: 44, padding: "0 12px 0 14px", borderRadius: 12, color: "var(--color-text-primary)" }}
           onClick={() => setDetails(true)}
           data-testid="agent-icon-settings"
         >
@@ -198,8 +198,8 @@ export function AgentIconSheet({
           style={{
             minHeight: 44,
             borderRadius: 12,
-            background: "#0a84ff",
-            color: "#fff",
+            background: "var(--color-accent-fill)",
+            color: "var(--color-on-accent)",
             opacity: busy || !dirty ? 0.4 : 1,
           }}
           disabled={busy || !dirty}
@@ -211,7 +211,7 @@ export function AgentIconSheet({
         <button
           type="button"
           className="w-full text-[17px] bg-transparent border-0 shrink-0"
-          style={{ minHeight: 40, color: "#8e8e93" }}
+          style={{ minHeight: 40, color: "var(--color-text-muted)" }}
           disabled={saving}
           onClick={onClose}
           data-testid="agent-icon-cancel"

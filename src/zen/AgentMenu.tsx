@@ -12,8 +12,8 @@ import type { HeldMenu, MenuRect } from "./useHoldMenu";
 // there is no room below).
 
 /** iOS system yellow, the Messages pin glyph. */
-export const PIN_YELLOW = "#ffd60a";
-const REMOVE_RED = "#ff453a";
+export const PIN_YELLOW = "var(--color-status-warn-text)";
+const REMOVE_RED = "var(--color-status-error)";
 const ITEM_H = 44;
 const MENU_W = 220;
 
@@ -126,7 +126,7 @@ export function AgentMenu({
           overflowY: "auto",
           borderRadius: 16,
           padding: 6,
-          color: "#fff",
+          color: "var(--color-text-primary)",
         }}
       >
         {entries.map((e) =>
@@ -149,7 +149,7 @@ export function AgentMenu({
                 padding: "10px 12px",
                 minHeight: ITEM_H,
                 borderRadius: 10,
-                color: e.danger ? REMOVE_RED : "#fff",
+                color: e.danger ? REMOVE_RED : "var(--color-text-primary)",
               }}
               data-testid={`menu-${e.key}`}
               onClick={() => {
@@ -216,7 +216,7 @@ export function PinGlyph({ off }: { off: boolean }) {
 /** lucide "folders": Move to group…. */
 export function GroupGlyph({ color }: { color?: string | null }) {
   return (
-    <span className="flex" style={{ color: color || "#fff" }}>
+    <span className="flex" style={{ color: color || "var(--color-text-primary)" }}>
       {glyph(
         <>
           <path d="M20 17a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3.9a2 2 0 0 1-1.69-.9l-.81-1.2a2 2 0 0 0-1.67-.9H8a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2Z" />

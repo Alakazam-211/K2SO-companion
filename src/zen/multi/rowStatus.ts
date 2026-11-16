@@ -307,10 +307,10 @@ export interface ServerBadge {
   word: string;
 }
 
-const GREEN = "#22c55e";
-const AMBER = "#f59e0b";
-const RED = "#ef4444";
-const GREY = "#8e8e93";
+const GREEN = "var(--color-status-ok)";
+const AMBER = "var(--color-status-warn)";
+const RED = "var(--color-status-error)";
+const GREY = "var(--color-neutral)";
 
 /** The pool's view of a whole server: the row fold with no workspace. */
 export function serverBadge(input: Omit<RowStatusInput, "workspaceId" | "roomActivity">): ServerBadge {

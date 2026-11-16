@@ -98,9 +98,9 @@ export function HomeTabToggle({
               borderRadius: "50%",
               fontSize: 8,
               lineHeight: 1,
-              color: "#fff",
-              background: "#3a3a3c",
-              border: "1px solid rgba(255,255,255,.35)",
+              color: "var(--color-text-primary)",
+              background: "var(--color-bg-elevated)",
+              border: "1px solid var(--color-border-strong)",
               pointerEvents: "none",
             }}
           >

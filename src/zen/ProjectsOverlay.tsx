@@ -140,7 +140,7 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
   return (
     <div
       className="absolute inset-0 flex flex-col"
-      style={{ background: "#000", zIndex: 6 }}
+      style={{ background: "var(--color-bg)", zIndex: 6 }}
       data-testid="overlay-projects"
     >
       <header
@@ -180,19 +180,19 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
         data-testid="projects-scroller"
       >
         {error ? (
-          <p className="py-4 text-[14px]" style={{ color: "#f59e0b" }}>
+          <p className="py-4 text-[14px]" style={{ color: "var(--color-status-warn-text)" }}>
             {error}
           </p>
         ) : null}
         {listed === null && groups.length === 0 && !error ? (
-          <p className="py-6 text-[14px]" style={{ color: "#8e8e93" }}>
+          <p className="py-6 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
             Loading projects…
           </p>
         ) : null}
         {listed !== null && visible.length === 0 ? (
           <p
             className="py-10 text-center text-[15px]"
-            style={{ color: "#8e8e93" }}
+            style={{ color: "var(--color-text-muted)" }}
             data-testid="projects-empty"
           >
             {query ? "No matching project chats" : "No project chats yet"}
@@ -268,7 +268,7 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
                     {lastAt != null ? (
                       <span
                         className="shrink-0 text-[13px] tabular-nums"
-                        style={{ color: "#8e8e93" }}
+                        style={{ color: "var(--color-text-muted)" }}
                         data-testid="project-when"
                       >
                         {mountainListWhen(lastAt)}
@@ -278,7 +278,7 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
                   <span className="w-full min-w-0 flex items-center" style={{ gap: 8 }}>
                     <span
                       className="flex-1 min-w-0 text-[14px] truncate"
-                      style={strong ? { color: "#f2f2f7", fontWeight: 600 } : { color: "#a1a1aa" }}
+                      style={strong ? { color: "var(--color-text-primary)", fontWeight: 600 } : { color: "var(--color-text-muted)" }}
                       data-testid="project-preview"
                     >
                       {preview || memberCountText(g.memberCount)}
@@ -295,13 +295,13 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
                           width: 9,
                           height: 9,
                           borderRadius: "50%",
-                          background: marks ? toneColor(marks.tone) : "#0a84ff",
+                          background: marks ? toneColor(marks.tone) : "var(--color-accent)",
                         }}
                       />
                     ) : null}
                   </span>
                   {preview ? (
-                    <span className="text-[12px]" style={{ color: "#8e8e93" }}>
+                    <span className="text-[12px]" style={{ color: "var(--color-text-muted)" }}>
                       {memberCountText(g.memberCount)}
                     </span>
                   ) : null}
@@ -332,7 +332,7 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
               width: 230,
               borderRadius: 16,
               padding: 6,
-              color: "#fff",
+              color: "var(--color-text-primary)",
             }}
           >
             <MuteMenuItems

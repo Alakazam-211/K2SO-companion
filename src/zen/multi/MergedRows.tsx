@@ -21,7 +21,7 @@ import type { RowUnread } from "../unread";
 import { MutedGlyph, RowUnreadCount, UnreadDot } from "../UnreadMarks";
 import { RowTag } from "../AgentRowContent";
 
-const MUTED = "#8e8e93";
+const MUTED = "var(--color-text-muted)";
 
 /** Re-render every `ms` while `on` (countdowns, the loading line). */
 export function useTicker(on: boolean, ms = 1_000): number {
@@ -72,7 +72,7 @@ export function FailureAction({
     <button
       type="button"
       className="shrink-0 zen-glass zen-glass-pill text-[14px] font-semibold"
-      style={{ minHeight: 32, padding: "0 12px", color: "#0a84ff", opacity: 1 }}
+      style={{ minHeight: 32, padding: "0 12px", color: "var(--color-accent-text)", opacity: 1 }}
       onClick={(e) => {
         e.stopPropagation();
         onAction();
@@ -164,7 +164,7 @@ export function RemoteAgentRow({
   const a = row.agent;
   const marks = failure ? null : unread;
   const strong = !!marks?.emphasis;
-  const busyColor = busy ? activityColor(busy) : "var(--success)";
+  const busyColor = busy ? activityColor(busy) : "var(--color-status-ok)";
   const second = failure ? (
     <FailureText failure={failure} nextAt={nextAt} />
   ) : busy ? (
@@ -189,7 +189,7 @@ export function RemoteAgentRow({
               height: 14,
               background: busyColor,
               color: busyColor,
-              border: "2.5px solid var(--root)",
+              border: "2.5px solid var(--color-bg)",
               ["--k2-pulse-edge" as string]: "2.5px",
             }}
           />
@@ -228,7 +228,7 @@ export function RemoteAgentRow({
           <span
             className="block truncate flex-1 min-w-0"
             style={{
-              color: failure ? MUTED : busy ? busyColor : strong ? "#f2f2f7" : MUTED,
+              color: failure ? MUTED : busy ? busyColor : strong ? "var(--color-text-primary)" : MUTED,
               lineHeight: 1.3,
               fontSize: zenTextPx(14),
               ...(strong && !busy ? { fontWeight: 600 } : null),
@@ -332,7 +332,7 @@ export function ServerPlaceholderRow({
         style={{ gap: 10, opacity: failure ? 0.6 : 1 }}
         aria-label={`${label}, ${failure ? failure.copy : note}`}
       >
-        <WorkspaceAvatar initial={initial} size={50} fontSize={18} fallback="#2c2c2e" />
+        <WorkspaceAvatar initial={initial} size={50} fontSize={18} fallback="var(--color-bg-elevated)" />
         <span className="flex-1 min-w-0">
           <span
             className="block truncate font-semibold"

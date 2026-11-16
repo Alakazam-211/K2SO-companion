@@ -69,7 +69,7 @@ export function CandidateRow({
     <button
       type="button"
       className="w-full flex items-center text-left bg-transparent border-0"
-      style={{ gap: 12, padding: "8px 16px", minHeight: 56, color: "#fff", opacity: disabled ? 0.4 : 1 }}
+      style={{ gap: 12, padding: "8px 16px", minHeight: 56, color: "var(--color-text-primary)", opacity: disabled ? 0.4 : 1 }}
       aria-pressed={added}
       aria-label={added ? `Remove ${a.name} from ${homeName}` : `Add ${a.name} to ${homeName}`}
       disabled={disabled}
@@ -84,14 +84,14 @@ export function CandidateRow({
       <WorkspaceAvatar initial={a.initial} color={a.color} iconUrl={iconUrl ?? a.iconUrl} size={40} fontSize={15} />
       <span className="flex-1 min-w-0">
         <span className="block truncate text-[16px] font-medium">{a.name}</span>
-        <span className="block truncate text-[13px]" style={{ color: "#8e8e93" }}>
+        <span className="block truncate text-[13px]" style={{ color: "var(--color-text-muted)" }}>
           {a.addr}
         </span>
       </span>
       <span className="shrink-0 flex items-center justify-center"
-        style={{ width: 24, height: 24, color: "#0a84ff" }}>
+        style={{ width: 24, height: 24, color: "var(--color-accent-text)" }}>
         {added ? <Check /> : (
-          <span aria-hidden style={{ width: 20, height: 20, borderRadius: "50%", boxShadow: "inset 0 0 0 1.5px #636366" }} />
+          <span aria-hidden style={{ width: 20, height: 20, borderRadius: "50%", boxShadow: "inset 0 0 0 1.5px var(--color-control-edge)" }} />
         )}
       </span>
     </button>
@@ -114,7 +114,7 @@ export function OtherServersSections({
 }) {
   if (servers.length === 0) {
     return (
-      <p className="text-[14px] text-center" style={{ color: "#8e8e93", padding: "18px 16px" }}
+      <p className="text-[14px] text-center" style={{ color: "var(--color-text-muted)", padding: "18px 16px" }}
         data-testid="add-agent-no-other">
         No other saved servers. Add one from the Servers sheet.
       </p>
@@ -125,7 +125,7 @@ export function OtherServersSections({
       {servers.map((s) => (
         <section key={s.id} data-testid={`add-agent-server-${s.id}`} style={{ padding: "4px 0 8px" }}>
           <h3 className="text-[13px] font-semibold uppercase truncate"
-            style={{ color: "#8e8e93", padding: "8px 16px 6px", letterSpacing: "0.3px" }}>
+            style={{ color: "var(--color-text-muted)", padding: "8px 16px 6px", letterSpacing: "0.3px" }}>
             {serverDisplayName(s)}
           </h3>
           {renderBody(s)}
@@ -199,7 +199,7 @@ export function AddAgentSheet({
   return (
     <div
       className="absolute inset-0 flex items-end justify-center"
-      style={{ background: "rgba(0,0,0,.45)", zIndex: 30 }}
+      style={{ background: "var(--color-scrim)", zIndex: 30 }}
       data-no-pin="1"
       data-testid="add-agent"
       onClick={(e) => {
@@ -215,7 +215,7 @@ export function AddAgentSheet({
           borderTopRightRadius: 14,
           padding: "12px 0 max(12px, var(--safe-bottom))",
           height: "85%",
-          color: "#fff",
+          color: "var(--color-text-primary)",
         }}
       >
         <div className="grid items-center shrink-0"
@@ -225,7 +225,7 @@ export function AddAgentSheet({
           <button
             type="button"
             className="justify-self-end bg-transparent border-0 text-[17px] font-semibold"
-            style={{ color: "#0a84ff", minHeight: 44, padding: "0 6px" }}
+            style={{ color: "var(--color-accent-text)", minHeight: 44, padding: "0 6px" }}
             onClick={onClose}
             data-testid="add-agent-done"
           >
@@ -266,7 +266,7 @@ export function AddAgentSheet({
             placeholder="Name, path or handle"
             aria-label="Search agents"
             className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[16px]"
-            style={{ color: "#fff" }}
+            style={{ color: "var(--color-text-primary)" }}
             data-testid="add-agent-search"
           />
         </label>
@@ -274,7 +274,7 @@ export function AddAgentSheet({
           <>
             <div className="flex-1 min-h-0 overflow-y-auto" data-testid="add-agent-this">
               {shown === 0 ? (
-                <p className="text-[14px] text-center" style={{ color: "#8e8e93", padding: "18px 16px" }}
+                <p className="text-[14px] text-center" style={{ color: "var(--color-text-muted)", padding: "18px 16px" }}
                   data-testid="add-agent-empty">
                   {candidates.length === 0 ? "No agents on this server yet." : "No matches."}
                 </p>
@@ -283,7 +283,7 @@ export function AddAgentSheet({
                 <section key={sec.key} data-testid={`add-agent-section-${sec.key}`}>
                   {sec.title ? (
                     <h3 className="flex items-center text-[13px] font-semibold uppercase"
-                      style={{ color: "#8e8e93", padding: "10px 16px 4px", gap: 6, letterSpacing: "0.3px" }}>
+                      style={{ color: "var(--color-text-muted)", padding: "10px 16px 4px", gap: 6, letterSpacing: "0.3px" }}>
                       {sec.dot ? (
                         <span aria-hidden style={{ width: 8, height: 8, borderRadius: "50%", background: sec.dot }} />
                       ) : null}

@@ -209,17 +209,17 @@ export function HomeList({
 
   if (views.length === 0) {
     return searching ? (
-      <p className="py-6 text-[14px] text-center" style={{ color: "#8e8e93" }} data-testid="home-no-match">
+      <p className="py-6 text-[14px] text-center" style={{ color: "var(--color-text-muted)" }} data-testid="home-no-match">
         {otherHomeOf ? "No matches on any Home." : `No matches on ${homeName}.`}
       </p>
     ) : (
       <div
         className="zen-glass flex flex-col items-center text-center"
-        style={{ margin: "24px 20px 0", padding: "24px 18px", borderRadius: 20, gap: 6, color: "#fff" }}
+        style={{ margin: "24px 20px 0", padding: "24px 18px", borderRadius: 20, gap: 6, color: "var(--color-text-primary)" }}
         data-testid="home-empty"
       >
         <span className="text-[17px] font-semibold">{HOME_EMPTY_TITLE}</span>
-        <span className="text-[14px]" style={{ color: "#8e8e93" }}>
+        <span className="text-[14px]" style={{ color: "var(--color-text-muted)" }}>
           {HOME_EMPTY_BODY}
         </span>
       </div>
@@ -346,7 +346,7 @@ export function HomeList({
           type="button"
           className="w-full text-center bg-transparent border-0 p-0"
           style={{
-            color: "#fff",
+            color: "var(--color-text-primary)",
             opacity,
             touchAction: "pan-y",
             userSelect: "none",
@@ -377,7 +377,7 @@ export function HomeList({
                 iconUrl={look ? look.iconUrl : here?.iconUrl}
                 size={ZEN_PIN_AVATAR_PX}
                 fontSize={26}
-                fallback="#2c2c2e"
+                fallback="var(--color-bg-elevated)"
               />
               {shownBusy ? (
                 <span
@@ -391,7 +391,7 @@ export function HomeList({
                     height: 20,
                     background: color,
                     color,
-                    border: "2.5px solid var(--root)",
+                    border: "2.5px solid var(--color-bg)",
                     ["--k2-pulse-edge" as string]: "2.5px",
                   }}
                 />
@@ -409,7 +409,7 @@ export function HomeList({
                     padding: "1px 7px",
                     fontSize: 11,
                     lineHeight: "15px",
-                    color: "#d1d1d6",
+                    color: "var(--color-text-secondary)",
                   }}
                   data-testid="row-server-chip"
                 >
@@ -418,11 +418,11 @@ export function HomeList({
               ) : null}
             </span>
           </div>
-          <div className="text-[12px] font-semibold truncate mx-auto" style={{ color: "#fff", maxWidth: 110 }} data-testid="row-name">
+          <div className="text-[12px] font-semibold truncate mx-auto" style={{ color: "var(--color-text-primary)", maxWidth: 110 }} data-testid="row-name">
             {name}
           </div>
           {failure ? (
-            <div className="text-[11px] truncate mx-auto" style={{ color: "#8e8e93", maxWidth: 110, lineHeight: 1.3 }} data-testid="row-failure" data-state={failure.state}>
+            <div className="text-[11px] truncate mx-auto" style={{ color: "var(--color-text-muted)", maxWidth: 110, lineHeight: 1.3 }} data-testid="row-failure" data-state={failure.state}>
               <FailureText failure={failure} nextAt={look?.nextAt ?? null} />
             </div>
           ) : shownBusy ? (
@@ -474,8 +474,8 @@ export function HomeList({
               transform: shift.y ? `translateY(${shift.y}px)` : undefined,
               transition: shift.transition,
               zIndex: shift.dragging ? 3 : undefined,
-              background: shift.dragging ? "rgba(44,44,46,.92)" : undefined,
-              boxShadow: shift.dragging ? "0 10px 28px rgba(0,0,0,.45)" : undefined,
+              background: shift.dragging ? "var(--color-bg-elevated)" : undefined,
+              boxShadow: shift.dragging ? "0 10px 28px var(--color-shadow)" : undefined,
               borderRadius: shift.dragging ? 14 : undefined,
             }}
           >

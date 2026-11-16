@@ -143,7 +143,7 @@ function Sheet({
   useBackHandler(true, onClose);
   return (
     <div className="absolute inset-0 flex flex-col justify-end" style={{ zIndex: 14 }} data-testid={testId}>
-      <div className="absolute inset-0" style={{ background: "rgba(0,0,0,0.55)" }} onClick={onClose} />
+      <div className="absolute inset-0" style={{ background: "var(--color-scrim)" }} onClick={onClose} />
       <div
         className="relative k2-tile k2-tile-sheet flex flex-col"
         style={{
@@ -158,7 +158,7 @@ function Sheet({
             type="button"
             onClick={onClose}
             className="text-[15px] bg-transparent border-0"
-            style={{ color: "#8e8e93" }}
+            style={{ color: "var(--color-text-muted)" }}
           >
             Cancel
           </button>
@@ -230,16 +230,16 @@ function ReassignSheet({
                 )
               }
               className="flex w-full items-center gap-3 text-left text-[17px] bg-transparent border-0"
-              style={{ padding: "11px 8px", color: "#fff" }}
+              style={{ padding: "11px 8px", color: "var(--color-text-primary)" }}
             >
-              <span style={{ width: 18, color: on ? "var(--accent)" : "transparent" }}>✓</span>
+              <span style={{ width: 18, color: on ? "var(--color-accent-text)" : "transparent" }}>✓</span>
               {name}
             </button>
           );
         })}
       </div>
       {error ? (
-        <p className="text-[13px] px-4 pt-1" style={{ color: "var(--warning)" }} role="alert">
+        <p className="text-[13px] px-4 pt-1" style={{ color: "var(--color-status-warn-text)" }} role="alert">
           {error}
         </p>
       ) : null}
@@ -250,7 +250,7 @@ function ReassignSheet({
           disabled={saving}
           onClick={() => void save()}
           className="w-full text-[17px] font-semibold border-0 disabled:opacity-50"
-          style={{ height: 44, borderRadius: 22, background: "#0a84ff", color: "#fff" }}
+          style={{ height: 44, borderRadius: 22, background: "var(--color-accent-fill)", color: "var(--color-on-accent)" }}
         >
           {saving ? "Saving…" : "Save"}
         </button>
@@ -295,13 +295,13 @@ function AgreedSheet({
           data-testid="agreed-input"
           placeholder="The outcome, in a line"
           className="w-full resize-none text-[17px] outline-none k2-tile k2-tile-raised"
-          style={{ borderRadius: 14, padding: "10px 12px", color: "var(--text)" }}
+          style={{ borderRadius: 14, padding: "10px 12px", color: "var(--color-text-primary)" }}
         />
-        <p className="text-[12px] mt-1" style={{ color: "#8e8e93" }}>
+        <p className="text-[12px] mt-1" style={{ color: "var(--color-text-muted)" }}>
           Recorded on the ticket. The agent isn't told — pick an option to tell it.
         </p>
         {error ? (
-          <p className="text-[13px] mt-1" style={{ color: "var(--warning)" }} role="alert">
+          <p className="text-[13px] mt-1" style={{ color: "var(--color-status-warn-text)" }} role="alert">
             {error}
           </p>
         ) : null}
@@ -311,7 +311,7 @@ function AgreedSheet({
           disabled={saving || !text.trim()}
           onClick={() => void save()}
           className="w-full mt-3 text-[17px] font-semibold border-0 disabled:opacity-50"
-          style={{ height: 44, borderRadius: 22, background: "#0a84ff", color: "#fff" }}
+          style={{ height: 44, borderRadius: 22, background: "var(--color-accent-fill)", color: "var(--color-on-accent)" }}
         >
           {saving ? "Saving…" : "Mark answered"}
         </button>
@@ -378,9 +378,9 @@ function MenuItem({
       data-testid={testId}
       onClick={onClick}
       className="flex items-center gap-2 text-left text-[16px] bg-transparent border-0"
-      style={{ padding: "11px 14px", color: "#fff", borderBottom: "0.5px solid rgba(255,255,255,0.08)" }}
+      style={{ padding: "11px 14px", color: "var(--color-text-primary)", borderBottom: "0.5px solid var(--color-wash-2)" }}
     >
-      <span style={{ width: 16, color: "var(--accent)" }}>{checked ? "✓" : ""}</span>
+      <span style={{ width: 16, color: "var(--color-accent-text)" }}>{checked ? "✓" : ""}</span>
       {children}
     </button>
   );
@@ -435,9 +435,9 @@ function AnswerPills({
             onClick={() => onPick(o.answer)}
             className="rounded-full px-3.5 py-2 text-[15px] leading-tight border text-left"
             style={{
-              borderColor: picked ? "#fff" : "rgba(255,255,255,0.35)",
-              background: picked ? "#fff" : "transparent",
-              color: picked ? "#1c1c1e" : "#fff",
+              borderColor: picked ? "var(--color-text-primary)" : "var(--color-border-strong)",
+              background: picked ? "var(--color-text-primary)" : "transparent",
+              color: picked ? "var(--color-bg-surface)" : "var(--color-text-primary)",
               opacity: tappable || picked ? 1 : 0.5,
             }}
           >
@@ -1030,7 +1030,7 @@ export const TicketView = memo(function TicketView({
       ref={swipeRef}
       className="mchat-pane absolute inset-0 flex flex-col min-w-0 overflow-x-hidden"
       style={{
-        background: "#000",
+        background: "var(--color-bg)",
         zIndex: 8,
         fontFamily: "var(--zen-font)",
       }}
@@ -1061,7 +1061,7 @@ export const TicketView = memo(function TicketView({
             type="button"
             data-testid="ticket-back"
             className="text-[17px] zen-glass zen-glass-pill flex items-center"
-            style={{ minHeight: PILL_H, padding: "0 14px 0 8px", gap: 2, color: "#fff", pointerEvents: "auto" }}
+            style={{ minHeight: PILL_H, padding: "0 14px 0 8px", gap: 2, color: "var(--color-text-primary)", pointerEvents: "auto" }}
             onClick={onBack}
           >
             {/* The chat header back button chevron (same size and stroke). */}
@@ -1077,7 +1077,7 @@ export const TicketView = memo(function TicketView({
               aria-label="More"
               disabled={!item || (!linked && !doc)}
               className="flex items-center justify-center zen-glass zen-glass-pill text-[18px] disabled:opacity-40"
-              style={{ width: PILL_H, height: PILL_H, color: "#fff" }}
+              style={{ width: PILL_H, height: PILL_H, color: "var(--color-text-primary)" }}
               onClick={() => setMenu(menu === "more" ? null : "more")}
             >
               ⋯
@@ -1118,7 +1118,7 @@ export const TicketView = memo(function TicketView({
         {item ? (
           <div
             className="mt-1.5 flex items-center flex-wrap gap-x-2 gap-y-1 text-[13px] min-w-0 zen-header-text"
-            style={{ color: "#8e8e93" }}
+            style={{ color: "var(--color-text-muted)" }}
           >
             <span className="relative" style={{ pointerEvents: "auto" }} data-testid="ticket-status-wrap">
               <button
@@ -1152,7 +1152,7 @@ export const TicketView = memo(function TicketView({
             <span className="tabular-nums">P{item.priority || 3}</span>
             <span>·</span>
             <span className="min-w-0 truncate" data-testid="ticket-people">
-              <b className="font-semibold" style={{ color: "#d1d1d6" }}>
+              <b className="font-semibold" style={{ color: "var(--color-text-secondary)" }}>
                 {item.agentName}
               </b>{" "}
               → {assignees.length ? assignees.join(", ") : "unassigned"}
@@ -1212,20 +1212,20 @@ export const TicketView = memo(function TicketView({
         >
         {openError && !item ? (
           <div className="flex flex-col items-center gap-3 py-10">
-            <p className="text-[14px] text-center" style={{ color: "var(--warning)" }}>
+            <p className="text-[14px] text-center" style={{ color: "var(--color-status-warn-text)" }}>
               {asErrorText(openError)}
             </p>
             <button
               type="button"
               className="text-[15px] zen-glass zen-glass-pill"
-              style={{ minHeight: PILL_H, padding: "0 16px", color: "#fff" }}
+              style={{ minHeight: PILL_H, padding: "0 16px", color: "var(--color-text-primary)" }}
               onClick={() => void useFeedbackStore.getState().openThread(id, { withBrief: true })}
             >
               Retry
             </button>
           </div>
         ) : !item ? (
-          <p className="py-10 text-center text-[14px]" style={{ color: "#8e8e93" }}>
+          <p className="py-10 text-center text-[14px]" style={{ color: "var(--color-text-muted)" }}>
             Loading ticket…
           </p>
         ) : (
@@ -1246,7 +1246,7 @@ export const TicketView = memo(function TicketView({
               >
                 <div
                   className="text-[11px] font-semibold uppercase tracking-wider mb-2"
-                  style={{ color: "#8e8e93" }}
+                  style={{ color: "var(--color-text-muted)" }}
                 >
                   {closed ? "Options" : "Answer"}
                 </div>
@@ -1258,11 +1258,11 @@ export const TicketView = memo(function TicketView({
                   onPick={(a) => void pick(a)}
                 />
                 {picking !== null ? (
-                  <p className="mt-2 text-[13px]" style={{ color: "#8e8e93" }}>
+                  <p className="mt-2 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
                     Sending…
                   </p>
                 ) : receipt?.from === "pick" ? (
-                  <p className="mt-2 text-[13px]" style={{ color: "var(--warning)" }} data-testid="delivery-miss">
+                  <p className="mt-2 text-[13px]" style={{ color: "var(--color-status-warn-text)" }} data-testid="delivery-miss">
                     {receipt.line}
                   </p>
                 ) : null}
@@ -1362,7 +1362,7 @@ export const TicketView = memo(function TicketView({
                   type="button"
                   data-testid="ticket-new-comment"
                   className="pointer-events-auto zen-glass zen-glass-pill text-[13px]"
-                  style={{ minHeight: 32, padding: "0 14px", color: "#fff" }}
+                  style={{ minHeight: 32, padding: "0 14px", color: "var(--color-text-primary)" }}
                   // Keep the keyboard up (send button pattern).
                   onPointerDown={(e) => e.preventDefault()}
                   onMouseDown={(e) => e.preventDefault()}
@@ -1398,7 +1398,7 @@ export const TicketView = memo(function TicketView({
                 {composerLabel ? (
                   <p
                     className="text-[11px] leading-snug break-words mb-1.5"
-                    style={{ color: "var(--warning)" }}
+                    style={{ color: "var(--color-status-warn-text)" }}
                     data-testid="ticket-composer-label"
                     role={error ? "alert" : undefined}
                   >
@@ -1412,11 +1412,11 @@ export const TicketView = memo(function TicketView({
                 style={{ paddingBottom: "max(10px, var(--safe-bottom))" }}
                 data-testid="ticket-unlinked-footer"
               >
-                <p className="text-[13px] mb-2" style={{ color: "#8e8e93" }}>
+                <p className="text-[13px] mb-2" style={{ color: "var(--color-text-muted)" }}>
                   This ticket's workspace was removed. It's read-only.
                 </p>
                 {error ? (
-                  <p className="text-[12px] mb-2" style={{ color: "var(--warning)" }} role="alert">
+                  <p className="text-[12px] mb-2" style={{ color: "var(--color-status-warn-text)" }} role="alert">
                     {error}
                   </p>
                 ) : null}
@@ -1427,7 +1427,7 @@ export const TicketView = memo(function TicketView({
                     disabled={busy || status === "resolved"}
                     onClick={() => void setStatus("resolved")}
                     className="flex-1 text-[16px] k2-tile disabled:opacity-50"
-                    style={{ height: 40, borderRadius: 20, color: "#fff" }}
+                    style={{ height: 40, borderRadius: 20, color: "var(--color-text-primary)" }}
                   >
                     Resolve
                   </button>
@@ -1437,7 +1437,7 @@ export const TicketView = memo(function TicketView({
                     disabled={busy || status === "dismissed"}
                     onClick={() => void setStatus("dismissed")}
                     className="flex-1 text-[16px] k2-tile disabled:opacity-50"
-                    style={{ height: 40, borderRadius: 20, color: "#8e8e93" }}
+                    style={{ height: 40, borderRadius: 20, color: "var(--color-text-muted)" }}
                   >
                     Dismiss
                   </button>
@@ -1464,11 +1464,11 @@ export const TicketView = memo(function TicketView({
                   onPick={(a) => void pick(a)}
                 />
                 {picking !== null ? (
-                  <p className="mt-1.5 text-[13px]" style={{ color: "#8e8e93" }}>
+                  <p className="mt-1.5 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
                     Sending…
                   </p>
                 ) : receipt?.from === "pick" ? (
-                  <p className="mt-1.5 text-[13px]" style={{ color: "var(--warning)" }}>
+                  <p className="mt-1.5 text-[13px]" style={{ color: "var(--color-status-warn-text)" }}>
                     {receipt.line}
                   </p>
                 ) : null}
@@ -1542,7 +1542,7 @@ const TicketCommentRow = memo(function TicketCommentRow({
       {!mine ? (
         <span
           className="flex items-baseline gap-1.5 text-[11px] px-3 mb-0.5 min-w-0 max-w-full"
-          style={{ color: "#8e8e93" }}
+          style={{ color: "var(--color-text-muted)" }}
           data-testid="ticket-comment-meta"
         >
           <span className="truncate min-w-0">{author}</span>
@@ -1565,10 +1565,10 @@ const TicketCommentRow = memo(function TicketCommentRow({
           // Settings → Text Size.
           fontSize: zenTextPx(17),
           borderRadius: 18,
-          background: mine ? "#0a84ff" : "#3a3a3c",
+          background: mine ? "var(--color-accent-fill)" : "var(--color-bubble-agent)",
           // The "See more" fade blends into this.
-          ["--k2-bubble" as string]: mine ? "#0a84ff" : "#3a3a3c",
-          color: "#fff",
+          ["--k2-bubble" as string]: mine ? "var(--color-accent-fill)" : "var(--color-bubble-agent)",
+          color: mine ? "var(--color-on-accent)" : "var(--color-text-primary)",
           // Sending: dimmed. Delivered: it only brightens, gradually
           // (useDeliverBrighten).
           opacity: out?.status === "sending" ? SENDING_OPACITY : 1,
@@ -1577,7 +1577,7 @@ const TicketCommentRow = memo(function TicketCommentRow({
         {/* The Thread's memoized body and style: parsed once per text;
             taller than 12 lines, folded behind "See more". */}
         <MessageFold foldKey={rowKey} fontSize={bubbleBodyStyle().fontSize}>
-          <ChatMessageBody text={body} className="!p-0 text-white" style={bubbleBodyStyle()} />
+          <ChatMessageBody text={body} className={mine ? "!p-0 text-[var(--color-on-accent)]" : "!p-0 text-[var(--color-text-primary)]"} style={bubbleBodyStyle()} />
         </MessageFold>
       </TicketBubbleBox>
       {mine ? (
@@ -1587,7 +1587,7 @@ const TicketCommentRow = memo(function TicketCommentRow({
         // the rows around it.
         <span
           className="zen-receipt flex items-center gap-2 h-4 leading-4 whitespace-nowrap text-[11px] px-2 mt-0.5"
-          style={{ color: "#8e8e93" }}
+          style={{ color: "var(--color-text-muted)" }}
           data-testid="ticket-comment-status"
           data-status={out?.status ?? "sent"}
           data-receipt={receipt ? "delivered" : undefined}
@@ -1598,7 +1598,7 @@ const TicketCommentRow = memo(function TicketCommentRow({
                 <button
                   type="button"
                   className="bg-transparent border-0 p-0"
-                  style={{ color: "var(--warning)" }}
+                  style={{ color: "var(--color-status-warn-text)" }}
                   data-testid="comment-retry"
                   aria-label="Not sent. Tap to retry"
                   title={out.error || undefined}
@@ -1610,7 +1610,7 @@ const TicketCommentRow = memo(function TicketCommentRow({
                   <button
                     type="button"
                     className="bg-transparent border-0 p-0"
-                    style={{ color: "#8e8e93" }}
+                    style={{ color: "var(--color-text-muted)" }}
                     data-testid="comment-restore"
                     onClick={() => onRestore(out)}
                   >

@@ -114,11 +114,8 @@ import { CheckIcon, CogIcon, PhoneIcon, ProjectsIcon, TicketIcon } from "./icons
 import {
   HeaderMoreButton,
   HeaderMoreMenu,
-  IN_CALL_GREEN,
   moreAriaLabel,
   moreBadge,
-  PROJECTS_BLUE,
-  TICKETS_AMBER,
   type HeaderMoreItem,
 } from "./HeaderMoreMenu";
 import { useBackHandler } from "../lib/androidBack";
@@ -134,10 +131,10 @@ import { useCallScreen } from "./voice/callScreen";
 import { consentKey, useVoiceCall } from "./voice/voiceCall";
 
 const RECOVERY_DOT: Record<RecoveryState, string> = {
-  connected: "#22c55e",
-  reconnecting: "#f59e0b",
-  reauthenticating: "#f59e0b",
-  "signin-required": "#ef4444",
+  connected: "var(--color-status-ok)",
+  reconnecting: "var(--color-status-warn)",
+  reauthenticating: "var(--color-status-warn)",
+  "signin-required": "var(--color-status-error)",
 };
 
 /** Phone-width overlay home. Look is public/imessage-baseline.html (7724968). */
@@ -497,11 +494,11 @@ export function ChatsList() {
       ? serverLabel
       : multi.labelFor(selectedId);
   const pillDot = onHome
-    ? "#8e8e93"
+    ? "var(--color-neutral)"
     : selectedId === activeServerId || !selectedId
       ? activeServer
         ? RECOVERY_DOT[recoveryState]
-        : "#8e8e93"
+        : "var(--color-neutral)"
       : multi.badgeFor(selectedId).color;
   const homes = useHomesStore((s) => s.homes);
   const homeSelectedId = useHomesStore((s) => s.selectedId);
@@ -609,7 +606,7 @@ export function ChatsList() {
       label: "Projects",
       Icon: ProjectsIcon,
       iconTestId: "projects-icon",
-      badge: { count: projectsUnread, background: PROJECTS_BLUE, color: "#fff", testId: "projects-badge" },
+      badge: { count: projectsUnread, background: "var(--color-accent-fill)", color: "var(--color-on-accent)", testId: "projects-badge" },
       testId: "chats-header-projects",
       onSelect: () => setProjectsOpen(true),
     },
@@ -620,7 +617,7 @@ export function ChatsList() {
       Icon: TicketIcon,
       iconTestId: "tickets-icon",
       badge: badge
-        ? { count: badge.count, background: TICKETS_AMBER, color: "#000", testId: "tickets-badge", tone: badge.tone }
+        ? { count: badge.count, background: "var(--color-status-needs-you)", color: "var(--color-on-warn)", testId: "tickets-badge", tone: badge.tone }
         : null,
       testId: "chats-header-tickets",
       onSelect: () => setTickets(true),
@@ -1117,7 +1114,7 @@ export function ChatsList() {
         key={r.key}
         type="button"
         className="text-center bg-transparent border-0 p-0"
-        style={{ color: "#fff", opacity: failure ? 0.6 : 1 }}
+        style={{ color: "var(--color-text-primary)", opacity: failure ? 0.6 : 1 }}
         data-no-pin="1"
         data-testid="remote-pin"
         data-server-id={r.serverId}
@@ -1139,7 +1136,7 @@ export function ChatsList() {
               iconUrl={iconOf(r)}
               size={ZEN_PIN_AVATAR_PX}
               fontSize={26}
-              fallback="#2c2c2e"
+              fallback="var(--color-bg-elevated)"
             />
             {busy ? (
               <span
@@ -1153,20 +1150,20 @@ export function ChatsList() {
                   height: 20,
                   background: color,
                   color,
-                  border: "2.5px solid var(--root)",
+                  border: "2.5px solid var(--color-bg)",
                   ["--k2-pulse-edge" as string]: "2.5px",
                 }}
               />
             ) : null}
           </span>
         </div>
-        <div className="text-[12px] font-semibold truncate mx-auto" style={{ color: "#fff", maxWidth: 110 }}>
+        <div className="text-[12px] font-semibold truncate mx-auto" style={{ color: "var(--color-text-primary)", maxWidth: 110 }}>
           {r.agent.name}
         </div>
         {failure ? (
           <div
             className="text-[11px] truncate mx-auto"
-            style={{ color: "#8e8e93", maxWidth: 110, lineHeight: 1.3 }}
+            style={{ color: "var(--color-text-muted)", maxWidth: 110, lineHeight: 1.3 }}
             data-testid="pin-server"
           >
             {failure.copy}
@@ -1189,7 +1186,7 @@ export function ChatsList() {
         maxWidth: 124,
         padding: "0 13px",
         gap: 6,
-        color: "#fff",
+        color: "var(--color-text-primary)",
       }}
       onClick={() => setServersSheet(true)}
       aria-label={
@@ -1206,7 +1203,7 @@ export function ChatsList() {
           width: 8,
           height: 8,
           borderRadius: "50%",
-          background: multi.on ? pillDot : activeServer ? RECOVERY_DOT[recoveryState] : "#8e8e93",
+          background: multi.on ? pillDot : activeServer ? RECOVERY_DOT[recoveryState] : "var(--color-neutral)",
         }}
       />
       {/* Nickname, never the icon. 124px cap keeps Search usable at 375pt. */}
@@ -1235,8 +1232,8 @@ export function ChatsList() {
         right: 0,
         bottom: 0,
         background:
-          "radial-gradient(120% 70% at 50% -20%, #3a3a3c 0%, #000 58%)",
-        color: "#fff",
+          "radial-gradient(120% 70% at 50% -20%, var(--color-bg-elevated) 0%, var(--color-bg) 58%)",
+        color: "var(--color-text-primary)",
         fontFamily: "var(--zen-font)",
       }}
       data-testid="chats-home"
@@ -1317,7 +1314,7 @@ export function ChatsList() {
               className="flex items-center min-w-0 max-w-full bg-transparent border-0 p-0"
               style={{
                 gap: 6,
-                color: "#fff",
+                color: "var(--color-text-primary)",
                 font: "inherit",
                 letterSpacing: "inherit",
                 pointerEvents: "auto",
@@ -1341,7 +1338,7 @@ export function ChatsList() {
               className="flex items-center min-w-0 max-w-full bg-transparent border-0 p-0"
               style={{
                 gap: 6,
-                color: "#fff",
+                color: "var(--color-text-primary)",
                 font: "inherit",
                 letterSpacing: "inherit",
                 pointerEvents: "auto",
@@ -1380,7 +1377,7 @@ export function ChatsList() {
             <button
               type="button"
               className="relative flex items-center justify-center shrink-0 zen-glass zen-glass-pill"
-              style={{ width: 40, height: 40, color: inCall ? IN_CALL_GREEN : "#fff" }}
+              style={{ width: 40, height: 40, color: inCall ? "var(--color-status-ok)" : "var(--color-text-primary)" }}
               onClick={() => setVoiceOpen(true)}
               aria-label={inCall ? "Rooms (in a call)" : "Rooms"}
               title="Rooms"
@@ -1402,7 +1399,7 @@ export function ChatsList() {
         <p
           role="status"
           className="relative px-4 pb-1 text-[13px] truncate zen-header-text"
-          style={{ color: "#ff453a" }}
+          style={{ color: "var(--color-status-error-text)" }}
           data-testid="chats-pin-error"
         >
           {pinError}
@@ -1457,7 +1454,7 @@ export function ChatsList() {
               overflowY: "auto",
               borderRadius: 16,
               padding: 6,
-              color: "#fff",
+              color: "var(--color-text-primary)",
             }}
           >
             {headerFocus.groups.map((g) => {
@@ -1469,7 +1466,7 @@ export function ChatsList() {
                   role="menuitemradio"
                   aria-checked={on}
                   className="w-full flex items-center text-left bg-transparent border-0"
-                  style={{ gap: 10, padding: "10px 12px", minHeight: 44, borderRadius: 10, color: "#fff" }}
+                  style={{ gap: 10, padding: "10px 12px", minHeight: 44, borderRadius: 10, color: "var(--color-text-primary)" }}
                   onClick={() => {
                     pickFocusGroup(g.id);
                     setGroupMenu(false);
@@ -1484,11 +1481,11 @@ export function ChatsList() {
                       height: 10,
                       borderRadius: "50%",
                       background: g.color || "transparent",
-                      boxShadow: g.color ? undefined : "inset 0 0 0 1.5px #8e8e93",
+                      boxShadow: g.color ? undefined : "inset 0 0 0 1.5px var(--color-control-edge)",
                     }}
                   />
                   <span className="flex-1 min-w-0 truncate text-[16px]">{g.name}</span>
-                  <span aria-hidden className="shrink-0" style={{ width: 16, color: "#0a84ff" }}>
+                  <span aria-hidden className="shrink-0" style={{ width: 16, color: "var(--color-accent-text)" }}>
                     {on ? (
                       <CheckIcon size={16} strokeWidth={2.6} testId="focus-check" />
                     ) : null}
@@ -1523,8 +1520,8 @@ export function ChatsList() {
                     width: 14,
                     height: 14,
                     borderRadius: "50%",
-                    border: "2px solid rgba(255,255,255,.25)",
-                    borderTopColor: "#fff",
+                    border: "2px solid var(--color-border-strong)",
+                    borderTopColor: "var(--color-text-primary)",
                     transform: `rotate(${Math.round(ptr.pull * 270)}deg)`,
                   }
             }
@@ -1658,7 +1655,7 @@ export function ChatsList() {
               type="button"
               className="text-center bg-transparent border-0 p-0"
               style={{
-                color: "#fff",
+                color: "var(--color-text-primary)",
                 touchAction: "none",
                 WebkitTouchCallout: "none",
                 userSelect: "none",
@@ -1691,7 +1688,7 @@ export function ChatsList() {
                     iconUrl={a.iconUrl}
                     size={ZEN_PIN_AVATAR_PX}
                     fontSize={26}
-                    fallback="#2c2c2e"
+                    fallback="var(--color-bg-elevated)"
                   />
                   {pinBusy ? (
                     <span
@@ -1706,7 +1703,7 @@ export function ChatsList() {
                         height: 20,
                         background: pinColor,
                         color: pinColor,
-                        border: "2.5px solid var(--root)",
+                        border: "2.5px solid var(--color-bg)",
                         ["--k2-pulse-edge" as string]: "2.5px",
                       }}
                     />
@@ -1715,7 +1712,7 @@ export function ChatsList() {
               </div>
               <div
                 className="text-[12px] font-semibold truncate mx-auto"
-                style={{ color: "#fff", maxWidth: 110 }}
+                style={{ color: "var(--color-text-primary)", maxWidth: 110 }}
               >
                 {a.name}
               </div>
@@ -1734,12 +1731,12 @@ export function ChatsList() {
       </div>
       ) : null}
         {source === "loading" ? (
-          <p className="py-6 text-[14px]" style={{ ...LIST_LINE_SIDES, color: "#8e8e93" }}>
+          <p className="py-6 text-[14px]" style={{ ...LIST_LINE_SIDES, color: "var(--color-text-muted)" }}>
             Loading
           </p>
         ) : null}
         {source !== "loading" && (agentError || activeDown) && (rows.length > 0 || showPins) ? (
-          <p className="py-3 text-[14px]" style={{ ...LIST_LINE_SIDES, color: activeDown ? "#8e8e93" : "#f59e0b" }}>
+          <p className="py-3 text-[14px]" style={{ ...LIST_LINE_SIDES, color: activeDown ? "var(--color-text-muted)" : "var(--color-status-warn-text)" }}>
             {activeDown ? reconnectingLine : agentError}
           </p>
         ) : null}
@@ -1747,7 +1744,7 @@ export function ChatsList() {
         {source !== "loading" && listItems.length === 0 && !showPins && placeholders.length === 0 ? (
           <p
             className="py-6 text-[14px]"
-            style={{ ...LIST_LINE_SIDES, color: "#8e8e93" }}
+            style={{ ...LIST_LINE_SIDES, color: "var(--color-text-muted)" }}
             data-testid="chats-empty"
           >
             {activeDown && source !== "stub" ? reconnectingLine : agentError || "No agents on this list."}
@@ -1784,7 +1781,7 @@ export function ChatsList() {
             data-new-workspace={fresh ? "1" : undefined}
             style={{
               background: shift.dragging
-                ? "rgba(44,44,46,.92)"
+                ? "var(--color-bg-elevated)"
                 : fresh
                   ? "rgba(10,132,255,.22)"
                   : undefined,
@@ -1794,7 +1791,7 @@ export function ChatsList() {
                   .filter(Boolean)
                   .join(", ") || undefined,
               zIndex: shift.dragging ? 3 : undefined,
-              boxShadow: shift.dragging ? "0 10px 28px rgba(0,0,0,.45)" : undefined,
+              boxShadow: shift.dragging ? "0 10px 28px var(--color-shadow)" : undefined,
               borderRadius: shift.dragging ? 14 : undefined,
             }}
           >
@@ -1919,10 +1916,10 @@ export function ChatsList() {
               iconUrl={ghost.iconUrl}
               size={74}
               fontSize={26}
-              fallback="#2c2c2e"
+              fallback="var(--color-bg-elevated)"
             />
           </div>
-          <div className="text-[12px]" style={{ color: "#d1d1d6" }}>
+          <div className="text-[12px]" style={{ color: "var(--color-text-secondary)" }}>
             {ghost.title}
           </div>
         </div>
@@ -1943,7 +1940,7 @@ export function ChatsList() {
             height: 40,
             padding: "0 6px 0 16px",
             gap: 8,
-            color: "#fff",
+            color: "var(--color-text-primary)",
           }}
         >
           <span className="min-w-0 truncate text-[15px]" data-testid="group-toast-text">
@@ -1952,7 +1949,7 @@ export function ChatsList() {
           <button
             type="button"
             className="shrink-0 bg-transparent border-0 text-[15px] font-semibold"
-            style={{ color: "#0a84ff", minHeight: 40, padding: "0 10px" }}
+            style={{ color: "var(--color-accent-text)", minHeight: 40, padding: "0 10px" }}
             onClick={undoGroup}
             data-testid="group-toast-undo"
           >
@@ -2042,7 +2039,7 @@ export function ChatsList() {
           className="absolute inset-0 flex flex-col"
           // Above the Add Agent sheet (z 30) when signing in from its
           // Other servers segment.
-          style={{ background: "#000", zIndex: addAgent ? 40 : 6, paddingTop: "env(safe-area-inset-top)" }}
+          style={{ background: "var(--color-bg)", zIndex: addAgent ? 40 : 6, paddingTop: "env(safe-area-inset-top)" }}
           data-testid="row-sign-in"
         >
           <OverlayAddServer

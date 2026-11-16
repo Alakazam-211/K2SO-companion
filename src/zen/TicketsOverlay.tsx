@@ -166,7 +166,7 @@ export const TicketsOverlay = memo(function TicketsOverlay({
   return (
     <div
       className="absolute inset-0 flex flex-col"
-      style={{ background: "#000", zIndex: 6 }}
+      style={{ background: "var(--color-bg)", zIndex: 6 }}
       data-testid="overlay-tickets"
     >
       {/* Floats over the cards from y=0 with the chat / Agents header's
@@ -220,8 +220,8 @@ export const TicketsOverlay = memo(function TicketsOverlay({
                 style={{
                   height: 30,
                   padding: "0 8px",
-                  color: on ? "#fff" : "#a1a1aa",
-                  background: on ? "rgba(255,255,255,0.18)" : "transparent",
+                  color: on ? "var(--color-text-primary)" : "var(--color-text-muted)",
+                  background: on ? "var(--color-wash-3)" : "transparent",
                 }}
               >
                 <span className="truncate">{s.label}</span>
@@ -235,8 +235,8 @@ export const TicketsOverlay = memo(function TicketsOverlay({
                       height: 18,
                       padding: "0 5px",
                       borderRadius: 9,
-                      background: "#f59e0b",
-                      color: "#000",
+                      background: "var(--color-status-needs-you)",
+                      color: "var(--color-on-warn)",
                       fontSize: 11,
                       fontWeight: 700,
                       lineHeight: "18px",
@@ -268,17 +268,17 @@ export const TicketsOverlay = memo(function TicketsOverlay({
         data-testid="tickets-scroller"
       >
         {error ? (
-          <p className="py-4 text-[14px]" style={{ color: "#f59e0b" }}>
+          <p className="py-4 text-[14px]" style={{ color: "var(--color-status-warn-text)" }}>
             {error}
           </p>
         ) : null}
         {isLoading && rows.length === 0 ? (
-          <p className="py-6 text-[14px]" style={{ color: "#8e8e93" }}>
+          <p className="py-6 text-[14px]" style={{ color: "var(--color-text-muted)" }}>
             Loading tickets…
           </p>
         ) : null}
         {!(isLoading && rows.length === 0) && !error && visible.length === 0 ? (
-          <p className="py-10 text-center text-[15px]" style={{ color: "#8e8e93" }} data-testid="tickets-empty">
+          <p className="py-10 text-center text-[15px]" style={{ color: "var(--color-text-muted)" }} data-testid="tickets-empty">
             {emptyText}
           </p>
         ) : null}
@@ -313,7 +313,7 @@ function TicketSection({
   if (rows.length === 0) return null;
   return (
     <div className="pt-3" data-testid="ticket-section" data-label={label}>
-      <div className="pb-2 px-1 text-[11px] uppercase tracking-wide" style={{ color: "#8e8e93" }}>
+      <div className="pb-2 px-1 text-[11px] uppercase tracking-wide" style={{ color: "var(--color-text-muted)" }}>
         {label} · {rows.length}
       </div>
       <div className="flex flex-col gap-2.5">
@@ -369,11 +369,11 @@ const TicketCard = memo(function TicketCard({
     >
       <span className="w-full min-w-0 text-[15px] font-medium truncate">{row.title}</span>
       {summary ? (
-        <span className="w-full min-w-0 text-[13px] truncate" style={{ color: "#a1a1aa" }}>
+        <span className="w-full min-w-0 text-[13px] truncate" style={{ color: "var(--color-text-muted)" }}>
           {summary}
         </span>
       ) : null}
-      <span className="w-full min-w-0 flex items-center gap-2 text-[12px]" style={{ color: "#8e8e93" }}>
+      <span className="w-full min-w-0 flex items-center gap-2 text-[12px]" style={{ color: "var(--color-text-muted)" }}>
         <StatusChip status={row.status} />
         {row.hasBrief ? (
           <span
@@ -381,8 +381,8 @@ const TicketCard = memo(function TicketCard({
             style={{
               padding: "1px 5px",
               borderRadius: 5,
-              border: "1px solid rgba(255,255,255,0.22)",
-              color: "#d1d1d6",
+              border: "1px solid var(--color-border-strong)",
+              color: "var(--color-text-secondary)",
             }}
             data-testid="ticket-html-mark"
           >
@@ -400,8 +400,8 @@ const TicketCard = memo(function TicketCard({
                   width: 20,
                   height: 20,
                   borderRadius: 10,
-                  background: "#3a3a3c",
-                  color: "#fff",
+                  background: "var(--color-bg-elevated)",
+                  color: "var(--color-text-primary)",
                 }}
               >
                 {assigneeInitials(p)}

@@ -137,7 +137,7 @@ export function NewWorkspaceSheet({
     height: 40,
     padding: "0 12px",
     borderRadius: 10,
-    color: "#fff",
+    color: "var(--color-text-primary)",
     fontSize: 16,
   };
   const label = "text-[11px] uppercase tracking-wide";
@@ -146,7 +146,7 @@ export function NewWorkspaceSheet({
   return (
     <div
       className="absolute inset-0 flex items-end justify-center"
-      style={{ background: "rgba(0,0,0,.45)", zIndex: 30 }}
+      style={{ background: "var(--color-scrim)", zIndex: 30 }}
       data-no-pin="1"
       data-testid="new-workspace"
       onClick={(e) => {
@@ -163,7 +163,7 @@ export function NewWorkspaceSheet({
           padding: "16px 16px max(12px, var(--safe-bottom))",
           maxHeight: "90%",
           gap: 14,
-          color: "#fff",
+          color: "var(--color-text-primary)",
         }}
         onSubmit={(e) => {
           e.preventDefault();
@@ -173,7 +173,7 @@ export function NewWorkspaceSheet({
         <h2 className="text-[17px] font-semibold text-center shrink-0">New Workspace</h2>
 
         <label className="flex flex-col" style={{ gap: 6 }}>
-          <span className={label} style={{ color: "#8e8e93" }}>
+          <span className={label} style={{ color: "var(--color-text-muted)" }}>
             Name
           </span>
           <input
@@ -190,13 +190,13 @@ export function NewWorkspaceSheet({
             style={field}
             data-testid="new-workspace-name"
           />
-          <span className="text-[12px]" style={{ color: "#8e8e93" }} data-testid="new-workspace-slug">
+          <span className="text-[12px]" style={{ color: "var(--color-text-muted)" }} data-testid="new-workspace-slug">
             Folder: {slug ?? "—"}
           </span>
         </label>
 
         <label className="flex flex-col" style={{ gap: 6 }}>
-          <span className={label} style={{ color: "#8e8e93" }}>
+          <span className={label} style={{ color: "var(--color-text-muted)" }}>
             Location on the server
           </span>
           <input
@@ -213,7 +213,7 @@ export function NewWorkspaceSheet({
           />
           <span
             className="text-[12px] break-all"
-            style={{ color: path ? "#c7c7cc" : "#8e8e93", fontFamily: "ui-monospace, Menlo, monospace" }}
+            style={{ color: path ? "var(--color-text-secondary)" : "var(--color-text-muted)", fontFamily: "ui-monospace, Menlo, monospace" }}
             data-testid="new-workspace-path"
           >
             {path ?? `${parentValue.replace(/\/+$/, "") || "…"}/${slug ?? "…"}`}
@@ -221,7 +221,7 @@ export function NewWorkspaceSheet({
         </label>
 
         <div className="flex flex-col" style={{ gap: 6 }}>
-          <span className={label} style={{ color: "#8e8e93" }}>
+          <span className={label} style={{ color: "var(--color-text-muted)" }}>
             Colour
           </span>
           <div className="flex flex-wrap" style={{ gap: 10 }} role="radiogroup" aria-label="Colour">
@@ -239,7 +239,7 @@ export function NewWorkspaceSheet({
                   height: 30,
                   borderRadius: "50%",
                   background: c,
-                  boxShadow: color === c ? "0 0 0 2px #000, 0 0 0 4px #fff" : undefined,
+                  boxShadow: color === c ? "0 0 0 2px var(--color-bg), 0 0 0 4px var(--color-text-primary)" : undefined,
                 }}
                 data-testid={`new-workspace-color-${c.slice(1)}`}
               />
@@ -249,7 +249,7 @@ export function NewWorkspaceSheet({
 
         {groupsOn ? (
           <div className="flex flex-col" style={{ gap: 6 }}>
-            <span className={label} style={{ color: "#8e8e93" }}>
+            <span className={label} style={{ color: "var(--color-text-muted)" }}>
               Focus group
             </span>
             <div className="flex flex-wrap" style={{ gap: 8 }} role="radiogroup" aria-label="Focus group">
@@ -267,8 +267,8 @@ export function NewWorkspaceSheet({
                       minHeight: 32,
                       padding: "0 12px",
                       borderRadius: 16,
-                      color: "#fff",
-                      background: groupId === g.id ? "#0a84ff" : undefined,
+                      color: groupId === g.id ? "var(--color-on-accent)" : "var(--color-text-primary)",
+                      background: groupId === g.id ? "var(--color-accent-fill)" : undefined,
                     }}
                     data-testid={`new-workspace-group-${g.id ?? "none"}`}
                   >
@@ -284,7 +284,7 @@ export function NewWorkspaceSheet({
           <p
             role="alert"
             className="text-[13px] text-center"
-            style={{ color: "#ff453a" }}
+            style={{ color: "var(--color-status-error-text)" }}
             data-testid="new-workspace-error"
           >
             {error || shownProblem}
@@ -297,8 +297,8 @@ export function NewWorkspaceSheet({
           style={{
             minHeight: 44,
             borderRadius: 12,
-            background: "#0a84ff",
-            color: "#fff",
+            background: "var(--color-accent-fill)",
+            color: "var(--color-on-accent)",
             opacity: busy || problem ? 0.4 : 1,
           }}
           disabled={busy}
@@ -310,7 +310,7 @@ export function NewWorkspaceSheet({
         <button
           type="button"
           className="w-full text-[17px] bg-transparent border-0 shrink-0"
-          style={{ minHeight: 40, color: "#8e8e93" }}
+          style={{ minHeight: 40, color: "var(--color-text-muted)" }}
           disabled={busy}
           onClick={onClose}
           data-testid="new-workspace-cancel"
