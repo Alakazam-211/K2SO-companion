@@ -176,6 +176,7 @@ import { nextDrawerOrigin, readDrawerOrigin, writeDrawerOrigin } from "./session
 import { canSidecar, type ActiveLlm } from "./llmPresets";
 import { markGroupSeenAt, type GroupPreview } from "./projectChats";
 import { activityForRow } from "./agentActivity";
+import { noteAgentSend } from "./groups/homeRowStamp";
 
 /** `openSidecar` options. `launch` picks the harness (default Claude);
  *  `existingAddrs` adds server addrs the agents list may not hold (hidden
@@ -2342,6 +2343,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
       if (!posted.ok) {
         return fail(id, posted.error || "send failed");
       }
+      // Home groups: the person's own accepted send stamps this agent's
+      // rows ("Most recent at the top", synced).
+      noteAgentSend(scope.id, addr as string);
       const postedId = String(
         (posted.data &&
           (posted.data.id ||
@@ -2426,7 +2430,9 @@ export const useZenStore = create<ZenState>((set, get) => ({
     const gen = get().threadGen;
     set({ answeringId: id, answerError: null, answerErrorId: null });
     try {
-      const posted = await answerThread(zenScope(), addr, id, answer);
+      const answerScope = zenScope();
+      const posted = await answerThread(answerScope, addr, id, answer);
+      if (posted.ok) noteAgentSend(answerScope.id, addr);
       if (get().threadGen !== gen) return;
       if (!posted.ok) {
         set({
