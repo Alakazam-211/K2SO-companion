@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { serverHostKey, useServersStore } from "../stores/servers";
-import { parseHomeAddress, selectedHome, useHomesStore } from "./homes";
+import { isAgentRow, parseHomeAddress, selectedHome, useHomesStore } from "./homes";
 import { BellIcon } from "./NotifyBell";
 import {
   MUTE_CHOICES,
@@ -222,7 +222,7 @@ export function useBackUnreadCount(opts: {
   const home = homes.length ? selectedHome({ homes, selectedId: homeId }) : null;
   const list = multiOn ? saved : saved.filter((s) => s.id === activeId);
   const refs = homeRowRefs(
-    home?.rows ?? [],
+    (home?.rows ?? []).filter(isAgentRow),
     list.map((s) => ({ id: s.id, hostKey: serverHostKey(s) })),
     parseHomeAddress
   );

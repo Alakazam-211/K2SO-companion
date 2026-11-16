@@ -7,6 +7,46 @@ import type { StubAgent } from "./stubData";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
 import { CheckIcon } from "./icons";
 import { useBackHandler } from "../lib/androidBack";
+import { GroupGlyph } from "./groups/GroupGlyph";
+import { ChannelsPanel, PeoplePanel, Seg, type ChannelMode, type ChatPickServer } from "./homeChat/AddToHomePanels";
+
+/** Add to Home's tabs (K2 0.46.13): People and Channels show only once a
+ *  server offers them (`home-chat-v1` + `status.on`). */
+export type AddToHomeTab = "agents" | "people" | "channels";
+
+const TAB_KEY = "k2.addToHome.tab.";
+
+/** The tab Add to Home last showed on `homeId` on this phone. */
+export function rememberedAddToHomeTab(homeId: string): AddToHomeTab | null {
+  try {
+    const v = localStorage.getItem(TAB_KEY + homeId);
+    return v === "agents" || v === "people" || v === "channels" ? v : null;
+  } catch {
+    return null;
+  }
+}
+
+export function rememberAddToHomeTab(homeId: string, tab: AddToHomeTab): void {
+  try {
+    localStorage.setItem(TAB_KEY + homeId, tab);
+  } catch {
+    /* storage off: it opens on Agents next time */
+  }
+}
+
+/** People and channels in the sheet (some server offers them). */
+export interface AddToHomeChat {
+  /** The group's icon and 1-based position ("Adds to <icon> <group>"). */
+  groupIcon: string | null;
+  groupNumber: number;
+  /** The servers People and Channels list, the active one first. */
+  servers: ChatPickServer[];
+  /** Add a person or channel row; true when it went on (then the sheet
+   *  closes: add one, close). */
+  onAddRow: (row: HomeRow) => boolean;
+  /** Open on this tab (default: the last one on this group, else Agents). */
+  initialTab?: AddToHomeTab;
+}
 
 export type AddAgentSegment = "this" | "other";
 
@@ -154,7 +194,10 @@ export function AddAgentSheet({
   onAdd,
   onRemove,
   onClose,
+  chat = null,
 }: {
+  /** People and Channels tabs (null: Agents only, no tab bar). */
+  chat?: AddToHomeChat | null;
   home: Home;
   /** The active server's host key; null = cannot build addresses. */
   hostKey: string | null;
@@ -177,6 +220,24 @@ export function AddAgentSheet({
   useBackHandler(true, onClose);
   const segment: AddAgentSegment = renderOtherBody ? segmentPick : "this";
   const [q, setQ] = useState("");
+  const [tabPick, setTabPick] = useState<AddToHomeTab>(
+    () => chat?.initialTab ?? rememberedAddToHomeTab(home.id) ?? "agents"
+  );
+  const tab: AddToHomeTab = chat ? tabPick : "agents";
+  const pickTab = (next: AddToHomeTab) => {
+    if (next === tabPick) return;
+    setTabPick(next);
+    setQ("");
+    rememberAddToHomeTab(home.id, next);
+  };
+  const [channelMode, setChannelMode] = useState<ChannelMode>("pick");
+  const searchLabel = tab === "people" ? "Search people" : tab === "channels" ? "Search channels" : "Search agents";
+  const placeholder = tab === "people" ? "Search people…" : tab === "channels" ? "Search channels…" : "Name, path or handle";
+  const addChatRow = (row: HomeRow): boolean => {
+    const ok = chat?.onAddRow(row) ?? false;
+    if (ok) onClose();
+    return ok;
+  };
   const candidates = useMemo(() => agents.filter(isHomeCandidate), [agents]);
   const sections = useMemo(
     () => groupCandidates(candidates.filter((a) => candidateMatches(a, q)), projects, groups),
@@ -208,7 +269,8 @@ export function AddAgentSheet({
     >
       <div
         role="dialog"
-        aria-label={`Add agents to ${home.name}`}
+        aria-label={chat ? `Add to ${home.name}` : `Add agents to ${home.name}`}
+        data-tab={tab}
         className="w-full k2-tile k2-tile-sheet flex flex-col"
         style={{
           borderTopLeftRadius: 14,
@@ -221,7 +283,7 @@ export function AddAgentSheet({
         <div className="grid items-center shrink-0"
           style={{ gridTemplateColumns: "1fr auto 1fr", padding: "0 12px 10px" }}>
           <span />
-          <h2 className="text-[17px] font-semibold text-center truncate">Add Agent</h2>
+          <h2 className="text-[17px] font-semibold text-center truncate">{chat ? "Add to Home" : "Add Agent"}</h2>
           <button
             type="button"
             className="justify-self-end bg-transparent border-0 text-[17px] font-semibold"
@@ -232,7 +294,52 @@ export function AddAgentSheet({
             Done
           </button>
         </div>
-        {renderOtherBody ? (
+        {chat ? (
+          <>
+            <p
+              className="flex items-center justify-center text-[13px] shrink-0"
+              style={{ gap: 6, color: "var(--color-text-secondary)", margin: "-4px 16px 10px" }}
+              data-testid="add-to-home-target"
+            >
+              Adds to
+              <span aria-hidden className="inline-flex" style={{ color: "var(--color-accent-text)" }}>
+                <GroupGlyph icon={chat.groupIcon} n={chat.groupNumber} size={13} />
+              </span>
+              <b className="truncate font-semibold" style={{ color: "var(--color-text-primary)", maxWidth: 200 }}>
+                {home.name}
+              </b>
+            </p>
+            <div style={{ margin: "0 16px 10px" }}>
+              <Seg
+                ariaLabel="Add to Home: show"
+                value={tab}
+                onChange={pickTab}
+                options={[
+                  { value: "agents", label: "Agents" },
+                  { value: "people", label: "People" },
+                  { value: "channels", label: "Channels" },
+                ]}
+                testIdPrefix="add-to-home-tab"
+              />
+            </div>
+          </>
+        ) : null}
+        {tab === "channels" && chat ? (
+          <div style={{ margin: "0 16px 10px" }}>
+            <Seg
+              ariaLabel="Channels: add or make"
+              value={channelMode}
+              onChange={setChannelMode}
+              options={[
+                { value: "pick", label: "Add a channel" },
+                { value: "new", label: "New channel" },
+              ]}
+              testIdPrefix="add-channels-mode"
+              height={30}
+            />
+          </div>
+        ) : null}
+        {renderOtherBody && tab === "agents" ? (
           <div
             role="group"
             aria-label="Which servers"
@@ -256,21 +363,31 @@ export function AddAgentSheet({
             {segBtn("other", "Other servers")}
           </div>
         ) : null}
+        {tab === "channels" && channelMode === "new" ? null : (
         <label className="zen-glass zen-glass-field flex items-center shrink-0"
           style={{ margin: "0 16px 6px", padding: "8px 14px" }}>
-          <span className="sr-only">Search agents</span>
+          <span className="sr-only">{searchLabel}</span>
           <input
             type="search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            placeholder="Name, path or handle"
-            aria-label="Search agents"
+            placeholder={placeholder}
+            aria-label={searchLabel}
             className="flex-1 min-w-0 bg-transparent border-0 outline-none text-[16px]"
             style={{ color: "var(--color-text-primary)" }}
             data-testid="add-agent-search"
           />
         </label>
-        {segment === "this" ? (
+        )}
+        {tab === "people" && chat ? (
+          <div className="flex-1 min-h-0 overflow-y-auto" data-testid="add-to-home-people">
+            <PeoplePanel home={home} servers={chat.servers} q={q} onAddRow={addChatRow} />
+          </div>
+        ) : tab === "channels" && chat ? (
+          <div className="flex-1 min-h-0 overflow-y-auto" data-testid="add-to-home-channels">
+            <ChannelsPanel home={home} servers={chat.servers} q={q} onAddRow={addChatRow} mode={channelMode} />
+          </div>
+        ) : segment === "this" ? (
           <>
             <div className="flex-1 min-h-0 overflow-y-auto" data-testid="add-agent-this">
               {shown === 0 ? (

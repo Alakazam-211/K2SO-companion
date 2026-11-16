@@ -71,7 +71,10 @@ import { neighbourIndex } from "./groups/groupSwipe";
 import { MAX_PINS, displayRows, isPinned as isRowPinned, pinnedRows, planRowDrop } from "./groups/homeRowOrder";
 import { HomeTabToggle } from "./HomeTabToggle";
 import { parseHomeAddress, readListTab, selectedHome, useHomesStore, writeListTab, type ListTab } from "./homes";
-import { homeRowMatches, renameRepairFor, resolveHomeRows, rowsAcrossHomes, type HomeRowView } from "./homeView";
+import { homeRowMatches, renameRepairFor, resolveHomeRows, rowsAcrossHomes, serverDisplayName, type HomeRowView } from "./homeView";
+import { useAnyChatOffered, useHomeChatLive } from "./homeChat/homeChatStore";
+import type { ChatPickServer } from "./homeChat/AddToHomePanels";
+import { HomeConfirmHost } from "./homeChat/HomeConfirmSheet";
 import { boxIdForSaved, homeHostFor, useHomeServerIds } from "./homeServerIds";
 import { dismissHomesSyncNotice, useHomesSyncBadge, useHomesSyncStore } from "./homesSync";
 import { OtherServerSection } from "./multi/OtherServerSection";
@@ -545,8 +548,29 @@ export function ChatsList() {
       servers,
       remote: multi.on ? { byServer: multi.byServer, tokens } : undefined,
     });
-    return multi.on ? views : views.filter((v) => v.kind !== "remote");
+    // Flag off: the active server's rows only (people and channels too).
+    return multi.on ? views : views.filter((v) => v.kind !== "remote" && !(v.kind === "chat" && !v.here));
   }, [across, homeOrdered, activeHostKey, agents, source, serverProjects, servers, multi.on, multi.byServer, tokens, boxIds]);
+  // People and channels (K2 0.46.13, `home-chat-v1`): the servers asked
+  // (signed in; the active one first, then by name; flag off: the active
+  // one only), and those whose rows are on screen (their sockets).
+  const chatServers = useMemo((): ChatPickServer[] => {
+    const signed = servers.filter((s) => (tokens[s.id] ?? "").length > 0);
+    const active = signed.filter((s) => s.id === activeServerId);
+    const rest = multi.on
+      ? signed
+          .filter((s) => s.id !== activeServerId)
+          .sort((a, b) => serverDisplayName(a).localeCompare(serverDisplayName(b), undefined, { sensitivity: "base" }))
+      : [];
+    return [...active, ...rest].map((s) => ({ id: s.id, label: serverDisplayName(s), host: homeHostFor(s) }));
+  }, [servers, tokens, activeServerId, multi.on, boxIds]);
+  const chatServerIds = useMemo(() => chatServers.map((s) => s.id), [chatServers]);
+  const chatLiveIds = useMemo(
+    () => [...new Set(homeViews.flatMap((v) => (v.kind === "chat" && v.server ? [v.server.id] : [])))],
+    [homeViews]
+  );
+  useHomeChatLive(onHome ? chatServerIds : [], onHome && zenScreen === "list" ? chatLiveIds : []);
+  const chatOffered = useAnyChatOffered(chatServerIds);
   const otherHomeOf = across
     ? (address: string) => {
         const h = across.homeOf.get(address);
@@ -2077,7 +2101,7 @@ export function ChatsList() {
         leading={serverPill}
         // Gardens are built by agents: nothing to add from here.
         onPlus={onGardens ? undefined : () => (onHome ? setAddAgent(true) : setNewWorkspace(true))}
-        plusLabel={onGardens ? undefined : onHome ? "Add agent" : "New workspace"}
+        plusLabel={onGardens ? undefined : onHome ? (chatOffered ? "Add to Home" : "Add agent") : "New workspace"}
         plusBlockedNote={onGardens || onHome || canCreate ? null : createRoleNote()}
         barRef={searchBarRef}
         blurRef={searchBlurRef}
@@ -2122,8 +2146,19 @@ export function ChatsList() {
           onAdd={(row) => useHomesStore.getState().addRow(home.id, row)}
           onRemove={(address) => useHomesStore.getState().removeRow(home.id, address)}
           onClose={() => setAddAgent(false)}
+          chat={
+            chatOffered
+              ? {
+                  groupIcon: home.icon ?? null,
+                  groupNumber: Math.max(1, homes.findIndex((h) => h.id === home.id) + 1),
+                  servers: chatServers,
+                  onAddRow: (row) => useHomesStore.getState().addRow(home.id, row),
+                }
+              : null
+          }
         />
       ) : null}
+      {onHome ? <HomeConfirmHost /> : null}
       {newWorkspace ? (
         <NewWorkspaceSheet
           onClose={() => setNewWorkspace(false)}

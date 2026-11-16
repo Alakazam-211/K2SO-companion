@@ -34,6 +34,11 @@ import {
 } from "./pinGrid";
 import { UnreadDot } from "./UnreadMarks";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
+import { chatRowLook, type ChatHomeView, type ChatRowLook } from "./homeChat/chatRowLook";
+import { useHomeChatStore, openHomeChatRow } from "./homeChat/homeChatStore";
+import { ChannelAvatar, CallGlyph, PersonAvatar } from "./homeChat/HomeChatGlyphs";
+import { confirmRemoveChatRow } from "./homeChat/HomeConfirmSheet";
+import { callPersonFromRow } from "./homeChat/openHomeChat";
 
 /** The first agents of a Home sit in the Agents page's grid (Riley
  *  2026-11-09); the rest are rows. */
@@ -208,6 +213,10 @@ export function HomeList({
   const setAgent = useZenStore((s) => s.setAgent);
   const unreadServers = useUnreadStore((s) => s.servers);
   const unreadAddrs = useUnreadStore((s) => s.addrs);
+  // People and channels (K2 0.46.13): their servers' Home chat state.
+  const chatByServer = useHomeChatStore((s) => s.byServer);
+  const chatNotes = useHomeChatStore((s) => s.rowNotes);
+  const tokens = useServersStore((s) => s.tokens);
 
   const hold = useHoldMenu();
   const noScroll = { current: null as HTMLElement | null };
@@ -266,27 +275,84 @@ export function HomeList({
     return { look, failure, action };
   };
 
+  const lookOf = (v: ChatHomeView): ChatRowLook =>
+    chatRowLook(v, { byServer: chatByServer, tokens, rowNotes: chatNotes, hereChip });
+
+  /** A person or channel row's tap: the DM (opened or made first) or the
+   *  channel, in the chat view. A server with no chat opens nothing. */
+  const openChat = (v: ChatHomeView, look: ChatRowLook) => {
+    if (look.noChat || !look.serverId) return;
+    void openHomeChatRow(look.serverId, { kind: v.chat, handle: v.handle, title: look.name, address: v.row.address });
+  };
+
+  const pinEntries = (v: HomeRowView): AgentMenuEntry[] =>
+    pins && !otherHomeOf?.(v.row.address)
+      ? [
+          pins.isPinned(v.row.address)
+            ? { key: "unpin", label: "Unpin", icon: <PinGlyph off />, onSelect: () => pins.onUnpin(v.row.address) }
+            : {
+                key: "pin",
+                label: "Pin",
+                icon: <PinGlyph off={false} />,
+                disabled: pins.full,
+                note: pins.full ? PINS_FULL_TEXT : undefined,
+                onSelect: () => pins.onPin(v.row.address),
+              },
+        ]
+      : [];
+
+  /** A person's or channel's menu (desktop: Pin / Unpin, Remove from
+   *  <group>; Call on a person, Riley: calls live in the long press). */
+  const chatMenuEntries = (v: ChatHomeView): AgentMenuEntry[] => {
+    const look = lookOf(v);
+    const group = otherHomeOf?.(v.row.address) ?? homeName;
+    const sid = look.serverId;
+    return [
+      ...(!look.noChat && sid ? [{ key: "open", label: "Open", icon: <OpenGlyph />, onSelect: () => openChat(v, look) }] : []),
+      ...(v.chat === "person" && look.offered && sid
+        ? [
+            {
+              key: "call",
+              label: "Call",
+              icon: <CallGlyph />,
+              onSelect: () =>
+                callPersonFromRow(sid, {
+                  ext: v.handle,
+                  displayName: look.name,
+                  username: look.username,
+                  conversationId: chatByServer[sid]?.dms[v.handle] ?? null,
+                  address: v.row.address,
+                }),
+            },
+          ]
+        : []),
+      ...pinEntries(v),
+      ...(canRearrange && !searching && views.length > 1 && onRearrange
+        ? [{ key: "rearrange", label: "Rearrange", icon: <RearrangeGlyph />, onSelect: onRearrange }]
+        : []),
+      {
+        key: "remove",
+        label: `Remove from ${group}`,
+        icon: <RemoveGlyph />,
+        danger: true,
+        onSelect: () => {
+          void confirmRemoveChatRow(look.name, group, v.chat).then((yes) => {
+            if (yes) onRemove(v.row.address);
+          });
+        },
+      },
+    ];
+  };
+
   const menuEntries = (v: HomeRowView): AgentMenuEntry[] => {
+    if (v.kind === "chat") return chatMenuEntries(v);
     const { failure, action } = rowState(v);
     const canOpen = v.kind === "here" || v.kind === "remote";
     return [
       ...(canOpen
         ? [{ key: "open", label: "Open", icon: <OpenGlyph />, onSelect: () => openRow(v, failure, action) }]
         : []),
-      ...(pins && !otherHomeOf?.(v.row.address)
-        ? [
-            pins.isPinned(v.row.address)
-              ? { key: "unpin", label: "Unpin", icon: <PinGlyph off />, onSelect: () => pins.onUnpin(v.row.address) }
-              : {
-                  key: "pin",
-                  label: "Pin",
-                  icon: <PinGlyph off={false} />,
-                  disabled: pins.full,
-                  note: pins.full ? PINS_FULL_TEXT : undefined,
-                  onSelect: () => pins.onPin(v.row.address),
-                },
-          ]
-        : []),
+      ...pinEntries(v),
       { key: "mute" as const, mute: { serverId: menuTarget?.serverId, rowRef: menuRef } },
       ...(canRearrange && !searching && views.length > 1 && onRearrange
         ? [{ key: "rearrange", label: "Rearrange", icon: <RearrangeGlyph />, onSelect: onRearrange }]
@@ -360,7 +426,176 @@ export function HomeList({
   const gridded = rearranging || searching ? [] : views.slice(0, gridMax);
   const listed = views.slice(gridded.length);
 
+  const chatAvatar = (v: ChatHomeView, look: ChatRowLook, size: number, fontSize: number) =>
+    v.chat === "person" ? (
+      <PersonAvatar username={look.username} name={look.name} picture={look.person?.picture ?? null} size={size} fontSize={fontSize} />
+    ) : (
+      <ChannelAvatar inviteOnly={look.inviteOnly} size={size} />
+    );
+
+  const chatLabel = (v: ChatHomeView, look: ChatRowLook) =>
+    `${look.name}${v.chat === "channel" ? (look.inviteOnly ? ", invite-only channel" : ", channel") : ""}` +
+    `${look.chip ? `, on ${look.chip}` : ""}${look.quiet ? `, ${look.line}` : ""}`;
+
+  const chatTile = (v: ChatHomeView) => {
+    const look = lookOf(v);
+    const address = v.row.address;
+    return (
+      <div
+        key={address}
+        className="relative"
+        data-home-row={address}
+        data-home-kind="chat"
+        data-chat-kind={v.chat}
+        data-server-id={look.serverId ?? undefined}
+        data-greyed={look.quiet ? "1" : undefined}
+      >
+        <button
+          type="button"
+          className="w-full text-center bg-transparent border-0 p-0"
+          style={{
+            color: "var(--color-text-primary)",
+            opacity: look.quiet ? 0.55 : 1,
+            touchAction: "pan-y",
+            userSelect: "none",
+            WebkitUserSelect: "none",
+            WebkitTouchCallout: "none",
+          }}
+          data-no-pin="1"
+          data-testid={`home-chat-${v.chat}-${v.handle}`}
+          aria-describedby="home-row-hint"
+          aria-haspopup="menu"
+          aria-expanded={menu?.id === address}
+          aria-label={chatLabel(v, look)}
+          {...hold.bind(address, true)}
+          onClick={() => {
+            if (hold.consumeSkipClick()) return;
+            openChat(v, look);
+          }}
+        >
+          <div className="flex justify-center" style={{ marginBottom: look.chip ? 13 : 8 }} data-testid="pin-avatar">
+            <span className="relative inline-flex">
+              <UnreadDot unread={look.unread} side={14} />
+              {chatAvatar(v, look, ZEN_PIN_AVATAR_PX, 26)}
+              {look.chip ? (
+                <span
+                  className="absolute zen-glass zen-glass-pill truncate"
+                  style={{
+                    bottom: -9,
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    maxWidth: 84,
+                    padding: "1px 7px",
+                    fontSize: 11,
+                    lineHeight: "15px",
+                    color: "var(--color-text-secondary)",
+                  }}
+                  data-testid="row-server-chip"
+                >
+                  {look.chip}
+                </span>
+              ) : null}
+            </span>
+          </div>
+          <div
+            className="text-[12px] font-semibold truncate mx-auto"
+            style={{ color: "var(--color-text-primary)", maxWidth: 110, ...(look.unread ? { fontWeight: 700 } : null) }}
+            data-testid="row-name"
+          >
+            {look.name}
+          </div>
+          {look.quiet ? (
+            <div
+              className="text-[11px] truncate mx-auto"
+              style={{ color: "var(--color-text-muted)", maxWidth: 110, lineHeight: 1.3 }}
+              data-testid="row-chat-quiet"
+            >
+              {look.line}
+            </div>
+          ) : null}
+        </button>
+      </div>
+    );
+  };
+
+  const chatRow = (v: ChatHomeView, i: number) => {
+    const look = lookOf(v);
+    const address = v.row.address;
+    const shift = rearrange.offsetFor(address);
+    return (
+      <div
+        key={address}
+        className="relative"
+        data-home-row={address}
+        data-home-kind="chat"
+        data-chat-kind={v.chat}
+        data-server-id={look.serverId ?? undefined}
+        data-greyed={look.quiet ? "1" : undefined}
+        data-rearrange-key={address}
+        data-dragging={shift.dragging ? "1" : undefined}
+        style={{
+          transform: shift.y ? `translateY(${shift.y}px)` : undefined,
+          transition: shift.transition,
+          zIndex: shift.dragging ? 3 : undefined,
+          background: shift.dragging ? "var(--color-bg-elevated)" : undefined,
+          boxShadow: shift.dragging ? "0 10px 28px var(--color-shadow)" : undefined,
+          borderRadius: shift.dragging ? 14 : undefined,
+        }}
+      >
+        {rearranging ? <GripHandle name={look.name} inset={inset} handlers={rearrange.handleProps(address)} /> : null}
+        <button
+          type="button"
+          className="w-full flex items-center text-left relative"
+          style={{
+            gap: 10,
+            paddingTop: 12,
+            paddingBottom: 12,
+            paddingLeft: rearrangePadLeft(inset, rearranging),
+            paddingRight: ZEN_ROW_RIGHT_INSET,
+            opacity: look.quiet ? 0.55 : 1,
+            touchAction: "pan-y",
+            userSelect: "none",
+            WebkitUserSelect: "none",
+            WebkitTouchCallout: "none",
+            transition: rearrange.reduced ? undefined : "padding-left 200ms cubic-bezier(.2,.9,.25,1)",
+          }}
+          data-no-pin="1"
+          data-testid={`home-chat-${v.chat}-${v.handle}`}
+          aria-describedby="home-row-hint"
+          aria-haspopup={rearranging ? undefined : "menu"}
+          aria-expanded={rearranging ? undefined : menu?.id === address}
+          aria-label={chatLabel(v, look)}
+          {...hold.bind(address, !rearranging)}
+          onClick={() => {
+            if (hold.consumeSkipClick() || rearranging) return;
+            openChat(v, look);
+          }}
+        >
+          <AgentRowContent
+            name={look.name}
+            initial=""
+            busy={null}
+            when={look.when}
+            preview={look.line}
+            homeTag={otherHomeOf?.(address) ?? null}
+            serverChip={look.chip}
+            unread={look.unread}
+            avatar={chatAvatar(v, look, 50, 18)}
+          />
+        </button>
+        {i < listed.length - 1 && !shift.dragging ? (
+          <RowDivider
+            padLeft={rearrangePadLeft(inset, rearranging)}
+            padRight={ZEN_ROW_RIGHT_INSET}
+            transition={rearrange.reduced ? undefined : "left 200ms cubic-bezier(.2,.9,.25,1)"}
+          />
+        ) : null}
+      </div>
+    );
+  };
+
   const tile = (v: HomeRowView) => {
+    if (v.kind === "chat") return chatTile(v);
     const { address, handle, here, look, failure, action, there, busy, name, unread, opacity, elsewhere, dim } = modelOf(v);
     const shownBusy = failure ? null : busy;
     const color = shownBusy ? activityColor(shownBusy) : "";
@@ -483,6 +718,7 @@ export function HomeList({
         </div>
       ) : null}
       {listed.map((v, i) => {
+        if (v.kind === "chat") return chatRow(v, i);
         const { address, handle, here, look, failure, action, there, busy, when, name, preview, unread, opacity, elsewhere, dim, remoteView } = modelOf(v);
         const shift = rearrange.offsetFor(address);
         return (
@@ -579,7 +815,7 @@ export function HomeList({
 
       {menu && menuView ? (
         <AgentMenu
-          label={`Options for ${menuView.row.label} on ${otherHomeOf?.(menuView.row.address) ?? homeName}`}
+          label={`Options for ${menuView.kind === "chat" ? lookOf(menuView).name : menuView.row.label} on ${otherHomeOf?.(menuView.row.address) ?? homeName}`}
           menu={menu}
           entries={menuEntries(menuView)}
           onClose={hold.close}

@@ -34,6 +34,19 @@ export type HomeRowView =
       server: ServerEntry | null;
       serverLabel: string;
       resolved?: RemoteResolution;
+    }
+  /** A person or channel (K2 0.46.13, `home-chat-v1`): drawn by Home chat
+   *  (`./homeChat`). `handle` is the person's ext or the channel's Sew id;
+   *  `here` when its server is the active one. `server` is null when no
+   *  saved server matches (the row stays, greyed). */
+  | {
+      kind: "chat";
+      row: HomeRow;
+      chat: "person" | "channel";
+      handle: string;
+      server: ServerEntry | null;
+      serverLabel: string;
+      here: boolean;
     };
 
 /** A row from another server, resolved on that server's own lists (HM3). */
@@ -132,10 +145,26 @@ export function resolveHomeRows(
     ? ctx.servers.filter((s) => serverHostKey(s) === ctx.activeHostKey)
     : [];
   for (const row of rows) {
-    // People and channel rows (K2 0.46.13) are drawn by Home chat, not here.
-    if (!isAgentRow(row)) continue;
     const parsed = parseHomeAddress(row.address);
     if (!parsed) continue;
+    // People and channel rows (K2 0.46.13): Home chat draws them. Never
+    // dropped: a server without chat greys them (`./homeChat`).
+    if (!isAgentRow(row)) {
+      const here =
+        !!ctx.activeHostKey &&
+        (parsed.host === ctx.activeHostKey || activeEntries.some((s) => entryMatchesHomeHost(s, parsed.host)));
+      const server = (here ? activeEntries[0] : null) ?? savedServerForHost(ctx.servers, parsed.host, ctx.remote?.tokens);
+      out.push({
+        kind: "chat",
+        row,
+        chat: row.kind === "channel" ? "channel" : "person",
+        handle: parsed.handle,
+        server,
+        serverLabel: server ? serverDisplayName(server) : homeHostLabel(parsed.host),
+        here,
+      });
+      continue;
+    }
     // Either spelling of the active server: host key or box id.
     if (
       ctx.activeHostKey &&
@@ -214,7 +243,7 @@ export function homeRowMatches(v: HomeRowView, q: string): boolean {
     parsed?.handle ?? "",
     v.kind === "here" ? v.agent.name : v.kind === "remote" ? v.resolved?.agent?.name ?? "" : "",
     v.kind === "here" ? v.agent.path ?? "" : v.kind === "remote" ? v.resolved?.agent?.path ?? "" : "",
-    v.kind === "remote" ? v.serverLabel : "",
+    v.kind === "remote" || v.kind === "chat" ? v.serverLabel : "",
   ];
   return hay.some((h) => h.toLowerCase().includes(needle));
 }
@@ -231,7 +260,7 @@ export function rowsAcrossHomes(
   const homeOf = new Map<string, { id: string; name: string }>();
   for (const h of ordered) {
     for (const r of h.rows) {
-      if (!isAgentRow(r) || homeOf.has(r.address)) continue;
+      if (homeOf.has(r.address)) continue;
       homeOf.set(r.address, { id: h.id, name: h.name });
       rows.push(r);
     }

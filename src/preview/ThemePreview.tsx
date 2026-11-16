@@ -21,13 +21,17 @@ import { useThemeStore } from "../theme/themeStore";
 import { Zen } from "../pages/Zen";
 import { ZenSettings } from "../zen/ZenSettings";
 import { ThemesPage } from "../zen/ThemesPage";
-import { seedDraft, seedHomeGroups, seedStores, type PreviewScreen } from "./fixtures";
+import { HOME_CHAT_SCREENS, seedDraft, seedHomeChat, seedHomeGroups, seedStores, type PreviewScreen } from "./fixtures";
+import { askHome } from "../zen/homeChat/HomeConfirmSheet";
+import { samePersonCopy } from "../zen/homeChat/homeChatRows";
 
 const params = new URLSearchParams(location.search);
 const palette: PaletteId = paletteById(params.get("palette"))?.id ?? "obsidian";
 const accent = parseAccentChoice(params.get("accent"));
 const screen: PreviewScreen =
-  (["thread", "home", "settings", "themes", "home-groups", "home-groups-sheet"] as const).find((s) => s === params.get("screen")) ??
+  (["thread", "home", "settings", "themes", "home-groups", "home-groups-sheet", ...HOME_CHAT_SCREENS] as const).find(
+    (s) => s === params.get("screen")
+  ) ??
   "thread";
 const jump = params.get("jump") === "1";
 const chrome = params.get("chrome") !== "0";
@@ -60,6 +64,43 @@ initZenFont();
 seedStores(screen);
 if (screen === "thread") seedDraft();
 if (screen === "home-groups" || screen === "home-groups-sheet") seedHomeGroups(screen === "home-groups-sheet");
+if (HOME_CHAT_SCREENS.includes(screen)) seedHomeChat(screen);
+
+/** What a People and channels screen opens once Home is up: Add to Home
+ *  (its tab is seeded), a person row's hold menu, or "Same person?". */
+async function openChatExtras(): Promise<void> {
+  const wait = (ms: number) => new Promise((r) => window.setTimeout(r, ms));
+  if (screen === "add-to-home" || screen === "add-to-home-channels" || screen === "add-to-home-new") {
+    document.querySelector<HTMLElement>('[aria-label="Add to Home"]')?.click();
+    await wait(150);
+    if (screen === "add-to-home-new") {
+      document.querySelector<HTMLElement>("[data-testid=add-channels-mode-new]")?.click();
+      await wait(100);
+      const name = document.querySelector<HTMLInputElement>("[data-testid=new-channel-name]");
+      if (name) {
+        const set = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set;
+        set?.call(name, "launch-notes");
+        name.dispatchEvent(new Event("input", { bubbles: true }));
+        name.blur();
+      }
+      document.querySelector<HTMLElement>('[data-testid="new-channel-member-k2:connect:ana"]')?.click();
+    }
+  } else if (screen === "home-people-menu") {
+    const row = document.querySelector<HTMLElement>('[data-testid="home-chat-person-k2:connect:ben"]');
+    row?.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true }));
+  } else if (screen === "home-same-person") {
+    const copy = samePersonCopy("Ana R.", "Ana Ruiz", "Studio");
+    void askHome({
+      title: copy.title,
+      body: copy.body,
+      choices: [
+        { id: "same", label: "Same person", primary: true },
+        { id: "different", label: "Different person" },
+      ],
+      testId: "same-person",
+    });
+  }
+}
 
 /** The phone's status bar and home indicator, in the palette's text colour. */
 function PhoneChrome() {
@@ -123,6 +164,7 @@ function Settle({ children }: { children: ReactNode }) {
     timers.push(window.setTimeout(reseed, 120), window.setTimeout(reseed, 500));
     timers.push(
       window.setTimeout(async () => {
+        if (HOME_CHAT_SCREENS.includes(screen)) await openChatExtras();
         if (jump) {
           const list = document.querySelector<HTMLElement>("[data-testid=thread-scroller]");
           if (list) {

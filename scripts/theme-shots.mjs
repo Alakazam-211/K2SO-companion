@@ -38,7 +38,21 @@ const CANDIDATES = [
   "/Users/zed/DevProjects/example/Rex/synthetic-user/node_modules/playwright-core",
 ].filter(Boolean);
 
-const SCREENS = ["thread", "thread-jump", "home", "settings", "themes", "home-groups", "home-groups-sheet"];
+const SCREENS = [
+  "thread",
+  "thread-jump",
+  "home",
+  "settings",
+  "themes",
+  "home-groups",
+  "home-groups-sheet",
+  "home-people",
+  "home-people-menu",
+  "home-same-person",
+  "add-to-home",
+  "add-to-home-channels",
+  "add-to-home-new",
+];
 const PALETTES = ["obsidian", "veil", "yellow"];
 const SCHEME = { obsidian: "dark", veil: "light", yellow: "dark" };
 

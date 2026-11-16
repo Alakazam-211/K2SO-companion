@@ -16,6 +16,17 @@ import type { ThreadMessage } from "../zen/threadModel";
 import type { StubAgent } from "../zen/stubData";
 import type { ServerProject } from "../zen/serverPins";
 import type { RowLast } from "../zen/rowPreview";
+import { useHomeGridStore } from "../zen/homeGrid";
+import { seedHomeChatServer } from "../zen/homeChat/homeChatStore";
+import type { HomeChatGate } from "../api/homeChat";
+import {
+  NO_HOME_CHAT_FLAGS,
+  homeChatNoChatLine,
+  type HomeChatChannel,
+  type HomeChatFlags,
+  type HomeChatPerson,
+  type HomeChatSummaryRow,
+} from "../api/homeChatPure";
 
 export const SERVER_ID = "preview";
 const SERVER: ServerEntry = {
@@ -148,7 +159,152 @@ export function threadFixture(): ThreadMessage[] {
   ];
 }
 
-export type PreviewScreen = "thread" | "home" | "settings" | "themes" | "home-groups" | "home-groups-sheet";
+export type PreviewScreen =
+  | "thread"
+  | "home"
+  | "settings"
+  | "themes"
+  | "home-groups"
+  | "home-groups-sheet"
+  | "home-people"
+  | "home-people-menu"
+  | "home-same-person"
+  | "add-to-home"
+  | "add-to-home-channels"
+  | "add-to-home-new";
+
+/** The People and channels screens (K2 0.46.13 `home-chat-v1`). */
+export const HOME_CHAT_SCREENS: readonly PreviewScreen[] = [
+  "home-people",
+  "home-people-menu",
+  "home-same-person",
+  "add-to-home",
+  "add-to-home-channels",
+  "add-to-home-new",
+];
+
+/** A second saved server, signed in, whose chat is off (a Mac server): its
+ *  rows grey and its picker sections say why. */
+export const PARITY_ID = "preview-parity";
+const PARITY: ServerEntry = {
+  id: PARITY_ID,
+  nickname: "Parity",
+  url: "https://parity.preview.invalid",
+  username: "sam",
+  rememberPassword: false,
+};
+
+const ALL_FLAGS: HomeChatFlags = {
+  channelMemberAddRemove: true,
+  channelMembersCanLeave: true,
+  httpTyping: true,
+  readStateUnreadCount: true,
+  memberChannelsLevelOnly: true,
+  agentsDmWithBoxPeople: true,
+  callCancel: true,
+};
+
+const PEOPLE: HomeChatPerson[] = [
+  { ext: "k2:connect:ana", username: "ana", displayName: "Ana Ruiz", picture: null, role: "admin", ready: true, memberId: "77" },
+  { ext: "k2:connect:ben", username: "ben", displayName: "Ben Okafor", picture: null, role: "member", ready: true, memberId: "78" },
+  { ext: "k2:connect:chloe", username: "chloe", displayName: "Chloé Martin", picture: null, role: "member", ready: true, memberId: "79" },
+  { ext: "k2:connect:dev", username: "dev", displayName: "Dev Patel", picture: null, role: "voice_chat", ready: false, memberId: null },
+  { ext: "k2:owner", username: "owner", displayName: "Rosa Lind", picture: null, role: "owner", ready: true, memberId: "1" },
+];
+
+const CHANNELS: HomeChatChannel[] = [
+  { conv: "501", name: "general", open: true, inviteOnly: false, archived: false, home: false, allowAgents: false },
+  { conv: "502", name: "design-crit", open: false, inviteOnly: true, archived: false, home: true, allowAgents: false },
+  { conv: "503", name: "launch-room", open: false, inviteOnly: true, archived: false, home: true, allowAgents: false },
+  { conv: "504", name: "random", open: true, inviteOnly: false, archived: false, home: false, allowAgents: false },
+];
+
+/** People and channels on Home: the Studio group with agents, people and
+ *  channels (a pinned person in the grid, badges, a greyed row from a Mac
+ *  server), the Home chat state of both servers, and the extras each
+ *  screen opens. Once, before the first render. */
+export function seedHomeChat(screen: PreviewScreen): void {
+  try {
+    localStorage.removeItem(HOMES_STORAGE_KEY);
+    localStorage.removeItem(HOMES_LAST_SELECTED_KEY);
+    localStorage.setItem(LIST_TAB_KEY, "home");
+  } catch {
+    /* in-memory only */
+  }
+  useHomesStore.getState().reload();
+  useHomesStore.getState().ensureSeeded();
+  const s = () => useHomesStore.getState();
+  const host = serverHostKey(SERVER);
+  const parity = serverHostKey(PARITY);
+  const launch = s().selectedId;
+  s().renameGroup(launch, "Launch");
+  s().setHomeIcon(launch, "rocket");
+  const agentRow = (a: Agent) => ({ address: homeAddress(a.addr as string, host), workspaceId: null, label: a.name });
+  const person = (ext: string, label: string, h = host) => ({ kind: "person" as const, address: homeAddress(ext, h), workspaceId: null, label });
+  const channel = (conv: string, label: string) => ({ kind: "channel" as const, address: homeAddress(conv, host), workspaceId: null, label });
+  s().addRow(launch, person("k2:connect:ana", "Ana Ruiz"));
+  s().addRow(launch, agentRow(QUILL));
+  s().addRow(launch, agentRow(ATLAS));
+  s().addRow(launch, person("k2:connect:ben", "Ben Okafor"));
+  s().addRow(launch, channel("501", "general"));
+  s().addRow(launch, channel("502", "design-crit"));
+  s().addRow(launch, person("k2:connect:mia", "Mia Chen", parity));
+  s().pinRow(launch, homeAddress("k2:connect:ana", host));
+  s().pinRow(launch, homeAddress("quill", host));
+  s().pinRow(launch, homeAddress("atlas", host));
+  useHomeGridStore.getState().setSize(launch, 3);
+  try {
+    const tab = screen === "add-to-home-channels" || screen === "add-to-home-new" ? "channels" : "people";
+    localStorage.setItem(`k2.addToHome.tab.${launch}`, tab);
+  } catch {
+    /* opens on Agents */
+  }
+}
+
+/** The two servers' Home chat state (re-seeded with the stores). */
+function seedHomeChatServers(now: number): void {
+  const gate = (offered: boolean, reason: string | null): HomeChatGate => ({
+    offered,
+    feature: true,
+    on: offered,
+    reason,
+    flags: offered ? { ...ALL_FLAGS } : { ...NO_HOME_CHAT_FLAGS },
+    chat: offered ? "live" : null,
+    checkedAt: now,
+    refusal: null,
+    pickerLine: offered ? null : homeChatNoChatLine(reason),
+  });
+  const iso = (minAgo: number) => new Date(now - minAgo * MIN).toISOString();
+  const conv = (c: string, kind: "dm" | "channel", n: number | "dot" | 0, minAgo: number, extra: Partial<HomeChatSummaryRow> = {}): HomeChatSummaryRow => ({
+    conv: c,
+    kind,
+    unread: n !== 0,
+    badge: n === "dot" ? { kind: "dot" } : n === 0 ? { kind: "none" } : { kind: "count", n },
+    lastAt: iso(minAgo),
+    lastAtMs: now - minAgo * MIN,
+    lastMessageId: null,
+    with: null,
+    inviteOnly: null,
+    ...extra,
+  });
+  seedHomeChatServer(SERVER_ID, {
+    gate: gate(true, null),
+    people: { me: { ext: "k2:connect:sam", memberId: "80" }, people: PEOPLE },
+    peopleAt: now,
+    channels: CHANNELS,
+    channelsAt: now,
+    summary: {
+      chat: "live",
+      convs: [
+        conv("601", "dm", 2, 3, { with: "k2:connect:ana" }),
+        conv("602", "dm", 0, 95, { with: "k2:connect:ben" }),
+        conv("501", "channel", 0, 30, { inviteOnly: false }),
+        conv("502", "channel", "dot", 8, { inviteOnly: true }),
+      ],
+    },
+  });
+  seedHomeChatServer(PARITY_ID, { gate: gate(false, "mac") });
+}
 
 /** Home groups (K2 0.46.13): groups with icons, one without, pins, on the
  *  Home tab; `sheet` opens the Groups sheet on Errands. Once, before the
@@ -194,14 +350,16 @@ export function seedHomeGroups(sheet: boolean): void {
  *  mount effects started their loads, which then never answer). */
 export function seedStores(screen: PreviewScreen): void {
   const now = Date.now();
+  const chat = HOME_CHAT_SCREENS.includes(screen);
   useServersStore.setState({
-    servers: [SERVER],
+    servers: chat ? [SERVER, PARITY] : [SERVER],
     activeServerId: SERVER_ID,
     hydrated: true,
-    tokens: { [SERVER_ID]: "preview-token" },
+    tokens: chat ? { [SERVER_ID]: "preview-token", [PARITY_ID]: "preview-token-2" } : { [SERVER_ID]: "preview-token" },
     recovery: { [SERVER_ID]: "connected" },
   });
-  useMultiServerPrefs.setState({ multiServer: false });
+  useMultiServerPrefs.setState({ multiServer: chat });
+  if (chat) seedHomeChatServers(now);
 
   const byKey: Record<string, UnreadEntry> = {
     [unreadKey("thread", "conv-builder")]: entry("conv-builder", { unread: 3, lastReadSeq: 7 }),
