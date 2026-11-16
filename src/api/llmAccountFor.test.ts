@@ -63,11 +63,11 @@ describe("account usage for a chat (llm-account-for-v1)", () => {
 import { usageColor } from "../zen/useAgentUsage";
 
 describe("usage colour", () => {
-  it("white below 75, yellow 75–89, red from 90", () => {
-    expect(usageColor(74)).toBe("rgba(255, 255, 255, 0.9)");
-    expect(usageColor(75)).toBe("#ffd60a");
-    expect(usageColor(89)).toBe("#ffd60a");
-    expect(usageColor(90)).toBe("#ff6961");
+  it("the palette's words below 75, warning 75–89, error from 90", () => {
+    expect(usageColor(74)).toBe("var(--color-text-primary)");
+    expect(usageColor(75)).toBe("var(--color-status-warn-text)");
+    expect(usageColor(89)).toBe("var(--color-status-warn-text)");
+    expect(usageColor(90)).toBe("var(--color-status-error-text)");
   });
   it("reads updatedAt as the reading's age, shown from 20 minutes", () => {
     const at = parseAccountUsage({ ...body, updatedAt: "2026-11-09T12:00:00Z" })?.updatedAt ?? null;

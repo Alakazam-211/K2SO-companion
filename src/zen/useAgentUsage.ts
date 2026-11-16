@@ -83,5 +83,10 @@ export function useUsageAgeMinutes(updatedAt: number | null): number | null {
 /** The usage percent's colour (Riley 2026-10-24): white, yellow from 75%,
  *  red from 90%. */
 export function usageColor(pct: number): string {
-  return pct >= 90 ? "#ff6961" : pct >= 75 ? "#ffd60a" : "rgba(255, 255, 255, 0.9)";
+  // Palette words (Settings → Themes): white on dark palettes, dark on Veil.
+  return pct >= 90
+    ? "var(--color-status-error-text)"
+    : pct >= 75
+      ? "var(--color-status-warn-text)"
+      : "var(--color-text-primary)";
 }
