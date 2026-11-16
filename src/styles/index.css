@@ -388,9 +388,25 @@ html, body, #root {
     0 4px 12px rgba(0, 0, 0, 0.16),
     0 1px 2px rgba(0, 0, 0, 0.1);
 }
+:root[data-scheme="light"] {
+  /* LiquidGlassJS's light "frosted" material dims what's behind the glass a
+     little (brightness 0.936) so the frost reads a shade darker than a
+     white page (Riley 2026-11-16: "the darker frost is probably part of
+     the fix"); a little less white on top lets that show. */
+  --k2-veil-frost-filter: blur(28px) saturate(180%) brightness(0.94);
+  --k2-veil-frost-fill: rgba(255, 255, 255, 0.55);
+}
 :root[data-scheme="light"] .zen-glass {
   border-color: transparent;
   box-shadow: var(--k2-veil-edge);
+  background-color: var(--k2-veil-frost-fill);
+  -webkit-backdrop-filter: var(--k2-veil-frost-filter);
+  backdrop-filter: var(--k2-veil-frost-filter);
+}
+:root[data-scheme="light"] .zen-glass-merged-fill {
+  background: var(--k2-veil-frost-fill);
+  -webkit-backdrop-filter: var(--k2-veil-frost-filter);
+  backdrop-filter: var(--k2-veil-frost-filter);
 }
 /* The Thread's Jump to bottom pill (JumpPill.tsx), as K2 desktop's
    (globals.css --k2-jump-*): on dark, the Frost's 10% white over a 60%
