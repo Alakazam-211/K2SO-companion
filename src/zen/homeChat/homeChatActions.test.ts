@@ -226,7 +226,7 @@ describe("send: conversation_gone (a DM Sew lost)", () => {
     const s = useHomeChatStore.getState().sends[KEY][nonce];
     expect(s).toMatchObject({ status: "failed", error: DM_GONE_TEXT });
     expect(s.final).toBeFalsy();
-    expect(sendFailedNote(findHomeChatSend("s1", { text: "hi" }))).toContain("couldn't be opened again");
+    expect(sendFailedNote(findHomeChatSend("s1", { text: "hi" }))).toContain("couldn't be reopened");
   });
 
   it("tries the reopen only once", async () => {

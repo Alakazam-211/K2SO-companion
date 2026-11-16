@@ -71,7 +71,7 @@ export function refusalText(r: HomeChatRefusal): string {
 /** A send to an archived channel: the whole line (no Retry). */
 export const CHANNEL_ARCHIVED_TEXT = "This channel is archived.";
 /** A DM Sew lost that couldn't be opened again. */
-export const DM_GONE_TEXT = "This chat is gone and couldn't be opened again";
+export const DM_GONE_TEXT = "this chat couldn't be reopened";
 /** `send_in_progress`: wait this long before each send again (same nonce). */
 export const SEND_IN_PROGRESS_BACKOFF_MS: readonly number[] = [1_000, 2_000];
 
