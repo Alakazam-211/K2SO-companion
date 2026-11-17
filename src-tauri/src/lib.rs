@@ -1476,9 +1476,10 @@ mod ios_keyboard {
         unsafe {
             let wk: *mut AnyObject = webview_ptr.cast();
 
-            // Settings → Themes' mode (saved by `set_appearance`; Dark on
+            // Settings → Themes' look (saved by `set_appearance`; Dark on
             // black until the page first sends one): keyboard, status bar
-            // and the colour behind the page (src/appearance.rs).
+            // and the colour behind the page take the palette on screen
+            // (src/appearance.rs).
             crate::appearance::ios::apply(webview_ptr, None);
 
             let scroll_view: *mut AnyObject = msg_send![wk, scrollView];
@@ -1761,9 +1762,11 @@ async fn ios_keyboard_diag(
 }
 
 /// Settings → Themes: the mode (`light` | `dark` | `auto`), the page
-/// colour shown now (`bg`) and each side's page colour (`darkBg`,
-/// `lightBg`, for the next launch under Auto). Applied to the windows and
-/// the web view, and saved natively so the next launch starts in it
+/// colour shown now (`bg`), and each side's page colour (`darkBg`,
+/// `lightBg`) and palette scheme (`darkScheme`, `lightScheme`: `light` |
+/// `dark`). The windows and the web view take the scheme of the palette on
+/// screen (under Auto, by the iPhone's appearance, which native reads and
+/// then tells the page), saved natively so the next launch starts in it
 /// (src/appearance.rs). src/theme/nativeAppearance.ts calls it on iOS
 /// only; false elsewhere (Android's look is another owner's).
 #[tauri::command]
@@ -1772,6 +1775,8 @@ fn set_appearance(
     bg: Option<String>,
     dark_bg: Option<String>,
     light_bg: Option<String>,
+    dark_scheme: Option<String>,
+    light_scheme: Option<String>,
     webview: tauri::WebviewWindow,
 ) -> bool {
     #[cfg(target_os = "ios")]
@@ -1781,20 +1786,27 @@ fn set_appearance(
         };
         let a = appearance::Appearance::from_strs(
             appearance::ios::current(),
-            Some(m.as_str()),
-            dark_bg.as_deref(),
-            light_bg.as_deref(),
+            appearance::Strs {
+                mode: Some(m.as_str()),
+                dark_bg: dark_bg.as_deref(),
+                light_bg: light_bg.as_deref(),
+                dark_scheme: dark_scheme.as_deref(),
+                light_scheme: light_scheme.as_deref(),
+            },
         );
         appearance::ios::set(a);
         let now = bg.as_deref().and_then(appearance::parse_hex);
         let _ = webview.with_webview(move |wv| {
             appearance::ios::apply(wv.inner(), now);
+            // Under Auto the page picks its side by this: its media query
+            // reports the override now, not the iPhone.
+            appearance::ios::tell_page(true);
         });
         true
     }
     #[cfg(not(target_os = "ios"))]
     {
-        let _ = (mode, bg, dark_bg, light_bg, webview);
+        let _ = (mode, bg, dark_bg, light_bg, dark_scheme, light_scheme, webview);
         false
     }
 }
@@ -1805,9 +1817,11 @@ fn ios_strip_accessory_bar(webview: tauri::WebviewWindow) {
     {
         let _ = webview.with_webview(|wv| {
             ios_keyboard::strip_accessory_bar(wv.inner());
-            // Re-assert the chosen mode: a window/scene created after
-            // startup (e.g. iPad second scene) gets it on first input focus.
-            appearance::ios::apply(wv.inner(), None);
+            // Re-assert the look: a window/scene created after startup
+            // (e.g. iPad second scene) gets it on first input focus, and
+            // the keyboard about to show takes the iPhone's appearance as
+            // it is now (iOS 15–16 hear no trait change while active).
+            appearance::ios::refresh(wv.inner());
         });
     }
     #[cfg(not(target_os = "ios"))]
