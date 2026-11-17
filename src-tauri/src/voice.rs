@@ -204,6 +204,23 @@ pub fn plugin(native: &Native) -> tauri::plugin::TauriPlugin<Wry> {
     // webview's (noiseRemoval.ts): it sets `set_noise_removal` before each
     // join, and during a call (the microphone pauses briefly while it
     // switches); until then the engine's default is Standard.
+    //
+    // Grace windows (plugin 0.8.2, Sew 0.10.4): a moment the phone is busy
+    // with something else doesn't cost the call DeepFilterNet3. For about
+    // 3 s (`sew_noise::DEFAULT_GRACE`) the stage's timing rules hold back
+    // to the audio pipeline's own line (one slow block, the percentile and
+    // the median no longer step the model down; a non-finite output is
+    // still a fault), and a step-down made in a window or within 5 s after
+    // it closed is retried after 5 s instead of the usual backoff. A window
+    // opens at the call's start, the audio session activating or resuming
+    // (`session_activated`, `resume`), a route change (`route_changed`,
+    // `media_reset`), a camera starting or switching, a capture switch, and
+    // every scene change. The scene changes need nothing from the app:
+    // UIKit's sceneDidBecomeActive / sceneWillResignActive reach the plugin
+    // as tao's `WindowEvent::Focused` (its own `on_event` hook), and
+    // sceneDidEnterBackground / sceneWillEnterForeground come from the call
+    // shim as `app_scene`, whose `VoiceControl::app_scene` opens one too
+    // (on_shim_event). The call log says `in_grace:true` while one is open.
     tauri_plugin_sew_voice::Builder::new(K2Provider::new(native.clone()))
         .listener(Arc::new(CallKitBridge { tx, watch, native: native.clone(), held: AtomicBool::new(false) }))
         .hardware_device_key(Arc::new(EnclaveKey { native: native.clone() }))
@@ -1093,7 +1110,9 @@ fn scene_of(event: &Value) -> Option<Scene> {
 
 /// The app left the screen or came back, in Sew's words. Not
 /// `suspend`/`resume`: those are audio interruptions, and the call goes on
-/// here; only video changes (the webview's sinks stop, the PiP sink stays).
+/// here; only video changes (the webview's sinks stop, the PiP sink stays),
+/// and since plugin 0.8.2 noise removal opens a grace window (see
+/// [`plugin`]).
 fn sew_scene(scene: Scene) -> AppScene {
     match scene {
         Scene::Background => AppScene::Background,
