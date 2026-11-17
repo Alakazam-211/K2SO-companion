@@ -1,9 +1,50 @@
 import { useState, type CSSProperties, type FormEvent } from "react";
-import { hostLabel, isPairedServer, loginAndSaveServer, useServersStore } from "../stores/servers";
+import {
+  hostLabel,
+  isPairedServer,
+  loginAndSaveServer,
+  normalizeServerUrl,
+  useServersStore,
+} from "../stores/servers";
 import type { PairLink } from "../lib/pairLinks";
+import { mustChangeHeld } from "../api/scope";
 import { PairForm } from "./PairForm";
 import { useZenStore } from "./zenStore";
 import { useBackHandler } from "../lib/androidBack";
+import { pool } from "./multi/pool";
+import { EyeIcon, EyeOffIcon } from "./PasswordEye";
+import { SetPasswordStep } from "./SetPasswordStep";
+import type { SetPasswordTarget } from "./setPasswordFlow";
+
+/** "Set your new password" in this sheet: after a sign-in that answered
+ *  `mustChangePassword` (`minted`, the temporary password just typed), or
+ *  for a saved login already in that state (`held`, asks for it). */
+type Rotation = {
+  target: SetPasswordTarget;
+  minted: string | null;
+  held: string | null;
+};
+
+/** A saved password login the server says must change its password. */
+function mustChangeOnOpen(serverId: string | null | undefined): Rotation | null {
+  if (!serverId) return null;
+  const s = useServersStore.getState();
+  const server = s.servers.find((x) => x.id === serverId);
+  if (!server || isPairedServer(server)) return null;
+  const token = s.tokens[serverId] ?? "";
+  if (pool.entry(serverId)?.auth !== "rotate-required" && !mustChangeHeld(serverId, token)) return null;
+  return {
+    target: {
+      serverId,
+      url: server.url,
+      username: server.username,
+      nickname: server.nickname,
+      activate: false,
+    },
+    minted: null,
+    held: token || null,
+  };
+}
 
 /** Overlay Add / Edit server. Donor is `Login.tsx` / `loginAndSaveServer`.
  *  Zero stored servers lands here. The in-overlay server list reuses it
@@ -46,8 +87,14 @@ export function OverlayAddServer({
   );
   // A pairing in flight locks Cancel and the tabs; "Paired" hides them
   // (its Done is the way out).
-  const [pairPhase, setPairPhase] = useState<"idle" | "busy" | "done">("idle");
-  const canCancel = Boolean(onCancel) && pairPhase === "idle";
+  const [pairPhase, setPairPhase] = useState<"idle" | "busy" | "done" | "password">("idle");
+  // "Change password on {server}" opens straight on the new-password step.
+  const [rotation, setRotation] = useState<Rotation | null>(() => {
+    const r = mustChangeOnOpen(editingId);
+    return r ? { ...r, target: { ...r.target, activate } } : null;
+  });
+  const canCancel = Boolean(onCancel) && (pairPhase === "idle" || pairPhase === "password");
+  const hideTabs = pairPhase === "done" || pairPhase === "password" || rotation !== null;
   // Android Back = Cancel. Without one (no server saved yet) there is
   // nothing to go back to, so Back falls through.
   useBackHandler(Boolean(onCancel) && pairPhase !== "busy", () =>
@@ -69,6 +116,17 @@ export function OverlayAddServer({
       rememberPassword: false,
       activate,
     });
+    if (!result.ok && result.mustChange) {
+      // A temporary password: choose a new one before anything is saved.
+      const m = result.mustChange;
+      setBusy(false);
+      setRotation({
+        target: { serverId: m.id, url: m.url, username: m.username, nickname: m.nickname, activate },
+        minted: m.token,
+        held: null,
+      });
+      return;
+    }
     if (!result.ok) {
       setBusy(false);
       setError(result.error);
@@ -143,7 +201,7 @@ export function OverlayAddServer({
         </h1>
         {onCancel ? <span style={{ width: 72 }} /> : null}
       </header>
-      {pairPhase === "done" ? null : (
+      {hideTabs ? null : (
       <div className="shrink-0 px-6 pb-3">
         <div
           className="k2-tile flex"
@@ -174,7 +232,27 @@ export function OverlayAddServer({
         </div>
       </div>
       )}
-      {mode === "pair" ? (
+      {rotation ? (
+        <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-8">
+          <SetPasswordStep
+            key={rotation.minted ?? rotation.held ?? "ask"}
+            target={rotation.target}
+            serverLabel={hostLabel(normalizeServerUrl(rotation.target.url))}
+            mintedToken={rotation.minted}
+            heldToken={rotation.held}
+            initialCurrentPassword={rotation.minted ? password : ""}
+            askCurrent={!rotation.minted}
+            onDone={async (id) => {
+              setPassword("");
+              await done(id);
+            }}
+            onBack={() => {
+              setRotation(null);
+              setMode("password");
+            }}
+          />
+        </div>
+      ) : mode === "pair" ? (
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-8">
           <PairForm
             editingId={editing?.id ?? null}
@@ -322,49 +400,5 @@ export function OverlayAddServer({
       </form>
       )}
     </div>
-  );
-}
-
-/** Open eye: password is hidden, tap to show (iOS convention). */
-function EyeIcon() {
-  return (
-    <svg
-      data-testid="password-eye-open"
-      width={20}
-      height={20}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12z" />
-      <circle cx="12" cy="12" r="3" />
-    </svg>
-  );
-}
-
-/** Eye with a slash: password is visible, tap to hide. */
-function EyeOffIcon() {
-  return (
-    <svg
-      data-testid="password-eye-off"
-      width={20}
-      height={20}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.8}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      aria-hidden="true"
-    >
-      <path d="M10.6 5.1A10.4 10.4 0 0 1 12 5c6.4 0 10 7 10 7a17.6 17.6 0 0 1-2.8 3.8" />
-      <path d="M6.6 6.6C3.8 8.4 2 12 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6" />
-      <path d="M9.9 9.9a3 3 0 0 0 4.2 4.2" />
-      <path d="M3 3l18 18" />
-    </svg>
   );
 }

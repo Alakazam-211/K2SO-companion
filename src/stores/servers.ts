@@ -522,7 +522,9 @@ async function migrateLegacy(): Promise<{
 // ─── Login (the raw mint flow — shared by the add-server page + revive) ───
 
 export type LoginResult =
-  | { ok: true; token: string }
+  /** `mustChangePassword`: the login's password is temporary and this
+   *  session is restricted until it is changed (K2 Cloud S1). */
+  | { ok: true; token: string; mustChangePassword: boolean }
   | { ok: false; kind: "auth" | "forbidden" | "network" | "not-found"; error: string };
 
 /**
@@ -566,11 +568,11 @@ export async function loginToServer(
       if (fail) return { ok: false, ...fail };
       return { ok: false, kind: "network", error: `Login failed (HTTP ${res.status})` };
     }
-    const data = (await res.json()) as { token?: string };
+    const data = (await res.json()) as { token?: string; mustChangePassword?: unknown };
     if (!data?.token) {
       return { ok: false, kind: "network", error: "Login response missing token" };
     }
-    return { ok: true, token: data.token };
+    return { ok: true, token: data.token, mustChangePassword: data.mustChangePassword === true };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Unknown error";
     return { ok: false, kind: "network", error: `Could not connect: ${msg}` };
@@ -600,7 +602,10 @@ export async function loginAndSaveServer(input: {
   rememberPassword: boolean;
   /** Make it the active server after sign-in. Default true. */
   activate?: boolean;
-}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+}): Promise<
+  | { ok: true; id: string }
+  | { ok: false; error: string; mustChange?: PendingPasswordChange }
+> {
   const url = normalizeServerUrl(input.url);
   const username = input.username.trim();
   if (!tryHostKey(url)) return { ok: false, error: "Enter a server address like name.k2.dev" };
@@ -618,14 +623,59 @@ export async function loginAndSaveServer(input: {
 
   const result = await loginToServer({ url, username }, input.password);
   if (!result.ok) return { ok: false, error: result.error };
+  if (result.mustChangePassword) {
+    // A temporary password: nothing is saved until the new one is set
+    // (zen/setPasswordFlow.ts commits through commitPasswordSession).
+    return {
+      ok: false,
+      error: "",
+      mustChange: { id: id ?? null, url, username, nickname: input.nickname.trim(), token: result.token },
+    };
+  }
+  return commitPasswordSession({
+    id,
+    nickname: input.nickname,
+    url,
+    username,
+    token: result.token,
+    activate: input.activate,
+  });
+}
 
+/** A sign-in that worked with a temporary password: the restricted session
+ *  and where it would be saved. Memory only, never persisted. */
+export interface PendingPasswordChange {
+  /** The saved server this signs in again, or null for a new one. */
+  id: string | null;
+  url: string;
+  username: string;
+  nickname: string;
+  /** The restricted session (whoami / change-password / logout only). */
+  token: string;
+}
+
+/**
+ * Save a password sign-in: the entry (insert or replace by id), its token,
+ * connected, and (by default) active. The tail of `loginAndSaveServer`,
+ * shared with "Set your new password", which commits the session minted
+ * with the NEW password. A replaced paired entry becomes a password one.
+ */
+export async function commitPasswordSession(input: {
+  id?: string | null;
+  nickname: string;
+  url: string;
+  username: string;
+  token: string;
+  activate?: boolean;
+}): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
+  const url = normalizeServerUrl(input.url);
   const store = useServersStore.getState();
-  if (!id) id = newId();
+  const id = input.id || newId();
   const saved = store.upsertServer({
     id,
     nickname: input.nickname.trim() || hostLabel(url),
     url,
-    username,
+    username: input.username,
     rememberPassword: false,
   });
   if (!saved) {
@@ -633,7 +683,7 @@ export async function loginAndSaveServer(input: {
     const other = duplicateServer(useServersStore.getState().servers, url, id);
     return { ok: false, error: other ? duplicateServerMessage(other) : "Could not save the server" };
   }
-  store.setToken(id, result.token);
+  store.setToken(id, input.token);
   store.setRecovery(id, "connected");
   await setRememberedPassword(id, null);
   if (input.activate !== false) store.setActive(id);

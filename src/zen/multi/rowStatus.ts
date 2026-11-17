@@ -279,7 +279,8 @@ export function rowFailure(
     case "sign-in":
       if (entry?.auth === "kicked") return f("kicked", `Removed from ${serverLabel}`, "sign-in");
       if (entry?.auth === "rotate-required") {
-        return f("rotate-required", `Change password on ${serverLabel}`, "sign-in");
+        // The same sign-in sheet, opened on "Set your new password".
+        return { ...f("rotate-required", `Change password on ${serverLabel}`, "sign-in"), actionLabel: "Change password" };
       }
       return f(
         "signin-required",

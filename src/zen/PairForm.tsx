@@ -4,6 +4,7 @@ import { qrScannerAvailable, scanQr } from "../lib/pairLinks";
 import { duplicateServer, hostLabel, normalizeServerUrl, useServersStore } from "../stores/servers";
 import { tryHostKey } from "../lib/hostKey";
 import { pairServer, type PairStep } from "./pairFlow";
+import { SetPasswordStep } from "./SetPasswordStep";
 
 /** "Pair with a code" (K2 0.46.4 `companion-pairing-v1`), inside
  *  OverlayAddServer. Two steps: the code (typed, pasted, scanned, or from a
@@ -30,8 +31,9 @@ export function PairForm({
   onPaired: (id: string) => void | Promise<void>;
   /** Done on the "Paired" screen. */
   onDone: () => void;
-  /** The overlay locks its Cancel and tabs while busy, hides them when done. */
-  onPhase?: (phase: "idle" | "busy" | "done") => void;
+  /** The overlay locks its Cancel and tabs while busy, hides them when done
+   *  ("password": the tabs, on "Set your new password"). */
+  onPhase?: (phase: "idle" | "busy" | "done" | "password") => void;
 }) {
   const servers = useServersStore((s) => s.servers);
   const tokens = useServersStore((s) => s.tokens);
@@ -40,7 +42,7 @@ export function PairForm({
     initialServerUrl ? hostLabel(initialServerUrl) : editing ? hostLabel(editing.url) : ""
   );
   const [code, setCode] = useState(initialCode ?? "");
-  const [step, setStep] = useState<"enter" | "confirm" | "done">("enter");
+  const [step, setStep] = useState<"enter" | "confirm" | "done" | "password">("enter");
   const [progress, setProgress] = useState<ProgressStep | null>(null);
   const [pairedAs, setPairedAs] = useState("");
   const [pairedTo, setPairedTo] = useState<string | null>(null);
@@ -60,6 +62,15 @@ export function PairForm({
   // Pairing over a signed-in server signs that session out first.
   const signsOut = !!replacing && !!tokens[replacing.id];
 
+  /** The code's login has a temporary password: it sets its own here,
+   *  then signs in with it (a new code can pair this phone later). */
+  const toPassword = () => {
+    setError(null);
+    setProgress(null);
+    setStep("password");
+    onPhase?.("password");
+  };
+
   const onCodeChange = (text: string) => {
     const parsed = parsePairText(text);
     if (parsed?.serverUrl) {
@@ -76,6 +87,10 @@ export function PairForm({
     setError(null);
     const r = await checkPairCode(forUrl, forCode);
     setBusy(false);
+    if (!r.ok && r.kind === "must-change") {
+      toPassword();
+      return;
+    }
     if (!r.ok && r.kind !== "unchecked") {
       setError(r.error);
       return;
@@ -144,6 +159,10 @@ export function PairForm({
     if (!r.ok) {
       setBusy(false);
       setProgress(null);
+      if (r.mustChange) {
+        toPassword();
+        return;
+      }
       setError(r.error);
       onPhase?.("idle");
       return;
@@ -180,6 +199,33 @@ export function PairForm({
       {text}
     </span>
   );
+
+  if (step === "password") {
+    const knownLogin = login ?? replacing?.username ?? "";
+    return (
+      <SetPasswordStep
+        target={{
+          serverId: replacing?.id ?? null,
+          url,
+          username: knownLogin,
+          nickname: replacing?.nickname ?? "",
+          activate,
+        }}
+        serverLabel={hostLabel(url)}
+        askCurrent
+        usernameEditable={!knownLogin}
+        onDone={async (id) => {
+          await onPaired(id);
+          onDone();
+        }}
+        onBack={() => {
+          setStep("enter");
+          setError(null);
+          onPhase?.("idle");
+        }}
+      />
+    );
+  }
 
   if (step === "done") {
     const host = url ? hostLabel(url) : "the server";

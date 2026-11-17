@@ -118,6 +118,9 @@ describe("reducePool", () => {
       serverLabel: "Box B",
     });
     expect([rot.auth, rot.authNote]).toEqual(["rotate-required", "Box B needs a new password."]);
+    // "Set your new password" finished: the login is fine again.
+    const rotated = reducePool(rot, { type: "rotated" });
+    expect([rotated.auth, rotated.authNote, rotated.authKnown]).toEqual(["ok", null, true]);
     expect(reducePool(live, { type: "whoami", read: { kind: "dead" }, serverLabel: "B" }).auth).toBe("signin-required");
     expect(reducePool(live, { type: "whoami", read: { kind: "migrating" }, serverLabel: "B" }).reach).toBe("starting");
     expect(reducePool(live, { type: "whoami", read: { kind: "failed" }, serverLabel: "B" })).toBe(live);

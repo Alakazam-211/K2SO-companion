@@ -24,7 +24,8 @@ async function thisDevice(): Promise<{ id: string; name: string }> {
 
 export type PairOutcome =
   | { ok: true; id: string; username: string; serverName?: string | null }
-  | { ok: false; error: string };
+  /** `mustChange`: the login has a temporary password to replace first. */
+  | { ok: false; error: string; mustChange?: boolean };
 
 /** Where a pairing is, for the progress list: the server's answer, signing
  *  the replaced session out (only when there is one), saving this phone. */
@@ -42,7 +43,7 @@ export async function pairServer(input: {
 }): Promise<PairOutcome> {
   input.onStep?.("pair");
   const r = await pairDevice(input.serverUrl, input.code, await thisDevice());
-  if (!r.ok) return { ok: false, error: r.error };
+  if (!r.ok) return { ok: false, error: r.error, ...(r.kind === "must-change" ? { mustChange: true } : {}) };
   const saved = await commitPairedSession({
     replaceId: input.replaceId ?? null,
     url: input.serverUrl,

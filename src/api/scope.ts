@@ -496,6 +496,19 @@ function noteStaleSession(serverId: string, token: string): void {
 
 const BOOT_WHOAMI_TIMEOUT_MS = 8000;
 
+/** whoami said this server's `token` must change its password. */
+export function mustChangeHeld(serverId: string, token: string): boolean {
+  return !!token && mustChangeToken.get(serverId) === token;
+}
+
+/** "Set your new password" finished on this server: forget the explained
+ *  must-change token and the re-check throttle, so the new session starts
+ *  clean. */
+export function clearMustChange(serverId: string): void {
+  mustChangeToken.delete(serverId);
+  staleRecheckAt.delete(serverId);
+}
+
 /** Tests: forget the stale-login re-check throttle. */
 export function __resetBootStaleForTests(): void {
   staleRecheckAt.clear();

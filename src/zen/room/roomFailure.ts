@@ -9,7 +9,7 @@
 //   | offline         | {server} is offline. We'll keep trying    | Retry now     | queued |
 //   | restarting      | {server} is restarting… (spinner)         | Retry now     | queued |
 //   | signin-required | Sign in to {server} / Sign in again to …  | Sign in (again)| off   |
-//   | rotate-required | Change password on {server}               | Sign in       | off    |
+//   | rotate-required | Change password on {server}               | Change password | off  |
 //   | kicked          | Removed from {server}                     | Sign in       | off    |
 //   | (paired)        | Pair again with {server}                  | Pair again    | off    |
 //   | too-old         | {server} needs an update                  | Open (switch) | off    |

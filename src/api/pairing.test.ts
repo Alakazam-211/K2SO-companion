@@ -135,6 +135,24 @@ describe("pairing requests (final contract, K2 m_5ClOC889BH)", () => {
     });
   });
 
+  it("check and pair: a login with a temporary password is must-change (409)", async () => {
+    fetchMock.mockReset();
+    const refusal = {
+      ok: false,
+      error: { code: "password_change_required", hint: "that login must change its password before a phone can be paired to it" },
+    };
+    fetchMock.mockResolvedValueOnce(res(409, refusal));
+    expect(await checkPairCode("https://riley.k2.dev", CODE)).toMatchObject({ ok: false, kind: "must-change" });
+    fetchMock.mockResolvedValueOnce(res(409, refusal));
+    expect(await pairDevice("https://riley.k2.dev", CODE, { id: "d", name: "iPhone" })).toMatchObject({
+      ok: false,
+      kind: "must-change",
+    });
+    // Another 409 is not must-change.
+    fetchMock.mockResolvedValueOnce(res(409, { ok: false, error: { code: "owner_login_not_linked", hint: "x" } }));
+    expect(await pairDevice("https://riley.k2.dev", CODE, { id: "d", name: "iPhone" })).toMatchObject({ kind: "network" });
+  });
+
   it("pair: 0.46.6's serverName names the computer", async () => {
     fetchMock.mockReset();
     fetchMock.mockResolvedValueOnce(
