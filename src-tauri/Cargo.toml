@@ -45,9 +45,10 @@ tauri-plugin-http = "2"
 objc2 = "0.6.4"
 
 # Voice rooms (4.2.0, iOS first; Android is Jamie's): Sew's native voice
-# plugin over sew-call-client and K2's kessel-audio. Sew 0.10.2: plugin and
-# call client 0.8.0 (see [patch.crates-io] below); sew-str0m, kessel-audio
-# and the sew-* support crates come from crates.io. `mobile` is the pure-Rust
+# plugin over sew-call-client and K2's kessel-audio. Sew 0.10.3: plugin and
+# call client 0.8.1 (see [patch.crates-io] below); sew-str0m, kessel-audio
+# (0.2.1: the phone's raw capture for noise removal Off) and the sew-*
+# support crates come from crates.io. `mobile` is the pure-Rust
 # DTLS/SRTP that phones need; the build stops without it.
 # macOS too, only so `cargo test` runs src/voice.rs's tests on the Mac; the
 # plugin is registered on iOS alone.
@@ -60,16 +61,17 @@ base64 = "0.22"
 # `dfn3`: noise removal's Standard mode runs DeepFilterNet3, RNNoise its
 # automatic fallback. The weights are a bundled resource (tauri.ios.conf.json,
 # scripts/fetch-dfn3.sh), at the plugin's default place, dfn3/ in the app's
-# resource directory.
-tauri-plugin-sew-voice = { version = "0.8.0", default-features = false, features = ["tauri", "audio", "mobile", "builtin-ring-provider", "video-core", "video", "dfn3"] }
-sew-call-client = { version = "0.8.0", default-features = false, features = ["mobile"] }
+# resource directory. Since 0.8.1 the plugin only checks them at start and
+# loads the model when a call first needs it (released after an idle time).
+tauri-plugin-sew-voice = { version = "0.8.1", default-features = false, features = ["tauri", "audio", "mobile", "builtin-ring-provider", "video-core", "video", "dfn3"] }
+sew-call-client = { version = "0.8.1", default-features = false, features = ["mobile"] }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
 url = "2"
 
 # src/voice.rs's tests: the DeepFilterNet3 weights' pinned sha256, which
 # scripts/fetch-dfn3.sh must match (the same sew-noise the plugin uses).
 [target.'cfg(any(target_os = "ios", target_os = "macos"))'.dev-dependencies]
-sew-noise = { version = "0.10.2", features = ["dfn3"] }
+sew-noise = { version = "0.10.3", features = ["dfn3"] }
 
 [profile.release]
 strip = true
@@ -104,11 +106,11 @@ tauri-plugin-http = { path = "vendor/tauri-plugin-http" }
 # Gardens: widget frames must not reach the Tauri bridge (contract §10). See
 # vendor/README.md. Keep in step with the wry that tauri pins.
 wry = { path = "vendor/wry" }
-# Voice: sew-call-client and tauri-plugin-sew-voice 0.8.0 (Sew 0.10.2) are not
+# Voice: sew-call-client and tauri-plugin-sew-voice 0.8.1 (Sew 0.10.3) are not
 # on crates.io yet, so these two rows take them from Sew's public mirror
-# (github.com/Alakazam-211/sew-crates, commit "Sew 0.10.2", c534650a). All
-# they need (sew-proto, sew-e2ee, sew-noise and the other sew-* crates 0.10.2,
-# sew-str0m 0.25.3, dimpl, kessel-audio 0.2, kessel-video) is on crates.io.
+# (github.com/Alakazam-211/sew-crates, commit "Sew 0.10.3", c9c25f5c). All
+# they need (sew-proto, sew-e2ee, sew-noise and the other sew-* crates 0.10.3,
+# sew-str0m 0.25.3, dimpl, kessel-audio 0.2.1, kessel-video) is on crates.io.
 # Delete both rows once the two crates are published there.
-sew-call-client = { git = "https://github.com/Alakazam-211/sew-crates", rev = "c534650afc3608206b15d0a84c0219d71a5e4f02" }
-tauri-plugin-sew-voice = { git = "https://github.com/Alakazam-211/sew-crates", rev = "c534650afc3608206b15d0a84c0219d71a5e4f02" }
+sew-call-client = { git = "https://github.com/Alakazam-211/sew-crates", rev = "c9c25f5c1aa0d6d7de6955c4343f75050b3c33ff" }
+tauri-plugin-sew-voice = { git = "https://github.com/Alakazam-211/sew-crates", rev = "c9c25f5c1aa0d6d7de6955c4343f75050b3c33ff" }

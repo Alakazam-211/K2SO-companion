@@ -2352,13 +2352,13 @@ serialize-to-javascript-impl 0.1.2 (crate): MIT OR Apache-2.0
 servo_arc 0.4.3 (crate): MIT OR Apache-2.0
 set-cookie-parser 2.7.3 (npm): MIT
 setimmediate 1.0.5 (npm): MIT
-sew-call-client 0.8.0 (crate): MIT OR Apache-2.0
-sew-e2ee 0.10.2 (crate): MIT OR Apache-2.0
-sew-lk-compat 0.10.2 (crate): Apache-2.0
-sew-lkproto 0.10.2 (crate): Apache-2.0
-sew-mls-crypto 0.10.2 (crate): MIT OR Apache-2.0
-sew-noise 0.10.2 (crate): MIT OR Apache-2.0
-sew-proto 0.10.2 (crate): MIT OR Apache-2.0
+sew-call-client 0.8.1 (crate): MIT OR Apache-2.0
+sew-e2ee 0.10.3 (crate): MIT OR Apache-2.0
+sew-lk-compat 0.10.3 (crate): Apache-2.0
+sew-lkproto 0.10.3 (crate): Apache-2.0
+sew-mls-crypto 0.10.3 (crate): MIT OR Apache-2.0
+sew-noise 0.10.3 (crate): MIT OR Apache-2.0
+sew-proto 0.10.3 (crate): MIT OR Apache-2.0
 sew-str0m 0.25.3 (crate): MIT OR Apache-2.0
 sew-str0m-is 0.12.2 (crate): MIT OR Apache-2.0
 sha1 0.10.7 (crate): MIT OR Apache-2.0
@@ -2414,7 +2414,7 @@ tauri-macros 2.6.3 (crate): Apache-2.0 OR MIT
 tauri-plugin 2.6.3 (crate): Apache-2.0 OR MIT
 tauri-plugin-fs 2.5.0 (crate): Apache-2.0 OR MIT
 tauri-plugin-http 2.5.8 (crate): Apache-2.0 OR MIT
-tauri-plugin-sew-voice 0.8.0 (crate): MIT OR Apache-2.0
+tauri-plugin-sew-voice 0.8.1 (crate): MIT OR Apache-2.0
 tauri-plugin-store 2.4.2 (crate): Apache-2.0 OR MIT
 tauri-runtime 2.11.3 (crate): Apache-2.0 OR MIT
 tauri-runtime-wry 2.11.4 (crate): Apache-2.0 OR MIT
@@ -2830,7 +2830,7 @@ Apache License
    limitations under the License.
 
 ========================================================================
-Licence text for: @chevrotain/types 11.1.2, @livekit/protocol 1.50.4, @sew/client 0.8.2, @sew/e2ee 0.8.2, @sew/noise 0.8.2, @sew/voice 0.8.2, audioadapter 5.0.0, audioadapter-buffers 5.2.0, audioadapter-sample 5.2.0, cmov 0.5.4, cpal 0.18.2, ctutils 0.4.8, dimpl 0.9.0, dompurify 3.4.17, encoding_rs 0.8.35, flagset 0.4.7, iri-string 0.7.12, lru-slab 0.1.2, quinn 0.11.9, quinn-proto 0.11.14, quinn-udp 0.5.14, rustls-platform-verifier 0.6.2, serdect 0.4.3, serialize-to-javascript 0.1.2, serialize-to-javascript-impl 0.1.2, sew-call-client 0.8.0, sew-e2ee 0.10.2, sew-lk-compat 0.10.2, sew-lkproto 0.10.2, sew-mls-crypto 0.10.2, sew-noise 0.10.2, sew-proto 0.10.2, sew-str0m 0.25.3, sew-str0m-is 0.12.2, tauri-plugin-sew-voice 0.8.0, tinyvec 1.11.0, utf8_iter 1.0.4, zeroize 1.9.1, zeroize_derive 1.5.0
+Licence text for: @chevrotain/types 11.1.2, @livekit/protocol 1.50.4, @sew/client 0.8.2, @sew/e2ee 0.8.2, @sew/noise 0.8.2, @sew/voice 0.8.2, audioadapter 5.0.0, audioadapter-buffers 5.2.0, audioadapter-sample 5.2.0, cmov 0.5.4, cpal 0.18.2, ctutils 0.4.8, dimpl 0.9.0, dompurify 3.4.17, encoding_rs 0.8.35, flagset 0.4.7, iri-string 0.7.12, lru-slab 0.1.2, quinn 0.11.9, quinn-proto 0.11.14, quinn-udp 0.5.14, rustls-platform-verifier 0.6.2, serdect 0.4.3, serialize-to-javascript 0.1.2, serialize-to-javascript-impl 0.1.2, sew-call-client 0.8.1, sew-e2ee 0.10.3, sew-lk-compat 0.10.3, sew-lkproto 0.10.3, sew-mls-crypto 0.10.3, sew-noise 0.10.3, sew-proto 0.10.3, sew-str0m 0.25.3, sew-str0m-is 0.12.2, tauri-plugin-sew-voice 0.8.1, tinyvec 1.11.0, utf8_iter 1.0.4, zeroize 1.9.1, zeroize_derive 1.5.0
 ========================================================================
 
 Apache License
@@ -3345,7 +3345,7 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 
 ========================================================================
-Licence text for: @sew/client 0.8.2, @sew/e2ee 0.8.2, @sew/noise 0.8.2, @sew/voice 0.8.2, sew-call-client 0.8.0, sew-e2ee 0.10.2, sew-mls-crypto 0.10.2, sew-noise 0.10.2, sew-proto 0.10.2, tauri-plugin-sew-voice 0.8.0
+Licence text for: @sew/client 0.8.2, @sew/e2ee 0.8.2, @sew/noise 0.8.2, @sew/voice 0.8.2, sew-call-client 0.8.1, sew-e2ee 0.10.3, sew-mls-crypto 0.10.3, sew-noise 0.10.3, sew-proto 0.10.3, tauri-plugin-sew-voice 0.8.1
 ========================================================================
 
 MIT License
@@ -22211,7 +22211,7 @@ OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
 WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ========================================================================
-Licence text for: sew-call-client 0.8.0
+Licence text for: sew-call-client 0.8.1
 ========================================================================
 
 sew-call-client
@@ -22241,7 +22241,7 @@ tag 0.25.0 (https://github.com/algesten/str0m/blob/0.25.0/LICENSE-MIT.txt).
 Not affiliated with or endorsed by LiveKit, Inc.
 
 ========================================================================
-Licence text for: sew-e2ee 0.10.2
+Licence text for: sew-e2ee 0.10.3
 ========================================================================
 
 sew-e2ee
@@ -22258,7 +22258,7 @@ and openmls_basic_credential (parts of OpenMLS, MIT) and carries OpenMLS's MIT l
 its own NOTICE file, which a binary that includes sew-mls-crypto must carry.
 
 ========================================================================
-Licence text for: sew-lk-compat 0.10.2
+Licence text for: sew-lk-compat 0.10.3
 ========================================================================
 
 sew-lk-compat
@@ -22293,7 +22293,7 @@ Alakazam Labs' own. No livekit/rust-sdks code is used. This crate is not affilia
 endorsed by LiveKit, Inc.
 
 ========================================================================
-Licence text for: sew-lkproto 0.10.2
+Licence text for: sew-lkproto 0.10.3
 ========================================================================
 
 sew-lkproto
@@ -22321,7 +22321,7 @@ limitations under the License.
 This crate is not affiliated with or endorsed by LiveKit, Inc.
 
 ========================================================================
-Licence text for: sew-mls-crypto 0.10.2
+Licence text for: sew-mls-crypto 0.10.3
 ========================================================================
 
 sew-mls-crypto
@@ -22367,7 +22367,7 @@ HPKE is done by the hpke crate (rozbb/rust-hpke, MIT OR Apache-2.0); no code of 
 (MPL-2.0) is used or derived from.
 
 ========================================================================
-Licence text for: sew-noise 0.10.2
+Licence text for: sew-noise 0.10.3
 ========================================================================
 
 sew-noise
@@ -22427,7 +22427,7 @@ NOTICE (which marks the converted archive as converted by Alakazam Labs) and the
 Apache-2.0 texts; PROVENANCE.md says where they come from.
 
 ========================================================================
-Licence text for: sew-proto 0.10.2
+Licence text for: sew-proto 0.10.3
 ========================================================================
 
 sew-proto
@@ -23256,7 +23256,7 @@ PackageDownloadLocation: git+ssh://github.com/tauri-apps/tao.git
 Creator: Person: Daniel Thompson-Yvetot
 
 ========================================================================
-Licence text for: tauri-plugin-sew-voice 0.8.0
+Licence text for: tauri-plugin-sew-voice 0.8.1
 ========================================================================
 
 tauri-plugin-sew-voice
