@@ -36,6 +36,12 @@ targets:
       - path: assets
         buildPhase: resources
         type: folder
+      # The DM call ringtone (scripts/gen-ringtone.mjs): at the bundle's
+      # root, where iOS looks for a sound a notification names (the NSE's
+      # `UNNotificationSound(named: "k2-ring.caf")`). Not via tauri's
+      # `resources` (those land under assets/, which iOS doesn't search).
+      - path: K2Sounds/k2-ring.caf
+        buildPhase: resources
       - path: LaunchScreen.storyboard
     info:
       path: k2so-companion_iOS/Info.plist
@@ -172,6 +178,10 @@ targets:
       - path: ../../tauri-plugin-k2-push/ios/Sources/K2PushReplay.swift
       - path: ../../tauri-plugin-k2-push/ios/Sources/K2PushSealed.swift
       - path: ../../tauri-plugin-k2-push/ios/Sources/K2PushInbox.swift
+      # The call ringtone in the extension's bundle too: the NSE checks it's
+      # there before naming it (iOS plays it from the app's bundle).
+      - path: K2Sounds/k2-ring.caf
+        buildPhase: resources
     info:
       path: K2NotificationService/Info.plist
       properties:

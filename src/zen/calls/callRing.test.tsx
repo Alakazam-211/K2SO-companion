@@ -93,7 +93,7 @@ describe("Settings → Calls → Ring for incoming calls", () => {
     const group = screen.getByTestId("settings-calls");
     expect(sw().getAttribute("aria-checked")).toBe("true");
     expect(group.textContent).toContain(
-      "Ring for incoming calls: the phone rings when someone calls you. Off: calls arrive as a quiet notification."
+      "Ring for incoming calls plays a ringtone when someone calls you. Off: calls arrive as a quiet notification."
     );
     expect(screen.getByRole("switch", { name: "Noise removal" })).toBeTruthy();
   });

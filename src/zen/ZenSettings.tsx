@@ -364,7 +364,7 @@ function StashRemoveAfterUseRow() {
 }
 
 const CALL_RING_FOOTNOTE =
-  "Ring for incoming calls: the phone rings when someone calls you. Off: calls arrive as a quiet notification.";
+  "Ring for incoming calls plays a ringtone when someone calls you. Off: calls arrive as a quiet notification.";
 
 /** "Ring for incoming calls" (calls/callRing.ts): phone-only, default on.
  *  Off, the in-app ring and the call push's sound go (the card and the

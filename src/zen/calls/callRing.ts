@@ -4,9 +4,10 @@ import { isIosWebView } from "../../lib/nativePicker";
 
 // "Ring for incoming calls" (Settings → Calls; Riley 2026-11-17: "default
 // to on like push notifications"). One switch, this phone only, default On:
-//   - On  = today's ring: the in-app ring tone (ringTone.ts) while a ring
-//     card is up, and the call push's sound + time-sensitive level
-//     (NotificationService.swift `callContent`);
+//   - On  = the in-app ring tone (ringTone.ts, Web Audio) while a ring card
+//     is up, and K2's ringtone on the call push (`k2-ring.caf`, the same
+//     two tones as a 28 s file, scripts/gen-ringtone.mjs) at the
+//     time-sensitive level (NotificationService.swift `callContent`);
 //   - Off = no ring tone in the app (the card alone), and the Notification
 //     Service Extension delivers the ring push with no sound at the normal
 //     (active) level, still "Incoming call" with Accept / Decline.

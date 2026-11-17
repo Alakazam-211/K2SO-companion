@@ -47,15 +47,18 @@
 // `data` is `{kind: "call", callId (Sew's), conversationId, callState:
 // ringing|missed|ended|answered}`. The ring (title the caller, body
 // "Incoming call") gets category K2_CALL (Accept / Decline: the app
-// registers them, K2CallPush.swift), the default sound and a time-sensitive
+// registers them, K2CallPush.swift), K2's ringtone (`k2-ring.caf`, 28 s,
+// the default sound when it isn't bundled) and a time-sensitive
 // interruption level; the one push that replaces it (Answered on another
-// device / Missed call / Call ended) gets K2_CALL_DONE and NO sound.
+// device / Missed call / Call ended) gets K2_CALL_DONE and NO sound (it
+// removes the ring first, which should cut a ringtone still playing).
 //
 // Ring for incoming calls (Settings → Calls, default on; the app stores it
 // in the App Group's UserDefaults, `k2.call.ring.v1`, K2CallPush.setRing):
 // off, the ring gets NO sound and the normal (active) level instead, still
-// "Incoming call" with Accept / Decline; an unopened ring the same. iOS's
-// silent switch and Focus apply either way.
+// "Incoming call" with Accept / Decline; an unopened ring the same (on, it
+// gets the ringtone at the level the relay sent). iOS's silent switch and
+// Focus apply either way.
 //
 // The clear aps of a sealed call push (K2's answers §2): with the relay's
 // `call-aps` cap, `alert` "K2 / New message", `sound` default,
@@ -237,7 +240,9 @@ final class NotificationService: UNNotificationServiceExtension {
       m.interruptionLevel = .passive
     } else {
       m.categoryIdentifier = ""
-      if !ringOn() {
+      if ringOn() {
+        m.sound = ringSound()
+      } else {
         m.sound = nil
         m.interruptionLevel = .active
       }
@@ -254,11 +259,21 @@ final class NotificationService: UNNotificationServiceExtension {
     UserDefaults(suiteName: appGroupId)?.object(forKey: ringKey) as? Bool ?? true
   }
 
-  /// A ring: on = the default sound, time-sensitive (today's ring); off =
-  /// no sound at the normal level, still shown with Accept / Decline.
+  /// K2's ringtone (scripts/gen-ringtone.mjs, 28 s: iOS plays it once, up
+  /// to 30 s), bundled in the app and in this extension (project.yml). Not
+  /// in this bundle (a build without it): the default sound.
+  static let ringFile = "k2-ring.caf"
+
+  static func ringSound() -> UNNotificationSound {
+    guard Bundle.main.url(forResource: "k2-ring", withExtension: "caf") != nil else { return .default }
+    return UNNotificationSound(named: UNNotificationSoundName(ringFile))
+  }
+
+  /// A ring: on = K2's ringtone, time-sensitive; off = no sound at the
+  /// normal level, still shown with Accept / Decline.
   static func applyRingSound(_ m: UNMutableNotificationContent) {
     if ringOn() {
-      m.sound = .default
+      m.sound = ringSound()
       m.interruptionLevel = .timeSensitive
     } else {
       m.sound = nil
