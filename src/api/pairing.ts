@@ -23,7 +23,8 @@
 //          old session out; push re-registers on the token change.
 //   errors {ok:false, error:{code, hint}}; check and pair answer 409
 //          `password_change_required` for a login with a temporary password
-//          (it can't pair until it sets its own: zen/SetPasswordStep.tsx)
+//          (it can't pair until it sets its own: zen/SetPasswordStep.tsx);
+//          K2 0.46.16 adds {user, ticketPath} to that 409
 //
 // Security (K2's review): any page can fire a pair link at any server, so
 // the phone always shows the host and the login and asks first, never
@@ -177,13 +178,39 @@ export type PairCheck =
    *  the confirm shows the host only. */
   /** `must-change`: the login has a temporary password (409
    *  `password_change_required`); it sets its own first. */
-  | { ok: false; kind: "code" | "unchecked" | "network" | "refused" | "must-change"; error: string };
+  | ({ ok: false; kind: "code" | "unchecked" | "network" | "refused" | "must-change"; error: string } & MustChangeDetail);
 
 /** The words for a code whose login must set its own password first. */
 export const MUST_CHANGE_TEXT = "This login has a temporary password. Set your own password first.";
 
 function isMustChange(status: number, text: string): boolean {
   return status === 409 && pairErrorCode(text) === "password_change_required";
+}
+
+/** K2 0.46.16 (`companion-password-ticket-v1`): the 409 names the login
+ *  (`user`) and the ticket route (`ticketPath`). Absent from older servers. */
+export interface MustChangeDetail {
+  user?: string;
+  ticketPath?: string;
+}
+
+function mustChangeOf(text: string): { ok: false; kind: "must-change"; error: string } & MustChangeDetail {
+  const out: { ok: false; kind: "must-change"; error: string } & MustChangeDetail = {
+    ok: false,
+    kind: "must-change",
+    error: MUST_CHANGE_TEXT,
+  };
+  try {
+    const e = (JSON.parse(text) as { error?: unknown })?.error;
+    if (e && typeof e === "object") {
+      const { user, ticketPath } = e as Record<string, unknown>;
+      if (typeof user === "string" && user.trim()) out.user = user.trim();
+      if (typeof ticketPath === "string" && /^\/cli\/[A-Za-z0-9/_-]+$/.test(ticketPath)) out.ticketPath = ticketPath;
+    }
+  } catch {
+    /* not JSON: the words only */
+  }
+  return out;
 }
 
 /** Who a code pairs as, without using it up. */
@@ -202,7 +229,7 @@ export async function checkPairCode(serverUrl: string, code: string): Promise<Pa
       };
     }
     if (r.status === 401) return { ok: false, kind: "code", error: CODE_TEXT };
-    if (isMustChange(r.status, r.text)) return { ok: false, kind: "must-change", error: MUST_CHANGE_TEXT };
+    if (isMustChange(r.status, r.text)) return mustChangeOf(r.text);
     if (r.status === 429) return { ok: false, kind: "refused", error: RATE_TEXT };
     if (isEdgeNotFound(r.status, r.text)) return { ok: false, kind: "network", error: unreachableText(serverUrl) };
     if (r.status === 404 || r.status === 405) return { ok: false, kind: "unchecked", error: "" };
@@ -224,7 +251,7 @@ export type PairResult =
       /** K2 0.46.6+: the computer's friendly name; null before. */
       serverName: string | null;
     }
-  | { ok: false; kind: "code" | "network" | "refused" | "must-change"; error: string };
+  | ({ ok: false; kind: "code" | "network" | "refused" | "must-change"; error: string } & MustChangeDetail);
 
 /** Pair this phone with `code`. Does not touch the store. */
 export async function pairDevice(
@@ -237,7 +264,7 @@ export async function pairDevice(
     if (!r.ok) {
       const code = pairErrorCode(r.text);
       if (r.status === 401 || code === "pair_code_invalid") return { ok: false, kind: "code", error: CODE_TEXT };
-      if (isMustChange(r.status, r.text)) return { ok: false, kind: "must-change", error: MUST_CHANGE_TEXT };
+      if (isMustChange(r.status, r.text)) return mustChangeOf(r.text);
       if (r.status === 429) return { ok: false, kind: "refused", error: RATE_TEXT };
       if (isEdgeNotFound(r.status, r.text)) return { ok: false, kind: "network", error: unreachableText(serverUrl) };
       if (r.status === 404 || isPrePairingDaemon(r.status, r.text)) return { ok: false, kind: "refused", error: OLD_SERVER_TEXT };

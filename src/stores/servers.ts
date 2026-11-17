@@ -525,7 +525,9 @@ export type LoginResult =
   /** `mustChangePassword`: the login's password is temporary and this
    *  session is restricted until it is changed (K2 Cloud S1). */
   | { ok: true; token: string; mustChangePassword: boolean }
-  | { ok: false; kind: "auth" | "forbidden" | "network" | "not-found"; error: string };
+  /** `webOff`: a 403 `web_client_disabled` (the box has web access off;
+   *  this phone signs in there by pairing). */
+  | { ok: false; kind: "auth" | "forbidden" | "network" | "not-found"; error: string; webOff?: true };
 
 /**
  * `POST /cli/auth/login {username,password}` against a server. Rides

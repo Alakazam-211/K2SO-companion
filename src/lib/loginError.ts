@@ -22,7 +22,7 @@ export function loginErrorFromStatus(
   viaEdge: boolean,
   edge404: string,
   retryAfter?: string | null
-): { kind: LoginFailKind; error: string } | null {
+): { kind: LoginFailKind; error: string; webOff?: true } | null {
   if (status === 429) {
     return { kind: "network", error: loginRateLimitText(retryAfter) };
   }
@@ -38,8 +38,10 @@ export function loginErrorFromStatus(
     // K2 2026-10-23: password sign-in to a hosted server goes through the
     // *.app.k2.dev web edge, which marks it as the web app; a server with
     // web access turned off refuses it.
+    // `webOff` lets "Set your new password" send the person to pairing.
     return {
       kind: "forbidden",
+      webOff: true,
       error:
         "This server has web access turned off, and the app signs in through K2's web sign-in. Ask the server's owner to turn web access on in the server's settings.",
     };

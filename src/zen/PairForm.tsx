@@ -17,6 +17,7 @@ export function PairForm({
   editingId,
   initialServerUrl,
   initialCode,
+  notice: initialNotice = null,
   activate,
   onPaired,
   onDone,
@@ -26,6 +27,8 @@ export function PairForm({
   editingId?: string | null;
   initialServerUrl?: string | null;
   initialCode?: string | null;
+  /** A line above the form ("Password set. Now pair this phone…"). */
+  notice?: string | null;
   activate: boolean;
   /** Awaited as the last step (the agents reload) before "Paired". */
   onPaired: (id: string) => void | Promise<void>;
@@ -50,6 +53,9 @@ export function PairForm({
   const [codeHost, setCodeHost] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(initialNotice);
+  // K2 0.46.16: the ticket route the must-change 409 named.
+  const [ticketPath, setTicketPath] = useState<string | null>(null);
   const autoChecked = useRef(false);
 
   const url = serverUrl.trim() ? normalizeServerUrl(serverUrl) : "";
@@ -63,9 +69,14 @@ export function PairForm({
   const signsOut = !!replacing && !!tokens[replacing.id];
 
   /** The code's login has a temporary password: it sets its own here,
-   *  then signs in with it (a new code can pair this phone later). */
-  const toPassword = () => {
+   *  then signs in with it (a new code can pair this phone later). K2
+   *  0.46.16 names the login (shown, not asked) and the ticket route, and
+   *  after the password is set the same code is checked again. */
+  const toPassword = (detail?: { user?: string; ticketPath?: string }) => {
+    if (detail?.user) setLogin(detail.user);
+    setTicketPath(detail?.ticketPath ?? null);
     setError(null);
+    setNotice(null);
     setProgress(null);
     setStep("password");
     onPhase?.("password");
@@ -88,7 +99,7 @@ export function PairForm({
     const r = await checkPairCode(forUrl, forCode);
     setBusy(false);
     if (!r.ok && r.kind === "must-change") {
-      toPassword();
+      toPassword(r);
       return;
     }
     if (!r.ok && r.kind !== "unchecked") {
@@ -160,7 +171,7 @@ export function PairForm({
       setBusy(false);
       setProgress(null);
       if (r.mustChange) {
-        toPassword();
+        toPassword(r);
         return;
       }
       setError(r.error);
@@ -214,6 +225,8 @@ export function PairForm({
         serverLabel={hostLabel(url)}
         askCurrent
         usernameEditable={!knownLogin}
+        ticketPath={ticketPath}
+        then="pair"
         onDone={async (id) => {
           await onPaired(id);
           onDone();
@@ -223,9 +236,28 @@ export function PairForm({
           setError(null);
           onPhase?.("idle");
         }}
+        onPairNext={(text) => {
+          // K2 0.46.16: the password is set; the same code is checked
+          // again, and the confirm (server + login) asks before pairing.
+          setStep("enter");
+          onPhase?.("idle");
+          setNotice(text);
+          if (url && normalized) void check(url, normalized);
+        }}
       />
     );
   }
+
+  const noticeLine = notice ? (
+    <p
+      className="text-[13px] text-center font-semibold"
+      style={{ color: "var(--color-text-primary)" }}
+      role="status"
+      data-testid="pair-notice"
+    >
+      {notice}
+    </p>
+  ) : null;
 
   if (step === "done") {
     const host = url ? hostLabel(url) : "the server";
@@ -299,6 +331,7 @@ export function PairForm({
         <h2 className="text-[20px] font-semibold text-center" style={{ marginTop: 8 }}>
           Pair this {phoneName()}?
         </h2>
+        {noticeLine}
         <div className="k2-tile flex flex-col" style={{ borderRadius: 12, padding: "4px 14px" }}>
           <div className="flex items-center justify-between" style={{ minHeight: 44, gap: 12 }}>
             <span style={{ color: "var(--color-text-muted)" }}>Server</span>
@@ -378,6 +411,7 @@ export function PairForm({
       }}
       data-testid="pair-form"
     >
+      {noticeLine}
       <p className="text-[13px]" style={{ color: "var(--color-text-muted)" }}>
         On your computer, open K2 Settings → K2 Companion and choose Pair a phone (or your profile → Your phones). Then scan its QR code or type the code.
       </p>

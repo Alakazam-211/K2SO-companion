@@ -93,6 +93,10 @@ export function OverlayAddServer({
     const r = mustChangeOnOpen(editingId);
     return r ? { ...r, target: { ...r.target, activate } } : null;
   });
+  // K2 0.46.16: the new password is set on a box where this phone signs in
+  // by pairing (web access off): the Pairing code tab, filled with the
+  // address, says so.
+  const [pairNext, setPairNext] = useState<{ url: string; notice: string } | null>(null);
   const canCancel = Boolean(onCancel) && (pairPhase === "idle" || pairPhase === "password");
   const hideTabs = pairPhase === "done" || pairPhase === "password" || rotation !== null;
   // Android Back = Cancel. Without one (no server saved yet) there is
@@ -250,14 +254,23 @@ export function OverlayAddServer({
               setRotation(null);
               setMode("password");
             }}
+            onPairNext={(notice) => {
+              const url = normalizeServerUrl(rotation.target.url);
+              setPassword("");
+              setRotation(null);
+              setPairNext({ url, notice });
+              setMode("pair");
+            }}
           />
         </div>
       ) : mode === "pair" ? (
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-8">
           <PairForm
+            key={pairNext ? `next:${pairNext.url}` : "pair"}
             editingId={editing?.id ?? null}
-            initialServerUrl={pairLink?.serverUrl ?? null}
+            initialServerUrl={pairLink?.serverUrl ?? pairNext?.url ?? null}
             initialCode={pairLink?.code ?? null}
+            notice={pairNext?.notice ?? null}
             activate={activate}
             onPaired={finish}
             onDone={() => onSaved?.()}

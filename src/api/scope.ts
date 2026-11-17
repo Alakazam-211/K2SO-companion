@@ -128,6 +128,11 @@ export const DAEMON_FEATURES = [
   // switch is on and Sew's K5 Space is ready (Linux). Read by the gate in
   // api/homeChat (with `GET /cli/home-chat/status` `on`); never assumed.
   "home-chat-v1",
+  // K2 0.46.16: a login with a temporary password gets a one-use password
+  // ticket (`POST /cli/auth/device/password-ticket`, a web-off box too),
+  // and change-password tells its 401s, 423 and `password_unchanged`
+  // apart. Read by zen/setPasswordFlow; absent → the step as before.
+  "companion-password-ticket-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];

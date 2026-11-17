@@ -3,11 +3,18 @@ import {
   DEFAULT_PASSWORD_POLICY,
   fetchPasswordPolicy,
   firstUnmetRule,
+  lockedButtonText,
+  lockedText,
   passwordRules,
   SET_PASSWORD_COPY as COPY,
   type PasswordPolicy,
 } from "../api/changePassword";
-import { PendingSessions, setNewPassword, type SetPasswordTarget } from "./setPasswordFlow";
+import {
+  passwordTicketContract,
+  PendingSessions,
+  setNewPassword,
+  type SetPasswordTarget,
+} from "./setPasswordFlow";
 import { EyeIcon, EyeOffIcon } from "./PasswordEye";
 
 /** "Set your new password" (K2 Cloud S1): a login with a temporary
@@ -23,7 +30,13 @@ import { EyeIcon, EyeOffIcon } from "./PasswordEye";
  *
  *  New password + confirm, a live checklist of the server's rules, one
  *  show/hide toggle for every field, the server's errors inline. On
- *  success the new session is saved like any sign-in and `onDone` runs. */
+ *  success the new session is saved like any sign-in and `onDone` runs.
+ *
+ *  K2 0.46.16 (`companion-password-ticket-v1`, read once on open): the
+ *  checklist adds "Different from your temporary password", a locked login
+ *  counts down on the button, and when pairing is how this phone signs in
+ *  next (a web-off box, or the step came from a pairing code) `onPairNext`
+ *  gets the notice. */
 export function SetPasswordStep({
   target,
   serverLabel,
@@ -32,8 +45,11 @@ export function SetPasswordStep({
   initialCurrentPassword = "",
   askCurrent,
   usernameEditable = false,
+  ticketPath = null,
+  then = "signin",
   onDone,
   onBack,
+  onPairNext,
 }: {
   target: SetPasswordTarget;
   /** The server as the copy names it ("home.k2.dev"). */
@@ -52,6 +68,14 @@ export function SetPasswordStep({
   onDone: (id: string) => void | Promise<void>;
   /** Back to the form this came from. */
   onBack?: () => void;
+  /** The ticket route a pairing 409 named (K2 0.46.16). */
+  ticketPath?: string | null;
+  /** What follows under K2 0.46.16: sign in (default), or pair (the step
+   *  came from a pairing code). */
+  then?: "signin" | "pair";
+  /** K2 0.46.16: the password is set and pairing is next; `notice` says so.
+   *  Without it the notice shows here as the error line. */
+  onPairNext?: (notice: string) => void;
 }) {
   const [username, setUsername] = useState(target.username);
   const [current, setCurrent] = useState(initialCurrentPassword);
@@ -71,6 +95,12 @@ export function SetPasswordStep({
   const maybeChanged = useRef(false);
   const finished = useRef(false);
   const live = useRef(true);
+  // K2 0.46.16's contract, asked once on open; the submit waits for it.
+  const contract = useRef<Promise<boolean> | null>(null);
+  const [ticketContract, setTicketContract] = useState(false);
+  // A locked login (423): when it opens again, and a clock for the countdown.
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  const [now, setNow] = useState(() => Date.now());
 
   // The server's rules (a restricted session may read them). Until then,
   // and when it can't be read, the daemon's default; it checks again.
@@ -84,6 +114,33 @@ export function SetPasswordStep({
     };
   }, [target.url, mintedToken, heldToken]);
 
+  useEffect(() => {
+    let cancelled = false;
+    const p = passwordTicketContract(target, mintedToken ?? heldToken);
+    contract.current = p;
+    void p.then((v) => {
+      if (!cancelled) setTicketContract(v);
+    });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [target.url, target.serverId, mintedToken, heldToken]);
+
+  // The countdown: once a second until the lock is over.
+  useEffect(() => {
+    if (lockedUntil === null) return;
+    const tick = () => {
+      const t = Date.now();
+      setNow(t);
+      if (t >= lockedUntil) setLockedUntil(null);
+    };
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [lockedUntil]);
+  const lockLeft = lockedUntil !== null ? Math.max(0, (lockedUntil - now) / 1000) : 0;
+  const locked = lockedUntil !== null && lockLeft > 0;
+
   // Leaving without finishing signs out the sessions this screen minted.
   // Deferred a tick so React's StrictMode remount doesn't count as leaving.
   useEffect(() => {
@@ -96,12 +153,14 @@ export function SetPasswordStep({
     };
   }, []);
 
-  const rules = passwordRules(next, policy);
+  // 0.46.16 refuses a new password equal to the temporary one: say it live.
+  const ruleOpts = ticketContract ? { differentFrom: current } : {};
+  const rules = passwordRules(next, policy, ruleOpts);
   const matches = confirm.length > 0 && next === confirm;
 
   const onSubmit = async (e: FormEvent) => {
     e.preventDefault();
-    if (busy) return;
+    if (busy || locked) return;
     const login = username.trim();
     if (usernameEditable && !login) {
       setError(COPY.missingUsername);
@@ -114,7 +173,7 @@ export function SetPasswordStep({
       currentRef.current?.focus();
       return;
     }
-    const weak = firstUnmetRule(next, policy);
+    const weak = firstUnmetRule(next, policy, ruleOpts);
     if (weak) {
       setError(weak);
       nextRef.current?.focus();
@@ -127,6 +186,7 @@ export function SetPasswordStep({
     }
     setBusy(true);
     setError(null);
+    const withTicket = await (contract.current ?? Promise.resolve(false));
     const r = await setNewPassword({
       target: { ...target, username: login },
       sessions: sessions.current!,
@@ -134,7 +194,21 @@ export function SetPasswordStep({
       newPassword: next,
       policy,
       maybeChanged: maybeChanged.current,
+      ticketContract: withTicket,
+      ticketPath,
+      then,
     });
+    if (!r.ok && r.field === "pair") {
+      // The password is set; this phone pairs next. Nothing to sign out.
+      finished.current = true;
+      setCurrent("");
+      setNext("");
+      setConfirm("");
+      setBusy(false);
+      if (onPairNext) onPairNext(r.error);
+      else setError(r.error);
+      return;
+    }
     if (r.ok) {
       finished.current = true;
       // The passwords leave memory with this screen; drop them now too.
@@ -151,6 +225,14 @@ export function SetPasswordStep({
     if (r.sent) maybeChanged.current = true;
     if (r.policy) setPolicy(r.policy);
     setBusy(false);
+    if (r.retryAfterSecs) {
+      // The error line and the button count down from here.
+      const t = Date.now();
+      setNow(t);
+      setLockedUntil(t + r.retryAfterSecs * 1000);
+      setError(null);
+      return;
+    }
     setError(r.error);
     if (r.field === "current") {
       setShowCurrent(true);
@@ -328,31 +410,31 @@ export function SetPasswordStep({
         {confirm.length > 0 ? <RuleLine id="match" met={matches} text={COPY.matchRule} /> : null}
       </ul>
 
-      {error ? (
+      {locked || error ? (
         <p
           className="text-[13px] text-center"
           style={{ color: "var(--color-status-error-text)" }}
           role="alert"
           data-testid="set-password-error"
         >
-          {error}
+          {locked ? lockedText(lockLeft) : error}
         </p>
       ) : null}
 
       <button
         type="submit"
-        disabled={!isValid || busy}
+        disabled={!isValid || busy || locked}
         className="w-full font-semibold"
         style={{
           minHeight: 44,
           borderRadius: 12,
           background: "var(--color-accent-fill)",
           color: "var(--color-on-accent)",
-          opacity: !isValid || busy ? 0.4 : 1,
+          opacity: !isValid || busy || locked ? 0.4 : 1,
         }}
         data-testid="set-password-submit"
       >
-        {busy ? COPY.busy : COPY.submit}
+        {busy ? COPY.busy : locked ? lockedButtonText(lockLeft) : COPY.submit}
       </button>
       {onBack ? (
         <button
