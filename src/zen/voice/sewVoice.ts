@@ -20,8 +20,9 @@ import { applyNoiseRemoval, type NoiseRemovalState } from "./noiseRemoval";
 //     (Sew's `join_with`: CallKit starts a video call);
 //   - noise removal (Settings → Calls): `set_noise_removal {mode}` before
 //     each join (noiseRemoval.ts), and `sew-voice://noise_removal` into the
-//     call log (which model runs, why it stepped down, and the phone's
-//     capture: os/raw, its switches and their pause).
+//     call log (which model runs, why it stepped down, the stage's timing
+//     and grace window, and the phone's capture: os/raw, its switches and
+//     their pause).
 
 const CMD = "plugin:sew-voice|";
 
@@ -231,8 +232,11 @@ export async function shareCallLog(): Promise<ShareOutcome> {
 }
 
 /** The noise removal state as call log codes: `noise standard standard dfn3
- *  phone_mode:os`. The plugin has no finer step-down stats (block times,
- *  strikes): `reason`, `model_reason` and `step_downs` are all it says. */
+ *  phone_mode:os`, then the stage's timing when the plugin sends it (Sew
+ *  0.10.4): `step_down_reason:slow_window last_step_down_ms_ago:1200
+ *  slowest_block_us:9100 blocks_over_budget:3 in_grace:true
+ *  capture_stage_strikes:1 capture_stage_bypassed:budget
+ *  capture_stage_p99_us:6400`. Each word only when its field is there. */
 export function noiseWords(s: NoiseRemovalState | null | undefined): string[] | null {
   if (!s || typeof s !== "object" || typeof s.mode !== "string") return null;
   const words = ["noise", s.mode, String(s.active ?? "")];
@@ -244,6 +248,14 @@ export function noiseWords(s: NoiseRemovalState | null | undefined): string[] | 
   if (s.phone_mode_reason) words.push(`phone_mode_reason:${s.phone_mode_reason}`);
   if (s.phone_mode_switches) words.push(`phone_mode_switches:${s.phone_mode_switches}`);
   if (typeof s.phone_mode_gap_ms === "number") words.push(`phone_mode_gap_ms:${s.phone_mode_gap_ms}`);
+  if (s.step_down_reason) words.push(`step_down_reason:${s.step_down_reason}`);
+  if (typeof s.last_step_down_ms_ago === "number") words.push(`last_step_down_ms_ago:${s.last_step_down_ms_ago}`);
+  if (typeof s.slowest_block_us === "number") words.push(`slowest_block_us:${s.slowest_block_us}`);
+  if (s.blocks_over_budget) words.push(`blocks_over_budget:${s.blocks_over_budget}`);
+  if (s.in_grace === true) words.push("in_grace:true");
+  if (s.capture_stage_strikes) words.push(`capture_stage_strikes:${s.capture_stage_strikes}`);
+  if (s.capture_stage_bypassed) words.push(`capture_stage_bypassed:${s.capture_stage_bypassed}`);
+  if (typeof s.capture_stage_p99_us === "number") words.push(`capture_stage_p99_us:${s.capture_stage_p99_us}`);
   return words;
 }
 

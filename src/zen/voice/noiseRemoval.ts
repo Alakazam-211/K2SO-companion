@@ -3,12 +3,14 @@ import { create } from "zustand";
 import { isIosWebView } from "../../lib/nativePicker";
 
 // Noise removal for calls (Settings → Calls → Noise removal; Riley's rule,
-// Sew 0.10.3). One On/Off switch, default On:
+// Sew 0.10.4). One On/Off switch, default On:
 //   - On  = Sew's "standard": the system's voice processing, then
 //     DeepFilterNet3 (the weights the app bundles, src-tauri/resources/dfn3).
 //     The model loads when a call first needs it: until it's ready the call
 //     runs on the system's processing alone (`reason: loading`), then steps
-//     up; if the phone can't keep up it steps down to RNNoise by itself;
+//     up; if the phone can't keep up it steps down to RNNoise by itself
+//     (not while a grace window is open: about 3 s at the call's start, a
+//     route change, a camera starting, an app switch; `in_grace`);
 //   - Off = Sew's "off": the full microphone audio with no noise filtering.
 //     On iPhone the system's voice processing is off too (raw capture,
 //     `phone_mode: raw`); echo cancellation and gain control stay on.
@@ -51,6 +53,26 @@ export type NoiseRemovalState = {
   phone_mode_switches?: number;
   /** Phones: how long the microphone paused for the last switch, ms. */
   phone_mode_gap_ms?: number;
+  // The stage's timing, for the call log (Sew 0.10.4; where DeepFilterNet3
+  // is in play and a call runs). The counters ride along with each change.
+  /** The rule at the latest step-down from DeepFilterNet3. */
+  step_down_reason?: "slow_block" | "slow_window" | "heavy" | "fault" | "forced" | string;
+  /** How long ago (in the call's audio) the latest step-down was, ms. */
+  last_step_down_ms_ago?: number;
+  /** The call's slowest stage block so far, µs. */
+  slowest_block_us?: number;
+  /** The call's stage blocks over the stage's budget so far. */
+  blocks_over_budget?: number;
+  /** A grace window is open: the timing rules are held back while the
+   *  phone is busy with something else (absent when false). */
+  in_grace?: boolean;
+  /** The audio pipeline's budget strikes and faults against the stage. */
+  capture_stage_strikes?: number;
+  /** Why the audio pipeline last bypassed the stage (kept after a retry
+   *  brought it back; `reason` says whether it's bypassed now). */
+  capture_stage_bypassed?: "budget" | "fault" | string;
+  /** The pipeline's 99th percentile of the stage's last 100 blocks, µs. */
+  capture_stage_p99_us?: number;
 };
 
 /** On unless "off" is stored. */
