@@ -18,7 +18,7 @@ import { useListField, useZenStore } from "./zenStore";
 import { useZenScope } from "./zenScope";
 import { rowUnreadFor, type RowRef } from "./unread";
 import { useUnreadStore } from "./unreadStore";
-import { AgentMenu, OpenGlyph, PinGlyph, RearrangeGlyph, RemoveGlyph, type AgentMenuEntry } from "./AgentMenu";
+import { AgentMenu, MoveHomeGlyph, OpenGlyph, PinGlyph, RearrangeGlyph, RemoveGlyph, type AgentMenuEntry } from "./AgentMenu";
 import { PINS_FULL_TEXT } from "./groups/homeRowOrder";
 import { GripHandle, rearrangePadLeft } from "./RearrangeBits";
 import { useHoldMenu } from "./useHoldMenu";
@@ -133,7 +133,7 @@ export interface RemoteRowLook {
  * The Home tab's list (HM3/HM6/HM7): the current Home's rows with the
  * Agents row look, its first nine in the pin grid's layout (rows while
  * searching or rearranging). Press and hold one for its menu (Open,
- * Mute, Rearrange, Remove from Home); rows carry no `data-pin-id`, so the
+ * Mute, Rearrange, Move to Home…, Remove from Home); rows carry no `data-pin-id`, so the
  * pin grid's gestures never see them. Rearrange mode puts a grip left of
  * each avatar; a drag reorders the Home (`onReorder`, synced by Homes
  * sync like any Home edit).
@@ -158,7 +158,11 @@ export function HomeList({
   otherHomeOf,
   gridMax = HOME_GRID_MAX,
   pins,
+  onMoveToHome,
 }: {
+  /** An agent row's Move to Home… (the Home picker; `name` is what the
+   *  row shows). Absent: no such item (one Home, nowhere to move). */
+  onMoveToHome?: (address: string, name: string) => void;
   /** Home groups (K2 0.46.13): Pin / Unpin on the hold menu (at most 9
    *  per group; at the limit Pin shows turned off, with the reason). Rows
    *  from another group (a search across groups) have no Pin here. */
@@ -369,6 +373,16 @@ export function HomeList({
       { key: "mute" as const, mute: { serverId: menuTarget?.serverId, rowRef: menuRef } },
       ...(canRearrange && !searching && views.length > 1 && onRearrange
         ? [{ key: "rearrange", label: "Rearrange", icon: <RearrangeGlyph />, onSelect: onRearrange }]
+        : []),
+      ...(onMoveToHome
+        ? [
+            {
+              key: "move-home",
+              label: "Move to Home…",
+              icon: <MoveHomeGlyph />,
+              onSelect: () => onMoveToHome(v.row.address, modelOf(v).name),
+            },
+          ]
         : []),
       {
         key: "remove",

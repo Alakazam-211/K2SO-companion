@@ -58,6 +58,7 @@ import {
   type AgentMenuEntry,
 } from "./AgentMenu";
 import { FocusGroupPicker } from "./FocusGroupPicker";
+import { MoveToHomeSheet } from "./MoveToHomeSheet";
 import { AddAgentSheet } from "./AddAgentSheet";
 import { HomeList, homeRowTarget, openHomeRowOnServer, type RemoteRowLook } from "./HomeList";
 import { homeGridSize, useHomeGridStore } from "./homeGrid";
@@ -514,6 +515,9 @@ export function ChatsList() {
   const home = selectedHome({ homes, selectedId: homeSelectedId });
   const [homeMenu, setHomeMenu] = useState(false);
   const [addAgent, setAddAgent] = useState(false);
+  // Move to Home… (a Home row's menu): the row, its name and its Home.
+  const [homeMove, setHomeMove] = useState<{ address: string; name: string; fromId: string } | null>(null);
+  const closeHomeMove = useCallback(() => setHomeMove(null), []);
   // Homes sync (K2 0.46.1): which server Home syncs from, and the one-time
   // "removed" notice. Home itself always renders from the local copy.
   const homeSync = useHomesSyncBadge();
@@ -798,6 +802,7 @@ export function ChatsList() {
         !rearranging &&
         !homeMenu &&
         !addAgent &&
+        !homeMove &&
         !useGroupsSheet.getState().open &&
         !document.querySelector("[data-testid=home-row-menu]")
       );
@@ -1679,6 +1684,11 @@ export function ChatsList() {
           inset={ZEN_LIST_CONTENT_INSET}
           previewFor={previewFor}
           onRemove={(address) => useHomesStore.getState().removeRow(across?.homeOf.get(address)?.id ?? home.id, address)}
+          onMoveToHome={
+            homes.length > 1
+              ? (address, name) => setHomeMove({ address, name, fromId: across?.homeOf.get(address)?.id ?? home.id })
+              : undefined
+          }
           otherHomeOf={otherHomeOf}
           hereChip={multi.on && multi.chips ? serverLabel : null}
           activeDown={activeDown}
@@ -2066,6 +2076,20 @@ export function ChatsList() {
           onPick={(gid) => assignGroup(pickAgent.id, gid)}
           onCreate={(name) => createGroup(pickAgent.id, name)}
           onClose={() => setGroupPick(null)}
+        />
+      ) : null}
+
+      {homeMove && onHome && homes.length > 1 && homes.some((h) => h.id === homeMove.fromId) ? (
+        <MoveToHomeSheet
+          agentName={homeMove.name}
+          address={homeMove.address}
+          homes={homes}
+          fromId={homeMove.fromId}
+          onPick={(toId) => {
+            setHomeMove(null);
+            useHomesStore.getState().moveRowToHome(homeMove.fromId, toId, homeMove.address);
+          }}
+          onClose={closeHomeMove}
         />
       ) : null}
 

@@ -522,6 +522,98 @@ describe("Home row menu and Rearrange (HM6)", () => {
   });
 });
 
+describe("Move to Home… (Riley)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  function twoHomes() {
+    const h = useHomesStore.getState();
+    h.ensureSeeded();
+    const first = useHomesStore.getState().selectedId;
+    useHomesStore.getState().addRow(first, { address: homeAddress("alpha", HOST), workspaceId: "pa", label: "alpha" });
+    useHomesStore.getState().addRow(first, { address: homeAddress("bravo", HOST), workspaceId: "pb", label: "bravo" });
+    const second = useHomesStore.getState().createHome("Second")!;
+    useHomesStore.getState().selectHome(first);
+    return { first, second };
+  }
+
+  it("no item with one Home (nowhere to move)", () => {
+    const h = useHomesStore.getState();
+    h.addRow(h.selectedId, { address: homeAddress("alpha", HOST), workspaceId: "pa", label: "alpha" });
+    vi.useFakeTimers();
+    mount();
+    goHome();
+    holdOpen(screen.getByTestId("home-row-alpha"));
+    expect(menuLabels(screen.getByTestId("home-row-menu"))).not.toContain("Move to Home…");
+    expect(screen.queryByTestId("menu-move-home")).toBeNull();
+  });
+
+  it("with two Homes: the item opens the sheet; a pick moves the agent there and both lists follow at once", () => {
+    const { first, second } = twoHomes();
+    vi.useFakeTimers();
+    mount();
+    goHome();
+    holdOpen(screen.getByTestId("home-row-alpha"));
+    const labels = menuLabels(screen.getByTestId("home-row-menu"));
+    expect(labels).toContain("Move to Home…");
+    expect(labels.indexOf("Move to Home…")).toBe(labels.indexOf("Remove from Home") - 1);
+    tap(screen.getByTestId("menu-move-home"));
+    expect(screen.queryByTestId("home-row-menu")).toBeNull();
+    const dialog = screen.getByRole("dialog", { name: "Move alpha to…" });
+    expect((within(dialog).getByTestId(`move-home-${first}`) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Second" }));
+    expect(screen.queryByTestId("move-home-sheet")).toBeNull();
+    // Off this Home right away, on the other one, written for Homes sync.
+    expect(screen.queryByTestId("home-row-alpha")).toBeNull();
+    expect(screen.getByTestId("home-row-bravo")).not.toBeNull();
+    const doc = parseHomesDoc(localStorage.getItem(HOMES_STORAGE_KEY));
+    expect(doc?.homes.find((x) => x.id === first)?.rows.map((r) => r.label)).toEqual(["bravo"]);
+    expect(doc?.homes.find((x) => x.id === second)?.rows.map((r) => r.label)).toEqual(["alpha"]);
+    expect(doc?.tombstones?.some((t) => t.kind === "row" && t.homeId === first && t.address === homeAddress("alpha", HOST))).toBe(true);
+    // The selected Home doesn't change.
+    expect(useHomesStore.getState().selectedId).toBe(first);
+    useHomesStore.getState().selectHome(second);
+    vi.useRealTimers();
+    expect(useHomesStore.getState().homes.find((x) => x.id === second)?.rows[0].address).toBe(homeAddress("alpha", HOST));
+  });
+
+  it("Cancel (or Escape) leaves the agent where it was", () => {
+    const { first } = twoHomes();
+    vi.useFakeTimers();
+    mount();
+    goHome();
+    holdOpen(screen.getByTestId("home-row-alpha"));
+    tap(screen.getByTestId("menu-move-home"));
+    fireEvent.click(screen.getByTestId("move-home-cancel"));
+    expect(screen.queryByTestId("move-home-sheet")).toBeNull();
+    holdOpen(screen.getByTestId("home-row-alpha"));
+    tap(screen.getByTestId("menu-move-home"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("move-home-sheet")).toBeNull();
+    expect(useHomesStore.getState().homes.find((x) => x.id === first)?.rows.map((r) => r.label)).toEqual(["alpha", "bravo"]);
+    expect(screen.getByTestId("home-row-alpha")).not.toBeNull();
+  });
+
+  it("a search hit from another Home moves from that Home", () => {
+    const { first, second } = twoHomes();
+    useHomesStore.getState().addRow(second, { address: homeAddress("bravo", HOST), workspaceId: "pb", label: "bravo" });
+    useHomesStore.getState().removeRow(first, homeAddress("bravo", HOST));
+    const third = useHomesStore.getState().createHome("Third")!;
+    useHomesStore.getState().selectHome(first);
+    vi.useFakeTimers();
+    mount();
+    goHome();
+    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "brav" } });
+    holdOpen(screen.getByTestId("home-row-bravo"));
+    tap(screen.getByTestId("menu-move-home"));
+    expect(screen.getByTestId(`move-home-${second}`).getAttribute("aria-current")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Third" }));
+    const homes = useHomesStore.getState().homes;
+    expect(homes.find((x) => x.id === second)?.rows).toHaveLength(0);
+    expect(homes.find((x) => x.id === third)?.rows.map((r) => r.label)).toEqual(["bravo"]);
+    expect(homes.find((x) => x.id === first)?.rows.map((r) => r.label)).toEqual(["alpha"]);
+  });
+});
+
 describe("Row dividers (Riley 2026-10-18)", () => {
   // The divider spans the text column: row left padding + 50px avatar +
   // 10px gap, to the row's right padding (the chevron's right edge).

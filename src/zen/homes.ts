@@ -339,6 +339,34 @@ export function withRowRemoved(homes: Home[], homeId: string, address: string): 
   );
 }
 
+/**
+ * Move a row from one Home to another (the Home row's Move to Home…): it
+ * comes off `fromId` (either spelling of its address) and goes on the end
+ * of `toId`, unpinned (pins are per Home). Its kind, label, workspace id
+ * and last send go with it; its order and sync stamps don't (the commit
+ * stamps a new row on `toId` and tombstones the old one, so every device
+ * sees the same move). A Home that already has it just keeps its own row.
+ * Null when either Home is gone, they are the same, or `fromId` hasn't
+ * the row.
+ */
+export function withRowMovedToHome(homes: Home[], fromId: string, toId: string, address: string): Home[] | null {
+  if (fromId === toId) return null;
+  const key = address.trim().toLowerCase();
+  const from = homes.find((h) => h.id === fromId);
+  const to = homes.find((h) => h.id === toId);
+  if (!from || !to) return null;
+  const canon = canonicalHomeAddress(key);
+  const row = from.rows.find((r) => r.address === key) ?? from.rows.find((r) => canonicalHomeAddress(r.address) === canon);
+  if (!row) return null;
+  const off = withRowRemoved(homes, fromId, key);
+  if (!off) return null;
+  if (homeHasAddress(to, row.address)) return off;
+  const moved: HomeRow = { address: row.address, workspaceId: row.workspaceId, label: row.label };
+  if (row.kind) moved.kind = row.kind;
+  if (typeof row.lastMessagedAt === "number") moved.lastMessagedAt = row.lastMessagedAt;
+  return withRowAdded(off, toId, moved) ?? off;
+}
+
 export function withRowMoved(homes: Home[], homeId: string, from: number, to: number): Home[] | null {
   const home = homes.find((h) => h.id === homeId);
   if (!home) return null;
@@ -477,6 +505,9 @@ export interface HomesState {
   /** False when the address is already on that Home (dedupe per Home). */
   addRow: (homeId: string, row: HomeRow) => boolean;
   removeRow: (homeId: string, address: string) => void;
+  /** Move a row to another Home (`withRowMovedToHome`), one synced edit.
+   *  False when nothing moved. */
+  moveRowToHome: (fromId: string, toId: string, address: string) => boolean;
   moveRow: (homeId: string, from: number, to: number) => void;
   /** Rename repair on every Home (`withRowsRepaired`). Writes only when a
    *  row changed. */
@@ -774,6 +805,13 @@ export const useHomesStore = create<HomesState>((set, get) => {
     removeRow: (homeId, address) => {
       const next = withRowRemoved(get().homes, resolveHomeId(get().redirects, homeId), address);
       if (next) commit(next);
+    },
+    moveRowToHome: (fromId, toId, address) => {
+      const r = get().redirects;
+      const next = withRowMovedToHome(get().homes, resolveHomeId(r, fromId), resolveHomeId(r, toId), address);
+      if (!next) return false;
+      commit(next);
+      return true;
     },
     moveRow: (homeId, from, to) => {
       const next = withRowMoved(get().homes, resolveHomeId(get().redirects, homeId), from, to);

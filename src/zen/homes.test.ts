@@ -4,6 +4,7 @@ import {
   HOMES_STORAGE_KEY,
   LIST_TAB_KEY,
   homeAddress,
+  onHomesLocalChange,
   parseHomeAddress,
   parseHomesDoc,
   readListTab,
@@ -11,6 +12,7 @@ import {
   useHomesStore,
   writeListTab,
 } from "./homes";
+import type { ChangeItem } from "./homesMerge";
 
 const row = (handle: string, host = "example.k2.dev") => ({
   address: homeAddress(handle, host),
@@ -92,6 +94,87 @@ describe("Home store (HM2)", () => {
     useHomesStore.getState().selectHome(work);
     useHomesStore.getState().reload();
     expect(useHomesStore.getState().selectedId).toBe(work);
+  });
+});
+
+describe("Move to Home (moveRowToHome)", () => {
+  function twoHomes() {
+    const s = useHomesStore.getState();
+    s.ensureSeeded();
+    const first = useHomesStore.getState().selectedId;
+    useHomesStore.getState().addRow(first, row("alpha"));
+    useHomesStore.getState().addRow(first, row("bravo"));
+    const second = useHomesStore.getState().createHome("Work") as string;
+    useHomesStore.getState().addRow(second, row("charlie"));
+    useHomesStore.getState().selectHome(first);
+    return { first, second };
+  }
+
+  it("takes the row off one Home and puts it on the end of the other, as one synced edit", () => {
+    const { first, second } = twoHomes();
+    expect(useHomesStore.getState().pinRow(first, "alpha::example.k2.dev")).toBe("pinned");
+    useHomesStore.getState().stampRowsMessaged((r) => r.label === "alpha", 1234);
+    const seen: ChangeItem[] = [];
+    const stop = onHomesLocalChange((c) => seen.push(...c));
+    expect(useHomesStore.getState().moveRowToHome(first, second, "ALPHA::example.k2.dev")).toBe(true);
+    stop();
+    const doc = stored();
+    const from = doc?.homes.find((h) => h.id === first);
+    const to = doc?.homes.find((h) => h.id === second);
+    expect(from?.rows.map((r) => r.label)).toEqual(["bravo"]);
+    expect(to?.rows.map((r) => r.label)).toEqual(["charlie", "alpha"]);
+    const moved = to?.rows[1];
+    // Its identity and hints go with it; pins are per Home, so not the pin.
+    expect(moved).toMatchObject({ address: "alpha::example.k2.dev", workspaceId: "w-alpha", label: "alpha", lastMessagedAt: 1234 });
+    expect(moved?.pinOrder).toBeUndefined();
+    expect(moved?.synced).toBeUndefined();
+    expect(typeof moved?.order).toBe("string");
+    expect(moved!.order! > to!.rows[0].order!).toBe(true);
+    // Sync: a tombstone for the old row and a new row on the other Home,
+    // both stamped by this edit; the selection stays.
+    expect(doc?.tombstones).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "row", homeId: first, address: "alpha::example.k2.dev" })])
+    );
+    expect(seen).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ kind: "row", homeId: first, address: "alpha::example.k2.dev", deleted: true }),
+        expect.objectContaining({ kind: "row", homeId: second, address: "alpha::example.k2.dev", label: "alpha" }),
+      ])
+    );
+    const live = seen.find((c) => c.kind === "row" && c.homeId === second && !c.deleted);
+    expect(live && "pinOrder" in live ? live.pinOrder : undefined).toBeUndefined();
+    expect(seen.filter((c) => c.kind === "home")).toEqual([]);
+    expect(useHomesStore.getState().selectedId).toBe(first);
+  });
+
+  it("onto a Home that already has it: just comes off the first", () => {
+    const { first, second } = twoHomes();
+    useHomesStore.getState().addRow(second, row("alpha"));
+    expect(useHomesStore.getState().moveRowToHome(first, second, "alpha::example.k2.dev")).toBe(true);
+    const homes = useHomesStore.getState().homes;
+    expect(homes.find((h) => h.id === first)?.rows.map((r) => r.label)).toEqual(["bravo"]);
+    expect(homes.find((h) => h.id === second)?.rows.map((r) => r.label)).toEqual(["charlie", "alpha"]);
+  });
+
+  it("moving back revives the row on its first Home (newer than its tombstone)", () => {
+    const { first, second } = twoHomes();
+    useHomesStore.getState().moveRowToHome(first, second, "alpha::example.k2.dev");
+    const tomb = useHomesStore.getState().tombstones.find((t) => t.kind === "row" && t.homeId === first);
+    expect(useHomesStore.getState().moveRowToHome(second, first, "alpha::example.k2.dev")).toBe(true);
+    const s = useHomesStore.getState();
+    const back = s.homes.find((h) => h.id === first)?.rows.find((r) => r.label === "alpha");
+    expect(back?.updatedAt).toBeGreaterThan(tomb!.updatedAt);
+    expect(s.tombstones.some((t) => t.kind === "row" && t.homeId === first && t.address === "alpha::example.k2.dev")).toBe(false);
+    expect(s.tombstones.some((t) => t.kind === "row" && t.homeId === second && t.address === "alpha::example.k2.dev")).toBe(true);
+  });
+
+  it("refuses the same Home, a gone Home, or a row that isn't there", () => {
+    const { first, second } = twoHomes();
+    const before = localStorage.getItem(HOMES_STORAGE_KEY);
+    expect(useHomesStore.getState().moveRowToHome(first, first, "alpha::example.k2.dev")).toBe(false);
+    expect(useHomesStore.getState().moveRowToHome(first, "gone", "alpha::example.k2.dev")).toBe(false);
+    expect(useHomesStore.getState().moveRowToHome(second, first, "alpha::example.k2.dev")).toBe(false);
+    expect(localStorage.getItem(HOMES_STORAGE_KEY)).toBe(before);
   });
 });
 
