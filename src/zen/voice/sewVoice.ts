@@ -20,7 +20,8 @@ import { applyNoiseRemoval, type NoiseRemovalState } from "./noiseRemoval";
 //     (Sew's `join_with`: CallKit starts a video call);
 //   - noise removal (Settings → Calls): `set_noise_removal {mode}` before
 //     each join (noiseRemoval.ts), and `sew-voice://noise_removal` into the
-//     call log (which model runs, and why it stepped down).
+//     call log (which model runs, why it stepped down, and the phone's
+//     capture: os/raw, its switches and their pause).
 
 const CMD = "plugin:sew-voice|";
 
@@ -229,7 +230,9 @@ export async function shareCallLog(): Promise<ShareOutcome> {
   return shareOrSaveBytes(new TextEncoder().encode(text), "K2 call log.txt", "text/plain");
 }
 
-/** The noise removal state as call log codes: `noise standard standard dfn3`. */
+/** The noise removal state as call log codes: `noise standard standard dfn3
+ *  phone_mode:os`. The plugin has no finer step-down stats (block times,
+ *  strikes): `reason`, `model_reason` and `step_downs` are all it says. */
 export function noiseWords(s: NoiseRemovalState | null | undefined): string[] | null {
   if (!s || typeof s !== "object" || typeof s.mode !== "string") return null;
   const words = ["noise", s.mode, String(s.active ?? "")];
@@ -237,6 +240,10 @@ export function noiseWords(s: NoiseRemovalState | null | undefined): string[] | 
   if (s.reason) words.push(`reason:${s.reason}`);
   if (s.model_reason) words.push(`model_reason:${s.model_reason}`);
   if (s.step_downs) words.push(`step_downs:${s.step_downs}`);
+  if (s.phone_mode) words.push(`phone_mode:${s.phone_mode}`);
+  if (s.phone_mode_reason) words.push(`phone_mode_reason:${s.phone_mode_reason}`);
+  if (s.phone_mode_switches) words.push(`phone_mode_switches:${s.phone_mode_switches}`);
+  if (typeof s.phone_mode_gap_ms === "number") words.push(`phone_mode_gap_ms:${s.phone_mode_gap_ms}`);
   return words;
 }
 
@@ -283,8 +290,8 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
     async join(serverId, roomId, e, options) {
       events = e;
       await follow();
-      // The person's choice, set before the call starts (on Android, Off at
-      // the start is what turns off the system's own noise suppression).
+      // The person's choice, set before the call starts (a call that starts
+      // in Off opens the microphone raw from the start, so it opens once).
       noteNoise(await applyNoiseRemoval());
       try {
         if (options?.camera) await invoke("voice_join_camera", { target: serverId, room: roomId });

@@ -346,7 +346,7 @@ function StashRemoveAfterUseRow() {
 }
 
 const NOISE_REMOVAL_FOOTNOTE =
-  "Removes background noise from your microphone in calls. Off sends the full sound, with echo cancellation still on. On iPhone, Off can still filter some noise for now; a later update turns that off too. Only this phone.";
+  "Removes background noise from your microphone in calls. Off sends the full sound, with echo cancellation still on. Only this phone.";
 
 /** "Noise removal" (voice/noiseRemoval.ts): phone-only for now, default
  *  on. Takes effect at once, in a call too. */

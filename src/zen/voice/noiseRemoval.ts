@@ -3,17 +3,19 @@ import { create } from "zustand";
 import { isIosWebView } from "../../lib/nativePicker";
 
 // Noise removal for calls (Settings → Calls → Noise removal; Riley's rule,
-// Sew 0.10.2). One On/Off switch, default On:
-//   - On  = Sew's "standard": DeepFilterNet3 (the weights the app bundles,
-//     src-tauri/resources/dfn3), with RNNoise as Sew's automatic fallback;
+// Sew 0.10.3). One On/Off switch, default On:
+//   - On  = Sew's "standard": the system's voice processing, then
+//     DeepFilterNet3 (the weights the app bundles, src-tauri/resources/dfn3).
+//     The model loads when a call first needs it: until it's ready the call
+//     runs on the system's processing alone (`reason: loading`), then steps
+//     up; if the phone can't keep up it steps down to RNNoise by itself;
 //   - Off = Sew's "off": the full microphone audio with no noise filtering.
-//     Echo cancellation and gain control stay on. On iOS the system's voice
-//     processing keeps its own noise suppression until a later Sew update,
-//     so Off is best effort there.
+//     On iPhone the system's voice processing is off too (raw capture,
+//     `phone_mode: raw`); echo cancellation and gain control stay on.
 // The plugin stores nothing: the app keeps the choice and sets it on the
 // engine (`plugin:sew-voice|set_noise_removal {mode}`) before each join and
-// whenever the switch changes (mid-call it takes effect from the next 10 ms
-// block).
+// whenever the switch changes. Mid-call on iPhone the microphone reopens in
+// the other capture, with a short pause (`phone_mode_gap_ms`).
 //
 // Stored on this phone only for now. K2's desktop (Settings → Voice → Noise
 // removal) will name a per-user setting later; to move to it, replace
@@ -24,14 +26,31 @@ export const NOISE_REMOVAL_KEY = "k2.voice.noiseRemoval";
 /** Sew's mode names (`NoiseRemoval`): what `set_noise_removal` takes. */
 export type NoiseMode = "standard" | "off";
 
-/** The plugin's answer and event (`NoiseRemovalState`). */
+/** The plugin's answer and event (`NoiseRemovalState`). Every field but
+ *  `mode` and `active` is absent when unset. */
 export type NoiseRemovalState = {
   mode: NoiseMode | string;
   active: NoiseMode | string;
+  /** Why `active` is less than `mode`: `budget` / `fault` (the capture
+   *  stage was bypassed), `unavailable`, `loading` (phones: the model is
+   *  loading for this call). */
   reason?: string;
+  /** `dfn3` or `rnnoise` (with DeepFilterNet3's weights given). */
   model?: string;
+  /** Why the model isn't DeepFilterNet3: `budget`, `fault`, `loading`,
+   *  `unavailable`. */
   model_reason?: string;
+  /** This call's step-downs from DeepFilterNet3. */
   step_downs?: number;
+  /** Phones: how the microphone is captured, `os` (the system's voice
+   *  processing) or `raw` (Off). */
+  phone_mode?: "os" | "raw" | string;
+  /** Phones: `switch_failed` while the capture couldn't follow the setting. */
+  phone_mode_reason?: string;
+  /** Phones: this call's capture switches. */
+  phone_mode_switches?: number;
+  /** Phones: how long the microphone paused for the last switch, ms. */
+  phone_mode_gap_ms?: number;
 };
 
 /** On unless "off" is stored. */
@@ -83,7 +102,8 @@ export const useNoiseRemovalStore = create<NoiseRemovalStore>((set) => ({
   setOn: (on) => {
     saveNoiseRemoval(on);
     set({ on });
-    // Live: a call in progress switches from its next audio block.
+    // Live: a call in progress switches at once (on iPhone the microphone
+    // reopens, with a short pause).
     void applyNoiseRemoval(on);
   },
 }));
