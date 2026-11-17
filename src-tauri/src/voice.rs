@@ -187,16 +187,23 @@ pub fn plugin(native: &Native) -> tauri::plugin::TauriPlugin<Wry> {
         .name("k2-pip".into())
         .spawn(move || pip_loop(&mut pip_sink, pip_rx))
         .expect("the PiP thread starts");
-    // Noise removal (feature `dfn3`): the plugin loads DeepFilterNet3's
-    // weights on a thread of its own at start, from its default place,
-    // `dfn3/dfn3_ll.nnef.tar` in the app's resource directory (iOS:
-    // K2.app/assets/dfn3/), where tauri.ios.conf.json bundles
-    // src-tauri/resources/dfn3/ (scripts/fetch-dfn3.sh). `dfn3_weights`
-    // isn't needed for that place (the resource directory is only known
-    // once the app runs); missing or altered weights leave Standard on
-    // RNNoise. The person's On/Off is the webview's (noiseRemoval.ts): it
-    // sets `set_noise_removal` before each join; until then the engine's
-    // default is Standard.
+    // Noise removal (feature `dfn3`): at start the plugin checks
+    // DeepFilterNet3's weights (their pinned sha256, on a thread of its own)
+    // at its default place, `dfn3/dfn3_ll.nnef.tar` in the app's resource
+    // directory (iOS: K2.app/assets/dfn3/), where tauri.ios.conf.json
+    // bundles src-tauri/resources/dfn3/ (scripts/fetch-dfn3.sh). Since
+    // plugin 0.8.1 the model (about 40 MB) is loaded only when a call first
+    // needs it: that call starts on the OS's processing alone
+    // (`reason: loading`) and steps up once it's ready; it's released five
+    // minutes after the last call (`dfn3_idle_unload`, left at Sew's
+    // default; no `preload_dfn3`). `dfn3_weights` isn't needed for that
+    // place (the resource directory is only known once the app runs);
+    // missing or altered weights leave Standard on the OS's processing. Off
+    // is raw capture on iOS (the OS's voice processing off; echo
+    // cancellation and gain control stay). The person's On/Off is the
+    // webview's (noiseRemoval.ts): it sets `set_noise_removal` before each
+    // join, and during a call (the microphone pauses briefly while it
+    // switches); until then the engine's default is Standard.
     tauri_plugin_sew_voice::Builder::new(K2Provider::new(native.clone()))
         .listener(Arc::new(CallKitBridge { tx, watch, native: native.clone(), held: AtomicBool::new(false) }))
         .hardware_device_key(Arc::new(EnclaveKey { native: native.clone() }))
