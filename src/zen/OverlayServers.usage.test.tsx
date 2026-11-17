@@ -24,6 +24,7 @@ import { useServersStore } from "../stores/servers";
 import { useNotifyPrefsStore } from "../stores/notifyPrefs";
 import { OverlayServers } from "./OverlayServers";
 import { listBody } from "../test/llmTokensFixture";
+import { edgeSwipe, settleSwipe } from "../test/edgeSwipe";
 
 const ok = (body: unknown) => ({
   status: 200,
@@ -115,5 +116,28 @@ describe("Servers sheet usage button", () => {
     useServersStore.setState({ tokens: { s2: "t2" } });
     render(<OverlayServers onClose={() => {}} />);
     expect(screen.queryByTestId("server-usage")).toBeNull();
+  });
+});
+
+describe("Servers page left-edge swipe", () => {
+  it("on the list it is the back chevron", async () => {
+    vi.mocked(serverHasFeature).mockResolvedValue(false);
+    const onClose = vi.fn();
+    render(<OverlayServers onClose={onClose} />);
+    edgeSwipe(screen.getByTestId("overlay-servers-list"));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it("over Usage only Usage goes back (one level); Servers stays", async () => {
+    vi.mocked(serverHasFeature).mockResolvedValue(false);
+    const onClose = vi.fn();
+    render(<OverlayServers onClose={onClose} />);
+    fireEvent.click(screen.getByTestId("server-usage"));
+    const page = await screen.findByTestId("usage-page");
+    edgeSwipe(page);
+    await waitFor(() => expect(screen.queryByTestId("usage-page")).toBeNull());
+    await settleSwipe();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByTestId("overlay-servers").style.transform).toBe("");
   });
 });

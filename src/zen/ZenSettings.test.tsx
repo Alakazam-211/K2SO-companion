@@ -22,7 +22,8 @@ import {
   setPushEnabled,
   unregisterAll,
 } from "../lib/push";
-import { handleAndroidBack } from "../lib/androidBack";
+import { handleAndroidBack, pushBackLayer } from "../lib/androidBack";
+import { edgeSwipe, settleSwipe, swipeTakesTouch } from "../test/edgeSwipe";
 import { useServersStore } from "../stores/servers";
 import { ZenSettings } from "./ZenSettings";
 import { MULTI_SERVER_KEY, readMultiServer, useMultiServerPrefs } from "./multi/prefs";
@@ -305,6 +306,81 @@ describe("ZenSettings — Android Back", () => {
       expect(screen.queryByTestId("acknowledgements-page")).toBeNull();
     } finally {
       vi.unstubAllGlobals();
+    }
+  });
+});
+
+describe("Settings left-edge swipe", () => {
+  it("goes back like the back chevron", async () => {
+    const onClose = vi.fn();
+    render(<ZenSettings onClose={onClose} />);
+    edgeSwipe(screen.getByTestId("overlay-settings"));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it("arms only at the left edge", async () => {
+    const onClose = vi.fn();
+    render(<ZenSettings onClose={onClose} />);
+    expect(swipeTakesTouch(screen.getByTestId("overlay-settings"), 120)).toBe(false);
+    edgeSwipe(screen.getByTestId("overlay-settings"), 120);
+    await settleSwipe();
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("the text-size slider keeps its drag, even from the edge", async () => {
+    const onClose = vi.fn();
+    render(<ZenSettings onClose={onClose} />);
+    const slider = screen.getByTestId("text-size-slider");
+    expect(swipeTakesTouch(slider, 5)).toBe(false);
+    edgeSwipe(slider, 5);
+    await settleSwipe();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByTestId("overlay-settings").style.transform).toBe("");
+    // The page itself still swipes.
+    expect(swipeTakesTouch(screen.getByTestId("settings-scroll"), 5)).toBe(true);
+  });
+
+  it("Themes swipes back to Settings only (one level); Settings stays still", async () => {
+    const onClose = vi.fn();
+    render(<ZenSettings onClose={onClose} />);
+    fireEvent.click(screen.getByTestId("settings-themes"));
+    edgeSwipe(screen.getByTestId("themes-page"));
+    await waitFor(() => expect(screen.queryByTestId("themes-page")).toBeNull());
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByTestId("overlay-settings").style.transform).toBe("");
+    // Settings is on top again: its own swipe works.
+    edgeSwipe(screen.getByTestId("overlay-settings"));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it("Acknowledgements swipes back to Settings only", async () => {
+    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: true, text: async () => "Meslo notice" })));
+    try {
+      const onClose = vi.fn();
+      render(<ZenSettings onClose={onClose} />);
+      fireEvent.click(screen.getByTestId("settings-acknowledgements"));
+      await waitFor(() => expect(screen.getByTestId("acknowledgements-text").textContent).toBe("Meslo notice"));
+      edgeSwipe(screen.getByTestId("acknowledgements-text"));
+      await waitFor(() => expect(screen.queryByTestId("acknowledgements-page")).toBeNull());
+      await settleSwipe();
+      expect(onClose).not.toHaveBeenCalled();
+      expect(screen.getByTestId("overlay-settings")).not.toBeNull();
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it("does nothing while another layer is on top", async () => {
+    const onClose = vi.fn();
+    render(<ZenSettings onClose={onClose} />);
+    const layer = pushBackLayer(() => {});
+    try {
+      expect(swipeTakesTouch(screen.getByTestId("overlay-settings"))).toBe(false);
+      edgeSwipe(screen.getByTestId("overlay-settings"));
+      await settleSwipe();
+      expect(onClose).not.toHaveBeenCalled();
+    } finally {
+      layer.remove();
     }
   });
 });

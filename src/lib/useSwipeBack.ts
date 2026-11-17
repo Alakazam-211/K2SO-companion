@@ -30,6 +30,9 @@
 //     touch start — Zen's thread and open ticket pass their androidBack
 //     "am I the topmost layer?" so any sheet, drawer or menu above the
 //     screen wins.
+//   - Controls that drag sideways: a touch that starts on a range input
+//     (the Settings text-size slider) or inside `[data-no-swipe-back]`
+//     never arms, even at the edge — the control keeps the drag.
 //   - `onDragChange(true)` fires when the screen starts following the
 //     finger and `(false)` once it has settled (sprung home, or right
 //     after `onBack`) — Zen uses it to show the list underneath.
@@ -74,6 +77,10 @@ import {
 } from "./swipeBack";
 import { kbMark } from "./kbDiag";
 import { focusWithKeyboard } from "./nativeKeyboard";
+
+/** Touches starting on (or inside) these never arm: sideways controls
+ *  keep their own drags even when they start at the edge. */
+export const NO_SWIPE_BACK_SELECTOR = '[data-no-swipe-back], input[type="range"]';
 
 /** Drop move samples older than the velocity window needs (bounded). */
 const MAX_SAMPLES = 20;
@@ -300,7 +307,8 @@ export function useSwipeBack(
         return;
       }
       const t = e.touches[0];
-      phase = canArm(t.clientX, isEnabled()) ? "armed" : null;
+      const target = e.target instanceof Element ? e.target : null;
+      phase = canArm(t.clientX, isEnabled()) && !target?.closest(NO_SWIPE_BACK_SELECTOR) ? "armed" : null;
       if (phase === null) return;
       startX = t.clientX;
       startY = t.clientY;

@@ -22,6 +22,7 @@ import { StatusChip, TicketView } from "./TicketView";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 import { useTicketsScope } from "./zenScope";
 import { useBackHandler } from "../lib/androidBack";
+import { useSwipeBack } from "../lib/useSwipeBack";
 
 // Zen Tickets: the list (glass header + Done, scope tabs, status sections
 // of `.k2-tile` cards) and the open ticket (TicketView, Layout A).
@@ -154,7 +155,10 @@ export const TicketsOverlay = memo(function TicketsOverlay({
   // Android Back = Done. Off while a ticket is open: TicketView takes
   // Back itself (a deep link mounts both at once, and the child's
   // handler would otherwise register first and lose).
-  useBackHandler(!openId, onClose);
+  // The left-edge swipe too, only while the list is the top layer (an
+  // open TicketView swipes back to the list itself).
+  const onTop = useBackHandler(!openId, onClose);
+  const swipeRef = useSwipeBack(onClose, { enabled: onTop });
 
   const emptyText =
     scope === "waiting"
@@ -165,6 +169,7 @@ export const TicketsOverlay = memo(function TicketsOverlay({
 
   return (
     <div
+      ref={swipeRef}
       className="absolute inset-0 flex flex-col"
       style={{ background: "var(--color-bg)", zIndex: 6 }}
       data-testid="overlay-tickets"

@@ -10,6 +10,7 @@ import { useJumpOnSendStore } from "./jumpOnSend";
 import { useStashStore } from "./stash/stashStore";
 import { noiseRemovalAvailable, useNoiseRemovalStore } from "./voice/noiseRemoval";
 import { useBackHandler } from "../lib/androidBack";
+import { useSwipeBack } from "../lib/useSwipeBack";
 import { AcknowledgementsPage } from "./AcknowledgementsPage";
 import { RowChevron } from "./RowChevron";
 import { BackArrowButton } from "./BackArrowButton";
@@ -30,12 +31,15 @@ const SWITCH_ON = "var(--color-status-ok)";
  *  page's values plus Terminal: Kessel). The pre-Zen UI (and its
  *  "Leave Zen Mode" door) was removed in 4.1.0. */
 export function ZenSettings({ onClose }: { onClose: () => void }) {
-  // Android Back = Done.
-  useBackHandler(true, onClose);
+  // Android Back = the back chevron; the left-edge swipe too, while
+  // nothing (Themes, Acknowledgements) sits over the page.
+  const onTop = useBackHandler(true, onClose);
+  const swipeRef = useSwipeBack(onClose, { enabled: onTop });
   const [notices, setNotices] = useState(false);
   const [themes, setThemes] = useState(false);
   return (
     <div
+      ref={swipeRef}
       className="absolute inset-0 flex flex-col"
       style={{ background: "var(--color-bg)", color: "var(--color-text-primary)", zIndex: 6, paddingTop: "env(safe-area-inset-top)" }}
       data-testid="overlay-settings"

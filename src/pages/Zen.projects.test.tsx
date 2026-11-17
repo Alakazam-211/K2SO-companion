@@ -72,7 +72,8 @@ import {
   fetchProjectGroupShow,
   fetchProjectGroups,
 } from "../api/projectGroups";
-import { handleAndroidBack } from "../lib/androidBack";
+import { handleAndroidBack, pushBackLayer } from "../lib/androidBack";
+import { edgeSwipe, settleSwipe, swipeTakesTouch } from "../test/edgeSwipe";
 import { useProjectGroupsStore } from "../stores/projectGroups";
 import { useServersStore } from "../stores/servers";
 import { useWorkspacesStore } from "../stores/workspaces";
@@ -391,5 +392,28 @@ describe("Zen Projects", () => {
     expect(screen.queryByTestId("overlay-projects")).toBeNull();
     expect(useZenStore.getState().projectsOpen).toBe(false);
     expect(handleAndroidBack()).toBe(false);
+  });
+
+  it("the left-edge swipe on the sheet goes back to Agents, like the back chevron", async () => {
+    await openAgents();
+    const sheet = await openSheet();
+    edgeSwipe(sheet);
+    await waitFor(() => expect(screen.queryByTestId("overlay-projects")).toBeNull());
+    expect(useZenStore.getState().projectsOpen).toBe(false);
+  });
+
+  it("no sheet swipe while another layer is on top of it", async () => {
+    await openAgents();
+    const sheet = await openSheet();
+    const layer = pushBackLayer(() => {});
+    try {
+      expect(swipeTakesTouch(sheet)).toBe(false);
+      edgeSwipe(sheet);
+      await settleSwipe();
+      expect(screen.getByTestId("overlay-projects")).toBe(sheet);
+      expect(useZenStore.getState().projectsOpen).toBe(true);
+    } finally {
+      layer.remove();
+    }
   });
 });

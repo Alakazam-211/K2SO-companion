@@ -40,6 +40,7 @@ import { JUST_CONNECTED_MS, OverlayServers, SERVERS_HEADER_PX } from "./OverlayS
 import { useZenStore } from "./zenStore";
 import { useMultiServerPrefs } from "./multi/prefs";
 import { blankEntry, pool } from "./multi/pool";
+import { edgeSwipe, settleSwipe, swipeTakesTouch } from "../test/edgeSwipe";
 
 const HOME = {
   id: "s1",
@@ -333,6 +334,19 @@ describe("OverlayServers", () => {
     expect(screen.queryByTestId("servers-header")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: /Cancel/ }));
     expect(screen.getByTestId("servers-header-blur")).not.toBeNull();
+  });
+
+  it("the left-edge swipe stays off on the add / edit form (Cancel is its way back)", async () => {
+    const onClose = vi.fn();
+    render(<OverlayServers onClose={onClose} />);
+    fireEvent.click(screen.getByRole("button", { name: "Edit Home" }));
+    expect(screen.queryByTestId("servers-header")).toBeNull();
+    const form = screen.getByTestId("overlay-servers");
+    expect(swipeTakesTouch(form)).toBe(false);
+    edgeSwipe(form);
+    await settleSwipe();
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("servers-header")).toBeNull();
   });
 
   it("the list leaves room for the bottom bar", () => {

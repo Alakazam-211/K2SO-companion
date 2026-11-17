@@ -17,6 +17,7 @@ import { mountainListWhen } from "./threadModel";
 import { underHeaderPadding, useMeasuredHeight, ZenHeaderBlur } from "./ZenHeaderBlur";
 import { useZenStore } from "./zenStore";
 import { useBackHandler } from "../lib/androidBack";
+import { useSwipeBack } from "../lib/useSwipeBack";
 import { rowUnreadFor, toneColor } from "./unread";
 import { unreadSupported, useUnreadStore } from "./unreadStore";
 import { MutedGlyph, MuteMenuItems, RowUnreadCount } from "./UnreadMarks";
@@ -73,7 +74,9 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
   useBackHandler(menu !== null, () => setMenu(null));
   // Android Back = Done. A project chat opened from here registers on
   // top, so its Back lands back on this sheet first.
-  useBackHandler(true, onClose);
+  const onTop = useBackHandler(true, onClose);
+  // The left-edge swipe too, while nothing (the hold menu) is over it.
+  const swipeRef = useSwipeBack(onClose, { enabled: onTop });
 
   // Until the list lands, the Agents read's group rows stand in.
   const fallback = useMemo<ProjectGroup[]>(
@@ -139,6 +142,7 @@ export function ProjectsOverlay({ onClose }: { onClose: () => void }) {
 
   return (
     <div
+      ref={swipeRef}
       className="absolute inset-0 flex flex-col"
       style={{ background: "var(--color-bg)", zIndex: 6 }}
       data-testid="overlay-projects"
