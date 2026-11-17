@@ -67,6 +67,25 @@ enum K2CallPush {
     UserDefaults.standard.dictionary(forKey: hostsKey) as? [String: String] ?? [:]
   }
 
+  // ── Ring for incoming calls (Settings → Calls; src/zen/calls/callRing.ts) ──
+
+  /// In the App Group's UserDefaults, for the Notification Service
+  /// Extension: false = a ring push gets no sound and the normal level.
+  /// Never written = ring. KEEP THE KEY IN SYNC with NotificationService.swift.
+  static let ringKey = "k2.call.ring.v1"
+  static let appGroupId = "group.com.alakazamlabs.k2so.companion"
+
+  /// false: no App Group here (the extension then keeps ringing).
+  static func setRing(_ on: Bool) -> Bool {
+    guard let d = UserDefaults(suiteName: appGroupId) else { return false }
+    d.set(on, forKey: ringKey)
+    return true
+  }
+
+  static func ringOn() -> Bool {
+    UserDefaults(suiteName: appGroupId)?.object(forKey: ringKey) as? Bool ?? true
+  }
+
   /// The saved server a call push came from: the sealed push's own key
   /// names it (`k2ServerId`, K2PushSealed); else the one saved server whose
   /// host is `<subdomain>.k2.dev` (the relay stamps `subdomain`).

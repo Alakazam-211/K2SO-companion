@@ -51,6 +51,12 @@
 // interruption level; the one push that replaces it (Answered on another
 // device / Missed call / Call ended) gets K2_CALL_DONE and NO sound.
 //
+// Ring for incoming calls (Settings → Calls, default on; the app stores it
+// in the App Group's UserDefaults, `k2.call.ring.v1`, K2CallPush.setRing):
+// off, the ring gets NO sound and the normal (active) level instead, still
+// "Incoming call" with Accept / Decline; an unopened ring the same. iOS's
+// silent switch and Focus apply either way.
+//
 // The clear aps of a sealed call push (K2's answers §2): with the relay's
 // `call-aps` cap, `alert` "K2 / New message", `sound` default,
 // `mutable-content` 1, `category` K2_CALL, `interruption-level`
@@ -202,8 +208,7 @@ final class NotificationService: UNNotificationServiceExtension {
     if state.isEmpty || state == "ringing" {
       m.categoryIdentifier = callRingCategory
       if m.body.isEmpty { m.body = "Incoming call" }
-      m.sound = .default
-      m.interruptionLevel = .timeSensitive
+      applyRingSound(m)
       m.relevanceScore = 1
     } else {
       m.categoryIdentifier = callDoneCategory
@@ -232,8 +237,33 @@ final class NotificationService: UNNotificationServiceExtension {
       m.interruptionLevel = .passive
     } else {
       m.categoryIdentifier = ""
+      if !ringOn() {
+        m.sound = nil
+        m.interruptionLevel = .active
+      }
     }
     return m
+  }
+
+  /// Settings → Calls → Ring for incoming calls, as the app stored it in
+  /// the App Group (K2CallPush.ringKey — KEEP THE KEY IN SYNC). Never
+  /// written (or no App Group): ring.
+  static let ringKey = "k2.call.ring.v1"
+
+  static func ringOn() -> Bool {
+    UserDefaults(suiteName: appGroupId)?.object(forKey: ringKey) as? Bool ?? true
+  }
+
+  /// A ring: on = the default sound, time-sensitive (today's ring); off =
+  /// no sound at the normal level, still shown with Accept / Decline.
+  static func applyRingSound(_ m: UNMutableNotificationContent) {
+    if ringOn() {
+      m.sound = .default
+      m.interruptionLevel = .timeSensitive
+    } else {
+      m.sound = nil
+      m.interruptionLevel = .active
+    }
   }
 
   /// A done push: the call's other notifications still delivered go first

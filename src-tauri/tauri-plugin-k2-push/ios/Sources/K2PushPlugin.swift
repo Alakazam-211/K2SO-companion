@@ -536,6 +536,15 @@ class K2PushPlugin: Plugin {
         }
         invoke.resolve(["ok": true])
       }
+    case "ring":
+      // Settings → Calls → Ring for incoming calls: `{on}` stores it for the
+      // Notification Service Extension (K2CallPush.ringKey); without `on`
+      // it only answers the stored value.
+      if let on = args.on {
+        invoke.resolve(["ok": K2CallPush.setRing(on), "on": on])
+      } else {
+        invoke.resolve(["ok": true, "on": K2CallPush.ringOn()])
+      }
     case "appGroup":
       // The screen share's ring lives in the App Group's container (Rust
       // arms it there once a call is connected; K2ScreenShare.swift).

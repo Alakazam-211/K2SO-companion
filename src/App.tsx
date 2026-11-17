@@ -20,6 +20,7 @@ import { CallTile } from "./zen/voice/callTile";
 import { VoiceRoomsOverlay } from "./zen/voice/VoiceRooms";
 import { DmCallLayer } from "./zen/calls/DmCallLayer";
 import { startDmCallWatch } from "./zen/calls/dmCallWatch";
+import { syncCallRing } from "./zen/calls/callRing";
 import { PushOnboardHost } from "./zen/PushOnboardPrompt";
 
 /** Cold-start home is always the overlay. Zero stored servers still
@@ -68,6 +69,8 @@ function PushBridge() {
     const stopStashSync = startStashSync();
     // DM calls (K2 0.46.13): rings from every server that offers Home chat.
     const stopDmCalls = startDmCallWatch();
+    // The ring setting, copied to the App Group for the push extension.
+    syncCallRing();
     return () => {
       cleanup?.();
       stopWatch();

@@ -21,6 +21,7 @@ import { DmCallLayer } from "./DmCallLayer";
 import { __resetDmCallsForTests, useDmCalls, type ActiveDmCall, type IncomingRing } from "./dmCall";
 import { __resetHomeChatOpenForTests, useHomeChatOpenRequest } from "./homeChatOpen";
 import { __setRingToneForTests } from "./ringTone";
+import { useCallRingStore } from "./callRing";
 
 const tone = { start: vi.fn(), stop: vi.fn() };
 
@@ -59,6 +60,7 @@ beforeEach(() => {
   __resetDmCallsForTests();
   __resetHomeChatOpenForTests();
   __setRingToneForTests(tone);
+  useCallRingStore.setState({ on: true });
   tone.start.mockClear();
   tone.stop.mockClear();
   for (const f of Object.values(flows)) f.mockClear();
@@ -93,6 +95,18 @@ describe("DmCallLayer", () => {
     render(<DmCallLayer />);
     expect(screen.getByTestId("dm-ring-card")).toBeTruthy();
     expect(tone.start).not.toHaveBeenCalled();
+  });
+
+  it("Ring for incoming calls off: the card without sound; back on, it rings", () => {
+    useCallRingStore.setState({ on: false });
+    useDmCalls.setState({ rings: [ringCard()] });
+    render(<DmCallLayer />);
+    expect(screen.getByTestId("dm-ring-card")).toBeTruthy();
+    expect(tone.start).not.toHaveBeenCalled();
+    act(() => useCallRingStore.setState({ on: true }));
+    expect(tone.start).toHaveBeenCalled();
+    act(() => useCallRingStore.setState({ on: false }));
+    expect(tone.stop).toHaveBeenCalled();
   });
 
   it("stops the sound and the card the moment the ring stops", () => {

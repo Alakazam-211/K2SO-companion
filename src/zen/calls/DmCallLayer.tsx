@@ -17,10 +17,12 @@ import {
 } from "./dmCall";
 import { requestOpenHomeChat } from "./homeChatOpen";
 import { ringTone } from "./ringTone";
+import { useCallRingStore } from "./callRing";
 
 // DM calls over every screen (mounted once, App.tsx), top of the screen:
 //   - a ring card per incoming ring: the caller, "Incoming call", Decline
-//     and Accept; the ring sound unless the ring is silent; it goes the
+//     and Accept; the ring sound unless the ring is silent or Settings →
+//     Calls → Ring for incoming calls is off (callRing.ts); it goes the
 //     moment the ring stops (any reason) or times out;
 //   - the caller's bar: "Calling Alex…" with Cancel and Call again, then
 //     "Alex declined" / "Alex didn't answer" with Call again for a moment;
@@ -219,7 +221,7 @@ function NoticeLine() {
   );
 }
 
-/** The ring sound: on while any ring isn't silent. */
+/** The ring sound: on while any ring isn't silent and the ring setting is on. */
 function useRingSound(loud: boolean): void {
   useEffect(() => {
     const tone = ringTone();
@@ -234,7 +236,8 @@ export function DmCallLayer() {
   const active = useDmCalls((s) => s.active);
   const notice = useDmCalls((s) => s.notice);
   const servers = useServersStore((s) => s.servers.length);
-  const loud = useMemo(() => rings.some((r) => !r.silent && r.busy === null), [rings]);
+  const ringOn = useCallRingStore((s) => s.on);
+  const loud = useMemo(() => ringOn && rings.some((r) => !r.silent && r.busy === null), [rings, ringOn]);
   useRingSound(loud);
   const showBar = !!active && active.role === "caller" && active.phase !== "connected";
   if (rings.length === 0 && !showBar && !notice) return null;

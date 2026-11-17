@@ -9,6 +9,7 @@ import { useRecentFirstStore } from "./recentFirst";
 import { useJumpOnSendStore } from "./jumpOnSend";
 import { useStashStore } from "./stash/stashStore";
 import { noiseRemovalAvailable, useNoiseRemovalStore } from "./voice/noiseRemoval";
+import { useCallRingStore } from "./calls/callRing";
 import { useBackHandler } from "../lib/androidBack";
 import { useSwipeBack } from "../lib/useSwipeBack";
 import { AcknowledgementsPage } from "./AcknowledgementsPage";
@@ -26,7 +27,8 @@ const SWITCH_ON = "var(--color-status-ok)";
 /** Zen Settings sheet (opened by the Chats header cog). iOS grouped list
  *  of `.k2-tile` cards: Notifications (the same push toggle as the old
  *  Settings page), Appearance (Themes, Zen font, text size), Chats, Calls
- *  (Noise removal, where this build has calls), Lists (Recent
+ *  (Ring for incoming calls and Noise removal, where this build has
+ *  calls), Lists (Recent
  *  agents first, this phone only), Experimental, and About (the old
  *  page's values plus Terminal: Kessel). The pre-Zen UI (and its
  *  "Leave Zen Mode" door) was removed in 4.1.0. */
@@ -86,7 +88,19 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
         </Group>
 
         {noiseRemovalAvailable() ? (
-          <Group label="Calls" testId="settings-calls" footnote={NOISE_REMOVAL_FOOTNOTE}>
+          <Group
+            label="Calls"
+            testId="settings-calls"
+            footnote={
+              <>
+                <span className="block">{CALL_RING_FOOTNOTE}</span>
+                <span className="block" style={{ marginTop: 6 }}>
+                  {NOISE_REMOVAL_FOOTNOTE}
+                </span>
+              </>
+            }
+          >
+            <CallRingRow />
             <NoiseRemovalRow />
           </Group>
         ) : null}
@@ -349,6 +363,28 @@ function StashRemoveAfterUseRow() {
   );
 }
 
+const CALL_RING_FOOTNOTE =
+  "Ring for incoming calls: the phone rings when someone calls you. Off: calls arrive as a quiet notification.";
+
+/** "Ring for incoming calls" (calls/callRing.ts): phone-only, default on.
+ *  Off, the in-app ring and the call push's sound go (the card and the
+ *  notification stay). */
+function CallRingRow() {
+  const on = useCallRingStore((s) => s.on);
+  const setOn = useCallRingStore((s) => s.setOn);
+  return (
+    <div
+      className="flex items-center justify-between text-[17px]"
+      style={{ minHeight: 44, padding: "6px 12px 6px 16px", gap: 12 }}
+    >
+      <span id="zen-call-ring-label">Ring for incoming calls</span>
+      <span className="flex items-center shrink-0" data-testid="call-ring-switch">
+        <Switch on={on} disabled={false} onToggle={() => setOn(!on)} labelledBy="zen-call-ring-label" />
+      </span>
+    </div>
+  );
+}
+
 const NOISE_REMOVAL_FOOTNOTE =
   "Removes background noise from your microphone in calls. Off sends the full sound, with echo cancellation still on. Only this phone.";
 
@@ -360,7 +396,7 @@ function NoiseRemovalRow() {
   return (
     <div
       className="flex items-center justify-between text-[17px]"
-      style={{ minHeight: 44, padding: "6px 12px 6px 16px", gap: 12 }}
+      style={{ minHeight: 44, padding: "6px 12px 6px 16px", gap: 12, borderTop: HAIRLINE }}
     >
       <span id="zen-noise-removal-label">Noise removal</span>
       <span className="flex items-center shrink-0" data-testid="noise-removal-switch">
