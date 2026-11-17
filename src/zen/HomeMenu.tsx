@@ -16,8 +16,8 @@ const ITEM = {
 type Mode = { kind: "list" } | { kind: "new" } | { kind: "rename" } | { kind: "delete" };
 
 /**
- * The Home tab's title dropdown (HM4): the Homes on this device (check on
- * the current one), then New Home…, Rename… and Delete. Same glass menu
+ * The Home tab's title dropdown (HM4): the groups (Homes) on this device
+ * (check on the current one), then New group…, Rename… and Delete. Same glass menu
  * as the focus-group switcher. Delete is off on the last Home.
  */
 export function HomeMenu({
@@ -76,7 +76,7 @@ export function HomeMenu({
     <>
       <button
         type="button"
-        aria-label="Close Homes"
+        aria-label="Close groups"
         className="fixed inset-0 bg-transparent border-0 p-0"
         style={{ zIndex: 29 }}
         data-no-pin="1"
@@ -85,7 +85,7 @@ export function HomeMenu({
       />
       <div
         role="menu"
-        aria-label="Homes"
+        aria-label="Groups"
         className="zen-glass absolute"
         data-no-pin="1"
         data-testid="home-title-menu"
@@ -112,14 +112,14 @@ export function HomeMenu({
             }}
           >
             <span className="text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
-              {mode.kind === "new" ? "New Home" : `Rename ${current.name}`}
+              {mode.kind === "new" ? "New group" : `Rename ${current.name}`}
             </span>
             <input
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Home name"
-              aria-label="Home name"
+              placeholder="Group name"
+              aria-label="Group name"
               maxLength={HOME_NAME_MAX}
               className="k2-tile k2-tile-raised outline-none text-[16px]"
               style={{ height: 40, borderRadius: 10, padding: "0 12px", color: "var(--color-text-primary)" }}
@@ -235,7 +235,7 @@ export function HomeMenu({
               }}
               data-testid="home-menu-new"
             >
-              New Home…
+              New group…
             </button>
             <button
               type="button"
@@ -305,7 +305,7 @@ export function HomeMenu({
                 role="menuitem"
                 aria-disabled={lastHome || undefined}
                 disabled={lastHome}
-                title={lastHome ? "You need at least one Home" : undefined}
+                title={lastHome ? "The last group can’t be deleted." : undefined}
                 className="w-full flex items-center text-left bg-transparent border-0 text-[16px] disabled:opacity-40"
                 style={{ ...ITEM, color: "var(--color-status-error)" }}
                 onClick={() => setMode({ kind: "delete" })}

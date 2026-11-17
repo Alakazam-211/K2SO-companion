@@ -55,7 +55,7 @@ export function homeRowTarget(
   return addr ? { serverId: v.server.id, addr } : null;
 }
 
-export const HOME_EMPTY_TITLE = "Your Home is empty";
+export const HOME_EMPTY_TITLE = "This group is empty";
 export const HOME_EMPTY_BODY = "Tap + to add agents from your servers.";
 
 /**
@@ -133,7 +133,7 @@ export interface RemoteRowLook {
  * The Home tab's list (HM3/HM6/HM7): the current Home's rows with the
  * Agents row look, its first nine in the pin grid's layout (rows while
  * searching or rearranging). Press and hold one for its menu (Open,
- * Mute, Rearrange, Move to Home…, Remove from Home); rows carry no `data-pin-id`, so the
+ * Mute, Rearrange, Move to group…, Remove from <group>); rows carry no `data-pin-id`, so the
  * pin grid's gestures never see them. Rearrange mode puts a grip left of
  * each avatar; a drag reorders the Home (`onReorder`, synced by Homes
  * sync like any Home edit).
@@ -160,7 +160,7 @@ export function HomeList({
   pins,
   onMoveToHome,
 }: {
-  /** An agent row's Move to Home… (the Home picker; `name` is what the
+  /** An agent row's Move to group… (the Home group picker; `name` is what the
    *  row shows). Absent: no such item (one Home, nowhere to move). */
   onMoveToHome?: (address: string, name: string) => void;
   /** Home groups (K2 0.46.13): Pin / Unpin on the hold menu (at most 9
@@ -235,7 +235,7 @@ export function HomeList({
   if (views.length === 0) {
     return searching ? (
       <p className="py-6 text-[14px] text-center" style={{ color: "var(--color-text-muted)" }} data-testid="home-no-match">
-        {otherHomeOf ? "No matches on any Home." : `No matches on ${homeName}.`}
+        {otherHomeOf ? "No matches in any group." : `No matches on ${homeName}.`}
       </p>
     ) : (
       <div
@@ -378,7 +378,7 @@ export function HomeList({
         ? [
             {
               key: "move-home",
-              label: "Move to Home…",
+              label: "Move to group…",
               icon: <MoveHomeGlyph />,
               onSelect: () => onMoveToHome(v.row.address, modelOf(v).name),
             },
@@ -386,7 +386,7 @@ export function HomeList({
         : []),
       {
         key: "remove",
-        label: `Remove from ${otherHomeOf?.(v.row.address) ?? "Home"}`,
+        label: `Remove from ${otherHomeOf?.(v.row.address) ?? homeName}`,
         icon: <RemoveGlyph />,
         danger: true,
         onSelect: () => onRemove(v.row.address),

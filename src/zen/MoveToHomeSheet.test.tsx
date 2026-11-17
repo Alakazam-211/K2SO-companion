@@ -22,16 +22,16 @@ function mount(over: Partial<Parameters<typeof MoveToHomeSheet>[0]> = {}) {
 
 afterEach(() => cleanup());
 
-describe("Move to Home sheet", () => {
+describe("Move to group sheet (Home groups)", () => {
   it("is a titled dialog listing every Home by name, the current one checked and off", () => {
     mount();
-    const dialog = screen.getByRole("dialog", { name: "Move alpha to…" });
-    const list = within(dialog).getByRole("list", { name: "Homes" });
+    const dialog = screen.getByRole("dialog", { name: "Move alpha to a group" });
+    const list = within(dialog).getByRole("list", { name: "Groups" });
     const buttons = within(list).getAllByRole("button");
     expect(buttons.map((b) => b.getAttribute("aria-label"))).toEqual([
       "Group 1, current",
       "Work",
-      "Lab, already there",
+      "Lab, already in it",
     ]);
     const current = screen.getByTestId("move-home-h1") as HTMLButtonElement;
     expect(current.disabled).toBe(true);

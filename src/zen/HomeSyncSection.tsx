@@ -205,8 +205,8 @@ export function HomeSyncSection({ serverId, label }: { serverId: string; label: 
                     <Confirm
                       text={
                         d.current
-                          ? "Stop syncing this phone's Home? Your Homes stay on this phone."
-                          : `Remove ${d.name} from Home sync? It keeps its Homes but stops syncing.`
+                          ? "Stop syncing this phone's Home? Your groups stay on this phone."
+                          : `Remove ${d.name} from Home sync? It keeps its groups but stops syncing.`
                       }
                       yes="Remove"
                       danger
@@ -225,7 +225,7 @@ export function HomeSyncSection({ serverId, label }: { serverId: string; label: 
         ) : null}
       </div>
       <p className="text-[12px]" style={{ color: MUTED, padding: "6px 16px 0", lineHeight: 1.35 }}>
-        Your Homes stay on this phone and work offline. {label} keeps a copy so your other devices see the same Homes.
+        Your groups stay on this phone and work offline. {label} keeps a copy so your other devices see the same groups.
       </p>
     </section>
   );

@@ -97,7 +97,7 @@ describe("Home store (HM2)", () => {
   });
 });
 
-describe("Move to Home (moveRowToHome)", () => {
+describe("Move to group on a Home row (moveRowToHome)", () => {
   function twoHomes() {
     const s = useHomesStore.getState();
     s.ensureSeeded();

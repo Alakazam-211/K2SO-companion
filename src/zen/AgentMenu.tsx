@@ -9,7 +9,8 @@ import { rectOf, type HeldMenu, type MenuRect } from "./useHoldMenu";
 
 // The one press-and-hold menu for an agent (Agents rows, pinned avatars,
 // Home rows). Every row action lives here: Open, Pin / Unpin, Mute,
-// Move to group…, Rearrange, Move to Home…, Remove from Home. Glass, iOS-style: label
+// Move to group… (focus groups on Agents rows, Home groups on Home
+// rows), Rearrange, Remove from <group>. Glass, iOS-style: label
 // on the left, glyph on the right, under the pressed row (above it when
 // there is no room below).
 //
@@ -438,7 +439,7 @@ export function OpenGlyph() {
   return glyph(<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />);
 }
 
-/** lucide "house": Move to Home…. */
+/** lucide "house": a Home row's Move to group… (Home groups). */
 export function MoveHomeGlyph() {
   return glyph(
     <>
@@ -449,7 +450,7 @@ export function MoveHomeGlyph() {
   );
 }
 
-/** lucide "circle-minus": Remove from Home. */
+/** lucide "circle-minus": Remove from <group>. */
 export function RemoveGlyph() {
   return glyph(
     <>

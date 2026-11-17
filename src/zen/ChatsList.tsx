@@ -515,7 +515,8 @@ export function ChatsList() {
   const home = selectedHome({ homes, selectedId: homeSelectedId });
   const [homeMenu, setHomeMenu] = useState(false);
   const [addAgent, setAddAgent] = useState(false);
-  // Move to Home… (a Home row's menu): the row, its name and its Home.
+  // Move to group… on a Home row (Home groups, not focus groups): the
+  // row, its name and the group it is on.
   const [homeMove, setHomeMove] = useState<{ address: string; name: string; fromId: string } | null>(null);
   const closeHomeMove = useCallback(() => setHomeMove(null), []);
   // Homes sync (K2 0.46.1): which server Home syncs from, and the one-time
@@ -1405,7 +1406,7 @@ export function ChatsList() {
               onClick={() => setHomeMenu((v) => !v)}
               aria-haspopup="menu"
               aria-expanded={homeMenu}
-              aria-label={`Home ${home.name}`}
+              aria-label={`Group: ${home.name}`}
               data-testid="chats-title-home"
             >
               <span className="min-w-0 truncate">{home.name}</span>

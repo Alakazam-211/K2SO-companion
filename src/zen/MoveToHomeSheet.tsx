@@ -5,13 +5,13 @@ import { GroupGlyph } from "./groups/GroupGlyph";
 import { useBackHandler } from "../lib/androidBack";
 
 /**
- * "Move to Home…" sheet (a Home row's hold menu, Riley): the Homes on
- * this phone, in their order, each with its icon (or its number). The
- * agent's own Home is checked and can't be picked; a Home that already
- * has the agent says so and can't be picked either. A pick moves it
- * (`useHomesStore.moveRowToHome`, synced like every Home edit) and
- * closes. Cancel, the backdrop, Escape and Android Back close it. Same
- * bottom sheet as Move to group….
+ * A Home row's "Move to group…" sheet (Riley): the Home groups (in
+ * code, Homes) on this phone, in their order, each with its icon (or its
+ * number). The agent's own group is checked and can't be picked; a group
+ * that already has the agent says so and can't be picked either. A pick
+ * moves it (`useHomesStore.moveRowToHome`, synced like every Home edit)
+ * and closes. Cancel, the backdrop, Escape and Android Back close it.
+ * Same bottom sheet as the Agents tab's focus-group picker.
  */
 export function MoveToHomeSheet({
   agentName,
@@ -25,7 +25,7 @@ export function MoveToHomeSheet({
   /** The row's address (a Home that already has it can't be picked). */
   address: string;
   homes: Home[];
-  /** The Home the agent is on now. */
+  /** The group (Home) the agent is on now. */
   fromId: string;
   onPick: (homeId: string) => void;
   onClose: () => void;
@@ -71,14 +71,14 @@ export function MoveToHomeSheet({
           style={{ padding: "0 20px 10px", lineHeight: 1.35 }}
           data-testid="move-home-title"
         >
-          Move {agentName} to…
+          Move {agentName} to a group
         </h2>
-        <ul aria-label="Homes" className="min-h-0 overflow-y-auto list-none m-0 p-0">
+        <ul aria-label="Groups" className="min-h-0 overflow-y-auto list-none m-0 p-0">
           {homes.map((h, i) => {
             const current = h.id === fromId;
             const has = !current && homeHasAddress(h, address);
             const off = current || has;
-            const note = current ? "Current" : has ? "Already there" : null;
+            const note = current ? "Current" : has ? "Already in it" : null;
             return (
               <li key={h.id}>
                 <button

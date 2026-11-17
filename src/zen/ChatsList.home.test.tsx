@@ -281,12 +281,12 @@ describe("Home search across every Home (Riley 2026-10-22)", () => {
     mount();
     goHome();
     fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "zzz" } });
-    expect(screen.getByTestId("home-no-match").textContent).toBe("No matches on any Home.");
+    expect(screen.getByTestId("home-no-match").textContent).toBe("No matches in any group.");
   });
 });
 
 describe("Home title dropdown (HM4)", () => {
-  it("lists Homes with a check; New Home…, Rename…, Delete (off on the last)", () => {
+  it("lists the groups with a check; New group…, Rename…, Delete (off on the last)", () => {
     mount();
     goHome();
     fireEvent.click(screen.getByTestId("chats-title-home"));
@@ -295,8 +295,14 @@ describe("Home title dropdown (HM4)", () => {
     expect(within(menu).getAllByRole("menuitemradio")).toHaveLength(1);
     expect(within(menu).getByTestId("home-check")).not.toBeNull();
     expect((screen.getByTestId("home-menu-delete") as HTMLButtonElement).disabled).toBe(true);
+    // The Home page's groups are called groups (Riley; desktop's words).
+    expect(screen.getByTestId("chats-title-home").getAttribute("aria-label")).toBe("Group: Group 1");
+    expect(menu.getAttribute("aria-label")).toBe("Groups");
+    expect(screen.getByTestId("home-menu-new").textContent).toBe("New group…");
+    expect(screen.getByTestId("home-menu-delete").getAttribute("title")).toBe("The last group can’t be deleted.");
 
     fireEvent.click(screen.getByTestId("home-menu-new"));
+    expect(screen.getByLabelText("Group name")).not.toBeNull();
     fireEvent.change(screen.getByTestId("home-name-input"), { target: { value: "Work" } });
     fireEvent.click(screen.getByTestId("home-name-save"));
     expect(screen.queryByTestId("home-title-menu")).toBeNull();
@@ -422,13 +428,13 @@ describe("Home row menu and Rearrange (HM6)", () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it("right-click / long-press opens the menu: Open, Rearrange, Remove from Home; Remove only touches local storage", () => {
+  it("right-click / long-press opens the menu: Open, Rearrange, Remove from <group>; Remove only touches local storage", () => {
     mount();
     goHome();
     fireEvent.contextMenu(screen.getByTestId("home-row-alpha"));
     const menu = screen.getByTestId("home-row-menu");
     expect(menu.className).toMatch(/zen-glass/);
-    expect(menuLabels(menu)).toEqual(["Open", "Pin", "Rearrange", "Remove from Home"]);
+    expect(menuLabels(menu)).toEqual(["Open", "Pin", "Rearrange", "Remove from Group 1"]);
     // No Move up / Move down any more.
     expect(screen.queryByTestId("home-menu-up")).toBeNull();
     expect(screen.queryByTestId("home-menu-down")).toBeNull();
@@ -522,7 +528,7 @@ describe("Home row menu and Rearrange (HM6)", () => {
   });
 });
 
-describe("Move to Home… (Riley)", () => {
+describe("Move to group… on a Home row (Riley)", () => {
   afterEach(() => vi.useRealTimers());
 
   function twoHomes() {
@@ -543,7 +549,7 @@ describe("Move to Home… (Riley)", () => {
     mount();
     goHome();
     holdOpen(screen.getByTestId("home-row-alpha"));
-    expect(menuLabels(screen.getByTestId("home-row-menu"))).not.toContain("Move to Home…");
+    expect(menuLabels(screen.getByTestId("home-row-menu"))).not.toContain("Move to group…");
     expect(screen.queryByTestId("menu-move-home")).toBeNull();
   });
 
@@ -554,11 +560,11 @@ describe("Move to Home… (Riley)", () => {
     goHome();
     holdOpen(screen.getByTestId("home-row-alpha"));
     const labels = menuLabels(screen.getByTestId("home-row-menu"));
-    expect(labels).toContain("Move to Home…");
-    expect(labels.indexOf("Move to Home…")).toBe(labels.indexOf("Remove from Home") - 1);
+    expect(labels).toContain("Move to group…");
+    expect(labels.indexOf("Move to group…")).toBe(labels.indexOf("Remove from Group 1") - 1);
     tap(screen.getByTestId("menu-move-home"));
     expect(screen.queryByTestId("home-row-menu")).toBeNull();
-    const dialog = screen.getByRole("dialog", { name: "Move alpha to…" });
+    const dialog = screen.getByRole("dialog", { name: "Move alpha to a group" });
     expect((within(dialog).getByTestId(`move-home-${first}`) as HTMLButtonElement).disabled).toBe(true);
     fireEvent.click(within(dialog).getByRole("button", { name: "Second" }));
     expect(screen.queryByTestId("move-home-sheet")).toBeNull();

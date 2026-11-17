@@ -340,7 +340,7 @@ export function withRowRemoved(homes: Home[], homeId: string, address: string): 
 }
 
 /**
- * Move a row from one Home to another (the Home row's Move to Home…): it
+ * Move a row from one Home to another (a Home row's Move to group…): it
  * comes off `fromId` (either spelling of its address) and goes on the end
  * of `toId`, unpinned (pins are per Home). Its kind, label, workspace id
  * and last send go with it; its order and sync stamps don't (the commit
