@@ -133,6 +133,10 @@ export const DAEMON_FEATURES = [
   // and change-password tells its 401s, 423 and `password_unchanged`
   // apart. Read by zen/setPasswordFlow; absent → the step as before.
   "companion-password-ticket-v1",
+  // K2: who is typing in an agent Thread (`{"t":"typing"}` on the
+  // Thread's live socket, `collection:"typing"` frames back). Read by
+  // zen/threadTyping via ThreadPane; absent → nothing sent or shown.
+  "thread-typing-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];

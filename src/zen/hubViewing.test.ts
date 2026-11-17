@@ -135,4 +135,31 @@ describe("the open Thread on the hub (K2 0.46.8 hub-viewing-v1)", () => {
       "viewing_error c1 forbidden (own socket)",
     ]);
   });
+
+  it("typing (thread-typing-v1): sent on the hub with this view; typing frames for this chat go in", () => {
+    const { h, onItem } = open();
+    expect(h.sendTyping?.("aspen")).toBe(true);
+    expect(hub.sent).toEqual([{ t: "typing", thread: "aspen", conversationId: "c1" }]);
+    const mine = { collection: "typing", seq: 0, id: "aspen", member: "mira", name: "Mira", kind: "person", at: 1 };
+    frame(mine);
+    expect(onItem).toHaveBeenCalledWith(mine);
+    frame({ ...mine, conversation_id: "c1" });
+    expect(onItem).toHaveBeenCalledTimes(2);
+    frame({ ...mine, conversation_id: "other" });
+    expect(onItem).toHaveBeenCalledTimes(2);
+    h.stop();
+    expect(h.sendTyping?.("aspen")).toBe(false);
+  });
+
+  it("typing after a refused view rides the overlay socket", () => {
+    const sendTyping = vi.fn(() => true);
+    overlay.connect.mockReturnValue({ stop: vi.fn(), setViewing: vi.fn(), sendTyping });
+    const { h } = open();
+    h.setViewing(true);
+    frame({ kind: "viewing_error", conversation_id: "c1", code: "forbidden" });
+    hub.sent = [];
+    expect(h.sendTyping?.("aspen")).toBe(true);
+    expect(sendTyping).toHaveBeenCalledWith("aspen");
+    expect(hub.sent).toEqual([]);
+  });
 });

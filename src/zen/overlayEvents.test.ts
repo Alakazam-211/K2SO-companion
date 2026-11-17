@@ -175,4 +175,28 @@ describe("connectOverlayEvents", () => {
       expect(ws.sent).toEqual([]);
     });
   });
+
+  describe("typing frames (thread-typing-v1)", () => {
+    it("sendTyping puts {t:typing, thread} on the open socket; not before it opens, not after stop", () => {
+      const h = connectOverlayEvents({ scope: SCOPE, conversationId: "c1", onItem: vi.fn(), onNeedCatchUp: vi.fn() });
+      const ws = MockWS.last!;
+      expect(h.sendTyping?.("aspen")).toBe(false);
+      expect(ws.sent).toEqual([]);
+      ws.openNow();
+      expect(h.sendTyping?.("aspen")).toBe(true);
+      expect(ws.sent.map((f) => JSON.parse(f))).toEqual([{ t: "typing", thread: "aspen" }]);
+      h.stop();
+      expect(h.sendTyping?.("aspen")).toBe(false);
+    });
+
+    it("a typing frame (seq 0) is handed on as it came, like any frame", () => {
+      const onItem = vi.fn();
+      const h = connectOverlayEvents({ scope: SCOPE, conversationId: "c1", onItem, onNeedCatchUp: vi.fn() });
+      MockWS.last!.openNow();
+      const f = { collection: "typing", seq: 0, id: "aspen", member: "mira", name: "Mira", kind: "person", at: 1 };
+      MockWS.last!.deliver(f);
+      expect(onItem).toHaveBeenCalledWith(f);
+      h.stop();
+    });
+  });
 });
