@@ -158,6 +158,7 @@ import {
   isTypingFrame,
   parseThreadTypingFrame,
   threadPostAuthor,
+  threadTypingLine,
   threadTypingTick,
   typingFrameForThread,
   useThreadTyping,
@@ -1492,8 +1493,9 @@ export function ThreadPane({
     typingRef.current.notePost({ login: "", kind: "", from: newestMsg.from });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [newestMsg?.id]);
-  // Our own typing: at most one frame per 3 s, from the person's input
+  // Our own typing: at most one frame per 8 s, from the person's input
   // in the field only (ThreadDraftComposer's onType), with words in it.
+  // No stop frame, nothing on blur.
   const typingSent = useRef<TypingSent>({});
   useEffect(() => {
     typingSent.current = {};
@@ -3079,7 +3081,7 @@ export function ThreadPane({
                   transition: ride.transition,
                 }}
               >
-                <HomeChatTyping names={typingNames} />
+                <HomeChatTyping names={typingNames} line={threadTypingLine} />
               </div>
             ) : null}
             <div

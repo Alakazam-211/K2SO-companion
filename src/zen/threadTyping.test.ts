@@ -7,7 +7,10 @@ import {
   threadTypingTick,
   typingFrameForThread,
   THREAD_TYPING_SEND_MS,
+  threadTypingLine,
+  typingOldestFirst,
 } from "./threadTyping";
+import { typingLine } from "../api/homeChatHelpers";
 import { isThreadFrame } from "./threadTurn";
 import { typingWords } from "./homeChat/HomeChatTyping";
 
@@ -54,7 +57,8 @@ describe("a post ends its author's typing", () => {
 });
 
 describe("sending typing", () => {
-  it("at most once per 3 s per Thread, only with words", () => {
+  it("at most once per 8 s per Thread, only with words", () => {
+    expect(THREAD_TYPING_SEND_MS).toBe(8000);
     let sent = {};
     const tick = (text: string, now: number) => {
       const r = threadTypingTick(sent, "aspen", text, now);
@@ -71,10 +75,31 @@ describe("sending typing", () => {
   });
 });
 
-describe("the words are Home chat's", () => {
-  it("one, two, three or more names", () => {
-    expect(typingWords(["Mira"])).toBe("Mira is typing");
-    expect(typingWords(["Mira", "Ben"])).toBe("Mira and Ben are typing");
+describe("the Thread's words", () => {
+  it("one, two, then Several people; the ellipsis is the dots", () => {
+    expect(threadTypingLine([])).toBe("");
+    expect(threadTypingLine(["Mira"])).toBe("Mira is typing…");
+    expect(threadTypingLine(["Mira", "Ben"])).toBe("Mira and Ben are typing…");
+    expect(threadTypingLine(["Mira", "Ben", "Ada"])).toBe("Several people are typing…");
+    expect(typingWords(["Mira"], threadTypingLine)).toBe("Mira is typing");
+    expect(typingWords(["Mira", "Ben", "Ada", "Kai"], threadTypingLine)).toBe("Several people are typing");
+  });
+
+  it("Home chat keeps its own words", () => {
     expect(typingWords(["Mira", "Ben", "Ada"])).toBe("Mira and 2 others are typing");
+    expect(typingWords(["Mira", "Ben", "Ada"], typingLine)).toBe("Mira and 2 others are typing");
+  });
+});
+
+describe("oldest first", () => {
+  it("by when each run began, not the latest frame", () => {
+    const roster = { ben: 20_000, mira: 25_000, ada: 22_000 };
+    const since = new Map([
+      ["mira", 1000],
+      ["ben", 2000],
+      ["ada", 3000],
+    ]);
+    expect(typingOldestFirst(roster, since, 10_000)).toEqual(["mira", "ben", "ada"]);
+    expect(typingOldestFirst(roster, since, 21_000)).toEqual(["mira", "ada"]);
   });
 });

@@ -8,12 +8,23 @@
 import { typingLine } from "../../api/homeChatHelpers";
 import "./homeChat.css";
 
-/** The line without its ellipsis (the dots draw it). */
-export function typingWords(names: readonly string[]): string {
-  return typingLine(names).replace(/…$/, "");
+/** The line without its ellipsis (the dots draw it). `line` gives other
+ *  words (the Thread's, threadTypingLine); Home chat's by default. */
+export function typingWords(
+  names: readonly string[],
+  line: (names: readonly string[]) => string = typingLine
+): string {
+  return line(names).replace(/…$/, "");
 }
 
-export function HomeChatTyping({ names }: { names: readonly string[] }) {
+export function HomeChatTyping({
+  names,
+  line = typingLine,
+}: {
+  names: readonly string[];
+  /** The full line, ending "…" (drawn as the dots). Home chat's default. */
+  line?: (names: readonly string[]) => string;
+}) {
   const on = names.length > 0;
   return (
     <div
@@ -34,7 +45,7 @@ export function HomeChatTyping({ names }: { names: readonly string[] }) {
       }}
     >
       <span className="min-w-0 truncate" data-testid="home-chat-typing-words">
-        {on ? typingWords(names) : ""}
+        {on ? typingWords(names, line) : ""}
       </span>
       {on ? (
         <span className="k2-hc-dots shrink-0" aria-hidden>

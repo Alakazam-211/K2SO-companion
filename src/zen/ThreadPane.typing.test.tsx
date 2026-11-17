@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 // Who is typing in an agent Thread (K2 `thread-typing-v1`): our own
-// `typing` frames ride the Thread's live socket at most once per 3 s; other
+// `typing` frames ride the Thread's live socket at most once per 8 s; other
 // readers' frames show Home chat's line on the composer's top edge, held
 // 10 s, cleared by their message. Without the feature: nothing either way.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -101,14 +101,14 @@ afterEach(() => {
 });
 
 describe("sending our typing", () => {
-  it("at most one frame per 3 s while typing, for this Thread's addr", () => {
+  it("at most one frame per 8 s while typing, for this Thread's addr", () => {
     setup();
     type("h");
     expect(sendTyping).toHaveBeenCalledTimes(1);
     expect(sendTyping).toHaveBeenLastCalledWith("aspen");
-    now += 1000;
+    now += 3000;
     type("he");
-    now += 1999;
+    now += 4999;
     type("hel");
     expect(sendTyping).toHaveBeenCalledTimes(1);
     now += 1;
@@ -126,8 +126,11 @@ describe("sending our typing", () => {
     now += 500;
     type("");
     expect(sendTyping).toHaveBeenCalledTimes(1);
-    now += 5000;
+    now += 7499;
     type("go");
+    expect(sendTyping).toHaveBeenCalledTimes(1);
+    now += 1;
+    type("go!");
     expect(sendTyping).toHaveBeenCalledTimes(2);
     await act(async () => {
       fireEvent.submit(screen.getByTestId("composer-form"));
@@ -145,10 +148,21 @@ describe("sending our typing", () => {
     expect(sendTyping).not.toHaveBeenCalled();
   });
 
+  it("leaving the field (blur) sends nothing", () => {
+    setup();
+    act(() => input().focus());
+    type("x");
+    expect(sendTyping).toHaveBeenCalledTimes(1);
+    now += 20_000;
+    act(() => input().blur());
+    fireEvent.blur(input());
+    expect(sendTyping).toHaveBeenCalledTimes(1);
+  });
+
   it("without thread-typing-v1: never sent", () => {
     setup(null);
     type("hello");
-    now += 5000;
+    now += 9000;
     type("hello again");
     expect(sendTyping).not.toHaveBeenCalled();
   });
@@ -197,7 +211,7 @@ describe("showing who is typing", () => {
     expect(useZenStore.getState().thread.map((m) => m.text)).toEqual(["on it"]);
   });
 
-  it("three or more: Mira and 2 others; my own login is never shown", () => {
+  it("three or more: Several people; my own login is never shown", () => {
     setup();
     deliver(typingFrame("mira", "Mira"));
     now += 1;
@@ -206,7 +220,20 @@ describe("showing who is typing", () => {
     deliver(typingFrame("bob", "Bob"));
     expect(words()).toBe("Mira and Ben are typing");
     deliver(typingFrame("ada", "Ada", { kind: "app_guest" }));
-    expect(words()).toBe("Mira and 2 others are typing");
+    expect(words()).toBe("Several people are typing");
+  });
+
+  it("oldest first, one entry per member: a repeat (another device) keeps its place", () => {
+    setup();
+    deliver(typingFrame("mira", "Mira"));
+    now += 500;
+    deliver(typingFrame("ben", "Ben"));
+    now += 2000;
+    // Mira again, from her laptop: still one Mira, still first.
+    deliver(typingFrame("mira", "Mira"));
+    now += 2000;
+    deliver(typingFrame("mira", "Mira"));
+    expect(words()).toBe("Mira and Ben are typing");
   });
 
   it("a typing frame (seq 0) never touches the message stream", () => {
