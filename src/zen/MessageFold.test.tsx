@@ -167,6 +167,39 @@ describe("the threshold", () => {
   });
 });
 
+describe("the toggle's chevron", () => {
+  it("a chevron right of the words: down on See more, up on See less; hidden, so the name stays the words", () => {
+    renderFold(host());
+    report(inner(), LINE * 40);
+    const chevron = () => toggle()!.querySelector("svg")!;
+    // After the words, inside the button.
+    expect(toggle()!.lastElementChild).toBe(chevron());
+    expect(toggle()!.firstChild!.nodeType).toBe(Node.TEXT_NODE);
+    expect(chevron().getAttribute("aria-hidden")).toBe("true");
+    expect(chevron().getAttribute("stroke")).toBe("currentColor");
+    expect(chevron().getAttribute("class")).toBe("zen-fold-chevron");
+    expect(chevron().getAttribute("data-dir")).toBe("down");
+    expect(screen.getByRole("button", { name: "See more" })).toBe(toggle());
+    fireEvent.click(toggle()!);
+    expect(chevron().getAttribute("data-dir")).toBe("up");
+    expect(screen.getByRole("button", { name: "See less" })).toBe(toggle());
+    expect(toggle()!.textContent).toBe("See less");
+  });
+
+  it("chatBubbles.css sizes it ~11px (0.85em of the pill's type) with a little air after the words", async () => {
+    // @ts-expect-error Node fs — vitest runtime, not in app tsconfig libs
+    const { readFileSync } = await import("fs");
+    const css = readFileSync("src/zen/chatBubbles.css", "utf8") as string;
+    const at = css.indexOf(".zen-fold-chevron {");
+    expect(at).toBeGreaterThan(-1);
+    const rule = css.slice(at, css.indexOf("}", at));
+    expect(rule).toContain("width: 0.85em;");
+    expect(rule).toContain("height: 0.85em;");
+    expect(rule).toContain("margin-left: 0.3em;");
+    expect(rule).toContain("flex: none;");
+  });
+});
+
 describe("open and fold", () => {
   it("See more opens in place (all the words, See less); See less folds again", () => {
     const h = host();

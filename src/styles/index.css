@@ -421,6 +421,22 @@ html, body, #root {
 .zen-glass.zen-jump-pill {
   border-color: var(--jump-pill-edge);
 }
+/* The Thread's reply bar (ThreadReplyBar.tsx) wears the pill's glass
+   (zen-jump-pill and its inline fill). Its × dims when pressed. Reduced transparency: no blur, the solid tile (`--tile-fill`,
+   the plain border, the tile's ink); `!important` beats the inline fill. */
+.zen-reply-bar button:active .zen-reply-cancel-x {
+  opacity: 0.6;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .zen-glass.zen-reply-bar {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--tile-fill) !important;
+    border-color: var(--color-border);
+    box-shadow: none;
+    color: var(--color-text-primary) !important;
+  }
+}
 .zen-glass-pill {
   border-radius: 999px;
 }

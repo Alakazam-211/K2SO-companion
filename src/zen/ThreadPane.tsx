@@ -142,6 +142,7 @@ import { useUnreadStore } from "./unreadStore";
 import { useMarkReadWhileViewing } from "./unreadRead";
 import { MessageFiles, patchThreadFileState, useThreadFilesOn } from "./ThreadFiles";
 import { JumpPill, type JumpPillWords } from "./JumpPill";
+import { ThreadReplyBar } from "./ThreadReplyBar";
 import { PermissionCard } from "./PermissionCard";
 import type { PermissionCardModel } from "./permissionCardModel";
 import type { ApprovalCardModel } from "./approvals";
@@ -3037,29 +3038,6 @@ export function ThreadPane({
                 ))}
               </div>
             ) : null}
-            {replyTo ? (
-              <div
-                className="flex items-center gap-1.5 mb-1.5 text-[12px] min-w-0"
-                style={{ color: "var(--color-text-muted)" }}
-                data-testid="reply-chip"
-              >
-                <ReplyIcon size={14} strokeWidth={1.75} />
-                <span className="flex-1 min-w-0 truncate">
-                  <span style={{ color: "var(--color-text-primary)" }}>{replyTo.from || "Reply"}</span>
-                  {": "}
-                  {threadReplyFirstLine(replyTo.text)}
-                </span>
-                <button
-                  type="button"
-                  className="shrink-0 px-1.5"
-                  aria-label="Cancel reply"
-                  data-testid="reply-chip-cancel"
-                  onClick={() => setReplyTo(null)}
-                >
-                  ✕
-                </button>
-              </div>
-            ) : null}
             {attachments.length ? (
               <div
                 ref={chipsRef}
@@ -3082,6 +3060,10 @@ export function ThreadPane({
                 ))}
               </div>
             ) : null}
+            {/* Last above the field: it stands on the activity ear (the
+                composer keeps the ear's room under it) and comes down
+                with it. */}
+            {replyTo ? <ThreadReplyBar target={replyTo} onCancel={() => setReplyTo(null)} /> : null}
           </ThreadDraftComposer>
         </div>
       </div>

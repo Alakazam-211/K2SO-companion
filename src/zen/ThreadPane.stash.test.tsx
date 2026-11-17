@@ -75,6 +75,11 @@ function activity(rev: number) {
 const input = () => screen.getByTestId("composer-input") as HTMLTextAreaElement;
 const type = (v: string) => fireEvent.change(input(), { target: { value: v } });
 const live = () => useStashStore.getState().items.filter((i) => i.deleted_at == null);
+/** The reply bar's words: "Replying to <name>:" and the quoted first line. */
+const replyBar = () => {
+  const bar = screen.getByTestId("reply-chip");
+  return `${bar.querySelector("[data-reply-chip-who]")!.textContent} ${bar.querySelector("[data-reply-chip-text]")!.textContent}`;
+};
 
 beforeEach(() => {
   localStorage.clear();
@@ -340,7 +345,7 @@ describe("holding an agent's message", () => {
     });
     expect(screen.getByTestId("selection-bar")).toBeTruthy();
     fireEvent.click(screen.getByTestId("selection-reply"));
-    expect(screen.getByTestId("reply-chip").textContent).toContain("aspen: Ship it?");
+    expect(replyBar()).toBe("Replying to part of aspen: Ship it?");
     type("Yes.");
     fireEvent.click(screen.getByTestId("composer-send"));
     await waitFor(() => expect(postThread).toHaveBeenCalled());
@@ -392,7 +397,7 @@ describe("holding an agent's message", () => {
     hold(screen.getByTestId("thread-bubble"));
     fireEvent.pointerDown(screen.getByTestId("message-menu"));
     fireEvent.click(screen.getByRole("menuitem", { name: "Reply" }));
-    expect(screen.getByTestId("reply-chip").textContent).toContain("aspen: Ship 4.2.3 now?");
+    expect(replyBar()).toBe("Replying to aspen: Ship 4.2.3 now?");
     type("Wait for the build.");
     fireEvent.click(screen.getByTestId("composer-send"));
     await waitFor(() => expect(postThread).toHaveBeenCalled());
@@ -414,7 +419,12 @@ describe("holding an agent's message", () => {
     hold(screen.getByTestId("thread-bubble"));
     fireEvent.pointerDown(screen.getByTestId("message-menu"));
     fireEvent.click(screen.getByRole("menuitem", { name: "Reply" }));
-    expect(screen.getByTestId("reply-chip").textContent).toContain("aspen: Ship it?");
+    expect(replyBar()).toBe("Replying to aspen: Ship it?");
+    // The last row above the field, on the activity ear's edges (10px in
+    // from the field, the ear's inset), 8px over it.
+    const row = screen.getByTestId("reply-row");
+    expect(row.style.margin).toBe("0px 10px 8px");
+    expect(row.nextElementSibling?.matches("form, [data-testid$=drawer-room]")).toBe(true);
     type("Yes, ship it.");
     fireEvent.click(screen.getByTestId("composer-send"));
     await waitFor(() => expect(postThread).toHaveBeenCalled());
