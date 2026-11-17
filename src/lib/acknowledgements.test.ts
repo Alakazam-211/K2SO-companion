@@ -32,7 +32,7 @@ describe("public/acknowledgements.txt", () => {
     expect(text).toContain("Bundled: DeepFilterNet3 noise removal model (MIT OR Apache-2.0)");
     expect(text).toContain("Copyright (c) 2021 Hendrik Schröter");
     expect(text).toContain("Converted by Alakazam Labs");
-    expect(text).toMatch(/sew-noise 0\.10\.3 \(crate\): MIT OR Apache-2\.0/);
+    expect(text).toMatch(/sew-noise 0\.10\.4 \(crate\): MIT OR Apache-2\.0/);
     expect(text).toMatch(/nnnoiseless [\d.]+ \(crate\): BSD-3-Clause/);
   });
 

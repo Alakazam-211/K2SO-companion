@@ -26,10 +26,11 @@ set -euo pipefail
 # downloading (still size- and sha-checked). Exits non-zero on any mismatch;
 # scripts/release.sh runs it before the build and --verify on the archive.
 
-# The release that carries the weights' asset. Sew 0.10.3 (the plugin 0.8.1
-# the app pins) checks the same weights (sew-noise's WEIGHTS_SHA256 is
-# unchanged) and its release has no dfn3 asset, so this stays 0.10.2.
-SEW_VERSION="0.10.2"
+# The release that carries the weights' asset: Sew 0.10.4 (the plugin 0.8.2
+# the app pins). Its sew-dfn3-0.10.4.tar.gz is byte for byte 0.10.2's (the
+# same tarball sha256 and size below, the same four files), and sew-noise
+# 0.10.4 pins the same weights (WEIGHTS_SHA256 unchanged since 0.10.2).
+SEW_VERSION="0.10.4"
 RELEASE_REPO="Alakazam-211/sew-releases"
 ASSET="sew-dfn3-${SEW_VERSION}.tar.gz"
 ASSET_URL="https://github.com/${RELEASE_REPO}/releases/download/v${SEW_VERSION}/${ASSET}"
