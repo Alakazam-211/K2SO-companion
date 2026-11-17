@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef, useState } from "react";
 import { prefersReducedMotion } from "./sendFly";
+import { DRAWER_EASE_GROW, DRAWER_EASE_IN, DRAWER_EASE_OUT, DRAWER_MS } from "./ThreadWorkingStrip";
 
 // The Thread's pill over the composer (Riley 2026-11-11, with K2 desktop):
 // "Jump to bottom" whenever the reader has scrolled up; when a message
@@ -35,6 +36,60 @@ export const JUMP_PILL_FILL = {
   color: "var(--jump-pill-ink, #fff)",
 } as const;
 const WIDTH_MS = 220;
+
+/** The pill's gap (px) over what it stands on: the composer's top (the
+ *  field, or the rows over it: reply bar, chips, label), or the activity
+ *  ear while it is out. */
+export const JUMP_PILL_GAP_PX = 8;
+
+/** Where the pill floats (Riley 2026-11-17: "If there is no activity bar
+ *  the jump to bottom button should settle just above the text area rather
+ *  than above where the activity ear would be if it were open. Use
+ *  animation to move it up/down when the activity area opens/closes"; K2
+ *  desktop's threadDock does the same). Its row is zero-height at the
+ *  composer bar's top, inside the keyboard-following dock:
+ *   - `bottom`: px up from the bar's top to the pill's foot with no ear:
+ *     the gap over the composer's top, which sits `topGap` px into the bar
+ *     (its top padding, the empty label's margin). Negative: the pill
+ *     reaches into the bar's empty top padding.
+ *   - `lift`: the ear's part, played as a translate so the pill rides the
+ *     ear's own slide. With rows over the field the bar keeps the ear's room
+ *     under them instead (drawerRoom): they, and the pill over them, stand
+ *     on it in the layout, so the lift is 0. */
+export function jumpPillPlace(
+  topGap: number,
+  earSpace: number,
+  rowsAboveField: boolean
+): { bottom: number; lift: number } {
+  const gap = Number.isFinite(topGap) && topGap > 0 ? topGap : 0;
+  const ear = !rowsAboveField && Number.isFinite(earSpace) && earSpace > 0 ? Math.ceil(earSpace) : 0;
+  return { bottom: JUMP_PILL_GAP_PX - gap, lift: ear };
+}
+
+/** The pill's ride with the ear: the lift it shows and the transition that
+ *  took it there. */
+export type JumpPillRide = { lift: number; rows: boolean; transition: string };
+
+/** The next ride from `prev` (the same object when nothing moved). The
+ *  ear sliding out: its slide-in curve; folding away: its slide-out curve;
+ *  growing or shrinking on a tap: the tile's height curve; all DRAWER_MS.
+ *  Rows over the field coming or going move the composer in one layout
+ *  (the ear's room with them): the pill jumps with it. Reduced motion:
+ *  it jumps. */
+export function jumpPillRide(
+  prev: JumpPillRide,
+  lift: number,
+  rows: boolean,
+  reduced: boolean
+): JumpPillRide {
+  if (prev.lift === lift && prev.rows === rows) return prev;
+  let transition = "none";
+  if (!reduced && prev.rows === rows) {
+    const ease = prev.lift <= 0 ? DRAWER_EASE_IN : lift <= 0 ? DRAWER_EASE_OUT : DRAWER_EASE_GROW;
+    transition = `transform ${DRAWER_MS}ms ${ease}`;
+  }
+  return { lift, rows, transition };
+}
 
 /** The pill's words: "N new messages" once two or more arrived. */
 export function jumpPillText(words: JumpPillWords, count = 0): string {

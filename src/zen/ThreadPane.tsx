@@ -141,7 +141,7 @@ import { newestSeenSeq, type RowRef } from "./unread";
 import { useUnreadStore } from "./unreadStore";
 import { useMarkReadWhileViewing } from "./unreadRead";
 import { MessageFiles, patchThreadFileState, useThreadFilesOn } from "./ThreadFiles";
-import { JumpPill, type JumpPillWords } from "./JumpPill";
+import { JumpPill, jumpPillPlace, jumpPillRide, type JumpPillRide, type JumpPillWords } from "./JumpPill";
 import { ThreadReplyBar } from "./ThreadReplyBar";
 import { PermissionCard } from "./PermissionCard";
 import type { PermissionCardModel } from "./permissionCardModel";
@@ -890,6 +890,23 @@ const THREAD_BOTTOM_PAD = 12;
  *  (empty) label row's `mb-1.5`. The drawer covers that much of the bar. */
 export const COMPOSER_FIELD_TOP_PX = 8 + 6;
 
+/** How far (px) the composer's top — its first row with height (room
+ *  banner, label, selection bar, chips, reply bar), else the field — sits
+ *  below the composer bar's top. The working drawer's room (drawerRoom)
+ *  is not a row. Null when nothing has a height (not laid out). */
+export function composerTopGap(bar: HTMLElement | null): number | null {
+  if (!bar) return null;
+  const top = bar.getBoundingClientRect().top;
+  for (const el of Array.from(bar.children)) {
+    if (!(el instanceof HTMLElement)) continue;
+    if (el.getAttribute("data-testid")?.endsWith("-drawer-room")) continue;
+    const r = el.getBoundingClientRect();
+    if (!(r.height > 0)) continue;
+    return Math.max(0, Math.round(r.top - top));
+  }
+  return null;
+}
+
 /** How far the working drawer (standing `drawerSpace` px on the field's
  *  top edge) reaches above the composer bar, into the scroller. With rows
  *  above the field (banner, label, chips) the bar keeps room for it
@@ -1214,6 +1231,17 @@ export function ThreadPane({
     replyTo != null ||
     (msgSel.sel != null && selectedMessage != null);
   const drawerCover = drawerOverScroller(drawerSpace, rowsAboveField);
+  // The Jump to bottom pill: the gap over the composer's top, lifted by
+  // the ear while it is out, riding the ear's slide (jumpPillPlace).
+  const [composerTop, setComposerTop] = useState(COMPOSER_FIELD_TOP_PX);
+  const pillPlace = jumpPillPlace(composerTop, drawerSpace, rowsAboveField);
+  const [pillRide, setPillRide] = useState<JumpPillRide>(() => ({
+    lift: pillPlace.lift,
+    rows: rowsAboveField,
+    transition: "none",
+  }));
+  const ride = jumpPillRide(pillRide, pillPlace.lift, rowsAboveField, prefersReducedMotion());
+  if (ride !== pillRide) setPillRide(ride);
   /** The message the person has picked: its hold menu, or words in it. */
   const selectedMsgId = msgHold.menu?.id ?? msgSel.sel?.id ?? null;
   const replyFrom = (m: ThreadMessage) => m.from || (m.mine ? roomScope.username() : threadAddr) || "";
@@ -1566,6 +1594,14 @@ export function ThreadPane({
    *  drawer room, keyboard gap): the scroller's bottom padding moves with it.
    *  Following: the newest stays right above the field. Reading history:
    *  the reader's viewport stays where it was (no jump). */
+  // Where the composer's top sits in its bar: read again when rows over
+  // the field come or go and when the block resizes. Not laid out (tests):
+  // the field's place with no rows.
+  useLayoutEffect(() => {
+    const bar = dockRef.current?.querySelector<HTMLElement>('[data-testid="composer-bar"]') ?? null;
+    setComposerTop(composerTopGap(bar) ?? COMPOSER_FIELD_TOP_PX);
+  }, [composerPx, rowsAboveField]);
+
   function composerResized(px: number) {
     const prev = composerPxRef.current;
     composerPxRef.current = px;
@@ -2933,19 +2969,29 @@ export function ThreadPane({
           testId="thread-footer-blur"
           style={{ left: 0, right: 0, bottom: 0, top: -(FOOTER_BLUR_FADE_PX + drawerCover) }}
         />
-        {/* Zero-height row: the pill floats just above the composer (and
-            above the working drawer while it shows). */}
-        <div className="relative h-0 shrink-0" style={{ zIndex: 1 }}>
-          <div
-            aria-live="polite"
-            className="absolute left-0 right-0 flex justify-center pointer-events-none"
-            style={{ bottom: 8 + drawerCover }}
-          >
-            {pillWords ? <JumpPill words={pillWords} count={newCount} leaving={pillLeaving} onJump={onNewBelow} /> : null}
-          </div>
-        </div>
         {/* Above the blur (positioned, z 0): its own stacking layer. */}
         <div className="relative" style={{ zIndex: 1 }}>
+          {/* Zero-height row at the bar's top: the pill floats the gap
+              above the composer's top (reaching into the bar's empty top
+              padding, so over the bar: z 2; the ＋ menu, z 40, stays over
+              it), and rides up with the working ear while it is out
+              (jumpPillPlace / jumpPillRide). In the dock: it follows the
+              keyboard with the composer. */}
+          <div className="relative h-0" style={{ zIndex: 2 }}>
+            <div
+              aria-live="polite"
+              className="absolute left-0 right-0 flex justify-center pointer-events-none"
+              data-testid="thread-jump-row"
+              data-lift={ride.lift}
+              style={{
+                bottom: pillPlace.bottom,
+                transform: `translate3d(0, ${-ride.lift}px, 0)`,
+                transition: ride.transition,
+              }}
+            >
+              {pillWords ? <JumpPill words={pillWords} count={newCount} leaving={pillLeaving} onJump={onNewBelow} /> : null}
+            </div>
+          </div>
           <ThreadDraftComposer
             draftKey={draftKey}
             apiRef={draftApi}
