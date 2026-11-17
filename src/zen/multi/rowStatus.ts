@@ -301,6 +301,26 @@ export function rowFailure(
   }
 }
 
+/** A Home row whose server is not saved on this phone (Homes sync brought
+ *  it from another device): the same "Sign in" row as a saved server with
+ *  no login (desktop 1ab4f14a9c: a row that says Sign in opens the sign-in
+ *  for that row's server). `host` is the server's address when known; with
+ *  only its box id the row can't name it. */
+export function unsavedServerFailure(host: string | null, what: "agent" | "chat"): RowFailure {
+  return {
+    state: "signin-required",
+    copy: host ? `Sign in to ${host}` : unsavedServerNotice(what),
+    action: "sign-in",
+    actionLabel: "Sign in",
+    detail: null,
+  };
+}
+
+/** The line when only the row's box id is known (no address to fill in). */
+export function unsavedServerNotice(what: "agent" | "chat"): string {
+  return `Sign in on the server where this ${what} lives`;
+}
+
 // ─── A server's own dot + word (filter menu, Servers sheet: MS35, MS38) ───
 
 export interface ServerBadge {

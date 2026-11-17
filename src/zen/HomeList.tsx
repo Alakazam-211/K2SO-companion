@@ -159,7 +159,15 @@ export function HomeList({
   gridMax = HOME_GRID_MAX,
   pins,
   onMoveToHome,
+  chatFailure,
+  onChatAction,
 }: {
+  /** Multi-server flag on: a person or channel row whose server needs a
+   *  sign-in (not saved on this phone, or saved with no working login)
+   *  gets the agent rows' "Sign in" (same copy, button and tap). */
+  chatFailure?: (view: ChatHomeView) => RowFailure | null;
+  /** That row's one action (its tap and its button). */
+  onChatAction?: (view: ChatHomeView, action: FailureActionKind) => void;
   /** An agent row's Move to group… (the Home group picker; `name` is what the
    *  row shows). Absent: no such item (one Home, nowhere to move). */
   onMoveToHome?: (address: string, name: string) => void;
@@ -289,9 +297,32 @@ export function HomeList({
   const lookOf = (v: ChatHomeView): ChatRowLook =>
     chatRowLook(v, { byServer: chatByServer, tokens, rowNotes: chatNotes, deleted: chatDeleted, hereChip });
 
+  /** A person's or channel's sign-in failure, and its one action. */
+  const chatFailState = (v: ChatHomeView) => {
+    const failure = chatFailure?.(v) ?? null;
+    const action =
+      failure?.action && onChatAction ? () => onChatAction(v, failure.action as FailureActionKind) : null;
+    return { failure, action };
+  };
+
+  /** What a person or channel row shows: a sign-in failure greys it and
+   *  takes line two (no count or time, as on an agent row). */
+  const chatShown = (v: ChatHomeView) => {
+    const base = lookOf(v);
+    const { failure } = chatFailState(v);
+    const look: ChatRowLook = failure ? { ...base, quiet: true, line: failure.copy, unread: null, when: "" } : base;
+    return { look, failure };
+  };
+
   /** A person or channel row's tap: the DM (opened or made first) or the
-   *  channel, in the chat view. A server with no chat opens nothing. */
+   *  channel, in the chat view. A server with no chat opens nothing. A row
+   *  that says Sign in opens the sign-in for its server instead. */
   const openChat = (v: ChatHomeView, look: ChatRowLook) => {
+    const { failure, action } = chatFailState(v);
+    if (failure) {
+      action?.();
+      return;
+    }
     if (look.noChat || !look.serverId) return;
     void openHomeChatRow(look.serverId, {
       kind: v.chat,
@@ -324,9 +355,10 @@ export function HomeList({
     const look = lookOf(v);
     const group = otherHomeOf?.(v.row.address) ?? homeName;
     const sid = look.serverId;
+    const { failure } = chatFailState(v);
     return [
-      ...(!look.noChat && sid ? [{ key: "open", label: "Open", icon: <OpenGlyph />, onSelect: () => openChat(v, look) }] : []),
-      ...(v.chat === "person" && look.offered && sid
+      ...(!failure && !look.noChat && sid ? [{ key: "open", label: "Open", icon: <OpenGlyph />, onSelect: () => openChat(v, look) }] : []),
+      ...(!failure && v.chat === "person" && look.offered && sid
         ? [
             {
               key: "call",
@@ -347,6 +379,7 @@ export function HomeList({
       ...(canRearrange && !searching && views.length > 1 && onRearrange
         ? [{ key: "rearrange", label: "Rearrange", icon: <RearrangeGlyph />, onSelect: onRearrange }]
         : []),
+      ...moveEntries(v, look.name),
       {
         key: "remove",
         label: `Remove from ${group}`,
@@ -361,6 +394,12 @@ export function HomeList({
     ];
   };
 
+  /** Move to group… (any row kind; the move keeps a person's or channel's kind). */
+  const moveEntries = (v: HomeRowView, name: string): AgentMenuEntry[] =>
+    onMoveToHome
+      ? [{ key: "move-home", label: "Move to group…", icon: <MoveHomeGlyph />, onSelect: () => onMoveToHome(v.row.address, name) }]
+      : [];
+
   const menuEntries = (v: HomeRowView): AgentMenuEntry[] => {
     if (v.kind === "chat") return chatMenuEntries(v);
     const { failure, action } = rowState(v);
@@ -374,16 +413,7 @@ export function HomeList({
       ...(canRearrange && !searching && views.length > 1 && onRearrange
         ? [{ key: "rearrange", label: "Rearrange", icon: <RearrangeGlyph />, onSelect: onRearrange }]
         : []),
-      ...(onMoveToHome
-        ? [
-            {
-              key: "move-home",
-              label: "Move to group…",
-              icon: <MoveHomeGlyph />,
-              onSelect: () => onMoveToHome(v.row.address, modelOf(v).name),
-            },
-          ]
-        : []),
+      ...moveEntries(v, modelOf(v).name),
       {
         key: "remove",
         label: `Remove from ${otherHomeOf?.(v.row.address) ?? homeName}`,
@@ -465,7 +495,7 @@ export function HomeList({
     `${look.chip ? `, on ${look.chip}` : ""}${look.quiet ? `, ${look.line}` : ""}`;
 
   const chatTile = (v: ChatHomeView) => {
-    const look = lookOf(v);
+    const { look, failure } = chatShown(v);
     const address = v.row.address;
     return (
       <div
@@ -535,9 +565,10 @@ export function HomeList({
             <div
               className="text-[11px] truncate mx-auto"
               style={{ color: "var(--color-text-muted)", maxWidth: 110, lineHeight: 1.3 }}
-              data-testid="row-chat-quiet"
+              data-testid={failure ? "row-failure" : "row-chat-quiet"}
+              data-state={failure?.state}
             >
-              {look.line}
+              {failure ? <FailureText failure={failure} /> : look.line}
             </div>
           ) : null}
         </button>
@@ -546,7 +577,7 @@ export function HomeList({
   };
 
   const chatRow = (v: ChatHomeView, i: number) => {
-    const look = lookOf(v);
+    const { look, failure } = chatShown(v);
     const address = v.row.address;
     const shift = rearrange.offsetFor(address);
     return (
@@ -578,7 +609,7 @@ export function HomeList({
             paddingTop: 12,
             paddingBottom: 12,
             paddingLeft: rearrangePadLeft(inset, rearranging),
-            paddingRight: ZEN_ROW_RIGHT_INSET,
+            paddingRight: failure?.action ? `calc(${ZEN_ROW_RIGHT_INSET} + 96px)` : ZEN_ROW_RIGHT_INSET,
             opacity: look.quiet ? 0.55 : 1,
             touchAction: "pan-y",
             userSelect: "none",
@@ -603,7 +634,15 @@ export function HomeList({
             initial=""
             busy={null}
             when={look.when}
-            preview={look.line}
+            preview={
+              failure ? (
+                <span data-testid="row-failure" data-state={failure.state}>
+                  <FailureText failure={failure} />
+                </span>
+              ) : (
+                look.line
+              )
+            }
             homeTag={otherHomeOf?.(address) ?? null}
             serverChip={look.chip}
             unread={look.unread}
@@ -611,6 +650,15 @@ export function HomeList({
             pinned={pinnedHere(address)}
           />
         </button>
+        {failure && !rearranging ? (
+          <span
+            className="absolute flex items-center"
+            style={{ right: ZEN_ROW_RIGHT_INSET, top: "50%", transform: "translateY(-50%)" }}
+            data-no-pin="1"
+          >
+            <FailureAction failure={failure} serverLabel={v.serverLabel} onAction={() => chatFailState(v).action?.()} />
+          </span>
+        ) : null}
         {i < listed.length - 1 && !shift.dragging ? (
           <RowDivider
             padLeft={rearrangePadLeft(inset, rearranging)}

@@ -56,6 +56,8 @@ export function OverlayAddServer({
   activate = true,
   onSignedIn,
   pairLink,
+  initialServerUrl = null,
+  notice = null,
 }: {
   editingId?: string | null;
   onCancel?: () => void;
@@ -68,11 +70,18 @@ export function OverlayAddServer({
   onSignedIn?: (id: string) => void;
   /** Opened from a pair link: start on "Pairing code", filled in. */
   pairLink?: PairLink | null;
+  /** A new server's address, filled in (a Home row's Sign in for a
+   *  server this phone hasn't saved). Ignored when editing. */
+  initialServerUrl?: string | null;
+  /** One line above the form (why it opened, what to enter). */
+  notice?: string | null;
 } = {}) {
   const editing = useServersStore((s) =>
     editingId ? s.servers.find((x) => x.id === editingId) : undefined
   );
-  const [serverUrl, setServerUrl] = useState(editing ? hostLabel(editing.url) : "");
+  const [serverUrl, setServerUrl] = useState(
+    editing ? hostLabel(editing.url) : initialServerUrl ? hostLabel(initialServerUrl) : ""
+  );
   const [username, setUsername] = useState(editing?.username ?? "");
   const [password, setPassword] = useState("");
   const [nickname, setNickname] = useState(editing?.nickname ?? "");
@@ -236,6 +245,15 @@ export function OverlayAddServer({
         </div>
       </div>
       )}
+      {notice && !rotation && pairPhase === "idle" ? (
+        <p
+          className="shrink-0 px-6 pb-3 text-[13px] text-center"
+          style={{ color: "var(--color-text-muted)" }}
+          data-testid="add-server-notice"
+        >
+          {notice}
+        </p>
+      ) : null}
       {rotation ? (
         <div className="flex-1 min-h-0 overflow-y-auto px-6 pb-8">
           <SetPasswordStep
@@ -268,7 +286,7 @@ export function OverlayAddServer({
           <PairForm
             key={pairNext ? `next:${pairNext.url}` : "pair"}
             editingId={editing?.id ?? null}
-            initialServerUrl={pairLink?.serverUrl ?? pairNext?.url ?? null}
+            initialServerUrl={pairLink?.serverUrl ?? pairNext?.url ?? (editing ? null : initialServerUrl)}
             initialCode={pairLink?.code ?? null}
             notice={pairNext?.notice ?? null}
             activate={activate}

@@ -38,7 +38,7 @@ export type HomeRowView =
   /** A person or channel (K2 0.46.13, `home-chat-v1`): drawn by Home chat
    *  (`./homeChat`). `handle` is the person's ext or the channel's Sew id;
    *  `here` when its server is the active one. `server` is null when no
-   *  saved server matches (the row stays, greyed). */
+   *  saved server matches (the row stays, greyed, and says Sign in). */
   | {
       kind: "chat";
       row: HomeRow;

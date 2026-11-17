@@ -76,7 +76,7 @@ import { homeRowMatches, renameRepairFor, resolveHomeRows, rowsAcrossHomes, serv
 import { useAnyChatOffered, useHomeChatGoneRows, useHomeChatLive } from "./homeChat/homeChatRowsStore";
 import type { ChatPickServer } from "./homeChat/AddToHomePanels";
 import { HomeConfirmHost } from "./homeChat/HomeConfirmSheet";
-import { boxIdForSaved, homeHostFor, useHomeServerIds } from "./homeServerIds";
+import { boxIdForSaved, homeHostFor, homeSignInHost, useHomeServerIds } from "./homeServerIds";
 import { dismissHomesSyncNotice, useHomesSyncBadge, useHomesSyncStore } from "./homesSync";
 import { OtherServerSection } from "./multi/OtherServerSection";
 import { otherServersForPicker } from "./multi/homePicker";
@@ -109,7 +109,15 @@ export {
 import { withServerParam } from "./room/serverRef";
 import { FOCUS_OFF } from "./serverPins";
 import { labelOf, snapshotCapable, useMultiServerList, type ActiveSlice } from "./multi/useMultiServerList";
-import { homeActivityWord, rowActivityOf } from "./multi/rowStatus";
+import {
+  homeActivityWord,
+  rowActivityOf,
+  unsavedServerFailure,
+  unsavedServerNotice,
+  type FailureAction,
+  type RowFailure,
+} from "./multi/rowStatus";
+import type { ChatHomeView } from "./homeChat/chatRowLook";
 import { loadServerRows, selectRemoteFocusGroup } from "./multi/remoteRows";
 import { ensureRemoteIcon, remoteIconFor, useRemoteIcons } from "./multi/remoteIcons";
 import { retryServerNow } from "./multi/poolLoop";
@@ -518,6 +526,9 @@ export function ChatsList() {
   // Move to group… on a Home row (Home groups, not focus groups): the
   // row, its name and the group it is on.
   const [homeMove, setHomeMove] = useState<{ address: string; name: string; fromId: string } | null>(null);
+  // A Home row's Sign in for a server this phone hasn't saved (Homes sync
+  // brought the row): Add server, filled with its address when known.
+  const [addServerFor, setAddServerFor] = useState<{ host: string | null; notice: string | null } | null>(null);
   const closeHomeMove = useCallback(() => setHomeMove(null), []);
   // Homes sync (K2 0.46.1): which server Home syncs from, and the one-time
   // "removed" notice. Home itself always renders from the local copy.
@@ -1116,8 +1127,10 @@ export function ChatsList() {
   const homeRemoteLook = (v: RemoteHomeView): RemoteRowLook => {
     const handle = parseHomeAddress(v.row.address)?.handle ?? "";
     if (!v.server) {
+      // Not saved on this phone: the same Sign in as a saved server with
+      // no login; it opens Add server for that address.
       return {
-        failure: null,
+        failure: unsavedServerFailure(homeSignInHost(parseHomeAddress(v.row.address)?.host ?? ""), "agent"),
         busy: null,
         iconUrl: null,
         preview: `${v.serverLabel} is not saved on this phone`,
@@ -1158,6 +1171,26 @@ export function ChatsList() {
       nextAt: multi.entries[sid]?.nextAt ?? null,
       dim: missing,
     };
+  };
+
+  /** Add server for a row's unsaved server: its address filled in, or
+   *  (only its box id known) an empty form that says why. */
+  const signInUnsaved = (rowHost: string, what: "agent" | "chat") => {
+    const host = homeSignInHost(rowHost);
+    setAddServerFor({ host, notice: host ? null : unsavedServerNotice(what) });
+  };
+
+  /** A person or channel row (flag on) whose server needs a sign-in: not
+   *  saved here, or saved with no working login. The agent rows' own
+   *  failure (same copy and button); other trouble keeps the row's line. */
+  const homeChatFailure = (v: ChatHomeView): RowFailure | null => {
+    if (!v.server) return unsavedServerFailure(homeSignInHost(parseHomeAddress(v.row.address)?.host ?? ""), "chat");
+    const f = multi.failureFor(v.server.id, multi.statusFor(v.server.id, null));
+    return f && (f.action === "sign-in" || f.state === "signing-in") ? f : null;
+  };
+  const onHomeChatAction = (v: ChatHomeView, action: FailureAction) => {
+    if (!v.server) signInUnsaved(parseHomeAddress(v.row.address)?.host ?? "", "chat");
+    else multi.act(v.server.id, action);
   };
 
   const renderRemoteRow = (r: MergedRow, divider: boolean) => {
@@ -1694,8 +1727,13 @@ export function ChatsList() {
           hereChip={multi.on && multi.chips ? serverLabel : null}
           activeDown={activeDown}
           remoteLook={multi.on ? homeRemoteLook : undefined}
+          chatFailure={multi.on ? homeChatFailure : undefined}
+          onChatAction={onHomeChatAction}
           onRemoteAction={(v, action) => {
-            if (!v.server) return;
+            if (!v.server) {
+              signInUnsaved(parseHomeAddress(v.row.address)?.host ?? "", "agent");
+              return;
+            }
             // "Open the old way" opens THIS row after the switch.
             if (action === "switch") {
               const handle = parseHomeAddress(v.row.address)?.handle ?? null;
@@ -2193,9 +2231,10 @@ export function ChatsList() {
         />
       ) : null}
       {serversSheet ? <OverlayServers onClose={() => setServersSheet(false)} /> : null}
-      {multi.on && multi.signInFor ? (
+      {multi.on && (multi.signInFor || addServerFor) ? (
         // MS34 / MA3: sign in to THAT server without switching the active
-        // one (the active server's own sign-in keeps today's flow).
+        // one (the active server's own sign-in keeps today's flow). A Home
+        // row on a server not saved here adds it the same way.
         <div
           className="absolute inset-0 flex flex-col"
           // Above the Add Agent sheet (z 30) when signing in from its
@@ -2204,11 +2243,19 @@ export function ChatsList() {
           data-testid="row-sign-in"
         >
           <OverlayAddServer
-            key={multi.signInFor}
+            key={multi.signInFor ?? `add:${addServerFor?.host ?? ""}`}
             editingId={multi.signInFor}
-            activate={multi.signInFor === activeServerId}
-            onCancel={() => multi.setSignInFor(null)}
-            onSaved={() => multi.setSignInFor(null)}
+            initialServerUrl={multi.signInFor ? null : addServerFor?.host ?? null}
+            notice={multi.signInFor ? null : addServerFor?.notice ?? null}
+            activate={!!multi.signInFor && multi.signInFor === activeServerId}
+            onCancel={() => {
+              multi.setSignInFor(null);
+              setAddServerFor(null);
+            }}
+            onSaved={() => {
+              multi.setSignInFor(null);
+              setAddServerFor(null);
+            }}
             onSignedIn={(id) => {
               if (id === activeServerId) return;
               retryServerNow(id);
