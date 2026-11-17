@@ -156,7 +156,8 @@ class K2PushPlugin: Plugin {
   }
 
   /// The ONLY call that can show a system prompt. JS gates it behind
-  /// `is_available()` + the user's Settings toggle.
+  /// `is_available()` + an explicit yes (the Settings toggle or the
+  /// onboarding prompt; src/lib/pushOnboard.ts).
   @objc public func requestPermission(_ invoke: Invoke) {
     UNUserNotificationCenter.current().requestAuthorization(options: [
       .alert, .badge, .sound,
@@ -166,6 +167,42 @@ class K2PushPlugin: Plugin {
       } else {
         invoke.resolve(["granted": granted])
       }
+    }
+  }
+
+  /// The onboarding prompt's two native needs (no Rust handler: Tauri
+  /// forwards `notification_op` here). Never shows a system prompt.
+  ///   `{op: "state"}` → `{state}`: "notDetermined" | "denied" |
+  ///     "authorized" | "provisional" | "ephemeral" ("unknown" otherwise).
+  ///   `{op: "openSettings"}` → `{ok}`: this app's notification settings
+  ///     in iOS Settings (iOS 16+; the app's own Settings page before).
+  @objc public func notificationOp(_ invoke: Invoke) {
+    let args: NotificationOpArgs
+    do {
+      args = try invoke.parseArgs(NotificationOpArgs.self)
+    } catch {
+      invoke.reject("notificationOp: invalid args (\(error.localizedDescription))")
+      return
+    }
+    switch args.op {
+    case "state":
+      UNUserNotificationCenter.current().getNotificationSettings { settings in
+        // Raw values: `.ephemeral` (4) is iOS 14+, below the package floor.
+        let names = [0: "notDetermined", 1: "denied", 2: "authorized", 3: "provisional", 4: "ephemeral"]
+        invoke.resolve(["state": names[settings.authorizationStatus.rawValue] ?? "unknown"])
+      }
+    case "openSettings":
+      DispatchQueue.main.async {
+        var raw = UIApplication.openSettingsURLString
+        if #available(iOS 16.0, *) { raw = UIApplication.openNotificationSettingsURLString }
+        guard let url = URL(string: raw) else {
+          invoke.resolve(["ok": false])
+          return
+        }
+        UIApplication.shared.open(url, options: [:]) { ok in invoke.resolve(["ok": ok]) }
+      }
+    default:
+      invoke.reject("notificationOp: unknown op \(args.op)")
     }
   }
 
@@ -1281,6 +1318,10 @@ private struct ApprovalOpenArgs: Decodable {
 }
 
 private struct ApproverKeysArgs: Decodable {
+  let op: String
+}
+
+private struct NotificationOpArgs: Decodable {
   let op: String
 }
 

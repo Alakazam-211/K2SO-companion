@@ -20,6 +20,7 @@ import { CallTile } from "./zen/voice/callTile";
 import { VoiceRoomsOverlay } from "./zen/voice/VoiceRooms";
 import { DmCallLayer } from "./zen/calls/DmCallLayer";
 import { startDmCallWatch } from "./zen/calls/dmCallWatch";
+import { PushOnboardHost } from "./zen/PushOnboardPrompt";
 
 /** Cold-start home is always the overlay. Zero stored servers still
  *  open `/zen` (overlay Add server). Any unknown path lands here too —
@@ -133,6 +134,9 @@ function AppLayout() {
       <VoiceMiniTile />
       <VoiceCallScreen />
       <DmCallLayer />
+      {/* 4.3.0: "Would you like push notifications from your agents?",
+          once, after the first screen settles (lib/pushOnboard.ts). */}
+      <PushOnboardHost />
       <div className="flex-1 overflow-hidden">
         <Routes>
           {/* No server required so the overlay can offer Add server. */}

@@ -152,19 +152,88 @@ export async function getDeviceId(): Promise<string> {
   return id;
 }
 
-export async function getPushEnabled(): Promise<boolean> {
+/** The stored Settings toggle: true / false once the person (or the
+ *  onboarding prompt's yes) set it, null when never set. */
+export async function getPushPref(): Promise<boolean | null> {
   try {
     const store = await pushStore();
-    return (await store.get<boolean>("enabled")) ?? false;
+    const v = await store.get<boolean>("enabled");
+    return typeof v === "boolean" ? v : null;
   } catch {
-    return false;
+    return null;
   }
+}
+
+/** Whether push is on for this device (what the Settings switch shows).
+ *  The stored choice when there is one (an explicit off is kept). Never
+ *  set, it is ON by default (4.3.0), which takes effect once the OS allows
+ *  notifications: until then nothing registers and nothing prompts (see
+ *  `deviceRegistration`), so the switch shows off, and turning it on
+ *  asks iOS. */
+export async function getPushEnabled(): Promise<boolean> {
+  const pref = await getPushPref();
+  if (pref !== null) return pref;
+  return osAllowsNotifications(await notificationState());
 }
 
 export async function setPushEnabled(enabled: boolean): Promise<void> {
   const store = await pushStore();
   await store.set("enabled", enabled);
   await store.save();
+}
+
+// ─── OS notification permission (never prompts, except `requestPushPermission`) ───
+
+/** The OS notification permission (iOS `UNAuthorizationStatus`).
+ *  "unknown" when the native side can't say: Android (no `notificationOp`),
+ *  the browser, an older native build. */
+export type NotificationState =
+  | "notDetermined"
+  | "denied"
+  | "authorized"
+  | "provisional"
+  | "ephemeral"
+  | "unknown";
+
+const KNOWN_STATES = new Set(["notDetermined", "denied", "authorized", "provisional", "ephemeral"]);
+
+/** The OS lets this app notify (no prompt needed). */
+export function osAllowsNotifications(state: NotificationState): boolean {
+  return state === "authorized" || state === "provisional" || state === "ephemeral";
+}
+
+/** Read the OS notification permission without prompting. Never throws. */
+export async function notificationState(): Promise<NotificationState> {
+  try {
+    const r = await invoke<{ state?: unknown }>(`plugin:${PLUGIN}|notification_op`, { op: "state" });
+    const s = r?.state;
+    return typeof s === "string" && KNOWN_STATES.has(s) ? (s as NotificationState) : "unknown";
+  } catch {
+    return "unknown";
+  }
+}
+
+/** The system notification alert (shows at most once per install; after
+ *  that it answers the current permission). True when granted. Never
+ *  throws. */
+export async function requestPushPermission(): Promise<boolean> {
+  try {
+    const r = await invoke<{ granted: boolean }>(`plugin:${PLUGIN}|request_permission`);
+    return !!r?.granted;
+  } catch {
+    return false;
+  }
+}
+
+/** Open this app's notification settings in iOS Settings (once iOS says
+ *  denied, the system alert can't show again). False when it couldn't. */
+export async function openNotificationSettings(): Promise<boolean> {
+  try {
+    const r = await invoke<{ ok?: boolean }>(`plugin:${PLUGIN}|notification_op`, { op: "openSettings" });
+    return r?.ok !== false;
+  } catch {
+    return false;
+  }
 }
 
 // ─── Daemon calls (same Bearer transport as api/client.ts) ───
@@ -207,12 +276,19 @@ async function postWithCaptured(
 
 type DeviceReg = { deviceId: string; platform: string; token: string };
 
-/** Gates: plugin available AND user enabled the toggle → request
+/** Gates: plugin available AND the push preference on → request
  *  permission (the OS prompts at most once; a denial just ends here) →
- *  vendor token. Null when any gate says no. */
+ *  vendor token. Null when any gate says no.
+ *
+ *  A preference that is only on by default (never set) never brings up
+ *  the system alert cold: it registers only once the OS already allows
+ *  notifications. Asking is the onboarding prompt's job (pushOnboard.ts),
+ *  whose yes stores the preference; so does the Settings toggle. */
 async function deviceRegistration(): Promise<DeviceReg | null> {
   if (!(await pushIsAvailable())) return null;
-  if (!(await getPushEnabled())) return null;
+  const pref = await getPushPref();
+  if (pref === false) return null;
+  if (pref === null && !osAllowsNotifications(await notificationState())) return null;
   const perm = await invoke<{ granted: boolean }>(`plugin:${PLUGIN}|request_permission`);
   if (!perm.granted) return null;
   const tok = await invoke<{ token: string; platform: string }>(`plugin:${PLUGIN}|get_token`);
