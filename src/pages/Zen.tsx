@@ -691,7 +691,7 @@ export function Zen() {
                     <LlmIcon harness={headerHarness} size={18} />
                   </span>
                   <span>
-                    {agentUsage.maxPercent}%{usageAge ? ` · ${usageAge.short}` : ""}
+                    {agentUsage.maxPercent}%
                   </span>
                 </button>
               ) : headerHarness ? (
