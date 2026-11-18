@@ -27,6 +27,20 @@ set -euo pipefail
 #   every file the run changed is put back (git checkout) on exit.
 # --size-report: also export a thinned development build and keep Apple's
 #   "App Thinning Size Report.txt" (download + install size per device).
+# --remote-build: the heavy half (npm ci, the frontend, the Rust + Xcode
+#   archive) runs on a K2 compute Mac, not here (Riley's rule: no heavy
+#   Rust/Xcode builds on the release Mac). This Mac stamps the versions,
+#   sends the stamped tree (k2 compute run --dirty), and then only signs,
+#   exports and uploads. The node builds the archive UNSIGNED
+#   (scripts/ios-remote-build.sh); it comes back as the job's artifact and
+#   exportArchive signs it here with the entitlements files. Node:
+#   K2_IOS_BUILD_NODE (default build-node). Same checks as a local build, plus
+#   the exported IPA's entitlements.
+# Where it lands: an upload pushes HEAD to origin/main and tags v<version>,
+#   so it must run from main or release-<version>. A test-track TestFlight
+#   build from any other branch: RELEASE_BRANCH=<branch> NO_TAG=1 (the
+#   script refuses otherwise, and refuses a "never merge" commit on main
+#   or a tag). A hotfix from an older line: RELEASE_BRANCH=release-<x>.
 # VOICE_CRYPTO=1: the voice build. See "Export compliance" in Step 2.
 #   EXPORT_COMPLIANCE_CODE=<code> adds the code App Store Connect issues
 #   once encryption documentation is approved (see there).
@@ -36,12 +50,15 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+ORIG_ARGS="$*"
 NO_UPLOAD=""
 SIZE_REPORT=""
+REMOTE_BUILD=""
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-upload) NO_UPLOAD=1; shift ;;
     --size-report) SIZE_REPORT=1; shift ;;
+    --remote-build) REMOTE_BUILD=1; shift ;;
     *) break ;;
   esac
 done
@@ -77,7 +94,7 @@ IOS_PLIST="$PROJECT_DIR/src-tauri/Info.ios.plist"
 # ─── Validate ───
 
 if [ $# -ne 1 ]; then
-  echo "Usage: $0 [--no-upload] [--size-report] <version>"
+  echo "Usage: $0 [--no-upload] [--size-report] [--remote-build] <version>"
   echo "Example: $0 3.1.0"
   echo "One marketing version only — git tag, store version, and plist match."
   exit 1
@@ -107,11 +124,56 @@ if ! git -C "$PROJECT_DIR" diff --quiet -- ':!src-tauri/icons' ':!src-tauri/gen/
   exit 1
 fi
 
+# Where this run lands (a guard, not a reminder: K2, 2026-11-16, after a
+# test-track session build was pushed to main and tagged). An upload ends
+# by pushing HEAD to origin/${RELEASE_BRANCH:-main} and tagging v<version>
+# (unless NO_TAG=1). So, before anything is changed:
+#   - Landing on main: only from main itself or release-<version> (the
+#     shipping line). Any other branch is a test-track build: run it with
+#     RELEASE_BRANCH=<its branch> NO_TAG=1.
+#   - Tagging: only main or a release-* line takes the version's tag.
+#   - Never anything carrying a "never merge" commit onto main or a tag.
+if [ -z "$NO_UPLOAD" ]; then
+  CUR_BRANCH="$(git -C "$PROJECT_DIR" rev-parse --abbrev-ref HEAD)"
+  TARGET_BRANCH="${RELEASE_BRANCH:-main}"
+  if [ "$TARGET_BRANCH" = "main" ] && [ "$CUR_BRANCH" != "main" ] && [ "$CUR_BRANCH" != "release-$VERSION" ]; then
+    if [ -n "${NO_TAG:-}" ]; then
+      echo "Error: this run would push $CUR_BRANCH to GitHub main."
+    else
+      echo "Error: this run would push $CUR_BRANCH to GitHub main and tag v$VERSION."
+    fi
+    echo "  Shipping $VERSION: run it from main or release-$VERSION."
+    echo "  A TestFlight-only (test-track) build: RELEASE_BRANCH=$CUR_BRANCH NO_TAG=1 $0 $ORIG_ARGS"
+    exit 1
+  fi
+  if [ -z "${NO_TAG:-}" ] && [ "$TARGET_BRANCH" != "main" ] && [ "${TARGET_BRANCH#release-}" = "$TARGET_BRANCH" ]; then
+    echo "Error: only main or a release-* line takes the v$VERSION tag; $TARGET_BRANCH is a test track."
+    echo "  Run it with NO_TAG=1: RELEASE_BRANCH=$TARGET_BRANCH NO_TAG=1 $0 $ORIG_ARGS"
+    exit 1
+  fi
+  if [ "$TARGET_BRANCH" = "main" ] || [ -z "${NO_TAG:-}" ]; then
+    git -C "$PROJECT_DIR" fetch -q origin main 2>/dev/null || true
+    NEVER="$(git -C "$PROJECT_DIR" log --format='%h %s' -i --grep='never merge' origin/main..HEAD 2>/dev/null || true)"
+    if [ -n "$NEVER" ]; then
+      echo "Error: HEAD carries a never-merge commit, so it can't land on $TARGET_BRANCH or take a tag:"
+      echo "$NEVER" | sed 's/^/  /'
+      echo "  A test-track build: RELEASE_BRANCH=$CUR_BRANCH NO_TAG=1 $0 $ORIG_ARGS"
+      exit 1
+    fi
+  fi
+fi
+
 # Noise removal's DeepFilterNet3 weights (39 MB, not in git): downloaded
 # from Sew's release and checked against their pinned sha256s, before
 # anything is changed. A mismatch stops the release here; the archive is
-# checked again after the build.
-"$SCRIPT_DIR/fetch-dfn3.sh"
+# checked again after the build. A remote build fetches them on the node
+# (they're not in git, so --dirty doesn't carry them); the archive's copy is
+# checked here all the same.
+if [ -z "$REMOTE_BUILD" ]; then
+  "$SCRIPT_DIR/fetch-dfn3.sh"
+else
+  command -v k2 >/dev/null 2>&1 || { echo "Error: --remote-build needs the k2 CLI"; exit 1; }
+fi
 
 # Generate unique build number (YYYYMMDDHHmm)
 BUILD_NUMBER="$(date +%Y%m%d%H%M)"
@@ -197,6 +259,9 @@ done
 CARGO_TOML="$PROJECT_DIR/src-tauri/Cargo.toml"
 PROJECT_YML="$PROJECT_DIR/src-tauri/gen/apple/project.yml"
 sed -i '' "1,/^version = /s/^version = \"[^\"]*\"/version = \"$VERSION\"/" "$CARGO_TOML"
+# Cargo.lock's own entry too: --remote-build runs `cargo fetch --locked`,
+# which refuses a lock whose root package version is stale.
+sed -i '' "/^name = \"k2so-companion\"$/{n;s/^version = \"[^\"]*\"/version = \"$VERSION\"/;}" "$PROJECT_DIR/src-tauri/Cargo.lock"
 # Every target (app, NSE, Broadcast) in one pass: same VERSION, same BUILD_NUMBER.
 sed -i '' "s/CFBundleShortVersionString: .*/CFBundleShortVersionString: $VERSION/; s/CFBundleVersion: .*/CFBundleVersion: \"$BUILD_NUMBER\"/" "$PROJECT_YML"
 
@@ -204,10 +269,66 @@ echo "  ✓ package.json, tauri.conf.json, Info.plist (app, NSE, Broadcast), Car
 
 # ─── Step 2: Build ───
 
-echo "→ Building frontend..."
 cd "$PROJECT_DIR"
-node scripts/gen-acknowledgements.mjs
-npm run build --silent
+# --remote-build: the node runs these (scripts/ios-remote-build.sh) and
+# sends acknowledgements.txt back with the archive.
+if [ -z "$REMOTE_BUILD" ]; then
+  echo "→ Building frontend..."
+  node scripts/gen-acknowledgements.mjs
+  npm run build --silent
+fi
+
+# --remote-build: build the archive on a K2 compute Mac, unsigned, from
+# this tree as it stands now (HEAD + the stamped files, sent with --dirty:
+# nothing is committed or pushed), then put the archive where a local
+# build leaves it, and the node's acknowledgements.txt in public/.
+remote_build() {
+  local node="${K2_IOS_BUILD_NODE:-build-node}"
+  local work job_json job rc
+  work="$(mktemp -d "${TMPDIR:-/tmp}/k2-ios-remote.XXXXXX")"
+  echo "→ Building the iOS archive on $node (k2 compute; this Mac only signs, exports and uploads)..."
+  # 8G is the node's cap; --stall-timeout off: LTO's link prints nothing
+  # for minutes. --cache ios-tools keeps the pinned xcodegen (the script
+  # fetches it: not a --needs tool on Macs yet) between builds.
+  job_json="$(k2 compute run "$node" --dirty --detach --json \
+    --mem 8G --cpus 7 --needs node@22 --cache ios-tools --stall-timeout off \
+    --tag "ios-build:${VERSION}-${BUILD_NUMBER}" \
+    --artifact k2-ios-build.tgz --artifact k2-ios-build.log \
+    ${VOICE_CRYPTO:+--env VOICE_CRYPTO=1} \
+    -- bash scripts/ios-remote-build.sh)" || {
+    echo "Error: k2 compute run refused the job:"; echo "$job_json"; return 1; }
+  job="$(printf '%s' "$job_json" | plutil -extract job raw -o - - 2>/dev/null || true)"
+  if [ -z "$job" ]; then
+    echo "Error: no job id from k2 compute run:"; echo "$job_json"; return 1
+  fi
+  echo "  job $job (k2 compute logs $job · k2 compute get $job)"
+  echo "$job" > "$work/job"
+  # Streams the job's log here and exits with its exit code.
+  set +e
+  k2 compute wait "$job" --follow
+  rc=$?
+  set -e
+  if [ "$rc" -ne 0 ]; then
+    echo "Error: the remote build failed (exit $rc). Full log: k2 compute fetch $job k2-ios-build.log"
+    return 1
+  fi
+  echo "→ Fetching the archive from $node..."
+  k2 compute fetch "$job" k2-ios-build.tgz --out "$work" >/dev/null \
+    || k2 compute fetch "$job" k2-ios-build.tgz --out "$work" --over-relay >/dev/null \
+    || { echo "Error: k2 compute fetch $job failed"; return 1; }
+  [ -f "$work/k2-ios-build.tgz" ] || { echo "Error: no k2-ios-build.tgz from job $job"; return 1; }
+  # Only the two expected entries, nothing outside them.
+  if tar -tzf "$work/k2-ios-build.tgz" | grep -v -E '^(k2so-companion_iOS\.xcarchive(/.*)?|acknowledgements\.txt)$' | grep . >/dev/null; then
+    echo "Error: unexpected paths in k2-ios-build.tgz"; return 1
+  fi
+  mkdir -p "$work/x" "$(dirname "$ARCHIVE_PATH")"
+  tar -xzf "$work/k2-ios-build.tgz" -C "$work/x"
+  mv "$work/x/k2so-companion_iOS.xcarchive" "$ARCHIVE_PATH"
+  cp "$work/x/acknowledgements.txt" "$PROJECT_DIR/public/acknowledgements.txt"
+  echo "$job" > "$ARCHIVE_PATH/../remote-build-job.txt"
+  rm -rf "$work"
+  echo "  ✓ Archive from $node (job $job)"
+}
 
 echo "→ Building iOS archive..."
 # A failed build must not export the last run's archive.
@@ -258,12 +379,17 @@ elif [ -n "${VOICE_CRYPTO:-}" ]; then
     perl -0pi -e 's|(<key>ITSAppUsesNonExemptEncryption</key>\n(\s*)<true/>\n)|$1$2<key>ITSEncryptionExportComplianceCode</key>\n$2<string>$ENV{EXPORT_COMPLIANCE_CODE}</string>\n|' "$INFO_PLIST" "$IOS_PLIST"
     perl -pi -e 's|^(\s*)ITSAppUsesNonExemptEncryption: true\n|$&$1ITSEncryptionExportComplianceCode: "$ENV{EXPORT_COMPLIANCE_CODE}"\n|' "$PROJECT_YML"
   fi
-elif (cd "$PROJECT_DIR/src-tauri" && cargo tree -e normal --target aarch64-apple-ios -i ring 2>/dev/null | grep -q '^ring '); then
+elif [ -z "$REMOTE_BUILD" ] && (cd "$PROJECT_DIR/src-tauri" && cargo tree -e normal --target aarch64-apple-ios -i ring 2>/dev/null | grep '^ring ' >/dev/null); then
+  # (--remote-build: the node runs this guard.)
   echo "Error: the iOS build links ring/rustls. Keep tauri-plugin-http on native-tls for iOS (src-tauri/Cargo.toml)."
   echo "       The voice build opts in with VOICE_CRYPTO=1 (declares encryption; see above)."
   exit 1
 fi
-cargo tauri ios build 2>&1 | grep -E "Compiling|Finished|Exported|FAILED|error" || true
+if [ -n "$REMOTE_BUILD" ]; then
+  remote_build
+else
+  cargo tauri ios build 2>&1 | grep -E "Compiling|Finished|Exported|FAILED|error" || true
+fi
 if [ -n "${VOICE_CRYPTO:-}" ]; then
   restore_encryption_declaration
 fi
@@ -320,11 +446,34 @@ echo "→ Exporting for App Store..."
 # Store" (App ID com.alakazamlabs.k2so.companion.Broadcast, App Group).
 # The app profile must also carry the App Group + Communication
 # Notifications capabilities. Only the APP entitlements hold
-# aps-environment; the extensions' entitlements (App Group only) are not
-# touched here.
+# aps-environment; the extensions' entitlements (App Group; the NSE also
+# time-sensitive notifications, so its profiles need that capability) are
+# not touched here.
 ENTITLEMENTS="$PROJECT_DIR/src-tauri/gen/apple/k2so-companion_iOS/k2so-companion_iOS.entitlements"
 if [ -f "$ENTITLEMENTS" ]; then
   sed -i '' '/<key>aps-environment<\/key>/{ n; s/<string>development<\/string>/<string>production<\/string>/; }' "$ENTITLEMENTS"
+fi
+
+# --remote-build: the archive came back unsigned, and exportArchive takes
+# each bundle's entitlements from its existing signature (an unsigned one
+# exports with only the profile's application-identifier and team: no push,
+# no App Group). So sign it here first, ad hoc, with the same committed
+# entitlements files Xcode signs a local archive with (extensions first,
+# then the app); the export then re-signs with Apple Distribution and keeps
+# them. Light: codesign only.
+if [ -n "$REMOTE_BUILD" ]; then
+  echo "→ Signing the remote archive ad hoc with the entitlements files..."
+  ARCHIVED_APP="$ARCHIVE_PATH/Products/Applications/K2.app"
+  APPLE_DIR="$PROJECT_DIR/src-tauri/gen/apple"
+  for PAIR in \
+    "PlugIns/K2NotificationService.appex|$APPLE_DIR/K2NotificationService/K2NotificationService.entitlements" \
+    "PlugIns/K2Broadcast.appex|$APPLE_DIR/K2Broadcast/K2Broadcast.entitlements" \
+    ".|$ENTITLEMENTS"; do
+    BUNDLE="$ARCHIVED_APP/${PAIR%%|*}"
+    codesign --force --sign - --timestamp=none --generate-entitlement-der \
+      --entitlements "${PAIR#*|}" "$BUNDLE"
+  done
+  echo "  ✓ app, NSE and Broadcast carry their entitlements"
 fi
 
 cat > "$EXPORT_PLIST" << PLIST
@@ -370,11 +519,48 @@ if [ ! -f "$IPA_PATH" ]; then
 fi
 # xcodegen run while Externals/ holds a built libapp.a copies it in as a
 # resource; Apple rejects the upload (90171).
-if unzip -l "$IPA_PATH" | grep -qE '\.a$'; then
+if unzip -l "$IPA_PATH" | grep -E '\.a$' >/dev/null; then
   echo "Error: the IPA contains a static library (stray libapp.a resource in project.pbxproj?)"
   exit 1
 fi
 echo "  ✓ IPA exported"
+# The signed entitlements, as the device and App Store Connect see them:
+# every bundle signed by Apple Distribution with this build number, and
+# each carries its capabilities. (An archive built unsigned, --remote-build,
+# gets its signature only from the export; this is the check that it did.)
+ENT_DIR="$(mktemp -d "${TMPDIR:-/tmp}/k2-ipa-ents.XXXXXX")"
+unzip -q "$IPA_PATH" -d "$ENT_DIR"
+ent_of() { codesign -d --entitlements - --xml "$1" 2>/dev/null | plutil -convert json -o - - 2>/dev/null; }
+ent_get() { printf '%s' "$1" | plutil -extract "$2" raw -o - - 2>/dev/null || true; }
+ENT_FAIL=""
+for BUNDLE in "K2.app" "K2.app/PlugIns/K2NotificationService.appex" "K2.app/PlugIns/K2Broadcast.appex"; do
+  B="$ENT_DIR/Payload/$BUNDLE"
+  SIGNER="$(codesign -dvv "$B" 2>&1 || true)"
+  if ! printf '%s\n' "$SIGNER" | grep '^Authority=Apple Distribution: ' >/dev/null; then
+    echo "  ✗ $BUNDLE is not signed by Apple Distribution"; ENT_FAIL=1
+  fi
+  if [ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$B/Info.plist")" != "$BUILD_NUMBER" ]; then
+    echo "  ✗ $BUNDLE CFBundleVersion is not $BUILD_NUMBER"; ENT_FAIL=1
+  fi
+  E="$(ent_of "$B")"
+  [ "$(ent_get "$E" 'com\.apple\.security\.application-groups.0')" = "group.com.alakazamlabs.k2so.companion" ] \
+    || { echo "  ✗ $BUNDLE lacks the App Group"; ENT_FAIL=1; }
+  [ "$(ent_get "$E" get-task-allow)" = "false" ] || { echo "  ✗ $BUNDLE get-task-allow is not false"; ENT_FAIL=1; }
+done
+E="$(ent_of "$ENT_DIR/Payload/K2.app")"
+[ "$(ent_get "$E" aps-environment)" = "production" ] || { echo "  ✗ K2.app aps-environment is not production"; ENT_FAIL=1; }
+[ "$(ent_get "$E" 'com\.apple\.developer\.usernotifications\.communication')" = "true" ] \
+  || { echo "  ✗ K2.app lacks Communication Notifications"; ENT_FAIL=1; }
+[ "$(ent_get "$E" 'com\.apple\.developer\.usernotifications\.time-sensitive')" = "true" ] \
+  || { echo "  ✗ K2.app lacks Time Sensitive notifications"; ENT_FAIL=1; }
+[ "$(ent_get "$E" 'com\.apple\.developer\.associated-domains.0')" = "applinks:*.k2.dev" ] \
+  || { echo "  ✗ K2.app lacks Associated Domains applinks:*.k2.dev"; ENT_FAIL=1; }
+rm -rf "$ENT_DIR"
+if [ -n "$ENT_FAIL" ]; then
+  echo "Error: the exported IPA's signing or entitlements are wrong (above)."
+  exit 1
+fi
+echo "  ✓ Signed (Apple Distribution, build $BUILD_NUMBER): aps production, App Group, communication + time-sensitive notifications, associated domains"
 APP_ZIP_BYTES="$(stat -f %z "$IPA_PATH")"
 APP_RAW_KB="$(unzip -Z -t "$IPA_PATH" | sed -E 's/^[0-9]+ files, ([0-9]+) bytes uncompressed.*/\1/' | awk '{ printf "%d", $1 / 1024 }')"
 echo "  IPA (universal, before App Store thinning): $((APP_ZIP_BYTES / 1024)) KB zipped, ${APP_RAW_KB} KB unzipped"

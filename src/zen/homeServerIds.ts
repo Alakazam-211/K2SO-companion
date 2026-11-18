@@ -187,3 +187,13 @@ export function homeHostLabel(host: string): string {
   const h = host.trim().toLowerCase();
   return useHomeServerIds.getState().hostByBox[h] ?? h;
 }
+
+/** The address to sign in at for a row whose server is not saved: the
+ *  row's host key, or the host a box id was seen under (the sync pull's
+ *  `servers{hostKey: serverId}`, an earlier `/boot-status`). Null when only
+ *  the box id is known. */
+export function homeSignInHost(host: string): string | null {
+  const h = homeHostLabel(host);
+  if (parseBoxServerId(h)) return null;
+  return tryHostKey(h);
+}

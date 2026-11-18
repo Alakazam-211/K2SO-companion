@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useBackHandler } from "../lib/androidBack";
+import { useSwipeBack } from "../lib/useSwipeBack";
 import { BackArrowButton } from "./BackArrowButton";
 
 // The open-source notices that have to ship with the app (MIT, Apache-2.0,
@@ -9,7 +10,9 @@ import { BackArrowButton } from "./BackArrowButton";
 const NOTICES_URL = "/acknowledgements.txt";
 
 export function AcknowledgementsPage({ onBack }: { onBack: () => void }) {
-  useBackHandler(true, onBack);
+  // Android Back and the left-edge swipe: back to Settings, one level.
+  const onTop = useBackHandler(true, onBack);
+  const swipeRef = useSwipeBack(onBack, { enabled: onTop });
   const [text, setText] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -31,6 +34,7 @@ export function AcknowledgementsPage({ onBack }: { onBack: () => void }) {
   }, []);
   return (
     <div
+      ref={swipeRef}
       className="absolute inset-0 flex flex-col"
       style={{ background: "var(--color-bg)", color: "var(--color-text-primary)", zIndex: 7, paddingTop: "env(safe-area-inset-top)" }}
       data-testid="acknowledgements-page"

@@ -141,14 +141,29 @@ import { newestSeenSeq, type RowRef } from "./unread";
 import { useUnreadStore } from "./unreadStore";
 import { useMarkReadWhileViewing } from "./unreadRead";
 import { MessageFiles, patchThreadFileState, useThreadFilesOn } from "./ThreadFiles";
-import { JumpPill, type JumpPillWords } from "./JumpPill";
+import { JumpPill, jumpPillPlace, jumpPillRide, type JumpPillRide, type JumpPillWords } from "./JumpPill";
+import { ThreadReplyBar } from "./ThreadReplyBar";
 import { PermissionCard } from "./PermissionCard";
 import type { PermissionCardModel } from "./permissionCardModel";
+import type { ApprovalCardModel } from "./approvals";
+import { ApprovalCard } from "./ApprovalCard";
 import { ThreadImagesContext, type ThreadImagesSource } from "./ThreadImages";
 import { FEATURE_THREAD_IMAGES, attachmentOpenable, isImageAttachment } from "../api/threadAttachmentPure";
 import { AttachmentSheet, type OpenAttachment } from "./AttachmentSheet";
 import { createFoldHost, FoldContext, MessageFold, type FoldHost } from "./MessageFold";
 import { sameMessage } from "./threadCacheMerge";
+import { HomeChatTyping } from "./homeChat/HomeChatTyping";
+import {
+  FEATURE_THREAD_TYPING,
+  isTypingFrame,
+  parseThreadTypingFrame,
+  threadPostAuthor,
+  threadTypingLine,
+  threadTypingTick,
+  typingFrameForThread,
+  useThreadTyping,
+} from "./threadTyping";
+import type { TypingSent } from "../api/homeChatHelpers";
 import {
   OLDER_COOLDOWN_MS,
   OLDER_PREFETCH_SCREENS,
@@ -509,6 +524,8 @@ const Bubble = memo(function Bubble({
           ) : null}
           {waiting && canAnswer && !answerHeld && !answering && m.id ? <CardDismiss id={m.id} /> : null}
         </div>
+      ) : m.approval ? (
+        <ThreadApprovalCard card={m.approval} />
       ) : m.stashOffer && !m.mine ? (
         <StashOfferCard m={m} offer={m.stashOffer} onSave={onStashOffer} />
       ) : (
@@ -597,6 +614,26 @@ function ThreadPermissionCard({ card, id, enabled }: { card: PermissionCardModel
       scope={scope}
       enabled={enabled && !!addr}
       onWritten={() => void useZenStore.getState().refreshOpenThread()}
+    />
+  );
+}
+
+/** A signed-approval card on the open Thread: Review opens the native
+ *  screen for this server; a re-read after it closes shows the status. */
+function ThreadApprovalCard({ card }: { card: ApprovalCardModel }) {
+  const scope = useZenScope();
+  let url = "";
+  try {
+    url = scope.httpBase();
+  } catch {
+    url = "";
+  }
+  return (
+    <ApprovalCard
+      card={card}
+      server={scope.id}
+      url={url}
+      onClosed={() => void useZenStore.getState().refreshOpenThread()}
     />
   );
 }
@@ -865,6 +902,34 @@ const THREAD_BOTTOM_PAD = 12;
  *  (empty) label row's `mb-1.5`. The drawer covers that much of the bar. */
 export const COMPOSER_FIELD_TOP_PX = 8 + 6;
 
+/** Who is typing (HomeChatTyping): its line stands this far over the
+ *  composer's top (Home chat's `bottom: 2`) and is this tall (12/16 text,
+ *  2 px padding). The Jump pill keeps its gap over the line. */
+export const THREAD_TYPING_FOOT_PX = 2;
+export const THREAD_TYPING_LINE_PX = 20;
+/** Room the scroller keeps for the line while the server has typing
+ *  (always, as Home chat: it never moves the list). Its own 12 px bottom
+ *  padding already clears the line on the field; standing on the
+ *  activity ear, the line reaches this much further. */
+export const THREAD_TYPING_ROOM_PX = THREAD_TYPING_FOOT_PX + THREAD_TYPING_LINE_PX - 12;
+
+/** How far (px) the composer's top — its first row with height (room
+ *  banner, label, selection bar, chips, reply bar), else the field — sits
+ *  below the composer bar's top. The working drawer's room (drawerRoom)
+ *  is not a row. Null when nothing has a height (not laid out). */
+export function composerTopGap(bar: HTMLElement | null): number | null {
+  if (!bar) return null;
+  const top = bar.getBoundingClientRect().top;
+  for (const el of Array.from(bar.children)) {
+    if (!(el instanceof HTMLElement)) continue;
+    if (el.getAttribute("data-testid")?.endsWith("-drawer-room")) continue;
+    const r = el.getBoundingClientRect();
+    if (!(r.height > 0)) continue;
+    return Math.max(0, Math.round(r.top - top));
+  }
+  return null;
+}
+
 /** How far the working drawer (standing `drawerSpace` px on the field's
  *  top edge) reaches above the composer bar, into the scroller. With rows
  *  above the field (banner, label, chips) the bar keeps room for it
@@ -908,6 +973,7 @@ export function ThreadDraftComposer({
   onBlankChange,
   hasAttachments,
   inFlight,
+  onType,
   ...props
 }: Omit<GlassComposerProps, "value" | "onChange" | "sendReady"> & {
   draftKey: string | null;
@@ -916,6 +982,9 @@ export function ThreadDraftComposer({
   hasAttachments: boolean;
   /** One send in flight per room: Send waits. */
   inFlight: boolean;
+  /** The person's own input in the field (not a draft put back, not a
+   *  clear on Send): the Thread's `typing` frames ride this. */
+  onType?: (text: string) => void;
 }) {
   const [draft, setDraftText] = useState(() => composerDraftOf(draftKey));
   const textRef = useRef(draft);
@@ -945,8 +1014,17 @@ export function ThreadDraftComposer({
     show(composerDraftOf(draftKey));
   }, [draftKey, show]);
   apiRef.current = { get: () => textRef.current, set: setDraft };
+  const typeCb = useRef(onType);
+  typeCb.current = onType;
+  const onInput = useCallback(
+    (text: string) => {
+      setDraft(text);
+      typeCb.current?.(text);
+    },
+    [setDraft]
+  );
   const sendReady = (Boolean(draft.trim()) || hasAttachments) && !inFlight;
-  return <GlassComposer {...props} value={draft} onChange={setDraft} sendReady={sendReady} />;
+  return <GlassComposer {...props} value={draft} onChange={onInput} sendReady={sendReady} />;
 }
 
 export function ThreadPane({
@@ -1023,6 +1101,9 @@ export function ThreadPane({
   // Uploads land in `<workspace>/.k2/downloads/` (desktop's compose bar).
   // A project chat has no workspace of its own: its PoC member's.
   const groupId = (threadGroupId || "").trim();
+  // Who is typing (K2 `thread-typing-v1`): agent Threads only, on a
+  // server that lists it; without it nothing is sent or shown.
+  const typingOn = roomScope.supports(FEATURE_THREAD_TYPING) && !groupId && !!conversationId;
   const [groupPoc, setGroupPoc] = useState<{ key: string; poc: GroupPoc } | null>(null);
   const groupKey = groupId ? `${zenServer}\n${groupId}` : "";
   const poc = groupPoc && groupPoc.key === groupKey ? groupPoc.poc : null;
@@ -1189,6 +1270,20 @@ export function ThreadPane({
     replyTo != null ||
     (msgSel.sel != null && selectedMessage != null);
   const drawerCover = drawerOverScroller(drawerSpace, rowsAboveField);
+  // The scroller's room under the newest message: the ear's cover, plus
+  // the typing line's on a server with typing.
+  const bottomCover = drawerCover + (typingOn ? THREAD_TYPING_ROOM_PX : 0);
+  // The Jump to bottom pill: the gap over the composer's top, lifted by
+  // the ear while it is out, riding the ear's slide (jumpPillPlace).
+  const [composerTop, setComposerTop] = useState(COMPOSER_FIELD_TOP_PX);
+  const pillPlace = jumpPillPlace(composerTop, drawerSpace, rowsAboveField);
+  const [pillRide, setPillRide] = useState<JumpPillRide>(() => ({
+    lift: pillPlace.lift,
+    rows: rowsAboveField,
+    transition: "none",
+  }));
+  const ride = jumpPillRide(pillRide, pillPlace.lift, rowsAboveField, prefersReducedMotion());
+  if (ride !== pillRide) setPillRide(ride);
   /** The message the person has picked: its hold menu, or words in it. */
   const selectedMsgId = msgHold.menu?.id ?? msgSel.sel?.id ?? null;
   const replyFrom = (m: ThreadMessage) => m.from || (m.mine ? roomScope.username() : threadAddr) || "";
@@ -1380,6 +1475,39 @@ export function ThreadPane({
   // Viewing frames go to the ROOM's server (the overlay socket's own).
   const serverId = zenServer || null;
   const hubViewing = useZenScope().supports(FEATURE_HUB_VIEWING);
+  const typingOnRef = useRef(typingOn);
+  typingOnRef.current = typingOn;
+  const typing = useThreadTyping({
+    on: typingOn,
+    roomKey: `${zenServer}|${conversationId ?? ""}`,
+    me: roomScope.username(),
+  });
+  const typingRef = useRef(typing);
+  typingRef.current = typing;
+  const typingNames = typing.names;
+  // A catch-up read (not a live frame) brought someone's message: their
+  // shown name clears too.
+  const newestMsg = thread.length ? thread[thread.length - 1] : null;
+  useEffect(() => {
+    if (!newestMsg || newestMsg.mine || newestMsg.pending || !typingOnRef.current) return;
+    typingRef.current.notePost({ login: "", kind: "", from: newestMsg.from });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [newestMsg?.id]);
+  // Our own typing: at most one frame per 8 s, from the person's input
+  // in the field only (ThreadDraftComposer's onType), with words in it.
+  // No stop frame, nothing on blur.
+  const typingSent = useRef<TypingSent>({});
+  useEffect(() => {
+    typingSent.current = {};
+  }, [zenServer, conversationId, threadAddr]);
+  const onComposerType = (text: string) => {
+    if (!typingOnRef.current || !canSend) return;
+    const addr = (addrRef.current || "").trim();
+    if (!addr) return;
+    const tick = threadTypingTick(typingSent.current, addr, text, Date.now());
+    if (!tick.send) return;
+    if (liveRef.current?.sendTyping?.(addr)) typingSent.current = tick.sent;
+  };
   const viewingAllowed = useNotifyPrefsStore(
     (s) => !!serverId && s.threadPush[serverId] === true
   );
@@ -1541,6 +1669,14 @@ export function ThreadPane({
    *  drawer room, keyboard gap): the scroller's bottom padding moves with it.
    *  Following: the newest stays right above the field. Reading history:
    *  the reader's viewport stays where it was (no jump). */
+  // Where the composer's top sits in its bar: read again when rows over
+  // the field come or go and when the block resizes. Not laid out (tests):
+  // the field's place with no rows.
+  useLayoutEffect(() => {
+    const bar = dockRef.current?.querySelector<HTMLElement>('[data-testid="composer-bar"]') ?? null;
+    setComposerTop(composerTopGap(bar) ?? COMPOSER_FIELD_TOP_PX);
+  }, [composerPx, rowsAboveField]);
+
   function composerResized(px: number) {
     const prev = composerPxRef.current;
     composerPxRef.current = px;
@@ -1778,13 +1914,25 @@ export function ThreadPane({
         setTurn((t) => applyActivityCatchUp(t, data, at));
       },
       onItem: (raw) => {
+        // Who is typing: never a message (its `seq:0` is no position).
+        if (isTypingFrame(raw)) {
+          const f = parseThreadTypingFrame(raw);
+          if (f && typingOnRef.current && typingFrameForThread(f, addrRef.current || "")) {
+            typingRef.current.noteFrame(f);
+          }
+          return;
+        }
         if (isActivityFrame(raw)) {
           catchUps.current.frame();
           const at = Date.now();
           setTurn((t) => applyActivityFrame(t, raw, at));
           return;
         }
-        if (isThreadFrame(raw)) useZenStore.getState().ingestThreadRaw(raw);
+        if (isThreadFrame(raw)) {
+          // Their message landed: their typing line goes at once.
+          if (typingOnRef.current) typingRef.current.notePost(threadPostAuthor(raw));
+          useZenStore.getState().ingestThreadRaw(raw);
+        }
       },
       onNeedCatchUp: () => {
         void useZenStore.getState().refreshOpenThread();
@@ -2419,7 +2567,7 @@ export function ThreadPane({
     if (el && bar && barPx > 0 && barPx !== composerPxRef.current) {
       const px = barPx;
       el.style.transition = "none";
-      el.style.paddingBottom = threadBottomPadding(px, drawerCover);
+      el.style.paddingBottom = threadBottomPadding(px, bottomCover);
       void el.offsetHeight;
       el.style.transition = "";
       composerResized(px);
@@ -2646,12 +2794,12 @@ export function ThreadPane({
         data-drawer-space={drawerSpace}
         data-drawer-cover={drawerCover}
         data-composer-height={composerPx}
-        data-bottom-inset={threadBottomInset(composerPx, drawerCover)}
+        data-bottom-inset={threadBottomInset(composerPx, bottomCover)}
         className="zen-thread-scroller flex-1 min-w-0 overflow-y-auto overflow-x-hidden px-2.5 py-3 flex flex-col"
         style={{
           overflowAnchor: "none",
           paddingTop: threadTopPadding(topInset),
-          paddingBottom: threadBottomPadding(composerPx, drawerCover),
+          paddingBottom: threadBottomPadding(composerPx, bottomCover),
           // Only a message's words select (their own SELECTABLE). Anything
           // else here (the padding and spacers under the newest message, the
           // names and times, the space around a bubble's rounded corner)
@@ -2908,25 +3056,55 @@ export function ThreadPane({
           testId="thread-footer-blur"
           style={{ left: 0, right: 0, bottom: 0, top: -(FOOTER_BLUR_FADE_PX + drawerCover) }}
         />
-        {/* Zero-height row: the pill floats just above the composer (and
-            above the working drawer while it shows). */}
-        <div className="relative h-0 shrink-0" style={{ zIndex: 1 }}>
-          <div
-            aria-live="polite"
-            className="absolute left-0 right-0 flex justify-center pointer-events-none"
-            style={{ bottom: 8 + drawerCover }}
-          >
-            {pillWords ? <JumpPill words={pillWords} count={newCount} leaving={pillLeaving} onJump={onNewBelow} /> : null}
-          </div>
-        </div>
         {/* Above the blur (positioned, z 0): its own stacking layer. */}
         <div className="relative" style={{ zIndex: 1 }}>
+          {/* Zero-height row at the bar's top: the pill floats the gap
+              above the composer's top (reaching into the bar's empty top
+              padding, so over the bar: z 2; the ＋ menu, z 40, stays over
+              it), and rides up with the working ear while it is out
+              (jumpPillPlace / jumpPillRide). In the dock: it follows the
+              keyboard with the composer. */}
+          <div className="relative h-0" style={{ zIndex: 2 }}>
+            {/* Who is typing (Home chat's line, on the composer's top
+                edge): it stands on the composer's top — the field, the
+                rows over it (reply bar, chips), or the activity ear while
+                it is out, riding the ear's slide like the pill — and the
+                pill keeps its gap over it. Out of the flow: it never moves
+                the box or the list. */}
+            {typingOn ? (
+              <div
+                className="absolute left-0 right-0 h-0 pointer-events-none"
+                data-testid="thread-typing-row"
+                style={{
+                  bottom: -composerTop,
+                  transform: `translate3d(0, ${-ride.lift}px, 0)`,
+                  transition: ride.transition,
+                }}
+              >
+                <HomeChatTyping names={typingNames} line={threadTypingLine} />
+              </div>
+            ) : null}
+            <div
+              aria-live="polite"
+              className="absolute left-0 right-0 flex justify-center pointer-events-none"
+              data-testid="thread-jump-row"
+              data-lift={ride.lift}
+              style={{
+                bottom: pillPlace.bottom + (typingNames.length ? THREAD_TYPING_FOOT_PX + THREAD_TYPING_LINE_PX : 0),
+                transform: `translate3d(0, ${-ride.lift}px, 0)`,
+                transition: ride.transition,
+              }}
+            >
+              {pillWords ? <JumpPill words={pillWords} count={newCount} leaving={pillLeaving} onJump={onNewBelow} /> : null}
+            </div>
+          </div>
           <ThreadDraftComposer
             draftKey={draftKey}
             apiRef={draftApi}
             onBlankChange={setDraftBlank}
             hasAttachments={attachments.length > 0}
             inFlight={inFlight}
+            onType={onComposerType}
             onAttach={queueFiles}
             onAttachError={setAttachError}
             onSubmit={onSend}
@@ -3013,29 +3191,6 @@ export function ThreadPane({
                 ))}
               </div>
             ) : null}
-            {replyTo ? (
-              <div
-                className="flex items-center gap-1.5 mb-1.5 text-[12px] min-w-0"
-                style={{ color: "var(--color-text-muted)" }}
-                data-testid="reply-chip"
-              >
-                <ReplyIcon size={14} strokeWidth={1.75} />
-                <span className="flex-1 min-w-0 truncate">
-                  <span style={{ color: "var(--color-text-primary)" }}>{replyTo.from || "Reply"}</span>
-                  {": "}
-                  {threadReplyFirstLine(replyTo.text)}
-                </span>
-                <button
-                  type="button"
-                  className="shrink-0 px-1.5"
-                  aria-label="Cancel reply"
-                  data-testid="reply-chip-cancel"
-                  onClick={() => setReplyTo(null)}
-                >
-                  ✕
-                </button>
-              </div>
-            ) : null}
             {attachments.length ? (
               <div
                 ref={chipsRef}
@@ -3058,6 +3213,10 @@ export function ThreadPane({
                 ))}
               </div>
             ) : null}
+            {/* Last above the field: it stands on the activity ear (the
+                composer keeps the ear's room under it) and comes down
+                with it. */}
+            {replyTo ? <ThreadReplyBar target={replyTo} onCancel={() => setReplyTo(null)} /> : null}
           </ThreadDraftComposer>
         </div>
       </div>

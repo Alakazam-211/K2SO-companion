@@ -31,14 +31,26 @@ let package = Package(
       dependencies: [
         .byName(name: "Tauri"),
         "K2VideoFrames",
+        "K2Approval",
       ],
       path: "Sources"),
+    // Signed approvals: the strict payload reader, the screen text, the
+    // record and key ids. Foundation only: the plugin uses it, and so does
+    // the macOS fixture check (`swift run ApprovalCheck`).
+    .target(
+      name: "K2Approval",
+      path: "Approval"),
     // PiP frame wrapping, no UIKit: the plugin uses it, and so does the
     // macOS check (`swift run PiPCheck`).
     .target(
       name: "K2VideoFrames",
       path: "VideoFrames"),
   ] + (forApp ? [] : [
+    .executableTarget(
+      name: "ApprovalCheck",
+      dependencies: ["K2Approval"],
+      path: "ApprovalCheck",
+      exclude: ["sa1"]),
     .executableTarget(
       name: "PiPCheck",
       dependencies: ["K2VideoFrames"],

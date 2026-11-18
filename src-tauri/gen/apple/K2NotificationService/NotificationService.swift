@@ -42,6 +42,40 @@
 // (before the first unlock, no key, a replay): the generic text as sent.
 // A server the app marked sealed-only (`enforce`): its plaintext Thread /
 // ticket / project pushes are shown generic.
+//
+// DM calls (K2 0.46.13 push kind `call`, always sealed in format 1): opened,
+// `data` is `{kind: "call", callId (Sew's), conversationId, callState:
+// ringing|missed|ended|answered}`. The ring (title the caller, body
+// "Incoming call") gets category K2_CALL (Accept / Decline: the app
+// registers them, K2CallPush.swift), K2's ringtone (`k2-ring.caf`, 28 s,
+// the default sound when it isn't bundled) and a time-sensitive
+// interruption level; the one push that replaces it (Answered on another
+// device / Missed call / Call ended) gets K2_CALL_DONE and NO sound (it
+// removes the ring first, which should cut a ringtone still playing).
+//
+// Ring for incoming calls (Settings → Calls, default on; the app stores it
+// in the App Group's UserDefaults, `k2.call.ring.v1`, K2CallPush.setRing):
+// off, the ring gets NO sound and the normal (active) level instead, still
+// "Incoming call" with Accept / Decline; an unopened ring the same (on, it
+// gets the ringtone at the level the relay sent). iOS's silent switch and
+// Focus apply either way.
+//
+// The clear aps of a sealed call push (K2's answers §2): with the relay's
+// `call-aps` cap, `alert` "K2 / New message", `sound` default,
+// `mutable-content` 1, `category` K2_CALL, `interruption-level`
+// time-sensitive (the done push: K2_CALL_DONE, and the relay's default
+// sound). Without `call-aps` (an older relay, or the first ring after a
+// daemon restart): only the alert, the sound and mutable-content. Both
+// shapes end up the same here: everything is set on a `mutableCopy()`, so
+// the server's level is kept when it sent one (never fresh content, which
+// would drop it), and set when it didn't. The extension has the
+// time-sensitive entitlement too (K2NotificationService.entitlements).
+//
+// Sealed pushes carry no apns-collapse-id, so APNs never replaces the ring:
+// before a done push is shown, this extension removes every other delivered
+// notification of the same call (matched by `callId` in the delivered,
+// unsealed userInfo). One ring, then exactly one silent replacement.
+// KEEP THE CATEGORY IDS IN SYNC with K2CallPush.swift.
 
 import Intents
 import UIKit
@@ -67,11 +101,13 @@ final class NotificationService: UNNotificationServiceExtension {
       guard case .success(let u) = K2PushSealed.unseal(incoming.userInfo),
         let m = incoming.mutableCopy() as? UNMutableNotificationContent
       else {
-        // The generic "K2 / New message" exactly as sent.
+        // The generic "K2 / New message" as sent, except a call's clear
+        // aps (`call-aps`): a done push stays silent, and a ring we can't
+        // read has no Accept / Decline (nothing to answer them with).
         lock.lock()
         self.contentHandler = contentHandler
         lock.unlock()
-        deliver(incoming)
+        deliver(Self.unopenedCall(incoming) ?? incoming)
         return
       }
       m.title = u.title
@@ -91,6 +127,18 @@ final class NotificationService: UNNotificationServiceExtension {
       m.title = "K2"
       m.body = "New message"
       incoming = m
+    }
+
+    // A DM call: its own shape, no Communication intent (no `addr`).
+    if let call = Self.callContent(incoming) {
+      lock.lock()
+      self.contentHandler = contentHandler
+      self.original = call
+      lock.unlock()
+      Self.clearOtherCallNotifications(call, keeping: request.identifier) {
+        self.deliver(call)
+      }
+      return
     }
 
     // Badge first, so even the fallback paths carry it.
@@ -142,6 +190,118 @@ final class NotificationService: UNNotificationServiceExtension {
     delivered = true
     lock.unlock()
     handler(content)
+  }
+
+  // ── DM calls ────────────────────────────────────────────────────────
+
+  static let callRingCategory = "K2_CALL"
+  static let callDoneCategory = "K2_CALL_DONE"
+
+  /// A call push's shape (nil: not a call). The server's title and body
+  /// stand; the fallbacks are K2's own words.
+  static func callContent(_ content: UNNotificationContent) -> UNNotificationContent? {
+    let info = content.userInfo
+    guard string(info, "kind") == "call",
+      let m = content.mutableCopy() as? UNMutableNotificationContent
+    else { return nil }
+    let state = string(info, "callState")
+    let callId = string(info, "callId")
+    if !callId.isEmpty { m.threadIdentifier = "call:" + callId }
+    if m.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { m.title = "K2" }
+    if state.isEmpty || state == "ringing" {
+      m.categoryIdentifier = callRingCategory
+      if m.body.isEmpty { m.body = "Incoming call" }
+      applyRingSound(m)
+      m.relevanceScore = 1
+    } else {
+      m.categoryIdentifier = callDoneCategory
+      if m.body.isEmpty {
+        m.body = state == "answered" ? "Answered on another device" : state == "missed" ? "Missed call" : "Call ended"
+      }
+      // The relay's clear aps gives every sealed push the default sound:
+      // the replacement must not ring again. Passive, as K2 0.46.13 sends
+      // it with call-aps (no screen wake); set here so a relay without
+      // call-aps behaves the same.
+      m.sound = nil
+      m.interruptionLevel = .passive
+    }
+    return m
+  }
+
+  /// A sealed push we couldn't open, by its clear `call-aps` category (nil:
+  /// not a call, or nothing to change). Its level stays as sent.
+  static func unopenedCall(_ content: UNNotificationContent) -> UNNotificationContent? {
+    let category = content.categoryIdentifier
+    guard category == callRingCategory || category == callDoneCategory,
+      let m = content.mutableCopy() as? UNMutableNotificationContent
+    else { return nil }
+    if category == callDoneCategory {
+      m.sound = nil
+      m.interruptionLevel = .passive
+    } else {
+      m.categoryIdentifier = ""
+      if ringOn() {
+        m.sound = ringSound()
+      } else {
+        m.sound = nil
+        m.interruptionLevel = .active
+      }
+    }
+    return m
+  }
+
+  /// Settings → Calls → Ring for incoming calls, as the app stored it in
+  /// the App Group (K2CallPush.ringKey — KEEP THE KEY IN SYNC). Never
+  /// written (or no App Group): ring.
+  static let ringKey = "k2.call.ring.v1"
+
+  static func ringOn() -> Bool {
+    UserDefaults(suiteName: appGroupId)?.object(forKey: ringKey) as? Bool ?? true
+  }
+
+  /// K2's ringtone (scripts/gen-ringtone.mjs, 28 s: iOS plays it once, up
+  /// to 30 s), bundled in the app and in this extension (project.yml). Not
+  /// in this bundle (a build without it): the default sound.
+  static let ringFile = "k2-ring.caf"
+
+  static func ringSound() -> UNNotificationSound {
+    guard Bundle.main.url(forResource: "k2-ring", withExtension: "caf") != nil else { return .default }
+    return UNNotificationSound(named: UNNotificationSoundName(ringFile))
+  }
+
+  /// A ring: on = K2's ringtone, time-sensitive; off = no sound at the
+  /// normal level, still shown with Accept / Decline.
+  static func applyRingSound(_ m: UNMutableNotificationContent) {
+    if ringOn() {
+      m.sound = ringSound()
+      m.interruptionLevel = .timeSensitive
+    } else {
+      m.sound = nil
+      m.interruptionLevel = .active
+    }
+  }
+
+  /// A done push: the call's other notifications still delivered go first
+  /// (the ring, when a relay lost the collapse id). `done` runs once.
+  static func clearOtherCallNotifications(
+    _ content: UNNotificationContent, keeping identifier: String, done: @escaping () -> Void
+  ) {
+    let callId = string(content.userInfo, "callId")
+    guard content.categoryIdentifier == callDoneCategory, !callId.isEmpty else {
+      done()
+      return
+    }
+    let center = UNUserNotificationCenter.current()
+    center.getDeliveredNotifications { delivered in
+      let ids = delivered
+        .filter {
+          $0.request.identifier != identifier && string($0.request.content.userInfo, "kind") == "call"
+            && string($0.request.content.userInfo, "callId") == callId
+        }
+        .map { $0.request.identifier }
+      if !ids.isEmpty { center.removeDeliveredNotifications(withIdentifiers: ids) }
+      done()
+    }
   }
 
   // ── Badge (App Group, K2BadgeStore) ─────────────────────────────────

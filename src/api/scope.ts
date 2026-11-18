@@ -123,6 +123,20 @@ export const DAEMON_FEATURES = [
   // K2 0.46.8+: a Linux Pro server hosts voice rooms (`/cli/voice/*`,
   // zen/voice). Listed only while it hosts.
   "voice-rooms-v1",
+  // K2 0.46.13: people and channels on Home (`/cli/home-chat/*`, its
+  // events socket, DM calls). Listed only while the owner's `homeChat`
+  // switch is on and Sew's K5 Space is ready (Linux). Read by the gate in
+  // api/homeChat (with `GET /cli/home-chat/status` `on`); never assumed.
+  "home-chat-v1",
+  // K2 0.46.16: a login with a temporary password gets a one-use password
+  // ticket (`POST /cli/auth/device/password-ticket`, a web-off box too),
+  // and change-password tells its 401s, 423 and `password_unchanged`
+  // apart. Read by zen/setPasswordFlow; absent → the step as before.
+  "companion-password-ticket-v1",
+  // K2: who is typing in an agent Thread (`{"t":"typing"}` on the
+  // Thread's live socket, `collection:"typing"` frames back). Read by
+  // zen/threadTyping via ThreadPane; absent → nothing sent or shown.
+  "thread-typing-v1",
 ] as const;
 
 export type DaemonFeature = (typeof DAEMON_FEATURES)[number];
@@ -490,6 +504,19 @@ function noteStaleSession(serverId: string, token: string): void {
 }
 
 const BOOT_WHOAMI_TIMEOUT_MS = 8000;
+
+/** whoami said this server's `token` must change its password. */
+export function mustChangeHeld(serverId: string, token: string): boolean {
+  return !!token && mustChangeToken.get(serverId) === token;
+}
+
+/** "Set your new password" finished on this server: forget the explained
+ *  must-change token and the re-check throttle, so the new session starts
+ *  clean. */
+export function clearMustChange(serverId: string): void {
+  mustChangeToken.delete(serverId);
+  staleRecheckAt.delete(serverId);
+}
 
 /** Tests: forget the stale-login re-check throttle. */
 export function __resetBootStaleForTests(): void {

@@ -47,5 +47,8 @@ describe("login 429 (K2 per-IP limit)", () => {
     const r = loginErrorFromStatus(403, body, true, "edge 404");
     expect(r?.kind).toBe("forbidden");
     expect(r?.error).toMatch(/web access turned off/);
+    // "Set your new password" reads this to send the person to pairing.
+    expect(r?.webOff).toBe(true);
+    expect(loginErrorFromStatus(403, '{"error":"nope"}', true, "edge 404")?.webOff).toBeUndefined();
   });
 });

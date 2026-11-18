@@ -252,6 +252,8 @@ export type PoolEvent =
   | { type: "kicked"; serverLabel: string }
   /** A socket's whoami said the login is dead (MA14/MA22). */
   | { type: "signin"; serverLabel: string }
+  /** "Set your new password" finished: the new session is unrestricted. */
+  | { type: "rotated" }
   | { type: "scheduled"; nextAt: number | null };
 
 export function reducePool(prev: PoolEntry, ev: PoolEvent): PoolEntry {
@@ -326,6 +328,8 @@ export function reducePool(prev: PoolEntry, ev: PoolEvent): PoolEntry {
     case "signin":
       if (prev.auth === "kicked") return prev; // kicked is the stronger word
       return { ...prev, auth: "signin-required", authKnown: true, authNote: null, ...noPresence() };
+    case "rotated":
+      return { ...prev, auth: "ok", authKnown: true, authNote: null };
     case "scheduled":
       return { ...prev, nextAt: ev.nextAt };
   }
@@ -369,6 +373,8 @@ export interface Pool {
   noteKicked(serverId: string): void;
   /** A socket's whoami check said this server's login is dead. */
   noteSigninRequired(serverId: string): void;
+  /** The login set its new password (no longer `rotate-required`). */
+  noteRotated(serverId: string): void;
   /** The server was removed or re-keyed: drop its entry. */
   forget(serverId: string): void;
   onRestart(fn: RestartListener): () => void;
@@ -500,6 +506,10 @@ export function createPool(deps: PoolDeps): Pool {
     },
     noteSigninRequired(id) {
       noteAuth(id, "signin");
+    },
+    noteRotated(id) {
+      const e = store.getState().entries[id];
+      if (e) write(id, reducePool(e, { type: "rotated" }));
     },
     forget,
     onRestart(fn) {

@@ -192,6 +192,8 @@ describe("See more in the Thread", () => {
     const t = toggleOf(longBubble())!;
     expect(t.textContent).toBe("See more");
     expect(t.getAttribute("aria-expanded")).toBe("false");
+    // A down chevron after the words (aria-hidden).
+    expect(t.querySelector("[data-testid=fold-chevron]")!.getAttribute("data-dir")).toBe("down");
     expect(longBubble().querySelector<HTMLElement>("[data-testid=fold-clip]")!.style.maxHeight).toBe(
       `${foldClipPx(LINE)}px`
     );
@@ -233,6 +235,7 @@ describe("See more in the Thread", () => {
     fireEvent.click(t);
     expect(toggleOf(longBubble())!.textContent).toBe("See less");
     expect(toggleOf(longBubble())!.getAttribute("aria-expanded")).toBe("true");
+    expect(toggleOf(longBubble())!.querySelector("[data-testid=fold-chevron]")!.getAttribute("data-dir")).toBe("up");
     expect(screen.queryByTestId("message-menu")).toBeNull();
     // The bubble around it still holds for the menu.
     hold(longBubble());

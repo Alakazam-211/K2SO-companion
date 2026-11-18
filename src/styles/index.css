@@ -421,6 +421,22 @@ html, body, #root {
 .zen-glass.zen-jump-pill {
   border-color: var(--jump-pill-edge);
 }
+/* The Thread's reply bar (ThreadReplyBar.tsx) wears the pill's glass
+   (zen-jump-pill and its inline fill). Its × dims when pressed. Reduced transparency: no blur, the solid tile (`--tile-fill`,
+   the plain border, the tile's ink); `!important` beats the inline fill. */
+.zen-reply-bar button:active .zen-reply-cancel-x {
+  opacity: 0.6;
+}
+@media (prefers-reduced-transparency: reduce) {
+  .zen-glass.zen-reply-bar {
+    -webkit-backdrop-filter: none;
+    backdrop-filter: none;
+    background: var(--tile-fill) !important;
+    border-color: var(--color-border);
+    box-shadow: none;
+    color: var(--color-text-primary) !important;
+  }
+}
 .zen-glass-pill {
   border-radius: 999px;
 }
@@ -658,6 +674,28 @@ html, body, #root {
     rgba(var(--k2-page-rgb), 0.85) 0%,
     rgba(var(--k2-page-rgb), 0.55) calc((100% - var(--zen-blur-early)) * 0.45),
     rgba(var(--k2-page-rgb), 0.12) calc(100% - var(--zen-blur-early) - 20px),
+    rgba(var(--k2-page-rgb), 0) 100%
+  );
+}
+/* Home chat's scroll-edge fade (`--edge` on top of `--early`; K2 Design
+   4.3.0: a name line slid right up beside the two-line name pill and read
+   as one with it). The pill's bottom edge is 12px above the header's
+   bottom (its padding), its middle about 38px above. Once the list
+   scrolls, the stack reaches `--zen-edge-fade` (12px) below the header,
+   so words start to fade 24px below the pill, are mostly gone 12px below
+   it (15% left), nearly gone at its bottom edge (3%), and gone entirely (the page colour, solid) from
+   its middle up: nothing reads behind or beside the pill. At rest the
+   band is off and the first message sits sharp just under the header. */
+.zen-header-blur--edge[data-scrolled="1"] {
+  --zen-blur-early: var(--zen-edge-fade, 12px);
+}
+.zen-header-blur--edge > .zen-header-tint {
+  background: linear-gradient(
+    to bottom,
+    rgb(var(--k2-page-rgb)) 0%,
+    rgb(var(--k2-page-rgb)) calc(100% - var(--zen-blur-early) - 38px),
+    rgba(var(--k2-page-rgb), 0.97) calc(100% - var(--zen-blur-early) - 12px),
+    rgba(var(--k2-page-rgb), 0.85) calc(100% - var(--zen-blur-early)),
     rgba(var(--k2-page-rgb), 0) 100%
   );
 }

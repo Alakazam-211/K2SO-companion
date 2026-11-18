@@ -151,6 +151,8 @@ describe("turning sync on (first sync)", () => {
     const s = useHomesStore.getState();
     s.ensureSeeded();
     const localId = s.selectedId;
+    // A Home the person named "Home" (the seed is "Group 1" from 0.46.13).
+    s.renameHome(localId, "Home");
     s.addRow(localId, { address: "mine::home.k2.dev", workspaceId: null, label: "mine" });
 
     expect(await enableHomesSync("s1")).toBe(true);
@@ -624,7 +626,7 @@ describe("full resync: drop what the server no longer holds (K2 rule, as desktop
     forceFull();
     await syncHomesNow();
     expect(pulls()[0].query.since).toBeTruthy();
-    expect(local()).toEqual([{ name: "Home", rows: [`kept::${SRV}`] }]);
+    expect(local()).toEqual([{ name: "Group 1", rows: [`kept::${SRV}`] }]);
     const h = useHomesStore.getState();
     expect(h.tombstones.filter((t) => (t.kind === "home" ? t.id === trip : t.address === `gone::${SRV}`))).toEqual([]);
     expect(pushes()).toEqual([]);
@@ -656,7 +658,7 @@ describe("full resync: drop what the server no longer holds (K2 rule, as desktop
     );
     forceFull();
     await syncHomesNow();
-    expect(local()).toEqual([{ name: "Home", rows: [`new::${SRV}`] }]);
+    expect(local()).toEqual([{ name: "Group 1", rows: [`new::${SRV}`] }]);
     // The Home and its local-only row went back to the server.
     expect(A.items().some((i) => i.kind === "home" && i.id === id && !i.deleted)).toBe(true);
     expect(A.items().some((i) => i.homeId === id && i.address === `new::${SRV}` && !i.deleted)).toBe(true);
@@ -672,7 +674,7 @@ describe("full resync: drop what the server no longer holds (K2 rule, as desktop
     A.forget([`h|${id}`, `r|${id}|kept::${SRV}`, `r|${id}|gone::${SRV}`]);
     forceFull();
     await syncHomesNow();
-    expect(local()).toEqual([{ name: "Home", rows: [`kept::${SRV}`, `gone::${SRV}`] }]);
+    expect(local()).toEqual([{ name: "Group 1", rows: [`kept::${SRV}`, `gone::${SRV}`] }]);
     expect(A.items().filter((i) => !i.deleted).length).toBe(3);
   });
 

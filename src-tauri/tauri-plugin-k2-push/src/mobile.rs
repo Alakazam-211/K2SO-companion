@@ -92,11 +92,17 @@ impl<R: Runtime> K2Push<R> {
         let req = TokenOpRequest {
             op: "get".into(),
             server: Some(server.into()),
-            token: None,
-            tokens: None,
+            ..Default::default()
         };
         let v = self.token_op(req).ok()?;
         v.get("token").and_then(|t| t.as_str()).map(str::to_owned)
+    }
+
+    /// The servers' addresses (id → base URL), kept by Swift for a DM call's
+    /// Decline from a notification. Blocking.
+    pub fn set_call_hosts(&self, hosts: std::collections::HashMap<String, String>) {
+        let req = TokenOpRequest { op: "hosts".into(), hosts: Some(hosts), ..Default::default() };
+        let _ = self.token_op(req);
     }
 
     /// Blocking: the Secure Enclave answers on its own queue.
@@ -174,6 +180,18 @@ impl<R: Runtime> K2Push<R> {
     }
 
     /// Async for the same reason: the camera stays up until a code is read.
+    /// A native command answered with a JSON object (signed approvals).
+    pub async fn native_async(
+        &self,
+        method: &str,
+        req: serde_json::Value,
+    ) -> crate::Result<serde_json::Value> {
+        self.0
+            .run_mobile_plugin_async::<serde_json::Value>(method, req)
+            .await
+            .map_err(Into::into)
+    }
+
     pub async fn scan_qr(&self) -> crate::Result<ScanQrResponse> {
         self.0
             .run_mobile_plugin_async::<ScanQrResponse>("scanQr", ())

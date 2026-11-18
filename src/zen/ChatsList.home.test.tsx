@@ -170,8 +170,8 @@ describe("Home view (HM3/HM7)", () => {
     expect(empty.textContent).toContain(HOME_EMPTY_TITLE);
     expect(empty.textContent).toContain(HOME_EMPTY_BODY);
     expect(empty.className).toMatch(/zen-glass/);
-    expect(parseHomesDoc(localStorage.getItem(HOMES_STORAGE_KEY))?.homes[0].name).toBe("Home");
-    expect(screen.getByTestId("chats-title-home").textContent).toContain("Home");
+    expect(parseHomesDoc(localStorage.getItem(HOMES_STORAGE_KEY))?.homes[0].name).toBe("Group 1");
+    expect(screen.getByTestId("chats-title-home").textContent).toContain("Group 1");
   });
 
   it("flag off: lists only the active server's rows; other servers' rows are hidden but kept", () => {
@@ -281,12 +281,12 @@ describe("Home search across every Home (Riley 2026-10-22)", () => {
     mount();
     goHome();
     fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "zzz" } });
-    expect(screen.getByTestId("home-no-match").textContent).toBe("No matches on any Home.");
+    expect(screen.getByTestId("home-no-match").textContent).toBe("No matches in any group.");
   });
 });
 
 describe("Home title dropdown (HM4)", () => {
-  it("lists Homes with a check; New Home…, Rename…, Delete (off on the last)", () => {
+  it("lists the groups with a check; New group…, Rename…, Delete (off on the last)", () => {
     mount();
     goHome();
     fireEvent.click(screen.getByTestId("chats-title-home"));
@@ -295,8 +295,14 @@ describe("Home title dropdown (HM4)", () => {
     expect(within(menu).getAllByRole("menuitemradio")).toHaveLength(1);
     expect(within(menu).getByTestId("home-check")).not.toBeNull();
     expect((screen.getByTestId("home-menu-delete") as HTMLButtonElement).disabled).toBe(true);
+    // The Home page's groups are called groups (Riley; desktop's words).
+    expect(screen.getByTestId("chats-title-home").getAttribute("aria-label")).toBe("Group: Group 1");
+    expect(menu.getAttribute("aria-label")).toBe("Groups");
+    expect(screen.getByTestId("home-menu-new").textContent).toBe("New group…");
+    expect(screen.getByTestId("home-menu-delete").getAttribute("title")).toBe("The last group can’t be deleted.");
 
     fireEvent.click(screen.getByTestId("home-menu-new"));
+    expect(screen.getByLabelText("Group name")).not.toBeNull();
     fireEvent.change(screen.getByTestId("home-name-input"), { target: { value: "Work" } });
     fireEvent.click(screen.getByTestId("home-name-save"));
     expect(screen.queryByTestId("home-title-menu")).toBeNull();
@@ -313,7 +319,7 @@ describe("Home title dropdown (HM4)", () => {
     expect(within(screen.getByTestId("home-title-menu")).getAllByRole("menuitemradio")).toHaveLength(2);
     fireEvent.click(screen.getByTestId("home-menu-delete"));
     fireEvent.click(screen.getByTestId("home-menu-delete-confirm"));
-    expect(screen.getByTestId("chats-title-home").textContent).toContain("Home");
+    expect(screen.getByTestId("chats-title-home").textContent).toContain("Group 1");
     expect(useHomesStore.getState().homes).toHaveLength(1);
 
     // Picking another Home switches the list.
@@ -365,7 +371,7 @@ describe("+ on Home: Add Agent (HM5)", () => {
     expect(within(screen.getByTestId("add-agent-row-/a")).getByTestId("add-agent-check")).not.toBeNull();
     expect(storedRows()).toEqual([expect.objectContaining({ address: `alpha::${HOST}`, workspaceId: "pa", label: "alpha" })]);
     // Uncheck: off the Home, back to the empty ring; a re-tap adds it again.
-    expect(screen.getByRole("button", { name: "Remove alpha from Home" })).not.toBeNull();
+    expect(screen.getByRole("button", { name: "Remove alpha from Group 1" })).not.toBeNull();
     fireEvent.click(screen.getByTestId("add-agent-row-/a"));
     expect(storedRows()).toEqual([]);
     expect(screen.getByTestId("add-agent-row-/a").getAttribute("aria-pressed")).toBe("false");
@@ -422,13 +428,13 @@ describe("Home row menu and Rearrange (HM6)", () => {
   });
   afterEach(() => vi.useRealTimers());
 
-  it("right-click / long-press opens the menu: Open, Rearrange, Remove from Home; Remove only touches local storage", () => {
+  it("right-click / long-press opens the menu: Open, Rearrange, Remove from <group>; Remove only touches local storage", () => {
     mount();
     goHome();
     fireEvent.contextMenu(screen.getByTestId("home-row-alpha"));
     const menu = screen.getByTestId("home-row-menu");
     expect(menu.className).toMatch(/zen-glass/);
-    expect(menuLabels(menu)).toEqual(["Open", "Rearrange", "Remove from Home"]);
+    expect(menuLabels(menu)).toEqual(["Open", "Pin", "Rearrange", "Remove from Group 1"]);
     // No Move up / Move down any more.
     expect(screen.queryByTestId("home-menu-up")).toBeNull();
     expect(screen.queryByTestId("home-menu-down")).toBeNull();
@@ -519,6 +525,98 @@ describe("Home row menu and Rearrange (HM6)", () => {
     const hint = document.getElementById(row.getAttribute("aria-describedby")!)!;
     expect(hint.textContent).not.toMatch(/Swipe/);
     expect(hint.textContent).toMatch(/Press and hold/);
+  });
+});
+
+describe("Move to group… on a Home row (Riley)", () => {
+  afterEach(() => vi.useRealTimers());
+
+  function twoHomes() {
+    const h = useHomesStore.getState();
+    h.ensureSeeded();
+    const first = useHomesStore.getState().selectedId;
+    useHomesStore.getState().addRow(first, { address: homeAddress("alpha", HOST), workspaceId: "pa", label: "alpha" });
+    useHomesStore.getState().addRow(first, { address: homeAddress("bravo", HOST), workspaceId: "pb", label: "bravo" });
+    const second = useHomesStore.getState().createHome("Second")!;
+    useHomesStore.getState().selectHome(first);
+    return { first, second };
+  }
+
+  it("no item with one Home (nowhere to move)", () => {
+    const h = useHomesStore.getState();
+    h.addRow(h.selectedId, { address: homeAddress("alpha", HOST), workspaceId: "pa", label: "alpha" });
+    vi.useFakeTimers();
+    mount();
+    goHome();
+    holdOpen(screen.getByTestId("home-row-alpha"));
+    expect(menuLabels(screen.getByTestId("home-row-menu"))).not.toContain("Move to group…");
+    expect(screen.queryByTestId("menu-move-home")).toBeNull();
+  });
+
+  it("with two Homes: the item opens the sheet; a pick moves the agent there and both lists follow at once", () => {
+    const { first, second } = twoHomes();
+    vi.useFakeTimers();
+    mount();
+    goHome();
+    holdOpen(screen.getByTestId("home-row-alpha"));
+    const labels = menuLabels(screen.getByTestId("home-row-menu"));
+    expect(labels).toContain("Move to group…");
+    expect(labels.indexOf("Move to group…")).toBe(labels.indexOf("Remove from Group 1") - 1);
+    tap(screen.getByTestId("menu-move-home"));
+    expect(screen.queryByTestId("home-row-menu")).toBeNull();
+    const dialog = screen.getByRole("dialog", { name: "Move alpha to a group" });
+    expect((within(dialog).getByTestId(`move-home-${first}`) as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Second" }));
+    expect(screen.queryByTestId("move-home-sheet")).toBeNull();
+    // Off this Home right away, on the other one, written for Homes sync.
+    expect(screen.queryByTestId("home-row-alpha")).toBeNull();
+    expect(screen.getByTestId("home-row-bravo")).not.toBeNull();
+    const doc = parseHomesDoc(localStorage.getItem(HOMES_STORAGE_KEY));
+    expect(doc?.homes.find((x) => x.id === first)?.rows.map((r) => r.label)).toEqual(["bravo"]);
+    expect(doc?.homes.find((x) => x.id === second)?.rows.map((r) => r.label)).toEqual(["alpha"]);
+    expect(doc?.tombstones?.some((t) => t.kind === "row" && t.homeId === first && t.address === homeAddress("alpha", HOST))).toBe(true);
+    // The selected Home doesn't change.
+    expect(useHomesStore.getState().selectedId).toBe(first);
+    useHomesStore.getState().selectHome(second);
+    vi.useRealTimers();
+    expect(useHomesStore.getState().homes.find((x) => x.id === second)?.rows[0].address).toBe(homeAddress("alpha", HOST));
+  });
+
+  it("Cancel (or Escape) leaves the agent where it was", () => {
+    const { first } = twoHomes();
+    vi.useFakeTimers();
+    mount();
+    goHome();
+    holdOpen(screen.getByTestId("home-row-alpha"));
+    tap(screen.getByTestId("menu-move-home"));
+    fireEvent.click(screen.getByTestId("move-home-cancel"));
+    expect(screen.queryByTestId("move-home-sheet")).toBeNull();
+    holdOpen(screen.getByTestId("home-row-alpha"));
+    tap(screen.getByTestId("menu-move-home"));
+    fireEvent.keyDown(window, { key: "Escape" });
+    expect(screen.queryByTestId("move-home-sheet")).toBeNull();
+    expect(useHomesStore.getState().homes.find((x) => x.id === first)?.rows.map((r) => r.label)).toEqual(["alpha", "bravo"]);
+    expect(screen.getByTestId("home-row-alpha")).not.toBeNull();
+  });
+
+  it("a search hit from another Home moves from that Home", () => {
+    const { first, second } = twoHomes();
+    useHomesStore.getState().addRow(second, { address: homeAddress("bravo", HOST), workspaceId: "pb", label: "bravo" });
+    useHomesStore.getState().removeRow(first, homeAddress("bravo", HOST));
+    const third = useHomesStore.getState().createHome("Third")!;
+    useHomesStore.getState().selectHome(first);
+    vi.useFakeTimers();
+    mount();
+    goHome();
+    fireEvent.change(screen.getByPlaceholderText("Search"), { target: { value: "brav" } });
+    holdOpen(screen.getByTestId("home-row-bravo"));
+    tap(screen.getByTestId("menu-move-home"));
+    expect(screen.getByTestId(`move-home-${second}`).getAttribute("aria-current")).toBe("true");
+    fireEvent.click(screen.getByRole("button", { name: "Third" }));
+    const homes = useHomesStore.getState().homes;
+    expect(homes.find((x) => x.id === second)?.rows).toHaveLength(0);
+    expect(homes.find((x) => x.id === third)?.rows.map((r) => r.label)).toEqual(["bravo"]);
+    expect(homes.find((x) => x.id === first)?.rows.map((r) => r.label)).toEqual(["alpha"]);
   });
 });
 

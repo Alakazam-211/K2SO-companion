@@ -23,6 +23,12 @@ import { hubSend, onHubOpen, subscribeAppEvents } from "./ticketEvents";
 // current (`convRev` <= the rev we last had); seed the working strip from
 // `turn` (no /cli/thread/activity read). A refusal falls back to the
 // overlay socket for this chat.
+//
+// Typing (K2 `thread-typing-v1`; the contract names the overlay socket):
+// sent on the hub as the overlay's frame plus this socket's view,
+// `{"t":"typing","thread","conversationId"}` (a daemon without it ignores
+// any other client text here), and a `{collection:"typing"}` frame the hub
+// carries for this chat goes to `onItem` like the overlay socket's.
 
 export const FEATURE_HUB_VIEWING = "hub-viewing-v1";
 export const VIEWING_RESEND_MS = 60_000;
@@ -93,6 +99,11 @@ export function connectHubViewing(opts: {
   const onFrame = (raw: unknown) => {
     const f = obj(raw);
     if (!f || stopped || fallback) return;
+    // A typing frame names its Thread by addr (`id`); the caller matches it.
+    if (f.collection === "typing") {
+      if (f.conversation_id == null || f.conversation_id === conv) opts.onItem(f as unknown as ThreadItem);
+      return;
+    }
     const kind = f.kind;
     if (kind === "thread_moved") {
       if (f.from !== conv) return;
@@ -154,7 +165,7 @@ export function connectHubViewing(opts: {
 
   const sub = subscribeAppEvents(
     opts.scope,
-    (frame) => HUB_KINDS.has(String(obj(frame)?.kind ?? "")),
+    (frame) => HUB_KINDS.has(String(obj(frame)?.kind ?? "")) || obj(frame)?.collection === "typing",
     () => {},
     onFrame
   );
@@ -165,6 +176,11 @@ export function connectHubViewing(opts: {
   });
 
   return {
+    sendTyping(thread: string) {
+      if (stopped || !thread) return false;
+      if (fallback) return fallback.sendTyping?.(thread) ?? false;
+      return hubSend(serverId, { t: "typing", thread, conversationId: conv });
+    },
     stop() {
       if (stopped) return;
       if (visible && !fallback) send(false);

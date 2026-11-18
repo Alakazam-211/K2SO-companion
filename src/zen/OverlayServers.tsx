@@ -14,6 +14,7 @@ import { serverBadge } from "./multi/rowStatus";
 import { serverBellStatus, useNotifyPrefsStore } from "../stores/notifyPrefs";
 import { BellIcon, useNotifyPrefsLive } from "./NotifyBell";
 import { useBackHandler } from "../lib/androidBack";
+import { useSwipeBack } from "../lib/useSwipeBack";
 import { CogIcon, GaugeIcon } from "./icons";
 import { UsagePage } from "./UsagePage";
 import { ServerSettingsPage } from "./ServerSettingsPage";
@@ -215,7 +216,11 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
   const mounted = useRef(true);
   // Android Back = Done. The add / edit form's Cancel is its own layer
   // (OverlayAddServer), registered on top while it shows.
-  useBackHandler(true, onClose);
+  const onTop = useBackHandler(true, onClose);
+  // The left-edge swipe too, on the list only and while nothing (server
+  // settings, Usage) is over it. The add / edit form goes back by Cancel.
+  const formOpen = adding || editingId !== null;
+  const swipeRef = useSwipeBack(onClose, { enabled: () => !formOpen && onTop() });
   const [headerRef, headerPx] = useMeasuredHeight(
     SERVERS_HEADER_PX + (activeServerId ? SERVERS_PINNED_PX : 0)
   );
@@ -330,6 +335,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
   if (adding || editingId) {
     return (
       <div
+        ref={swipeRef}
         className="absolute inset-0 flex flex-col"
         style={{ background: "var(--color-bg)", color: "var(--color-text-primary)", zIndex: 6, paddingTop: "env(safe-area-inset-top)" }}
         data-testid="overlay-servers"
@@ -345,6 +351,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
 
   return (
     <div
+      ref={swipeRef}
       className="absolute inset-0 flex flex-col"
       style={{ background: "var(--color-bg)", color: "var(--color-text-primary)", zIndex: 6 }}
       data-testid="overlay-servers"

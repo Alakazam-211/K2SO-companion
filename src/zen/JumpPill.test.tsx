@@ -1,9 +1,70 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { JUMP_PILL_DARK, JUMP_PILL_FILL, JumpPill, jumpPillText } from "./JumpPill";
+import {
+  JUMP_PILL_DARK,
+  JUMP_PILL_FILL,
+  JUMP_PILL_GAP_PX,
+  JumpPill,
+  jumpPillPlace,
+  jumpPillRide,
+  jumpPillText,
+} from "./JumpPill";
+import { composerTopGap, COMPOSER_FIELD_TOP_PX } from "./ThreadPane";
 
 afterEach(cleanup);
+
+describe("where the pill floats (Riley 2026-11-17)", () => {
+  it("no ear: the gap above the composer's top, not where the ear would be", () => {
+    expect(JUMP_PILL_GAP_PX).toBe(8);
+    // The field, 14px into the bar: the pill's foot 8px over it.
+    expect(jumpPillPlace(COMPOSER_FIELD_TOP_PX, 0, false)).toEqual({ bottom: -6, lift: 0 });
+    // A row on top (label, reply bar): 8px over the row.
+    expect(jumpPillPlace(8, 0, true)).toEqual({ bottom: 0, lift: 0 });
+  });
+
+  it("the ear out: lifted by its height; with rows over the field the bar holds its room, so no lift", () => {
+    expect(jumpPillPlace(COMPOSER_FIELD_TOP_PX, 32, false)).toEqual({ bottom: -6, lift: 32 });
+    // Same spot as before this change with the ear out: 8 + (32 − 14).
+    const p = jumpPillPlace(COMPOSER_FIELD_TOP_PX, 32, false);
+    expect(p.bottom + p.lift).toBe(8 + (32 - COMPOSER_FIELD_TOP_PX));
+    expect(jumpPillPlace(14, 32, true)).toEqual({ bottom: -6, lift: 0 });
+    expect(jumpPillPlace(14, 31.2, false).lift).toBe(32);
+    expect(jumpPillPlace(Number.NaN, Number.NaN, false)).toEqual({ bottom: 8, lift: 0 });
+  });
+
+  it("rides the ear's curves; jumps when rows come or go, or under reduced motion", () => {
+    const rest = { lift: 0, rows: false, transition: "none" };
+    expect(jumpPillRide(rest, 0, false, false)).toBe(rest);
+    const out = jumpPillRide(rest, 32, false, false);
+    expect(out).toEqual({ lift: 32, rows: false, transition: "transform 200ms cubic-bezier(0.2, 0.9, 0.3, 1.12)" });
+    expect(jumpPillRide(out, 90, false, false).transition).toBe("transform 200ms cubic-bezier(0.2, 0.9, 0.3, 1)");
+    expect(jumpPillRide(out, 0, false, false).transition).toBe("transform 200ms cubic-bezier(0.4, 0, 0.8, 0.4)");
+    expect(jumpPillRide(out, 0, true, false).transition).toBe("none");
+    expect(jumpPillRide(rest, 32, false, true)).toEqual({ lift: 32, rows: false, transition: "none" });
+  });
+
+  it("measures the composer's top: the first row with height, skipping the ear's room", () => {
+    const bar = document.createElement("div");
+    const label = document.createElement("p");
+    const room = document.createElement("div");
+    room.setAttribute("data-testid", "composer-drawer-room");
+    const reply = document.createElement("div");
+    const form = document.createElement("form");
+    bar.append(label, room, reply, form);
+    const rect = (top: number, height: number) => () => ({ top, height }) as DOMRect;
+    bar.getBoundingClientRect = rect(500, 120);
+    label.getBoundingClientRect = rect(508, 0);
+    room.getBoundingClientRect = rect(506, 32);
+    reply.getBoundingClientRect = rect(514, 40);
+    form.getBoundingClientRect = rect(560, 44);
+    expect(composerTopGap(bar)).toBe(14);
+    reply.remove();
+    expect(composerTopGap(bar)).toBe(60);
+    expect(composerTopGap(document.createElement("div"))).toBeNull();
+    expect(composerTopGap(null)).toBeNull();
+  });
+});
 
 describe("JumpPill", () => {
   it("counts from two: N new messages", () => {

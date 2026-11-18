@@ -24,7 +24,7 @@ import {
   type AccentChoice,
 } from "./styleAccent";
 import { resolveAllColorMix } from "./colorMix";
-import { syncNativeAppearance, type NativeAppearance } from "./nativeAppearance";
+import { nativeSystemLight, syncNativeAppearance, type NativeAppearance } from "./nativeAppearance";
 
 export type StyleScheme = "dark" | "light";
 export type PaletteId = "obsidian" | "veil" | "yellow";
@@ -169,11 +169,16 @@ export function readSelection(): ThemeSelection {
   return { mode: parseSchemeMode(read(SCHEME_KEY)), dark: sidePalette("dark"), light: sidePalette("light") };
 }
 
-/** True when iOS (or the browser) shows light. On the phone the web view's
- *  `prefers-color-scheme` is the native mode (src-tauri/src/appearance.rs):
- *  forced under Light and Dark, the iPhone's own under Auto, and live, so
- *  only Auto reads it (resolveScheme). */
+/** True when iOS (or the browser) shows light; only Auto reads it
+ *  (resolveScheme). On the phone the web view's `prefers-color-scheme` is
+ *  native's override (the palette on screen, src-tauri/src/appearance.rs),
+ *  so the iPhone's own appearance comes from native (nativeSystemLight:
+ *  what it last reported, kept from the last launch). Only before native
+ *  has ever answered on this device does the phone fall back to the media
+ *  query. The browser and tests read the media query. */
 export function systemPrefersLight(): boolean {
+  const native = nativeSystemLight();
+  if (native !== null) return native;
   try {
     return typeof window !== "undefined" && typeof window.matchMedia === "function"
       ? window.matchMedia("(prefers-color-scheme: light)").matches
@@ -276,23 +281,29 @@ export function paletteBg(id: PaletteId): string {
   return p.vars["--color-bg"] ?? (p.scheme === "light" ? "#ffffff" : "#000000");
 }
 
+/** A palette's scheme (Obsidian and Dusk dark, Veil light). */
+export function paletteScheme(id: PaletteId): StyleScheme {
+  return (paletteById(id) ?? PALETTES[0]).scheme;
+}
+
 /** What the native side is told for a selection: the mode, the page colour
- *  on screen, and each side's (for its next launch under Auto). */
+ *  on screen, and each side's page colour and palette scheme. Native gives
+ *  the keyboard, status bar and sheets the scheme of the palette on screen
+ *  (Auto: the side the iPhone is in), so a dark palette picked for the day
+ *  side keeps them dark, under Light and under Auto alike. */
 export function nativeLook(sel: ThemeSelection, systemLight = systemPrefersLight()): NativeAppearance {
-  // Light or Dark: the palette on screen sets the keyboard and status bar
-  // (a dark palette picked for Light keeps them dark). Auto stays auto, so
-  // the iPhone's own appearance still reaches the page to pick the side.
-  const shown = paletteById(resolvePalette(sel, systemLight)) ?? PALETTES[0];
   return {
-    mode: sel.mode === "auto" ? "auto" : shown.scheme,
-    bg: paletteBg(shown.id),
+    mode: sel.mode,
+    bg: paletteBg(resolvePalette(sel, systemLight)),
     darkBg: paletteBg(sel.dark),
     lightBg: paletteBg(sel.light),
+    darkScheme: paletteScheme(sel.dark),
+    lightScheme: paletteScheme(sel.light),
   };
 }
 
 /** main.tsx, before the first render: the stored palette and accent, and
- *  the mode to the native side (keyboard, status bar, next launch). */
+ *  the look to the native side (keyboard, status bar, next launch). */
 export function initTheme(): void {
   const sel = readSelection();
   const light = systemPrefersLight();

@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { ABOUT } from "../lib/about";
 import { usePushToggle } from "../lib/usePushToggle";
 import { ZEN_FONTS, ZEN_TEXT_SIZES, useZenFontStore } from "./zenFont";
@@ -9,10 +9,14 @@ import { useRecentFirstStore } from "./recentFirst";
 import { useJumpOnSendStore } from "./jumpOnSend";
 import { useStashStore } from "./stash/stashStore";
 import { noiseRemovalAvailable, useNoiseRemovalStore } from "./voice/noiseRemoval";
+import { useCallRingStore } from "./calls/callRing";
 import { useBackHandler } from "../lib/androidBack";
+import { useSwipeBack } from "../lib/useSwipeBack";
 import { AcknowledgementsPage } from "./AcknowledgementsPage";
 import { RowChevron } from "./RowChevron";
 import { BackArrowButton } from "./BackArrowButton";
+import { approverKeyStatus, openApproverKeys } from "./approvals";
+import { isIosWebView } from "../lib/nativePicker";
 
 const MUTED = "var(--color-text-muted)";
 const HAIRLINE = "0.5px solid var(--color-wash-2)";
@@ -23,17 +27,21 @@ const SWITCH_ON = "var(--color-status-ok)";
 /** Zen Settings sheet (opened by the Chats header cog). iOS grouped list
  *  of `.k2-tile` cards: Notifications (the same push toggle as the old
  *  Settings page), Appearance (Themes, Zen font, text size), Chats, Calls
- *  (Noise removal, where this build has calls), Lists (Recent
+ *  (Ring for incoming calls and Noise removal, where this build has
+ *  calls), Lists (Recent
  *  agents first, this phone only), Experimental, and About (the old
  *  page's values plus Terminal: Kessel). The pre-Zen UI (and its
  *  "Leave Zen Mode" door) was removed in 4.1.0. */
 export function ZenSettings({ onClose }: { onClose: () => void }) {
-  // Android Back = Done.
-  useBackHandler(true, onClose);
+  // Android Back = the back chevron; the left-edge swipe too, while
+  // nothing (Themes, Acknowledgements) sits over the page.
+  const onTop = useBackHandler(true, onClose);
+  const swipeRef = useSwipeBack(onClose, { enabled: onTop });
   const [notices, setNotices] = useState(false);
   const [themes, setThemes] = useState(false);
   return (
     <div
+      ref={swipeRef}
       className="absolute inset-0 flex flex-col"
       style={{ background: "var(--color-bg)", color: "var(--color-text-primary)", zIndex: 6, paddingTop: "env(safe-area-inset-top)" }}
       data-testid="overlay-settings"
@@ -80,7 +88,19 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
         </Group>
 
         {noiseRemovalAvailable() ? (
-          <Group label="Calls" testId="settings-calls" footnote={NOISE_REMOVAL_FOOTNOTE}>
+          <Group
+            label="Calls"
+            testId="settings-calls"
+            footnote={
+              <>
+                <span className="block">{CALL_RING_FOOTNOTE}</span>
+                <span className="block" style={{ marginTop: 6 }}>
+                  {NOISE_REMOVAL_FOOTNOTE}
+                </span>
+              </>
+            }
+          >
+            <CallRingRow />
             <NoiseRemovalRow />
           </Group>
         ) : null}
@@ -100,6 +120,16 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
         >
           <MultiServerRow />
         </Group>
+
+        {isIosWebView() ? (
+          <Group
+            label="Approvals"
+            testId="settings-approvals"
+            footnote="Lets you approve an agent's request, such as a K2 release, on this iPhone with Face ID or your passcode."
+          >
+            <ApproverKeysRow />
+          </Group>
+        ) : null}
 
         <Group label="About" testId="settings-about">
           <ValueRow label="App" value={ABOUT.app} />
@@ -121,6 +151,35 @@ export function ZenSettings({ onClose }: { onClose: () => void }) {
       {notices ? <AcknowledgementsPage onBack={() => setNotices(false)} /> : null}
       {themes ? <ThemesPage onBack={() => setThemes(false)} /> : null}
     </div>
+  );
+}
+
+/** Opens the phone's native Approver keys screen (signed approvals S1):
+ *  the keys, their six words, Share public keys. Shows how many keys this
+ *  phone has. */
+function ApproverKeysRow() {
+  const [count, setCount] = useState<number | null>(null);
+  useEffect(() => {
+    let live = true;
+    void approverKeyStatus().then((k) => live && setCount(k.length));
+    return () => {
+      live = false;
+    };
+  }, []);
+  return (
+    <button
+      type="button"
+      className="w-full flex items-center justify-between text-[17px] text-left"
+      style={{ minHeight: 44, padding: "11px 16px" }}
+      data-testid="settings-approver-keys"
+      onClick={() => void openApproverKeys().then((k) => setCount(k.length))}
+    >
+      <span>Approver keys</span>
+      <span className="flex items-center" style={{ color: MUTED, gap: 6 }}>
+        <span data-testid="approver-keys-value">{count === null ? "" : count === 0 ? "Not set up" : count === 1 ? "1 key" : `${count} keys`}</span>
+        <RowChevron />
+      </span>
+    </button>
   );
 }
 
@@ -304,8 +363,30 @@ function StashRemoveAfterUseRow() {
   );
 }
 
+const CALL_RING_FOOTNOTE =
+  "Ring for incoming calls plays a ringtone when someone calls you. Off: calls arrive as a quiet notification.";
+
+/** "Ring for incoming calls" (calls/callRing.ts): phone-only, default on.
+ *  Off, the in-app ring and the call push's sound go (the card and the
+ *  notification stay). */
+function CallRingRow() {
+  const on = useCallRingStore((s) => s.on);
+  const setOn = useCallRingStore((s) => s.setOn);
+  return (
+    <div
+      className="flex items-center justify-between text-[17px]"
+      style={{ minHeight: 44, padding: "6px 12px 6px 16px", gap: 12 }}
+    >
+      <span id="zen-call-ring-label">Ring for incoming calls</span>
+      <span className="flex items-center shrink-0" data-testid="call-ring-switch">
+        <Switch on={on} disabled={false} onToggle={() => setOn(!on)} labelledBy="zen-call-ring-label" />
+      </span>
+    </div>
+  );
+}
+
 const NOISE_REMOVAL_FOOTNOTE =
-  "Removes background noise from your microphone in calls. Off sends the full sound, with echo cancellation still on. On iPhone, Off can still filter some noise for now; a later update turns that off too. Only this phone.";
+  "Removes background noise from your microphone in calls. Off sends the full sound, with echo cancellation still on. Only this phone.";
 
 /** "Noise removal" (voice/noiseRemoval.ts): phone-only for now, default
  *  on. Takes effect at once, in a call too. */
@@ -315,7 +396,7 @@ function NoiseRemovalRow() {
   return (
     <div
       className="flex items-center justify-between text-[17px]"
-      style={{ minHeight: 44, padding: "6px 12px 6px 16px", gap: 12 }}
+      style={{ minHeight: 44, padding: "6px 12px 6px 16px", gap: 12, borderTop: HAIRLINE }}
     >
       <span id="zen-noise-removal-label">Noise removal</span>
       <span className="flex items-center shrink-0" data-testid="noise-removal-switch">

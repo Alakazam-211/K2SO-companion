@@ -31,8 +31,8 @@ function sameRow(a: RowProps, b: RowProps): boolean {
   for (const k of keys) {
     if (k === "unread") {
       if (!sameUnread(a.unread, b.unread)) return false;
-    } else if (k === "preview") {
-      if (!sameNode(a.preview, b.preview)) return false;
+    } else if (k === "preview" || k === "avatar") {
+      if (!sameNode(a[k], b[k])) return false;
     } else if (!Object.is(a[k], b[k])) return false;
   }
   return true;
@@ -82,6 +82,29 @@ export function RowTag({ kind, label, color }: { kind: keyof typeof TAG_LOOK; la
   );
 }
 
+/** A pinned row's mark: lucide "pin" at 12pt, in the meta's muted ink. */
+export function RowPinMark() {
+  return (
+    <svg
+      width="12"
+      height="12"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="2"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      role="img"
+      aria-label="Pinned"
+      data-testid="row-pin-mark"
+      style={{ flexShrink: 0 }}
+    >
+      <path d="M12 17v5" />
+      <path d="M9 10.76a2 2 0 0 1-1.11 1.79l-1.78.9A2 2 0 0 0 5 15.24V16a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-.76a2 2 0 0 0-1.11-1.79l-1.78-.9A2 2 0 0 1 15 10.76V7a1 1 0 0 1 1-1 2 2 0 0 0 0-4H8a2 2 0 0 0 0 4 1 1 0 0 1 1 1z" />
+    </svg>
+  );
+}
+
 function AgentRowContentInner({
   name,
   initial,
@@ -96,6 +119,8 @@ function AgentRowContentInner({
   groupColor = null,
   homeTag = null,
   unread = null,
+  avatar = null,
+  pinned = false,
 }: {
   name: string;
   initial: string;
@@ -115,6 +140,12 @@ function AgentRowContentInner({
   homeTag?: string | null;
   /** Unread marks (K2 0.46.1 `thread-read-v1`); null = none. */
   unread?: RowUnread | null;
+  /** Draw this instead of the workspace avatar (a person's initials, a
+   *  channel's glyph: Home chat rows). Keep it stable across renders. */
+  avatar?: ReactNode;
+  /** Pinned, shown as a row (past the grid, in a search, in Rearrange):
+   *  a quiet pin in the trailing meta, no heading (K2 Design 4.3.0). */
+  pinned?: boolean;
 }) {
   const busyColor = busy ? activityColor(busy) : "var(--color-status-ok)";
   const strong = !!unread?.emphasis;
@@ -131,7 +162,7 @@ function AgentRowContentInner({
     <>
       <span className="relative shrink-0">
         <UnreadDot unread={unread} />
-        <WorkspaceAvatar initial={initial} color={color} iconUrl={iconUrl} size={50} fontSize={18} />
+        {avatar ?? <WorkspaceAvatar initial={initial} color={color} iconUrl={iconUrl} size={50} fontSize={18} />}
         {busy ? (
           <span
             aria-hidden
@@ -198,6 +229,7 @@ function AgentRowContentInner({
               style={{ color: "var(--color-text-muted)", fontWeight: 400, fontSize: zenTextPx(14) }}
               data-testid="row-when"
             >
+              {pinned ? <RowPinMark /> : null}
               {when}
               <RowChevron />
             </span>

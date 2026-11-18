@@ -54,6 +54,12 @@ const TONE: Record<ThreadStripTone, string> = {
 
 /** Slide / fade length (ms); the CSS uses the same. */
 export const DRAWER_MS = 200;
+/** The slide's curves and the tile's grow/shrink curve, as in
+ *  threadDrawer.css (`.k2-drawer-slide-in` / `-out`, `.k2-drawer-tile`):
+ *  what rides with the drawer (the Jump to bottom pill) moves on them. */
+export const DRAWER_EASE_IN = "cubic-bezier(0.2, 0.9, 0.3, 1.12)";
+export const DRAWER_EASE_OUT = "cubic-bezier(0.4, 0, 0.8, 0.4)";
+export const DRAWER_EASE_GROW = "cubic-bezier(0.2, 0.9, 0.3, 1)";
 /** Collapsed tile height (px) above the field, top rim included. */
 export const DRAWER_TILE_PX = 32;
 /** The slot's vars (GlassComposer); the fallbacks keep it whole alone. */

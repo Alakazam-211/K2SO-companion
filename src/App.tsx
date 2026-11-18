@@ -18,6 +18,10 @@ import { installNetStats } from "./lib/netStats";
 import { useCallScreen } from "./zen/voice/callScreen";
 import { CallTile } from "./zen/voice/callTile";
 import { VoiceRoomsOverlay } from "./zen/voice/VoiceRooms";
+import { DmCallLayer } from "./zen/calls/DmCallLayer";
+import { startDmCallWatch } from "./zen/calls/dmCallWatch";
+import { syncCallRing } from "./zen/calls/callRing";
+import { PushOnboardHost } from "./zen/PushOnboardPrompt";
 
 /** Cold-start home is always the overlay. Zero stored servers still
  *  open `/zen` (overlay Add server). Any unknown path lands here too —
@@ -63,12 +67,17 @@ function PushBridge() {
     // Stash sync (K2 0.46.7 `stash-sync-v1`): rides on Home sync's server.
     installNetStats();
     const stopStashSync = startStashSync();
+    // DM calls (K2 0.46.13): rings from every server that offers Home chat.
+    const stopDmCalls = startDmCallWatch();
+    // The ring setting, copied to the App Group for the push extension.
+    syncCallRing();
     return () => {
       cleanup?.();
       stopWatch();
       stopBadge();
       stopHomesSync();
       stopStashSync();
+      stopDmCalls();
     };
   }, []);
   return null;
@@ -127,6 +136,10 @@ function AppLayout() {
       <PushBridge />
       <VoiceMiniTile />
       <VoiceCallScreen />
+      <DmCallLayer />
+      {/* 4.3.0: "Would you like push notifications from your agents?",
+          once, after the first screen settles (lib/pushOnboard.ts). */}
+      <PushOnboardHost />
       <div className="flex-1 overflow-hidden">
         <Routes>
           {/* No server required so the overlay can offer Add server. */}

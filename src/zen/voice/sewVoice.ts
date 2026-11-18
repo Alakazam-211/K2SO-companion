@@ -20,19 +20,90 @@ import { applyNoiseRemoval, type NoiseRemovalState } from "./noiseRemoval";
 //     (Sew's `join_with`: CallKit starts a video call);
 //   - noise removal (Settings → Calls): `set_noise_removal {mode}` before
 //     each join (noiseRemoval.ts), and `sew-voice://noise_removal` into the
-//     call log (which model runs, and why it stepped down).
+//     call log (which model runs, why it stepped down, the stage's timing
+//     and grace window, and the phone's capture: os/raw, its switches and
+//     their pause).
 
 const CMD = "plugin:sew-voice|";
 
 type StatePayload = { state?: string; reason?: string };
 
-/** The plugin's `ErrorInfo`: `{code, message?, detail?}`. */
-function joinError(err: unknown): { code: string; hint?: string } {
+/** The plugin's `ErrorInfo`: `{code, message?, detail?}`. `raw` keeps the
+ *  server's own code (a DM call's `chat_unavailable`, `dm_not_found`, …),
+ *  which the voice rooms' codes fold into `unknown`. */
+export function joinError(err: unknown): { code: string; hint?: string; raw: string } {
   const e = err && typeof err === "object" ? (err as { code?: unknown; detail?: unknown }) : {};
   const code = typeof e.code === "string" ? e.code : "unknown";
   const detail = e.detail && typeof e.detail === "object" ? (e.detail as Record<string, unknown>) : null;
   const hint = typeof detail?.hint === "string" ? detail.hint : undefined;
-  return { code: nativeJoinErrorCode(code, detail), ...(hint ? { hint } : {}) };
+  // Sew's `invalid_state` for a DM call still ending (K2 passes Sew's
+  // error through in `details.sew`): the call is over, said as such.
+  const raw = callNotActive(code, detail) ? "call_not_active" : code;
+  return { code: nativeJoinErrorCode(code, detail), ...(hint ? { hint } : {}), raw };
+}
+
+/** Sew's `call_not_active`, as the code or a reason, Sew's own or inside
+ *  K2's refusal (`details.sew`), in any case. */
+export function callNotActive(code: string, detail: Record<string, unknown> | null): boolean {
+  const is = (v: unknown) => typeof v === "string" && v.toLowerCase() === "call_not_active";
+  const o = (v: unknown) => (v && typeof v === "object" ? (v as Record<string, unknown>) : null);
+  const details = o(detail?.details);
+  const sew = o(details?.sew);
+  return is(code) || is(details?.reason) || is(sew?.code) || is(o(sew?.details)?.reason);
+}
+
+/** A DM call's ids once its native join is taken (Rust `voice.rs`
+ *  `dm_call_ids`): K2's `vc_…` call record (leave) and Sew's call (cancel,
+ *  ring again). Ids only. */
+export type NativeDmCallIds = { room: string; dm: string; callId: string | null; sewCallId: string | null };
+
+export function parseDmCallIds(v: unknown): NativeDmCallIds | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.room !== "string" || typeof o.dm !== "string" || !o.dm) return null;
+  return {
+    room: o.room,
+    dm: o.dm,
+    callId: typeof o.callId === "string" && o.callId ? o.callId : null,
+    sewCallId: typeof o.sewCallId === "string" && o.sewCallId ? o.sewCallId : null,
+  };
+}
+
+/** Any join's K2 call id (`k2-voice://dm-call`: a voice room's has
+ *  `dm: null`), with the room it is for. K2's `vc_…` only. */
+export function parseJoinCallId(v: unknown): { room: string; callId: string } | null {
+  if (!v || typeof v !== "object") return null;
+  const o = v as Record<string, unknown>;
+  if (typeof o.room !== "string" || !o.room) return null;
+  return typeof o.callId === "string" && o.callId.startsWith("vc_") ? { room: o.room, callId: o.callId } : null;
+}
+
+/** The last join's DM call ids (`null`: a voice room, none, or no native engine). */
+export async function readDmCallIds(): Promise<NativeDmCallIds | null> {
+  if (!isIosWebView()) return null;
+  try {
+    return parseDmCallIds(await invoke<unknown>("voice_dm_call"));
+  } catch {
+    return null;
+  }
+}
+
+/** Hear each DM call join's ids (`k2-voice://dm-call`). */
+export function listenDmCallIds(fn: (ids: NativeDmCallIds | null) => void): () => void {
+  if (!isIosWebView()) return () => {};
+  let off: UnlistenFn | null = null;
+  let stopped = false;
+  void listen<unknown>("k2-voice://dm-call", ({ payload }) => fn(parseDmCallIds(payload))).then(
+    (u) => {
+      if (stopped) u();
+      else off = u;
+    },
+    () => {}
+  );
+  return () => {
+    stopped = true;
+    off?.();
+  };
 }
 
 export function parseConsentSheet(body: unknown): ConsentSheet | null {
@@ -160,7 +231,12 @@ export async function shareCallLog(): Promise<ShareOutcome> {
   return shareOrSaveBytes(new TextEncoder().encode(text), "K2 call log.txt", "text/plain");
 }
 
-/** The noise removal state as call log codes: `noise standard standard dfn3`. */
+/** The noise removal state as call log codes: `noise standard standard dfn3
+ *  phone_mode:os`, then the stage's timing when the plugin sends it (Sew
+ *  0.10.4): `step_down_reason:slow_window last_step_down_ms_ago:1200
+ *  slowest_block_us:9100 blocks_over_budget:3 in_grace:true
+ *  capture_stage_strikes:1 capture_stage_bypassed:budget
+ *  capture_stage_p99_us:6400`. Each word only when its field is there. */
 export function noiseWords(s: NoiseRemovalState | null | undefined): string[] | null {
   if (!s || typeof s !== "object" || typeof s.mode !== "string") return null;
   const words = ["noise", s.mode, String(s.active ?? "")];
@@ -168,6 +244,18 @@ export function noiseWords(s: NoiseRemovalState | null | undefined): string[] | 
   if (s.reason) words.push(`reason:${s.reason}`);
   if (s.model_reason) words.push(`model_reason:${s.model_reason}`);
   if (s.step_downs) words.push(`step_downs:${s.step_downs}`);
+  if (s.phone_mode) words.push(`phone_mode:${s.phone_mode}`);
+  if (s.phone_mode_reason) words.push(`phone_mode_reason:${s.phone_mode_reason}`);
+  if (s.phone_mode_switches) words.push(`phone_mode_switches:${s.phone_mode_switches}`);
+  if (typeof s.phone_mode_gap_ms === "number") words.push(`phone_mode_gap_ms:${s.phone_mode_gap_ms}`);
+  if (s.step_down_reason) words.push(`step_down_reason:${s.step_down_reason}`);
+  if (typeof s.last_step_down_ms_ago === "number") words.push(`last_step_down_ms_ago:${s.last_step_down_ms_ago}`);
+  if (typeof s.slowest_block_us === "number") words.push(`slowest_block_us:${s.slowest_block_us}`);
+  if (s.blocks_over_budget) words.push(`blocks_over_budget:${s.blocks_over_budget}`);
+  if (s.in_grace === true) words.push("in_grace:true");
+  if (s.capture_stage_strikes) words.push(`capture_stage_strikes:${s.capture_stage_strikes}`);
+  if (s.capture_stage_bypassed) words.push(`capture_stage_bypassed:${s.capture_stage_bypassed}`);
+  if (typeof s.capture_stage_p99_us === "number") words.push(`capture_stage_p99_us:${s.capture_stage_p99_us}`);
   return words;
 }
 
@@ -194,6 +282,11 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
       listen<unknown>("k2-voice://consent", ({ payload }) => events?.onConsent?.(parseConsentSheet(payload))),
       listen<unknown>("k2-voice://video", ({ payload }) => events?.onVideo?.(payload === true)),
       listen<NoiseRemovalState>("sew-voice://noise_removal", ({ payload }) => noteNoise(payload)),
+      // Each join's (and re-join's) K2 call id: for session/leave.
+      listen<unknown>("k2-voice://dm-call", ({ payload }) => {
+        const ids = parseJoinCallId(payload);
+        if (ids) events?.onCallId?.(ids.room, ids.callId);
+      }),
       listen<Row[]>("sew-voice://participants", ({ payload }) => {
         const me = Array.isArray(payload) ? payload.find((p) => p?.is_self) : undefined;
         if (me) events?.onSelfMute?.(me.muted === true || me.deafened === true, selfFlags(me));
@@ -209,8 +302,8 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
     async join(serverId, roomId, e, options) {
       events = e;
       await follow();
-      // The person's choice, set before the call starts (on Android, Off at
-      // the start is what turns off the system's own noise suppression).
+      // The person's choice, set before the call starts (a call that starts
+      // in Off opens the microphone raw from the start, so it opens once).
       noteNoise(await applyNoiseRemoval());
       try {
         if (options?.camera) await invoke("voice_join_camera", { target: serverId, room: roomId });
@@ -220,6 +313,13 @@ export function sewVoiceEngine(): PhoneVoiceEngine {
       }
     },
     cameraPermission: askCamera,
+    async callId() {
+      try {
+        return parseJoinCallId(await invoke<unknown>("voice_dm_call"));
+      } catch {
+        return null;
+      }
+    },
     async leave() {
       await invoke(`${CMD}leave`).catch(() => {});
     },

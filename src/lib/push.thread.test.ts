@@ -29,6 +29,9 @@ vi.mock("@tauri-apps/plugin-store", () => ({
   })),
 }));
 vi.mock("./revive", () => ({ connectServer: vi.fn() }));
+const calls = vi.hoisted(() => ({ route: vi.fn(async () => {}) }));
+vi.mock("../zen/calls/dmCall", () => ({ routeCallTap: calls.route }));
+vi.mock("../zen/approvals", () => ({ openApproval: vi.fn(async () => ({ outcome: "closed" })) }));
 vi.mock("../api/client", () => ({
   FEATURE_THREAD_PUSH: "thread-push-v1",
   getBootStatus: vi.fn(),
@@ -38,6 +41,7 @@ import { getBootStatus } from "../api/client";
 import { noteBootStatus, __resetScopesForTests } from "../api/scope";
 import { useMultiServerPrefs } from "../zen/multi/prefs";
 import { connectServer } from "./revive";
+import { openApproval } from "../zen/approvals";
 import { useHomesStore } from "../zen/homes";
 import { useHomeServerIds } from "../zen/homeServerIds";
 import { signOutServer, useServersStore, type ServerEntry } from "../stores/servers";
@@ -49,6 +53,7 @@ import {
   resetPushRegisterState,
   PUSH_REREGISTER_MS,
   routeTap,
+  approvalTapRequest,
   agentInSelectedHome,
   tapPath,
   watchPushRegistrations,
@@ -199,6 +204,25 @@ describe("thread tap server match", () => {
 });
 
 describe("routeTap", () => {
+  it("an approval push opens the Thread, then the native approval screen on the push's server", async () => {
+    vi.mocked(connectServer).mockResolvedValue("still-valid");
+    vi.mocked(openApproval).mockClear();
+    const navigate = vi.fn();
+    await routeTap({ ...THREAD, approval: "1", requestId: "ap_0123456789abcdef" }, navigate);
+    expect(navigate).toHaveBeenCalledWith("/zen?addr=k2%2Freviewer&seq=418");
+    expect(openApproval).toHaveBeenCalledWith("s2", "https://work.k2.dev", "ap_0123456789abcdef");
+  });
+
+  it("a plain thread push, or a bad request id, opens no approval screen", async () => {
+    vi.mocked(connectServer).mockResolvedValue("still-valid");
+    vi.mocked(openApproval).mockClear();
+    await routeTap(THREAD, vi.fn());
+    await routeTap({ ...THREAD, approval: "1", requestId: "ap_../x" }, vi.fn());
+    expect(openApproval).not.toHaveBeenCalled();
+    expect(approvalTapRequest({ approval: "1", requestId: "ap_0123456789abcdef" })).toBe("ap_0123456789abcdef");
+    expect(approvalTapRequest({ requestId: "ap_0123456789abcdef" })).toBeNull();
+  });
+
   it("switches to the matched server, then opens the thread", async () => {
     vi.mocked(connectServer).mockResolvedValue("still-valid");
     const navigate = vi.fn();
@@ -491,5 +515,27 @@ describe("registration", () => {
     signOutServer("s1");
     await flush();
     expect(tauriFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe("call taps (K2 0.46.13 push kind `call`)", () => {
+  it("go to the DM calls, on the push's server, never through a server switch", async () => {
+    calls.route.mockClear();
+    const navigate = vi.fn();
+    const tap = { kind: "call", subdomain: "work", callId: "4455", conversationId: "900", callState: "ringing", action: "accept" };
+    await routeTap(tap, navigate);
+    expect(calls.route).toHaveBeenCalledTimes(1);
+    const [given, resolve, known] = calls.route.mock.calls[0] as unknown as [
+      typeof tap,
+      () => Promise<string | null>,
+      (id: string) => boolean,
+    ];
+    expect(given).toBe(tap);
+    expect(known("s2")).toBe(true);
+    expect(known("nope")).toBe(false);
+    // The fallback resolver is the thread taps' own server match.
+    await expect(resolve()).resolves.toBe("s2");
+    expect(navigate).not.toHaveBeenCalled();
+    expect(connectServer).not.toHaveBeenCalled();
   });
 });

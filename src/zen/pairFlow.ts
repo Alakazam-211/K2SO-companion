@@ -24,7 +24,9 @@ async function thisDevice(): Promise<{ id: string; name: string }> {
 
 export type PairOutcome =
   | { ok: true; id: string; username: string; serverName?: string | null }
-  | { ok: false; error: string };
+  /** `mustChange`: the login has a temporary password to replace first
+   *  (K2 0.46.16 names the login and the ticket route). */
+  | { ok: false; error: string; mustChange?: boolean; user?: string; ticketPath?: string };
 
 /** Where a pairing is, for the progress list: the server's answer, signing
  *  the replaced session out (only when there is one), saving this phone. */
@@ -42,7 +44,16 @@ export async function pairServer(input: {
 }): Promise<PairOutcome> {
   input.onStep?.("pair");
   const r = await pairDevice(input.serverUrl, input.code, await thisDevice());
-  if (!r.ok) return { ok: false, error: r.error };
+  if (!r.ok) {
+    if (r.kind !== "must-change") return { ok: false, error: r.error };
+    return {
+      ok: false,
+      error: r.error,
+      mustChange: true,
+      ...(r.user ? { user: r.user } : {}),
+      ...(r.ticketPath ? { ticketPath: r.ticketPath } : {}),
+    };
+  }
   const saved = await commitPairedSession({
     replaceId: input.replaceId ?? null,
     url: input.serverUrl,

@@ -17,7 +17,7 @@ vi.mock("../lib/badgeTotals", () => ({
 import * as api from "../api/threadRead";
 import { __resetScopesForTests, noteBootStatus } from "../api/scope";
 import { useServersStore } from "../stores/servers";
-import { AgentMenu, agentMenuPlacement, type AgentMenuEntry } from "./AgentMenu";
+import { AgentMenu, agentMenuPlacement, liftedMenuPlacement, type AgentMenuEntry } from "./AgentMenu";
 import { unreadKey, type UnreadEntry } from "./unread";
 import { __resetUnreadStoreForTests, useUnreadStore } from "./unreadStore";
 import { menuLabels, tap } from "../test/rearrangeDrag";
@@ -139,5 +139,68 @@ describe("AgentMenu", () => {
     expect(withKeyboard.top).toBeLessThan(330);
     const centred = agentMenuPlacement(RECT, 2, "center", 800);
     expect(centred.left).toContain("200px - 110px");
+  });
+
+  it("lifted: the head above the lifted rect, the menu under it; a low message moves up to make room; near the top the head goes under it", () => {
+    const p = liftedMenuPlacement(RECT, 4, "center", 800, 40);
+    // Head: 8 px above the rect; menu: 6 px under the rect, clear of it.
+    expect(p.head?.top).toBe(200 - 8 - 40);
+    expect(p.menu.top).toBe(266);
+    expect(p.shift).toBe(0);
+    const high = { ...RECT, top: 30, bottom: 90 };
+    const q = liftedMenuPlacement(high, 4, "center", 800, 40);
+    expect(q.head?.top).toBe(98);
+    expect(q.menu.top).toBe(98 + 40 + 8);
+    // Too low for the menu below: the message moves up (iOS), the order
+    // stays emoji bar, message, menu.
+    const low = { ...RECT, top: 640, bottom: 700 };
+    const r = liftedMenuPlacement(low, 4, "center", 800, 40);
+    expect(r.shift).toBe(700 + 6 + (4 * 44 + 12) + 16 - 800);
+    expect(r.head?.top).toBe(640 - r.shift - 48);
+    expect(r.menu.top).toBe(700 - r.shift + 6);
+    // A message too tall to move: the menu goes above the head.
+    const tall = { ...RECT, top: 70, bottom: 760 };
+    const t = liftedMenuPlacement(tall, 4, "center", 800, 40);
+    expect(t.shift).toBe(6);
+    expect(t.head?.top).toBe(70 - 6 - 48);
+    // No head: the plain placement.
+    expect(liftedMenuPlacement(RECT, 4, "end", 800, 0)).toEqual({ menu: agentMenuPlacement(RECT, 4, "end", 800), head: null, shift: 0 });
+  });
+
+  it("lifted: dims and blurs the page, copies the held row above the dim (on a raised surface), hides the row until it closes", () => {
+    const row = document.createElement("div");
+    row.setAttribute("data-home-row", "a");
+    row.setAttribute("data-testid", "the-row");
+    row.style.marginTop = "6px";
+    row.innerHTML = '<button data-testid="the-button">Ana Ruiz</button>';
+    document.body.appendChild(row);
+    const onClose = vi.fn();
+    const { unmount } = render(
+      <AgentMenu label="x" menu={{ id: "a", rect: RECT, armed: true }} entries={entries(vi.fn())} onClose={onClose} lift={() => row} liftSurface testId="home-row-menu" />
+    );
+    const backdrop = screen.getByTestId("home-row-menu-backdrop");
+    expect(backdrop.style.background).toBe("var(--color-scrim)");
+    expect(backdrop.style.backdropFilter).toContain("blur");
+    const lifted = screen.getByTestId("home-row-menu-lifted");
+    expect(lifted.style.background).toBe("var(--color-bg-elevated)");
+    expect(lifted.getAttribute("aria-hidden")).toBe("true");
+    expect(lifted.textContent).toBe("Ana Ruiz");
+    const copy = lifted.firstElementChild as HTMLElement;
+    expect(copy.hasAttribute("data-home-row")).toBe(false);
+    expect(copy.style.margin).toBe("0px");
+    expect(screen.getAllByTestId("the-button")).toHaveLength(1);
+    expect(row.style.visibility).toBe("hidden");
+    // The menu material at its full fill.
+    expect(screen.getByTestId("home-row-menu").style.background).not.toBe("");
+    unmount();
+    expect(row.style.visibility).toBe("");
+    row.remove();
+  });
+
+  it("not lifted (Agents rows, the Thread): no dim, the plain glass, in place", () => {
+    render(<AgentMenu label="x" menu={{ id: "a", rect: RECT, armed: true }} entries={entries(vi.fn())} onClose={vi.fn()} />);
+    expect(screen.getByTestId("agent-menu-backdrop").style.background).toBe("transparent");
+    expect(screen.queryByTestId("agent-menu-lifted")).toBeNull();
+    expect(screen.getByTestId("agent-menu").style.background).toBe("");
   });
 });

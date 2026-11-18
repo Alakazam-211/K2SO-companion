@@ -637,4 +637,25 @@ describe("Left-edge swipe", () => {
     expect(screen.getByTestId("ticket-view")).toBe(view);
     expect(view.style.transform).toBe("");
   });
+
+  it("on the list it is the back chevron: the overlay closes", async () => {
+    const onClose = vi.fn();
+    render(<TicketsOverlay onClose={onClose} />);
+    await screen.findByText("Which pricing tier for Acme?");
+    act(() => edgeSwipe(screen.getByTestId("overlay-tickets")));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
+  });
+
+  it("from an open ticket only the ticket moves; the list never follows", async () => {
+    const onClose = vi.fn();
+    render(<TicketsOverlay onClose={onClose} />);
+    await openTicket("Which pricing tier for Acme?");
+    act(() => edgeSwipe(screen.getByTestId("ticket-view")));
+    await waitFor(() => expect(screen.queryByTestId("ticket-view")).toBeNull());
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 500));
+    });
+    expect(onClose).not.toHaveBeenCalled();
+    expect(screen.getByTestId("overlay-tickets").style.transform).toBe("");
+  });
 });

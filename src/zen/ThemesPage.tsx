@@ -6,6 +6,7 @@
 
 import { useState, type ReactNode } from "react";
 import { useBackHandler } from "../lib/androidBack";
+import { useSwipeBack } from "../lib/useSwipeBack";
 import { BackArrowButton } from "./BackArrowButton";
 import { PALETTES, paletteById, type Palette, type PaletteId, type SchemeMode } from "../theme/palettes";
 import { accentFillHex } from "../theme/styleAccent";
@@ -242,7 +243,9 @@ function AccentPicker({ p }: { p: Palette }) {
 }
 
 export function ThemesPage({ onBack }: { onBack: () => void }) {
-  useBackHandler(true, onBack);
+  // Android Back and the left-edge swipe: back to Settings, one level.
+  const onTop = useBackHandler(true, onBack);
+  const swipeRef = useSwipeBack(onBack, { enabled: onTop });
   const mode = useThemeStore((s) => s.mode);
   const shown = useThemeStore((s) => s.shown);
   const setMode = useThemeStore((s) => s.setMode);
@@ -251,6 +254,7 @@ export function ThemesPage({ onBack }: { onBack: () => void }) {
   const editingPalette = paletteById(editing) ?? PALETTES[0];
   return (
     <div
+      ref={swipeRef}
       className="absolute inset-0 flex flex-col"
       style={{ background: "var(--color-bg)", color: "var(--color-text-primary)", zIndex: 7, paddingTop: "env(safe-area-inset-top)" }}
       data-testid="themes-page"

@@ -36,6 +36,12 @@ targets:
       - path: assets
         buildPhase: resources
         type: folder
+      # The DM call ringtone (scripts/gen-ringtone.mjs): at the bundle's
+      # root, where iOS looks for a sound a notification names (the NSE's
+      # `UNNotificationSound(named: "k2-ring.caf")`). Not via tauri's
+      # `resources` (those land under assets/, which iOS doesn't search).
+      - path: K2Sounds/k2-ring.caf
+        buildPhase: resources
       - path: LaunchScreen.storyboard
     info:
       path: k2so-companion_iOS/Info.plist
@@ -70,8 +76,8 @@ targets:
           - UIInterfaceOrientationPortraitUpsideDown
           - UIInterfaceOrientationLandscapeLeft
           - UIInterfaceOrientationLandscapeRight
-        CFBundleShortVersionString: 4.2.3
-        CFBundleVersion: "202611110906"
+        CFBundleShortVersionString: 4.3.0
+        CFBundleVersion: "202611171704"
         # Communication Notifications: the app declares the intent the
         # Notification Service Extension donates. Durable copy also in
         # src-tauri/Info.ios.plist (tauri merges it on every build).
@@ -82,6 +88,7 @@ targets:
         UIBackgroundModes: [remote-notification, audio, voip]
         # Composer attach menu: camera (capture input) and the sound of a
         # recorded video. Durable copy also in src-tauri/Info.ios.plist.
+        NSFaceIDUsageDescription: K2 uses Face ID to check it's you when you approve a request, such as a release.
         NSCameraUsageDescription: K2 uses the camera so people in a voice room can see you when you turn your camera on, so you can attach a photo or video to a message, and to scan the pairing QR code from your computer.
         NSMicrophoneUsageDescription: K2 uses the microphone for voice rooms, and to record sound when you attach a video to a message.
         ITSAppUsesNonExemptEncryption: false
@@ -171,12 +178,16 @@ targets:
       - path: ../../tauri-plugin-k2-push/ios/Sources/K2PushReplay.swift
       - path: ../../tauri-plugin-k2-push/ios/Sources/K2PushSealed.swift
       - path: ../../tauri-plugin-k2-push/ios/Sources/K2PushInbox.swift
+      # The call ringtone in the extension's bundle too: the NSE checks it's
+      # there before naming it (iOS plays it from the app's bundle).
+      - path: K2Sounds/k2-ring.caf
+        buildPhase: resources
     info:
       path: K2NotificationService/Info.plist
       properties:
         CFBundleDisplayName: K2 Notification Service
-        CFBundleShortVersionString: 4.2.3
-        CFBundleVersion: "202611110906"
+        CFBundleShortVersionString: 4.3.0
+        CFBundleVersion: "202611171704"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.usernotifications.service
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).NotificationService
@@ -185,6 +196,10 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.com.alakazamlabs.k2so.companion
+        # A DM call's ring may get its time-sensitive level here, when the
+        # relay's clear aps has none (K2's answers §3). Needs no Apple
+        # approval; the NSE's profiles must carry it.
+        com.apple.developer.usernotifications.time-sensitive: true
     settings:
       base:
         PRODUCT_NAME: K2NotificationService
@@ -231,8 +246,8 @@ targets:
       path: K2Broadcast/Info.plist
       properties:
         CFBundleDisplayName: K2
-        CFBundleShortVersionString: 4.2.3
-        CFBundleVersion: "202611110906"
+        CFBundleShortVersionString: 4.3.0
+        CFBundleVersion: "202611171704"
         NSExtension:
           NSExtensionPointIdentifier: com.apple.broadcast-services-upload
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).SampleHandler

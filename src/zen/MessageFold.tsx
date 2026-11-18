@@ -114,6 +114,29 @@ export function __resetFoldForTests(): void {
   knownLinePx = 0;
 }
 
+/** The toggle's chevron, right of its words: down on "See more", up on
+ *  "See less" (Riley 2026-11-17). Decoration only: the button's name stays
+ *  its words. */
+function FoldChevron({ up }: { up: boolean }) {
+  return (
+    <svg
+      className="zen-fold-chevron"
+      data-testid="fold-chevron"
+      data-dir={up ? "up" : "down"}
+      viewBox="0 0 12 12"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.75"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      focusable="false"
+    >
+      <path d={up ? "M3 7.5 6 4.5l3 3" : "M3 4.5l3 3 3-3"} />
+    </svg>
+  );
+}
+
 export function MessageFold({
   foldKey,
   fontSize,
@@ -258,6 +281,7 @@ export function MessageFold({
           }}
         >
           {open ? "See less" : "See more"}
+          <FoldChevron up={open} />
         </button>
       ) : null}
     </div>

@@ -74,6 +74,9 @@ pub struct Native {
     screen: Arc<Mutex<ScreenRing>>,
     /// The App Group's container (Swift's, asked once: `callOp appGroup`).
     app_group: Arc<OnceLock<PathBuf>>,
+    /// The last join's ids (`{room, dm, callId, sewCallId}`, `dm: null` for
+    /// a voice room, or `null`), for a webview that missed [`DM_CALL_EVENT`].
+    dm_call: Arc<Mutex<Value>>,
 }
 
 /// Sew install id → the app's server ids that joined through it. Sew knows
@@ -184,16 +187,40 @@ pub fn plugin(native: &Native) -> tauri::plugin::TauriPlugin<Wry> {
         .name("k2-pip".into())
         .spawn(move || pip_loop(&mut pip_sink, pip_rx))
         .expect("the PiP thread starts");
-    // Noise removal (feature `dfn3`): the plugin loads DeepFilterNet3's
-    // weights on a thread of its own at start, from its default place,
-    // `dfn3/dfn3_ll.nnef.tar` in the app's resource directory (iOS:
-    // K2.app/assets/dfn3/), where tauri.ios.conf.json bundles
-    // src-tauri/resources/dfn3/ (scripts/fetch-dfn3.sh). `dfn3_weights`
-    // isn't needed for that place (the resource directory is only known
-    // once the app runs); missing or altered weights leave Standard on
-    // RNNoise. The person's On/Off is the webview's (noiseRemoval.ts): it
-    // sets `set_noise_removal` before each join; until then the engine's
-    // default is Standard.
+    // Noise removal (feature `dfn3`): at start the plugin checks
+    // DeepFilterNet3's weights (their pinned sha256, on a thread of its own)
+    // at its default place, `dfn3/dfn3_ll.nnef.tar` in the app's resource
+    // directory (iOS: K2.app/assets/dfn3/), where tauri.ios.conf.json
+    // bundles src-tauri/resources/dfn3/ (scripts/fetch-dfn3.sh). Since
+    // plugin 0.8.1 the model (about 40 MB) is loaded only when a call first
+    // needs it: that call starts on the OS's processing alone
+    // (`reason: loading`) and steps up once it's ready; it's released five
+    // minutes after the last call (`dfn3_idle_unload`, left at Sew's
+    // default; no `preload_dfn3`). `dfn3_weights` isn't needed for that
+    // place (the resource directory is only known once the app runs);
+    // missing or altered weights leave Standard on the OS's processing. Off
+    // is raw capture on iOS (the OS's voice processing off; echo
+    // cancellation and gain control stay). The person's On/Off is the
+    // webview's (noiseRemoval.ts): it sets `set_noise_removal` before each
+    // join, and during a call (the microphone pauses briefly while it
+    // switches); until then the engine's default is Standard.
+    //
+    // Grace windows (plugin 0.8.2, Sew 0.10.4): a moment the phone is busy
+    // with something else doesn't cost the call DeepFilterNet3. For about
+    // 3 s (`sew_noise::DEFAULT_GRACE`) the stage's timing rules hold back
+    // to the audio pipeline's own line (one slow block, the percentile and
+    // the median no longer step the model down; a non-finite output is
+    // still a fault), and a step-down made in a window or within 5 s after
+    // it closed is retried after 5 s instead of the usual backoff. A window
+    // opens at the call's start, the audio session activating or resuming
+    // (`session_activated`, `resume`), a route change (`route_changed`,
+    // `media_reset`), a camera starting or switching, a capture switch, and
+    // every scene change. The scene changes need nothing from the app:
+    // UIKit's sceneDidBecomeActive / sceneWillResignActive reach the plugin
+    // as tao's `WindowEvent::Focused` (its own `on_event` hook), and
+    // sceneDidEnterBackground / sceneWillEnterForeground come from the call
+    // shim as `app_scene`, whose `VoiceControl::app_scene` opens one too
+    // (on_shim_event). The call log says `in_grace:true` while one is open.
     tauri_plugin_sew_voice::Builder::new(K2Provider::new(native.clone()))
         .listener(Arc::new(CallKitBridge { tx, watch, native: native.clone(), held: AtomicBool::new(false) }))
         .hardware_device_key(Arc::new(EnclaveKey { native: native.clone() }))
@@ -241,7 +268,15 @@ pub fn set_hosts(native: &Native, hosts: HashMap<String, String>) {
     } else {
         native.with_installs(|i| i.prune(&|s| hosts.contains_key(s)))
     };
-    *native.hosts.write().unwrap_or_else(|e| e.into_inner()) = hosts;
+    *native.hosts.write().unwrap_or_else(|e| e.into_inner()) = hosts.clone();
+    // Swift keeps them too: a DM call's Decline from a notification posts
+    // with the app in the background, maybe before the webview runs.
+    // run_mobile_plugin blocks until Swift answers: never on the main thread.
+    if !hosts.is_empty() {
+        if let Some(app) = native.app() {
+            tauri::async_runtime::spawn_blocking(move || app.k2_push().set_call_hosts(hosts));
+        }
+    }
     if orphans.is_empty() {
         return;
     }
@@ -333,8 +368,77 @@ impl K2Provider {
     async fn join_inner(&self, req: JoinRequest) -> Result<JoinAnswer, ProviderError> {
         let (base, token) = self.login(&req.target).await?;
         *self.native.joining.lock().unwrap_or_else(|e| e.into_inner()) = Some(req.target.clone());
-        let (status, retry_after, body) = self.post(&format!("{base}/cli/voice/join"), &token, &join_body(&req)).await?;
-        answer_from(status, retry_after, &body, &base, &token)
+        let url = format!("{base}/cli/voice/join");
+        let join = join_body(&req);
+        let mut tried_again = false;
+        let (status, retry_after, body) = loop {
+            let (status, retry_after, body) = self.post(&url, &token, &join).await?;
+            match rejoin_step(&req, tried_again, status, &body) {
+                RejoinStep::Take => break (status, retry_after, body),
+                RejoinStep::TryAgain => {
+                    self.native.note("dm re-join: call not active, once more");
+                    tried_again = true;
+                    pause(CALL_NOT_ACTIVE_WAIT).await;
+                }
+                RejoinStep::Ended => {
+                    self.native.note("dm re-join: call not active again: ended");
+                    return Err(refused(CALL_ENDED, "the call ended"));
+                }
+                RejoinStep::LeaveNewCall => {
+                    self.native.note("dm re-join opened a new call: leaving it");
+                    let answer = answer_from(status, retry_after, &body, &base, &token);
+                    self.leave_new_call(&base, &token, answer.as_ref().ok(), &body).await;
+                    return Err(refused(CALL_ENDED, "the call ended while you were away"));
+                }
+            }
+        };
+        let answer = answer_from(status, retry_after, &body, &base, &token);
+        if answer.is_ok() {
+            self.native.note_dm_call(&req.room, dm_call_ids(&req.room, &body));
+        } else if let Some(id) = k2_call_id(&body).filter(|_| status == 200) {
+            // K2 took the join but the engine can't use it: K2's record (and
+            // Sew's seat, which K2's leave gives up) goes now.
+            self.k2_leave(&base, &token, &id).await;
+        }
+        answer
+    }
+
+    /// A DM re-join that opened a new call (the old one had ended): this
+    /// phone is alone in it, and no end rule fires for a call nobody was
+    /// rung into, so it stays open until we leave. First Sew's own leave
+    /// with the join's call credential (what the engine's leave sends:
+    /// `POST <lane>/api/v1/me/voice/leave`), then K2's record.
+    async fn leave_new_call(&self, base: &str, token: &str, answer: Option<&JoinAnswer>, body: &[u8]) {
+        if let Some((url, bearer)) = answer.and_then(sew_leave) {
+            let r = self.http.post(url).bearer_auth(bearer).json(&json!({})).timeout(LEAVE_TIMEOUT).send().await;
+            self.native.note(match r {
+                Ok(res) if res.status().is_success() => "sew leave ok",
+                Ok(_) => "sew leave refused",
+                Err(_) => "sew leave failed",
+            });
+        }
+        if let Some(id) = k2_call_id(body) {
+            self.k2_leave(base, token, &id).await;
+        }
+    }
+
+    /// `POST /cli/voice/session/leave {callId}` with K2's `vc_…` id (never
+    /// without one: that would leave the person's call on another device).
+    /// Idempotent; the answer only goes to the call log.
+    async fn k2_leave(&self, base: &str, token: &str, call_id: &str) {
+        let r = self
+            .http
+            .post(format!("{base}/cli/voice/session/leave"))
+            .bearer_auth(token)
+            .json(&session_leave_body(call_id))
+            .timeout(LEAVE_TIMEOUT)
+            .send()
+            .await;
+        self.native.note(match r {
+            Ok(res) if res.status().is_success() => "k2 leave ok",
+            Ok(_) => "k2 leave refused",
+            Err(_) => "k2 leave failed",
+        });
     }
 
     async fn consent_inner(&self, answer: ConsentAnswer) -> Result<Recording, ProviderError> {
@@ -420,7 +524,142 @@ pub fn join_body(req: &JoinRequest) -> Value {
     if let Some(notice) = &req.recording_notice {
         join["recording_notice"] = json!(notice);
     }
-    json!({ "room": req.room, "join": join })
+    match dm_of_room(&req.room) {
+        // A DM call (K2 0.46.13 `voice/dm_call.rs`): the room is
+        // `dm:<conversation id>`, and K2 takes `{dm, join}`. Without
+        // `join.ring` the join rings, or answers a ring already there for
+        // this person; a re-join (a dropped admit, an expired credential)
+        // never rings the other person again.
+        Some(conv) => {
+            if req.rejoin.is_some() {
+                join["ring"] = json!(false);
+            }
+            json!({ "dm": conv, "join": join })
+        }
+        None => json!({ "room": req.room, "join": join }),
+    }
+}
+
+// ── A DM call's re-join (K2's answers, companion-dm-call-answers-v1 §1) ──
+//
+// The engine's re-join (a lost admit, an expired credential) sends
+// `join.ring: false` ([`join_body`]). Sew de-dupes by the DM's live call:
+// a join into it never rings anyone. Two answers need more:
+//   - Sew's `invalid_state` / `call_not_active` while the old call is
+//     still ending: once more after [`CALL_NOT_ACTIVE_WAIT`]; the same
+//     again and the call has ended.
+//   - `created: true`: the old call had ended and this join opened a new,
+//     silent one with only this phone in it. Leave it at once (Sew's leave,
+//     then K2's) and the call ends here.
+// Either end is the engine's refusal [`CALL_ENDED`]: the call screen says
+// "Call ended".
+
+/// The end reason (a refused re-join's code) of a DM call that ended while
+/// this phone was re-joining it.
+pub const CALL_ENDED: &str = "call_ended";
+
+/// How long a re-join waits before trying a call that's still ending again.
+const CALL_NOT_ACTIVE_WAIT: Duration = Duration::from_millis(1500);
+
+/// A leave's own deadline (Sew's or K2's): it never holds the call's end up.
+const LEAVE_TIMEOUT: Duration = Duration::from_secs(8);
+
+/// What a DM re-join does with the daemon's answer.
+#[derive(Debug, PartialEq)]
+pub enum RejoinStep {
+    /// The answer as any join's.
+    Take,
+    /// The old call is still ending: try once more, after a moment.
+    TryAgain,
+    /// Still not active the second time: the call has ended.
+    Ended,
+    /// The join opened a new call: leave it, the call has ended.
+    LeaveNewCall,
+}
+
+/// A DM call's re-join answer ([`RejoinStep`]); a first join or a voice
+/// room's join is always taken as is.
+pub fn rejoin_step(req: &JoinRequest, tried_again: bool, status: u16, body: &[u8]) -> RejoinStep {
+    if req.rejoin.is_none() || dm_of_room(&req.room).is_none() {
+        return RejoinStep::Take;
+    }
+    let v: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+    if status >= 400 && call_not_active(&v) {
+        return if tried_again { RejoinStep::Ended } else { RejoinStep::TryAgain };
+    }
+    if status == 200 && v.get("created") == Some(&Value::Bool(true)) {
+        return RejoinStep::LeaveNewCall;
+    }
+    RejoinStep::Take
+}
+
+/// Sew's `call_not_active` (an `invalid_state` refusal), as Sew's own error
+/// or inside K2's (`details.sew`), in any case.
+pub fn call_not_active(v: &Value) -> bool {
+    let e = v.get("error").unwrap_or(v);
+    let is = |p: &str| e.pointer(p).and_then(Value::as_str).is_some_and(|s| s.eq_ignore_ascii_case("call_not_active"));
+    is("/code") || is("/details/reason") || is("/details/sew/code") || is("/details/sew/details/reason")
+}
+
+/// K2's call record in a join answer (`callId`, `vc_…`).
+pub fn k2_call_id(body: &[u8]) -> Option<String> {
+    let v: Value = serde_json::from_slice(body).ok()?;
+    v.get("callId").and_then(Value::as_str).filter(|c| c.starts_with("vc_")).map(str::to_owned)
+}
+
+/// `POST /cli/voice/session/leave`'s body: always K2's call id.
+pub fn session_leave_body(call_id: &str) -> Value {
+    json!({ "callId": call_id })
+}
+
+/// The engine's own leave for a join it never took: Sew's
+/// `POST /api/v1/me/voice/leave` under the join's lane, with its call
+/// credential (sew-call-client `api::leave`). `None` without a credential.
+pub fn sew_leave(answer: &JoinAnswer) -> Option<(url::Url, String)> {
+    let bearer = answer.call_credential()?.token.clone();
+    Some((sew_leave_url(&answer.api_base)?, bearer))
+}
+
+/// Sew's leave route under a join's lane (`…/_k2/voice/sew/`).
+pub fn sew_leave_url(api_base: &url::Url) -> Option<url::Url> {
+    let mut base = api_base.clone();
+    if !base.path().ends_with('/') {
+        base.set_path(&format!("{}/", base.path()));
+    }
+    base.join("api/v1/me/voice/leave").ok()
+}
+
+/// A pause on the async runtime without a timer of our own.
+async fn pause(d: Duration) {
+    let _ = tauri::async_runtime::spawn_blocking(move || std::thread::sleep(d)).await;
+}
+
+/// A DM call's room id: `dm:<conversation id>` (the desktop's and the
+/// webview's `dmRoomId`).
+pub const DM_ROOM_PREFIX: &str = "dm:";
+
+/// The DM conversation of a DM call's room id; `None` for a voice room.
+pub fn dm_of_room(room: &str) -> Option<&str> {
+    room.strip_prefix(DM_ROOM_PREFIX).filter(|c| !c.is_empty())
+}
+
+/// What the webview keeps from a join's answer: K2's call record
+/// (`callId`, `vc_…`, for `session/leave` after any leave) and, for a DM
+/// call, Sew's call (`call.id`, for cancel and ring again). Ids only: never
+/// the media token or the call credential. A voice room's has `dm: null`.
+pub fn dm_call_ids(room: &str, body: &[u8]) -> Value {
+    let Some(conv) = dm_of_room(room) else {
+        return json!({ "room": room, "dm": Value::Null, "callId": k2_call_id(body), "sewCallId": Value::Null });
+    };
+    let v: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
+    let id = |x: Option<&Value>| match x {
+        Some(Value::String(s)) if !s.is_empty() => Some(s.clone()),
+        Some(Value::Number(n)) => Some(n.to_string()),
+        _ => None,
+    };
+    let call_id = id(v.get("callId")).filter(|c| c.starts_with("vc_"));
+    let sew = id(v.pointer("/call/id")).filter(|c| c.bytes().all(|b| b.is_ascii_digit()));
+    json!({ "room": room, "dm": conv, "callId": call_id, "sewCallId": sew })
 }
 
 /// What the daemon answered, as the plugin's types.
@@ -580,6 +819,28 @@ pub const CONSENT_EVENT: &str = "k2-voice://consent";
 
 /// The call has video or no longer (`video_changed`): the call screen's tile.
 pub const VIDEO_EVENT: &str = "k2-voice://video";
+
+/// A join's call ids once it is taken ([`dm_call_ids`]; a voice room's
+/// with `dm: null`).
+pub const DM_CALL_EVENT: &str = "k2-voice://dm-call";
+
+impl Native {
+    /// Keep a join's DM call ids and tell the webview.
+    fn note_dm_call(&self, room: &str, ids: Value) {
+        if dm_of_room(room).is_some() {
+            self.note("join dm call");
+        }
+        *self.dm_call.lock().unwrap_or_else(|e| e.into_inner()) = ids.clone();
+        if let Some(app) = self.app() {
+            let _ = app.emit(DM_CALL_EVENT, ids);
+        }
+    }
+}
+
+/// The last join's DM call ids (`null`: a voice room, or no join yet).
+pub fn dm_call_now(native: &Native) -> Value {
+    native.dm_call.lock().unwrap_or_else(|e| e.into_inner()).clone()
+}
 
 impl VoiceListener for CallKitBridge {
     fn on_state(&self, state: &StateEvent) {
@@ -849,7 +1110,9 @@ fn scene_of(event: &Value) -> Option<Scene> {
 
 /// The app left the screen or came back, in Sew's words. Not
 /// `suspend`/`resume`: those are audio interruptions, and the call goes on
-/// here; only video changes (the webview's sinks stop, the PiP sink stays).
+/// here; only video changes (the webview's sinks stop, the PiP sink stays),
+/// and since plugin 0.8.2 noise removal opens a grace window (see
+/// [`plugin`]).
 fn sew_scene(scene: Scene) -> AppScene {
     match scene {
         Scene::Background => AppScene::Background,
@@ -1857,6 +2120,81 @@ mod tests {
         let notice = json!({ "recording_id": "77", "consent": true, "notice_version": 3 });
         let held = join_body(&req(Some(notice.clone())));
         assert_eq!(held["join"]["recording_notice"], notice);
+    }
+
+    fn dm_req(rejoin: Value) -> JoinRequest {
+        serde_json::from_value(json!({ "target": "s1", "room": "dm:900", "muted": false, "deafened": false, "rejoin": rejoin }))
+            .unwrap()
+    }
+
+    #[test]
+    fn a_dm_call_joins_with_dm_and_a_rejoin_never_rings_again() {
+        let first = join_body(&dm_req(Value::Null));
+        assert_eq!(first, json!({ "dm": "900", "join": { "call_credential": true, "self_mute": false, "self_deaf": false } }));
+        assert!(first.get("room").is_none());
+        let again = join_body(&dm_req(json!("admit_lost")));
+        assert_eq!(again["dm"], json!("900"));
+        assert_eq!(again["join"]["ring"], json!(false));
+        // A voice room is unchanged, and `dm:` alone is no DM.
+        assert_eq!(join_body(&req(None))["room"], json!("room-1"));
+        assert_eq!(dm_of_room("dm:"), None);
+        assert_eq!(dm_of_room("room-1"), None);
+    }
+
+    /// K2's answers §1 and Sew's (v0.10.2): a re-join that opened a new
+    /// call leaves it; a call still ending is tried once more, then ended.
+    #[test]
+    fn a_dm_rejoin_leaves_a_new_call_and_tries_an_ending_one_once_more() {
+        let rejoin = dm_req(json!("admit_lost"));
+        let created = json!({ "ok": true, "callId": "vc_9", "dm": "900", "created": true }).to_string();
+        let live = json!({ "ok": true, "callId": "vc_9", "dm": "900", "created": false }).to_string();
+        assert_eq!(rejoin_step(&rejoin, false, 200, created.as_bytes()), RejoinStep::LeaveNewCall);
+        assert_eq!(rejoin_step(&rejoin, false, 200, live.as_bytes()), RejoinStep::Take);
+        // A first join (the caller's own new call) and a voice room take it as is.
+        assert_eq!(rejoin_step(&dm_req(Value::Null), false, 200, created.as_bytes()), RejoinStep::Take);
+        assert_eq!(rejoin_step(&req(None), false, 200, created.as_bytes()), RejoinStep::Take);
+
+        // K2's pass-through of Sew's `invalid_state` / `call_not_active`.
+        let ending = json!({ "error": { "code": "invalid_state", "hint": "refused",
+            "details": { "sew": { "code": "invalid_state", "details": { "reason": "call_not_active" } } } } })
+        .to_string();
+        assert_eq!(rejoin_step(&rejoin, false, 422, ending.as_bytes()), RejoinStep::TryAgain);
+        assert_eq!(rejoin_step(&rejoin, true, 422, ending.as_bytes()), RejoinStep::Ended);
+        assert!(call_not_active(&json!({ "error": { "code": "CALL_NOT_ACTIVE" } })));
+        assert!(!call_not_active(&json!({ "error": { "code": "room_full" } })));
+        assert_eq!(rejoin_step(&dm_req(Value::Null), false, 422, ending.as_bytes()), RejoinStep::Take);
+
+        // The leaves: Sew's under the lane (the engine's own route), K2's with its id.
+        let lane = url::Url::parse(&format!("https://box.example{API_BASE_PATH}")).unwrap();
+        assert_eq!(sew_leave_url(&lane).unwrap().as_str(), "https://box.example/_k2/voice/sew/api/v1/me/voice/leave");
+        let bare = url::Url::parse("https://box.example/_k2/voice/sew").unwrap();
+        assert_eq!(sew_leave_url(&bare).unwrap().as_str(), "https://box.example/_k2/voice/sew/api/v1/me/voice/leave");
+        assert_eq!(k2_call_id(created.as_bytes()).as_deref(), Some("vc_9"));
+        assert_eq!(k2_call_id(br#"{"callId":"4455"}"#), None);
+        assert_eq!(session_leave_body("vc_9"), json!({ "callId": "vc_9" }));
+    }
+
+    #[test]
+    fn a_dm_joins_ids_keep_k2s_and_sews_apart() {
+        let body = json!({
+            "ok": true, "callId": "vc_1f2e", "dm": "900",
+            "room": { "id": "dm:900", "kind": "dm", "channelId": "900" },
+            "call": { "id": 4455, "channel_id": "900" },
+            "join": { "token": "secret", "call_credential": "sewcc_x" },
+        });
+        let ids = dm_call_ids("dm:900", body.to_string().as_bytes());
+        assert_eq!(ids, json!({ "room": "dm:900", "dm": "900", "callId": "vc_1f2e", "sewCallId": "4455" }));
+        assert!(!ids.to_string().contains("secret") && !ids.to_string().contains("sewcc_"));
+        // Swapped shapes are refused, and a room has none.
+        let swapped = json!({ "callId": "4455", "call": { "id": "vc_1" } });
+        let ids = dm_call_ids("dm:900", swapped.to_string().as_bytes());
+        assert_eq!(ids["callId"], Value::Null);
+        assert_eq!(ids["sewCallId"], Value::Null);
+        // A voice room's: K2's id only (for session/leave).
+        assert_eq!(
+            dm_call_ids("room-1", body.to_string().as_bytes()),
+            json!({ "room": "room-1", "dm": null, "callId": "vc_1f2e", "sewCallId": null })
+        );
     }
 
     /// Sew's contract fixture (`recording.held.recording`, 0.8.0).

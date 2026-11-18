@@ -39,6 +39,10 @@ export type OverlayLiveHandle = {
    *  socket open) and every 30 s; `false` sends `visible:false` once, only
    *  after a `true` went out. Callers gate on `thread-push-v1`. */
   setViewing: (visible: boolean) => void;
+  /** K2 `thread-typing-v1`: `{"t":"typing","thread":addr}` once, now, on
+   *  this Thread's live socket. False when it couldn't go (not open). The
+   *  caller throttles (threadTyping) and gates on the feature. */
+  sendTyping?: (thread: string) => boolean;
 };
 
 /** Skin live path: WS `/cli/overlay/events?conversation=`. Token query
@@ -86,6 +90,17 @@ export function connectOverlayEvents(opts: {
     if (!sock || sock.readyState !== 1) return false;
     try {
       sock.send(JSON.stringify({ t: "viewing", visible }));
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
+  function sendTyping(thread: string): boolean {
+    const sock = ws;
+    if (stopped || !thread || !sock || sock.readyState !== 1) return false;
+    try {
+      sock.send(JSON.stringify({ t: "typing", thread }));
       return true;
     } catch {
       return false;
@@ -312,6 +327,7 @@ export function connectOverlayEvents(opts: {
 
   open();
   return {
+    sendTyping,
     setViewing(visible) {
       if (stopped || visible === viewing) return;
       viewing = visible;

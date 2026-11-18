@@ -58,15 +58,25 @@ import {
   type AgentMenuEntry,
 } from "./AgentMenu";
 import { FocusGroupPicker } from "./FocusGroupPicker";
+import { MoveToHomeSheet } from "./MoveToHomeSheet";
 import { AddAgentSheet } from "./AddAgentSheet";
 import { HomeList, homeRowTarget, openHomeRowOnServer, type RemoteRowLook } from "./HomeList";
 import { homeGridSize, useHomeGridStore } from "./homeGrid";
 import { prefetchTargets, useChatPrefetch, type PrefetchTarget } from "./chatPrefetch";
 import { HomeMenu } from "./HomeMenu";
+import { HomeGroupBar, GROUP_BAR_HEIGHT } from "./groups/HomeGroupBar";
+import { GroupsSheet } from "./groups/GroupsSheet";
+import { useGroupsSheet } from "./groups/groupsSheetStore";
+import { useGroupSwipe } from "./groups/useGroupSwipe";
+import { neighbourIndex } from "./groups/groupSwipe";
+import { MAX_PINS, displayRows, isPinned as isRowPinned, pinnedRows, planRowDrop } from "./groups/homeRowOrder";
 import { HomeTabToggle } from "./HomeTabToggle";
 import { parseHomeAddress, readListTab, selectedHome, useHomesStore, writeListTab, type ListTab } from "./homes";
-import { homeRowMatches, renameRepairFor, resolveHomeRows, rowsAcrossHomes, type HomeRowView } from "./homeView";
-import { boxIdForSaved, homeHostFor, useHomeServerIds } from "./homeServerIds";
+import { homeRowMatches, renameRepairFor, resolveHomeRows, rowsAcrossHomes, serverDisplayName, type HomeRowView } from "./homeView";
+import { useAnyChatOffered, useHomeChatGoneRows, useHomeChatLive } from "./homeChat/homeChatRowsStore";
+import type { ChatPickServer } from "./homeChat/AddToHomePanels";
+import { HomeConfirmHost } from "./homeChat/HomeConfirmSheet";
+import { boxIdForSaved, homeHostFor, homeSignInHost, useHomeServerIds } from "./homeServerIds";
 import { dismissHomesSyncNotice, useHomesSyncBadge, useHomesSyncStore } from "./homesSync";
 import { OtherServerSection } from "./multi/OtherServerSection";
 import { otherServersForPicker } from "./multi/homePicker";
@@ -99,7 +109,15 @@ export {
 import { withServerParam } from "./room/serverRef";
 import { FOCUS_OFF } from "./serverPins";
 import { labelOf, snapshotCapable, useMultiServerList, type ActiveSlice } from "./multi/useMultiServerList";
-import { homeActivityWord, rowActivityOf } from "./multi/rowStatus";
+import {
+  homeActivityWord,
+  rowActivityOf,
+  unsavedServerFailure,
+  unsavedServerNotice,
+  type FailureAction,
+  type RowFailure,
+} from "./multi/rowStatus";
+import type { ChatHomeView } from "./homeChat/chatRowLook";
 import { loadServerRows, selectRemoteFocusGroup } from "./multi/remoteRows";
 import { ensureRemoteIcon, remoteIconFor, useRemoteIcons } from "./multi/remoteIcons";
 import { retryServerNow } from "./multi/poolLoop";
@@ -505,6 +523,13 @@ export function ChatsList() {
   const home = selectedHome({ homes, selectedId: homeSelectedId });
   const [homeMenu, setHomeMenu] = useState(false);
   const [addAgent, setAddAgent] = useState(false);
+  // Move to group… on a Home row (Home groups, not focus groups): the
+  // row, its name and the group it is on.
+  const [homeMove, setHomeMove] = useState<{ address: string; name: string; fromId: string } | null>(null);
+  // A Home row's Sign in for a server this phone hasn't saved (Homes sync
+  // brought the row): Add server, filled with its address when known.
+  const [addServerFor, setAddServerFor] = useState<{ host: string | null; notice: string | null } | null>(null);
+  const closeHomeMove = useCallback(() => setHomeMove(null), []);
   // Homes sync (K2 0.46.1): which server Home syncs from, and the one-time
   // "removed" notice. Home itself always renders from the local copy.
   const homeSync = useHomesSyncBadge();
@@ -526,8 +551,12 @@ export function ChatsList() {
   // Home's rows first, then the others', each once (`rowsAcrossHomes`).
   const homeSearch = onHome && q.trim().length > 0 && homes.length > 1;
   const across = useMemo(() => (homeSearch ? rowsAcrossHomes(homes, home.id) : null), [homeSearch, homes, home.id]);
+  // Home groups (K2 0.46.13): pinned rows first in pin order, then the
+  // group's manual order (or newest own send first, "Most recent at the
+  // top").
+  const homeOrdered = useMemo(() => displayRows(home), [home]);
   const homeViews = useMemo(() => {
-    const views = resolveHomeRows(across ? across.rows : home.rows, {
+    const views = resolveHomeRows(across ? across.rows : homeOrdered, {
       activeHostKey,
       agents,
       agentsLoaded: source !== "loading",
@@ -535,8 +564,31 @@ export function ChatsList() {
       servers,
       remote: multi.on ? { byServer: multi.byServer, tokens } : undefined,
     });
-    return multi.on ? views : views.filter((v) => v.kind !== "remote");
-  }, [across, home.rows, activeHostKey, agents, source, serverProjects, servers, multi.on, multi.byServer, tokens, boxIds]);
+    // Flag off: the active server's rows only (people and channels too).
+    return multi.on ? views : views.filter((v) => v.kind !== "remote" && !(v.kind === "chat" && !v.here));
+  }, [across, homeOrdered, activeHostKey, agents, source, serverProjects, servers, multi.on, multi.byServer, tokens, boxIds]);
+  // People and channels (K2 0.46.13, `home-chat-v1`): the servers asked
+  // (signed in; the active one first, then by name; flag off: the active
+  // one only), and those whose rows are on screen (their sockets).
+  const chatServers = useMemo((): ChatPickServer[] => {
+    const signed = servers.filter((s) => (tokens[s.id] ?? "").length > 0);
+    const active = signed.filter((s) => s.id === activeServerId);
+    const rest = multi.on
+      ? signed
+          .filter((s) => s.id !== activeServerId)
+          .sort((a, b) => serverDisplayName(a).localeCompare(serverDisplayName(b), undefined, { sensitivity: "base" }))
+      : [];
+    return [...active, ...rest].map((s) => ({ id: s.id, label: serverDisplayName(s), host: homeHostFor(s) }));
+  }, [servers, tokens, activeServerId, multi.on, boxIds]);
+  const chatServerIds = useMemo(() => chatServers.map((s) => s.id), [chatServers]);
+  const chatLiveIds = useMemo(
+    () => [...new Set(homeViews.flatMap((v) => (v.kind === "chat" && v.server ? [v.server.id] : [])))],
+    [homeViews]
+  );
+  useHomeChatLive(onHome ? chatServerIds : [], onHome && zenScreen === "list" ? chatLiveIds : []);
+  const chatOffered = useAnyChatOffered(chatServerIds);
+  // A channel left in the chat view comes off Home; one deleted greys.
+  useHomeChatGoneRows(true);
   const otherHomeOf = across
     ? (address: string) => {
         const h = across.homeOf.get(address);
@@ -546,15 +598,19 @@ export function ChatsList() {
   // "Recent agents first": this phone's latest sends, then the Home's own
   // order. Home has no pins of its own, so pins are not held at the top (they
   // would look frozen). Off: the Home's own order.
+  // A group with its own "Most recent at the top" (synced) is already in
+  // that order; else this phone's "Recent agents first" setting applies
+  // below the group's pins.
   const homeShown = useMemo(() => {
-    if (!recentOn) return homeViews;
+    if (!recentOn || home.recentFirst) return homeViews;
     const { keyOf } = homeViewRecent({
       activeServerId: zen.id,
       activePinnedIds: pinnedIds,
       remotePinnedIds: (sid) => multi.byServer[sid]?.pinnedIds,
     });
-    return orderRecentFirst(homeViews, recentSent, keyOf);
-  }, [recentOn, homeViews, recentSent, zen.id, pinnedIds, multi.byServer]);
+    return orderRecentFirst(homeViews, recentSent, keyOf, (v) => isRowPinned(v.row));
+  }, [recentOn, home.recentFirst, homeViews, recentSent, zen.id, pinnedIds, multi.byServer]);
+  const homePinsFull = pinnedRows(home).length >= MAX_PINS;
   // Rename repair (flag on; desktop `repairFromList`): a row whose handle
   // left its server while its workspace id is still there follows the
   // rename. The active server's lists only while Zen is on it (a room on
@@ -736,6 +792,45 @@ export function ChatsList() {
   const homeRearranging = onHome && rearrangeTab === "home";
   const homeGridMax = useHomeGridStore((st) => homeGridSize(st.sizes, home.id));
   const rearranging = agentsRearranging || homeRearranging;
+
+  // Home groups: the bar above the search bar, the Groups sheet, and the
+  // swipe between groups (starts inside the list away from the left edge,
+  // which is the back gesture's, or anywhere on the bar).
+  const groupsSheet = useGroupsSheet((s) => s.open);
+  const groupBarRef = useRef<HTMLElement | null>(null);
+  const homeSlideRef = useRef<HTMLDivElement | null>(null);
+  const showGroupBar = onHome && !searching && !rearranging;
+  useGroupSwipe({
+    listRef,
+    barRef: groupBarRef,
+    slideRef: homeSlideRef,
+    active: onHome && zenScreen === "list",
+    rebindKey: showGroupBar ? "bar" : "no-bar",
+    canStart: () => {
+      const hs = useHomesStore.getState();
+      return (
+        hs.homes.length > 1 &&
+        !searching &&
+        !rearranging &&
+        !homeMenu &&
+        !addAgent &&
+        !homeMove &&
+        !useGroupsSheet.getState().open &&
+        !document.querySelector("[data-testid=home-row-menu]")
+      );
+    },
+    neighbours: () => {
+      const hs = useHomesStore.getState();
+      const i = hs.homes.findIndex((h) => h.id === hs.selectedId);
+      return { prev: i > 0, next: i >= 0 && i < hs.homes.length - 1 };
+    },
+    onCommit: (direction) => {
+      const hs = useHomesStore.getState();
+      const i = hs.homes.findIndex((h) => h.id === hs.selectedId);
+      const to = neighbourIndex(i, hs.homes.length, direction);
+      if (to !== null) hs.selectHome(hs.homes[to].id);
+    },
+  });
   const rearrange = useRearrange({
     keys: reorderItems.map((it) => it.key),
     scrollRef: listRef,
@@ -1032,8 +1127,10 @@ export function ChatsList() {
   const homeRemoteLook = (v: RemoteHomeView): RemoteRowLook => {
     const handle = parseHomeAddress(v.row.address)?.handle ?? "";
     if (!v.server) {
+      // Not saved on this phone: the same Sign in as a saved server with
+      // no login; it opens Add server for that address.
       return {
-        failure: null,
+        failure: unsavedServerFailure(homeSignInHost(parseHomeAddress(v.row.address)?.host ?? ""), "agent"),
         busy: null,
         iconUrl: null,
         preview: `${v.serverLabel} is not saved on this phone`,
@@ -1074,6 +1171,26 @@ export function ChatsList() {
       nextAt: multi.entries[sid]?.nextAt ?? null,
       dim: missing,
     };
+  };
+
+  /** Add server for a row's unsaved server: its address filled in, or
+   *  (only its box id known) an empty form that says why. */
+  const signInUnsaved = (rowHost: string, what: "agent" | "chat") => {
+    const host = homeSignInHost(rowHost);
+    setAddServerFor({ host, notice: host ? null : unsavedServerNotice(what) });
+  };
+
+  /** A person or channel row (flag on) whose server needs a sign-in: not
+   *  saved here, or saved with no working login. The agent rows' own
+   *  failure (same copy and button); other trouble keeps the row's line. */
+  const homeChatFailure = (v: ChatHomeView): RowFailure | null => {
+    if (!v.server) return unsavedServerFailure(homeSignInHost(parseHomeAddress(v.row.address)?.host ?? ""), "chat");
+    const f = multi.failureFor(v.server.id, multi.statusFor(v.server.id, null));
+    return f && (f.action === "sign-in" || f.state === "signing-in") ? f : null;
+  };
+  const onHomeChatAction = (v: ChatHomeView, action: FailureAction) => {
+    if (!v.server) signInUnsaved(parseHomeAddress(v.row.address)?.host ?? "", "chat");
+    else multi.act(v.server.id, action);
   };
 
   const renderRemoteRow = (r: MergedRow, divider: boolean) => {
@@ -1322,7 +1439,7 @@ export function ChatsList() {
               onClick={() => setHomeMenu((v) => !v)}
               aria-haspopup="menu"
               aria-expanded={homeMenu}
-              aria-label={`Home ${home.name}`}
+              aria-label={`Group: ${home.name}`}
               data-testid="chats-title-home"
             >
               <span className="min-w-0 truncate">{home.name}</span>
@@ -1424,6 +1541,10 @@ export function ChatsList() {
           gridSize={homeGridMax}
           onGridSize={(n) => useHomeGridStore.getState().setSize(home.id, n)}
           onClose={() => setHomeMenu(false)}
+          onEditGroups={() => {
+            setHomeMenu(false);
+            useGroupsSheet.getState().show({ view: "list" });
+          }}
         />
       ) : null}
 
@@ -1538,7 +1659,12 @@ export function ChatsList() {
           // (bar + its 8px gap + 8px air) — not the resting 96.
           paddingBottom: searching
             ? SEARCH_BAR_HEIGHT + SEARCH_BAR_KEYBOARD_GAP * 2
-            : 96,
+            : showGroupBar
+              ? 96 + GROUP_BAR_HEIGHT + 8
+              : 96,
+          // A group swipe slides the Home list sideways: never a
+          // horizontal scroll.
+          overflowX: "hidden",
           WebkitOverflowScrolling: ghost ? "auto" : "touch",
           overflowY: ghost ? "hidden" : "auto",
           touchAction: ghost ? "none" : undefined,
@@ -1557,35 +1683,57 @@ export function ChatsList() {
           onOpen={(id) => navigate(`${withServerParam("/zen/gardens", gardensHome.id)}${gardensHome.id ? "&" : "?"}garden=${encodeURIComponent(id)}`)}
         />
       ) : onHome ? (
+        <div ref={homeSlideRef} data-testid="home-slide" style={{ willChange: "transform" }}>
         <HomeList
           views={homeShown.filter((v) => homeRowMatches(v, q))}
           homeName={home.name}
           gridMax={homeGridMax}
           searching={searching}
-          // Recent agents first sorts the Home itself: no Rearrange.
-          canRearrange={!recentOn}
+          // Recent first (this phone's, or the group's) sorts the Home
+          // itself: no Rearrange.
+          canRearrange={!recentOn && !home.recentFirst}
           rearranging={homeRearranging}
           onRearrange={() => setRearrangeTab("home")}
           scrollRef={listRef}
           onReorder={(order, moved) => {
             // The moved row takes the slot of the row shown there before
-            // (hidden flag-off rows keep their places in storage). Same
-            // Home write as any edit, so Homes sync carries it.
+            // (hidden flag-off rows and people / channels keep their
+            // places). Pins move among the pins, the rest among the rest
+            // (`planRowDrop`). Same Home write as any edit, so Homes sync
+            // carries it.
             const shown = homeViews.map((v) => v.row.address);
             const next = shown[order.indexOf(moved)];
-            const from = home.rows.findIndex((r) => r.address === moved);
-            const to = home.rows.findIndex((r) => r.address === next);
-            if (from >= 0 && to >= 0) useHomesStore.getState().moveRow(home.id, from, to);
+            const display = displayRows(home).map((r) => r.address);
+            const plan = planRowDrop(home, display.indexOf(moved), display.indexOf(next));
+            const st = useHomesStore.getState();
+            if (plan && "pins" in plan) st.reorderPins(home.id, plan.pins);
+            else if (plan) st.setRowOrder(home.id, plan.rows);
+          }}
+          pins={{
+            isPinned: (address) => home.rows.some((r) => r.address === address && isRowPinned(r)),
+            full: homePinsFull,
+            onPin: (address) => void useHomesStore.getState().pinRow(home.id, address),
+            onUnpin: (address) => void useHomesStore.getState().unpinRow(home.id, address),
           }}
           inset={ZEN_LIST_CONTENT_INSET}
           previewFor={previewFor}
           onRemove={(address) => useHomesStore.getState().removeRow(across?.homeOf.get(address)?.id ?? home.id, address)}
+          onMoveToHome={
+            homes.length > 1
+              ? (address, name) => setHomeMove({ address, name, fromId: across?.homeOf.get(address)?.id ?? home.id })
+              : undefined
+          }
           otherHomeOf={otherHomeOf}
           hereChip={multi.on && multi.chips ? serverLabel : null}
           activeDown={activeDown}
           remoteLook={multi.on ? homeRemoteLook : undefined}
+          chatFailure={multi.on ? homeChatFailure : undefined}
+          onChatAction={onHomeChatAction}
           onRemoteAction={(v, action) => {
-            if (!v.server) return;
+            if (!v.server) {
+              signInUnsaved(parseHomeAddress(v.row.address)?.host ?? "", "agent");
+              return;
+            }
             // "Open the old way" opens THIS row after the switch.
             if (action === "switch") {
               const handle = parseHomeAddress(v.row.address)?.handle ?? null;
@@ -1609,6 +1757,7 @@ export function ChatsList() {
             });
           }}
         />
+        </div>
       ) : (
       <>
       <span id={ROW_HINT_ID} className="sr-only">
@@ -1969,7 +2118,46 @@ export function ChatsList() {
         />
       ) : null}
 
+      {homeMove && onHome && homes.length > 1 && homes.some((h) => h.id === homeMove.fromId) ? (
+        <MoveToHomeSheet
+          agentName={homeMove.name}
+          address={homeMove.address}
+          homes={homes}
+          fromId={homeMove.fromId}
+          onPick={(toId) => {
+            setHomeMove(null);
+            useHomesStore.getState().moveRowToHome(homeMove.fromId, toId, homeMove.address);
+          }}
+          onClose={closeHomeMove}
+        />
+      ) : null}
+
       {rearranging ? <RearrangeDone onDone={() => setRearrangeTab(null)} /> : null}
+
+      {showGroupBar ? (
+        // Home groups: a strip just above the search bar.
+        <div
+          className="absolute flex justify-center"
+          style={{
+            zIndex: 6,
+            left: 16,
+            right: 16,
+            bottom: `calc(${SEARCH_BAR_REST_BOTTOM} + ${SEARCH_BAR_HEIGHT + 8}px)`,
+            pointerEvents: "none",
+          }}
+          data-no-pin="1"
+        >
+          <div style={{ pointerEvents: "auto", maxWidth: "100%" }}>
+            <HomeGroupBar
+              groups={homes.map((h) => ({ id: h.id, name: h.name, icon: h.icon ?? null }))}
+              currentId={home.id}
+              onSelect={(id) => useHomesStore.getState().selectHome(id)}
+              onOpenGroups={(id) => useGroupsSheet.getState().show({ view: "group", groupId: id })}
+              barRef={groupBarRef}
+            />
+          </div>
+        </div>
+      ) : null}
 
       <GlassSearchBar
         query={q}
@@ -1978,7 +2166,7 @@ export function ChatsList() {
         leading={serverPill}
         // Gardens are built by agents: nothing to add from here.
         onPlus={onGardens ? undefined : () => (onHome ? setAddAgent(true) : setNewWorkspace(true))}
-        plusLabel={onGardens ? undefined : onHome ? "Add agent" : "New workspace"}
+        plusLabel={onGardens ? undefined : onHome ? (chatOffered ? "Add to Home" : "Add agent") : "New workspace"}
         plusBlockedNote={onGardens || onHome || canCreate ? null : createRoleNote()}
         barRef={searchBarRef}
         blurRef={searchBlurRef}
@@ -2023,8 +2211,19 @@ export function ChatsList() {
           onAdd={(row) => useHomesStore.getState().addRow(home.id, row)}
           onRemove={(address) => useHomesStore.getState().removeRow(home.id, address)}
           onClose={() => setAddAgent(false)}
+          chat={
+            chatOffered
+              ? {
+                  groupIcon: home.icon ?? null,
+                  groupNumber: Math.max(1, homes.findIndex((h) => h.id === home.id) + 1),
+                  servers: chatServers,
+                  onAddRow: (row) => useHomesStore.getState().addRow(home.id, row),
+                }
+              : null
+          }
         />
       ) : null}
+      {onHome ? <HomeConfirmHost /> : null}
       {newWorkspace ? (
         <NewWorkspaceSheet
           onClose={() => setNewWorkspace(false)}
@@ -2032,9 +2231,10 @@ export function ChatsList() {
         />
       ) : null}
       {serversSheet ? <OverlayServers onClose={() => setServersSheet(false)} /> : null}
-      {multi.on && multi.signInFor ? (
+      {multi.on && (multi.signInFor || addServerFor) ? (
         // MS34 / MA3: sign in to THAT server without switching the active
-        // one (the active server's own sign-in keeps today's flow).
+        // one (the active server's own sign-in keeps today's flow). A Home
+        // row on a server not saved here adds it the same way.
         <div
           className="absolute inset-0 flex flex-col"
           // Above the Add Agent sheet (z 30) when signing in from its
@@ -2043,11 +2243,19 @@ export function ChatsList() {
           data-testid="row-sign-in"
         >
           <OverlayAddServer
-            key={multi.signInFor}
+            key={multi.signInFor ?? `add:${addServerFor?.host ?? ""}`}
             editingId={multi.signInFor}
-            activate={multi.signInFor === activeServerId}
-            onCancel={() => multi.setSignInFor(null)}
-            onSaved={() => multi.setSignInFor(null)}
+            initialServerUrl={multi.signInFor ? null : addServerFor?.host ?? null}
+            notice={multi.signInFor ? null : addServerFor?.notice ?? null}
+            activate={!!multi.signInFor && multi.signInFor === activeServerId}
+            onCancel={() => {
+              multi.setSignInFor(null);
+              setAddServerFor(null);
+            }}
+            onSaved={() => {
+              multi.setSignInFor(null);
+              setAddServerFor(null);
+            }}
             onSignedIn={(id) => {
               if (id === activeServerId) return;
               retryServerNow(id);
@@ -2058,6 +2266,7 @@ export function ChatsList() {
       ) : null}
 
       {settings ? <ZenSettings onClose={() => setSettings(false)} /> : null}
+      {onHome && groupsSheet ? <GroupsSheet at={groupsSheet} /> : null}
       </div>
     </div>
   );

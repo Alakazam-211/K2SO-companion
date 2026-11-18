@@ -18,7 +18,8 @@ import { useListField, useZenStore } from "./zenStore";
 import { useZenScope } from "./zenScope";
 import { rowUnreadFor, type RowRef } from "./unread";
 import { useUnreadStore } from "./unreadStore";
-import { AgentMenu, OpenGlyph, RearrangeGlyph, RemoveGlyph, type AgentMenuEntry } from "./AgentMenu";
+import { AgentMenu, MoveHomeGlyph, OpenGlyph, PinGlyph, RearrangeGlyph, RemoveGlyph, type AgentMenuEntry } from "./AgentMenu";
+import { PINS_FULL_TEXT } from "./groups/homeRowOrder";
 import { GripHandle, rearrangePadLeft } from "./RearrangeBits";
 import { useHoldMenu } from "./useHoldMenu";
 import { useRearrange } from "./useRearrange";
@@ -33,6 +34,11 @@ import {
 } from "./pinGrid";
 import { UnreadDot } from "./UnreadMarks";
 import { WorkspaceAvatar } from "./WorkspaceAvatar";
+import { chatRowLook, type ChatHomeView, type ChatRowLook } from "./homeChat/chatRowLook";
+import { useHomeChatRowsStore, openHomeChatRow } from "./homeChat/homeChatRowsStore";
+import { ChannelAvatar, CallGlyph, PersonAvatar } from "./homeChat/HomeChatGlyphs";
+import { confirmRemoveChatRow } from "./homeChat/HomeConfirmSheet";
+import { callPersonFromRow } from "./homeChat/openHomeChat";
 
 /** The first agents of a Home sit in the Agents page's grid (Riley
  *  2026-11-09); the rest are rows. */
@@ -49,7 +55,7 @@ export function homeRowTarget(
   return addr ? { serverId: v.server.id, addr } : null;
 }
 
-export const HOME_EMPTY_TITLE = "Your Home is empty";
+export const HOME_EMPTY_TITLE = "This group is empty";
 export const HOME_EMPTY_BODY = "Tap + to add agents from your servers.";
 
 /**
@@ -127,7 +133,7 @@ export interface RemoteRowLook {
  * The Home tab's list (HM3/HM6/HM7): the current Home's rows with the
  * Agents row look, its first nine in the pin grid's layout (rows while
  * searching or rearranging). Press and hold one for its menu (Open,
- * Mute, Rearrange, Remove from Home); rows carry no `data-pin-id`, so the
+ * Mute, Rearrange, Move to group…, Remove from <group>); rows carry no `data-pin-id`, so the
  * pin grid's gestures never see them. Rearrange mode puts a grip left of
  * each avatar; a drag reorders the Home (`onReorder`, synced by Homes
  * sync like any Home edit).
@@ -151,7 +157,29 @@ export function HomeList({
   inset = "16px",
   otherHomeOf,
   gridMax = HOME_GRID_MAX,
+  pins,
+  onMoveToHome,
+  chatFailure,
+  onChatAction,
 }: {
+  /** Multi-server flag on: a person or channel row whose server needs a
+   *  sign-in (not saved on this phone, or saved with no working login)
+   *  gets the agent rows' "Sign in" (same copy, button and tap). */
+  chatFailure?: (view: ChatHomeView) => RowFailure | null;
+  /** That row's one action (its tap and its button). */
+  onChatAction?: (view: ChatHomeView, action: FailureActionKind) => void;
+  /** An agent row's Move to group… (the Home group picker; `name` is what the
+   *  row shows). Absent: no such item (one Home, nowhere to move). */
+  onMoveToHome?: (address: string, name: string) => void;
+  /** Home groups (K2 0.46.13): Pin / Unpin on the hold menu (at most 9
+   *  per group; at the limit Pin shows turned off, with the reason). Rows
+   *  from another group (a search across groups) have no Pin here. */
+  pins?: {
+    isPinned: (address: string) => boolean;
+    full: boolean;
+    onPin: (address: string) => void;
+    onUnpin: (address: string) => void;
+  };
   views: HomeRowView[];
   homeName: string;
   /** How many of the Home's first rows sit in the grid (this Home's "Top
@@ -197,6 +225,11 @@ export function HomeList({
   const setAgent = useZenStore((s) => s.setAgent);
   const unreadServers = useUnreadStore((s) => s.servers);
   const unreadAddrs = useUnreadStore((s) => s.addrs);
+  // People and channels (K2 0.46.13): their servers' Home chat state.
+  const chatByServer = useHomeChatRowsStore((s) => s.byServer);
+  const chatNotes = useHomeChatRowsStore((s) => s.rowNotes);
+  const chatDeleted = useHomeChatRowsStore((s) => s.deleted);
+  const tokens = useServersStore((s) => s.tokens);
 
   const hold = useHoldMenu();
   const noScroll = { current: null as HTMLElement | null };
@@ -210,7 +243,7 @@ export function HomeList({
   if (views.length === 0) {
     return searching ? (
       <p className="py-6 text-[14px] text-center" style={{ color: "var(--color-text-muted)" }} data-testid="home-no-match">
-        {otherHomeOf ? "No matches on any Home." : `No matches on ${homeName}.`}
+        {otherHomeOf ? "No matches in any group." : `No matches on ${homeName}.`}
       </p>
     ) : (
       <div
@@ -225,6 +258,12 @@ export function HomeList({
       </div>
     );
   }
+
+  /** Pinned on the shown Home (a search hit from another Home is not). */
+  const pinnedHere = (address: string) => !!pins && !otherHomeOf?.(address) && pins.isPinned(address);
+  /** A row's or tile's element (the hold menu lifts it). */
+  const homeRowElement = (address: string): HTMLElement | null =>
+    Array.from(document.querySelectorAll<HTMLElement>("[data-home-row]")).find((el) => el.getAttribute("data-home-row") === address) ?? null;
 
   const menu = hold.menu && !rearranging ? hold.menu : null;
   const menuView = menu ? views.find((v) => v.row.address === menu.id) ?? null : null;
@@ -255,20 +294,129 @@ export function HomeList({
     return { look, failure, action };
   };
 
+  const lookOf = (v: ChatHomeView): ChatRowLook =>
+    chatRowLook(v, { byServer: chatByServer, tokens, rowNotes: chatNotes, deleted: chatDeleted, hereChip });
+
+  /** A person's or channel's sign-in failure, and its one action. */
+  const chatFailState = (v: ChatHomeView) => {
+    const failure = chatFailure?.(v) ?? null;
+    const action =
+      failure?.action && onChatAction ? () => onChatAction(v, failure.action as FailureActionKind) : null;
+    return { failure, action };
+  };
+
+  /** What a person or channel row shows: a sign-in failure greys it and
+   *  takes line two (no count or time, as on an agent row). */
+  const chatShown = (v: ChatHomeView) => {
+    const base = lookOf(v);
+    const { failure } = chatFailState(v);
+    const look: ChatRowLook = failure ? { ...base, quiet: true, line: failure.copy, unread: null, when: "" } : base;
+    return { look, failure };
+  };
+
+  /** A person or channel row's tap: the DM (opened or made first) or the
+   *  channel, in the chat view. A server with no chat opens nothing. A row
+   *  that says Sign in opens the sign-in for its server instead. */
+  const openChat = (v: ChatHomeView, look: ChatRowLook) => {
+    const { failure, action } = chatFailState(v);
+    if (failure) {
+      action?.();
+      return;
+    }
+    if (look.noChat || !look.serverId) return;
+    void openHomeChatRow(look.serverId, {
+      kind: v.chat,
+      handle: v.handle,
+      title: look.name,
+      address: v.row.address,
+      inviteOnly: look.inviteOnly,
+    });
+  };
+
+  const pinEntries = (v: HomeRowView): AgentMenuEntry[] =>
+    pins && !otherHomeOf?.(v.row.address)
+      ? [
+          pins.isPinned(v.row.address)
+            ? { key: "unpin", label: "Unpin", icon: <PinGlyph off />, onSelect: () => pins.onUnpin(v.row.address) }
+            : {
+                key: "pin",
+                label: "Pin",
+                icon: <PinGlyph off={false} />,
+                disabled: pins.full,
+                note: pins.full ? PINS_FULL_TEXT : undefined,
+                onSelect: () => pins.onPin(v.row.address),
+              },
+        ]
+      : [];
+
+  /** A person's or channel's menu (desktop: Pin / Unpin, Remove from
+   *  <group>; Call on a person, Riley: calls live in the long press). */
+  const chatMenuEntries = (v: ChatHomeView): AgentMenuEntry[] => {
+    const look = lookOf(v);
+    const group = otherHomeOf?.(v.row.address) ?? homeName;
+    const sid = look.serverId;
+    const { failure } = chatFailState(v);
+    return [
+      ...(!failure && !look.noChat && sid ? [{ key: "open", label: "Open", icon: <OpenGlyph />, onSelect: () => openChat(v, look) }] : []),
+      ...(!failure && v.chat === "person" && look.offered && sid
+        ? [
+            {
+              key: "call",
+              label: "Call",
+              icon: <CallGlyph />,
+              onSelect: () =>
+                callPersonFromRow(sid, {
+                  ext: v.handle,
+                  displayName: look.name,
+                  username: look.username,
+                  conversationId: chatByServer[sid]?.dms[v.handle] ?? null,
+                  address: v.row.address,
+                }),
+            },
+          ]
+        : []),
+      ...pinEntries(v),
+      ...(canRearrange && !searching && views.length > 1 && onRearrange
+        ? [{ key: "rearrange", label: "Rearrange", icon: <RearrangeGlyph />, onSelect: onRearrange }]
+        : []),
+      ...moveEntries(v, look.name),
+      {
+        key: "remove",
+        label: `Remove from ${group}`,
+        icon: <RemoveGlyph />,
+        danger: true,
+        onSelect: () => {
+          void confirmRemoveChatRow(look.name, group, v.chat).then((yes) => {
+            if (yes) onRemove(v.row.address);
+          });
+        },
+      },
+    ];
+  };
+
+  /** Move to group… (any row kind; the move keeps a person's or channel's kind). */
+  const moveEntries = (v: HomeRowView, name: string): AgentMenuEntry[] =>
+    onMoveToHome
+      ? [{ key: "move-home", label: "Move to group…", icon: <MoveHomeGlyph />, onSelect: () => onMoveToHome(v.row.address, name) }]
+      : [];
+
   const menuEntries = (v: HomeRowView): AgentMenuEntry[] => {
+    if (v.kind === "chat") return chatMenuEntries(v);
     const { failure, action } = rowState(v);
     const canOpen = v.kind === "here" || v.kind === "remote";
     return [
       ...(canOpen
         ? [{ key: "open", label: "Open", icon: <OpenGlyph />, onSelect: () => openRow(v, failure, action) }]
         : []),
+      ...pinEntries(v),
       { key: "mute" as const, mute: { serverId: menuTarget?.serverId, rowRef: menuRef } },
       ...(canRearrange && !searching && views.length > 1 && onRearrange
         ? [{ key: "rearrange", label: "Rearrange", icon: <RearrangeGlyph />, onSelect: onRearrange }]
         : []),
+      ...moveEntries(v, modelOf(v).name),
       {
         key: "remove",
-        label: `Remove from ${otherHomeOf?.(v.row.address) ?? "Home"}`,
+        label: `Remove from ${otherHomeOf?.(v.row.address) ?? homeName}`,
         icon: <RemoveGlyph />,
         danger: true,
         onSelect: () => onRemove(v.row.address),
@@ -335,7 +483,195 @@ export function HomeList({
   const gridded = rearranging || searching ? [] : views.slice(0, gridMax);
   const listed = views.slice(gridded.length);
 
+  const chatAvatar = (v: ChatHomeView, look: ChatRowLook, size: number, fontSize: number) =>
+    v.chat === "person" ? (
+      <PersonAvatar username={look.username} name={look.name} picture={look.person?.picture ?? null} size={size} fontSize={fontSize} glass testId="person-avatar" />
+    ) : (
+      <ChannelAvatar inviteOnly={look.inviteOnly} size={size} glass testId="channel-avatar" />
+    );
+
+  const chatLabel = (v: ChatHomeView, look: ChatRowLook) =>
+    `${look.name}${v.chat === "channel" ? (look.inviteOnly ? ", invite-only channel" : ", channel") : ""}` +
+    `${look.chip ? `, on ${look.chip}` : ""}${look.quiet ? `, ${look.line}` : ""}`;
+
+  const chatTile = (v: ChatHomeView) => {
+    const { look, failure } = chatShown(v);
+    const address = v.row.address;
+    return (
+      <div
+        key={address}
+        className="relative"
+        data-home-row={address}
+        data-home-kind="chat"
+        data-chat-kind={v.chat}
+        data-server-id={look.serverId ?? undefined}
+        data-greyed={look.quiet ? "1" : undefined}
+      >
+        <button
+          type="button"
+          className="w-full text-center bg-transparent border-0 p-0"
+          style={{
+            color: "var(--color-text-primary)",
+            opacity: look.quiet ? 0.55 : 1,
+            touchAction: "pan-y",
+            userSelect: "none",
+            WebkitUserSelect: "none",
+            WebkitTouchCallout: "none",
+          }}
+          data-no-pin="1"
+          data-testid={`home-chat-${v.chat}-${v.handle}`}
+          aria-describedby="home-row-hint"
+          aria-haspopup="menu"
+          aria-expanded={menu?.id === address}
+          aria-label={chatLabel(v, look)}
+          {...hold.bind(address, true)}
+          onClick={() => {
+            if (hold.consumeSkipClick()) return;
+            openChat(v, look);
+          }}
+        >
+          <div className="flex justify-center" style={{ marginBottom: look.chip ? 13 : 8 }} data-testid="pin-avatar">
+            <span className="relative inline-flex">
+              <UnreadDot unread={look.unread} side={14} />
+              {chatAvatar(v, look, ZEN_PIN_AVATAR_PX, 26)}
+              {look.chip ? (
+                <span
+                  className="absolute zen-glass zen-glass-pill truncate"
+                  style={{
+                    bottom: -9,
+                    left: "50%",
+                    transform: "translateX(-50%)",
+                    maxWidth: 84,
+                    padding: "1px 7px",
+                    fontSize: 11,
+                    lineHeight: "15px",
+                    color: "var(--color-text-secondary)",
+                  }}
+                  data-testid="row-server-chip"
+                >
+                  {look.chip}
+                </span>
+              ) : null}
+            </span>
+          </div>
+          <div
+            className="text-[12px] font-semibold truncate mx-auto"
+            style={{ color: "var(--color-text-primary)", maxWidth: 110, ...(look.unread ? { fontWeight: 700 } : null) }}
+            data-testid="row-name"
+          >
+            {look.name}
+          </div>
+          {look.quiet ? (
+            <div
+              className="text-[11px] truncate mx-auto"
+              style={{ color: "var(--color-text-muted)", maxWidth: 110, lineHeight: 1.3 }}
+              data-testid={failure ? "row-failure" : "row-chat-quiet"}
+              data-state={failure?.state}
+            >
+              {failure ? <FailureText failure={failure} /> : look.line}
+            </div>
+          ) : null}
+        </button>
+      </div>
+    );
+  };
+
+  const chatRow = (v: ChatHomeView, i: number) => {
+    const { look, failure } = chatShown(v);
+    const address = v.row.address;
+    const shift = rearrange.offsetFor(address);
+    return (
+      <div
+        key={address}
+        className="relative"
+        data-home-row={address}
+        data-home-kind="chat"
+        data-chat-kind={v.chat}
+        data-server-id={look.serverId ?? undefined}
+        data-greyed={look.quiet ? "1" : undefined}
+        data-rearrange-key={address}
+        data-dragging={shift.dragging ? "1" : undefined}
+        style={{
+          transform: shift.y ? `translateY(${shift.y}px)` : undefined,
+          transition: shift.transition,
+          zIndex: shift.dragging ? 3 : undefined,
+          background: shift.dragging ? "var(--color-bg-elevated)" : undefined,
+          boxShadow: shift.dragging ? "0 10px 28px var(--color-shadow)" : undefined,
+          borderRadius: shift.dragging ? 14 : undefined,
+        }}
+      >
+        {rearranging ? <GripHandle name={look.name} inset={inset} handlers={rearrange.handleProps(address)} /> : null}
+        <button
+          type="button"
+          className="w-full flex items-center text-left relative"
+          style={{
+            gap: 10,
+            paddingTop: 12,
+            paddingBottom: 12,
+            paddingLeft: rearrangePadLeft(inset, rearranging),
+            paddingRight: failure?.action ? `calc(${ZEN_ROW_RIGHT_INSET} + 96px)` : ZEN_ROW_RIGHT_INSET,
+            opacity: look.quiet ? 0.55 : 1,
+            touchAction: "pan-y",
+            userSelect: "none",
+            WebkitUserSelect: "none",
+            WebkitTouchCallout: "none",
+            transition: rearrange.reduced ? undefined : "padding-left 200ms cubic-bezier(.2,.9,.25,1)",
+          }}
+          data-no-pin="1"
+          data-testid={`home-chat-${v.chat}-${v.handle}`}
+          aria-describedby="home-row-hint"
+          aria-haspopup={rearranging ? undefined : "menu"}
+          aria-expanded={rearranging ? undefined : menu?.id === address}
+          aria-label={chatLabel(v, look)}
+          {...hold.bind(address, !rearranging)}
+          onClick={() => {
+            if (hold.consumeSkipClick() || rearranging) return;
+            openChat(v, look);
+          }}
+        >
+          <AgentRowContent
+            name={look.name}
+            initial=""
+            busy={null}
+            when={look.when}
+            preview={
+              failure ? (
+                <span data-testid="row-failure" data-state={failure.state}>
+                  <FailureText failure={failure} />
+                </span>
+              ) : (
+                look.line
+              )
+            }
+            homeTag={otherHomeOf?.(address) ?? null}
+            serverChip={look.chip}
+            unread={look.unread}
+            avatar={chatAvatar(v, look, 50, 18)}
+            pinned={pinnedHere(address)}
+          />
+        </button>
+        {failure && !rearranging ? (
+          <span
+            className="absolute flex items-center"
+            style={{ right: ZEN_ROW_RIGHT_INSET, top: "50%", transform: "translateY(-50%)" }}
+            data-no-pin="1"
+          >
+            <FailureAction failure={failure} serverLabel={v.serverLabel} onAction={() => chatFailState(v).action?.()} />
+          </span>
+        ) : null}
+        {i < listed.length - 1 && !shift.dragging ? (
+          <RowDivider
+            padLeft={rearrangePadLeft(inset, rearranging)}
+            padRight={ZEN_ROW_RIGHT_INSET}
+            transition={rearrange.reduced ? undefined : "left 200ms cubic-bezier(.2,.9,.25,1)"}
+          />
+        ) : null}
+      </div>
+    );
+  };
+
   const tile = (v: HomeRowView) => {
+    if (v.kind === "chat") return chatTile(v);
     const { address, handle, here, look, failure, action, there, busy, name, unread, opacity, elsewhere, dim } = modelOf(v);
     const shownBusy = failure ? null : busy;
     const color = shownBusy ? activityColor(shownBusy) : "";
@@ -458,6 +794,7 @@ export function HomeList({
         </div>
       ) : null}
       {listed.map((v, i) => {
+        if (v.kind === "chat") return chatRow(v, i);
         const { address, handle, here, look, failure, action, there, busy, when, name, preview, unread, opacity, elsewhere, dim, remoteView } = modelOf(v);
         const shift = rearrange.offsetFor(address);
         return (
@@ -525,6 +862,7 @@ export function HomeList({
                 stub={source === "stub" && v.kind === "here"}
                 serverChip={v.kind === "remote" ? v.serverLabel : hereChip}
                 unread={unread}
+                pinned={pinnedHere(address)}
               />
             </button>
             {failure && remoteView && !rearranging ? (
@@ -554,11 +892,14 @@ export function HomeList({
 
       {menu && menuView ? (
         <AgentMenu
-          label={`Options for ${menuView.row.label} on ${otherHomeOf?.(menuView.row.address) ?? homeName}`}
+          label={`Options for ${menuView.kind === "chat" ? lookOf(menuView).name : menuView.row.label} on ${otherHomeOf?.(menuView.row.address) ?? homeName}`}
           menu={menu}
           entries={menuEntries(menuView)}
           onClose={hold.close}
           testId="home-row-menu"
+          // The held row or tile lifted above the dim (K2 Design 4.3.0).
+          lift={() => homeRowElement(menu.id)}
+          liftSurface
         />
       ) : null}
     </div>

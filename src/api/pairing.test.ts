@@ -135,6 +135,61 @@ describe("pairing requests (final contract, K2 m_5ClOC889BH)", () => {
     });
   });
 
+  it("check and pair: a login with a temporary password is must-change (409)", async () => {
+    fetchMock.mockReset();
+    const refusal = {
+      ok: false,
+      error: { code: "password_change_required", hint: "that login must change its password before a phone can be paired to it" },
+    };
+    fetchMock.mockResolvedValueOnce(res(409, refusal));
+    expect(await checkPairCode("https://riley.k2.dev", CODE)).toMatchObject({ ok: false, kind: "must-change" });
+    fetchMock.mockResolvedValueOnce(res(409, refusal));
+    expect(await pairDevice("https://riley.k2.dev", CODE, { id: "d", name: "iPhone" })).toMatchObject({
+      ok: false,
+      kind: "must-change",
+    });
+    // Another 409 is not must-change.
+    fetchMock.mockResolvedValueOnce(res(409, { ok: false, error: { code: "owner_login_not_linked", hint: "x" } }));
+    expect(await pairDevice("https://riley.k2.dev", CODE, { id: "d", name: "iPhone" })).toMatchObject({ kind: "network" });
+  });
+
+  it("an older 409 names no login or ticket route", async () => {
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValueOnce(res(409, { ok: false, error: { code: "password_change_required", hint: "x" } }));
+    const r = await checkPairCode("https://riley.k2.dev", CODE);
+    expect(r).toMatchObject({ kind: "must-change" });
+    expect(r).not.toHaveProperty("user");
+    expect(r).not.toHaveProperty("ticketPath");
+  });
+
+  it("K2 0.46.16's 409 names the login and the ticket route (check and pair)", async () => {
+    fetchMock.mockReset();
+    const refusal = {
+      ok: false,
+      error: { code: "password_change_required", user: "ada", ticketPath: "/cli/auth/device/password-ticket" },
+    };
+    fetchMock.mockResolvedValueOnce(res(409, refusal));
+    expect(await checkPairCode("https://riley.k2.dev", CODE)).toMatchObject({
+      ok: false,
+      kind: "must-change",
+      user: "ada",
+      ticketPath: "/cli/auth/device/password-ticket",
+    });
+    fetchMock.mockResolvedValueOnce(res(409, refusal));
+    expect(await pairDevice("https://riley.k2.dev", CODE, { id: "d", name: "iPhone" })).toMatchObject({
+      kind: "must-change",
+      user: "ada",
+      ticketPath: "/cli/auth/device/password-ticket",
+    });
+    // A ticketPath that isn't a plain /cli/ path on the same server is dropped.
+    fetchMock.mockResolvedValueOnce(
+      res(409, { ok: false, error: { code: "password_change_required", user: "ada", ticketPath: "https://evil.example/x" } })
+    );
+    const r = await checkPairCode("https://riley.k2.dev", CODE);
+    expect(r).toMatchObject({ user: "ada" });
+    expect(r).not.toHaveProperty("ticketPath");
+  });
+
   it("pair: 0.46.6's serverName names the computer", async () => {
     fetchMock.mockReset();
     fetchMock.mockResolvedValueOnce(

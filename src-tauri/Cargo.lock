@@ -2931,7 +2931,7 @@ dependencies = [
 
 [[package]]
 name = "k2so-companion"
-version = "4.2.3"
+version = "4.3.0"
 dependencies = [
  "base64 0.22.1",
  "objc2",
@@ -5222,8 +5222,9 @@ dependencies = [
 
 [[package]]
 name = "sew-call-client"
-version = "0.8.0"
-source = "git+https://github.com/Alakazam-211/sew-crates?rev=c534650afc3608206b15d0a84c0219d71a5e4f02#c534650afc3608206b15d0a84c0219d71a5e4f02"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "9c23e1de4f71c88d008931f1834c488719cb0620ce078475847993efb308760a"
 dependencies = [
  "aes 0.8.4",
  "aes-gcm 0.10.3",
@@ -5265,9 +5266,9 @@ dependencies = [
 
 [[package]]
 name = "sew-e2ee"
-version = "0.10.2"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a1c0e8595fd68e44324354d09602803a50c600a23548403d3d5224e97527d71e"
+checksum = "a0d0493c89ac9c8fdb00e3d5303c6b346873bf56f1c249008b7c2fff67aad37c"
 dependencies = [
  "aes-gcm 0.10.3",
  "ed25519-dalek",
@@ -5292,9 +5293,9 @@ dependencies = [
 
 [[package]]
 name = "sew-lk-compat"
-version = "0.10.2"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "62b52e91871dde5fddc701a792a05c159fffef65cf5fdc3087398457aea426f8"
+checksum = "3e7d68e1f0930a960f9ebf8a9b04b563ab4837e350ef4c87e7911439648ba032"
 dependencies = [
  "aes-gcm 0.10.3",
  "aws-lc-rs",
@@ -5314,9 +5315,9 @@ dependencies = [
 
 [[package]]
 name = "sew-lkproto"
-version = "0.10.2"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6b315b57db3061f7b3999348467957f08c4dfd416721cb2f0e7f3e839d2dbde7"
+checksum = "f38eb0a21c853d184bdcbf6544fbd5763f790d714efa0e95efdf6c7234a63b40"
 dependencies = [
  "pbjson",
  "pbjson-types",
@@ -5326,9 +5327,9 @@ dependencies = [
 
 [[package]]
 name = "sew-mls-crypto"
-version = "0.10.2"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "834650064e978b0e8ac16ded40fe31e3a2bf07bf77dc602937a9408efa1759ea"
+checksum = "eeecea662b17626bdd7f300856a8b394f6ce3ba65de4dce454231b2a9611de29"
 dependencies = [
  "aes-gcm 0.10.3",
  "chacha20poly1305 0.10.1",
@@ -5351,9 +5352,9 @@ dependencies = [
 
 [[package]]
 name = "sew-noise"
-version = "0.10.2"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f67d952ad2890ea5a90e8626c56e01dc9d27efb77a44e7e54c39a50964c18d08"
+checksum = "cf53ac86b896b7b853f99b79a6cceb4fee789ef387858b572253ba061ed9f01a"
 dependencies = [
  "nnnoiseless",
  "realfft",
@@ -5362,9 +5363,9 @@ dependencies = [
 
 [[package]]
 name = "sew-proto"
-version = "0.10.2"
+version = "0.10.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "466105c69324d698f1641b4922132784b4810059e5ef873145a10c94599149ba"
+checksum = "d8f0d1849fb8d35f242ec503e954102adeae843fed17113403c49bbb59b9f9bf"
 dependencies = [
  "chrono",
  "schemars 1.2.1",
@@ -5374,9 +5375,9 @@ dependencies = [
 
 [[package]]
 name = "sew-str0m"
-version = "0.25.3"
+version = "0.25.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a10cbb28e16bd79b6f192e418fe09a70ff6dd84a0c4dfea55054ddb700376150"
+checksum = "94bff30d9f4099611473df4168f8c95095b31e382bd19db61b71276f6cd6b552"
 dependencies = [
  "arrayvec",
  "base64ct",
@@ -5395,9 +5396,9 @@ dependencies = [
 
 [[package]]
 name = "sew-str0m-is"
-version = "0.12.2"
+version = "0.12.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "091fbce7412b6259e47ad4b1b29781168bce69cf852ff0fcf59aa274c519754e"
+checksum = "d016c6cd14fe4bc048ab08d3f05c5781db0440578f937256a28fd8ecde964b72"
 dependencies = [
  "crc",
  "serde",
@@ -6090,8 +6091,9 @@ dependencies = [
 
 [[package]]
 name = "tauri-plugin-sew-voice"
-version = "0.8.0"
-source = "git+https://github.com/Alakazam-211/sew-crates?rev=c534650afc3608206b15d0a84c0219d71a5e4f02#c534650afc3608206b15d0a84c0219d71a5e4f02"
+version = "0.8.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "18b965d275bd06c7104d48a6abd59c9f522efeff8d27fd85961e75cb9960eb64"
 dependencies = [
  "base64 0.22.1",
  "cpal",

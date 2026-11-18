@@ -16,7 +16,7 @@ import {
   type ThemeSelection,
 } from "./palettes";
 import type { AccentChoice } from "./styleAccent";
-import { syncNativeAppearance } from "./nativeAppearance";
+import { nativeAppearanceAvailable, onNativeSystemAppearance, syncNativeAppearance } from "./nativeAppearance";
 
 /** Settings → Themes (ThemesPage.tsx; desktop's Settings → Themes): Light,
  *  Dark or Auto; the palette for each side (under Auto, the two picks);
@@ -73,8 +73,9 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
     const { mode, dark, light, shown } = get();
     const systemLight = systemPrefersLight();
     const next = resolvePalette({ mode, dark, light }, systemLight);
-    // Native under Auto already follows the iPhone; this moves the colour
-    // behind the page with it (deduped: nothing changed, nothing sent).
+    // Native under Auto has already restyled for the iPhone; this moves
+    // the colour behind the page with it (deduped: nothing changed,
+    // nothing sent).
     syncNativeAppearance(nativeLook({ mode, dark, light }, systemLight));
     if (next === shown) return;
     applyTheme(next, readAccent(next));
@@ -83,12 +84,14 @@ export const useThemeStore = create<ThemeState>((set, get) => ({
 }));
 
 /** Under Auto, follow the system's light/dark as it changes. On the phone
- *  the web view's media query is the native mode (src-tauri/src/
- *  appearance.rs): under Auto the iPhone's own, live. */
+ *  native reports the iPhone's appearance (nativeAppearance.ts): the web
+ *  view's media query there is native's override (the palette on screen),
+ *  not the iPhone. Elsewhere, the media query. */
 export function watchSystemScheme(): () => void {
+  const onChange = () => useThemeStore.getState().refresh();
+  if (nativeAppearanceAvailable()) return onNativeSystemAppearance(onChange);
   if (typeof window === "undefined" || typeof window.matchMedia !== "function") return () => {};
   const mq = window.matchMedia("(prefers-color-scheme: light)");
-  const onChange = () => useThemeStore.getState().refresh();
   mq.addEventListener?.("change", onChange);
   return () => mq.removeEventListener?.("change", onChange);
 }

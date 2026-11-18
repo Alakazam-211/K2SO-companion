@@ -19,6 +19,7 @@
 		5B6281272B119094369D5260 /* main.mm in Sources */ = {isa = PBXBuildFile; fileRef = 468BBB4AA6164109A2761F17 /* main.mm */; };
 		66AE529A3FD19B8FA3FE2393 /* K2PushSealed.swift in Sources */ = {isa = PBXBuildFile; fileRef = 04BDCE45DB68ED3B2DEF0FC8 /* K2PushSealed.swift */; };
 		68AE19A78FDF1C3D613D20BA /* CoreMedia.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 6967D62C8FA6A6BF4E4867CC /* CoreMedia.framework */; };
+		69C026E7DF4635038B814734 /* k2-ring.caf in Resources */ = {isa = PBXBuildFile; fileRef = 9F63C820B7BD78A3F57A269B /* k2-ring.caf */; };
 		6FFBBF0572EEA3C884D951BE /* SampleHandler.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25D31BD525E8DA20E7ED3AD9 /* SampleHandler.swift */; };
 		7ABB0E332906E75D818941A9 /* Intents.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A97E30C38A355B51654D89D9 /* Intents.framework */; };
 		7DC223C2516DE9BA1AEAE8F4 /* Metal.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = B4A5403B758E91ACD479B265 /* Metal.framework */; };
@@ -27,6 +28,7 @@
 		938FA044F25B2BD405A07042 /* K2PushInbox.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0E5AB52C2C68B1DDB9154F7F /* K2PushInbox.swift */; };
 		A70F3CA0A84318BC0485C30E /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 121CC767EA48E78C62817F5B /* Assets.xcassets */; };
 		A7C7EEF83088ED1B6AFE39AD /* K2BroadcastFrames.swift in Sources */ = {isa = PBXBuildFile; fileRef = 47CC572B4A6B4D4B06D8B190 /* K2BroadcastFrames.swift */; };
+		ADBDE3A0F017CE024825EC04 /* k2-ring.caf in Resources */ = {isa = PBXBuildFile; fileRef = 9F63C820B7BD78A3F57A269B /* k2-ring.caf */; };
 		AF0A03078E384F7FA1ADEBDA /* assets in Resources */ = {isa = PBXBuildFile; fileRef = 326A6653853C5BDE1977FDD4 /* assets */; };
 		B77720E43DDCAFF635D539CC /* WebKit.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 0C98A0036C619D67A6D5842A /* WebKit.framework */; };
 		BBFD1D01C98651AB5EE41BDE /* QuartzCore.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 47648054428B8FF68CED3F6F /* QuartzCore.framework */; };
@@ -104,6 +106,7 @@
 		96E24D55CD1516F020380121 /* K2PushCrypto.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = K2PushCrypto.swift; sourceTree = "<group>"; };
 		9A7659B64BFA232E3FD99383 /* UserNotifications.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UserNotifications.framework; path = System/Library/Frameworks/UserNotifications.framework; sourceTree = SDKROOT; };
 		9AD9136060A6AEEF2AE58122 /* K2NotificationService.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = K2NotificationService.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		9F63C820B7BD78A3F57A269B /* k2-ring.caf */ = {isa = PBXFileReference; path = "k2-ring.caf"; sourceTree = "<group>"; };
 		A97E30C38A355B51654D89D9 /* Intents.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Intents.framework; path = System/Library/Frameworks/Intents.framework; sourceTree = SDKROOT; };
 		B4A5403B758E91ACD479B265 /* Metal.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = Metal.framework; path = System/Library/Frameworks/Metal.framework; sourceTree = SDKROOT; };
 		BEE6F25A741F7415EAEF73CE /* UIKit.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = UIKit.framework; path = System/Library/Frameworks/UIKit.framework; sourceTree = SDKROOT; };
@@ -185,6 +188,14 @@
 			path = bindings;
 			sourceTree = "<group>";
 		};
+		3F7A15E3B1001D0D0FECD8E2 /* K2Sounds */ = {
+			isa = PBXGroup;
+			children = (
+				9F63C820B7BD78A3F57A269B /* k2-ring.caf */,
+			);
+			path = K2Sounds;
+			sourceTree = "<group>";
+		};
 		65B2F1C79A57DA9A55396E0E /* Products */ = {
 			isa = PBXGroup;
 			children = (
@@ -261,6 +272,7 @@
 				BC83B3A409F98FD8EAB243A7 /* K2Broadcast */,
 				C0241A6BD2D37C73D58FCF19 /* K2NotificationService */,
 				CC8B9D6A797BEB81F10A070F /* k2so-companion_iOS */,
+				3F7A15E3B1001D0D0FECD8E2 /* K2Sounds */,
 				B2AFAA2EA566234C8AD5A853 /* Sources */,
 				C88F02EA142CDE49BBCAE7EA /* Sources */,
 				977031F65116827E7DD1923C /* src */,
@@ -323,6 +335,7 @@
 			buildConfigurationList = A6149A185C1995597F53DF3F /* Build configuration list for PBXNativeTarget "K2NotificationService" */;
 			buildPhases = (
 				8DB20AF5D31758396C2BF640 /* Sources */,
+				92784BBD6B62237767757E73 /* Resources */,
 				8A163DEC644DFCCBDD70A301 /* Frameworks */,
 			);
 			buildRules = (
@@ -430,6 +443,15 @@
 				A70F3CA0A84318BC0485C30E /* Assets.xcassets in Resources */,
 				43F5B6CAFF4DF2CC5E246501 /* LaunchScreen.storyboard in Resources */,
 				AF0A03078E384F7FA1ADEBDA /* assets in Resources */,
+				69C026E7DF4635038B814734 /* k2-ring.caf in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		92784BBD6B62237767757E73 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				ADBDE3A0F017CE024825EC04 /* k2-ring.caf in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

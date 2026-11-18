@@ -201,6 +201,14 @@
 .zen-fold[data-fold="open"] .zen-fold-toggle {
   margin-top: 0.25em;
 }
+/* Its chevron (MessageFold's FoldChevron): ~11px, right of the words,
+   centred on them by the pill's flex row. */
+.zen-fold-chevron {
+  flex: none;
+  width: 0.85em;
+  height: 0.85em;
+  margin-left: 0.3em;
+}
 .zen-fold-toggle:active {
   opacity: 0.6;
 }

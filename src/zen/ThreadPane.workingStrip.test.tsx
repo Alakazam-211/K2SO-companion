@@ -138,3 +138,65 @@ describe("working drawer across sends", () => {
     expect(strip()?.getAttribute("data-leaving")).toBe("true");
   });
 });
+
+// The Jump to bottom pill's row (Riley 2026-11-17): with no ear it settles
+// the gap above the composer's top (the field, 14px into the bar here, so
+// 8 − 14 = −6px from the bar's top); the ear lifts it by its height on the
+// ear's own slide, and folding away brings it down on the slide-out curve.
+describe("the Jump to bottom pill rides the ear", () => {
+  const row = () => screen.getByTestId("thread-jump-row");
+
+  it("no ear: the gap above the field; out: lifted by the ear on its slide; folded: back down", async () => {
+    render(<ThreadPane />);
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+    expect(row().style.bottom).toBe("-6px");
+    expect(row().getAttribute("data-lift")).toBe("0");
+    expect(row().style.transform).toBe("translate3d(0, 0px, 0)");
+
+    push(frame("turn-1", 1));
+    expect(strip()).not.toBeNull();
+    // Not laid out: the collapsed tile's 32px.
+    expect(row().getAttribute("data-lift")).toBe("32");
+    expect(row().style.transform).toBe("translate3d(0, -32px, 0)");
+    expect(row().style.transition).toBe("transform 200ms cubic-bezier(0.2, 0.9, 0.3, 1.12)");
+    expect(row().style.bottom).toBe("-6px");
+
+    push(ended("turn-1", 2, "done", "idle"));
+    expect(strip()?.getAttribute("data-leaving")).toBe("true");
+    expect(row().getAttribute("data-lift")).toBe("0");
+    expect(row().style.transform).toBe("translate3d(0, 0px, 0)");
+    expect(row().style.transition).toBe("transform 200ms cubic-bezier(0.4, 0, 0.8, 0.4)");
+  });
+
+  it("rows over the field keep the ear's room under them: no lift, and the switch jumps", async () => {
+    render(<ThreadPane />);
+    await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+    push(frame("turn-1", 1));
+    expect(row().getAttribute("data-lift")).toBe("32");
+    act(() => useZenStore.setState({ sendError: "Could not send" }));
+    expect(screen.getByTestId("composer-drawer-room").style.height).toBe("32px");
+    expect(row().getAttribute("data-lift")).toBe("0");
+    expect(row().style.transition).toBe("none");
+  });
+
+  it("reduced motion: it jumps", async () => {
+    const was = window.matchMedia;
+    window.matchMedia = ((q: string) => ({
+      matches: q.includes("reduce"),
+      media: q,
+      addEventListener() {},
+      removeEventListener() {},
+      addListener() {},
+      removeListener() {},
+    })) as unknown as typeof window.matchMedia;
+    try {
+      render(<ThreadPane />);
+      await waitFor(() => expect(connectOverlayEvents).toHaveBeenCalled());
+      push(frame("turn-1", 1));
+      expect(row().style.transform).toBe("translate3d(0, -32px, 0)");
+      expect(row().style.transition).toBe("none");
+    } finally {
+      window.matchMedia = was;
+    }
+  });
+});

@@ -1,18 +1,26 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { useBackHandler } from "../lib/androidBack";
 import { useViewport } from "../lib/useViewportHeight";
+import { useMenuSolidFill } from "./AttachMenu";
 import type { RowRef } from "./unread";
 import { MuteMenuItems } from "./UnreadMarks";
-import type { HeldMenu, MenuRect } from "./useHoldMenu";
+import { rectOf, type HeldMenu, type MenuRect } from "./useHoldMenu";
 
 // The one press-and-hold menu for an agent (Agents rows, pinned avatars,
 // Home rows). Every row action lives here: Open, Pin / Unpin, Mute,
-// Move to group…, Rearrange, Remove from Home. Glass, iOS-style: label
+// Move to group… (focus groups on Agents rows, Home groups on Home
+// rows), Rearrange, Remove from <group>. Glass, iOS-style: label
 // on the left, glyph on the right, under the pressed row (above it when
 // there is no room below).
+//
+// Lifted (`lift`: Home rows and Home chat messages; K2 Design's 4.3.0
+// review): the page behind is dimmed and blurred, the held row or message
+// is drawn again above the dim right where it sits (the Thread's held
+// bubble, grown and outlined), the menu takes the menu material at its
+// full fill, and a `head` (the quick emoji) floats on its own above the
+// lifted message, clear of its reaction chips.
 
-/** iOS system yellow, the Messages pin glyph. */
-export const PIN_YELLOW = "var(--color-status-warn-text)";
 const REMOVE_RED = "var(--color-status-error)";
 const ITEM_H = 44;
 const MENU_W = 220;
@@ -22,6 +30,9 @@ export type AgentMenuItem = {
   label: string;
   icon?: ReactNode;
   danger?: boolean;
+  /** Shown but turned off, with `note` saying why (Pin at 9 pins). */
+  disabled?: boolean;
+  note?: string;
   onSelect: () => void;
 };
 
@@ -62,6 +73,73 @@ export function agentMenuPlacement(
   return { ...x, top: below, maxHeight: Math.max(ITEM_H * 2, visibleBottom - below - 16) };
 }
 
+/** The gap between the lifted row and the menu or the head. */
+const LIFT_GAP = 8;
+/** A lifted menu sits over every pane and the Home chat (z 40), under
+ *  the sheets (55 and up). */
+const LIFT_Z = 45;
+/** What the lifted copy must not carry: no duplicate ids or test ids, and
+ *  nothing a hold, a jump or Rearrange looks for. */
+const CLONE_STRIP = ["id", "data-testid", "data-home-row", "data-home-chat-msg", "data-home-chat-lift", "data-message-hold", "data-rearrange-key"];
+
+/** A lifted menu's pieces: the head (the quick emoji) above the lifted
+ *  rect and the menu under it. A message too low for the menu below is
+ *  lifted up (`shift` px) to make room, as iOS moves its preview; when it
+ *  still can't fit, the head goes under the rect if it can't go above,
+ *  and the menu past the head (above it all with no room below). Pure
+ *  (tests). */
+export function liftedMenuPlacement(
+  rect: MenuRect,
+  count: number,
+  align: "center" | "end",
+  visibleBottom: number,
+  headPx: number,
+  visibleTop = 0
+): { menu: ReturnType<typeof agentMenuPlacement>; head: { top: number } | null; shift: number } {
+  if (!(headPx > 0)) return { menu: agentMenuPlacement(rect, count, align, visibleBottom), head: null, shift: 0 };
+  const menuH = count * ITEM_H + 12;
+  const deficit = rect.bottom + 6 + menuH + 16 - visibleBottom;
+  const room = rect.top - LIFT_GAP - headPx - (visibleTop + 16);
+  const shift = deficit > 0 && room > 0 ? Math.min(deficit, room) : 0;
+  const placed = liftedPieces({ ...rect, top: rect.top - shift, bottom: rect.bottom - shift }, count, align, visibleBottom, headPx, visibleTop);
+  return { ...placed, shift };
+}
+
+function liftedPieces(
+  rect: MenuRect,
+  count: number,
+  align: "center" | "end",
+  visibleBottom: number,
+  headPx: number,
+  visibleTop: number
+): { menu: ReturnType<typeof agentMenuPlacement>; head: { top: number } } {
+  const above = rect.top - LIFT_GAP - headPx;
+  if (above >= visibleTop + 16) {
+    // agentMenuPlacement keeps 6px off its rect: the menu clears the head.
+    const grown = { ...rect, top: above - LIFT_GAP + 6 };
+    return { menu: agentMenuPlacement(grown, count, align, visibleBottom), head: { top: above } };
+  }
+  const headTop = rect.bottom + LIFT_GAP;
+  const grown = { ...rect, bottom: headTop + headPx + LIFT_GAP - 6 };
+  return { menu: agentMenuPlacement(grown, count, align, visibleBottom), head: { top: headTop } };
+}
+
+/** A copy of `el` for the lift: no ids or hooks, no margins, its own
+ *  width (a row's percent max width has no list to measure up there). */
+export function liftCopy(el: HTMLElement, width: number): HTMLElement {
+  const copy = el.cloneNode(true) as HTMLElement;
+  for (const n of [copy, ...Array.from(copy.querySelectorAll<HTMLElement>("*"))]) {
+    for (const a of CLONE_STRIP) n.removeAttribute(a);
+  }
+  copy.style.margin = "0";
+  copy.style.width = `${width}px`;
+  copy.style.maxWidth = "none";
+  copy.style.visibility = "visible";
+  return copy;
+}
+
+type Lifted = { rect: MenuRect; el: HTMLElement };
+
 export function AgentMenu({
   label,
   menu,
@@ -69,6 +147,10 @@ export function AgentMenu({
   onClose,
   align = "end",
   testId = "agent-menu",
+  head,
+  headPx = 0,
+  lift,
+  liftSurface = false,
 }: {
   /** The menu's accessible name (the agent's). */
   label: string;
@@ -77,6 +159,19 @@ export function AgentMenu({
   onClose: () => void;
   align?: "center" | "end";
   testId?: string;
+  /** A row above the entries (Home chat's quick reactions). `take` is the
+   *  menu's guard: true only for a fresh press inside the menu, so the
+   *  hold's own release never picks from it. */
+  head?: (take: () => boolean) => ReactNode;
+  /** The head's height (px), for the placement. */
+  headPx?: number;
+  /** The held row or message to lift above the dim (found as the menu
+   *  opens). Given: dim and blur behind, the menu material at its full
+   *  fill, the head floated above the lifted rect. */
+  lift?: () => HTMLElement | null;
+  /** The lifted copy gets a raised surface under it (a list row has no
+   *  fill of its own; a message's bubbles do). */
+  liftSurface?: boolean;
 }) {
   // Clicks count only after a fresh press inside the menu (or a key), so
   // the hold's own release / synthetic click never runs an item.
@@ -93,8 +188,46 @@ export function AgentMenu({
   // What is visible: above the keyboard while it is up (Riley: the newest
   // message's menu went under the keyboard).
   const vp = useViewport();
-  const place = agentMenuPlacement(menu.rect, entries.length, align, vp.offsetTop + vp.height);
-  return (
+  const fill = useMenuSolidFill();
+
+  // The lift: the held element, measured as the menu opens; a copy of it
+  // drawn above the dim, the element itself hidden under the copy.
+  const [lifted, setLifted] = useState<Lifted | null>(null);
+  const liftHost = useRef<HTMLDivElement | null>(null);
+  const liftRef = useRef(lift);
+  liftRef.current = lift;
+  const focus = !!lift;
+  useLayoutEffect(() => {
+    const el = focus ? (liftRef.current?.() ?? null) : null;
+    if (!el) {
+      setLifted(null);
+      return;
+    }
+    setLifted({ rect: rectOf(el), el });
+    const was = el.style.visibility;
+    el.style.visibility = "hidden";
+    return () => {
+      el.style.visibility = was;
+    };
+  }, [focus, menu.id, menu.rect]);
+  useLayoutEffect(() => {
+    const host = liftHost.current;
+    if (!host || !lifted) return;
+    host.replaceChildren(liftCopy(lifted.el, lifted.rect.width));
+    return () => host.replaceChildren();
+  }, [lifted]);
+
+  const visibleBottom = vp.offsetTop + vp.height;
+  const rect = lifted?.rect ?? menu.rect;
+  const floated = focus && !!head;
+  const placed = floated
+    ? liftedMenuPlacement(rect, entries.length, align, visibleBottom, headPx, vp.offsetTop)
+    : { menu: agentMenuPlacement(rect, entries.length + (head ? headPx / ITEM_H : 0), align, visibleBottom), head: null, shift: 0 };
+  const place = placed.menu;
+  const z = focus ? LIFT_Z : 29;
+  const material: CSSProperties = focus ? { background: fill } : {};
+
+  const body = (
     <div
       data-no-pin="1"
       onPointerDownCapture={() => {
@@ -107,28 +240,74 @@ export function AgentMenu({
       <button
         type="button"
         aria-label="Close menu"
-        className="fixed inset-0 bg-transparent border-0 p-0"
-        style={{ zIndex: 29 }}
+        className="fixed inset-0 border-0 p-0"
+        style={{
+          zIndex: z,
+          background: focus ? "var(--color-scrim)" : "transparent",
+          ...(focus ? { WebkitBackdropFilter: "blur(12px)", backdropFilter: "blur(12px)" } : null),
+        }}
         onClick={() => {
           if (take()) onClose();
         }}
         data-testid={`${testId}-backdrop`}
+        data-dim={focus ? "1" : undefined}
       />
+      {focus && lifted ? (
+        <div
+          ref={liftHost}
+          aria-hidden
+          className="fixed pointer-events-none"
+          data-testid={`${testId}-lifted`}
+          style={{
+            zIndex: z + 1,
+            left: lifted.rect.left,
+            top: lifted.rect.top - placed.shift,
+            width: lifted.rect.width,
+            ...(liftSurface
+              ? { background: fill, borderRadius: 14, boxShadow: "0 10px 28px var(--color-shadow)", overflow: "hidden" }
+              : null),
+          }}
+        />
+      ) : null}
+      {floated && placed.head ? (
+        <div
+          className="zen-glass zen-glass-pill fixed flex items-center"
+          role="menu"
+          aria-label={`${label}: react`}
+          data-testid={`${testId}-head`}
+          style={{
+            zIndex: z + 2,
+            top: placed.head.top,
+            left: place.left,
+            right: place.left === undefined ? place.right : undefined,
+            width: MENU_W,
+            height: headPx,
+            padding: "0 6px",
+            color: "var(--color-text-primary)",
+            ...material,
+          }}
+        >
+          <div className="w-full">{head?.(take)}</div>
+        </div>
+      ) : null}
       <div
         role="menu"
         aria-label={label}
         className="zen-glass fixed"
         data-testid={testId}
+        data-lifted={focus ? "1" : undefined}
         style={{
-          zIndex: 30,
+          zIndex: z + 2,
           ...place,
           width: MENU_W,
           overflowY: "auto",
           borderRadius: 16,
           padding: 6,
           color: "var(--color-text-primary)",
+          ...material,
         }}
       >
+        {head && !floated ? head(take) : null}
         {entries.map((e) =>
           isMute(e) ? (
             <MuteMenuItems
@@ -143,6 +322,7 @@ export function AgentMenu({
               key={e.key}
               type="button"
               role="menuitem"
+              aria-disabled={e.disabled || undefined}
               className="w-full flex items-center text-left bg-transparent border-0 text-[16px]"
               style={{
                 gap: 10,
@@ -150,15 +330,23 @@ export function AgentMenu({
                 minHeight: ITEM_H,
                 borderRadius: 10,
                 color: e.danger ? REMOVE_RED : "var(--color-text-primary)",
+                opacity: e.disabled ? 0.45 : 1,
               }}
               data-testid={`menu-${e.key}`}
               onClick={() => {
-                if (!take()) return;
+                if (e.disabled || !take()) return;
                 onClose();
                 e.onSelect();
               }}
             >
-              <span className="flex-1 min-w-0 truncate">{e.label}</span>
+              <span className="flex-1 min-w-0">
+                <span className="block truncate">{e.label}</span>
+                {e.note ? (
+                  <span className="block text-[13px]" style={{ color: "var(--color-text-muted)", whiteSpace: "normal" }} data-testid={`menu-${e.key}-note`}>
+                    {e.note}
+                  </span>
+                ) : null}
+              </span>
               {e.icon ? (
                 <span aria-hidden className="flex shrink-0">
                   {e.icon}
@@ -170,6 +358,11 @@ export function AgentMenu({
       </div>
     </div>
   );
+  // Lifted: over every pane (the Home chat is its own fixed layer), in
+  // the app's font.
+  return focus && typeof document !== "undefined"
+    ? createPortal(<div style={{ fontFamily: "var(--zen-font)" }}>{body}</div>, document.body)
+    : body;
 }
 
 const glyph = (children: ReactNode, testId?: string) => (
@@ -189,10 +382,11 @@ const glyph = (children: ReactNode, testId?: string) => (
   </svg>
 );
 
-/** lucide "pin" / "pin-off". */
+/** lucide "pin" / "pin-off", in the menu's plain icon colour like Open,
+ *  Call and Rearrange (K2 Design, 4.3.0: only Remove is coloured). */
 export function PinGlyph({ off }: { off: boolean }) {
   return (
-    <span className="flex" style={{ color: PIN_YELLOW }}>
+    <span className="flex">
       {glyph(
         off ? (
           <>
@@ -245,7 +439,18 @@ export function OpenGlyph() {
   return glyph(<path d="M7.9 20A9 9 0 1 0 4 16.1L2 22Z" />);
 }
 
-/** lucide "circle-minus": Remove from Home. */
+/** lucide "house": a Home row's Move to group… (Home groups). */
+export function MoveHomeGlyph() {
+  return glyph(
+    <>
+      <path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" />
+      <path d="M3 10a2 2 0 0 1 .709-1.528l7-5.999a2 2 0 0 1 2.582 0l7 5.999A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z" />
+    </>,
+    "move-home-glyph"
+  );
+}
+
+/** lucide "circle-minus": Remove from <group>. */
 export function RemoveGlyph() {
   return glyph(
     <>

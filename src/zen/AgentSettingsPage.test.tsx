@@ -1,6 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { pushBackLayer } from "../lib/androidBack";
+import { edgeSwipe, settleSwipe, swipeTakesTouch } from "../test/edgeSwipe";
 
 const scoped = vi.fn();
 vi.mock("../api/scopedFetch", () => ({ scopedFetch: (...a: unknown[]) => scoped(...a) }));
@@ -29,5 +31,30 @@ describe("AgentSettingsPage", () => {
     scoped.mockResolvedValue({ ok: false, text: "" });
     render(<AgentSettingsPage scope={scope} projectId="p1" name="Sew" onBack={() => {}} />);
     expect(await screen.findByTestId("agent-settings-failed")).toBeTruthy();
+  });
+
+  it("the left-edge swipe goes back like the back chevron", async () => {
+    scoped.mockResolvedValue({ ok: false, text: "" });
+    const onBack = vi.fn();
+    render(<AgentSettingsPage scope={scope} projectId="p1" name="Sew" onBack={onBack} />);
+    await screen.findByTestId("agent-settings-failed");
+    edgeSwipe(screen.getByTestId("agent-settings-page"));
+    await waitFor(() => expect(onBack).toHaveBeenCalledTimes(1));
+  });
+
+  it("no swipe while another layer is on top", async () => {
+    scoped.mockResolvedValue({ ok: false, text: "" });
+    const onBack = vi.fn();
+    render(<AgentSettingsPage scope={scope} projectId="p1" name="Sew" onBack={onBack} />);
+    await screen.findByTestId("agent-settings-failed");
+    const layer = pushBackLayer(() => {});
+    try {
+      expect(swipeTakesTouch(screen.getByTestId("agent-settings-page"))).toBe(false);
+      edgeSwipe(screen.getByTestId("agent-settings-page"));
+      await settleSwipe();
+      expect(onBack).not.toHaveBeenCalled();
+    } finally {
+      layer.remove();
+    }
   });
 });

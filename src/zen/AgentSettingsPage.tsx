@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import type { ServerScope } from "../api/scope";
 import { scopedFetch } from "../api/scopedFetch";
 import { useBackHandler } from "../lib/androidBack";
+import { useSwipeBack } from "../lib/useSwipeBack";
 import { useSessionIdentity } from "../lib/useSessionIdentity";
 import { BackArrowButton } from "./BackArrowButton";
 import { agentPermissionRows, agentSettingRows, projectRowOf, type AgentInfoRow } from "./agentSettings";
@@ -51,7 +52,9 @@ export function AgentSettingsPage({
   name: string;
   onBack: () => void;
 }) {
-  useBackHandler(true, onBack);
+  // Android Back and the left-edge swipe: back to the agent's sheet.
+  const onTop = useBackHandler(true, onBack);
+  const swipeRef = useSwipeBack(onBack, { enabled: onTop });
   const identity = useSessionIdentity(scope);
   const member = identity?.role === "member";
   const [raw, setRaw] = useState<Record<string, unknown> | null>(null);
@@ -80,6 +83,7 @@ export function AgentSettingsPage({
 
   return createPortal(
     <div
+      ref={swipeRef}
       className="fixed inset-0 flex flex-col zen-font"
       style={{ background: "var(--color-bg)", color: "var(--color-text-primary)", zIndex: 76, paddingTop: "env(safe-area-inset-top)" }}
       data-testid="agent-settings-page"

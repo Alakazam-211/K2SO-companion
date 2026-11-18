@@ -6,6 +6,7 @@ import type { CallShim, ShimEvent } from "./callShim";
 import {
   __resetVoiceCallForTests,
   __setCallShimForTests,
+  __setSessionLeaverForTests,
   consentKey,
   setPhoneVoiceEngine,
   useVoiceCall,
@@ -168,6 +169,32 @@ describe("the phone's voice-room call", () => {
     await joining;
     expect(useVoiceCall.getState().notice).toBe("Standup is full (25).");
     expect(s.calls).toEqual(["mic", "start", "report:connecting", "report:ended:failed"]);
+  });
+
+  it("a join says how it went: taken, refused (with the server's own code), or superseded", async () => {
+    const s = fakeShim();
+    const e = fakeEngine(true);
+    __setCallShimForTests(s.shim);
+    setPhoneVoiceEngine(e.engine);
+    const DM = { serverId: "s1", serverLabel: "box", roomId: "dm:900", roomName: "Alex", limit: 2, dm: { conv: "900" } };
+    let joining = useVoiceCall.getState().join(DM);
+    await flush();
+    e.joined();
+    await expect(joining).resolves.toEqual({ ok: true });
+    expect(e.engine.join).toHaveBeenLastCalledWith("s1", "dm:900", expect.anything(), undefined);
+    await useVoiceCall.getState().leave();
+    // A DM call's refusal reads as a call's, not a room's.
+    joining = useVoiceCall.getState().join(DM);
+    await flush();
+    e.refuse({ code: "unknown", hint: "", raw: "chat_unavailable" });
+    await expect(joining).resolves.toEqual({ ok: false, code: "unknown", raw: "chat_unavailable", hint: "" });
+    expect(useVoiceCall.getState().notice).toBe("Calls aren't available on box right now.");
+    // A leave before the answer: superseded.
+    joining = useVoiceCall.getState().join(DM);
+    await flush();
+    await useVoiceCall.getState().leave();
+    e.joined();
+    await expect(joining).resolves.toMatchObject({ ok: false, code: "superseded" });
   });
 
   it("CallKit refusing the call leaves nothing behind", async () => {
@@ -493,6 +520,97 @@ describe("the phone's voice-room call", () => {
       expect(useVoiceCall.getState().phase).toBe("idle");
       expect(useVoiceCall.getState().notice).toBeNull();
     });
+  });
+});
+
+// K2's answers §4: after any leave of the engine, `session/leave {callId}`
+// with K2's `vc_…` id, fire and forget; never without the id.
+describe("K2's record after the engine leaves", () => {
+  function withIds(e: ReturnType<typeof fakeEngine>, ids: { room: string; callId: string } | null) {
+    e.engine.callId = vi.fn(async () => ids);
+    return e;
+  }
+
+  function leaves(order?: string[]) {
+    const sent: Array<[string, string]> = [];
+    __setSessionLeaverForTests((serverId, callId) => {
+      sent.push([serverId, callId]);
+      order?.push("k2");
+    });
+    return sent;
+  }
+
+  async function joined(e: ReturnType<typeof fakeEngine>) {
+    setPhoneVoiceEngine(e.engine);
+    __setCallShimForTests(fakeShim().shim);
+    const out = useVoiceCall.getState().join(ROOM);
+    await flush();
+    e.joined();
+    await out;
+    await flush();
+  }
+
+  it("Hang up: the engine's leave first, then K2's with the join's vc_ id, once", async () => {
+    const order: string[] = [];
+    const sent = leaves(order);
+    const e = withIds(fakeEngine(true), { room: "room-1", callId: "vc_r1" });
+    vi.mocked(e.engine.leave).mockImplementation(async () => void order.push("engine"));
+    await joined(e);
+    e.state("connected");
+    await useVoiceCall.getState().leave();
+    expect(order).toEqual(["engine", "k2"]);
+    expect(sent).toEqual([["s1", "vc_r1"]]);
+    await useVoiceCall.getState().leave();
+    expect(sent).toHaveLength(1);
+  });
+
+  it("the other side ended (or a drop, an error): K2's record goes too; a re-join's newer id wins", async () => {
+    const sent = leaves();
+    const e = withIds(fakeEngine(true), { room: "room-1", callId: "vc_r1" });
+    await joined(e);
+    // The engine re-joined (a lost admit): K2 keeps a new record.
+    e.events()!.onCallId!("room-1", "vc_r2");
+    e.state("ended", "call_ended");
+    expect(sent).toEqual([["s1", "vc_r2"]]);
+    expect(useVoiceCall.getState().phase).toBe("idle");
+  });
+
+  it("never without K2's id: none, or Sew's digits, sends nothing", async () => {
+    const sent = leaves();
+    const e = withIds(fakeEngine(true), null);
+    await joined(e);
+    e.events()!.onCallId!("room-1", "4455");
+    e.state("ended", "network");
+    expect(sent).toEqual([]);
+  });
+
+  it("a join that answers after its call was left is left too", async () => {
+    const sent = leaves();
+    const e = withIds(fakeEngine(true), null);
+    setPhoneVoiceEngine(e.engine);
+    __setCallShimForTests(fakeShim().shim);
+    const out = useVoiceCall.getState().join(ROOM);
+    await flush();
+    const late = e.events()!;
+    await useVoiceCall.getState().leave();
+    expect(sent).toEqual([]);
+    late.onCallId!("room-1", "vc_late");
+    expect(sent).toEqual([["s1", "vc_late"]]);
+    e.joined();
+    expect(await out).toMatchObject({ code: "superseded" });
+  });
+
+  it("a call that ended while the webview slept: its id from the engine, then K2's leave", async () => {
+    const sent = leaves();
+    const now: EngineNow = { state: "connected", serverId: "s1", roomId: "room-1", muted: false, consent: null };
+    const e = withIds(fakeEngine(true, now), { room: "room-1", callId: "vc_r9" });
+    setPhoneVoiceEngine(e.engine);
+    await useVoiceCall.getState().resync();
+    expect(useVoiceCall.getState().phase).toBe("connected");
+    vi.mocked(e.engine.resync!).mockResolvedValue({ state: "ended", reason: "network", muted: false, consent: null });
+    await useVoiceCall.getState().resync();
+    expect(useVoiceCall.getState().phase).toBe("idle");
+    expect(sent).toEqual([["s1", "vc_r9"]]);
   });
 });
 

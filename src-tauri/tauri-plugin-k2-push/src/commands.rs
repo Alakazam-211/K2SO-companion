@@ -179,6 +179,7 @@ pub(crate) async fn token_op<R: Runtime>(
         server,
         token,
         tokens,
+        hosts: None,
     })
 }
 
@@ -203,4 +204,33 @@ pub(crate) async fn e2e_op<R: Runtime>(
         rotate,
         on,
     })
+}
+
+/// Signed approvals: open the native approval screen for one request.
+/// Native code fetches, shows, signs and answers; resolves the outcome.
+#[command]
+pub(crate) async fn approval_open<R: Runtime>(
+    app: AppHandle<R>,
+    server: String,
+    url: String,
+    request_id: String,
+) -> Result<serde_json::Value> {
+    app.k2_push()
+        .native_async(
+            "approvalOpen",
+            serde_json::json!({ "server": server, "url": url, "requestId": request_id }),
+        )
+        .await
+}
+
+/// Signed approvals: `{op: "status"}` lists this phone's approver keys
+/// (check + key id); `{op: "open"}` opens the native Approver keys screen.
+#[command]
+pub(crate) async fn approver_keys<R: Runtime>(
+    app: AppHandle<R>,
+    op: String,
+) -> Result<serde_json::Value> {
+    app.k2_push()
+        .native_async("approverKeys", serde_json::json!({ "op": op }))
+        .await
 }

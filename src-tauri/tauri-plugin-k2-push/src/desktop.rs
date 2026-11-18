@@ -52,6 +52,14 @@ impl<R: Runtime> K2Push<R> {
         Ok(serde_json::json!({ "ok": false, "error": "calls are iOS only" }))
     }
 
+    pub async fn native_async(
+        &self,
+        _method: &str,
+        _req: serde_json::Value,
+    ) -> crate::Result<serde_json::Value> {
+        Ok(serde_json::json!({ "outcome": "failed", "detail": "iOS only", "keys": [] }))
+    }
+
     pub fn token_op(&self, _req: TokenOpRequest) -> crate::Result<serde_json::Value> {
         Ok(serde_json::json!({ "ok": false }))
     }
@@ -59,6 +67,8 @@ impl<R: Runtime> K2Push<R> {
     pub fn token_get(&self, _server: &str) -> Option<String> {
         None
     }
+
+    pub fn set_call_hosts(&self, _hosts: std::collections::HashMap<String, String>) {}
 
     pub fn voice_key(&self, _req: VoiceKeyRequest) -> crate::Result<serde_json::Value> {
         Ok(serde_json::json!({ "public": null }))

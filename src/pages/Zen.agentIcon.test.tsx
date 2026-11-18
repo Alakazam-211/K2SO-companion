@@ -295,7 +295,8 @@ describe("Zen header LLM icon", () => {
   });
 
   it.each([
-    [21, "42% · 21m", ", as of 21 minutes ago"],
+    // Riley 11-17: no age by the % (bad UX); VoiceOver still hears it.
+    [21, "42%", ", as of 21 minutes ago"],
     [19, "42%", null],
   ])("a reading %i minutes old in the usage bubble", async (min, text, spoken) => {
     usage.value = { tool: "claude", label: "Claude Max", maxPercent: 42, updatedAt: Math.floor(Date.now() / 1000) - min * 60 - 5 };

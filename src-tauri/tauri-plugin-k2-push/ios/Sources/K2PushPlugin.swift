@@ -131,6 +131,8 @@ class K2PushPlugin: Plugin {
       // re-installs against the live delegate class) before every probe.
       _ = self.ensureDelegateHooks()
       UNUserNotificationCenter.current().delegate = self.tapDelegate
+      // A DM call's ring carries Accept and Decline (K2CallPush).
+      K2CallPush.registerCategories()
     }
   }
 
@@ -154,7 +156,8 @@ class K2PushPlugin: Plugin {
   }
 
   /// The ONLY call that can show a system prompt. JS gates it behind
-  /// `is_available()` + the user's Settings toggle.
+  /// `is_available()` + an explicit yes (the Settings toggle or the
+  /// onboarding prompt; src/lib/pushOnboard.ts).
   @objc public func requestPermission(_ invoke: Invoke) {
     UNUserNotificationCenter.current().requestAuthorization(options: [
       .alert, .badge, .sound,
@@ -164,6 +167,42 @@ class K2PushPlugin: Plugin {
       } else {
         invoke.resolve(["granted": granted])
       }
+    }
+  }
+
+  /// The onboarding prompt's two native needs (no Rust handler: Tauri
+  /// forwards `notification_op` here). Never shows a system prompt.
+  ///   `{op: "state"}` → `{state}`: "notDetermined" | "denied" |
+  ///     "authorized" | "provisional" | "ephemeral" ("unknown" otherwise).
+  ///   `{op: "openSettings"}` → `{ok}`: this app's notification settings
+  ///     in iOS Settings (iOS 16+; the app's own Settings page before).
+  @objc public func notificationOp(_ invoke: Invoke) {
+    let args: NotificationOpArgs
+    do {
+      args = try invoke.parseArgs(NotificationOpArgs.self)
+    } catch {
+      invoke.reject("notificationOp: invalid args (\(error.localizedDescription))")
+      return
+    }
+    switch args.op {
+    case "state":
+      UNUserNotificationCenter.current().getNotificationSettings { settings in
+        // Raw values: `.ephemeral` (4) is iOS 14+, below the package floor.
+        let names = [0: "notDetermined", 1: "denied", 2: "authorized", 3: "provisional", 4: "ephemeral"]
+        invoke.resolve(["state": names[settings.authorizationStatus.rawValue] ?? "unknown"])
+      }
+    case "openSettings":
+      DispatchQueue.main.async {
+        var raw = UIApplication.openSettingsURLString
+        if #available(iOS 16.0, *) { raw = UIApplication.openNotificationSettingsURLString }
+        guard let url = URL(string: raw) else {
+          invoke.resolve(["ok": false])
+          return
+        }
+        UIApplication.shared.open(url, options: [:]) { ok in invoke.resolve(["ok": ok]) }
+      }
+    default:
+      invoke.reject("notificationOp: unknown op \(args.op)")
     }
   }
 
@@ -227,6 +266,51 @@ class K2PushPlugin: Plugin {
   /// Choose Files: the document picker (any type, copies), multi-select.
   @objc public func pickDocuments(_ invoke: Invoke) {
     K2Pickers.pick(invoke, media: false, root: manager.viewController)
+  }
+
+  // ── Signed approvals (K2Approvals.swift, K2ApprovalScreen.swift) ─────
+
+  /// `{server, url, requestId}` → the native approval screen for that
+  /// request; resolves `{outcome: "approved"|"declined"|"closed"|"failed",
+  /// detail?}` when it closes. Native code fetches, shows, signs and
+  /// answers; nothing to sign comes from, or goes back to, the web view.
+  @objc public func approvalOpen(_ invoke: Invoke) {
+    let args: ApprovalOpenArgs
+    do {
+      args = try invoke.parseArgs(ApprovalOpenArgs.self)
+    } catch {
+      invoke.reject("approvalOpen: invalid args (\(error.localizedDescription))")
+      return
+    }
+    guard #available(iOS 15.0, *) else {
+      invoke.resolve(["outcome": "failed", "detail": "needs iOS 15"])
+      return
+    }
+    K2Approvals.open(server: args.server, url: args.url, requestId: args.requestId, root: manager.viewController) {
+      outcome, detail in
+      var out: [String: Any] = ["outcome": outcome]
+      if let detail { out["detail"] = detail }
+      invoke.resolve(out)
+    }
+  }
+
+  /// `{op: "status"}` → `{keys: [{check, keyId}]}` (no words: the native
+  /// screen shows those); `{op: "open"}` → the native Approver keys
+  /// screen, resolving when it closes.
+  @objc public func approverKeys(_ invoke: Invoke) {
+    let args = (try? invoke.parseArgs(ApproverKeysArgs.self)) ?? ApproverKeysArgs(op: "status")
+    guard #available(iOS 15.0, *) else {
+      invoke.resolve(["keys": [] as [Any]])
+      return
+    }
+    switch args.op {
+    case "open":
+      K2Approvals.openKeys(root: manager.viewController) {
+        invoke.resolve(["keys": K2ApproverKeys.current().map { ["check": $0.check.rawValue, "keyId": $0.keyId] }])
+      }
+    default:
+      invoke.resolve(["keys": K2ApproverKeys.current().map { ["check": $0.check.rawValue, "keyId": $0.keyId] }])
+    }
   }
 
   // ── QR scanner (K2QrScanner.swift): "Pair with a code" ──────────────
@@ -452,6 +536,15 @@ class K2PushPlugin: Plugin {
         }
         invoke.resolve(["ok": true])
       }
+    case "ring":
+      // Settings → Calls → Ring for incoming calls: `{on}` stores it for the
+      // Notification Service Extension (K2CallPush.ringKey); without `on`
+      // it only answers the stored value.
+      if let on = args.on {
+        invoke.resolve(["ok": K2CallPush.setRing(on), "on": on])
+      } else {
+        invoke.resolve(["ok": true, "on": K2CallPush.ringOn()])
+      }
     case "appGroup":
       // The screen share's ring lives in the App Group's container (Rust
       // arms it there once a call is connected; K2ScreenShare.swift).
@@ -613,6 +706,11 @@ class K2PushPlugin: Plugin {
         invoke.resolve(["ok": true])
       case "sync":
         invoke.resolve(["ok": K2SecureTokens.sync(args.tokens ?? [:])])
+      case "hosts":
+        // The servers' addresses, from Rust (voice.rs `set_hosts`): a DM
+        // call's Decline from a notification posts to the push's server.
+        K2CallPush.setHosts(args.hosts ?? [:])
+        invoke.resolve(["ok": true])
       case "get":
         // For Rust's voice provider, which may run with the webview asleep.
         if let token = K2SecureTokens.get(server: args.server ?? "") {
@@ -866,7 +964,7 @@ class K2PushPlugin: Plugin {
   /// Push payload custom keys ride at the top level of `userInfo`
   /// (relay `apns.rs` convention): {kind, feedbackId?|groupId?,
   /// subdomain?}. Content-free by contract.
-  fileprivate func handleTap(_ userInfo: [AnyHashable: Any]) {
+  fileprivate func handleTap(_ userInfo: [AnyHashable: Any], action: String? = nil, title: String? = nil) {
     var data: [String: Any] = [:]
     for (key, value) in userInfo {
       guard let key = key as? String, key != "aps" else { continue }
@@ -874,10 +972,59 @@ class K2PushPlugin: Plugin {
         data[key] = value
       }
     }
+    // A DM call's button (`accept`, or a `decline` this side couldn't send),
+    // and its title (the caller's name), which userInfo doesn't carry.
+    if let action = action { data["action"] = action }
+    if K2CallPush.isCall(userInfo), let title = title, !title.isEmpty { data["title"] = title }
     DispatchQueue.main.async {
       self.launchTap = data
       if let jsData = JSTypes.coerceDictionaryToJSObject(data) {
         self.trigger("tap", data: jsData)
+      }
+    }
+  }
+
+  /// A DM call push while the app is in front: no banner (the in-app ring
+  /// card shows the ring from the Home chat socket); the webview hears it
+  /// as `callPush`, in case its socket hasn't said so yet.
+  fileprivate func handleCallPush(_ userInfo: [AnyHashable: Any], title: String) {
+    var data: [String: Any] = [:]
+    for (key, value) in userInfo {
+      guard let key = key as? String, key != "aps", let value = value as? String else { continue }
+      data[key] = value
+    }
+    if !title.isEmpty { data["title"] = title }
+    DispatchQueue.main.async {
+      if let jsData = JSTypes.coerceDictionaryToJSObject(data) {
+        self.trigger("callPush", data: jsData)
+      }
+    }
+  }
+
+  /// Decline from the ring's button, the app in the background: the POST
+  /// here (K2CallPush); what can't be sent here goes to the webview.
+  fileprivate func handleCallDecline(_ userInfo: [AnyHashable: Any], title: String, done: @escaping () -> Void) {
+    var task: UIBackgroundTaskIdentifier = .invalid
+    let finish = {
+      DispatchQueue.main.async {
+        done()
+        if task != .invalid {
+          UIApplication.shared.endBackgroundTask(task)
+          task = .invalid
+        }
+      }
+    }
+    DispatchQueue.main.async {
+      task = UIApplication.shared.beginBackgroundTask(withName: "k2.call.decline") {
+        if task != .invalid {
+          UIApplication.shared.endBackgroundTask(task)
+          task = .invalid
+        }
+      }
+      K2CallPush.decline(userInfo) { outcome in
+        pushLog("call decline: \(outcome.rawValue)")
+        if outcome == .unsendable { self.handleTap(userInfo, action: "decline", title: title) }
+        finish()
       }
     }
   }
@@ -1064,6 +1211,12 @@ private class K2PushTapDelegate: NSObject, UNUserNotificationCenterDelegate {
       completionHandler([])
       return
     }
+    // A DM call's ring or its end: the in-app ring card says it.
+    if K2CallPush.isCall(notification.request.content.userInfo) {
+      plugin?.handleCallPush(notification.request.content.userInfo, title: notification.request.content.title)
+      completionHandler([])
+      return
+    }
     plugin?.handlePresentedTotals(notification.request.content.userInfo)
     if #available(iOS 14.0, *) {
       completionHandler([.banner, .sound, .badge])
@@ -1079,8 +1232,27 @@ private class K2PushTapDelegate: NSObject, UNUserNotificationCenterDelegate {
   ) {
     // A recording notice's tap only opens the app (the call's resync shows
     // the sheet): it is no push to route.
-    if !K2CallNotice.isOurs(response.notification) {
-      plugin?.handleTap(response.notification.request.content.userInfo)
+    if K2CallNotice.isOurs(response.notification) {
+      completionHandler()
+      return
+    }
+    let info = response.notification.request.content.userInfo
+    let title = response.notification.request.content.title
+    switch response.actionIdentifier {
+    case K2CallPush.declineAction:
+      // Background: iOS waits for the handler, so the POST finishes first.
+      guard let plugin = plugin else {
+        completionHandler()
+        return
+      }
+      plugin.handleCallDecline(info, title: title, done: completionHandler)
+      return
+    case K2CallPush.acceptAction:
+      plugin?.handleTap(info, action: "accept", title: title)
+    case UNNotificationDismissActionIdentifier:
+      break
+    default:
+      plugin?.handleTap(info, title: title)
     }
     completionHandler()
   }
@@ -1148,11 +1320,27 @@ private struct VoiceKeyArgs: Decodable {
   let message: String?
 }
 
+private struct ApprovalOpenArgs: Decodable {
+  let server: String
+  let url: String
+  let requestId: String
+}
+
+private struct ApproverKeysArgs: Decodable {
+  let op: String
+}
+
+private struct NotificationOpArgs: Decodable {
+  let op: String
+}
+
 private struct TokenOpArgs: Decodable {
   let op: String
   let server: String?
   let token: String?
   let tokens: [String: String]?
+  /// `hosts`: server id → base URL (K2CallPush).
+  let hosts: [String: String]?
 }
 
 private struct E2eOpArgs: Decodable {

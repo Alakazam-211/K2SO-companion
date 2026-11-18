@@ -251,3 +251,38 @@ describe("useSwipeBack release, reduced motion", () => {
     expect(onBack).not.toHaveBeenCalled();
   });
 });
+
+describe("useSwipeBack opt-out", () => {
+  function Opted({ onBack }: { onBack: () => void }) {
+    const ref = useSwipeBack(onBack);
+    return (
+      <div ref={ref} data-testid="screen">
+        <div data-no-swipe-back data-testid="scroller">
+          <span data-testid="inside" />
+        </div>
+        <input type="range" data-testid="range" />
+        <span data-testid="plain" />
+      </div>
+    );
+  }
+
+  it("a touch from inside [data-no-swipe-back] or on a range input never arms", () => {
+    const onBack = vi.fn();
+    render(<Opted onBack={onBack} />);
+    const el = screen.getByTestId("screen");
+    for (const id of ["inside", "range"]) {
+      swipe(screen.getByTestId(id), [[5, 0], [40, 100], [505, 1000], [505, 1300]]);
+      expect(el.style.transform).toBe("");
+    }
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(onBack).not.toHaveBeenCalled();
+    // Anywhere else on the edge still swipes.
+    swipe(screen.getByTestId("plain"), [[5, 0], [40, 100], [505, 1000], [505, 1300]]);
+    act(() => {
+      vi.advanceTimersByTime(1000);
+    });
+    expect(onBack).toHaveBeenCalledTimes(1);
+  });
+});

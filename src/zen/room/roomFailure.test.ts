@@ -40,7 +40,7 @@ describe("room failure banner", () => {
       "rotate-required",
       "Change password on Bravo",
       "sign-in",
-      "Sign in",
+      "Change password",
     ]);
     expect(
       row(live({ boot: { ...live().boot!, version: "0.41.5" } }))

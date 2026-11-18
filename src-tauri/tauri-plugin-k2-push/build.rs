@@ -1,6 +1,9 @@
 // Commands invocable from the webview (`plugin:k2-push|<command>`).
 // `register_listener`/`remove_listener` are the base-class listener
 // plumbing `addPluginListener` uses for the `tap`/`tokenRefresh` events.
+// `notification_op` has no Rust handler either: Tauri forwards it to the
+// native `notificationOp` (iOS: the notification permission state and the
+// app's notification settings page, for the onboarding prompt).
 const COMMANDS: &[&str] = &[
     "is_available",
     "request_permission",
@@ -18,6 +21,9 @@ const COMMANDS: &[&str] = &[
     "pick_media",
     "pick_documents",
     "scan_qr",
+    "approval_open",
+    "approver_keys",
+    "notification_op",
     "register_listener",
     "remove_listener",
 ];

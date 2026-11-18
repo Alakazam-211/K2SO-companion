@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { HOME_NAME_MAX, type Home } from "./homes";
 import { CheckIcon } from "./icons";
+import { GroupGlyph } from "./groups/GroupGlyph";
 import { useBackHandler } from "../lib/androidBack";
 import { HOME_GRID_CHOICES, HOME_GRID_DEFAULT, homeGridLabel, type HomeGridSize } from "./homeGrid";
 
@@ -15,8 +16,8 @@ const ITEM = {
 type Mode = { kind: "list" } | { kind: "new" } | { kind: "rename" } | { kind: "delete" };
 
 /**
- * The Home tab's title dropdown (HM4): the Homes on this device (check on
- * the current one), then New Home…, Rename… and Delete. Same glass menu
+ * The Home tab's title dropdown (HM4): the groups (Homes) on this device
+ * (check on the current one), then New group…, Rename… and Delete. Same glass menu
  * as the focus-group switcher. Delete is off on the last Home.
  */
 export function HomeMenu({
@@ -32,7 +33,10 @@ export function HomeMenu({
   onClose,
   gridSize = HOME_GRID_DEFAULT,
   onGridSize,
+  onEditGroups,
 }: {
+  /** Home groups (K2 0.46.13): open the Groups sheet on its list. */
+  onEditGroups?: () => void;
   homes: Home[];
   currentId: string;
   /** The server Home syncs from (K2 0.46.1), or null when not syncing. */
@@ -72,7 +76,7 @@ export function HomeMenu({
     <>
       <button
         type="button"
-        aria-label="Close Homes"
+        aria-label="Close groups"
         className="fixed inset-0 bg-transparent border-0 p-0"
         style={{ zIndex: 29 }}
         data-no-pin="1"
@@ -81,7 +85,7 @@ export function HomeMenu({
       />
       <div
         role="menu"
-        aria-label="Homes"
+        aria-label="Groups"
         className="zen-glass absolute"
         data-no-pin="1"
         data-testid="home-title-menu"
@@ -108,14 +112,14 @@ export function HomeMenu({
             }}
           >
             <span className="text-[13px] font-semibold" style={{ color: "var(--color-text-muted)" }}>
-              {mode.kind === "new" ? "New Home" : `Rename ${current.name}`}
+              {mode.kind === "new" ? "New group" : `Rename ${current.name}`}
             </span>
             <input
               autoFocus
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Home name"
-              aria-label="Home name"
+              placeholder="Group name"
+              aria-label="Group name"
               maxLength={HOME_NAME_MAX}
               className="k2-tile k2-tile-raised outline-none text-[16px]"
               style={{ height: 40, borderRadius: 10, padding: "0 12px", color: "var(--color-text-primary)" }}
@@ -172,7 +176,7 @@ export function HomeMenu({
                 Synced from {syncedFrom}
               </div>
             ) : null}
-            {homes.map((h) => {
+            {homes.map((h, i) => {
               const on = h.id === current.id;
               return (
                 <button
@@ -188,6 +192,13 @@ export function HomeMenu({
                   }}
                   data-testid={`home-option-${h.id}`}
                 >
+                  <span
+                    aria-hidden
+                    className="shrink-0 flex items-center justify-center"
+                    style={{ width: 20, color: on ? "var(--color-accent-text)" : "var(--color-text-muted)" }}
+                  >
+                    <GroupGlyph icon={h.icon} n={i + 1} size={18} />
+                  </span>
                   <span className="flex-1 min-w-0 truncate text-[16px]">{h.name}</span>
                   <span className="shrink-0 text-[13px]" style={{ color: "var(--color-text-muted)" }}>
                     {h.rows.length}
@@ -201,6 +212,18 @@ export function HomeMenu({
               );
             })}
             <div aria-hidden style={{ height: 1, margin: "4px 8px", background: "var(--color-wash-2)" }} />
+            {onEditGroups ? (
+              <button
+                type="button"
+                role="menuitem"
+                className="w-full flex items-center text-left bg-transparent border-0 text-[16px]"
+                style={ITEM}
+                onClick={onEditGroups}
+                data-testid="home-menu-groups"
+              >
+                Edit groups…
+              </button>
+            ) : null}
             <button
               type="button"
               role="menuitem"
@@ -212,7 +235,7 @@ export function HomeMenu({
               }}
               data-testid="home-menu-new"
             >
-              New Home…
+              New group…
             </button>
             <button
               type="button"
@@ -282,7 +305,7 @@ export function HomeMenu({
                 role="menuitem"
                 aria-disabled={lastHome || undefined}
                 disabled={lastHome}
-                title={lastHome ? "You need at least one Home" : undefined}
+                title={lastHome ? "The last group can’t be deleted." : undefined}
                 className="w-full flex items-center text-left bg-transparent border-0 text-[16px] disabled:opacity-40"
                 style={{ ...ITEM, color: "var(--color-status-error)" }}
                 onClick={() => setMode({ kind: "delete" })}
