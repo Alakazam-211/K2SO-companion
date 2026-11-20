@@ -51,7 +51,7 @@ shipping the **old** icon → Play's consistency warning.
 - **Rust android targets** — the script adds these automatically:
   `aarch64-linux-android armv7-linux-androideabi i686-linux-android x86_64-linux-android`
 - **Tauri CLI v2** — `cargo install tauri-cli --version '^2'` (repo confirmed on 2.10.x)
-- **The Play UPLOAD keystore** — Jamie's `.jks`/`.keystore` used for this app.
+- **The Play UPLOAD keystore** — the Android owner's `.jks`/`.keystore` used for this app.
   It is NOT in the repo. Keep it off-repo; reference it from `gen/android` signing
   config (see §4). With Play App Signing, you sign with the *upload* key and
   Google re-signs with the app-signing key.

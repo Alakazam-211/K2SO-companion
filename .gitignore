@@ -30,3 +30,23 @@ src-tauri/resources/dfn3/*.part
 # debug
 npm-debug.*
 
+
+# K2 workspace state (agent memory, inbox, logs): local only, never committed
+.k2/
+
+# Agent-harness files: generated per workspace by the K2 harness (most are
+# symlinks into .k2/), not part of the app.
+CLAUDE.md
+AGENTS.md
+AGENT.md
+GEMINI.md
+.goosehints
+.aider.conf.yml
+.claude/
+.opencode/
+.pi/
+.cursor/
+.k2so/
+.github/copilot-instructions.md
+# Internal project history, kept locally.
+docs/companion-revival.md

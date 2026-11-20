@@ -64,7 +64,7 @@
         "whatChanges": "Approve shopdev's held App request ar_22.",
         "why": {
           "by": "shopdev",
-          "text": "Run the test suite on build-node; it takes 40 min here"
+          "text": "Run the test suite on mac-a; it takes 40 min here"
         }
       }
     },

@@ -1,5 +1,5 @@
 // The LLM account a chat's session uses, and its usage (K2 0.46.4
-// `llm-account-for-v1`, K2 main 2b10a4a3a; Riley 2026-10-24): the chat
+// `llm-account-for-v1`, K2 main 2b10a4a3a; the owner 2026-10-24): the chat
 // header shows its highest percent next to the LLM icon, the same number
 // the desktop's top-bar chip shows (the daemon computes `maxPercent`).
 //

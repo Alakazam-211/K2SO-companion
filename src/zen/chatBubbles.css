@@ -156,7 +156,7 @@
   background: linear-gradient(to bottom, transparent, var(--k2-bubble, var(--color-bubble-agent)) 62%);
   pointer-events: none;
 }
-/* A dark pill, not bold words (Riley: it read as part of the text). It
+/* A dark pill, not bold words (owner: it read as part of the text). It
    stays inside the one row the clip keeps for it. Dark with white words in
    every palette: it sits on a bubble (any accent, or the agent's grey), not
    on the page, like a label over a picture. */
@@ -188,7 +188,7 @@
   inset: -10px -14px;
 }
 /* Folded: the pill sits ~5px below its row. The fold reserves that room
-   itself (padding), so the bubble never clips the pill's bottom (Riley saw
+   itself (padding), so the bubble never clips the pill's bottom (owner saw
    it cut off when it hung out of the box). */
 .zen-fold[data-fold="folded"] {
   padding-bottom: 5px;

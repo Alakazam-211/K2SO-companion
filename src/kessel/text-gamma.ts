@@ -99,7 +99,7 @@ export function relativeLuminance(bg: string | number): number {
   return 0.2126 * lin(r8) + 0.7152 * lin(g8) + 0.0722 * lin(b8)
 }
 
-/** Riley's calibration: dark bg → 0.7, light bg → 1.05. */
+/** The owner's calibration: dark bg → 0.7, light bg → 1.05. */
 export function defaultTextGammaFor(bg: string | number): number {
   return relativeLuminance(bg) < 0.5 ? TEXT_GAMMA_DARK : TEXT_GAMMA_LIGHT
 }

@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2026 Alakazam Labs
 
-// The system side of a voice-room call (gap list §6, Riley 2026-11-03):
+// The system side of a voice-room call (gap list §6, the owner 2026-11-03):
 // CallKit shows the call (status-bar pill, Dynamic Island, Lock Screen) and
 // owns the audio session; its buttons come back here as actions.
 //
-// Rooms only for now (Riley 2026-11-04): joining from the app is an
+// Rooms only for now (owner 2026-11-04): joining from the app is an
 // OUTGOING CallKit call. Ringing (PushKit, incoming calls) comes later and
 // would add `reportNewIncomingCall` beside `start`.
 //

@@ -39,7 +39,7 @@ function Group({ label, rows, testId }: { label: string; rows: AgentInfoRow[]; t
   );
 }
 
-/** An agent's settings and permissions, to read (Riley 2026-11-09),
+/** An agent's settings and permissions, to read (owner 2026-11-09),
  *  opened from its profile picture. Changing them stays on the desktop. */
 export function AgentSettingsPage({
   scope,

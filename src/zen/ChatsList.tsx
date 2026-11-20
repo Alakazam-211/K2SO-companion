@@ -547,7 +547,7 @@ export function ChatsList() {
   // server's own lists. Off (owner 2026-10): Home is the active server's
   // rows only; other servers' rows are hidden, never deleted, and come
   // back when the flag is turned on again.
-  // A search on Home covers every Home (Riley 2026-10-22): the shown
+  // A search on Home covers every Home (owner 2026-10-22): the shown
   // Home's rows first, then the others', each once (`rowsAcrossHomes`).
   const homeSearch = onHome && q.trim().length > 0 && homes.length > 1;
   const across = useMemo(() => (homeSearch ? rowsAcrossHomes(homes, home.id) : null), [homeSearch, homes, home.id]);
@@ -654,7 +654,7 @@ export function ChatsList() {
     : unreadGroupCount(zen.id || null, groupIds, lastAtByKey);
 
   // The More menu's rows: the header's Projects, Tickets and Settings, same
-  // order, conditions and actions (Rooms stays its own button: Riley).
+  // order, conditions and actions (Rooms stays its own button: the owner).
   // Old test ids stay on the rows.
   const moreItems: HeaderMoreItem[] = [
     {
@@ -722,7 +722,7 @@ export function ChatsList() {
 
   const searching = q.trim().length > 0;
   /** In a search, the focus group an agent is in on its server (a tag on
-   *  the hit; Riley 2026-10-22). Null outside a search, without groups,
+   *  the hit; the owner 2026-10-22). Null outside a search, without groups,
    *  or for an ungrouped agent. */
   const groupTagFor = (sid: string | null | undefined, a: StubAgent): { name: string; color: string | null } | null => {
     if (!searching) return null;
@@ -1292,7 +1292,7 @@ export function ChatsList() {
 
   if (servers.length === 0) return <OverlayAddServer />;
 
-  // Which servers the list shows; bottom left, beside Search (Riley
+  // Which servers the list shows; bottom left, beside Search (owner
   // 2026-11-09).
   const serverPill = (
     <button

@@ -6,7 +6,7 @@ import { HOLD_MENU_MS, HOLD_SLOP_PX, rectOf, type HeldMenu } from "../useHoldMen
 export const MESSAGE_HOLD_ATTR = "data-message-hold";
 
 /** Words are selected somewhere (the system's selection): while they are,
- *  a bubble's hold menu stays shut (Riley 2026-10-31); deselecting brings
+ *  a bubble's hold menu stays shut (owner 2026-10-31); deselecting brings
  *  it back. The field's own text doesn't count (a textarea's selection
  *  reads as empty here). */
 export function wordsSelected(): boolean {
@@ -87,7 +87,7 @@ export function useMessageHold(area: RefObject<HTMLElement | null>, enabled: boo
     const el = area.current;
     if (!el || !enabled) return;
     // The bubble under a hold grows like Send while the finger is down and
-    // springs back on release (Riley 2026-10-31).
+    // springs back on release (owner 2026-10-31).
     const springs = new WeakMap<Element, PressSpring>();
     let pressed: PressSpring | null = null;
     const letGo = () => {
@@ -106,7 +106,7 @@ export function useMessageHold(area: RefObject<HTMLElement | null>, enabled: boo
       const target = holdTarget(e.target);
       // Buttons, links and fields inside a message (a card's options, its
       // Dismiss reason) keep their own press; the words themselves are the
-      // system's selection (Riley 2026-10-31).
+      // system's selection (owner 2026-10-31).
       if (!target || (e.target as Element).closest("button, a, input, textarea, select, [contenteditable]")) return;
       if (pointOnText(e.clientX, e.clientY, target)) return;
       if (wordsSelected()) return;
@@ -203,7 +203,7 @@ function edgeOf(body: Element, end: boolean): { node: Node; offset: number } | n
 
 /** A selection that starts in one message's words but ends outside them
  *  (iOS's long press on the newest message's last line ran on into the
- *  empty space below, Riley 2026-10-31): pull its end back to the end
+ *  empty space below, the owner 2026-10-31): pull its end back to the end
  *  (or the start) of those words. True when it moved the selection. */
 export function keepSelectionInMessage(sel: Selection): boolean {
   if (!sel.anchorNode || !sel.focusNode || sel.isCollapsed) return false;

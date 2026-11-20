@@ -1,4 +1,4 @@
-// K2 desktop Glass's three palettes on the phone (Riley via K2 Design,
+// K2 desktop Glass's three palettes on the phone (owner via K2 Design,
 // 2026-11-16; wiki "Plan - Glass Palettes"). The token files in ./glass are
 // desktop's styles/glass/palettes/*.json, tokens.json and style.json as they
 // are (W3C design-token JSON); this module turns them into CSS custom
@@ -130,7 +130,7 @@ export const SCHEME_KEY = "k2.scheme";
 export const PALETTE_KEY = "k2.palette";
 export const paletteKey = (scheme: StyleScheme): string => `${PALETTE_KEY}.${scheme}`;
 
-/** The phone's look before anyone picks (Riley 2026-11-16): Auto, with
+/** The phone's look before anyone picks (owner 2026-11-16): Auto, with
  *  Obsidian by day (the iPhone in Light) and Dusk at night (Dark). Both
  *  dark, so the black launch screen fits either. A stored choice wins. */
 export const DEFAULT_SELECTION: Readonly<ThemeSelection> = { mode: "auto", dark: "yellow", light: "obsidian" };
@@ -159,7 +159,7 @@ export function parseSchemeMode(raw: string | null): SchemeMode {
 /** A side's palette: the stored one if it is for that side, else the
  *  side's default (Obsidian for dark, Veil for light). */
 function sidePalette(scheme: StyleScheme): PaletteId {
-  // Any of the three on either side (Riley 2026-11-16: "for the light
+  // Any of the three on either side (owner 2026-11-16: "for the light
   // palette you should be able to choose any of the three"); junk falls
   // back to the side's default.
   return paletteById(read(paletteKey(scheme)))?.id ?? DEFAULT_SELECTION[scheme];

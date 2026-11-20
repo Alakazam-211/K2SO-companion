@@ -460,7 +460,7 @@ export function OverlayServers({ onClose }: { onClose: () => void }) {
               </span>
             </button>
             {/* Edit on top, the bell / usage / settings row under it, so the
-                server's name gets the card's width (Riley 2026-10-24). */}
+                server's name gets the card's width (owner 2026-10-24). */}
             <div className="shrink-0 flex flex-col items-end" style={{ gap: 6 }} data-testid="server-card-actions">
               <button
                 type="button"

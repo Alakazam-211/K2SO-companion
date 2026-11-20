@@ -5,7 +5,7 @@ import { PRESSING_CLASS } from "../lib/usePressSpring";
 /** Decode a mask image before it is shown: a new data URL set straight
  *  onto mask-image is decoded asynchronously by WebKit, and the merged
  *  glass shows unmasked for that frame (the flash on Back from Chatter,
- *  Riley 2026-11-16). Resolves even when decoding isn't available. */
+ *  the owner 2026-11-16). Resolves even when decoding isn't available. */
 function decoded(url: string): Promise<void> {
   if (typeof Image === "undefined") return Promise.resolve();
   const img = new Image();

@@ -1,4 +1,4 @@
-// Chatter as a page to the right of the Thread (Riley 2026-11-14): a
+// Chatter as a page to the right of the Thread (owner 2026-11-14): a
 // right-to-left swipe anywhere on the chat brings it in over the Thread;
 // a left-to-right swipe (or Back) takes it away. The left-edge swipe stays
 // Back to the chats list while Chatter is closed (useSwipeBack); while it

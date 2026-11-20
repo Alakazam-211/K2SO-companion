@@ -201,7 +201,7 @@ function syncLinesFromSnap(snap: LiveGrid, dest: Map<number, CompactLine>): void
 interface Props {
   /** A touch starting this close (px) to the screen's left edge is not the
    *  terminal's (no scroll, tap or selection): the page's swipe-back gets
-   *  it (Riley 2026-11-14). 0 / absent = the terminal takes every touch. */
+   *  it (owner 2026-11-14). 0 / absent = the terminal takes every touch. */
   leaveLeftEdge?: number;
   /** The server this terminal lives on (MS6/MA5). The grid socket, the
    *  capabilities probe, the HTTP fallback and the pin release all use it,

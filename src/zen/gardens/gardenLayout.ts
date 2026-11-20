@@ -1,7 +1,7 @@
 import type { GardenPageBody, GardenRun, GardenWidget, PhoneHeight } from "./gardensApi";
 
 // A Garden on a phone. Its mobile version when it has one (`page.phone`, K2
-// 0.46.8, contract rev 2 §A; Riley: "we prioritize those"). Otherwise its
+// 0.46.8, contract rev 2 §A; the owner: "we prioritize those"). Otherwise its
 // desktop layout (§7): one column per screen, on any server. Read from each
 // page, so a Garden moves to its mobile version the moment one exists.
 //

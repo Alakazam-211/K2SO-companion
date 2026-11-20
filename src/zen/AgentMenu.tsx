@@ -185,7 +185,7 @@ export function AgentMenu({
     return true;
   };
   useBackHandler(true, onClose);
-  // What is visible: above the keyboard while it is up (Riley: the newest
+  // What is visible: above the keyboard while it is up (owner: the newest
   // message's menu went under the keyboard).
   const vp = useViewport();
   const fill = useMenuSolidFill();

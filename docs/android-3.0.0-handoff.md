@@ -1,4 +1,4 @@
-# Android 3.0.0 — build + push-notification test handoff (Jamie)
+# Android 3.0.0 — build + push-notification test handoff (Android owner)
 
 Written 2026-07-06. iOS 3.0.0 is on TestFlight and **push notifications are
 proven live end-to-end on iOS** (real banner on a real device through the
@@ -70,14 +70,14 @@ This mirrors the iOS verification done today. Install from the internal
 track on a physical Android phone (13+ ideally — that's where the runtime
 permission prompt exists), then:
 
-1. **Sign in** to a reachable K2 server in the app (Riley's
-   `zed.k2.dev` is the one with the push-configured daemon — coordinate
+1. **Sign in** to a reachable K2 server in the app (the owner's
+   `example.k2.dev` is the one with the push-configured daemon — coordinate
    with him, or configure your own daemon's `pushGatewayUrl`/`pushGatewayToken`).
 2. **Settings → Push notifications → toggle ON.** Expect the Android
    permission prompt ("Allow K2 to send notifications?") → Allow. If the row
    says "Not available in this build", Firebase didn't initialize — check
    `google-services.json` made it into the AAB and ping the desk.
-3. **Tell Riley/Claude the toggle is on** — they verify the token row landed
+3. **Tell the owner/Claude the toggle is on** — they verify the token row landed
    in the daemon (`push_devices`, platform `fcm`) and fire a test dispatch
    through the live gateway at your token.
 4. What must happen, in order of importance:

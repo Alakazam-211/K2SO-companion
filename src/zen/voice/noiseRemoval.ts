@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import { isIosWebView } from "../../lib/nativePicker";
 
-// Noise removal for calls (Settings → Calls → Noise removal; Riley's rule,
+// Noise removal for calls (Settings → Calls → Noise removal; the owner's rule,
 // Sew 0.10.4). One On/Off switch, default On:
 //   - On  = Sew's "standard": the system's voice processing, then
 //     DeepFilterNet3 (the weights the app bundles, src-tauri/resources/dfn3).

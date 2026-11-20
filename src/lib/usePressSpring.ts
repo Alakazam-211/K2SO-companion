@@ -1,4 +1,4 @@
-// Press spring (Riley 2026-10-23, prototype header-glass "Grow"): while a
+// Press spring (owner 2026-10-23, prototype header-glass "Grow"): while a
 // finger is down a button grows to PRESS_SCALE on a stiff spring; on
 // release it springs back on a looser one, overshooting a touch and
 // settling. The constants are LiquidGlassJS's (physics/controller.ts:
@@ -49,7 +49,7 @@ export type PressSpring = {
 };
 
 /** The press spring on `el`, driven by the caller (a list that handles its
- *  rows' presses itself: the message bubbles' hold, Riley 2026-10-31). */
+ *  rows' presses itself: the message bubbles' hold, the owner 2026-10-31). */
 export function attachPressSpring(el: HTMLElement): PressSpring {
   const s: Spring = { value: 1, velocity: 0, target: 1, ...DOWN };
   let frame = 0;

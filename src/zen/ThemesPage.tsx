@@ -1,4 +1,4 @@
-// Settings → Themes (Riley 2026-11-16; desktop's Settings → Themes, K2
+// Settings → Themes (owner 2026-11-16; desktop's Settings → Themes, K2
 // StylesSection.tsx): Light, Dark or Auto; the palette for each side, which
 // are also Auto's two picks; and an accent for each of the three palettes.
 // The tokens and accent maths are K2's own (src/theme; wiki "Plan - Glass

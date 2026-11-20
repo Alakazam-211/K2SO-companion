@@ -375,7 +375,7 @@ html, body, #root {
   box-shadow: inset 0 1px 0 var(--color-frost-sheen);
 }
 /* Veil (light): glass mirrors Obsidian's, so merged pieces read as one
-   (Riley 2026-11-16: "Obsidian makes it feel like it's all one piece"):
+   (owner 2026-11-16: "Obsidian makes it feel like it's all one piece"):
    one even thin edge, dark on light where Obsidian's is light on dark;
    only a very soft lift under it (no contact line, which made pieces look
    stamped); the slightly darker frost below. */
@@ -385,7 +385,7 @@ html, body, #root {
 :root[data-scheme="light"] {
   /* LiquidGlassJS's light "frosted" material dims what's behind the glass a
      little (brightness 0.936) so the frost reads a shade darker than a
-     white page (Riley 2026-11-16: "the darker frost is probably part of
+     white page (owner 2026-11-16: "the darker frost is probably part of
      the fix"); a little less white on top lets that show. */
   --k2-veil-frost-filter: blur(28px) saturate(180%) brightness(0.94);
   --k2-veil-frost-fill: rgba(255, 255, 255, 0.55);
@@ -524,7 +524,7 @@ html, body, #root {
    merged frost is already under it, so a second tint doubled the
    brightness and the bubble flashed for the spring's half second. That
    shows when the header stays put after the tap (Back closing Chatter,
-   Riley 2026-11-15). Turning a backdrop-filter on mid-slide is also
+   the owner 2026-11-15). Turning a backdrop-filter on mid-slide is also
    avoided. */
 [data-glass-merged] [data-glass-shape].k2-pressing {
   border-color: var(--color-frost-edge);
@@ -540,7 +540,7 @@ html, body, #root {
 /* Veil: the same handover. The light `.zen-glass` rule above is more
    specific than the plain one, so without this each merged piece kept its
    own fill, edge and shadow on top of the merged layer and the pieces
-   never read as one (Riley 2026-11-16: "the white one isn't actually
+   never read as one (owner 2026-11-16: "the white one isn't actually
    merging the two pieces"). */
 :root[data-scheme="light"] [data-glass-merged] [data-glass-shape] {
   background-color: transparent;

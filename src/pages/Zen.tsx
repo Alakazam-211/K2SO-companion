@@ -166,7 +166,7 @@ export function Zen() {
         normalizeHarness(agent.launch?.command)
   );
   const headerRef = useRef<HTMLDivElement>(null);
-  // Header buttons grow while pressed (usePressSpring; Riley 2026-10-23).
+  // Header buttons grow while pressed (usePressSpring; the owner 2026-10-23).
   const pressBack = usePressSpring<HTMLButtonElement>();
   const pressTerminal = usePressSpring<HTMLButtonElement>();
   const pressSessions = usePressSpring<HTMLButtonElement>();
@@ -203,7 +203,7 @@ export function Zen() {
   // The highest usage percent of the LLM account this chat's session uses
   // (K2 0.46.4), shown beside the LLM icon like the desktop's top-bar chip.
   const searchOpen = useThreadSearch((s) => s.open);
-  /** Searching (Riley 2026-11-10): the picture, name, usage and the
+  /** Searching (owner 2026-11-10): the picture, name, usage and the
    *  right-hand buttons step aside while the field is open, and come back
    *  when it closes. Hidden, not removed, so the header keeps its height;
    *  the merged glass leaves them out (GLASS_HIDDEN_ATTR). */
@@ -396,7 +396,7 @@ export function Zen() {
   // The edge swipe asks the same stack: it arms only while the chat is
   // the topmost layer (rename, icon sheet, sign-in, drawers all register).
   const threadOnTop = useBackHandler(wantThread, drawerPicked ? returnToDrawerOrigin : backToChats);
-  // Chatter (Riley 2026-11-14): a page right of the Thread, swiped in
+  // Chatter (owner 2026-11-14): a page right of the Thread, swiped in
   // from the right (chatterSwipe.ts) instead of a header switch. While it
   // is open its Back handler is on top: Back and a rightward swipe close
   // it, and the left-edge swipe to the chats list is off.
@@ -547,7 +547,7 @@ export function Zen() {
               ref={headerRef}
               className="relative grid items-start w-full min-w-0 px-3"
               data-testid="chat-header-content"
-              // The name stays centred however long it gets (Riley
+              // The name stays centred however long it gets (owner
               // 2026-10-22, "Idea 1"): side columns that can shrink to
               // nothing, equally, so a long name grows over them to the
               // header's padding and only then ellipses. (`1fr` kept a
@@ -564,7 +564,7 @@ export function Zen() {
               }}
             >
             <HeaderGlass />
-            {/* Left: Back, then Search (Riley 2026-11-10: "top left, right
+            {/* Left: Back, then Search (owner 2026-11-10: "top left, right
                 of the back button"). The open field slides over the title. */}
             <div className="flex items-start justify-self-start" style={{ gap: 8, gridColumn: 1 }}>
             {drawerPicked ? (
@@ -654,7 +654,7 @@ export function Zen() {
                 // The LLM mark and the usage percent of the account this
                 // chat runs on (K2 0.46.4) in one glass bubble at the
                 // picture's top-left, low enough that the merged header
-                // glass joins it to the name bubble (Riley 2026-10-24,
+                // glass joins it to the name bubble (owner 2026-10-24,
                 // prototype header-glass). zIndex -1 in the avatar's layer
                 // (z 2): under the picture, over the name bubble.
                 <button
@@ -675,7 +675,7 @@ export function Zen() {
                     pointerEvents: "auto",
                     border: 0,
                     right: "calc(100% - 11px)",
-                    // Its top lines up with the header buttons' (Riley
+                    // Its top lines up with the header buttons' (owner
                     // 2026-10-27).
                     top: HEADER_BTN_TOP,
                     height: 32,
@@ -700,7 +700,7 @@ export function Zen() {
                   data-llm={headerHarness}
                   className="absolute flex items-center"
                   // Tucked under the avatar's lower-left edge and over the
-                  // name bubble's top (Riley 2026-10-18; easy to revert:
+                  // name bubble's top (owner 2026-10-18; easy to revert:
                   // was right 100%, marginRight 8, top 0, height = avatar).
                   // zIndex -1 stays inside the avatar's stacking layer
                   // (z 2): under the picture, still over the bubble (z 1).

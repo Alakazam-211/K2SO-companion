@@ -341,7 +341,7 @@ async function registerOn(scope: ServerScope, reg: DeviceReg): Promise<string | 
     // The active server registers at launch, often before its boot-status
     // is known; without it, it would look like a server without sealed
     // push and get the install-wide row back next to its sealed one, so
-    // every alert arrived twice (Riley 2026-10-29). Learn it first.
+    // every alert arrived twice (owner 2026-10-29). Learn it first.
     if (reg.platform === "apns" && e2eCapablePlatform() && !bootInfoFor(scope.id)) {
       await getBootStatus(scope).catch(() => null);
     }
@@ -408,7 +408,7 @@ async function sealedRegistration(scope: ServerScope, reg: DeviceReg): Promise<S
  *  migrated only once the old row is gone (removed, or already unknown):
  *  a failed removal is tried again on the next registration. Left behind,
  *  that row shares this phone's push token and every alert arrives twice,
- *  once sealed and once legacy (Riley 2026-10-29). */
+ *  once sealed and once legacy (owner 2026-10-29). */
 async function noteSealedReply(scope: ServerScope, reg: DeviceReg, sealed: Sealed, text: string): Promise<void> {
   const reply = parseE2eReply(text);
   const book = await readBook();
@@ -647,7 +647,7 @@ export async function unregisterAll(): Promise<void> {
   );
 }
 
-/** Riley Q8: removing or signing out of a server unregisters this device
+/** The owner's Q8: removing or signing out of a server unregisters this device
  *  from it first, with the token captured before the store drops it.
  *  Blind and best-effort; a dormant build does nothing. */
 export async function unregisterLeaving(server: ServerEntry, token: string): Promise<void> {
@@ -770,7 +770,7 @@ function isPrincipal(
  *   3. `principal` — the recipient's person key (`"owner"` or a Connect
  *      username; K2 sends one dispatch per recipient). Picks the account
  *      when two saved servers share a host and instance, e.g. an owner
- *      login and a member login on `riley.k2.dev`.
+ *      login and a member login on `example.k2.dev`.
  *   No `subdomain` match → null (ignore the tap). Never `projectId`.
  *   Still ambiguous after step 3: the active server if it is one of the
  *   candidates, otherwise null (ignore).
@@ -990,7 +990,7 @@ export async function routeTap(
     const active = useServersStore.getState().activeServerId;
     // An agent on the Home on screen opens there, as a room on its server
     // (Home stays, the active server never changes). Any other agent:
-    // switch to its server first (Riley, 2026-10-17).
+    // switch to its server first (owner, 2026-10-17).
     if (
       server.id !== active &&
       useMultiServerPrefs.getState().multiServer &&

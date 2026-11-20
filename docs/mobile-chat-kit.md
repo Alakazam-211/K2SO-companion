@@ -164,7 +164,7 @@ transitions (no keyboard timing from the shell).
   Dead ends: a `min-height` that came and went with the room (the short
   chat dropped to its natural layout ~200ms after the keyboard closed — a
   snap); always pushing a short chat to the bottom (iMessage-like, but
-  Riley prefers few messages to rest at the top).
+  the owner prefers few messages to rest at the top).
   A list may still opt into `bottomAnchored` (flex-end) — it then rides
   the composer on show / hide.
 
@@ -510,7 +510,7 @@ DOM. The logic is in `threadWindow.ts`, which has one knob:
   at the oldest comment and grows down as the reader goes. The brief and
   answer cards are outside the window and always drawn. Sends not yet shown
   back are always drawn.
-- **The ticket's sizes** (`useRenderWindow.ts`, Riley 2026-10-18):
+- **The ticket's sizes** (`useRenderWindow.ts`, the owner 2026-10-18):
   - It opens with `RENDER_WINDOW_OPEN_ROWS` (30) rows. Reading on draws
     `RENDER_WINDOW_STEP` (20) more at a time, up to
     `RENDER_WINDOW_MAX_ROWS` (50).

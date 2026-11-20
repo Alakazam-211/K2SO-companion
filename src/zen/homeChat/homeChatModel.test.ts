@@ -68,7 +68,7 @@ describe("people", () => {
   });
 
   it("draws two initials at 20px and up, one below", () => {
-    expect(personInitials("Riley Stone", 32)).toBe("RL");
+    expect(personInitials("Riley Stone", 32)).toBe("RS");
     expect(personInitials("Riley Stone", 16)).toBe("R");
     expect(personInitials("anna", 32)).toBe("A");
     expect(personInitials("  ", 32)).toBe("?");

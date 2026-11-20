@@ -399,7 +399,7 @@ export interface CallablePerson {
   conv?: string | null;
 }
 
-/** Call a person from their Home row (Riley: calling lives in a long
+/** Call a person from their Home row (owner: calling lives in a long
  *  press; a tap opens the DM). Opens (or makes) the DM first when the row
  *  doesn't know its conversation. */
 export async function callPersonFromRow(serverId: string, person: CallablePerson): Promise<DmCallOutcome> {

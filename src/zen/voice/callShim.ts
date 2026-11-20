@@ -81,7 +81,7 @@ const ios: CallShim = {
   },
 };
 
-/** No system call UI (Android until Jamie's CallStyle shim, the browser). */
+/** No system call UI (Android until its CallStyle shim, the browser). */
 const none: CallShim = {
   label: () => {},
   start: async () => null,

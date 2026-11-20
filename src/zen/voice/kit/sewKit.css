@@ -220,7 +220,7 @@
 .k2-kit-call .sv-bar-status {
   grid-column: 1 / -1;
 }
-/* The time alone is in the monospace face (Riley: fine for the counter,
+/* The time alone is in the monospace face (owner: fine for the counter,
    only the counter); everything around it keeps the chosen font. */
 .k2-kit-call-time {
   align-self: baseline;

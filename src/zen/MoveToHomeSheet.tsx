@@ -5,7 +5,7 @@ import { GroupGlyph } from "./groups/GroupGlyph";
 import { useBackHandler } from "../lib/androidBack";
 
 /**
- * A Home row's "Move to group…" sheet (Riley): the Home groups (in
+ * A Home row's "Move to group…" sheet (owner): the Home groups (in
  * code, Homes) on this phone, in their order, each with its icon (or its
  * number). The agent's own group is checked and can't be picked; a group
  * that already has the agent says so and can't be picked either. A pick

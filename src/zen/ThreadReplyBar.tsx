@@ -5,7 +5,7 @@ import { JUMP_PILL_FILL } from "./JumpPill";
 import { threadReplyFirstLine, threadReplyQuote, type ThreadReplyTarget } from "./threadReply";
 
 // The Thread's reply bar: what the next send replies to, standing on the
-// composer — K2 desktop's (570a5a2ea0, ThreadReplyBar.tsx; Riley
+// composer — K2 desktop's (570a5a2ea0, ThreadReplyBar.tsx; the owner
 // 2026-11-15: the old chip was "wider than the activity ear and …
 // completely transparent").
 //

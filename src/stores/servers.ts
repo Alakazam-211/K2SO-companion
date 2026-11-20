@@ -23,7 +23,7 @@ import { syncSecureTokens, syncVoiceHosts } from "../lib/secureTokens";
 //   "activeServerId" → string | null
 //   "tokens"         → Record<serverId, sessionToken>
 // OPEN 12: never write a `passwords` key. Hydrate deletes any leftover
-// `passwords` map from older builds (Bob device `EC351036` is the
+// `passwords` map from older builds (a tester's device was the
 // positive control). Session survives via the token.
 //
 // One-time migration: the pre-v2 single session in plugin-store `auth.json`

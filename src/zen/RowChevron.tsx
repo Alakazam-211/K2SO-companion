@@ -1,5 +1,5 @@
 /** The ›  that ends an agent row (Home, Agents): an SVG chevron sized to
- *  read at a glance (the `›` glyph was too small, Riley 2026-10-18). */
+ *  read at a glance (the `›` glyph was too small, the owner 2026-10-18). */
 export function RowChevron() {
   return (
     <svg

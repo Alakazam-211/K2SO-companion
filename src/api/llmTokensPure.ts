@@ -103,7 +103,7 @@ export const STATE_COLORS: Record<string, string> = {
   unknown: "var(--color-neutral)",
 };
 
-/** The page's standing note (Riley, 2026-10-17). */
+/** The page's standing note (owner, 2026-10-17). */
 export const ADD_ON_DESKTOP_NOTE =
   "To add a subscription, use K2 on your desktop. From here you can only switch between subscriptions that are already active on your device(s).";
 

@@ -82,7 +82,7 @@
           "whatChanges": "Let billing run jobs on this server's compute nodes.",
           "why": {
             "by": "billing",
-            "text": "Run the test suite on build-node; it takes 40 min here"
+            "text": "Run the test suite on mac-a; it takes 40 min here"
           }
         }
       },

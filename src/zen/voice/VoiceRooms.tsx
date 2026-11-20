@@ -45,9 +45,9 @@ export function voiceServers(
 
 /** Show the Rooms (phone) button at all: a signed-in server hosts rooms (it says
  *  `voice-rooms-v1` in `/boot-status`), or a call is up. Hidden on phones
- *  with no such server (Riley, 4.2.0), and it appears the moment one
+ *  with no such server (owner, 4.2.0), and it appears the moment one
  *  reports it: boot info isn't in a store, so its updates re-render here.
- *  Never on a build with no call engine (Android until Jamie's, the
+ *  Never on a build with no call engine (Android until its own, the
  *  browser): a reviewer there would find rooms it can't join. */
 export function useVoiceAvailable(): boolean {
   const servers = useServersStore((s) => s.servers);
@@ -246,7 +246,7 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
   const notice = useVoiceCall((s) => s.notice);
   const clearNotice = useVoiceCall((s) => s.clearNotice);
   // In a call the page is the call, at full height; to join another, leave
-  // this one (Riley 2026-11-09).
+  // this one (owner 2026-11-09).
   const inCall = useVoiceCall((s) => s.phase !== "idle" && !!s.room);
   // A DM call's screen is named for the other person.
   const dmName = useVoiceCall((s) => (s.phase !== "idle" && s.room?.dm ? s.room.roomName : null));
@@ -288,7 +288,7 @@ export function VoiceRoomsOverlay({ onClose }: { onClose: () => void }) {
             className="grid items-center"
             style={{ gridTemplateColumns: "1fr auto 1fr", minHeight: 44, padding: "12px 12px 8px", columnGap: 8 }}
           >
-            {/* Back, not Done (Riley): the call area sits over the page it was
+            {/* Back, not Done (owner): the call area sits over the page it was
                 opened from, floating tile or menu, and closing returns there. */}
             <BackArrowButton onClick={onClose} testId="voice-done" style={{ pointerEvents: "auto" }} />
             <h1 className="text-[17px] font-semibold pointer-events-none zen-header-text truncate" data-testid="voice-title">

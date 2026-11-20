@@ -321,7 +321,7 @@ export const getAllSessions = (scope: ServerScope) =>
 // verified routes below — list-running / terminal read+write+spawn /
 // companion sessions. Secondary screens (agents, work, wake, reviews)
 // map onto `/cli/*` whose param shapes are UNVERIFIED and untracked.
-// docs/companion-revival.md Phase 4 is grid-WS, marked done — it does
+// The revival plan's Phase 4 is grid-WS, marked done — it does
 // not track this. Wiki: `.k2/wiki/Unverified - CLI param shapes.md`.
 export const getAgents = (scope: ServerScope, project: string) =>
   request<Agent[]>(scope, "/cli/agents/list", { project });

@@ -150,7 +150,7 @@ function foldRowStatus(input: RowStatusInput): RowStatus {
     if (input.signingIn) return status("signing-in");
     return status("sign-in", e?.authNote ?? null);
   }
-  // Optimistic (Riley): a server with a login is assumed up until a check
+  // Optimistic (owner): a server with a login is assumed up until a check
   // says otherwise; rows look normal from the first frame.
   if (!e || e.reach === "unknown") return liveOrBusy(input, e?.activity ?? null);
   if (e.reach === "offline") return status("offline");

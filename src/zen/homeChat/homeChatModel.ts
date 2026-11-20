@@ -76,7 +76,7 @@ export function personInk(hex: string): string {
 }
 
 /** Initials: one letter below 20px, two at 20px and up when the name has
- *  two parts (`Riley Stone` → `RL`, `anna` → `A`; desktop `chipInitials`). */
+ *  two parts (`Riley Stone` → `RS`, `anna` → `A`; desktop `chipInitials`). */
 export function personInitials(name: string, size: number): string {
   const n = (name === "owner" ? "Owner" : name).trim();
   const parts = n.split(/[\s._-]+/).filter(Boolean);

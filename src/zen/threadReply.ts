@@ -1,5 +1,5 @@
 // Replying to one Thread message, the desktop's format (K2 0.46.7
-// prd-thread-message-menu-v1, `src/renderer/lib/thread-reply.ts`, Riley
+// prd-thread-message-menu-v1, `src/renderer/lib/thread-reply.ts`, the owner
 // 2026-10-30). The reply rides the message TEXT, so every server and agent
 // already carries it; agents read message N with `k2 thread <addr> --seq N`:
 //

@@ -16,7 +16,7 @@
 /**
  * Only an APEX label under `k2.dev` is a hosted tunnel host: exactly one
  * DNS label, `[a-z0-9-]`, then `.k2.dev`, no port, no path. Nested labels
- * (`riley.app.k2.dev`, `a.b.k2.dev`), custom domains, LAN `ip:port`, plain
+ * (`example.app.k2.dev`, `a.b.k2.dev`), custom domains, LAN `ip:port`, plain
  * http and any explicit port are all "everything else".
  */
 const K2_DEV_APEX_HTTPS = /^https:\/\/([a-z0-9-]+)\.k2\.dev$/i;
@@ -43,8 +43,8 @@ export function k2DevApexLabel(hostBaseUrl: string): string | null {
 /**
  * Where a client must POST `/cli/auth/login` for `hostBaseUrl`.
  *
- *   https://riley.k2.dev        → https://riley.app.k2.dev/cli/auth/login
- *   https://riley.app.k2.dev    → https://riley.app.k2.dev/cli/auth/login
+ *   https://example.k2.dev        → https://example.app.k2.dev/cli/auth/login
+ *   https://example.app.k2.dev    → https://example.app.k2.dev/cli/auth/login
  *   http://192.168.1.50:60710    → http://192.168.1.50:60710/cli/auth/login
  *
  * Pure; no I/O. The first branch is the ONLY host change this rule makes.

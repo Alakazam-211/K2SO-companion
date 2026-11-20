@@ -310,7 +310,7 @@ export function filterByAssignees<T extends { assignees?: string[] | null }>(
   });
 }
 
-/** Status chips (desktop example). Counted after search + people filter. */
+/** Status chips (as on desktop). Counted after search + people filter. */
 export type FeedbackStatusFilter = FeedbackStatus | "all";
 
 export function filterByStatus<T extends { status: FeedbackStatus }>(
@@ -389,7 +389,7 @@ export function isAssignedToMe(
 }
 
 /** Mine = assigned to me; Waiting on me = mine AND (waiting or
- *  needs_discussion), as desktop 0.46 (Riley 2026-10-16; unlinked rows
+ *  needs_discussion), as desktop 0.46 (owner 2026-10-16; unlinked rows
  *  never count); All = everything. */
 export function filterByScope<
   T extends { status: FeedbackStatus; assignees?: string[] | null; linked?: boolean },
@@ -452,7 +452,7 @@ export function ticketsAriaLabel(counts: Record<TicketScope, number>): string {
   return `Tickets, ${mine} waiting on you, ${counts.all} waiting in all`;
 }
 
-/** Up to two initials: "jane" → "J", "Riley Stone" → "RL", owner → "O". */
+/** Up to two initials: "jane" → "J", "Riley Stone" → "RS", owner → "O". */
 export function assigneeInitials(name: string): string {
   const parts = name.trim().split(/[\s._-]+/).filter(Boolean);
   if (parts.length === 0) return "?";

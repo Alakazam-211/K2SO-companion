@@ -3,7 +3,7 @@ import { authorHue } from "../lib/authorTint";
 import { skinInitials } from "./agentRow";
 import type { StubAgent } from "./stubData";
 
-// Profile pictures in a Thread (Riley's rule, agreed with K2 Design
+// Profile pictures in a Thread (the owner's rule, agreed with K2 Design
 // 2026-11-09, desktop the same): on once the messages loaded in the Thread
 // (every fetched page and sends in flight) come from two or more senders
 // other than me (`mine`, so my other devices are me; system and bot lines

@@ -1,4 +1,4 @@
-// Chatter on the phone (Riley 2026-11-14): a page to the right of the
+// Chatter on the phone (owner 2026-11-14): a page to the right of the
 // Thread, brought in with a right-to-left swipe (useChatterSwipe), not a
 // header switch (the Terminal | Thread | Chatter test of 11-11 was too
 // busy). The pure parts are ported from K2's
@@ -11,7 +11,7 @@
 //     first.
 //   - Heartbeats: `GET /cli/heartbeat/fires-list?project=&limit=50`, no live
 //     stream: re-read every 15 s while open (as K2 does). Blended into
-//     Chatter's timeline (Riley 2026-11-11).
+//     Chatter's timeline (owner 2026-11-11).
 
 /** One line under Chatter's title: what it holds. */
 export const CHATTER_HINT = "Messages between this agent and other agents, and the heartbeats that woke its workspace";

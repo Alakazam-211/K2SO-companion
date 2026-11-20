@@ -29,7 +29,7 @@ public enum K2PushKeys {
   public struct Record: Codable, Equatable {
     /// The phone's saved server id (the plugin's `server` argument).
     public var server: String
-    /// The server's tunnel label (`riley` for riley.k2.dev): checked
+    /// The server's tunnel label (`example` for example.k2.dev): checked
     /// against the sealed `srv.sub`.
     public var subdomain: String
     public var keyId: String

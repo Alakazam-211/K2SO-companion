@@ -9,7 +9,7 @@ export function BackChevron({ size = 16 }: { size?: number }) {
   );
 }
 
-/** A page's way back: the glass circle with the chevron (Riley
+/** A page's way back: the glass circle with the chevron (owner
  *  2026-11-09), in place of "Done". */
 export function BackArrowButton({
   onClick,

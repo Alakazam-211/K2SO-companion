@@ -20,7 +20,7 @@ import { zenTextPx } from "./zenFont";
 
 // Chatter, the page right of the Thread (threadViews.ts): read-only, under
 // the chat header, newest at the bottom. Agent messages and the workspace's
-// heartbeat wakes in one timeline (Riley 2026-11-11), each re-read on its
+// heartbeat wakes in one timeline (owner 2026-11-11), each re-read on its
 // own clock while open (no push for either on the phone).
 
 type Load<T> = { rows: T[]; error: string | null; loading: boolean };
@@ -177,7 +177,7 @@ const TONE_COLOR: Record<HeartbeatTone, string> = {
 };
 
 /** K2's heartbeat symbol (ThreadDrawerSelector `HeartbeatIcon`): the EKG
- *  line alone, no heart around it (Riley 2026-11-14). */
+ *  line alone, no heart around it (owner 2026-11-14). */
 export function HeartbeatIcon({ size = 14 }: { size?: number }) {
   return (
     <svg

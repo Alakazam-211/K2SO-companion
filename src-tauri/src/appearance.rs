@@ -7,7 +7,7 @@
 //! view carry an `overrideUserInterfaceStyle`. The keyboard, the status bar
 //! text and native sheets and alerts follow it.
 //!
-//! The override follows the PALETTE ON SCREEN, not the mode (Riley
+//! The override follows the PALETTE ON SCREEN, not the mode (owner
 //! 2026-11-17: Obsidian or Dusk picked for the day side should bring a dark
 //! keyboard). Light shows the light side's palette, Dark the dark side's,
 //! Auto the side the iPhone is in; that palette's scheme is the style. So

@@ -9,7 +9,7 @@ import { getWorkspaceResources } from "./client";
 import { useServersStore } from "../stores/servers";
 import { activeScope } from "./scope";
 
-const WS = "/Users/zed/Projects/k5-companion";
+const WS = "/Users/zed/Projects/K2 Companion";
 
 describe("getWorkspaceResources", () => {
   beforeEach(() => {
@@ -59,7 +59,7 @@ describe("getWorkspaceResources", () => {
     expect(r).toMatchObject({ ok: true, data: body });
     const [url, opts] = tauriFetch.mock.calls[0] as [string, { method?: string }];
     expect(url).toBe(
-      "http://127.0.0.1:9/cli/workspace/resources?workspace=%2FUsers%2Fzed%2FDevProjects%2FAlakazam%20Labs%2FK2SO-companion"
+      "http://127.0.0.1:9/cli/workspace/resources?workspace=%2FUsers%2Fzed%2FProjects%2FK2%20Companion"
     );
     expect(opts.method).toBe("GET");
   });

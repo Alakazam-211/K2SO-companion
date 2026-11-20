@@ -2,7 +2,7 @@ import type { ChatSessions } from "./agentActivity";
 import type { ServerProject } from "./serverPins";
 import type { StubAgent } from "./stubData";
 
-// Each server's lists on the device (Riley 2026-11-01: "assume things are
+// Each server's lists on the device (owner 2026-11-01: "assume things are
 // good"): the Agents and Home tabs paint from the last good read at once,
 // and the server's answer replaces it a moment later (hydrateAgents). One
 // IndexedDB row per server; a memory copy in front, so a second paint in

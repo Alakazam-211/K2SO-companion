@@ -4,7 +4,7 @@
 // 33 % of the width or on a flick (500 px/s), else it glides back. Past the
 // first or last group it moves a third as far and springs back: NO wrap,
 // and one swipe moves at most one group. A plain slide: no peek tile
-// naming the next group (Riley). The only other sign is the group bar's
+// naming the next group (owner). The only other sign is the group bar's
 // accent blend, tied to the progress (`useGroupSwipeStore`).
 //
 // The back gesture owns the screen's left edge: a swipe that starts on the

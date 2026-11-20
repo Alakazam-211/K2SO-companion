@@ -1,4 +1,4 @@
-// Merged header glass (Riley 2026-10-22, prototype header-glass "Idea
+// Merged header glass (owner 2026-10-22, prototype header-glass "Idea
 // 1"): the chat header's glass pieces (back, the name pill, the right
 // buttons) are drawn as ONE frosted layer whose outline is their union, so
 // the name pill melts into a button it comes close to, like SwiftUI's
@@ -12,7 +12,7 @@
 // merged outline: the 0.5px border at white 22% and the `inset 0 1px 0`
 // light catch at white 28%. In light palettes (Veil) it's the same one
 // even line around the whole merged outline, necks included, painted dark
-// by CSS (Riley 2026-11-16: "Obsidian makes it feel like it's all one
+// by CSS (owner 2026-11-16: "Obsidian makes it feel like it's all one
 // piece"); no light catch. Pure apart from `renderGlassMasks` (canvas).
 
 /** How far apart (px) the name pill starts to flow into a button. */

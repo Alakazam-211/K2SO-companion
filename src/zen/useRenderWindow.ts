@@ -17,7 +17,7 @@ import {
 // comments). ThreadPane runs the same rules inline, woven into its
 // progressive paint, earlier pages and push-tap targets.
 //
-// Sizes (Riley, 2026-10-18): a list opens with RENDER_WINDOW_OPEN_ROWS
+// Sizes (owner, 2026-10-18): a list opens with RENDER_WINDOW_OPEN_ROWS
 // (30) drawn; reading on, rows are drawn RENDER_WINDOW_STEP at a time
 // before the reader reaches a drawn edge, and the window grows to at most
 // RENDER_WINDOW_MAX_ROWS (50). Past that, each step drops as many rows at

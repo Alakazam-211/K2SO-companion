@@ -5,7 +5,7 @@ import { create } from "zustand";
 // scrolls the chat to the newest and follows the reply). Off, a send made
 // while reading earlier messages keeps the reader's place; a "Sent ↓" pill
 // jumps down (ThreadPane `onSend`). At the newest already, a send follows
-// as before either way. Riley 2026-10-27.
+// as before either way. the owner 2026-10-27.
 //
 // Same synchronous localStorage idiom as the other Zen UI prefs.
 

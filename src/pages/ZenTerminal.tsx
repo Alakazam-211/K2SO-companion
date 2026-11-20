@@ -378,7 +378,7 @@ export function ZenTerminal() {
 
   // Android Back = Done: back to this session's Thread.
   const terminalOnTop = useBackHandler(Boolean(terminalId), backToThread);
-  // The left-edge swipe is that Back too (Riley 2026-11-14): the screen
+  // The left-edge swipe is that Back too (owner 2026-11-14): the screen
   // follows the finger and goes back to the chat, while nothing (a sheet,
   // a menu) is on top. The terminal leaves the edge strip to it.
   const swipeRef = useSwipeBack(backToThread, { enabled: () => terminalOnTop() });

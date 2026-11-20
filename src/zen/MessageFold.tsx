@@ -11,13 +11,13 @@ import {
 } from "react";
 
 /**
- * "See more" for long messages (Riley 2026-11-06: "If a message is larger
+ * "See more" for long messages (owner 2026-11-06: "If a message is larger
  * than say, 12 rows, can we have it be a 'see more' type experience that
  * expands the message?").
  *
  * A message taller than FOLD_LINES lines of its own text (by rendered
  * height, against the body's computed line-height, so code blocks, lists
- * and headings count by the room they take) shows its first ~14 lines (Riley: 14, not 12), a
+ * and headings count by the room they take) shows its first ~14 lines (owner: 14, not 12), a
  * fade in the bubble's own colour (`--k2-bubble`) and a "See more" button.
  * Expanded, "See less" folds it again.
  *
@@ -115,7 +115,7 @@ export function __resetFoldForTests(): void {
 }
 
 /** The toggle's chevron, right of its words: down on "See more", up on
- *  "See less" (Riley 2026-11-17). Decoration only: the button's name stays
+ *  "See less" (owner 2026-11-17). Decoration only: the button's name stays
  *  its words. */
 function FoldChevron({ up }: { up: boolean }) {
   return (

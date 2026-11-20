@@ -8,7 +8,7 @@ import {
   setPushEnabled,
 } from "./push";
 
-// The one-time push onboarding prompt (4.3.0, Riley): "Would you like
+// The one-time push onboarding prompt (4.3.0, the owner): "Would you like
 // push notifications from your agents?" before iOS's own alert, so nobody
 // meets the system alert cold. The UI is zen/PushOnboardPrompt.tsx.
 //

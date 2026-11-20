@@ -17,7 +17,7 @@
         "label": "Deny"
       }
     ],
-    "prompt": "billing asks: Let billing run jobs on this server's compute nodes (Allow compute nodes).\nbilling says: \"Run the test suite on build-node; it takes 40 min here\"\ndana (member): \"I need this for the payroll run\"",
+    "prompt": "billing asks: Let billing run jobs on this server's compute nodes (Allow compute nodes).\nbilling says: \"Run the test suite on mac-a; it takes 40 min here\"\ndana (member): \"I need this for the payroll run\"",
     "status": "pending"
   },
   "created_at": 1761060000,

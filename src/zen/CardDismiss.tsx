@@ -1,5 +1,5 @@
 // Dismiss for a waiting question card on the phone (K2 0.46.11,
-// prd-popup-close-and-card-dismiss-v1 B8; Riley 2026-11-14 "add that to
+// prd-popup-close-and-card-dismiss-v1 B8; the owner 2026-11-14 "add that to
 // mobile as well"). The desktop's CardDismiss, sized for a bubble: a small
 // "Dismiss" under the options; pressed, an optional one-line reason (at most
 // 200 characters), "Dismiss card" and "Keep". The daemon closes it as

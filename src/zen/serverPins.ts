@@ -99,7 +99,7 @@ export function pinProjectIdForRow(
 
 /** Pinned project ids in server order: `tabOrder`, then name. */
 /** Rows in the server's project-list order: the order desktop's Agents
- *  view draws (`zen-data.ts` `workspaceRows`, Riley 2026-10-17). Rows
+ *  view draws (`zen-data.ts` `workspaceRows`, the owner 2026-10-17). Rows
  *  with no project keep their relative order after the rest. */
 export function sortByProjectOrder<T>(
   rows: T[],

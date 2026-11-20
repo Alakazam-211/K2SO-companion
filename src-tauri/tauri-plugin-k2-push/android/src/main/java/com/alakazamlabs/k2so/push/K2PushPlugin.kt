@@ -175,7 +175,7 @@ class K2PushPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   // ── App-icon badge totals (iOS-only for now) ─────────────────────────
-  // TODO(Jamie): Android launcher badge counts. iOS keeps per-server
+  // TODO(android): Android launcher badge counts. iOS keeps per-server
   // totals in the App Group (K2BadgeStore.swift) and sets the icon badge
   // to the sum of `unread`; the FCM data carries the same `unreadTotal` /
   // `waitingTotal` / `subdomain`, and silent `{kind:"badge"}` pushes. These
@@ -199,7 +199,7 @@ class K2PushPlugin(private val activity: Activity) : Plugin(activity) {
     invoke.resolve(badgeUnavailable())
   }
 
-  /** Clearing read notifications is iOS-only for now (Jamie's call). */
+  /** Clearing read notifications is iOS-only for now (the Android owner's call). */
   @Command
   fun clearDelivered(invoke: Invoke) {
     val res = JSObject()
@@ -228,7 +228,7 @@ class K2PushPlugin(private val activity: Activity) : Plugin(activity) {
   }
 
   // ── Attach pickers (iOS-only for now) ────────────────────────────────
-  // TODO(Jamie): native photo / document pickers. The composer's attach
+  // TODO(android): native photo / document pickers. The composer's attach
   // menu uses the web file input when these reject `unsupported`.
 
   @Command

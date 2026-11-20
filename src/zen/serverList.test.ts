@@ -60,7 +60,7 @@ describe("filterServers", () => {
 
   it("matches any field case-insensitively", () => {
     expect(ids(filterServers(servers, "hOm", fields))).toEqual(["1"]);
-    expect(ids(filterServers(servers, "ROSS", fields))).toEqual(["2"]);
+    expect(ids(filterServers(servers, "RILE", fields))).toEqual(["2"]);
     expect(ids(filterServers(servers, "zzz", fields))).toEqual([]);
   });
 });

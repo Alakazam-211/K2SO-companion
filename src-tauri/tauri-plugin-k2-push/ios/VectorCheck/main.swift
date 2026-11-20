@@ -15,7 +15,8 @@ func hex(_ s: String) -> Data {
   return d
 }
 
-let path = CommandLine.arguments.dropFirst().first ?? "/Users/Shared/k2-companion/e2e_push_vectors.json"
+let sharedDir = ProcessInfo.processInfo.environment["K2C_SHARED_DIR"] ?? "/Users/Shared/k2-companion"
+let path = CommandLine.arguments.dropFirst().first ?? "\(sharedDir)/e2e_push_vectors.json"
 let root = try JSONSerialization.jsonObject(with: Data(contentsOf: URL(fileURLWithPath: path))) as! [String: Any]
 let r = root["recipient"] as! [String: Any]
 let sk = try P256.KeyAgreement.PrivateKey(rawRepresentation: hex(r["privateKeyHex"] as! String))

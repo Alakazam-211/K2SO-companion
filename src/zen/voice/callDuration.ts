@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useVoiceCall } from "./voiceCall";
 
-// The call's time (Riley 2026-11-06: "there is no call duration value that
+// The call's time (owner 2026-11-06: "there is no call duration value that
 // I can use"): from the call's first connect (`startedAt` in the call
 // store), shown in the call bar always and on the floating card while its
 // picture is up.

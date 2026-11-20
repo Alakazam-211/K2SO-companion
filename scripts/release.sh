@@ -21,6 +21,7 @@ set -euo pipefail
 #   4. Exports App Store IPA
 #   5. Uploads to App Store Connect
 #   6. Commits, tags, and pushes HEAD to origin/main + the tag
+#      (NO_PUSH=1: commits and tags locally, pushes nothing)
 #
 # --no-upload: dry run. Steps 1-4 up to the exported IPA, then stops: no
 #   App Store Connect call at all (no validate, no upload), no commit, and
@@ -28,19 +29,24 @@ set -euo pipefail
 # --size-report: also export a thinned development build and keep Apple's
 #   "App Thinning Size Report.txt" (download + install size per device).
 # --remote-build: the heavy half (npm ci, the frontend, the Rust + Xcode
-#   archive) runs on a K2 compute Mac, not here (Riley's rule: no heavy
+#   archive) runs on a K2 compute Mac, not here (the owner's rule: no heavy
 #   Rust/Xcode builds on the release Mac). This Mac stamps the versions,
 #   sends the stamped tree (k2 compute run --dirty), and then only signs,
 #   exports and uploads. The node builds the archive UNSIGNED
 #   (scripts/ios-remote-build.sh); it comes back as the job's artifact and
 #   exportArchive signs it here with the entitlements files. Node:
-#   K2_IOS_BUILD_NODE (default build-node). Same checks as a local build, plus
-#   the exported IPA's entitlements.
+#   K2_IOS_BUILD_NODE=<k2 compute node> (required with --remote-build; no
+#   default). Same checks as a local build, plus the exported IPA's
+#   entitlements.
 # Where it lands: an upload pushes HEAD to origin/main and tags v<version>,
 #   so it must run from main or release-<version>. A test-track TestFlight
 #   build from any other branch: RELEASE_BRANCH=<branch> NO_TAG=1 (the
 #   script refuses otherwise, and refuses a "never merge" commit on main
 #   or a tag). A hotfix from an older line: RELEASE_BRANCH=release-<x>.
+# NO_PUSH=1: build, upload and commit (and tag, unless NO_TAG=1) as usual,
+#   but locally only: no `git push` of the branch or the tag. The closing
+#   banner prints the push commands to run once the commit is reviewed.
+#   The guards above still apply: they check where the commit will land.
 # VOICE_CRYPTO=1: the voice build. See "Export compliance" in Step 2.
 #   EXPORT_COMPLIANCE_CODE=<code> adds the code App Store Connect issues
 #   once encryption documentation is approved (see there).
@@ -138,9 +144,9 @@ if [ -z "$NO_UPLOAD" ]; then
   TARGET_BRANCH="${RELEASE_BRANCH:-main}"
   if [ "$TARGET_BRANCH" = "main" ] && [ "$CUR_BRANCH" != "main" ] && [ "$CUR_BRANCH" != "release-$VERSION" ]; then
     if [ -n "${NO_TAG:-}" ]; then
-      echo "Error: this run would push $CUR_BRANCH to GitHub main."
+      echo "Error: this run would land $CUR_BRANCH on GitHub main."
     else
-      echo "Error: this run would push $CUR_BRANCH to GitHub main and tag v$VERSION."
+      echo "Error: this run would land $CUR_BRANCH on GitHub main and tag v$VERSION."
     fi
     echo "  Shipping $VERSION: run it from main or release-$VERSION."
     echo "  A TestFlight-only (test-track) build: RELEASE_BRANCH=$CUR_BRANCH NO_TAG=1 $0 $ORIG_ARGS"
@@ -173,6 +179,11 @@ if [ -z "$REMOTE_BUILD" ]; then
   "$SCRIPT_DIR/fetch-dfn3.sh"
 else
   command -v k2 >/dev/null 2>&1 || { echo "Error: --remote-build needs the k2 CLI"; exit 1; }
+  if [ -z "${K2_IOS_BUILD_NODE:-}" ]; then
+    echo "Error: --remote-build needs K2_IOS_BUILD_NODE=<k2 compute Mac node> (there is no default)."
+    echo "  e.g. K2_IOS_BUILD_NODE=<node> $0 $ORIG_ARGS   (or drop --remote-build to build here)"
+    exit 1
+  fi
 fi
 
 # Generate unique build number (YYYYMMDDHHmm)
@@ -213,6 +224,7 @@ echo "  K2 iOS Release"
 echo "  Version: $VERSION"
 echo "  Build:   $BUILD_NUMBER"
 [ -n "$NO_UPLOAD" ] && echo "  Mode:    dry run (--no-upload)"
+[ -z "$NO_UPLOAD" ] && [ -n "${NO_PUSH:-}" ] && echo "  Git:     NO_PUSH=1 (commit$([ -z "${NO_TAG:-}" ] && echo ' and tag') locally; nothing pushed)"
 [ -n "${VOICE_CRYPTO:-}" ] && echo "  Crypto:  VOICE_CRYPTO=1 (standard algorithms, mass market; not on the French store)"
 echo "═══════════════════════════════════════"
 echo ""
@@ -283,7 +295,7 @@ fi
 # nothing is committed or pushed), then put the archive where a local
 # build leaves it, and the node's acknowledgements.txt in public/.
 remote_build() {
-  local node="${K2_IOS_BUILD_NODE:-build-node}"
+  local node="${K2_IOS_BUILD_NODE:?--remote-build needs K2_IOS_BUILD_NODE}"
   local work job_json job rc
   work="$(mktemp -d "${TMPDIR:-/tmp}/k2-ios-remote.XXXXXX")"
   echo "→ Building the iOS archive on $node (k2 compute; this Mac only signs, exports and uploads)..."
@@ -343,7 +355,7 @@ export PATH="$HOME/.cargo/bin:$PATH"
 # VOICE_CRYPTO=1 (the voice build): native end-to-end encrypted voice
 # through Sew's tauri-plugin-sew-voice brings its own crypto: rustls/ring
 # (TLS), DTLS-SRTP (media) and MLS (group keys), all standard (IETF)
-# algorithms. Riley's answer (2026-11-05): the app uses encryption,
+# algorithms. The owner's answer (2026-11-05): the app uses encryption,
 # standard algorithms only, mass market (5D992.c). So the build declares
 # ITSAppUsesNonExemptEncryption true and the ring guard is skipped. The
 # committed files keep false; the flip is per run, put back after the
@@ -359,7 +371,7 @@ export PATH="$HOME/.cargo/bin:$PATH"
 #   encryption declaration; Apple reviews it and issues a code. Pass that
 #   code as EXPORT_COMPLIANCE_CODE so later builds skip the questions.
 #
-# 2026-11-05: K2 is off the French store (Riley), and App Store Connect
+# 2026-11-05: K2 is off the French store (the owner's call), and App Store Connect
 # then needs no documentation: its API refuses an encryption declaration
 # for standard algorithms outside France, and a build declaring true with
 # no code fails validation (90592). So without EXPORT_COMPLIANCE_CODE the
@@ -658,9 +670,14 @@ git add public/acknowledgements.txt package.json src-tauri/tauri.conf.json src-t
   src-tauri/gen/apple/K2Broadcast/Info.plist \
   src-tauri/Cargo.toml src-tauri/Cargo.lock src-tauri/gen/apple/project.yml
 git commit -m "v${VERSION} — App Store ${VERSION}, release build ${BUILD_NUMBER}"
+COMMIT_SHA="$(git rev-parse --short HEAD)"
+LAND_BRANCH="${RELEASE_BRANCH:-main}"
 # This worktree may be on an execute-plan branch; land on GitHub main,
 # or on RELEASE_BRANCH for a hotfix build cut from an older release.
-git push origin "HEAD:refs/heads/${RELEASE_BRANCH:-main}"
+# NO_PUSH=1: nothing leaves this machine; the banner prints the commands.
+if [ -z "${NO_PUSH:-}" ]; then
+  git push origin "HEAD:refs/heads/${LAND_BRANCH}"
+fi
 # A replacement build under the same marketing version keeps the first
 # build's tag (Android may already ship from it); tag the build instead.
 # A test-track TestFlight build (RELEASE_BRANCH=<branch> NO_TAG=1) takes no
@@ -674,14 +691,35 @@ else
 fi
 if [ -n "$TAG" ]; then
   git tag -a "$TAG" -m "$TAG (App Store ${VERSION}, build ${BUILD_NUMBER})"
-  git push origin "$TAG"
+  if [ -z "${NO_PUSH:-}" ]; then
+    git push origin "$TAG"
+  fi
 fi
 
 echo ""
 echo "═══════════════════════════════════════"
-echo "  ✓ K2 v${VERSION} released (App Store ${VERSION})!"
+echo "  ✓ K2 v${VERSION} uploaded (App Store ${VERSION})!"
 echo ""
 echo "  App Store Connect: ${VERSION} build ${BUILD_NUMBER}"
-echo "  GitHub: ${TAG} tag pushed, main updated"
+echo "  Commit:  ${COMMIT_SHA} (on $(git rev-parse --abbrev-ref HEAD) locally)"
+if [ -n "${NO_PUSH:-}" ]; then
+  echo "  Branch:  NOT pushed (NO_PUSH=1); it would land on origin/${LAND_BRANCH}"
+  if [ -n "$TAG" ]; then
+    echo "  Tag:     ${TAG} created locally, NOT pushed"
+  else
+    echo "  Tag:     none (NO_TAG=1)"
+  fi
+  echo ""
+  echo "  Nothing was pushed. After review, push with:"
+  echo "    git push origin ${COMMIT_SHA}:refs/heads/${LAND_BRANCH}"
+  if [ -n "$TAG" ]; then echo "    git push origin ${TAG}"; fi
+else
+  echo "  Branch:  pushed to origin/${LAND_BRANCH}"
+  if [ -n "$TAG" ]; then
+    echo "  Tag:     ${TAG} pushed"
+  else
+    echo "  Tag:     none (NO_TAG=1)"
+  fi
+fi
 echo "═══════════════════════════════════════"
 echo ""

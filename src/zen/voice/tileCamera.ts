@@ -2,12 +2,12 @@ import { useEffect } from "react";
 import type { VideoHandle } from "@sew/voice";
 import { create } from "zustand";
 
-// The floating tile's camera (Riley 2026-11-06: "Add the camera option too
+// The floating tile's camera (owner 2026-11-06: "Add the camera option too
 // … to the floating pill"): its button and your self-view, read from Sew's
 // kit. The kit loads with the call screen (never at the app's start), so
 // this store holds what the tile needs and kit/tileCameraKit.ts fills it,
 // loaded only while the tile is up. Camera on and off only: the switch and
-// the screen share stay in the call screen's bar (Riley).
+// the screen share stay in the call screen's bar (owner).
 
 /** The button: on, off, paused (the app in the background) or asking (the
  *  permission step, the camera on its way). */

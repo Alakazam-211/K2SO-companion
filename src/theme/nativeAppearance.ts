@@ -2,7 +2,7 @@
 // text, native sheets and alerts, and the colour behind the web view take
 // the scheme of the palette ON SCREEN (src-tauri/src/appearance.rs, the
 // `set_appearance` command). Obsidian or Dusk picked for the day side keep
-// the keyboard dark (Riley 2026-11-17).
+// the keyboard dark (owner 2026-11-17).
 //
 // So native's override is always light or dark, Auto included, and the web
 // view's `prefers-color-scheme` reports that override, not the iPhone. Under

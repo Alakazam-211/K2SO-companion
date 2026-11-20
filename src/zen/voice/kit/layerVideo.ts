@@ -363,7 +363,7 @@ export class LayerVideo implements NativeVideo {
    *  stays off, without a sentence, until `local_video` says the share
    *  started: the person may still cancel iOS's sheet). Off: the same
    *  sheet, where Stop Broadcast ends it without iOS's "stopped due to"
-   *  alert (Riley: B). Closed without stopping, the button goes back on.
+   *  alert (owner: B). Closed without stopping, the button goes back on.
    *  No sheet: the plugin's `screen {on: false}` (the extension finishes,
    *  with the alert). */
   async setScreen(on: boolean): Promise<void> {

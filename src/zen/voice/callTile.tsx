@@ -18,7 +18,7 @@ import { usePipStatus, useVideoTile } from "./videoTile";
 import { useVoiceCall } from "./voiceCall";
 
 // The floating call tile, over the app while a call is up and its area is
-// closed (Riley 2026-11-06): one draggable unit in a corner, on the shared
+// closed (owner 2026-11-06): one draggable unit in a corner, on the shared
 // motion (useCornerDrag: drag, velocity snap on the spring, catch, lift,
 // haptic, Reduce Motion, one saved corner).
 //   - The controls strip: Mute, Deafen, Camera (when the call can do video)
@@ -28,7 +28,7 @@ import { useVoiceCall } from "./voiceCall";
 //     moderator's mute or deafen, a lost SPEAK, the camera's `local_video`).
 //     Camera on and off only: the switch and the screen share stay in the
 //     call screen's bar.
-//   - A picture on top of it, "attached" (Riley: "attach it to the bottom
+//   - A picture on top of it, "attached" (owner: "attach it to the bottom
 //     of the video tile"), as one rounded glass card: the picture's top
 //     corners rounded, square where it meets the strip.
 //       - someone's video plays: the native layer (K2PiP, the active
@@ -40,7 +40,7 @@ import { useVoiceCall } from "./voiceCall";
 //         until its first frame). Never the native layer, never PiP;
 //       - else no picture: the card folds down to the plain pill.
 //     Under the picture, a band (DURATION_BAND) with the call's time in its
-//     bottom-left corner (Riley 2026-11-06: "If the camera is on, show call
+//     bottom-left corner (owner 2026-11-06: "If the camera is on, show call
 //     duration in the bottom left of the floating tile"). Swift brings the
 //     native layer ABOVE the webview on the picture's rect (K2PiP.swift
 //     `place`), so nothing the page draws can sit on someone's video: the
@@ -109,7 +109,7 @@ export function CallTile({ callViewOpen, onOpen }: { callViewOpen: boolean; onOp
 const GLASS_BG = "rgba(255, 255, 255, 0.1)";
 const GLASS_EDGE = "rgba(255, 255, 255, 0.22)";
 const SHEEN = "inset 0 1px 0 rgba(255, 255, 255, 0.28)";
-/** Hang up keeps its red but gets the glass rim too (Riley): light along
+/** Hang up keeps its red but gets the glass rim too (owner): light along
  *  the top edge, a little shade along the bottom. */
 const DANGER_EDGE = "rgba(255, 255, 255, 0.28)";
 const DANGER_SHEEN = "inset 0 1px 0 rgba(255, 255, 255, 0.38), inset 0 -1px 0 rgba(0, 0, 0, 0.22)";

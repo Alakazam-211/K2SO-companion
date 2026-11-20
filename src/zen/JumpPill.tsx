@@ -2,7 +2,7 @@ import { useLayoutEffect, useRef, useState } from "react";
 import { prefersReducedMotion } from "./sendFly";
 import { DRAWER_EASE_GROW, DRAWER_EASE_IN, DRAWER_EASE_OUT, DRAWER_MS } from "./ThreadWorkingStrip";
 
-// The Thread's pill over the composer (Riley 2026-11-11, with K2 desktop):
+// The Thread's pill over the composer (owner 2026-11-11, with K2 desktop):
 // "Jump to bottom" whenever the reader has scrolled up; when a message
 // arrives below, or their own send lands while they're up, the words become
 // "New message" ("N new messages" from two, as K2 desktop) or "Sent", and
@@ -42,7 +42,7 @@ const WIDTH_MS = 220;
  *  ear while it is out. */
 export const JUMP_PILL_GAP_PX = 8;
 
-/** Where the pill floats (Riley 2026-11-17: "If there is no activity bar
+/** Where the pill floats (owner 2026-11-17: "If there is no activity bar
  *  the jump to bottom button should settle just above the text area rather
  *  than above where the activity ear would be if it were open. Use
  *  animation to move it up/down when the activity area opens/closes"; K2

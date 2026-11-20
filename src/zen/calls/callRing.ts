@@ -2,7 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { create } from "zustand";
 import { isIosWebView } from "../../lib/nativePicker";
 
-// "Ring for incoming calls" (Settings → Calls; Riley 2026-11-17: "default
+// "Ring for incoming calls" (Settings → Calls; the owner 2026-11-17: "default
 // to on like push notifications"). One switch, this phone only, default On:
 //   - On  = the in-app ring tone (ringTone.ts, Web Audio) while a ring card
 //     is up, and K2's ringtone on the call push (`k2-ring.caf`, the same

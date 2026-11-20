@@ -4,7 +4,7 @@ export const PLUS_GLYPH = "＋";
 export const PLUS_GLYPH_PX = 22;
 
 /** `bright`: primary text (white on dark palettes), like the header bubbles' icons (the Agents / Servers
- *  bottom bar, Riley 2026-10-18). The composer keeps the muted plus. */
+ *  bottom bar, the owner 2026-10-18). The composer keeps the muted plus. */
 export function PlusGlyph({ bright = false }: { bright?: boolean }) {
   return (
     <span

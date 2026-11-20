@@ -4,7 +4,7 @@ import { isPairedServer, useServersStore, type ServerEntry } from "../../stores/
 import { useHomesSyncStore } from "../homesSync";
 import { useZenScope, zenScope } from "../zenScope";
 
-// Which server's Gardens the phone shows (Riley 2026-11-09): the paired
+// Which server's Gardens the phone shows (owner 2026-11-09): the paired
 // home server, whichever server is active or has a room open. That's the
 // server Home syncs from when the phone is paired with it, else the first
 // paired server in the saved list. A phone paired with none keeps the

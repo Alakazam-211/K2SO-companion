@@ -119,7 +119,7 @@ function BrailleSpinner({ still }: { still: boolean }) {
 }
 
 /** Expanded detail bits, each led by its collapsed counter's icon so the
- *  words map to the icons (Riley 2026-10-18). */
+ *  words map to the icons (owner 2026-10-18). */
 function DetailBits({ items, fallback }: { items?: StripDetailItem[]; fallback: string }) {
   if (!items?.length) return <>{fallback}</>;
   return (

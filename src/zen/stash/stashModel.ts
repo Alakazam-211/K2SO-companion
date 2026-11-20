@@ -1,4 +1,4 @@
-// Prompt stash (spec "Prompt stash v1", Riley 2026-10-29; shared schema
+// Prompt stash (spec "Prompt stash v1", the owner 2026-10-29; shared schema
 // with K2 0.46.7 desktop/web, K2 m_P6o9Lm8Ae3): a person stashes a message
 // they are writing and brings it back later, into any agent's Thread.
 //
@@ -12,7 +12,7 @@
 //
 // Field rules settled after the 4.1.4 review (K2 spec-prompt-stash-v1,
 // "Field rules settled"): snake_case keys; `server_id` is the server's
-// host key (`riley.k2.dev`), not this phone's saved-server id; `user` is
+// host key (`example.k2.dev`), not this phone's saved-server id; `user` is
 // the login name; `agent` is the sender (`doc.from`), in group chats too;
 // absent fields are null; ids are uuid v4. A record from a newer schema
 // (`v` > STASH_SCHEMA) is kept but hidden and never rewritten, so this
@@ -42,7 +42,7 @@ export type StashAttachment = {
 export type StashQuote = { text: string; from?: string };
 /** Where it was stashed: display only. */
 export type StashSource = {
-  /** The server's host key (`riley.k2.dev`). */
+  /** The server's host key (`example.k2.dev`). */
   server_id: string | null;
   server_label: string | null;
   /** The login name on that server. */

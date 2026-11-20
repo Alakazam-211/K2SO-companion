@@ -7,7 +7,7 @@
 // the newest (Send, "New comment ↓") the window is the newest.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-// Long scroll sequences: on a loaded machine they pass 5 s (a sibling app's fix).
+// Long scroll sequences: on a loaded machine they pass 5 s (A sibling app's fix).
 vi.setConfig({ testTimeout: 30_000 });
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react";
 

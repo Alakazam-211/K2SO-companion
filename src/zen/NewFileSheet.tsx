@@ -8,7 +8,7 @@ import { displayPathUnder } from "./fileTreeModel";
 import { FolderPicker } from "./FolderPicker";
 import { MiddleEllipsis } from "./MiddleEllipsis";
 
-/** "+ New File" in the Files drawer (Riley 2026-11-09): choose a folder in
+/** "+ New File" in the Files drawer (owner 2026-11-09): choose a folder in
  *  the workspace, then a photo or file from this phone to put there. The
  *  server never overwrites: a name already there becomes `name (1).ext`.
  *  Keeps the scope it opened on, like the drawer's other sheets. */

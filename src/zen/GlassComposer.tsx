@@ -85,7 +85,7 @@ export function fitComposerField(field: HTMLTextAreaElement, bar: HTMLElement | 
   field.style.height = "auto";
   // One line: 3px over / 5px under, which reads centred against the pill
   // (the system font sits lowercase low). More lines: 5px over, so the
-  // first line has as much room above it as the last has below (Riley
+  // first line has as much room above it as the last has below (owner
   // 2026-10-31: the top felt tight once the text wrapped).
   const multi = field.scrollHeight - FIELD_PAD_ONE_PX - FIELD_PAD_UNDER_PX > fieldLineHeight(field) * 1.5;
   const padTop = `${multi ? FIELD_PAD_MULTI_PX : FIELD_PAD_ONE_PX}px`;
@@ -445,7 +445,7 @@ export function GlassComposer({
   useEffect(() => () => collapse.current?.cancel(), []);
 
   const [sendPressed, setSendPressed] = useState(false);
-  // Send also grows while pressed (with its brighten; Riley 2026-10-23).
+  // Send also grows while pressed (with its brighten; the owner 2026-10-23).
   const pressSend = usePressSpring<HTMLButtonElement>();
   const blockCb = useRef(onBlockHeight);
   blockCb.current = onBlockHeight;
@@ -652,7 +652,7 @@ export function GlassComposer({
               className={`flex-1 min-w-0 w-full resize-none overflow-y-auto overflow-x-hidden whitespace-pre-wrap break-words bg-transparent border-0 text-[var(--color-text-primary)] outline-none pt-[3px] pb-[5px] placeholder:whitespace-nowrap placeholder:overflow-hidden placeholder:text-ellipsis ${showAttach ? "" : "px-2"}`}
               // 3px over, 5px under (not 4/4): the system font sits its
               // lowercase ~1.5px low in a 22px line, so the first line read
-              // as a pixel too low against the pill (Riley 2026-10-31).
+              // as a pixel too low against the pill (owner 2026-10-31).
               // Same 30px field, so nothing around it moves.
               style={{
                 maxHeight: COMPOSER_MAX_PX,
@@ -686,14 +686,14 @@ export function GlassComposer({
                     : "k2-tile-raised text-[var(--color-text-muted)] opacity-60"
                 }`}
                 style={{
-                  // A short pill, 8px wider than the + (Riley 2026-10-17).
+                  // A short pill, 8px wider than the + (owner 2026-10-17).
                   width: 38,
                   height: 30,
                   borderRadius: 15,
                   ...(sendReady
                     ? { background: "var(--color-accent-fill)", borderColor: "var(--color-accent-fill)" }
                     : {}),
-                  // Pressed: a little brighter (Riley 2026-10-18). preventDefault
+                  // Pressed: a little brighter (owner 2026-10-18). preventDefault
                   // above keeps the keyboard up but also skips :active on iOS.
                   filter: sendPressed && sendReady ? "brightness(1.5)" : undefined,
                   transition: "filter 90ms ease-out",

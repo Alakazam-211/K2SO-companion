@@ -79,7 +79,7 @@ import { useSwipeBack } from "../lib/useSwipeBack";
 import { useRenderWindow } from "./useRenderWindow";
 import { createFoldHost, FoldContext, MessageFold, type FoldHost } from "./MessageFold";
 
-// Zen open ticket — Layout A (Riley, 2026-10-11). Full-screen inside the
+// Zen open ticket — Layout A (owner, 2026-10-11). Full-screen inside the
 // Chats column, below the notch, the ThreadPane look:
 //
 //   header   floats over the scroll with the chat header's progressive

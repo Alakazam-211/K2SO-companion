@@ -10,7 +10,7 @@ import type { SourcesChanges } from "./sourcesFeed";
 export const FEATURE_GARDENS_REMOTE = "gardens-remote-v1";
 
 /** Gardens show on this phone for this server: assumed yes until its
- *  `/boot-status` says otherwise (Riley 2026-11-09), so the tab doesn't
+ *  `/boot-status` says otherwise (owner 2026-11-09), so the tab doesn't
  *  appear late. Android can't host widget frames safely yet (contract
  *  §10): it needs its own frame host. */
 export function gardensAvailable(scope: Pick<ServerScope, "id" | "supports">): boolean {

@@ -12,15 +12,15 @@ export const TAB_SEG_H = SEARCH_BAR_HEIGHT;
 export const TAB_SEG_PAD = 3;
 export const TAB_SEG_BTN_W = 40;
 /** In the header row: a segment as wide as the inset height, so the
- *  selection is a circle (Riley 2026-11-09). */
+ *  selection is a circle (owner 2026-11-09). */
 const COMPACT_SEG_H = 40;
 const COMPACT_BTN_W = COMPACT_SEG_H - 2 * TAB_SEG_PAD;
 
 /**
- * Home | Agents (| Gardens), top left of the list (Riley 2026-11-09). Same inset-thumb
+ * Home | Agents (| Gardens), top left of the list (owner 2026-11-09). Same inset-thumb
  * segmented style as the terminal Viewer/Claimer control (a6acec2): the
  * selected highlight sits inside the glass pill, clipped by it, in blue
- * glass (Riley 2026-10-18).
+ * glass (owner 2026-10-18).
  */
 export function HomeTabToggle({
   tab,

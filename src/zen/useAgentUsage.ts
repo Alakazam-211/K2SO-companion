@@ -80,7 +80,7 @@ export function useUsageAgeMinutes(updatedAt: number | null): number | null {
   return min;
 }
 
-/** The usage percent's colour (Riley 2026-10-24): white, yellow from 75%,
+/** The usage percent's colour (owner 2026-10-24): white, yellow from 75%,
  *  red from 90%. */
 export function usageColor(pct: number): string {
   // Palette words (Settings → Themes): white on dark palettes, dark on Veil.

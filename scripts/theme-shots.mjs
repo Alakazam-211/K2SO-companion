@@ -9,8 +9,8 @@
 //
 // Writes <out>/<screen>__<palette>__<accent>.png (Chromium) and
 // <out>/webkit/<screen>__<palette>__<accent>.png (WebKit); <accent> is
-// `default` or the hex without `#`. Default out:
-// /Users/Shared/k2-companion/theme-shots.
+// `default` or the hex without `#`. Default out: $K2C_SHARED_DIR/theme-shots
+// (K2C_SHARED_DIR defaults to /Users/Shared/k2-companion).
 //
 // Starts the preview dev server (vite --config preview/vite.config.ts, port
 // 1430) unless one already answers, and stops the one it started.
@@ -34,8 +34,7 @@ const BASE = `http://127.0.0.1:${PORT}/preview/theme.html`;
 
 const CANDIDATES = [
   process.env.PLAYWRIGHT_CORE,
-  "/Users/zed/DevProjects/Alakazam Labs/K2-worktrees/integ-0462/node_modules/playwright-core",
-  "/Users/zed/DevProjects/example/Rex/synthetic-user/node_modules/playwright-core",
+  path.join(ROOT, "node_modules/playwright-core"),
 ].filter(Boolean);
 
 const SCREENS = [
@@ -71,7 +70,8 @@ const screens = list(arg("screens", SCREENS.join(",")));
 const palettes = list(arg("palettes", PALETTES.join(",")));
 const accents = list(arg("accents", "default,#ff375f"));
 const engines = list(arg("engines", "chromium,webkit"));
-const outDir = arg("out", "/Users/Shared/k2-companion/theme-shots");
+const SHARED_DIR = process.env.K2C_SHARED_DIR || "/Users/Shared/k2-companion";
+const outDir = arg("out", path.join(SHARED_DIR, "theme-shots"));
 const concurrency = Number(arg("jobs", "4")) || 4;
 
 async function loadPlaywright() {

@@ -1,4 +1,4 @@
-// Who is typing in an agent Thread (K2 `thread-typing-v1`, Riley via K2
+// Who is typing in an agent Thread (K2 `thread-typing-v1`, the owner via K2
 // Design). People with K2 logins and App users who read the same Thread
 // see each other type; agents never send it.
 //

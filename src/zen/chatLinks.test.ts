@@ -82,8 +82,8 @@ describe("linkifyFileMentions", () => {
   });
 
   it("does not rewrite emails", () => {
-    expect(linkifyFileMentions("write bob@gmail.com")).toBe(
-      "write bob@gmail.com"
+    expect(linkifyFileMentions("write bob@example.com")).toBe(
+      "write bob@example.com"
     );
   });
 });

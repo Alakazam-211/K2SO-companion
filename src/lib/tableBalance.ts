@@ -1,4 +1,4 @@
-// Column widths that make a markdown table as short as possible (Riley,
+// Column widths that make a markdown table as short as possible (owner,
 // 2026-11-07): the browser's auto layout hands the room to the column with
 // the most text, so short columns ("Status", "on main, pushed") wrap into
 // tall rows. Here every split of the width is scored by the table's height

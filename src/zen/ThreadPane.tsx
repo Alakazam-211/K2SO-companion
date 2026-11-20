@@ -198,7 +198,7 @@ export const NEW_BELOW_SETTLE_MS = 450;
 /** The pill stays in the page this long after its tap, fading: WebKit on
  *  iOS checks the tapped node after the click, and a node removed inside
  *  its own click reads as a tap on nothing, which drops the keyboard
- *  (Riley 2026-10-28, "Sent ↓"). */
+ *  (owner 2026-10-28, "Sent ↓"). */
 export const PILL_LEAVE_MS = 160;
 
 /** The dock's press guard: anything but a text field keeps focus where it
@@ -278,7 +278,7 @@ const SELECTABLE: CSSProperties = { userSelect: "text", WebkitUserSelect: "text"
  *  secrets, files-only rows or sends still on their way. */
 /** What the hold menu works on: Reply quotes it, Copy copies it, Save to
  *  stash keeps it (the desktop's `threadBubbleText` and menu text, K2
- *  0.46.13). A question card is its question (Riley 2026-11-15: reply to
+ *  0.46.13). A question card is its question (owner 2026-11-15: reply to
  *  cards too), a stash offer what it saves; a permission card draws its own
  *  headline and a secret is never quoted, so they have none. "" = no menu. */
 export function messageMenuText(m: ThreadMessage): string {
@@ -1200,7 +1200,7 @@ export function ThreadPane({
   // (K2 0.46.1) counts as "seen". Scrolled up into history = not.
   const [atNewest, setAtNewest] = useState(true);
   // The pill's words (JumpPill): "Jump to bottom" whenever scrolled up
-  // (Riley 2026-11-11, as desktop), else what arrived below. The leave
+  // (owner 2026-11-11, as desktop), else what arrived below. The leave
   // ends once it has nothing left to say.
   const pillWords: JumpPillWords | null =
     newBelow === "sent" ? "sent" : newBelow ? "message" : !atNewest ? "jump" : null;
@@ -1260,7 +1260,7 @@ export function ThreadPane({
   const msgSel = useMessageSelection(scrollerRef);
   const selectedMessage = msgSel.sel ? thread.find((m) => m.id === msgSel.sel?.id) ?? null : null;
   // Every row above the field: the working drawer then gets its own room
-  // above them, instead of sliding over them (Riley's screenshot: the
+  // above them, instead of sliding over them (the owner's screenshot: the
   // selection bar under "Thinking…"; the reconnecting banner too).
   const rowsAboveField =
     roomBlocked ||
@@ -2804,7 +2804,7 @@ export function ThreadPane({
           // else here (the padding and spacers under the newest message, the
           // names and times, the space around a bubble's rounded corner)
           // took a long press as a selection from the nearest words down
-          // into the empty space (Riley's screenshots, 2026-10-31).
+          // into the empty space (the owner's screenshots, 2026-10-31).
           ...NO_SELECT,
         }}
         onScroll={(e) => {
@@ -2988,7 +2988,7 @@ export function ThreadPane({
                     highlighted={
                       (highlightSeq != null && m.seq != null && m.seq === highlightSeq) ||
                       // Selected (its hold menu open, or words in it selected):
-                      // the same blue outline as a notification's (Riley).
+                      // the same blue outline as a notification's (owner).
                       m.id === selectedMsgId
                     }
                     revealed={highlightSeq != null && m.seq != null && m.seq === highlightSeq}
@@ -3048,7 +3048,7 @@ export function ThreadPane({
         // A press anywhere on the dock but a text field keeps the keyboard
         // up (the Send / pill / drawer trick, for the whole dock): a tap
         // that lands beside a control — the Working strip sliding in under
-        // a finger aimed at "Sent ↓" (Riley 2026-10-28) — must not blur.
+        // a finger aimed at "Sent ↓" (owner 2026-10-28) — must not blur.
         onPointerDown={keepComposerFocus}
         onMouseDown={keepComposerFocus}
       >

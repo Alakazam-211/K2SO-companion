@@ -7,7 +7,7 @@ import { onServerForget, serverHostKey, useServersStore, type ServerEntry } from
 //
 // A Home row used to be `handle::hostKey`. The host key is what THIS
 // client calls the server: the laptop calls itself "local", the phone
-// calls it "riley.k2.dev", so a synced row could never match on both.
+// calls it "example.k2.dev", so a synced row could never match on both.
 // K2 0.46.1 puts a stable `serverId` (16 hex) in `/boot-status`; rows
 // become `handle::serverId`.
 //

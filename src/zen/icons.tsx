@@ -265,7 +265,7 @@ export function TicketIcon(props: IconProps) {
   );
 }
 
-// The ensō, K2's Garden mark (desktop `components/Zen/ZenIcon.tsx`, Riley
+// The ensō, K2's Garden mark (desktop `components/Zen/ZenIcon.tsx`, the owner
 // 2026-10-07: one brush stroke, bottom left, clockwise round to bottom right,
 // tapering to a thin tail). The same outline on the same 24 viewBox.
 const ENSO_START_DEG = 98;
@@ -316,7 +316,7 @@ const ENSO_SPINE_D = ensoSpine();
 
 /** `on` (its tab is selected): heavier. Draws itself in each time it turns
  *  on, and only then: not when leaving the tab, and not when it mounts
- *  already on (Riley; `.zen-enso-draw`; reduced motion skips it). */
+ *  already on (owner; `.zen-enso-draw`; reduced motion skips it). */
 export function EnsoIcon({ on = false, size = 18, testId }: { on?: boolean; size?: number; testId?: string }) {
   const [seen, setSeen] = useState({ on, plays: 0 });
   if (seen.on !== on) setSeen({ on, plays: seen.plays + (on ? 1 : 0) });

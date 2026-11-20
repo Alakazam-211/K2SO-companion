@@ -13,7 +13,7 @@ import { convOfDmRoom } from "../../api/homeChatCallsPure";
 import { scopeFor } from "../../api/scope";
 import { isK2CallId, leaveVoiceSession } from "./voiceApi";
 
-// The phone's one voice-room call (rooms only for now: Riley 2026-11-04).
+// The phone's one voice-room call (rooms only for now: the owner 2026-11-04).
 // The engine is the truth (Sew's sew-call-client over K2's kessel-audio, in
 // Rust); this store mirrors it for the UI and keeps the system call UI
 // (CallKit) in step, in both directions:

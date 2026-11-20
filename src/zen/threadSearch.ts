@@ -1,4 +1,4 @@
-// Searching a Thread's messages (Riley 2026-11-10, via K2 Design): the
+// Searching a Thread's messages (owner 2026-11-10, via K2 Design): the
 // phone's port of K2's desktop search (K2 main 039a498e8,
 // src/renderer/components/SessionView/threadSearch.ts, MIT). The text and
 // match rules and the painting are K2's, so both clients find the same

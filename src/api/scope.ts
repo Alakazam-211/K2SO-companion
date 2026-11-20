@@ -204,10 +204,10 @@ export interface BootInfo {
   /** `standalone` | `bundled-app` | `unknown`, or null when absent. */
   installKind?: string | null;
   /** K2 0.46.1: the box's stable id (16 hex), the same on every client —
-   *  unlike the host key ("local" on the laptop, "riley.k2.dev" here).
+   *  unlike the host key ("local" on the laptop, "example.k2.dev" here).
    *  Null from an older daemon. */
   serverId?: string | null;
-  /** K2 0.46.1: the box's public tunnel host (`riley.k2.dev`), lowercase;
+  /** K2 0.46.1: the box's public tunnel host (`example.k2.dev`), lowercase;
    *  null when absent. Optional; Homes sync maps it to `serverId`. */
   publicHost?: string | null;
   /** K2 0.46.3 (`boot-status-views-v1`): `full` | `compat` | `public`;
@@ -248,7 +248,7 @@ export function parseBoxServerId(v: unknown): string | null {
   return /^[0-9a-f]{16}$/.test(t) ? t : null;
 }
 
-/** `publicHost` in host-key form (`riley.k2.dev`); null when absent or
+/** `publicHost` in host-key form (`example.k2.dev`); null when absent or
  *  not a host. */
 export function parsePublicHost(v: unknown): string | null {
   return typeof v === "string" && v.trim() ? tryHostKey(v) : null;

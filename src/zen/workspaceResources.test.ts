@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseWorkspaceResources, resourceHint } from "./workspaceResources";
 
-const WS = "/Users/zed/Projects/k5-companion";
+const WS = "/Users/zed/Projects/K2 Companion";
 
 describe("resourceHint", () => {
   it("is the folder relative to the workspace", () => {
