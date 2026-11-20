@@ -10,7 +10,7 @@ listing."*
 ## 0. TL;DR
 
 ```bash
-cd <K2SO-companion repo>
+cd <k5-companion repo>
 ./scripts/build-android.sh          # bakes the CURRENT K2 icon into the AAB
 # → bump versionCode, sign with the UPLOAD key, upload the AAB
 # → also upload playstore-icon-512.png as the 512px store-listing icon
@@ -65,7 +65,7 @@ App coordinates (do **not** change — changing the identifier creates a NEW Pla
 ## 3. Build the AAB
 
 ```bash
-cd <K2SO-companion repo>
+cd <k5-companion repo>
 git pull                       # make sure app-icon.png is the current K2 icon
 ./scripts/build-android.sh
 ```

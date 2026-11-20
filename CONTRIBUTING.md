@@ -1,5 +1,7 @@
 # Contributing to K2 Companion
 
+Repository: https://github.com/Alakazam-211/k5-companion
+
 K2 Companion is the phone client for a K2 agent server: a Tauri 2 app with a
 React front end and a small amount of native code for iOS and Android.
 

@@ -141,7 +141,7 @@ const LONG = [
   'document.documentElement.dataset.scheme; // "light"',
   "```",
   "",
-  "The full colour map is in [the conversion guide](https://github.com/Alakazam-211/K2SO-companion/blob/main/docs/glass-palettes-conversion.md).",
+  "The full colour map is in [the conversion guide](https://github.com/Alakazam-211/k5-companion/blob/main/docs/glass-palettes-conversion.md).",
 ].join("\n");
 
 export function threadFixture(): ThreadMessage[] {
